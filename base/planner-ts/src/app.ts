@@ -474,6 +474,58 @@ export function buildApp(config: AppConfig): FastifyInstance {
     };
   }
 
+  function countHallucinatedUrls(state: GraphState): number {
+    const draft = state.generated_code ?? "";
+    if (!draft) return 0;
+    const packets = state.evidence_packets ?? [];
+    const validUris = new Set<string>();
+    for (const packet of packets) {
+      for (const source of packet.sources) {
+        if (source.uri) validUris.add(source.uri.trim().toLowerCase());
+      }
+    }
+    if (validUris.size === 0) return 0;
+    const citedPattern = /\[Source:\s*[^\]]*?-\s*(https?:\/\/[^\]\s]+)/g;
+    const cited = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = citedPattern.exec(draft)) !== null) {
+      cited.add(m[1].toLowerCase());
+    }
+    if (cited.size === 0) return 0;
+    let count = 0;
+    for (const url of cited) {
+      if (!validUris.has(url)) count++;
+    }
+    return count;
+  }
+
+  function buildContextCuration(state: GraphState): Record<string, unknown> | undefined {
+    const packets = state.evidence_packets ?? [];
+    if (packets.length === 0 && !state.writer_max_tokens) return undefined;
+    const totalSnippets = packets.reduce((s, p) => s + (p.snippets?.length ?? 0), 0);
+    const totalChars = packets.reduce((s, p) =>
+      s + (p.snippets ?? []).reduce((c, sn) => c + (sn.text?.length ?? 0), 0), 0);
+    const writerBudget = state.writer_max_tokens ?? 0;
+    const completionTokens = state.llm_usage?.completion_tokens ?? 0;
+    const utilization = writerBudget > 0 ? completionTokens / writerBudget : 0;
+    const lowUtilization = writerBudget > 0 && utilization < 0.15;
+    const budgetAlert = writerBudget > 0 && utilization > 0.95
+      ? `Writer used ${Math.round(utilization * 100)}% of ${writerBudget} token budget — potential truncation`
+      : undefined;
+    return {
+      packets_in: packets.length,
+      packets_kept: packets.length,
+      excluded_count: 0,
+      token_budget: writerBudget,
+      tokens_used: completionTokens,
+      utilization: Number(utilization.toFixed(4)),
+      chars_used: totalChars,
+      snippets_total: totalSnippets,
+      low_utilization: lowUtilization,
+      ...(budgetAlert ? { budget_alert: budgetAlert } : {}),
+    };
+  }
+
   function buildTraceContext(state: GraphState): Record<string, unknown> {
     const ctx: Record<string, unknown> = {};
     if (state.writer_max_tokens) ctx.token_budget_total = state.writer_max_tokens;
@@ -506,10 +558,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const isCode = taxonomyKey.startsWith("code") || taxonomyKey.includes("programming");
 
     const inlineCritic = buildInlineCriticTrace(state);
+    const hallucinatedUrlsCount = countHallucinatedUrls(state);
     const criticScores: Record<string, unknown> = inlineCritic
-      ? { ...inlineCritic.scores, approved: inlineCritic.approved }
-      : {};
+      ? { ...inlineCritic.scores, approved: inlineCritic.approved, hallucinated_urls_count: hallucinatedUrlsCount }
+      : (hallucinatedUrlsCount > 0 ? { hallucinated_urls_count: hallucinatedUrlsCount } : {});
 
+    const contextCuration = buildContextCuration(state);
     const trace: TraceRecord = {
       service: "planner",
       trace_id: state.authz_trace_id ?? crypto.randomUUID(),
@@ -547,6 +601,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       streaming: streamingCtx
         ? { mode: streamingCtx.mode, time_to_first_token_ms: streamingCtx.timeToFirstTokenMs }
         : undefined,
+      ...(contextCuration ? { context_curation: contextCuration } : {}),
     };
     emitTrace(trace, traceEmitterConfig, app.log);
   }

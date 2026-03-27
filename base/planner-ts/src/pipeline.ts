@@ -25,6 +25,7 @@ import type { GraphState } from "./state/types.js";
 import { SpanCollector } from "./tracing/span-collector.js";
 import { loadConfig } from "./config.js";
 import { writerBudgetSpanMetadata } from "./budgets.js";
+import { maybePublishKnowledgeGap } from "./knowledge-backlog.js";
 
 let _retrievalClient: RetrievalClient | undefined;
 
@@ -360,6 +361,7 @@ export async function routerNode(state: GraphState): Promise<GraphState> {
     },
   });
   const traced = ensureForwarded(routed);
+  maybePublishKnowledgeGap(traced);
   const chosen = traced.need_more_evidence ? "retrieve_more_evidence" : "use_current_evidence";
   return appendDecisionLedger(traced, {
     category: "scope",

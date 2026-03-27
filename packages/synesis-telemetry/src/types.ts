@@ -146,6 +146,7 @@ export interface TraceRecord {
   evidence_summary?: Record<string, unknown>;
   taxonomy?: Record<string, unknown>;
   critic_scores?: Record<string, unknown>;
+  context_curation?: Record<string, unknown>;
   streaming?: {
     mode: "streaming" | "non-streaming";
     time_to_first_token_ms?: number;

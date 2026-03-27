@@ -99,12 +99,33 @@ sequenceDiagram
   P->>R: retrieve
   R-->>P: evidence_packets
   Note over P: knowledge gaps → backlog
-  P->>DB: knowledge_gaps rows
+  P->>DB: knowledge_gaps rows (Python direct SQL)
+  P->>DB: knowledge_gaps via HTTP ingest (planner-ts)
   W->>W: context_curation rank pack
   W->>C: draft
-  C-->>DB: trace critic_scores
+  C-->>DB: trace + critic_scores (HTTP ingest)
   Note over DB: Traces UI, Critic dashboard
 ```
+
+> **Runtime note:** Python planner writes `knowledge_gaps` via **direct SQL** (`SYNESIS_TRACE_DATABASE_URL`). Planner-ts has **no Postgres client** — traces and knowledge gaps are delivered via **HTTP ingest** to admin (`POST /api/v1/traces/ingest`, `POST /api/v1/feedback/knowledge-gaps/ingest`). See the parity table below for what each runtime emits today.
+
+---
+
+## Planner runtime: Python vs planner-ts
+
+Traces reach admin via **HTTP ingest** for both runtimes. Knowledge gaps, hallucination metrics, and writer context curation differ in implementation maturity.
+
+| Signal | Admin surface | Python planner | planner-ts |
+|--------|---------------|----------------|------------|
+| **Traces + spans + critic** | Traces, Pipeline > Critic | Full: `synesis_tracer` writes complete `TraceRecord` with critic scores, sensemaking, evidence. | Full: `emitPlannerTrace` in [`app.ts`](../base/planner-ts/src/app.ts) writes `TraceRecord` with spans, classification, critic, budget metadata. |
+| **Hallucinated URLs** | `GET /traces?min_hallucinated_urls=1` | `critic_scores.hallucinated_urls_count` populated by URL-vs-evidence comparison in [`critic.py`](../base/planner/app/nodes/critic.py). | Populated: `hallucinated_urls_count` computed in `emitPlannerTrace` from cited URLs vs evidence URIs. |
+| **Knowledge gaps** backlog | Feedback > Knowledge Gaps | [`publish_knowledge_gap`](../base/planner/app/knowledge_backlog.py) via direct Postgres SQL when `knowledge_backlog_enabled`. | Via HTTP: `POST /api/v1/feedback/knowledge-gaps/ingest` from router when `max_confidence < threshold`. |
+| **Writer context curation** | Traces > `context_curation` | [`context_curation.py`](../base/planner/app/context_curation.py) ranks/packs evidence; report embedded in trace via `synesis_tracer.set_context_curation`. | Lightweight: `context_curation` blob emitted with budget/pack stats on trace. Full rank/exclude parity is future work. |
+| **Quality wiring test** | `POST /traces/test` | Works. | Works (same `/v1/chat/completions` contract). |
+
+### Database alignment caveat
+
+Python planner connects to Postgres directly (`SYNESIS_TRACE_DATABASE_URL`) for knowledge gap inserts. Planner-ts **does not** use a Postgres client; it sends all data (traces, gaps) over HTTP to admin endpoints. The DSN table in the **Database alignment** section below applies only to the Python planner path. When planner-ts is the active runtime, `SYNESIS_TRACE_DATABASE_URL` is unused.
 
 ---
 
@@ -221,11 +242,16 @@ curl "$ADMIN_URL/api/v1/traces?min_hallucinated_urls=1" \
 | **Quality wiring health** — `GET /api/v1/dashboard/quality-wiring` shows Milvus, DB table counts, file presence, and last-trace age. | Done |
 | **Latest-per-domain SQL** — uses `row_number()` window function instead of SQLAlchemy `distinct()`. | Done |
 | **Smoke tests** — `base/admin/tests/test_quality_smoke.py` hits every quality/feedback endpoint. | Done |
+| **planner-ts hallucination count** — `hallucinated_urls_count` emitted in `critic_scores` on traces via cited-vs-evidence URL comparison. | Done |
+| **planner-ts knowledge gap ingest** — router emits gaps via `POST /api/v1/feedback/knowledge-gaps/ingest` when evidence confidence is below threshold. | Done |
+| **planner-ts context curation (lightweight)** — `context_curation` blob on traces with budget/evidence-pack stats for `TraceDetail`. | Done |
+| **Knowledge gap HTTP ingest endpoint** — `POST /api/v1/feedback/knowledge-gaps/ingest` in admin accepts service-token-auth gaps from any runtime. | Done |
 
 ## Roadmap (remaining)
 
 | Priority | Item |
 |----------|------|
+| **P1** | planner-ts: full **context curation** parity — ranking/exclusion logic from [`context_curation.py`](../base/planner/app/context_curation.py) (currently lightweight budget/pack stats only). |
 | **P2** | Trend charts from **historical** `quality_snapshots` + benchmark rows (schema already exists in migrations). |
 | **P2** | Curator proposals: move from file-only to **DB queue** shared with ingestion for one approval pipeline. |
 
@@ -233,7 +259,7 @@ curl "$ADMIN_URL/api/v1/traces?min_hallucinated_urls=1" \
 
 ## Database alignment
 
-The planner writes **traces** and **knowledge gaps** to the same Postgres instance the admin reads. The DSNs differ only in driver prefix:
+The **Python planner** writes **traces** and **knowledge gaps** to the same Postgres instance the admin reads. The DSNs differ only in driver prefix. **Planner-ts** does not connect to Postgres directly; it uses HTTP ingest endpoints (see the parity table above).
 
 | Service | Env var | Default |
 |---------|---------|---------|
