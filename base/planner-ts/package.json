@@ -14,18 +14,18 @@
     "rehearsal:new": "bash ./scripts/new-rehearsal-record.sh"
   },
   "dependencies": {
-    "@langchain/core": "*",
-    "@langchain/langgraph": "*",
+    "@langchain/core": "^1.1.36",
+    "@langchain/langgraph": "^1.2.6",
     "@synesis/telemetry": "*",
-    "fastify": "*",
+    "fastify": "^5.8.4",
     "ioredis": "^5.10.1",
-    "prom-client": "*",
-    "zod": "*"
+    "prom-client": "^15.1.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "*",
-    "tsx": "*",
-    "typescript": "*",
-    "vitest": "*"
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
   }
 }
