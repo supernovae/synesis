@@ -52,6 +52,16 @@ export interface UsageUnifiedSummary {
   rollup_latest_bucket_utc: string | null;
   rollup_lag_seconds_approx: number | null;
   yarn: Record<string, number | string> | null;
+  total_platform_spend?: {
+    planner_estimated_usd: number;
+    planner_actual_usd: number;
+    yarn_estimated_usd: number;
+    yarn_actual_usd: number;
+    total_estimated_usd: number;
+    total_actual_usd: number;
+    effective_total_usd: number;
+    note: string;
+  };
   glossary: Record<string, string>;
 }
 

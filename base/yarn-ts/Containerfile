@@ -2,10 +2,12 @@ FROM registry.access.redhat.com/ubi9/nodejs-22:latest
 
 WORKDIR /opt/app-root/src
 
-# Copy workspace root and shared package first (context = repo root)
+# Copy workspace root and ALL workspace package.json files (npm needs the
+# full workspace tree even when installing a subset via --workspace=).
 COPY package.json package-lock.json ./
 COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
 COPY base/yarn-ts/package.json base/yarn-ts/
+COPY base/planner-ts/package.json base/planner-ts/
 RUN npm ci --workspace=packages/synesis-telemetry --workspace=base/yarn-ts --ignore-scripts 2>/dev/null || npm ci
 
 # Build shared package
