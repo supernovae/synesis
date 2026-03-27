@@ -141,4 +141,49 @@ describe("claudeMessagesToOpenAI", () => {
     expect(result[0].content).toBe("Here are the results:");
     expect(result[1].role).toBe("tool");
   });
+
+  it("preserves tool_use blocks as OpenAI tool_calls on assistant messages", () => {
+    const result = claudeMessagesToOpenAI([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me list the files." },
+          { type: "tool_use", id: "toolu_01", name: "bash", input: { command: "ls -la" } }
+        ]
+      }
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0].role).toBe("assistant");
+    expect(result[0].content).toBe("Let me list the files.");
+    expect(result[0].tool_calls).toHaveLength(1);
+    expect(result[0].tool_calls![0].id).toBe("toolu_01");
+    expect(result[0].tool_calls![0].function.name).toBe("bash");
+    expect(JSON.parse(result[0].tool_calls![0].function.arguments)).toEqual({ command: "ls -la" });
+  });
+
+  it("pairs tool_use and tool_result correctly in a conversation", () => {
+    const result = claudeMessagesToOpenAI([
+      { role: "user", content: "List files" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "toolu_01", name: "bash", input: { command: "ls" } }
+        ]
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_01", content: "file1.ts\nfile2.ts" }
+        ]
+      }
+    ]);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toEqual({ role: "user", content: "List files" });
+    expect(result[1].role).toBe("assistant");
+    expect(result[1].tool_calls).toHaveLength(1);
+    expect(result[1].tool_calls![0].id).toBe("toolu_01");
+    expect(result[2].role).toBe("tool");
+    expect(result[2].tool_call_id).toBe("toolu_01");
+    expect(result[2].content).toBe("file1.ts\nfile2.ts");
+  });
 });

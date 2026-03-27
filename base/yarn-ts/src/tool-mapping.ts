@@ -180,8 +180,8 @@ type ReduceToolResultFn = (content: unknown, toolName?: string) => string;
 export function claudeMessagesToOpenAI(
   messages: ClaudeMessage[],
   reduceToolResult?: ReduceToolResultFn
-): Array<{ role: string; content: string; tool_call_id?: string; name?: string }> {
-  const out: Array<{ role: string; content: string; tool_call_id?: string; name?: string }> = [];
+): OpenAIChatMessage[] {
+  const out: OpenAIChatMessage[] = [];
   for (const m of messages) {
     if (typeof m.content === "string") {
       out.push({ role: m.role, content: m.content });
@@ -210,9 +210,18 @@ export function claudeMessagesToOpenAI(
     if (textParts.length > 0 || toolUseParts.length > 0) {
       const combined = textParts.join("\n");
       if (toolUseParts.length > 0) {
+        const toolCalls = toolUseParts.map((tu) => ({
+          id: tu.id ?? "",
+          type: "function" as const,
+          function: {
+            name: tu.name ?? "",
+            arguments: typeof tu.input === "string" ? tu.input : JSON.stringify(tu.input ?? {})
+          }
+        }));
         out.push({
           role: "assistant",
-          content: combined || "",
+          content: combined || undefined,
+          tool_calls: toolCalls
         });
       } else {
         out.push({ role: m.role, content: combined });
@@ -229,7 +238,8 @@ export function claudeMessagesToOpenAI(
       out.push({
         role: "tool",
         content: resultContent,
-        tool_call_id: tr.tool_use_id ?? ""
+        tool_call_id: tr.tool_use_id ?? "",
+        name: tr.name
       });
     }
   }
