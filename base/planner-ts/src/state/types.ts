@@ -1,4 +1,5 @@
 import type { CritiqueItem, DecisionEntry, EvidencePacket } from "../contracts/schemas.js";
+import type { CohesionLockData } from "../retrieval/types.js";
 import type { SpanCollector } from "../tracing/span-collector.js";
 
 export type GraphNodeName =
@@ -87,5 +88,6 @@ export interface GraphState {
   assumptions?: string[];
   show_assumptions?: boolean;
   planner_confidence?: number;
+  cohesion_lock?: CohesionLockData;
   _span_collector?: SpanCollector;
 }

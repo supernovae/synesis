@@ -1,0 +1,232 @@
+/**
+ * Milvus RAG retrieval client — HTTP to Milvus REST v2 API.
+ *
+ * Ports the Python retrieve_context() from rag_client.py:
+ *   1. Embed query via TEI
+ *   2. Search Milvus (vector, bm25, or hybrid with RRF)
+ *   3. Optionally rerank via BGE
+ *   4. Apply authority multipliers and score floor
+ *
+ * Uses Milvus REST API v2 (/v2/vectordb/entities/search and /hybrid_search).
+ */
+
+import { embed } from "./embedder.js";
+import { buildScopeFilter } from "./scope-filter.js";
+import type { RagResult, ScopeFilterOptions, AUTHORITY_BOOST } from "./types.js";
+import { AUTHORITY_BOOST as AUTH_BOOST } from "./types.js";
+
+export interface RagClientConfig {
+  milvusHost: string;
+  milvusPort: number;
+  embedderUrl: string;
+  embedderModel: string;
+  bgeRerankerUrl: string;
+  retrievalStrategy: "hybrid" | "vector" | "bm25";
+  rrfK: number;
+  scoreThreshold: number;
+  rerankScoreMin: number;
+  timeoutMs?: number;
+}
+
+const OUTPUT_FIELDS = [
+  "text", "source", "authority", "origin_type", "domain",
+  "source_url", "heading_path", "context_prefix", "chunk_summary",
+  "document_name", "visibility_scope", "org_id", "tenant_id",
+  "acl_mode", "acl_groups",
+];
+
+interface MilvusSearchResponse {
+  code: number;
+  data: Array<Record<string, unknown>>;
+}
+
+function milvusBase(config: RagClientConfig): string {
+  return `http://${config.milvusHost}:${config.milvusPort}`;
+}
+
+async function vectorSearch(
+  config: RagClientConfig,
+  collection: string,
+  queryVector: number[],
+  limit: number,
+  filter: string,
+): Promise<Array<Record<string, unknown>>> {
+  const body: Record<string, unknown> = {
+    collectionName: collection,
+    data: [queryVector],
+    limit,
+    outputFields: OUTPUT_FIELDS,
+    params: { radius: config.scoreThreshold },
+  };
+  if (filter) body.filter = filter;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? 15000);
+  try {
+    const resp = await fetch(`${milvusBase(config)}/v2/vectordb/entities/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as MilvusSearchResponse;
+    return json.data ?? [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function hybridSearch(
+  config: RagClientConfig,
+  collection: string,
+  queryVector: number[],
+  queryText: string,
+  limit: number,
+  filter: string,
+): Promise<Array<Record<string, unknown>>> {
+  const body: Record<string, unknown> = {
+    collectionName: collection,
+    search: [
+      { data: [queryVector], annsField: "dense_vector", limit: limit * 2 },
+      { data: [queryText], annsField: "sparse_vector", limit: limit * 2 },
+    ],
+    rerank: { strategy: "rrf", params: { k: config.rrfK } },
+    limit,
+    outputFields: OUTPUT_FIELDS,
+  };
+  if (filter) body.filter = filter;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? 15000);
+  try {
+    const resp = await fetch(`${milvusBase(config)}/v2/vectordb/entities/hybrid_search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as MilvusSearchResponse;
+    return json.data ?? [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function bgeRerank(
+  rerankerUrl: string,
+  query: string,
+  passages: string[],
+  timeoutMs: number,
+): Promise<number[]> {
+  if (!rerankerUrl || passages.length === 0) return passages.map(() => 0);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${rerankerUrl.replace(/\/$/, "")}/rerank`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, passages }),
+      signal: controller.signal,
+    });
+    if (!resp.ok) return passages.map(() => 0);
+    const json = (await resp.json()) as { scores: number[] };
+    return json.scores ?? passages.map(() => 0);
+  } catch {
+    return passages.map(() => 0);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagResult {
+  return {
+    text: String(row.text ?? ""),
+    source: String(row.source ?? "unknown"),
+    collection: String(row.collection ?? ""),
+    retrieval_source: "hybrid",
+    vector_score: Number(row.distance ?? row.score ?? fallbackScore),
+    bm25_score: 0,
+    rrf_score: Number(row.score ?? row.distance ?? fallbackScore),
+    rerank_score: 0,
+    origin_type: String(row.origin_type ?? ""),
+    authority: String(row.authority ?? ""),
+    domain: String(row.domain ?? ""),
+    source_url: String(row.source_url ?? ""),
+    heading_path: String(row.heading_path ?? ""),
+    context_prefix: String(row.context_prefix ?? ""),
+    chunk_summary: String(row.chunk_summary ?? ""),
+    document_name: String(row.document_name ?? row.source ?? ""),
+  };
+}
+
+/**
+ * Retrieve documents from Milvus, optionally rerank, and apply authority boosts.
+ */
+export async function retrieveContext(
+  query: string,
+  config: RagClientConfig,
+  options: {
+    collections?: string[];
+    topK?: number;
+    scopeFilter?: ScopeFilterOptions;
+  } = {},
+): Promise<RagResult[]> {
+  const collections = options.collections ?? ["synesis_catalog"];
+  const topK = options.topK ?? 5;
+  const filter = buildScopeFilter(options.scopeFilter);
+
+  const embeddings = await embed([query], { url: config.embedderUrl, model: config.embedderModel });
+  const queryVector = embeddings[0];
+  if (!queryVector?.length) return [];
+
+  const allResults: RagResult[] = [];
+
+  for (const collection of collections) {
+    let rows: Array<Record<string, unknown>>;
+
+    if (config.retrievalStrategy === "hybrid") {
+      rows = await hybridSearch(config, collection, queryVector, query, topK * 2, filter);
+    } else if (config.retrievalStrategy === "bm25") {
+      rows = await vectorSearch(config, collection, queryVector, topK * 2, filter);
+    } else {
+      rows = await vectorSearch(config, collection, queryVector, topK * 2, filter);
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+      allResults.push(toRagResult(rows[i], 1 / (i + 1)));
+    }
+  }
+
+  if (config.bgeRerankerUrl && allResults.length > 0) {
+    const passages = allResults.map((r) => r.text);
+    const scores = await bgeRerank(config.bgeRerankerUrl, query, passages, config.timeoutMs ?? 15000);
+    for (let i = 0; i < allResults.length; i++) {
+      allResults[i].rerank_score = scores[i] ?? 0;
+    }
+  }
+
+  for (const result of allResults) {
+    const baseScore = result.rerank_score > 0 ? result.rerank_score : result.rrf_score;
+    const boost = AUTH_BOOST[result.authority] ?? 1.0;
+    result.rerank_score = baseScore * boost;
+  }
+
+  allResults.sort((a, b) => {
+    const aScore = a.rerank_score > 0 ? a.rerank_score : a.rrf_score;
+    const bScore = b.rerank_score > 0 ? b.rerank_score : b.rrf_score;
+    return bScore - aScore;
+  });
+
+  if (config.rerankScoreMin > 0 && config.bgeRerankerUrl) {
+    return allResults.filter((r) => r.rerank_score >= config.rerankScoreMin);
+  }
+
+  return allResults;
+}

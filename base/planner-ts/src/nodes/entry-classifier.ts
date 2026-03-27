@@ -1,59 +1,21 @@
 import type { CynefinDomain, GraphState } from "../state/types.js";
 import { buildDomainProfile } from "./domain-profile.js";
+import { getScoringEngine, type ScoringResult } from "./scoring-engine.js";
 
 type EffortMode = "pulse" | "core" | "horizon";
 
-const RISK_RE = /\b(prod(?:uction)?|security|compliance|hipaa|pci|pii|outage|migration|rollback)\b/i;
-const CODE_RE = /\b(code|snippet|typescript|javascript|python|css|html|react|function|class)\b/i;
-const TAXONOMY_PATTERNS: Array<{ key: string; re: RegExp; complexity: number }> = [
-  { key: "web_frontend", re: /\b(html|css|react|vue|frontend|ui|sticky header)\b/i, complexity: 0.35 },
-  { key: "cloud", re: /\b(kubernetes|k8s|aws|gcp|azure|infra|cluster|docker)\b/i, complexity: 0.65 },
-  { key: "software_architecture", re: /\b(architecture|design|microservice|system design)\b/i, complexity: 0.7 },
-  { key: "ml_ops", re: /\b(model|embedding|rag|inference|token budget|latency)\b/i, complexity: 0.75 }
-];
-
 function clip01(v: number): number {
   return Math.max(0, Math.min(1, v));
-}
-
-function detectDifficulty(text: string): number {
-  const lenScore = clip01(text.length / 900);
-  const questionCount = (text.match(/\?/g) ?? []).length;
-  const questionScore = clip01(questionCount / 4);
-  const listScore = clip01((text.match(/[,;:]/g) ?? []).length / 12);
-  const riskBoost = RISK_RE.test(text) ? 0.15 : 0;
-  const codeBoost = CODE_RE.test(text) ? 0.08 : 0;
-  return clip01((lenScore * 0.45) + (questionScore * 0.25) + (listScore * 0.2) + riskBoost + codeBoost);
-}
-
-function detectTaxonomy(text: string): Record<string, unknown> {
-  const hit = TAXONOMY_PATTERNS.find((item) => item.re.test(text));
-  if (!hit) {
-    return {
-      taxonomy_key: "generic",
-      complexity_score: 0.4,
-      output_controls: { precise: false, show_assumptions: false, clarify_first: false }
-    };
-  }
-  return {
-    taxonomy_key: hit.key,
-    complexity_score: hit.complexity,
-    output_controls: {
-      precise: hit.complexity >= 0.6,
-      show_assumptions: hit.complexity >= 0.55,
-      clarify_first: hit.complexity >= 0.7
-    }
-  };
 }
 
 function recommendEffortMode(
   requested: GraphState["requested_effort_mode"],
   difficulty: number,
   riskScore: number,
-  taxonomyComplexity: number
+  taxonomyComplexity: number,
 ): EffortMode {
   if (requested && requested !== "auto") return requested;
-  const risk = riskScore / 100;
+  const risk = clip01(riskScore / 100);
   const horizonScore = (difficulty * 0.45) + (risk * 0.35) + (taxonomyComplexity * 0.2);
   const pulseScore = ((1 - difficulty) * 0.55) + ((1 - risk) * 0.3) + ((1 - taxonomyComplexity) * 0.15);
   if (horizonScore >= 0.62) return "horizon";
@@ -66,20 +28,20 @@ function policyForEffort(mode: EffortMode, criticBackgroundDefault: boolean): Re
     return {
       critique_passes: 0,
       max_iterations: 1,
-      critic_background: true
+      critic_background: true,
     };
   }
   if (mode === "horizon") {
     return {
       critique_passes: 2,
       max_iterations: 4,
-      critic_background: false
+      critic_background: false,
     };
   }
   return {
     critique_passes: 1,
     max_iterations: 3,
-    critic_background: criticBackgroundDefault
+    critic_background: criticBackgroundDefault,
   };
 }
 
@@ -87,8 +49,7 @@ function isFollowUp(state: GraphState): boolean {
   const msgs = state.messages ?? [];
   const userMsgs = msgs.filter((m) => m.role === "user");
   if (userMsgs.length < 2) return false;
-  const latest = (state.task_description ?? "").trim();
-  return latest.length < 80;
+  return (state.task_description ?? "").trim().length < 80;
 }
 
 /**
@@ -122,48 +83,79 @@ function buildClassificationText(state: GraphState): string {
   return (prior + " " + task).slice(0, 2500);
 }
 
+function scoringToTaxonomy(scoring: ScoringResult): Record<string, unknown> {
+  const taxonomyKey = scoring.activeDomains[0] ?? scoring.intentClass ?? "generic";
+  const complexity = clip01(scoring.complexityScore / 15);
+  return {
+    taxonomy_key: taxonomyKey,
+    complexity_score: complexity,
+    intent_class: scoring.intentClass,
+    domain_hints: scoring.domainHints,
+    score_breakdown: scoring.scoreBreakdown,
+    classification_hits: scoring.classificationHits,
+    active_domains: scoring.activeDomains,
+    domain_ref_counts: scoring.domainRefCounts,
+    explicit_deliverables: scoring.explicitDeliverables,
+    output_controls: {
+      precise: complexity >= 0.6,
+      show_assumptions: complexity >= 0.55,
+      clarify_first: complexity >= 0.7,
+    },
+  };
+}
+
 export function classifyEntry(
   state: GraphState,
-  opts: { criticBackgroundDefault: boolean } = { criticBackgroundDefault: true }
+  opts: { criticBackgroundDefault: boolean } = { criticBackgroundDefault: true },
 ): GraphState {
-  const task = (state.task_description ?? "").trim();
   const text = buildClassificationText(state);
-  const difficulty = detectDifficulty(text);
-  const taxonomy = detectTaxonomy(text);
-  const riskScore = RISK_RE.test(text) ? 70 : 25;
-  const taskSize: GraphState["task_size"] =
-    difficulty < 0.2 ? "easy" : difficulty < 0.55 ? "medium" : "hard";
+  const engine = getScoringEngine();
+  const scoring = engine.analyze(text);
+
+  const difficulty = scoring.difficulty;
+  const taxonomy = scoringToTaxonomy(scoring);
+  const taxonomyComplexity = Number(taxonomy.complexity_score ?? 0.4);
+  const riskScore = scoring.riskScore;
+  const taskSize: GraphState["task_size"] = scoring.taskSize;
+
   const inputPlanRequired = state.plan_required === true;
-  const planRequired = inputPlanRequired ? true : difficulty >= 0.45;
+  const planRequired =
+    inputPlanRequired ||
+    scoring.planSession ||
+    difficulty >= scoring.routingThresholds.planRequiredAbove;
   const followUp = isFollowUp(state);
-  const taskIsTrivial = !followUp && difficulty < 0.15;
-  let ragMode: GraphState["rag_mode"] = difficulty < 0.2 ? "disabled" : difficulty < 0.45 ? "light" : "normal";
+  const taskIsTrivial = !followUp && difficulty < scoring.routingThresholds.bypassSupervisorBelow;
+
+  let ragMode: GraphState["rag_mode"] =
+    difficulty < 0.2 ? "disabled" : difficulty < 0.45 ? "light" : "normal";
   if (inputPlanRequired && ragMode === "disabled") {
     ragMode = "light";
   }
+
   const selectedMode = recommendEffortMode(
     state.requested_effort_mode,
     difficulty,
     riskScore,
-    Number(taxonomy.complexity_score ?? 0.4)
+    taxonomyComplexity,
   );
+
   const baseExecutionPolicy: Record<string, unknown> = {
     ...policyForEffort(selectedMode, opts.criticBackgroundDefault),
-    scaled_writer_budget: taskIsTrivial ? 768 : Math.round(1200 + (difficulty * 2600)),
-    scaled_critic_budget: Math.round(800 + (difficulty * 1200))
+    scaled_writer_budget: taskIsTrivial ? 768 : Math.round(1200 + difficulty * 2600),
+    scaled_critic_budget: Math.round(800 + difficulty * 1200),
   };
   const inputPolicy =
     state.execution_policy && typeof state.execution_policy === "object" && !Array.isArray(state.execution_policy)
       ? (state.execution_policy as Record<string, unknown>)
       : {};
   const executionPolicy = { ...baseExecutionPolicy, ...inputPolicy };
-  const policyRecord = executionPolicy;
+
   const useWriterFastPath =
     !inputPlanRequired && (taskIsTrivial || (ragMode === "disabled" && !planRequired));
   const nextNode: GraphState["next_node"] = useWriterFastPath ? "writer" : "planner";
 
   const domainProfile = state.domain_profile ?? buildDomainProfile(text);
-  const cynefinDomain = classifyCynefin(difficulty, domainProfile.frameCoherence, Number(taxonomy.complexity_score ?? 0.4));
+  const cynefinDomain = classifyCynefin(difficulty, domainProfile.frameCoherence, taxonomyComplexity);
 
   const outputControls = (taxonomy.output_controls ?? {}) as Record<string, boolean>;
   const showAssumptions = Boolean(outputControls.show_assumptions) || difficulty >= 0.55;
@@ -188,9 +180,9 @@ export function classifyEntry(
     recommended_effort_mode: selectedMode,
     selected_effort_mode: selectedMode,
     execution_policy: executionPolicy,
-    max_iterations: Number(policyRecord.max_iterations ?? 3),
-    writer_max_tokens: Number(policyRecord.scaled_writer_budget ?? state.writer_max_tokens ?? 1800),
-    critic_max_tokens: Number(policyRecord.scaled_critic_budget ?? state.critic_max_tokens ?? 1200),
+    max_iterations: Number(executionPolicy.max_iterations ?? 3),
+    writer_max_tokens: Number(executionPolicy.scaled_writer_budget ?? state.writer_max_tokens ?? 1800),
+    critic_max_tokens: Number(executionPolicy.scaled_critic_budget ?? state.critic_max_tokens ?? 1200),
     domain_profile: domainProfile,
     show_assumptions: showAssumptions,
     style_contract_locked: styleContractLocked,

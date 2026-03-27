@@ -19,13 +19,19 @@ describe("router governance", () => {
   const srcDir = path.resolve(currentDir, "../src");
   const files = collectTsFiles(srcDir);
 
-  it("only router node imports retrieval client", () => {
+  it("only router node and DI wiring import retrieval client", () => {
+    const allowed = new Set([
+      "nodes/router.ts",
+      "app.ts",
+      "pipeline.ts",
+    ]);
     const violations: string[] = [];
     for (const file of files) {
       if (file.includes("/retrieval/")) continue;
       const content = readFileSync(file, "utf8");
       if (content.includes("from \"../retrieval/client.js\"") || content.includes("from \"./retrieval/client.js\"")) {
-        if (!file.endsWith("/nodes/router.ts")) {
+        const relative = path.relative(srcDir, file).replace(/\\/g, "/");
+        if (!allowed.has(relative)) {
           violations.push(file);
         }
       }

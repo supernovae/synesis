@@ -11,6 +11,8 @@ import {
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { planGate } from "./nodes/plan-gate.js";
 import { runRouter } from "./nodes/router.js";
+import { frameExtractorNode } from "./nodes/frame-extractor.js";
+import type { RetrievalClient } from "./retrieval/client.js";
 import { validatedNode } from "./nodes/validated-node.js";
 import { composeWriterDraft, composeWriterDraftStream } from "./nodes/writer-compose.js";
 import { runLlmPlanner, isClarificationWaiver } from "./nodes/llm-planner.js";
@@ -21,6 +23,12 @@ import type { LlmUsage, TraceLLMCallRecord } from "@synesis/telemetry";
 import type { DecisionEntry } from "./contracts/schemas.js";
 import type { GraphState } from "./state/types.js";
 import { SpanCollector } from "./tracing/span-collector.js";
+
+let _retrievalClient: RetrievalClient | undefined;
+
+export function setRetrievalClient(client: RetrievalClient): void {
+  _retrievalClient = client;
+}
 
 function ensureForwarded(state: GraphState): GraphState {
   return {
@@ -97,20 +105,30 @@ export async function entryPipelineNode(state: GraphState): Promise<GraphState> 
     iteration_count: state.iteration_count ?? 0,
     max_iterations: state.max_iterations ?? 4
   });
+  let withFrame = classified;
+  if (!classified.task_is_trivial && (classified.difficulty ?? 0) >= 0.15) {
+    try {
+      withFrame = await frameExtractorNode(classified);
+    } catch {
+      // Frame extraction is best-effort; classification is sufficient to proceed
+    }
+  }
+
   collector.endSpan("entry_pipeline", {
-    outcome: classified.task_is_trivial ? "trivial_fast_path" : "classified",
-    confidence: classified.difficulty ?? 0,
+    outcome: withFrame.task_is_trivial ? "trivial_fast_path" : "classified",
+    confidence: withFrame.difficulty ?? 0,
     metadata: {
-      difficulty: classified.difficulty,
-      task_size: classified.task_size,
-      cynefin_domain: classified.cynefin_domain,
-      plan_required: classified.plan_required,
-      rag_mode: classified.rag_mode,
-      domain_profile: classified.domain_profile,
-      taxonomy: classified.taxonomy_metadata,
+      difficulty: withFrame.difficulty,
+      task_size: withFrame.task_size,
+      cynefin_domain: withFrame.cynefin_domain,
+      plan_required: withFrame.plan_required,
+      rag_mode: withFrame.rag_mode,
+      domain_profile: withFrame.domain_profile,
+      taxonomy: withFrame.taxonomy_metadata,
+      has_task_frame: Boolean(withFrame.task_frame),
     },
   });
-  return ensureForwarded(classified);
+  return ensureForwarded(withFrame);
 }
 
 export async function plannerNode(state: GraphState): Promise<GraphState> {
@@ -311,7 +329,7 @@ export async function routerNode(state: GraphState): Promise<GraphState> {
       }
     );
   }
-  const routed = await runRouter(state);
+  const routed = await runRouter(state, { retrievalClient: _retrievalClient });
   const packets = routed.evidence_packets ?? [];
   collector.endSpan("router", {
     outcome: routed.need_more_evidence ? "needs_more_evidence" : "evidence_sufficient",
@@ -531,6 +549,56 @@ export async function respondNode(state: GraphState): Promise<GraphState> {
 }
 
 export { SpanCollector } from "./tracing/span-collector.js";
+
+/**
+ * Direct-stream fast path: classify, then stream from LLM immediately.
+ *
+ * Used for trivial/easy tasks where the full graph (planner -> plan_gate ->
+ * router -> critic) would add latency without improving quality. Matches
+ * Python's direct_stream_request behavior.
+ *
+ * Returns the final state if fast-pathed (next_node === "respond"), or
+ * the input state unchanged if conditions aren't met (caller should run
+ * the full graph).
+ */
+export async function directStreamPipeline(
+  input: GraphState,
+  onDelta: (delta: StreamDelta) => void,
+): Promise<GraphState> {
+  if (!isLlmAvailable()) return input;
+
+  let state: GraphState = {
+    ...input,
+    run_id: input.run_id ?? randomUUID(),
+    _span_collector: input._span_collector ?? new SpanCollector(),
+  };
+
+  const collector = ensureCollector(state);
+  collector.startSpan("entry_pipeline");
+  state = classifyEntry({ ...state, _span_collector: collector, iteration_count: 0, max_iterations: 1 });
+  collector.endSpan("entry_pipeline", {
+    outcome: "direct_stream_fast_path",
+    metadata: { difficulty: state.difficulty, task_size: state.task_size },
+  });
+
+  if (!state.task_is_trivial && state.rag_mode !== "disabled") {
+    return input;
+  }
+
+  collector.startSpan("writer");
+  const result = await composeWriterDraftStream(state, onDelta);
+  collector.endSpan("writer", {
+    outcome: "direct_stream_complete",
+    tokens_used: result.usage?.total_tokens ?? 0,
+  });
+
+  return ensureForwarded({
+    ...state,
+    generated_code: result.content,
+    llm_usage: mergeUsage(state.llm_usage, result.usage),
+    next_node: "respond",
+  });
+}
 
 export async function runCanonicalPipeline(input: GraphState): Promise<GraphState> {
   let state: GraphState = {

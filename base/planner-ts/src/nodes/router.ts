@@ -1,12 +1,27 @@
+/**
+ * Router node — sole retrieval orchestrator.
+ *
+ * Governs all evidence acquisition (RAG + web). No other node may import
+ * retrieval modules directly (see router-governed-evidence rule).
+ *
+ * Ports Python RouterNode behavior:
+ *   - Parallel evidence_requests dispatch
+ *   - Domain-profile-aware cohesion preseed for focused frames
+ *   - topic_frame and domain_hints injection into retrieval
+ *   - Evidence packet synthesis with confidence gating
+ */
+
 import { EvidencePacketSchema, type EvidencePacket } from "../contracts/schemas.js";
 import type { GraphState } from "../state/types.js";
 import { validateWithRepair } from "../validation/json-repair.js";
 import { NullRetrievalClient, type RetrievalClient } from "../retrieval/client.js";
-import type { UnifiedResult } from "../retrieval/types.js";
+import type { UnifiedResult, CohesionLockData, RetrievalBundle, UnifiedRetrievalRequest } from "../retrieval/types.js";
+import { buildExclusionSignals, getConflictGroups } from "../retrieval/cohesion.js";
 
 export const MAX_DOCS_PER_QUERY = 5;
 export const MAX_SNIPPETS_PER_PACKET = 20;
 export const LOW_CONFIDENCE_THRESHOLD = 0.4;
+const FOCUSED_PRESEED_THRESHOLD = 0.6;
 
 function parseEvidencePacket(query: string, llmOutput: string, rawResults: UnifiedResult[]): EvidencePacket {
   try {
@@ -61,6 +76,54 @@ function fallbackPacket(query: string, rawResults: UnifiedResult[]): EvidencePac
   };
 }
 
+/**
+ * Build a preseeded cohesion lock from conflict groups when the domain
+ * profile indicates a focused frame with a dominant domain.
+ */
+function buildPreseededLock(state: GraphState): CohesionLockData | undefined {
+  const profile = state.domain_profile;
+  if (!profile || profile.frameCoherence !== "focused") return undefined;
+  if (!profile.domains.length) return undefined;
+
+  const dominant = profile.domains[0];
+  if (dominant.weight < FOCUSED_PRESEED_THRESHOLD) return undefined;
+
+  const groups = getConflictGroups();
+  const domName = dominant.key.toLowerCase();
+
+  for (const members of Object.values(groups)) {
+    if (members.has(domName)) {
+      return {
+        entity: domName,
+        type: "specific",
+        exclude_signals: buildExclusionSignals(domName),
+        confidence: dominant.weight,
+        source: "domain_profile",
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract domain hints from the domain profile for taxonomy boost in retrieval.
+ */
+function extractDomainHints(state: GraphState): string[] {
+  const profile = state.domain_profile;
+  if (!profile?.domains.length) return [];
+  return profile.domains
+    .filter((d) => d.weight > 0.1)
+    .map((d) => d.key);
+}
+
+/**
+ * Extract topic_frame string from task_frame if present.
+ */
+function extractTopicFrame(state: GraphState): string {
+  const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
+  return String(taskFrame.topic_frame ?? "");
+}
+
 export async function runRouter(
   state: GraphState,
   deps: { retrievalClient?: RetrievalClient; summarizerOutput?: string } = {}
@@ -69,14 +132,45 @@ export async function runRouter(
   const evidenceRequests = state.evidence_requests && state.evidence_requests.length > 0
     ? state.evidence_requests
     : [{ description: state.task_description ?? "user request" }];
-  const packets: EvidencePacket[] = [];
 
-  for (const request of evidenceRequests) {
-    const query = String(request.query ?? request.description ?? state.task_description ?? "evidence request");
-    const results = await retrievalClient.retrieve({ query, top_k: MAX_DOCS_PER_QUERY });
-    const packet = parseEvidencePacket(query, deps.summarizerOutput ?? "{}", results);
-    packets.push(packet);
-  }
+  const preseededLock = buildPreseededLock(state);
+  const domainHints = extractDomainHints(state);
+  const topicFrame = extractTopicFrame(state);
+  const difficulty = state.difficulty ?? 0.5;
+
+  const packets: EvidencePacket[] = [];
+  const allCohesionLocks: Array<CohesionLockData | null> = [];
+
+  const dispatchOne = async (request: Record<string, unknown>): Promise<void> => {
+    const baseQuery = String(request.query ?? request.description ?? state.task_description ?? "evidence request");
+    const query = topicFrame ? `${baseQuery} ${topicFrame}`.trim() : baseQuery;
+    const skipWeb = request.skip_web === true || request.needs_web === false;
+
+    const client = retrievalClient as RetrievalClient & { retrieveUnified?: RetrievalClient["retrieveUnified"] };
+    if (typeof client.retrieveUnified === "function") {
+      const unifiedRequest: UnifiedRetrievalRequest = {
+        query,
+        difficulty,
+        topK: MAX_DOCS_PER_QUERY,
+        domainHints,
+        skipWeb,
+        preseededLock,
+        callerOrgId: state.org_id,
+        callerTenantIds: state.tenant_ids,
+      };
+
+      const bundle: RetrievalBundle = await client.retrieveUnified(unifiedRequest);
+      allCohesionLocks.push(bundle.cohesion_lock);
+      const packet = parseEvidencePacket(baseQuery, deps.summarizerOutput ?? "{}", bundle.results);
+      packets.push(packet);
+    } else {
+      const results = await retrievalClient.retrieve({ query, top_k: MAX_DOCS_PER_QUERY });
+      const packet = parseEvidencePacket(baseQuery, deps.summarizerOutput ?? "{}", results);
+      packets.push(packet);
+    }
+  };
+
+  await Promise.all(evidenceRequests.map(dispatchOne));
 
   const ragSourceUrls = [
     ...(state.rag_source_urls ?? []),
@@ -89,12 +183,15 @@ export async function runRouter(
       .filter(Boolean)
   ];
 
+  const activeLock = allCohesionLocks.find(Boolean) ?? null;
+
   return {
     ...state,
     evidence_packets: packets,
     rag_source_urls: [...new Set(ragSourceUrls)],
     rag_document_names: [...new Set(ragDocumentNames)],
     need_more_evidence: packets.some((packet) => packet.confidence < LOW_CONFIDENCE_THRESHOLD),
-    next_node: "writer"
+    next_node: "writer",
+    ...(activeLock ? { cohesion_lock: activeLock } : {}),
   };
 }

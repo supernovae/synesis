@@ -26,6 +26,8 @@ import { SessionManager } from "./context/session-manager.js";
 import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph, streamGraph } from "./graph.js";
 import { setPricingContext } from "./llm/client.js";
+import { setRetrievalClient, directStreamPipeline } from "./pipeline.js";
+import { UnifiedRetrievalClient } from "./retrieval/client.js";
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { buildDomainProfile } from "./nodes/domain-profile.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
@@ -64,6 +66,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const defaultRates = pricingRegistry.getRates("synesis-general");
     setPricingContext(defaultRates, pricingRegistry.getCachedMultiplier());
   });
+
+  if (config.SYNESIS_EMBEDDER_URL) {
+    setRetrievalClient(new UnifiedRetrievalClient(config));
+  }
 
   const traceEmitterConfig = {
     adminUrl: config.SYNESIS_ADMIN_URL,
@@ -282,6 +288,35 @@ export function buildApp(config: AppConfig): FastifyInstance {
       recentEvents: authzPolicyEngine.getStats().recentEvents
     }
   }));
+
+  app.get("/debug/retrieval-config", async (request) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (token && request.headers.authorization !== `Bearer ${token}`) {
+      return { error: "unauthorized" };
+    }
+    return {
+      embedder_url: config.SYNESIS_EMBEDDER_URL ? "configured" : "not_set",
+      milvus_host: config.SYNESIS_MILVUS_HOST,
+      web_search_enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
+      web_search_url: config.SYNESIS_WEB_SEARCH_URL ? "configured" : "not_set",
+      cohesion_lock_enabled: config.SYNESIS_COHESION_LOCK_ENABLED,
+      gliner_service_url: config.SYNESIS_GLINER_SERVICE_URL ? "configured" : "not_set",
+      rag_strategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
+      bge_reranker: config.SYNESIS_BGE_RERANKER_URL ? "configured" : "not_set",
+    };
+  });
+
+  app.get("/debug/session-stats", async (request) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (token && request.headers.authorization !== `Bearer ${token}`) {
+      return { error: "unauthorized" };
+    }
+    return {
+      session_enabled: config.SYNESIS_PLANNER_TS_SESSION_ENABLED,
+      session_backend: config.SYNESIS_PLANNER_TS_REDIS_URL ? "redis" : "memory",
+      session_ttl_s: config.SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S,
+    };
+  });
 
   app.get("/v1/models", async () => ({
     object: "list",
@@ -594,17 +629,24 @@ export function buildApp(config: AppConfig): FastifyInstance {
           }
         };
 
-        for await (const event of streamGraph(initialState, writerDeltaHandler)) {
-          if (reply.raw.writableEnded) break;
-          finalState = event.state;
+        const directState = await directStreamPipeline(initialState, writerDeltaHandler);
+        const usedDirectPath = directState.next_node === "respond";
 
-          if (event.node !== "respond") {
-            writeReasoningDelta(reply.raw, {
-              id: completionId,
-              created,
-              model: responseModel,
-              reasoning_content: `[${describePhase(event.node)}]\n`,
-            });
+        if (usedDirectPath) {
+          finalState = directState;
+        } else {
+          for await (const event of streamGraph(initialState, writerDeltaHandler)) {
+            if (reply.raw.writableEnded) break;
+            finalState = event.state;
+
+            if (event.node !== "respond") {
+              writeReasoningDelta(reply.raw, {
+                id: completionId,
+                created,
+                model: responseModel,
+                reasoning_content: `[${describePhase(event.node)}]\n`,
+              });
+            }
           }
         }
 

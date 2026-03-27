@@ -67,7 +67,52 @@ const EnvSchema = z.object({
 
   SYNESIS_ADMIN_URL: z.string().default(""),
   SYNESIS_ADMIN_INTERNAL_TOKEN: z.string().default(""),
-  SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER: z.coerce.number().default(0.1)
+  SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER: z.coerce.number().default(0.1),
+
+  // --- Frame extraction ---
+  SYNESIS_GLINER_SERVICE_URL: z.string().default(""),
+
+  // --- Retrieval / RAG ---
+  SYNESIS_MILVUS_HOST: z.string().default("synesis-milvus.synesis-rag.svc.cluster.local"),
+  SYNESIS_MILVUS_PORT: z.coerce.number().default(19530),
+  SYNESIS_EMBEDDER_URL: z.string().default(""),
+  SYNESIS_EMBEDDER_MODEL: z.string().default("sentence-transformers/all-MiniLM-L6-v2"),
+  SYNESIS_BGE_RERANKER_URL: z.string().default(""),
+  SYNESIS_RAG_TOP_K: z.coerce.number().default(5),
+  SYNESIS_RAG_RETRIEVAL_STRATEGY: z
+    .enum(["hybrid", "vector", "bm25"])
+    .default("hybrid"),
+  SYNESIS_RAG_RRF_K: z.coerce.number().default(60),
+  SYNESIS_RAG_SCORE_THRESHOLD: z.coerce.number().default(0.25),
+  SYNESIS_RAG_RERANK_SCORE_MIN: z.coerce.number().default(0.05),
+  SYNESIS_RAG_OVERFETCH_MIN: z.coerce.number().default(30),
+  SYNESIS_RAG_OVERFETCH_MAX: z.coerce.number().default(50),
+  SYNESIS_RAG_ADAPTIVE_GAP_MULTIPLIER: z.coerce.number().default(1.5),
+
+  // --- Web search ---
+  SYNESIS_WEB_SEARCH_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_WEB_SEARCH_URL: z.string().default("http://searxng.synesis-search.svc.cluster.local:8080"),
+  SYNESIS_WEB_SEARCH_TIMEOUT_MS: z.coerce.number().default(5000),
+  SYNESIS_WEB_SEARCH_MAX_RESULTS: z.coerce.number().default(5),
+  SYNESIS_ENGINE_AUTHORITY_MAP: z.string().default("{}"),
+  SYNESIS_DOMAIN_POLICY_MODE: z.enum(["prefer", "restrict"]).default("prefer"),
+  SYNESIS_DOMAIN_POLICY_BOOST: z.coerce.number().default(1.4),
+  SYNESIS_WEB_BUDGET_BASE: z.coerce.number().default(1),
+  SYNESIS_WEB_BUDGET_MAX: z.coerce.number().default(8),
+
+  // --- Cohesion ---
+  SYNESIS_COHESION_LOCK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_COHESION_LOCK_MIN_RESULTS: z.coerce.number().default(3),
+  SYNESIS_COHESION_EMBEDDING_THRESHOLD: z.coerce.number().default(0.15),
+  SYNESIS_COHESION_LLM_BORDERLINE_LOW: z.coerce.number().default(0.15),
+  SYNESIS_COHESION_LLM_BORDERLINE_HIGH: z.coerce.number().default(0.30),
+  SYNESIS_COHESION_COMPRESSION_THRESHOLD: z.coerce.number().default(0.20),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

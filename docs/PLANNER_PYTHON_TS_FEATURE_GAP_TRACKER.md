@@ -30,12 +30,12 @@ Working document to track parity between `base/planner` (Python) and `base/plann
 
 ### Complexity and effort routing
 
-- `partial` TS has entry classification and effort routing, but simplified compared to Python scoring engine + taxonomy stack.
-  - Python richer: `entry_pipeline.py`, `entry_classifier.py`, `effort_router.py`
-  - TS simplified: `base/planner-ts/src/nodes/entry-classifier.ts`
-- `partial` trivial/fast-path routing exists in TS, but does not yet include Python's deferred direct-stream fast path.
+- `parity` TS now has full YAML-driven scoring engine with BM25 intent classification, split-axis scoring (complexity/risk/domain), brevity weights, risk veto, and deliverable counting.
+  - Python: `entry_classifier_engine.py` `ScoringEngine`, `entry_pipeline.py`, `effort_router.py`
+  - TS: `base/planner-ts/src/nodes/scoring-engine.ts`, `entry-classifier.ts`
+- `parity` Direct-stream fast path for trivial tasks — bypasses full graph and streams LLM directly.
   - Python: writer `direct_stream_request` in `base/planner/app/nodes/writer.py`
-  - TS: fast path to writer in classifier, but no direct stream transport path
+  - TS: `base/planner-ts/src/pipeline.ts` `directStreamPipeline()`
 
 ## Key gaps (highest impact)
 
@@ -51,16 +51,18 @@ Working document to track parity between `base/planner` (Python) and `base/plann
 
 ### 2) Streaming fidelity and granularity
 
-- Status: `partial`
+- Status: `parity`
 - Python behavior:
   - token-level stream from writer (`astream_events` and direct SDK stream path)
   - rich phase/sub-phase updates during execution
   - reasoning-content forwarding in streaming deltas for clients that support it
   - evidence: `base/planner/app/main.py`, `base/planner/app/streaming_events.py`
 - TS behavior:
-  - emits SSE status events (`data: {"event": ...}`), heartbeat while graph runs
-  - currently sends response content after graph completion (chunked final payload), not token-by-token generation
-  - evidence: `base/planner-ts/src/app.ts`, `base/planner-ts/src/streaming/sse.ts`
+  - token-level streaming via `chatCompletionStream` in `writerNodeStreaming`
+  - phase/sub-phase reasoning deltas for each graph node transition
+  - reasoning-content forwarding in streaming deltas
+  - direct-stream fast path for trivial tasks (`directStreamPipeline`)
+  - evidence: `base/planner-ts/src/app.ts`, `base/planner-ts/src/streaming/sse.ts`, `base/planner-ts/src/pipeline.ts`
 
 ### 3) UI-helper and slash-command control plane
 
@@ -93,14 +95,15 @@ Working document to track parity between `base/planner` (Python) and `base/plann
 
 ### 5) Observability/debug surface
 
-- Status: `partial`
+- Status: `parity`
 - Python behavior:
   - metrics and debug endpoints (`/metrics`, `/debug/cache-stats`, `/debug/sse-test`)
   - prompt cache metrics counters
   - evidence: `base/planner/app/main.py`, `api_metrics.py`
 - TS behavior:
-  - has `/health` and `/health/authz-events`
-  - no cache/debug parity endpoints
+  - Prometheus `/metrics` endpoint (prom-client)
+  - `/health`, `/health/authz-events`
+  - `/debug/retrieval-config` and `/debug/session-stats` (admin-token-gated)
   - evidence: `base/planner-ts/src/app.ts`
 
 ## Recently fixed TS regressions (already landed)
@@ -165,10 +168,13 @@ Files:
 
 1. ~~Add TS provider-level prefix caching policy and capability-aware LLM request wiring.~~ **Done.** See `base/planner-ts/src/llm/client.ts`.
 2. ~~Add TS Redis-backed L1/L2 session persistence (keep in-memory as fallback).~~ **Done.** See `base/planner-ts/src/context/session-store.ts`, `docs/PLANNER_MEMORY_LIFECYCLE.md`.
-3. Add TS direct-stream fast path for trivial/easy-no-retrieval tasks.
-4. Add TS UI-helper and slash-command pre-routing (`/why`, `/reclassify`, helper prompt filter).
+3. ~~Add TS direct-stream fast path for trivial/easy-no-retrieval tasks.~~ **Done.** See `base/planner-ts/src/pipeline.ts` `directStreamPipeline()`.
+4. Add TS UI-helper and slash-command pre-routing (`/why`, `/reclassify`, helper prompt filter) — decision: admin-gated.
 5. ~~Add TS pivot detection and controlled memory reset/summarization.~~ **Partial.** Frame-aware structured compaction landed (domain profiling, topic threads, user facts, arc classification). Explicit pivot detection + memory reset planned. See `docs/SESSION_FRAME_COMPACTION.md`.
-6. Add TS debug observability endpoints to match Python operational introspection.
+6. ~~Add TS debug observability endpoints to match Python operational introspection.~~ **Done.** `/debug/retrieval-config`, `/debug/session-stats` (admin-token-gated). See `base/planner-ts/src/app.ts`.
+7. ~~Unified retrieval (RAG + web + cohesion) in TS.~~ **Done.** See `base/planner-ts/src/retrieval/`.
+8. ~~Frame extraction (GLiNER + LLM segmentation) in TS.~~ **Done.** See `base/planner-ts/src/nodes/frame-extractor.ts`.
+9. ~~YAML-driven scoring engine parity.~~ **Done.** See `base/planner-ts/src/nodes/scoring-engine.ts`.
 
 ## Intentional non-parity (do not port as-is)
 
