@@ -1,14 +1,15 @@
 FROM registry.access.redhat.com/ubi9/nodejs-22:latest
 
+USER 0
 WORKDIR /opt/app-root/src
 
-# Copy workspace root and ALL workspace package.json files (npm needs the
-# full workspace tree even when installing a subset via --workspace=).
+# Copy workspace root and ALL workspace package.json files so npm can
+# resolve the full workspace dependency tree from the lockfile.
 COPY package.json package-lock.json ./
 COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
 COPY base/planner-ts/package.json base/planner-ts/
 COPY base/yarn-ts/package.json base/yarn-ts/
-RUN npm ci --workspace=packages/synesis-telemetry --workspace=base/planner-ts --ignore-scripts 2>/dev/null || npm ci
+RUN npm ci --ignore-scripts
 
 # Build shared package
 COPY packages/synesis-telemetry/tsconfig.json packages/synesis-telemetry/
@@ -16,16 +17,14 @@ COPY packages/synesis-telemetry/src packages/synesis-telemetry/src
 RUN npm run build --workspace=packages/synesis-telemetry
 
 # Build planner-ts
-WORKDIR /opt/app-root/src/base/planner-ts
-COPY base/planner-ts/tsconfig.json ./tsconfig.json
-COPY base/planner-ts/src ./src
-COPY base/planner-ts/tests ./tests
-COPY base/planner-ts/scripts ./scripts
-RUN npm run build
+COPY base/planner-ts/tsconfig.json base/planner-ts/
+COPY base/planner-ts/src base/planner-ts/src
+RUN npm run build --workspace=base/planner-ts
 
-WORKDIR /opt/app-root/src
-RUN npm ci --omit=dev 2>/dev/null || true
+# Prune dev dependencies
+RUN npm prune --omit=dev
 
+USER 1001
 EXPOSE 8080
 
 ENV NODE_ENV=production
