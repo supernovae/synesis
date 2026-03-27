@@ -1,12 +1,43 @@
+import { useState } from "react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
 import {
   useYarnRuntimeTelemetry,
+  useCompactionHistory,
 } from "../../api/hooks";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
 
+const PERIOD_OPTIONS = [
+  { label: "1h", hours: 1 },
+  { label: "6h", hours: 6 },
+  { label: "24h", hours: 24 },
+  { label: "7d", hours: 168 },
+  { label: "30d", hours: 720 },
+];
+
 export default function YarnReducers() {
   const { data: rt, isLoading } = useYarnRuntimeTelemetry();
   const trr = rt?.toolResultReduction;
+  const [period, setPeriod] = useState(24);
+  const { data: compactionHistory } = useCompactionHistory(period, "yarn");
+
+  const historyChart = (compactionHistory?.snapshots ?? []).map((s) => ({
+    time: new Date(s.captured_at).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    compactions: s.compaction_count,
+    tokensSaved: s.tokens_saved_estimate,
+    errors: s.errors,
+  }));
 
   return (
     <div className="space-y-8">
@@ -16,7 +47,7 @@ export default function YarnReducers() {
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Real-time tool-output reduction and artifact compaction metrics from
-          the live Yarn process.
+          the live Yarn process. Historical data persists across restarts.
         </p>
       </div>
 
@@ -222,6 +253,78 @@ export default function YarnReducers() {
               </div>
             </ChartCard>
           ) : null}
+
+          {/* Historical compaction data */}
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                Historical Period:
+              </span>
+              {PERIOD_OPTIONS.map((opt) => (
+                <button
+                  key={opt.hours}
+                  onClick={() => setPeriod(opt.hours)}
+                  className={`rounded px-2 py-1 text-xs font-medium ${
+                    period === opt.hours
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {historyChart.length > 0 ? (
+              <ChartCard
+                title="Compaction Over Time"
+                subtitle="Persisted compaction events — survives restarts"
+              >
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={historyChart}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <RechartsTooltip />
+                    <Line
+                      type="monotone"
+                      dataKey="tokensSaved"
+                      stroke="#8b5cf6"
+                      strokeWidth={2}
+                      dot={false}
+                      name="Tokens Saved"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="compactions"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      dot={false}
+                      name="Compactions"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="errors"
+                      stroke="#ef4444"
+                      strokeWidth={1}
+                      dot={false}
+                      name="Errors"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            ) : (
+              <ChartCard
+                title="Compaction Over Time"
+                subtitle="Persisted compaction events — survives restarts"
+              >
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {!trr
+                    ? "Awaiting first request — historical data will appear after compaction events are recorded."
+                    : "No historical compaction data in this period."}
+                </p>
+              </ChartCard>
+            )}
+          </div>
         </>
       )}
     </div>

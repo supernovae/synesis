@@ -865,6 +865,38 @@ class ModelPolicy(Base):
     )
 
 
+class PrefixCacheSnapshot(Base):
+    __tablename__ = "prefix_cache_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    service: Mapped[str] = mapped_column(String(32), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    prompt_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cached_prompt_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    hit_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cache_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
+    requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_savings_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    __table_args__ = (Index("ix_prefix_cache_snapshots_svc_ts", "service", captured_at.desc()),)
+
+
+class CompactionSnapshot(Base):
+    __tablename__ = "compaction_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    service: Mapped[str] = mapped_column(String(32), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    compaction_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    chars_before: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    chars_after: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    tokens_saved_estimate: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    __table_args__ = (Index("ix_compaction_snapshots_svc_ts", "service", captured_at.desc()),)
+
+
 class AclGroup(Base):
     __tablename__ = "acl_groups"
 

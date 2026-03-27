@@ -101,7 +101,7 @@ _TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "cache_metrics",
-        "description": "Retrieval, prompt, and frame cache hit rates and sizes.",
+        "description": "Prefix cache hit rates, token savings, and session stats for planner-ts and yarn-ts.",
         "min_role": Role.org_admin,
         "inputSchema": {"type": "object", "properties": {}},
     },

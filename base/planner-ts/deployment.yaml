@@ -21,7 +21,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
-        prometheus.io/path: /health
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: planner-ts
@@ -90,6 +90,27 @@ spec:
                   name: synesis-internal-service-auth
                   key: token
                   optional: true
+            - name: SYNESIS_ADMIN_URL
+              value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
+            - name: SYNESIS_ADMIN_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+                  optional: true
+            - name: SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER
+              value: "0.1"
+            # ── Shared authz env vars ──
+            - name: SYNESIS_AUTHZ_ENGINE
+              value: "deterministic"
+            - name: SYNESIS_OPENFGA_API_URL
+              value: ""
+            - name: SYNESIS_OPENFGA_STORE_ID
+              value: ""
+            - name: SYNESIS_OPENFGA_MODEL_ID
+              value: ""
+            - name: SYNESIS_OPENFGA_AUTH_TOKEN
+              value: ""
           resources:
             requests:
               cpu: 500m

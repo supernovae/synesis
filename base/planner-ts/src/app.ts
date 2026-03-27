@@ -1,5 +1,15 @@
 import crypto from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
+import { Registry } from "prom-client";
+import {
+  ZERO_USAGE,
+  PricingRegistry,
+  createServiceMetrics,
+  recordUsageMetrics,
+  emitTrace,
+  type LlmUsage,
+  type TraceRecord,
+} from "@synesis/telemetry";
 import { ChatCompletionRequestSchema } from "./api-schemas.js";
 import { authorizeChatCompletionsWithPolicy } from "./auth/authorizer.js";
 import {
@@ -12,6 +22,7 @@ import type { AppConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
 import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph } from "./graph.js";
+import { setPricingContext } from "./llm/client.js";
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
 import { optimizeContext } from "./optimization/context-optimizer.js";
@@ -23,7 +34,6 @@ import {
   writeStatusEvent
 } from "./streaming/sse.js";
 import { chunkContent, describePhase } from "./streaming/phases.js";
-import { ZERO_USAGE } from "./llm/client.js";
 import type { GraphState } from "./state/types.js";
 
 type ErrorWithMeta = Error & {
@@ -36,6 +46,25 @@ export function buildApp(config: AppConfig): FastifyInstance {
     logger: { level: config.LOG_LEVEL },
     forceCloseConnections: "idle"
   });
+
+  const promRegistry = new Registry();
+  const metrics = createServiceMetrics("planner", promRegistry);
+
+  const pricingRegistry = new PricingRegistry({
+    adminUrl: config.SYNESIS_ADMIN_URL,
+    adminToken: config.SYNESIS_ADMIN_INTERNAL_TOKEN,
+    cachedMultiplier: config.SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER,
+  });
+
+  void pricingRegistry.start().then(() => {
+    const defaultRates = pricingRegistry.getRates("synesis-general");
+    setPricingContext(defaultRates, pricingRegistry.getCachedMultiplier());
+  });
+
+  const traceEmitterConfig = {
+    adminUrl: config.SYNESIS_ADMIN_URL,
+    adminToken: config.SYNESIS_ADMIN_INTERNAL_TOKEN,
+  };
 
   const optimizationCounters = {
     reducedCount: 0,
@@ -161,6 +190,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }
   }));
 
+  app.get("/metrics", async (_request, reply) => {
+    reply.header("Content-Type", promRegistry.contentType);
+    return promRegistry.metrics();
+  });
+
   app.get("/health/authz-events", async () => ({
     status: "ok",
     service: "planner-ts",
@@ -225,6 +259,36 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }
   });
 
+  function emitPlannerTrace(
+    state: GraphState,
+    usage: LlmUsage,
+    latencyMs: number,
+    auth: ReturnType<typeof resolveAuthContext>,
+  ): void {
+    const model = state.response_model ?? state.requested_model ?? "unknown";
+    const rates = pricingRegistry.getRates(model);
+    const trace: TraceRecord = {
+      service: "planner",
+      trace_id: state.authz_trace_id ?? crypto.randomUUID(),
+      request_id: state.run_id ?? crypto.randomUUID(),
+      timestamp: Date.now() / 1000,
+      user_id: auth.userId,
+      org_id: auth.orgId,
+      tenant_id: auth.tenantIds?.[0] ?? "",
+      model,
+      tokens: usage,
+      cost: {
+        estimated_usd: usage.estimated_cost_usd,
+        actual_usd: usage.actual_cost_usd,
+        rates_snapshot: rates,
+      },
+      latency_ms: latencyMs,
+      decision_ledger: state.decision_ledger,
+      node_traces: state.node_traces,
+    };
+    emitTrace(trace, traceEmitterConfig, app.log);
+  }
+
   app.post("/v1/chat/completions", async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
@@ -252,6 +316,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const responseModel = initialState.response_model ?? body.model;
 
       if (!body.stream) {
+        const reqStart = Date.now();
         const state = await invokeGraph(initialState);
         const content = state.generated_code ?? "";
         const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -262,6 +327,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
         );
         spawnBackgroundCritic(state, request.log);
         const usage = state.llm_usage ?? ZERO_USAGE;
+        const latencyS = (Date.now() - reqStart) / 1000;
+        recordUsageMetrics(metrics, responseModel, initialState.model_tier ?? "auto", usage, latencyS);
+        emitPlannerTrace(state, usage, Date.now() - reqStart, auth);
         return {
           id: completionId,
           object: "chat.completion",
@@ -278,13 +346,16 @@ export function buildApp(config: AppConfig): FastifyInstance {
             prompt_tokens: usage.prompt_tokens,
             completion_tokens: usage.completion_tokens,
             total_tokens: usage.total_tokens,
-            cached_prompt_tokens: usage.cached_prompt_tokens
+            cached_prompt_tokens: usage.cached_prompt_tokens,
+            estimated_cost_usd: usage.estimated_cost_usd,
+            actual_cost_usd: usage.actual_cost_usd
           },
           run_id: state.run_id,
           authz_trace_id: state.authz_trace_id
         };
       }
 
+      const streamReqStart = Date.now();
       initSse(reply.raw);
       writeStatusEvent(reply.raw, {
         description: "Planner request accepted",
@@ -355,6 +426,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
         authz_trace_id: authzTraceId
       });
       const streamUsage = state.llm_usage ?? ZERO_USAGE;
+      const streamLatencyS = (Date.now() - streamReqStart) / 1000;
+      recordUsageMetrics(metrics, responseModel, initialState.model_tier ?? "auto", streamUsage, streamLatencyS);
+      emitPlannerTrace(state, streamUsage, Date.now() - streamReqStart, auth);
       writeFinalChunk(reply.raw, {
         id: completionId,
         created,
@@ -363,7 +437,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
           prompt_tokens: streamUsage.prompt_tokens,
           completion_tokens: streamUsage.completion_tokens,
           total_tokens: streamUsage.total_tokens,
-          cached_prompt_tokens: streamUsage.cached_prompt_tokens
+          cached_prompt_tokens: streamUsage.cached_prompt_tokens,
+          estimated_cost_usd: streamUsage.estimated_cost_usd,
+          actual_cost_usd: streamUsage.actual_cost_usd
         }
       });
       endSse(reply.raw);

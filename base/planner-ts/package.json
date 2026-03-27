@@ -16,8 +16,10 @@
   "dependencies": {
     "@langchain/core": "*",
     "@langchain/langgraph": "*",
+    "@synesis/telemetry": "*",
     "fastify": "*",
     "ioredis": "^5.10.1",
+    "prom-client": "*",
     "zod": "*"
   },
   "devDependencies": {

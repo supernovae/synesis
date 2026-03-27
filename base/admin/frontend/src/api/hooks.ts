@@ -1155,6 +1155,42 @@ export function useCacheMetrics() {
   });
 }
 
+export function useCompactionHistory(sinceHours = 24, service = "") {
+  return useQuery<{
+    snapshots: Array<{
+      service: string;
+      captured_at: string;
+      compaction_count: number;
+      chars_before: number;
+      chars_after: number;
+      tokens_saved_estimate: number;
+      errors: number;
+      detail: Record<string, unknown> | null;
+    }>;
+    count: number;
+  }>({
+    queryKey: ["observability", "compaction-history", sinceHours, service],
+    queryFn: () =>
+      client
+        .get("/observability/compaction", { params: { since_hours: sinceHours, service } })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCacheHistory(sinceHours = 24, service = "") {
+  return useQuery<{ snapshots: import("../types").CacheHistorySnapshot[]; count: number }>({
+    queryKey: ["observability", "cache-history", sinceHours, service],
+    queryFn: () =>
+      client
+        .get("/observability/cache/history", { params: { since_hours: sinceHours, service } })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useCircuitBreakers() {
   return useQuery<{ breakers: CircuitBreakerState[] }>({
     queryKey: ["observability", "circuit-breakers"],

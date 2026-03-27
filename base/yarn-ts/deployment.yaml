@@ -17,6 +17,10 @@ spec:
         app.kubernetes.io/name: synesis-yarn
         app.kubernetes.io/component: yarn
         app.kubernetes.io/part-of: synesis
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: yarn
@@ -60,6 +64,17 @@ spec:
               value: "8"
             - name: SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
               value: "false"
+            # ── Shared authz env vars ──
+            - name: SYNESIS_AUTHZ_ENGINE
+              value: "deterministic"
+            - name: SYNESIS_OPENFGA_API_URL
+              value: ""
+            - name: SYNESIS_OPENFGA_STORE_ID
+              value: ""
+            - name: SYNESIS_OPENFGA_MODEL_ID
+              value: ""
+            - name: SYNESIS_OPENFGA_AUTH_TOKEN
+              value: ""
           envFrom:
             - secretRef:
                 name: provider-api-keys

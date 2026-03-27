@@ -16,6 +16,15 @@ PLANNER_URL = os.getenv(
     "SYNESIS_PLANNER_URL",
     "http://synesis-planner.synesis-planner.svc.cluster.local:8000",
 )
+PLANNER_TS_URL = os.getenv(
+    "SYNESIS_PLANNER_TS_URL",
+    "http://synesis-planner.synesis-planner.svc.cluster.local:8080",
+)
+YARN_TS_URL = os.getenv(
+    "SYNESIS_YARN_TS_URL",
+    "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000",
+)
+INTERNAL_SERVICE_TOKEN = os.getenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "")
 # Optional: sync evaluation feedback from Open WebUI (admin export API).
 OPENWEBUI_URL = os.getenv("SYNESIS_OPENWEBUI_URL", "").strip()
 OPENWEBUI_ADMIN_TOKEN = os.getenv("SYNESIS_OPENWEBUI_ADMIN_TOKEN", "").strip()

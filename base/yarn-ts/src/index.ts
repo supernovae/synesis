@@ -1,6 +1,16 @@
 import crypto from "node:crypto";
 import Fastify from "fastify";
+import { Registry } from "prom-client";
 import { generateText, streamText } from "ai";
+import {
+  PricingRegistry,
+  createServiceMetrics,
+  recordUsageMetrics,
+  computeCost,
+  emitTrace,
+  type LlmUsage as TelemetryLlmUsage,
+  type TraceRecord,
+} from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
 import {
   ClaudeMessagesRequestSchema,
@@ -74,6 +84,16 @@ const app = Fastify({
   logger: { level: config.LOG_LEVEL },
   forceCloseConnections: "idle"
 });
+const promRegistry = new Registry();
+const svcMetrics = createServiceMetrics("yarn", promRegistry);
+const pricingRegistry = new PricingRegistry({
+  adminUrl: config.SYNESIS_YARN_ADMIN_API_URL,
+  adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
+});
+const traceEmitterConfig = {
+  adminUrl: config.SYNESIS_YARN_ADMIN_API_URL,
+  adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
+};
 const tierRegistry = new SynesisProviderRegistry();
 const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS);
 const sessions = new Map<string, SessionState>();
@@ -207,9 +227,15 @@ function maybeCheckpoint(state: SessionState): void {
   if (!sawtooth.shouldCheckpoint(state.history, state.toolCallsSinceCheckpoint)) {
     return;
   }
+  const charsBefore = state.history.reduce((sum, m) => sum + m.content.length, 0);
   void sawtooth.compressTrajectory(state.history).then((consolidated) => {
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
+    svcMetrics.compactionTotal.inc({ type: "sawtooth" });
+    svcMetrics.sessionCheckpointTotal.inc();
+    const charsAfter = consolidated.summary.length;
+    const charsSaved = Math.max(0, charsBefore - charsAfter);
+    svcMetrics.compactionCharsSaved.inc(charsSaved);
   });
 }
 
@@ -305,6 +331,39 @@ function persistSessionAndUsage(
     toolCallsCount: state.toolCallsSinceCheckpoint,
     finishReason
   });
+
+  const telemetryUsage: TelemetryLlmUsage = {
+    prompt_tokens: usage.inputTokens,
+    completion_tokens: usage.outputTokens,
+    total_tokens: usage.inputTokens + usage.outputTokens,
+    cached_prompt_tokens: usage.cachedTokens,
+    estimated_cost_usd: normalizedCostUsd,
+    actual_cost_usd: usage.costUsd > 0 ? usage.costUsd : 0,
+  };
+  recordUsageMetrics(svcMetrics, resolvedModelId, resolvedModelId, telemetryUsage, latencyMs / 1000);
+
+  const trace: TraceRecord = {
+    service: "yarn",
+    trace_id: requestId,
+    request_id: requestId,
+    timestamp: Date.now() / 1000,
+    user_id: state.record.userId,
+    org_id: state.record.orgId,
+    tenant_id: "",
+    model: resolvedModelId,
+    tokens: telemetryUsage,
+    cost: {
+      estimated_usd: normalizedCostUsd,
+      actual_usd: usage.costUsd > 0 ? usage.costUsd : 0,
+      rates_snapshot: {
+        input_per_million: Number(tier?.inputPerM ?? 0),
+        output_per_million: Number(tier?.outputPerM ?? 0),
+        cached_input_per_million: tier?.cachedPerM ?? null,
+      },
+    },
+    latency_ms: latencyMs,
+  };
+  emitTrace(trace, traceEmitterConfig, app.log);
 }
 
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number } {
@@ -420,6 +479,7 @@ const sessionEvictionTimer = setInterval(() => {
 async function shutdown(): Promise<void> {
   clearInterval(sessionEvictionTimer);
   clearInterval(tierPollTimer);
+  pricingRegistry.stop();
   await app.close();
   await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close()]);
   process.exit(0);
@@ -501,6 +561,11 @@ app.get("/health/telemetry", async () => {
       consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
     }
   };
+});
+
+app.get("/metrics", async (_req, reply) => {
+  reply.header("Content-Type", promRegistry.contentType);
+  return promRegistry.metrics();
 });
 
 app.get("/v1/diagnostics/recent", async () => ({
@@ -1115,6 +1180,7 @@ app.post("/v1/messages", async (req, reply) => {
 });
 
 await refreshTierRegistry();
+void pricingRegistry.start();
 const tierPollTimer = setInterval(() => {
   void refreshTierRegistry();
 }, config.SYNESIS_YARN_TIER_POLL_INTERVAL * 1000);

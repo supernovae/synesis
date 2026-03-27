@@ -247,6 +247,47 @@ async def insert_trace(record: dict[str, Any]) -> None:
             await session.rollback()
 
 
+async def upsert_trace(record: dict[str, Any]) -> None:
+    """Insert or update a trace record (used by the /ingest endpoint)."""
+    async with async_session() as session:
+        try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            stmt = pg_insert(Trace).values(
+                trace_id=record["trace_id"],
+                user_id=record.get("user_id", ""),
+                org_id=record.get("org_id", ""),
+                tenant_id=record.get("tenant_id", ""),
+                query_snippet=record.get("query_snippet", ""),
+                timestamp=record["timestamp"],
+                total_duration_ms=record.get("total_duration_ms", 0),
+                total_tokens=record.get("total_tokens", 0),
+                estimated_cost_usd=record.get("estimated_cost_usd", 0),
+                actual_cost_usd=record.get("actual_cost_usd", 0),
+                difficulty=record.get("difficulty", 0),
+                task_type=record.get("task_type", ""),
+                is_code_task=record.get("is_code_task", False),
+                has_error=record.get("has_error", False),
+                iteration_count=record.get("iteration_count", 0),
+                full_record=record.get("full_record", record),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["trace_id"],
+                set_={
+                    "total_duration_ms": stmt.excluded.total_duration_ms,
+                    "total_tokens": stmt.excluded.total_tokens,
+                    "estimated_cost_usd": stmt.excluded.estimated_cost_usd,
+                    "actual_cost_usd": stmt.excluded.actual_cost_usd,
+                    "full_record": stmt.excluded.full_record,
+                },
+            )
+            await session.execute(stmt)
+            await session.commit()
+        except Exception:
+            logger.warning("trace_store_upsert_failed", exc_info=True)
+            await session.rollback()
+
+
 def _row_to_dict(row: Trace) -> dict[str, Any]:
     """Convert a Trace ORM row to the dict format expected by the frontend."""
     rec = dict(row.full_record) if row.full_record else {}

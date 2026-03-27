@@ -1,3 +1,15 @@
+import {
+  type LlmUsage,
+  type PricingRates,
+  ZERO_USAGE,
+  mergeUsage,
+  extractUsage as sharedExtractUsage,
+  computeCost,
+} from "@synesis/telemetry";
+
+export type { LlmUsage };
+export { ZERO_USAGE, mergeUsage };
+
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 interface ChatRequest {
@@ -5,29 +17,6 @@ interface ChatRequest {
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
-}
-
-export interface LlmUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cached_prompt_tokens: number;
-}
-
-export const ZERO_USAGE: LlmUsage = {
-  prompt_tokens: 0,
-  completion_tokens: 0,
-  total_tokens: 0,
-  cached_prompt_tokens: 0
-};
-
-export function mergeUsage(a: LlmUsage | undefined, b: LlmUsage): LlmUsage {
-  return {
-    prompt_tokens: (a?.prompt_tokens ?? 0) + b.prompt_tokens,
-    completion_tokens: (a?.completion_tokens ?? 0) + b.completion_tokens,
-    total_tokens: (a?.total_tokens ?? 0) + b.total_tokens,
-    cached_prompt_tokens: (a?.cached_prompt_tokens ?? 0) + b.cached_prompt_tokens
-  };
 }
 
 export interface ChatResult {
@@ -49,20 +38,24 @@ interface ChatResponse {
   usage?: ProviderUsage;
 }
 
+let _pricingRates: PricingRates = {
+  input_per_million: 0,
+  output_per_million: 0,
+  cached_input_per_million: null,
+};
+let _cachedMultiplier = 0.1;
+
+export function setPricingContext(rates: PricingRates, cachedMultiplier: number): void {
+  _pricingRates = rates;
+  _cachedMultiplier = cachedMultiplier;
+}
+
 function extractUsage(raw?: ProviderUsage): LlmUsage {
-  const prompt = raw?.prompt_tokens ?? 0;
-  const completion = raw?.completion_tokens ?? 0;
-  const total = raw?.total_tokens ?? prompt + completion;
-  const cached =
-    raw?.prompt_tokens_details?.cached_tokens ??
-    raw?.cached_tokens ??
-    raw?.prompt_cache_hit_tokens ??
-    0;
+  const base = sharedExtractUsage(raw as Record<string, unknown>);
+  const cost = computeCost(base, _pricingRates, _cachedMultiplier);
   return {
-    prompt_tokens: prompt,
-    completion_tokens: completion,
-    total_tokens: total,
-    cached_prompt_tokens: cached
+    ...base,
+    estimated_cost_usd: cost.estimated_cost_usd,
   };
 }
 

@@ -25,6 +25,9 @@ on:
       - 'base/yarn-ts/**'
       - 'base/planner-ts/**'
       - 'base/security/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
       - 'base/quality-runner/**'
       - 'base/webui/Dockerfile'
       - 'base/webui/synesis-theme.css'
@@ -135,8 +138,14 @@ jobs:
               - 'base/security/**'
             yarn-ts:
               - 'base/yarn-ts/**'
+              - 'packages/synesis-telemetry/**'
+              - 'package.json'
+              - 'package-lock.json'
             planner-ts:
               - 'base/planner-ts/**'
+              - 'packages/synesis-telemetry/**'
+              - 'package.json'
+              - 'package-lock.json'
 
       - name: Aggregate base changes
         id: aggregate
@@ -459,13 +468,13 @@ jobs:
             base_change_key: ""
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile
-            context: base
+            context: .
             base_arg: ""
             change_key: yarn-ts
             base_change_key: ""
           - name: planner-ts
             dockerfile: base/planner-ts/Containerfile
-            context: base
+            context: .
             base_arg: ""
             change_key: planner-ts
             base_change_key: ""

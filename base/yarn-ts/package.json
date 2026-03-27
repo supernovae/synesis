@@ -17,10 +17,12 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "*",
+    "@synesis/telemetry": "*",
     "ai": "*",
     "fastify": "*",
     "ioredis": "*",
     "pg": "*",
+    "prom-client": "*",
     "zod": "*"
   },
   "devDependencies": {

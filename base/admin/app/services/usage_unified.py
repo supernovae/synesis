@@ -79,6 +79,25 @@ async def get_summary_unified(
     else:
         out["yarn"] = None
 
+    pipeline_est = trace_totals.get("estimated_cost_usd", 0) or 0
+    pipeline_act = trace_totals.get("actual_cost_usd", 0) or 0
+    yarn_cost = 0.0
+    if out.get("yarn") and isinstance(out["yarn"], dict):
+        yarn_cost = float(out["yarn"].get("total_cost_usd", 0) or 0)
+
+    out["total_platform_spend"] = {
+        "planner_estimated_usd": round(pipeline_est, 4),
+        "planner_actual_usd": round(pipeline_act, 4),
+        "yarn_estimated_usd": round(yarn_cost, 4),
+        "yarn_actual_usd": 0,
+        "total_estimated_usd": round(pipeline_est + yarn_cost, 4),
+        "total_actual_usd": round(pipeline_act, 4),
+        "effective_total_usd": round(
+            max(pipeline_act, pipeline_est) + yarn_cost, 4
+        ),
+        "note": "effective = max(actual, estimated) per service; never $0 when tokens consumed.",
+    }
+
     return out
 
 

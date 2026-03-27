@@ -113,6 +113,12 @@ async def lifespan(app: FastAPI):
                     await run_rollup(lookback_minutes=10)
                 except Exception:
                     logger.debug("usage_rollup_error", exc_info=True)
+                try:
+                    from app.services.telemetry_scraper import scrape_all
+
+                    await scrape_all()
+                except Exception:
+                    logger.debug("telemetry_scrape_error", exc_info=True)
             await asyncio.sleep(60)
 
     global _reconciler_task

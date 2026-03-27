@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from ..deps import LITELLM_URL, PLANNER_URL
+from ..deps import LITELLM_URL, PLANNER_TS_URL, PLANNER_URL, YARN_TS_URL
 
 logger = logging.getLogger("synesis.admin.prometheus")
 
@@ -76,64 +76,148 @@ def parse_prometheus_text(text: str) -> dict[str, Any]:
 
 
 async def get_cache_metrics() -> dict[str, Any]:
-    raw = await fetch_planner_metrics()
-    return _build_retrieval_cache(raw)
+    """Fetch prefix cache metrics from planner-ts and yarn-ts."""
+    return await get_extended_cache_metrics()
+
+
+async def _fetch_service_metrics(url: str) -> dict[str, Any]:
+    """Scrape a service's /metrics endpoint."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{url.rstrip('/')}/metrics", timeout=3.0)
+            resp.raise_for_status()
+            return parse_prometheus_text(resp.text)
+    except Exception:
+        return {}
+
+
+async def _fetch_service_health(url: str, path: str = "/health") -> dict[str, Any]:
+    """Scrape a service's health endpoint."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{url.rstrip('/')}{path}", timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _sum_prefix_cache(raw: dict[str, Any], prefix: str) -> dict[str, float]:
+    """Extract prefix cache token counters from parsed Prometheus metrics."""
+    total_in = 0.0
+    cached_in = 0.0
+    requests = 0.0
+    est_cost = 0.0
+    act_cost = 0.0
+    for key, val in raw.items():
+        metric_val = val["value"] if isinstance(val, dict) and "value" in val else val if isinstance(val, (int, float)) else 0
+        full_name = key if isinstance(key, str) else ""
+        if full_name.startswith(f"{prefix}_token_total"):
+            if "cache_status" in full_name and '"cached"' in full_name:
+                cached_in += float(metric_val)
+            total_in += float(metric_val)
+        elif full_name.startswith(f"{prefix}_request_total"):
+            requests += float(metric_val)
+        elif full_name.startswith(f"{prefix}_cost_estimated_usd_total"):
+            est_cost += float(metric_val)
+        elif full_name.startswith(f"{prefix}_cost_actual_usd_total"):
+            act_cost += float(metric_val)
+    return {
+        "total_prompt_tokens": total_in,
+        "cached_prompt_tokens": cached_in,
+        "requests": requests,
+        "estimated_cost_usd": est_cost,
+        "actual_cost_usd": act_cost,
+    }
 
 
 async def get_extended_cache_metrics() -> dict[str, Any]:
-    """Fetch Prometheus cache counters and planner /debug/cache-stats, merge into one response."""
-    raw = await fetch_planner_metrics()
-    cache_metrics = _build_retrieval_cache(raw)
+    """Unified prefix cache metrics from planner-ts, yarn-ts, and health endpoints."""
+    import asyncio
 
-    # Prompt cache from Prometheus
-    pc_hits = _find_metric(raw, "synesis_prompt_cache_hits_total")
-    pc_misses = _find_metric(raw, "synesis_prompt_cache_misses_total")
-    pc_entries = _find_metric(raw, "synesis_prompt_cache_entries")
-    pc_total = pc_hits + pc_misses
-    cache_metrics["prompt_cache"] = {
-        "hits": int(pc_hits),
-        "misses": int(pc_misses),
-        "entries": int(pc_entries),
-        "hit_rate": pc_hits / pc_total if pc_total > 0 else 0,
+    planner_raw, yarn_raw, planner_health, yarn_health = await asyncio.gather(
+        _fetch_service_metrics(PLANNER_TS_URL),
+        _fetch_service_metrics(YARN_TS_URL),
+        _fetch_service_health(PLANNER_TS_URL, "/health"),
+        _fetch_service_health(YARN_TS_URL, "/health/telemetry"),
+        return_exceptions=True,
+    )
+    if isinstance(planner_raw, BaseException):
+        planner_raw = {}
+    if isinstance(yarn_raw, BaseException):
+        yarn_raw = {}
+    if isinstance(planner_health, BaseException):
+        planner_health = {}
+    if isinstance(yarn_health, BaseException):
+        yarn_health = {}
+
+    p = _sum_prefix_cache(planner_raw, "synesis_planner")
+    y = _sum_prefix_cache(yarn_raw, "synesis_yarn")
+
+    p_prompt = p["total_prompt_tokens"]
+    p_cached = p["cached_prompt_tokens"]
+    y_prompt = y["total_prompt_tokens"]
+    y_cached = y["cached_prompt_tokens"]
+
+    planner_mode = planner_health.get("llm", {}).get("prefixCacheMode", "auto") if isinstance(planner_health, dict) else "auto"
+
+    planner_block = {
+        "hit_rate": round(p_cached / p_prompt, 4) if p_prompt > 0 else 0.0,
+        "cached_prompt_tokens": int(p_cached),
+        "total_prompt_tokens": int(p_prompt),
+        "mode": planner_mode,
+        "requests": int(p["requests"]),
+        "estimated_savings_usd": round(p["estimated_cost_usd"], 6),
     }
 
-    # Frame cache from Prometheus
-    fc_hits = _find_metric(raw, "synesis_frame_cache_hits_total")
-    fc_misses = _find_metric(raw, "synesis_frame_cache_misses_total")
-    fc_entries = _find_metric(raw, "synesis_frame_cache_entries")
-    fc_total = fc_hits + fc_misses
-    cache_metrics["frame_cache"] = {
-        "hits": int(fc_hits),
-        "misses": int(fc_misses),
-        "entries": int(fc_entries),
-        "hit_rate": fc_hits / fc_total if fc_total > 0 else 0,
+    yarn_block = {
+        "hit_rate": round(y_cached / y_prompt, 4) if y_prompt > 0 else 0.0,
+        "cached_prompt_tokens": int(y_cached),
+        "total_prompt_tokens": int(y_prompt),
+        "requests": int(y["requests"]),
+        "estimated_savings_usd": round(y["estimated_cost_usd"], 6),
     }
 
-    # /debug/cache-stats for enrichment (TTL, max entries, etc.)
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{PLANNER_URL.rstrip('/')}/debug/cache-stats",
-                timeout=5.0,
-            )
-            resp.raise_for_status()
-            extra = resp.json()
-    except Exception as exc:
-        logger.warning("planner_cache_stats_error error=%s", str(exc)[:80])
-        return cache_metrics
+    total_prompt = p_prompt + y_prompt
+    total_cached = p_cached + y_cached
 
-    cache_metrics["redis"] = extra.get("redis", {})
-    cache_metrics["session"] = extra.get("session", {})
-    cache_metrics["l2_archive"] = extra.get("l2_archive", {})
+    redis_info: dict[str, Any] = {}
+    if isinstance(planner_health, dict):
+        redis_info = {
+            "status": "connected" if planner_health.get("redis", {}).get("configured") else "not_configured",
+        }
+        session_data = planner_health.get("session", {})
+        if session_data:
+            redis_info["total_keys"] = session_data.get("count", 0)
 
-    # Enrich prompt cache with config from /debug/cache-stats
-    pc_debug = extra.get("prompt_cache", {})
-    if pc_debug:
-        cache_metrics["prompt_cache"]["enabled"] = pc_debug.get("enabled", False)
-        cache_metrics["prompt_cache"]["max_entries"] = pc_debug.get("max_entries", 0)
-        cache_metrics["prompt_cache"]["ttl_seconds"] = pc_debug.get("ttl_seconds", 0)
+    sessions_info: dict[str, Any] = {}
+    if isinstance(planner_health, dict):
+        ps = planner_health.get("session", {})
+        sessions_info["planner"] = {
+            "backend": ps.get("backend", "unknown"),
+            "count": ps.get("count", 0),
+            "checkpoints": ps.get("checkpoints", 0),
+        }
+    if isinstance(yarn_health, dict):
+        sc = yarn_health.get("sawtoothContext", {})
+        sessions_info["yarn"] = {
+            "active": sc.get("activeSessionCount", 0),
+            "persisted": True,
+        }
 
-    return cache_metrics
+    return {
+        "planner": planner_block,
+        "yarn": yarn_block,
+        "redis": redis_info,
+        "sessions": sessions_info,
+        "hit_rate": round(total_cached / total_prompt, 4) if total_prompt > 0 else 0.0,
+        "exact_hits": 0,
+        "semantic_hits": 0,
+        "misses": 0,
+        "evictions": 0,
+        "entries": 0,
+    }
 
 
 def _build_retrieval_cache(raw: dict[str, Any]) -> dict[str, Any]:

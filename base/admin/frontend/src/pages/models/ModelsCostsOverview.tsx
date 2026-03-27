@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { usePipelineServices, useRoleAssignments, useUsageSummaryUnified } from "../../api/hooks";
 import { UsageGlossaryBanner } from "../../components/models/UsageGlossary";
 import { fmtCost, fmtTokens } from "../../lib/formatUsage";
-import { Layers, Server, Gauge, LineChart, Sparkles, Cloud } from "lucide-react";
+import { Layers, Server, Gauge, LineChart, Sparkles, Cloud, DollarSign } from "lucide-react";
 
 const HOURS_CHIPS = [24, 72, 168] as const;
 
@@ -16,6 +16,7 @@ export default function ModelsCostsOverview() {
   const roll = data?.pipeline?.rollups;
   const tr = data?.pipeline?.traces;
   const yarn = data?.yarn;
+  const spend = data?.total_platform_spend as Record<string, number | string> | undefined;
   const activeRoles = (rolesData?.roles ?? []).filter((r) => r.assigned);
   const mainRoles = activeRoles.filter((r) => !["coder", "summarizer"].includes(r.role));
   const microRoles = activeRoles.filter((r) => ["coder", "summarizer"].includes(r.role));
@@ -54,6 +55,53 @@ export default function ModelsCostsOverview() {
         <div className="h-40 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : (
         <>
+          {spend && (
+            <div className="rounded-lg border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-4 dark:border-indigo-800 dark:from-indigo-950/30 dark:to-violet-950/30">
+              <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
+                <DollarSign className="h-5 w-5" />
+                <h2 className="font-semibold">Total Platform Spend</h2>
+                <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
+                  {sinceHours}h window
+                </span>
+              </div>
+              <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                <dl className="space-y-1 text-sm">
+                  <dt className="font-medium text-gray-700 dark:text-gray-300">Planner</dt>
+                  <dd className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {fmtCost(Number(spend.planner_estimated_usd || 0))}
+                    <span className="ml-1 text-xs font-normal text-gray-500">est.</span>
+                  </dd>
+                  {Number(spend.planner_actual_usd || 0) > 0 && (
+                    <dd className="text-xs text-gray-500">
+                      {fmtCost(Number(spend.planner_actual_usd))} actual
+                    </dd>
+                  )}
+                </dl>
+                <dl className="space-y-1 text-sm">
+                  <dt className="font-medium text-gray-700 dark:text-gray-300">Yarn</dt>
+                  <dd className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {fmtCost(Number(spend.yarn_estimated_usd || 0))}
+                    <span className="ml-1 text-xs font-normal text-gray-500">est.</span>
+                  </dd>
+                  {Number(spend.yarn_actual_usd || 0) > 0 && (
+                    <dd className="text-xs text-gray-500">
+                      {fmtCost(Number(spend.yarn_actual_usd))} actual
+                    </dd>
+                  )}
+                </dl>
+                <dl className="space-y-1 text-sm">
+                  <dt className="font-medium text-gray-700 dark:text-gray-300">Effective Total</dt>
+                  <dd className="text-lg font-semibold text-indigo-600 dark:text-indigo-400">
+                    {fmtCost(Number(spend.effective_total_usd || 0))}
+                  </dd>
+                  <dd className="text-xs text-gray-500">
+                    max(actual, est.) per service
+                  </dd>
+                </dl>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">

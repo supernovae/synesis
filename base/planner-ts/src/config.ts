@@ -38,6 +38,12 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_OPENFGA_STORE_ID: z.string().default(""),
   SYNESIS_PLANNER_TS_OPENFGA_MODEL_ID: z.string().default(""),
   SYNESIS_PLANNER_TS_OPENFGA_AUTH_TOKEN: z.string().default(""),
+
+  SYNESIS_OPENFGA_API_URL: z.string().default(""),
+  SYNESIS_OPENFGA_STORE_ID: z.string().default(""),
+  SYNESIS_OPENFGA_MODEL_ID: z.string().default(""),
+  SYNESIS_OPENFGA_AUTH_TOKEN: z.string().default(""),
+  SYNESIS_AUTHZ_ENGINE: z.enum(["deterministic", "openfga_shadow", "openfga_enforce"]).default("deterministic"),
   SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: z
     .string()
     .optional()
@@ -57,7 +63,11 @@ const EnvSchema = z.object({
 
   SYNESIS_PLANNER_TS_REDIS_URL: z.string().default(""),
   SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX: z.string().default("synesis:planner:session:"),
-  SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S: z.coerce.number().default(14400)
+  SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S: z.coerce.number().default(14400),
+
+  SYNESIS_ADMIN_URL: z.string().default(""),
+  SYNESIS_ADMIN_INTERNAL_TOKEN: z.string().default(""),
+  SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER: z.coerce.number().default(0.1)
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

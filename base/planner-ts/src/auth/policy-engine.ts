@@ -31,7 +31,7 @@ export interface AuthorizeOptions {
 }
 
 export interface AuthorizationPolicyEngine {
-  readonly engineName: "deterministic" | "openfga_stub";
+  readonly engineName: "deterministic" | "openfga_stub" | "openfga_shadow";
   authorize(
     resource: PlannerResource,
     action: PlannerAction,
@@ -166,7 +166,11 @@ class OpenFgaStubAuthorizationPolicyEngine implements AuthorizationPolicyEngine 
 }
 
 export function createAuthorizationPolicyEngine(config: AppConfig): AuthorizationPolicyEngine {
-  if (config.SYNESIS_PLANNER_TS_AUTHZ_ENGINE === "openfga_stub") {
+  const engine = config.SYNESIS_AUTHZ_ENGINE !== "deterministic"
+    ? config.SYNESIS_AUTHZ_ENGINE
+    : config.SYNESIS_PLANNER_TS_AUTHZ_ENGINE;
+
+  if (engine === "openfga_stub" || engine === "openfga_shadow") {
     return new OpenFgaStubAuthorizationPolicyEngine();
   }
   return new DeterministicAuthorizationPolicyEngine();

@@ -46,7 +46,14 @@ export function writeFinalChunk(
     id: string;
     created: number;
     model: string;
-    usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_prompt_tokens: number };
+    usage: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      cached_prompt_tokens: number;
+      estimated_cost_usd?: number;
+      actual_cost_usd?: number;
+    };
   }
 ): void {
   writeSseData(response, {

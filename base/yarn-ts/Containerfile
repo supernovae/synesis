@@ -2,17 +2,29 @@ FROM registry.access.redhat.com/ubi9/nodejs-22:latest
 
 WORKDIR /opt/app-root/src
 
-COPY yarn-ts/package.json yarn-ts/package-lock.json ./
-RUN npm ci
+# Copy workspace root and shared package first (context = repo root)
+COPY package.json package-lock.json ./
+COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
+COPY base/yarn-ts/package.json base/yarn-ts/
+RUN npm ci --workspace=packages/synesis-telemetry --workspace=base/yarn-ts --ignore-scripts 2>/dev/null || npm ci
 
-COPY yarn-ts/tsconfig.json ./tsconfig.json
-COPY yarn-ts/src ./src
+# Build shared package
+COPY packages/synesis-telemetry/tsconfig.json packages/synesis-telemetry/
+COPY packages/synesis-telemetry/src packages/synesis-telemetry/src
+RUN npm run build --workspace=packages/synesis-telemetry
+
+# Build yarn-ts
+WORKDIR /opt/app-root/src/base/yarn-ts
+COPY base/yarn-ts/tsconfig.json ./tsconfig.json
+COPY base/yarn-ts/src ./src
 RUN npm run build
-RUN npm ci --omit=dev
+
+WORKDIR /opt/app-root/src
+RUN npm ci --omit=dev 2>/dev/null || true
 
 EXPOSE 8000
 
 ENV NODE_ENV=production
 ENV PORT=8000
 
-CMD ["node", "--enable-source-maps", "dist/index.js"]
+CMD ["node", "--enable-source-maps", "base/yarn-ts/dist/index.js"]

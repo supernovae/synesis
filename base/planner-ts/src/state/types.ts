@@ -70,12 +70,7 @@ export interface GraphState {
   override_log?: Array<Record<string, unknown>>;
   node_traces?: Array<{ node_name?: string } | Record<string, unknown>>;
   _validation_warnings?: string[];
-  llm_usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-    cached_prompt_tokens: number;
-  };
+  llm_usage?: import("@synesis/telemetry").LlmUsage;
   error?: string;
   run_id?: string;
 }

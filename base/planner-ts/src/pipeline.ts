@@ -13,7 +13,7 @@ import { planGate } from "./nodes/plan-gate.js";
 import { runRouter } from "./nodes/router.js";
 import { validatedNode } from "./nodes/validated-node.js";
 import { composeWriterDraft } from "./nodes/writer-compose.js";
-import { mergeUsage } from "./llm/client.js";
+import { mergeUsage } from "@synesis/telemetry";
 import type { DecisionEntry } from "./contracts/schemas.js";
 import type { GraphState } from "./state/types.js";
 

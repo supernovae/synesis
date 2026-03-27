@@ -458,42 +458,45 @@ export interface FailureRecord {
   timestamp: string;
 }
 
+export interface PrefixCacheServiceMetrics {
+  hit_rate: number;
+  cached_prompt_tokens: number;
+  total_prompt_tokens: number;
+  mode?: string;
+  requests: number;
+  estimated_savings_usd: number;
+}
+
 export interface CacheMetrics {
+  planner?: PrefixCacheServiceMetrics;
+  yarn?: PrefixCacheServiceMetrics;
+  redis?: {
+    status: string;
+    used_memory_human?: string;
+    keyspace_hit_rate?: number;
+    total_keys?: number;
+  };
+  sessions?: {
+    planner?: { backend: string; count: number; checkpoints: number };
+    yarn?: { active: number; persisted: boolean };
+  };
+  hit_rate: number;
   exact_hits: number;
   semantic_hits: number;
   misses: number;
   evictions: number;
   entries: number;
+}
+
+export interface CacheHistorySnapshot {
+  service: string;
+  captured_at: string;
+  prompt_tokens: number;
+  cached_prompt_tokens: number;
   hit_rate: number;
-  prompt_cache?: {
-    hits: number;
-    misses: number;
-    entries: number;
-    hit_rate: number;
-    enabled?: boolean;
-    max_entries?: number;
-    ttl_seconds?: number;
-  };
-  frame_cache?: {
-    hits: number;
-    misses: number;
-    entries: number;
-    hit_rate: number;
-  };
-  redis?: {
-    status: string;
-    used_memory_human?: string;
-    keyspace_hits?: number;
-    keyspace_misses?: number;
-    keyspace_hit_rate?: number;
-    total_keys?: number;
-  };
-  session?: {
-    backend: string;
-  };
-  l2_archive?: {
-    configured: boolean;
-  };
+  cache_mode: string;
+  requests: number;
+  estimated_savings_usd: number;
 }
 
 export interface CircuitBreakerState {

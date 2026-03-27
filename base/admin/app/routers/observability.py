@@ -67,6 +67,99 @@ async def cache_metrics(_user: UserInfo = Depends(get_current_user)):
     return await prom.get_extended_cache_metrics()
 
 
+@router.get("/cache/history")
+async def cache_history(
+    since_hours: int = Query(24, ge=1, le=720),
+    service: str = Query("", description="Filter by service: planner, yarn"),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Time-series prefix cache snapshots from the database."""
+    from datetime import datetime, timedelta, timezone
+
+    from ..db.models import PrefixCacheSnapshot
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    async with async_session() as session:
+        stmt = select(PrefixCacheSnapshot).where(
+            PrefixCacheSnapshot.captured_at >= cutoff
+        )
+        if service:
+            stmt = stmt.where(PrefixCacheSnapshot.service == service)
+        stmt = stmt.order_by(PrefixCacheSnapshot.captured_at.asc()).limit(500)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+    return {
+        "snapshots": [
+            {
+                "service": r.service,
+                "captured_at": r.captured_at.isoformat() if r.captured_at else None,
+                "prompt_tokens": r.prompt_tokens,
+                "cached_prompt_tokens": r.cached_prompt_tokens,
+                "hit_rate": r.hit_rate,
+                "cache_mode": r.cache_mode,
+                "requests": r.requests,
+                "estimated_savings_usd": r.estimated_savings_usd,
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+        "since_hours": since_hours,
+        "service": service or "all",
+    }
+
+
+@router.get("/compaction")
+async def compaction_metrics(
+    since_hours: int = Query(24, ge=1, le=720),
+    service: str = Query("", description="Filter by service: planner, yarn"),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Time-series compaction snapshots from the database."""
+    from datetime import datetime, timedelta, timezone
+
+    from ..db.models import CompactionSnapshot
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    async with async_session() as session:
+        stmt = select(CompactionSnapshot).where(
+            CompactionSnapshot.captured_at >= cutoff
+        )
+        if service:
+            stmt = stmt.where(CompactionSnapshot.service == service)
+        stmt = stmt.order_by(CompactionSnapshot.captured_at.asc()).limit(500)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+    return {
+        "snapshots": [
+            {
+                "service": r.service,
+                "captured_at": r.captured_at.isoformat() if r.captured_at else None,
+                "compaction_count": r.compaction_count,
+                "chars_before": r.chars_before,
+                "chars_after": r.chars_after,
+                "tokens_saved_estimate": r.tokens_saved_estimate,
+                "errors": r.errors,
+                "detail": r.detail,
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+        "since_hours": since_hours,
+        "service": service or "all",
+    }
+
+
+@router.get("/authz")
+async def authz_stats(_user: UserInfo = Depends(get_current_user)):
+    """Authorization engine stats (deterministic or OpenFGA shadow)."""
+    from ..services.authz_engine import create_authz_engine
+
+    engine = create_authz_engine()
+    return engine.get_stats()
+
+
 @router.get("/circuit-breakers")
 async def circuit_breakers(_user: UserInfo = Depends(get_current_user)):
     breakers = await prom.get_circuit_breaker_metrics()
