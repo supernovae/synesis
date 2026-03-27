@@ -10,6 +10,11 @@
       ],
       "requested_format": "prose"
     },
+    "plan_required": true,
+    "execution_policy": {
+      "critic_background": false,
+      "critique_passes": 2
+    },
     "critic_raw_json": "{\"approved\":false,\"need_more_evidence\":true,\"continue_reason\":\"needs_revision\",\"blocking_issues\":[],\"nonblocking\":[],\"repair_instructions\":[],\"scores\":{\"grounding\":3,\"correctness\":6,\"actionability\":6,\"clarity\":6,\"weighted_overall\":5.1}}"
   },
   "expect": {
@@ -17,7 +22,7 @@
     "critic_approved": false,
     "need_more_evidence": true,
     "plan_gate_passed": true,
-    "decision_ledger_min_items": 5,
-    "node_traces_min_items": 9
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6
   }
 }

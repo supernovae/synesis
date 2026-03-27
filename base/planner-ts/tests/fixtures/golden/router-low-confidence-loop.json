@@ -10,6 +10,11 @@
       ],
       "requested_format": "prose"
     },
+    "plan_required": true,
+    "execution_policy": {
+      "critic_background": false,
+      "critique_passes": 2
+    },
     "evidence_requests": [
       {
         "description": "project migration baseline evidence"
@@ -21,7 +26,7 @@
     "critic_approved": true,
     "need_more_evidence": true,
     "plan_gate_passed": true,
-    "decision_ledger_min_items": 5,
-    "node_traces_min_items": 9
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6
   }
 }

@@ -13,6 +13,7 @@ import { planGate } from "./nodes/plan-gate.js";
 import { runRouter } from "./nodes/router.js";
 import { validatedNode } from "./nodes/validated-node.js";
 import { composeWriterDraft } from "./nodes/writer-compose.js";
+import { mergeUsage } from "./llm/client.js";
 import type { DecisionEntry } from "./contracts/schemas.js";
 import type { GraphState } from "./state/types.js";
 
@@ -152,19 +153,21 @@ export async function routerNode(state: GraphState): Promise<GraphState> {
 }
 
 async function writerNodeCore(state: GraphState): Promise<GraphState> {
-  const generated = await composeWriterDraft(state);
-  const fingerprint = fingerprintDraft(generated);
+  const result = await composeWriterDraft(state);
+  const fingerprint = fingerprintDraft(result.content);
   return ensureForwarded(withNodeTrace({
     ...state,
-    generated_code: generated,
+    generated_code: result.content,
     draft_fingerprints: [...(state.draft_fingerprints ?? []), fingerprint],
+    llm_usage: mergeUsage(state.llm_usage, result.usage),
     next_node: "critic"
   }, "writer"));
 }
 
 async function criticNodeCore(state: GraphState): Promise<GraphState> {
   const iteration = (state.iteration_count ?? 0) + 1;
-  const critic = await evaluateCritic(state);
+  const criticResult = await evaluateCritic(state);
+  const critic = criticResult;
   const style = validateStyleCompliance(state);
   const drift = validateDecisionDrift(state);
   const citations = validateCitationPreservation(state);
@@ -190,6 +193,7 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
     critic_nonblocking: critic.nonblocking as unknown as Array<Record<string, unknown>>,
     critic_feedback: critic.continue_reason ?? "",
     critic_continue_reason: critic.continue_reason ?? null,
+    llm_usage: mergeUsage(state.llm_usage, criticResult.usage),
     next_node: routed
   }, "critic"));
   return appendDecisionLedger(critiqued, {

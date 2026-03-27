@@ -3,7 +3,7 @@ import { composeWriterDraft } from "../src/nodes/writer-compose.js";
 
 describe("composeWriterDraft", () => {
   it("deterministic fallback does not leak internal plan/evidence headers", async () => {
-    const draft = await composeWriterDraft({
+    const result = await composeWriterDraft({
       task_description: "Migrate planner to TypeScript",
       execution_plan: { steps: [{ action: "Port reducers and validators" }] },
       evidence_packets: [
@@ -17,21 +17,24 @@ describe("composeWriterDraft", () => {
         }
       ]
     });
-    expect(draft).not.toContain("## Plan");
-    expect(draft).not.toContain("## Evidence");
-    expect(draft).toContain("Migrate planner to TypeScript");
+    expect(result.content).not.toContain("## Plan");
+    expect(result.content).not.toContain("## Evidence");
+    expect(result.content).toContain("Migrate planner to TypeScript");
+    expect(result.usage).toBeTruthy();
+    expect(result.usage.cached_prompt_tokens).toBe(0);
   });
 
   it("produces a user-friendly fallback message", async () => {
-    const draft = await composeWriterDraft({
+    const result = await composeWriterDraft({
       task_description: "Answer quickly",
       style_contract_locked: { precise: true },
       execution_plan: { steps: [] },
       evidence_packets: []
     });
-    expect(draft).toContain("Answer quickly");
-    expect(draft).toContain("unable to generate");
-    expect(draft).not.toContain("## Plan");
-    expect(draft).not.toContain("## Evidence");
+    expect(result.content).toContain("Answer quickly");
+    expect(result.content).toContain("unable to generate");
+    expect(result.content).not.toContain("## Plan");
+    expect(result.content).not.toContain("## Evidence");
+    expect(result.usage.prompt_tokens).toBe(0);
   });
 });

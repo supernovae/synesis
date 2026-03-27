@@ -49,7 +49,15 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: z
     .string()
     .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true")
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+
+  SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE: z
+    .enum(["auto", "strict", "disabled"])
+    .default("auto"),
+
+  SYNESIS_PLANNER_TS_REDIS_URL: z.string().default(""),
+  SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX: z.string().default("synesis:planner:session:"),
+  SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S: z.coerce.number().default(14400)
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

@@ -1,18 +1,13 @@
-type Role = "system" | "user" | "assistant" | "tool";
-type ChatMessage = { role: Role; content: string };
-
-interface SessionRecord {
-  key: string;
-  lastSeenAt: number;
-  history: ChatMessage[];
-  checkpointBlock?: string;
-}
+import {
+  MemorySessionStore,
+  type ChatMessage,
+  type SessionData,
+  type SessionStore
+} from "./session-store.js";
 
 function sanitizeAssistantContent(content: string): string {
   let out = content;
-  // Drop synthetic planner progress lines from memory checkpoints.
   out = out.replace(/^\s*\[planner\].*$/gim, "");
-  // If scaffolding leaked, keep only the final answer section for memory.
   const hasPlan = /(^|\n)\s*(?:#+\s*)?Plan:?(\s|$)/i.test(out);
   const hasEvidence = /(^|\n)\s*(?:#+\s*)?Evidence:?(\s|$)/i.test(out);
   const hasAnswer = /(^|\n)\s*(?:#+\s*)?Answer:?(\s|$)/i.test(out);
@@ -27,10 +22,11 @@ export interface SessionTelemetry {
   activeSessions: number;
   checkpointedSessions: number;
   totalHistoryEntries: number;
+  storeBackend: "memory" | "redis";
 }
 
 export class SessionManager {
-  private readonly sessions = new Map<string, SessionRecord>();
+  private readonly store: SessionStore;
 
   constructor(
     private readonly opts: {
@@ -38,18 +34,18 @@ export class SessionManager {
       maxHistory: number;
       checkpointEveryMessages: number;
       ttlMs: number;
+      store?: SessionStore;
     }
-  ) {}
+  ) {
+    this.store = opts.store ?? new MemorySessionStore();
+  }
+
+  get storeBackend(): "memory" | "redis" {
+    return this.store.backend;
+  }
 
   private now(): number {
     return Date.now();
-  }
-
-  private pruneExpired(): void {
-    const cutoff = this.now() - this.opts.ttlMs;
-    for (const [key, value] of this.sessions.entries()) {
-      if (value.lastSeenAt < cutoff) this.sessions.delete(key);
-    }
   }
 
   private summarize(history: ChatMessage[]): string {
@@ -63,35 +59,34 @@ export class SessionManager {
     ].join("\n");
   }
 
-  private ensureSession(key: string): SessionRecord {
-    this.pruneExpired();
-    const existing = this.sessions.get(key);
+  private async ensureSession(key: string): Promise<SessionData> {
+    await this.store.pruneExpired(this.opts.ttlMs);
+    const existing = await this.store.get(key);
     if (existing) {
       existing.lastSeenAt = this.now();
       return existing;
     }
-    const created: SessionRecord = {
+    const created: SessionData = {
       key,
       lastSeenAt: this.now(),
       history: []
     };
-    this.sessions.set(key, created);
     return created;
   }
 
-  enrichIncomingMessages(
+  async enrichIncomingMessages(
     key: string,
     incoming: ChatMessage[]
-  ): ChatMessage[] {
+  ): Promise<ChatMessage[]> {
     if (!this.opts.enabled) return incoming;
-    const session = this.ensureSession(key);
+    const session = await this.ensureSession(key);
     if (!session.checkpointBlock) return incoming;
     return [{ role: "system", content: session.checkpointBlock }, ...incoming];
   }
 
-  recordTurn(key: string, userContent: string, assistantContent: string): void {
+  async recordTurn(key: string, userContent: string, assistantContent: string): Promise<void> {
     if (!this.opts.enabled) return;
-    const session = this.ensureSession(key);
+    const session = await this.ensureSession(key);
     if (userContent.trim()) session.history.push({ role: "user", content: userContent });
     const cleanedAssistant = sanitizeAssistantContent(assistantContent);
     if (cleanedAssistant.trim()) session.history.push({ role: "assistant", content: cleanedAssistant });
@@ -104,20 +99,29 @@ export class SessionManager {
       session.history = session.history.slice(-Math.floor(this.opts.checkpointEveryMessages / 2));
     }
     session.lastSeenAt = this.now();
+    await this.store.set(key, session, this.opts.ttlMs);
   }
 
-  telemetry(): SessionTelemetry {
-    this.pruneExpired();
+  async purge(key: string): Promise<boolean> {
+    return this.store.delete(key);
+  }
+
+  async telemetry(): Promise<SessionTelemetry> {
+    await this.store.pruneExpired(this.opts.ttlMs);
+    const allKeys = await this.store.keys();
     let checkpointed = 0;
     let entries = 0;
-    for (const record of this.sessions.values()) {
+    for (const k of allKeys) {
+      const record = await this.store.get(k);
+      if (!record) continue;
       entries += record.history.length;
       if (record.checkpointBlock) checkpointed += 1;
     }
     return {
-      activeSessions: this.sessions.size,
+      activeSessions: allKeys.length,
       checkpointedSessions: checkpointed,
-      totalHistoryEntries: entries
+      totalHistoryEntries: entries,
+      storeBackend: this.store.backend
     };
   }
 }

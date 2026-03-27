@@ -13,6 +13,11 @@
         "summary",
         "actions"
       ]
+    },
+    "plan_required": true,
+    "execution_policy": {
+      "critic_background": false,
+      "critique_passes": 2
     }
   },
   "expect": {
@@ -22,8 +27,8 @@
     "decision_ledger_min_items": 3,
     "node_traces_min_items": 6,
     "generated_contains_all": [
-      "## Plan",
-      "## Evidence"
+      "I understand your request:",
+      "unable to generate a fully grounded response"
     ]
   }
 }

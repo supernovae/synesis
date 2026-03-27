@@ -10,6 +10,7 @@ import { resolveAuthContext } from "./auth/resolver.js";
 import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
+import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph } from "./graph.js";
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
@@ -22,6 +23,7 @@ import {
   writeStatusEvent
 } from "./streaming/sse.js";
 import { chunkContent, describePhase } from "./streaming/phases.js";
+import { ZERO_USAGE } from "./llm/client.js";
 import type { GraphState } from "./state/types.js";
 
 type ErrorWithMeta = Error & {
@@ -41,11 +43,16 @@ export function buildApp(config: AppConfig): FastifyInstance {
     rawCharsTotal: 0
   };
 
+  const sessionStore = createSessionStore({
+    redisUrl: config.SYNESIS_PLANNER_TS_REDIS_URL,
+    redisKeyPrefix: config.SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX
+  });
   const sessionManager = new SessionManager({
     enabled: config.SYNESIS_PLANNER_TS_SESSION_ENABLED,
     maxHistory: config.SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY,
     checkpointEveryMessages: config.SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES,
-    ttlMs: config.SYNESIS_PLANNER_TS_SESSION_TTL_MS
+    ttlMs: config.SYNESIS_PLANNER_TS_SESSION_TTL_MS,
+    store: sessionStore
   });
   const authzPolicyEngine = createAuthorizationPolicyEngine(config);
 
@@ -75,13 +82,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
       });
   }
 
-  function toState(
+  async function toState(
     requestBody: ReturnType<typeof ChatCompletionRequestSchema.parse>,
     auth: ReturnType<typeof resolveAuthContext>,
     authzTraceId: string,
     policyDecision: PolicyDecision
-  ): GraphState {
-    const incomingWithSession = sessionManager.enrichIncomingMessages(
+  ): Promise<GraphState> {
+    const incomingWithSession = await sessionManager.enrichIncomingMessages(
       requestBody.conversation_id || requestBody.user || "anon",
       requestBody.messages.map((m) => ({ role: m.role, content: m.content ?? "" }))
     );
@@ -130,10 +137,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
     status: "ok",
     service: "planner-ts",
     contextOptimization: optimizationCounters,
-    session: sessionManager.telemetry(),
+    session: await sessionManager.telemetry(),
     llm: {
       enabled: config.SYNESIS_PLANNER_TS_LLM_ENABLED,
-      baseUrlConfigured: Boolean(config.SYNESIS_PLANNER_TS_LLM_BASE_URL)
+      baseUrlConfigured: Boolean(config.SYNESIS_PLANNER_TS_LLM_BASE_URL),
+      prefixCacheMode: config.SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE
+    },
+    redis: {
+      configured: Boolean(config.SYNESIS_PLANNER_TS_REDIS_URL)
     },
     auth: {
       engine: authzPolicyEngine.engineName,
@@ -169,6 +180,51 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }))
   }));
 
+  app.delete("/v1/memory/:conversationId", async (request, reply) => {
+    const authzTraceId = crypto.randomUUID();
+    reply.header("x-synesis-authz-trace-id", authzTraceId);
+    reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
+    try {
+      const auth = resolveAuthContext(request, config);
+      const policyDecision = authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
+        traceId: authzTraceId
+      });
+      reply.header("x-synesis-authz-rules", policyDecision.matchedRules.join(","));
+      const { conversationId } = request.params as { conversationId: string };
+      if (!conversationId?.trim()) {
+        return reply.code(400).send({
+          error: { message: "conversation_id is required", type: "invalid_request_error", code: "400" }
+        });
+      }
+      const deleted = await sessionManager.purge(conversationId.trim());
+      request.log.info(
+        {
+          authzTraceId,
+          conversationId: conversationId.trim(),
+          userId: auth.userId,
+          deleted
+        },
+        "memory purge"
+      );
+      return { deleted, conversation_id: conversationId.trim(), authz_trace_id: authzTraceId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown server error";
+      const err = error as ErrorWithMeta;
+      if (err.policyDecision?.matchedRules?.length) {
+        reply.header("x-synesis-authz-rules", err.policyDecision.matchedRules.join(","));
+      }
+      request.log.warn({ authzTraceId, errorMessage: message }, "memory purge rejected");
+      const statusCode = err.statusCode ?? (message === "Missing Bearer token" ? 401 : 400);
+      return reply.code(statusCode).send({
+        error: {
+          message,
+          type: statusCode === 401 ? "authentication_error" : "invalid_request_error",
+          code: String(statusCode)
+        }
+      });
+    }
+  });
+
   app.post("/v1/chat/completions", async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
@@ -192,19 +248,20 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const body = ChatCompletionRequestSchema.parse(request.body);
       const created = Math.floor(Date.now() / 1000);
       const completionId = `chatcmpl-${crypto.randomUUID()}`;
-      const initialState = toState(body, auth, authzTraceId, policyDecision);
+      const initialState = await toState(body, auth, authzTraceId, policyDecision);
       const responseModel = initialState.response_model ?? body.model;
 
       if (!body.stream) {
         const state = await invokeGraph(initialState);
         const content = state.generated_code ?? "";
         const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-        sessionManager.recordTurn(
+        await sessionManager.recordTurn(
           body.conversation_id || body.user || "anon",
           latestUser ?? "",
           content
         );
         spawnBackgroundCritic(state, request.log);
+        const usage = state.llm_usage ?? ZERO_USAGE;
         return {
           id: completionId,
           object: "chat.completion",
@@ -218,10 +275,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
             }
           ],
           usage: {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-            cached_prompt_tokens: 0
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+            total_tokens: usage.total_tokens,
+            cached_prompt_tokens: usage.cached_prompt_tokens
           },
           run_id: state.run_id,
           authz_trace_id: state.authz_trace_id
@@ -261,7 +318,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const state = await invokeGraph(initialState).finally(() => clearInterval(heartbeat));
       const content = state.generated_code ?? "";
       const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-      sessionManager.recordTurn(
+      await sessionManager.recordTurn(
         body.conversation_id || body.user || "anon",
         latestUser ?? "",
         content
@@ -297,15 +354,16 @@ export function buildApp(config: AppConfig): FastifyInstance {
         node: "respond",
         authz_trace_id: authzTraceId
       });
+      const streamUsage = state.llm_usage ?? ZERO_USAGE;
       writeFinalChunk(reply.raw, {
         id: completionId,
         created,
         model: responseModel,
         usage: {
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0,
-          cached_prompt_tokens: 0
+          prompt_tokens: streamUsage.prompt_tokens,
+          completion_tokens: streamUsage.completion_tokens,
+          total_tokens: streamUsage.total_tokens,
+          cached_prompt_tokens: streamUsage.cached_prompt_tokens
         }
       });
       endSse(reply.raw);

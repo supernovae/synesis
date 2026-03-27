@@ -351,6 +351,104 @@ describe("API contract", () => {
     await app.close();
   });
 
+  it("includes cached_prompt_tokens in usage (non-stream)", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "prefix cache telemetry check" }],
+        stream: false
+      }
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.usage).toBeTruthy();
+    expect(typeof body.usage.prompt_tokens).toBe("number");
+    expect(typeof body.usage.completion_tokens).toBe("number");
+    expect(typeof body.usage.total_tokens).toBe("number");
+    expect(typeof body.usage.cached_prompt_tokens).toBe("number");
+    await app.close();
+  });
+
+  it("includes cached_prompt_tokens in SSE final chunk usage", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "stream usage check" }],
+        stream: true
+      }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('"cached_prompt_tokens"');
+    await app.close();
+  });
+
+  it("reports prefix cache mode and redis status on health", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({ method: "GET", url: "/health" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.llm?.prefixCacheMode).toBe("auto");
+    expect(body.redis).toBeTruthy();
+    expect(body.redis?.configured).toBe(false);
+    expect(body.session?.storeBackend).toBe("memory");
+    await app.close();
+  });
+
+  it("purges memory by conversation id", async () => {
+    const app = buildApp(makeConfig());
+    await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "hello" }],
+        conversation_id: "purge-test-conv",
+        stream: false
+      }
+    });
+    const purge = await app.inject({
+      method: "DELETE",
+      url: "/v1/memory/purge-test-conv"
+    });
+    expect(purge.statusCode).toBe(200);
+    const body = purge.json();
+    expect(body.deleted).toBe(true);
+    expect(body.conversation_id).toBe("purge-test-conv");
+    expect(typeof body.authz_trace_id).toBe("string");
+    await app.close();
+  });
+
+  it("returns deleted:false for non-existent conversation purge", async () => {
+    const app = buildApp(makeConfig());
+    const purge = await app.inject({
+      method: "DELETE",
+      url: "/v1/memory/nonexistent-conv"
+    });
+    expect(purge.statusCode).toBe(200);
+    expect(purge.json().deleted).toBe(false);
+    await app.close();
+  });
+
+  it("enforces auth on purge endpoint", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true"
+      })
+    );
+    const purge = await app.inject({
+      method: "DELETE",
+      url: "/v1/memory/test-conv"
+    });
+    expect(purge.statusCode).toBe(401);
+    await app.close();
+  });
+
   it("emits SSE status and completion chunks", async () => {
     const app = buildApp(makeConfig());
     const response = await app.inject({

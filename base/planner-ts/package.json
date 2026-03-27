@@ -17,6 +17,7 @@
     "@langchain/core": "*",
     "@langchain/langgraph": "*",
     "fastify": "*",
+    "ioredis": "^5.10.1",
     "zod": "*"
   },
   "devDependencies": {

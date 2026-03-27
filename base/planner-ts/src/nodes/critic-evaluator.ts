@@ -1,7 +1,9 @@
 import { CriticOutSchema, type CriticOut } from "../contracts/schemas.js";
-import { chatCompletion, isLlmAvailable } from "../llm/client.js";
+import { chatCompletion, isLlmAvailable, ZERO_USAGE, type LlmUsage } from "../llm/client.js";
 import type { GraphState } from "../state/types.js";
 import { validateWithRepair } from "../validation/json-repair.js";
+
+export type CriticResult = CriticOut & { usage: LlmUsage };
 
 function scoreDraft(state: GraphState): CriticOut["scores"] {
   const draft = state.generated_code ?? "";
@@ -67,11 +69,11 @@ function deterministicCritic(state: GraphState): CriticOut {
   };
 }
 
-async function llmCritic(state: GraphState): Promise<CriticOut> {
+async function llmCritic(state: GraphState): Promise<CriticResult> {
   if (!isLlmAvailable()) {
     throw new Error("LLM critic unavailable");
   }
-  const content = await chatCompletion({
+  const result = await chatCompletion({
     model: process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "Synesis",
     temperature: 0,
     max_tokens: state.critic_max_tokens ?? 1200,
@@ -87,13 +89,14 @@ async function llmCritic(state: GraphState): Promise<CriticOut> {
       }
     ]
   });
-  return validateWithRepair(content, CriticOutSchema);
+  const parsed = validateWithRepair(result.content, CriticOutSchema);
+  return { ...parsed, usage: result.usage };
 }
 
-export async function evaluateCritic(state: GraphState): Promise<CriticOut> {
+export async function evaluateCritic(state: GraphState): Promise<CriticResult> {
   const raw = state.critic_raw_json;
   if (typeof raw === "string" && raw.trim()) {
-    return validateWithRepair(raw, CriticOutSchema);
+    return { ...validateWithRepair(raw, CriticOutSchema), usage: ZERO_USAGE };
   }
   if (isLlmAvailable()) {
     try {
@@ -102,5 +105,5 @@ export async function evaluateCritic(state: GraphState): Promise<CriticOut> {
       // Fall through to deterministic critic.
     }
   }
-  return deterministicCritic(state);
+  return { ...deterministicCritic(state), usage: ZERO_USAGE };
 }

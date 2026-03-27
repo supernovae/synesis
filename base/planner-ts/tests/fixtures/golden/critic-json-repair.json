@@ -10,6 +10,11 @@
       ],
       "requested_format": "prose"
     },
+    "plan_required": true,
+    "execution_policy": {
+      "critic_background": false,
+      "critique_passes": 2
+    },
     "critic_raw_json": "{ \"approved\": true, \"need_more_evidence\": false, \"continue_reason\": \"\", \"blocking_issues\": [], \"nonblocking\": [], \"repair_instructions\": [], \"scores\": { \"grounding\": 7, \"correctness\": 8, \"actionability\": 7, \"clarity\": 8, \"weighted_overall\": 7.5, }, }"
   },
   "expect": {

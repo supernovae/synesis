@@ -35,11 +35,16 @@ describe("plan gate", () => {
 
   it("full pipeline produces response path", async () => {
     const state = await runCanonicalPipeline({
-      task_description: "Design planner migration strategy",
+      task_description:
+        "Design a comprehensive planner migration strategy that handles backward compatibility, state persistence across the TypeScript and Python runtimes, rollback procedures, and data migration for existing conversation histories",
       authz_trace_id: "trace-test-1",
       task_frame: {
         tasks: [{ description: "Migration strategy" }],
         requested_format: "prose"
+      },
+      execution_policy: {
+        critic_background: false,
+        critique_passes: 2
       }
     });
     expect(state.next_node).toBe("respond");

@@ -1,5 +1,10 @@
 import type { GraphState } from "../state/types.js";
-import { chatCompletion, isLlmAvailable } from "../llm/client.js";
+import { chatCompletion, isLlmAvailable, ZERO_USAGE, type LlmUsage } from "../llm/client.js";
+
+export interface WriterResult {
+  content: string;
+  usage: LlmUsage;
+}
 
 function renderEvidenceContext(state: GraphState): string {
   const packets = state.evidence_packets ?? [];
@@ -34,15 +39,15 @@ function deterministicDraft(state: GraphState): string {
   ].join("\n");
 }
 
-export async function composeWriterDraft(state: GraphState): Promise<string> {
+export async function composeWriterDraft(state: GraphState): Promise<WriterResult> {
   const fallback = deterministicDraft(state);
-  if (!isLlmAvailable()) return fallback;
+  if (!isLlmAvailable()) return { content: fallback, usage: ZERO_USAGE };
 
   try {
     const task = state.task_description ?? "No task provided";
     const planBlock = renderPlanContext(state);
     const evidenceBlock = renderEvidenceContext(state);
-    const output = await chatCompletion({
+    const result = await chatCompletion({
       model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0.2,
       max_tokens: state.writer_max_tokens ?? 1800,
@@ -64,10 +69,13 @@ export async function composeWriterDraft(state: GraphState): Promise<string> {
         }
       ]
     });
-    return output.trim() || fallback;
+    return {
+      content: result.content.trim() || fallback,
+      usage: result.usage
+    };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`[writer-compose] LLM writer failed, using deterministic fallback: ${detail}`);
-    return fallback;
+    return { content: fallback, usage: ZERO_USAGE };
   }
 }

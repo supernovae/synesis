@@ -93,24 +93,33 @@ export function classifyEntry(
   const riskScore = RISK_RE.test(text) ? 70 : 25;
   const taskSize: GraphState["task_size"] =
     difficulty < 0.2 ? "easy" : difficulty < 0.55 ? "medium" : "hard";
-  const planRequired = difficulty >= 0.45;
+  const inputPlanRequired = state.plan_required === true;
+  const planRequired = inputPlanRequired ? true : difficulty >= 0.45;
   const taskIsTrivial = difficulty < 0.15;
-  const ragMode: GraphState["rag_mode"] = difficulty < 0.2 ? "disabled" : difficulty < 0.45 ? "light" : "normal";
+  let ragMode: GraphState["rag_mode"] = difficulty < 0.2 ? "disabled" : difficulty < 0.45 ? "light" : "normal";
+  if (inputPlanRequired && ragMode === "disabled") {
+    ragMode = "light";
+  }
   const selectedMode = recommendEffortMode(
     state.requested_effort_mode,
     difficulty,
     riskScore,
     Number(taxonomy.complexity_score ?? 0.4)
   );
-  const executionPolicy = {
+  const baseExecutionPolicy: Record<string, unknown> = {
     ...policyForEffort(selectedMode, opts.criticBackgroundDefault),
     scaled_writer_budget: taskIsTrivial ? 768 : Math.round(1200 + (difficulty * 2600)),
     scaled_critic_budget: Math.round(800 + (difficulty * 1200))
   };
-  const policyRecord = executionPolicy as Record<string, unknown>;
-  const nextNode: GraphState["next_node"] = (taskIsTrivial || (ragMode === "disabled" && !planRequired))
-    ? "writer"
-    : "planner";
+  const inputPolicy =
+    state.execution_policy && typeof state.execution_policy === "object" && !Array.isArray(state.execution_policy)
+      ? (state.execution_policy as Record<string, unknown>)
+      : {};
+  const executionPolicy = { ...baseExecutionPolicy, ...inputPolicy };
+  const policyRecord = executionPolicy;
+  const useWriterFastPath =
+    !inputPlanRequired && (taskIsTrivial || (ragMode === "disabled" && !planRequired));
+  const nextNode: GraphState["next_node"] = useWriterFastPath ? "writer" : "planner";
 
   return {
     ...state,

@@ -10,6 +10,11 @@
       ],
       "requested_format": "prose"
     },
+    "plan_required": true,
+    "execution_policy": {
+      "critic_background": false,
+      "critique_passes": 2
+    },
     "draft_fingerprints": [
       "prior-a",
       "prior-b"
