@@ -7,6 +7,6 @@
 # Build:  ./scripts/build-images.sh --only open-webui --push
 # Pin:    bump the tag here when upgrading Open WebUI upstream.
 
-FROM ghcr.io/open-webui/open-webui:v0.8.11
+FROM ghcr.io/open-webui/open-webui:v0.8.12
 
 COPY synesis-theme.css /app/build/static/custom.css

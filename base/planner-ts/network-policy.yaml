@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: planner-ts-network-policy
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: planner
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-planner-ts
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-yarn
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-webui
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: synesis-mcp
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # LiteLLM gateway
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-gateway
+      ports:
+        - port: 4000
+          protocol: TCP
+    # DNS egress
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Fail-safe for startup/service discovery edge-cases.
+    - {}

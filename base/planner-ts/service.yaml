@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-planner-ts
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-planner-ts
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: planner
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: synesis-planner-ts
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

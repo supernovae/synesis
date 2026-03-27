@@ -2,7 +2,7 @@
 
 Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. In the dev (small) profile, it connects directly to the Synesis planner; in staging/prod it can route through LiteLLM.
 
-Synesis ships a thin child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.11`) that injects a branded light/dark theme via `/static/custom.css`. The theme is baked into the image — no manual CSS paste is required.
+Synesis ships a thin child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.12`) that injects a branded light/dark theme via `/static/custom.css`. The theme is baked into the image — no manual CSS paste is required.
 
 ## Zero-Configuration Setup
 
@@ -144,6 +144,8 @@ oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=100
 
 2. **Verify planner-ts is reachable**:
    ```bash
+   oc get deployment synesis-planner-ts -n synesis-planner
+   oc get svc synesis-planner-ts -n synesis-planner
    oc get pods -n synesis-planner -l app.kubernetes.io/name=synesis-planner-ts
    oc run -it --rm debug --image=curlimages/curl --restart=Never -n synesis-webui -- \
      curl -s http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1/models

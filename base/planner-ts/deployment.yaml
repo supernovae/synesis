@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-planner-ts
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-planner-ts
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: planner
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-planner-ts
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synesis-planner-ts
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: planner
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /health
+    spec:
+      containers:
+        - name: planner-ts
+          image: ghcr.io/supernovae/synesis/planner-ts:latest
+          imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: SYNESIS_PLANNER_TS_MODEL_ID
+              value: "Synesis Auto"
+            - name: SYNESIS_PLANNER_TS_MODEL_IDS
+              value: "Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon"
+            - name: SYNESIS_PLANNER_TS_LLM_ENABLED
+              value: "true"
+            - name: SYNESIS_PLANNER_TS_LLM_BASE_URL
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+            - name: SYNESIS_PLANNER_TS_WRITER_MODEL
+              value: "synesis-general"
+            - name: SYNESIS_PLANNER_TS_CRITIC_MODEL
+              value: "synesis-critic"
+            - name: SYNESIS_PLANNER_TS_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-secrets
+                  key: master-key
+                  optional: true
+            - name: SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH
+              value: "true"
+            - name: SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS
+              value: "true"
+            - name: SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE
+              value: "true"
+            - name: SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
