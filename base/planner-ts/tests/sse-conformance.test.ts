@@ -28,8 +28,14 @@ function parseSsePayloads(streamBody: string): SsePayload[] {
   return payloads;
 }
 
+function extractReasoningContent(payload: SsePayload): string | undefined {
+  const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : [];
+  const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;
+  return typeof delta.reasoning_content === "string" ? delta.reasoning_content : undefined;
+}
+
 describe("SSE conformance", () => {
-  it("emits status phases with stable authz trace and final chunk", async () => {
+  it("emits phase reasoning deltas and final chunk", async () => {
     const app = buildApp(makeConfig());
     const response = await app.inject({
       method: "POST",
@@ -48,22 +54,11 @@ describe("SSE conformance", () => {
     const payloads = parseSsePayloads(response.body);
     expect(payloads.length).toBeGreaterThan(2);
 
-    const statusEvents = payloads
-      .filter((payload) => typeof payload.event === "object" && payload.event !== null)
-      .map((payload) => payload.event as Record<string, unknown>);
-    expect(statusEvents.length).toBeGreaterThanOrEqual(2);
-
-    const initial = statusEvents[0] ?? {};
-    expect(String(initial.description ?? "")).toBe("Planner request accepted");
-    expect(initial.done).toBe(false);
-
-    const authzTraceId = String(initial.authz_trace_id ?? "");
-    expect(authzTraceId).toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-    expect(statusEvents.every((event) => String(event.authz_trace_id ?? "") === authzTraceId)).toBe(true);
-
-    const finalStatus = statusEvents[statusEvents.length - 1] ?? {};
-    expect(finalStatus.done).toBe(true);
-    expect(String(finalStatus.node ?? "")).toBe("respond");
+    const phaseDeltas = payloads
+      .map((p) => extractReasoningContent(p))
+      .filter((rc): rc is string => rc !== undefined);
+    expect(phaseDeltas.length).toBeGreaterThanOrEqual(2);
+    expect(phaseDeltas.some((d) => d.includes("Classifying"))).toBe(true);
 
     const chunks = payloads.filter((payload) => payload.object === "chat.completion.chunk");
     expect(chunks.length).toBeGreaterThanOrEqual(1);

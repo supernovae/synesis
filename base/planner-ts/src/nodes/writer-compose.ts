@@ -113,7 +113,7 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
     };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    console.error(`[writer-compose] LLM writer failed, using deterministic fallback: ${detail}`);
+    process.stderr.write(JSON.stringify({ level: 40, msg: "writer LLM call failed, using deterministic fallback", error: detail, time: Date.now() }) + "\n");
     return { content: fallback, usage: ZERO_USAGE };
   }
 }
@@ -149,7 +149,7 @@ export async function composeWriterDraftStream(
     };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    console.error(`[writer-compose] LLM streaming writer failed, using deterministic fallback: ${detail}`);
+    process.stderr.write(JSON.stringify({ level: 40, msg: "writer streaming LLM call failed, using deterministic fallback", error: detail, time: Date.now() }) + "\n");
     onDelta({ content: fallback });
     return { content: fallback, usage: ZERO_USAGE };
   }

@@ -463,9 +463,7 @@ describe("API contract", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/event-stream");
     const payload = response.body;
-    expect(payload).toContain('"event"');
-    expect(payload).toContain('"authz_trace_id"');
-    expect(payload).toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    expect(payload).toContain('"reasoning_content"');
     expect(payload).toContain('"chat.completion.chunk"');
     expect(payload).toContain("[DONE]");
     await app.close();

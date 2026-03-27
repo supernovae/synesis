@@ -135,33 +135,70 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   const outputSchema = Array.isArray(taskFrame.output_schema) ? taskFrame.output_schema.map(String) : [];
   const schemaHint = outputSchema.length > 0 ? ` Output schema fields: ${outputSchema.join(", ")}.` : "";
 
-  const result = await chatCompletion({
-    model: process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
-    temperature: 0,
-    max_tokens: 1200,
-    messages: [
-      {
-        role: "system",
-        content: [
-          "You are Synesis Planner. Produce a JSON plan for the user's request.",
-          "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
-          "RULES:",
-          "- List ALL material assumptions you are making to create this plan.",
-          "- List ALL open questions where the user's intent is genuinely ambiguous.",
-          "- Rate your confidence (0.0-1.0) that this plan addresses the user's actual need.",
-          "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
-          "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
-          `- Target format: ${requestedFormat}.${schemaHint}`,
-        ].join("\n"),
+  let result: { content: string; usage: LlmUsage };
+  try {
+    result = await chatCompletion({
+      model: process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+      temperature: 0,
+      max_tokens: 1200,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are Synesis Planner. Produce a JSON plan for the user's request.",
+            "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
+            "RULES:",
+            "- List ALL material assumptions you are making to create this plan.",
+            "- List ALL open questions where the user's intent is genuinely ambiguous.",
+            "- Rate your confidence (0.0-1.0) that this plan addresses the user's actual need.",
+            "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
+            "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
+            `- Target format: ${requestedFormat}.${schemaHint}`,
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: `${task}${feedback}${clarificationContext}`,
+        },
+      ],
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    process.stderr.write(JSON.stringify({ level: 40, msg: "llm planner call failed, using deterministic fallback", error: detail, time: Date.now() }) + "\n");
+    return {
+      result: {
+        plan: {
+          steps: [{ id: 1, action: `Answer: ${task}`, dependencies: [] }],
+          open_questions: [],
+          assumptions: ["LLM planner call failed — using deterministic plan"],
+          confidence: 0.5,
+          reasoning: `LLM planner unavailable: ${detail}`,
+        },
+        usage: ZERO_USAGE,
       },
-      {
-        role: "user",
-        content: `${task}${feedback}${clarificationContext}`,
-      },
-    ],
-  });
+    };
+  }
 
-  const parsed = validateWithRepair(result.content, PlannerOutputSchema);
+  let parsed: z.infer<typeof PlannerOutputSchema>;
+  try {
+    parsed = validateWithRepair(result.content, PlannerOutputSchema);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    process.stderr.write(JSON.stringify({ level: 40, msg: "planner output parse failed, using deterministic fallback", error: detail, raw_snippet: result.content.slice(0, 300), time: Date.now() }) + "\n");
+    return {
+      result: {
+        plan: {
+          steps: [{ id: 1, action: `Answer: ${task}`, dependencies: [] }],
+          open_questions: [],
+          assumptions: ["LLM returned unparseable plan — using deterministic plan"],
+          confidence: 0.5,
+          reasoning: `Parse failed: ${detail}`,
+        },
+        usage: result.usage,
+      },
+    };
+  }
+
   const planResult: LlmPlannerResult = { plan: parsed, usage: result.usage };
 
   if (shouldClarify(state, parsed)) {

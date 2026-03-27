@@ -107,7 +107,15 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
 
 async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
   const task = state.task_description ?? "User request";
-  const { result, clarification } = await runLlmPlanner(state);
+  let plannerResult: Awaited<ReturnType<typeof runLlmPlanner>>;
+  try {
+    plannerResult = await runLlmPlanner(state);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    process.stderr.write(JSON.stringify({ level: 40, msg: "llmDrivenPlanner failed, falling back to deterministic", error: detail, time: Date.now() }) + "\n");
+    return deterministicPlanner(state);
+  }
+  const { result, clarification } = plannerResult;
 
   if (clarification) {
     const planned = ensureForwarded(withNodeTrace({

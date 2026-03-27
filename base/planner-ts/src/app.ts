@@ -33,11 +33,9 @@ import { optimizeContext } from "./optimization/context-optimizer.js";
 import {
   endSse,
   initSse,
-  writeCompletionChunk,
   writeContentDelta,
   writeReasoningDelta,
   writeFinalChunk,
-  writeStatusEvent,
 } from "./streaming/sse.js";
 import { describePhase } from "./streaming/phases.js";
 import type { GraphState } from "./state/types.js";
@@ -470,71 +468,77 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const streamReqStart = Date.now();
       let firstTokenAt: number | undefined;
       initSse(reply.raw);
-      writeStatusEvent(reply.raw, {
-        description: "Planner request accepted",
-        done: false,
-        authz_trace_id: authzTraceId,
-      });
 
       let finalState: GraphState = initialState;
+      let streamingError: Error | undefined;
 
-      const writerDeltaHandler = (delta: import("./llm/client.js").StreamDelta) => {
-        if (reply.raw.writableEnded) return;
-        if (!firstTokenAt && (delta.content || delta.reasoning_content)) {
-          firstTokenAt = Date.now();
+      try {
+        const writerDeltaHandler = (delta: import("./llm/client.js").StreamDelta) => {
+          if (reply.raw.writableEnded) return;
+          if (!firstTokenAt && (delta.content || delta.reasoning_content)) {
+            firstTokenAt = Date.now();
+          }
+          if (delta.content) {
+            writeContentDelta(reply.raw, {
+              id: completionId,
+              created,
+              model: responseModel,
+              content: delta.content,
+            });
+          }
+          if (delta.reasoning_content) {
+            writeReasoningDelta(reply.raw, {
+              id: completionId,
+              created,
+              model: responseModel,
+              reasoning_content: delta.reasoning_content,
+            });
+          }
+        };
+
+        for await (const event of streamGraph(initialState, writerDeltaHandler)) {
+          if (reply.raw.writableEnded) break;
+          finalState = event.state;
+
+          if (event.node !== "respond") {
+            writeReasoningDelta(reply.raw, {
+              id: completionId,
+              created,
+              model: responseModel,
+              reasoning_content: `[${describePhase(event.node)}]\n`,
+            });
+          }
         }
-        if (delta.content) {
+
+        const content = finalState.generated_code ?? "";
+        const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+        await sessionManager.recordTurn(sessionKey, latestUser ?? "", content);
+
+        if (finalState.clarification_question) {
+          await sessionManager.setPendingClarification(sessionKey, {
+            question: finalState.clarification_question,
+            options: finalState.clarification_options ?? [],
+            assumptions: finalState.assumptions ?? [],
+          });
+        }
+
+        spawnBackgroundCritic(finalState, request.log);
+      } catch (err) {
+        streamingError = err instanceof Error ? err : new Error(String(err));
+        request.log.error(
+          { authzTraceId, error: streamingError.message },
+          "streaming graph execution failed",
+        );
+        if (!reply.raw.writableEnded) {
           writeContentDelta(reply.raw, {
             id: completionId,
             created,
             model: responseModel,
-            content: delta.content,
-          });
-        }
-        if (delta.reasoning_content) {
-          writeReasoningDelta(reply.raw, {
-            id: completionId,
-            created,
-            model: responseModel,
-            reasoning_content: delta.reasoning_content,
-          });
-        }
-      };
-
-      for await (const event of streamGraph(initialState, writerDeltaHandler)) {
-        if (reply.raw.writableEnded) break;
-        finalState = event.state;
-
-        if (event.node !== "respond") {
-          writeStatusEvent(reply.raw, {
-            description: describePhase(event.node),
-            done: false,
-            node: event.node,
-            authz_trace_id: authzTraceId,
+            content: "\n\nAn error occurred while processing your request. Please try again.",
           });
         }
       }
 
-      const content = finalState.generated_code ?? "";
-      const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-      await sessionManager.recordTurn(sessionKey, latestUser ?? "", content);
-
-      if (finalState.clarification_question) {
-        await sessionManager.setPendingClarification(sessionKey, {
-          question: finalState.clarification_question,
-          options: finalState.clarification_options ?? [],
-          assumptions: finalState.assumptions ?? [],
-        });
-      }
-
-      spawnBackgroundCritic(finalState, request.log);
-
-      writeStatusEvent(reply.raw, {
-        description: "Planner response complete",
-        done: true,
-        node: "respond",
-        authz_trace_id: authzTraceId,
-      });
       const streamUsage = finalState.llm_usage ?? ZERO_USAGE;
       const streamLatencyS = (Date.now() - streamReqStart) / 1000;
       recordUsageMetrics(metrics, responseModel, initialState.model_tier ?? "auto", streamUsage, streamLatencyS);
@@ -542,20 +546,22 @@ export function buildApp(config: AppConfig): FastifyInstance {
         mode: "streaming",
         timeToFirstTokenMs: firstTokenAt ? firstTokenAt - streamReqStart : undefined,
       });
-      writeFinalChunk(reply.raw, {
-        id: completionId,
-        created,
-        model: responseModel,
-        usage: {
-          prompt_tokens: streamUsage.prompt_tokens,
-          completion_tokens: streamUsage.completion_tokens,
-          total_tokens: streamUsage.total_tokens,
-          cached_prompt_tokens: streamUsage.cached_prompt_tokens,
-          estimated_cost_usd: streamUsage.estimated_cost_usd,
-          actual_cost_usd: streamUsage.actual_cost_usd,
-        },
-      });
-      endSse(reply.raw);
+      if (!reply.raw.writableEnded) {
+        writeFinalChunk(reply.raw, {
+          id: completionId,
+          created,
+          model: responseModel,
+          usage: {
+            prompt_tokens: streamUsage.prompt_tokens,
+            completion_tokens: streamUsage.completion_tokens,
+            total_tokens: streamUsage.total_tokens,
+            cached_prompt_tokens: streamUsage.cached_prompt_tokens,
+            estimated_cost_usd: streamUsage.estimated_cost_usd,
+            actual_cost_usd: streamUsage.actual_cost_usd,
+          },
+        });
+        endSse(reply.raw);
+      }
       return reply;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown server error";
