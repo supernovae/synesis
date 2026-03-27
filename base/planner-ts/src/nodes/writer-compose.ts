@@ -1,15 +1,13 @@
 import type { GraphState } from "../state/types.js";
 import { chatCompletion, isLlmAvailable } from "../llm/client.js";
 
-function renderEvidenceSection(state: GraphState): string {
+function renderEvidenceContext(state: GraphState): string {
   const packets = state.evidence_packets ?? [];
-  if (packets.length === 0) {
-    return "## Evidence\n\nNo external evidence packets were available for this iteration.";
-  }
+  if (packets.length === 0) return "";
 
-  const lines: string[] = ["## Evidence"];
+  const lines: string[] = [];
   for (const packet of packets.slice(0, 3)) {
-    lines.push(`\n### Query: ${packet.query}`);
+    lines.push(`Query: ${packet.query}`);
     lines.push(packet.summary || "No summary available.");
     for (const source of packet.sources.slice(0, 3)) {
       const docName = String(source.metadata.document_name ?? source.uri);
@@ -19,30 +17,21 @@ function renderEvidenceSection(state: GraphState): string {
   return lines.join("\n");
 }
 
-function renderPlanSection(state: GraphState): string {
+function renderPlanContext(state: GraphState): string {
   const plan = state.execution_plan ?? {};
   const steps = Array.isArray(plan.steps) ? plan.steps : [];
-  if (steps.length === 0) {
-    return "## Plan\n\nNo explicit plan steps were available.";
-  }
-  const lines = ["## Plan"];
-  for (const step of steps) {
-    lines.push(`- ${String(step.action ?? "Unnamed step")}`);
-  }
-  return lines.join("\n");
+  if (steps.length === 0) return "";
+  return steps.map((step) => `- ${String(step.action ?? "Unnamed step")}`).join("\n");
 }
 
 function deterministicDraft(state: GraphState): string {
   const prompt = state.task_description ?? "No user prompt supplied.";
-  const style = state.style_contract_locked ?? {};
-  const concise = style.precise === true;
-  const title = concise ? "# Response" : "# Draft Response";
-
-  const intro = concise
-    ? `Direct answer: ${prompt}`
-    : `This response addresses: ${prompt}`;
-
-  return [title, "", intro, "", renderPlanSection(state), "", renderEvidenceSection(state)].join("\n");
+  return [
+    `I understand your request: ${prompt}`,
+    "",
+    "I was unable to generate a fully grounded response at this time.",
+    "Please try again shortly, or rephrase your question for a more targeted answer."
+  ].join("\n");
 }
 
 export async function composeWriterDraft(state: GraphState): Promise<string> {
@@ -51,8 +40,8 @@ export async function composeWriterDraft(state: GraphState): Promise<string> {
 
   try {
     const task = state.task_description ?? "No task provided";
-    const planBlock = renderPlanSection(state);
-    const evidenceBlock = renderEvidenceSection(state);
+    const planBlock = renderPlanContext(state);
+    const evidenceBlock = renderEvidenceContext(state);
     const output = await chatCompletion({
       model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0.2,
@@ -70,7 +59,9 @@ export async function composeWriterDraft(state: GraphState): Promise<string> {
       ]
     });
     return output.trim() || fallback;
-  } catch {
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`[writer-compose] LLM writer failed, using deterministic fallback: ${detail}`);
     return fallback;
   }
 }

@@ -10,8 +10,9 @@ function scoreDraft(state: GraphState): CriticOut["scores"] {
 
   const grounding = hasEvidence && hasCitation ? 8 : hasEvidence ? 6 : 3;
   const correctness = draft.length > 80 ? 7 : 4;
-  const actionability = draft.includes("## Plan") ? 7 : 4;
-  const clarity = draft.includes("# ") ? 7 : 5;
+  const hasActionableContent = /```|\d+\.\s|^[-*]\s.{10,}/m.test(draft);
+  const actionability = hasActionableContent ? 7 : 4;
+  const clarity = draft.length > 200 ? 7 : 5;
   const weighted_overall = Number(
     ((grounding * 0.35) + (correctness * 0.25) + (actionability * 0.2) + (clarity * 0.2)).toFixed(2)
   );

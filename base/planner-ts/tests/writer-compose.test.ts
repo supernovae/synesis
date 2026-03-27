@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { composeWriterDraft } from "../src/nodes/writer-compose.js";
 
 describe("composeWriterDraft", () => {
-  it("renders plan and evidence sections", async () => {
+  it("deterministic fallback does not leak internal plan/evidence headers", async () => {
     const draft = await composeWriterDraft({
       task_description: "Migrate planner to TypeScript",
       execution_plan: { steps: [{ action: "Port reducers and validators" }] },
@@ -17,19 +17,21 @@ describe("composeWriterDraft", () => {
         }
       ]
     });
-    expect(draft).toContain("## Plan");
-    expect(draft).toContain("## Evidence");
-    expect(draft).toContain("[Source: doc - https://docs.example.com]");
+    expect(draft).not.toContain("## Plan");
+    expect(draft).not.toContain("## Evidence");
+    expect(draft).toContain("Migrate planner to TypeScript");
   });
 
-  it("supports precise style mode", async () => {
+  it("produces a user-friendly fallback message", async () => {
     const draft = await composeWriterDraft({
       task_description: "Answer quickly",
       style_contract_locked: { precise: true },
       execution_plan: { steps: [] },
       evidence_packets: []
     });
-    expect(draft.startsWith("# Response")).toBe(true);
-    expect(draft).toContain("Direct answer:");
+    expect(draft).toContain("Answer quickly");
+    expect(draft).toContain("unable to generate");
+    expect(draft).not.toContain("## Plan");
+    expect(draft).not.toContain("## Evidence");
   });
 });
