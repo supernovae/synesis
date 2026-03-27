@@ -32,6 +32,12 @@ export function emitTrace(
     headers,
     body: JSON.stringify(trace),
     signal: AbortSignal.timeout(config.timeoutMs ?? 3000),
+  }).then((resp) => {
+    if (!resp.ok) {
+      logger?.warn(
+        `trace emit HTTP ${resp.status} for ${trace.trace_id}: ${resp.statusText}`,
+      );
+    }
   }).catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
     logger?.warn(`trace emit failed: ${msg}`);

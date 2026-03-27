@@ -109,4 +109,5 @@ export interface TraceRecord {
     mode: "streaming" | "non-streaming";
     time_to_first_token_ms?: number;
   };
+  error?: string;
 }

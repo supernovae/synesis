@@ -580,6 +580,21 @@ export function buildApp(config: AppConfig): FastifyInstance {
       );
       const statusCode = err.statusCode
         ?? (message === "Missing Bearer token" ? 401 : 400);
+      const errorTrace: TraceRecord = {
+        service: "planner",
+        trace_id: authzTraceId,
+        request_id: authzTraceId,
+        timestamp: Date.now() / 1000,
+        user_id: "",
+        org_id: "",
+        tenant_id: "",
+        model: "unknown",
+        tokens: ZERO_USAGE,
+        cost: { estimated_usd: 0, actual_usd: 0, rates_snapshot: { input_per_million: 0, output_per_million: 0, cached_input_per_million: null } },
+        latency_ms: 0,
+        error: message,
+      };
+      emitTrace(errorTrace, traceEmitterConfig, app.log);
       return reply.code(statusCode).send({
         error: {
           message,

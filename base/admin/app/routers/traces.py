@@ -149,6 +149,56 @@ async def test_trace_pipeline(_user: UserInfo = Depends(require_platform_admin))
     }
 
 
+def _verify_service_token(request: Request) -> None:
+    """Verify the internal service token for service-to-service calls."""
+    if not INTERNAL_SERVICE_TOKEN:
+        return
+    token = (
+        request.headers.get("x-synesis-service-token", "")
+        or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    )
+    if token != INTERNAL_SERVICE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid service token")
+
+
+@router.post("/ingest")
+async def ingest_trace(request: Request, body: dict = Body(...)):
+    """Accept a trace record from planner-ts or yarn-ts via fire-and-forget POST."""
+    _verify_service_token(request)
+
+    service = body.get("service", "unknown")
+    trace_id = body.get("trace_id") or body.get("request_id", "")
+    tokens = body.get("tokens", {})
+    cost = body.get("cost", {})
+
+    total_tokens = tokens.get("total_tokens", 0) or (
+        tokens.get("prompt_tokens", 0) + tokens.get("completion_tokens", 0)
+    )
+
+    trace_data = {
+        "trace_id": trace_id,
+        "user_id": body.get("user_id", ""),
+        "org_id": body.get("org_id", ""),
+        "tenant_id": body.get("tenant_id", ""),
+        "query_snippet": "",
+        "timestamp": body.get("timestamp", time.time()),
+        "total_duration_ms": body.get("latency_ms", 0),
+        "total_tokens": total_tokens,
+        "estimated_cost_usd": cost.get("estimated_usd", 0),
+        "actual_cost_usd": cost.get("actual_usd", 0),
+        "full_record": body,
+    }
+
+    try:
+        await trace_store.upsert_trace(trace_data)
+        logger.info("trace_ingested service=%s trace_id=%s tokens=%d", service, trace_id, total_tokens)
+    except Exception:
+        logger.warning("trace_ingest_failed service=%s trace_id=%s", service, trace_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Trace ingestion failed")
+
+    return {"status": "ok", "trace_id": trace_id}
+
+
 @router.delete("/{trace_id}")
 async def delete_trace(trace_id: str, _user: UserInfo = Depends(require_platform_admin)):
     """Delete a single trace by ID."""
@@ -236,53 +286,3 @@ async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
     if not can_access_trace(_user, record):
         raise HTTPException(status_code=403, detail="Not authorized to view this trace")
     return record
-
-
-def _verify_service_token(request: Request) -> None:
-    """Verify the internal service token for service-to-service calls."""
-    if not INTERNAL_SERVICE_TOKEN:
-        return
-    token = (
-        request.headers.get("x-synesis-service-token", "")
-        or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    )
-    if token != INTERNAL_SERVICE_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid service token")
-
-
-@router.post("/ingest")
-async def ingest_trace(request: Request, body: dict = Body(...)):
-    """Accept a trace record from planner-ts or yarn-ts via fire-and-forget POST."""
-    _verify_service_token(request)
-
-    service = body.get("service", "unknown")
-    trace_id = body.get("trace_id") or body.get("request_id", "")
-    tokens = body.get("tokens", {})
-    cost = body.get("cost", {})
-
-    total_tokens = tokens.get("total_tokens", 0) or (
-        tokens.get("prompt_tokens", 0) + tokens.get("completion_tokens", 0)
-    )
-
-    trace_data = {
-        "trace_id": trace_id,
-        "user_id": body.get("user_id", ""),
-        "org_id": body.get("org_id", ""),
-        "tenant_id": body.get("tenant_id", ""),
-        "query_snippet": "",
-        "timestamp": body.get("timestamp", time.time()),
-        "total_duration_ms": body.get("latency_ms", 0),
-        "total_tokens": total_tokens,
-        "estimated_cost_usd": cost.get("estimated_usd", 0),
-        "actual_cost_usd": cost.get("actual_usd", 0),
-        "full_record": body,
-    }
-
-    try:
-        await trace_store.upsert_trace(trace_data)
-        logger.info("trace_ingested service=%s trace_id=%s tokens=%d", service, trace_id, total_tokens)
-    except Exception:
-        logger.warning("trace_ingest_failed service=%s trace_id=%s", service, trace_id, exc_info=True)
-        raise HTTPException(status_code=500, detail="Trace ingestion failed")
-
-    return {"status": "ok", "trace_id": trace_id}
