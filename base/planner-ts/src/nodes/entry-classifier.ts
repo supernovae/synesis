@@ -1,4 +1,11 @@
 import type { CynefinDomain, GraphState } from "../state/types.js";
+import {
+  clampBudgetToTierCeiling,
+  computeScaledCriticBudget,
+  computeScaledWriterBudget,
+} from "../budgets.js";
+import { loadConfig } from "../config.js";
+import { resolveTierSettings } from "../model-tiers.js";
 import { buildDomainProfile } from "./domain-profile.js";
 import { getScoringEngine, type ScoringResult } from "./scoring-engine.js";
 
@@ -139,10 +146,19 @@ export function classifyEntry(
     taxonomyComplexity,
   );
 
+  const cfg = loadConfig();
+  const tierCaps = resolveTierSettings(state.requested_model);
+  const tierWriterCeiling = state.writer_max_tokens ?? tierCaps.writerMaxTokens;
+  const tierCriticCeiling = state.critic_max_tokens ?? tierCaps.criticMaxTokens;
+  const scaledWriter = computeScaledWriterBudget(cfg, difficulty, taskIsTrivial);
+  const scaledCritic = computeScaledCriticBudget(cfg, difficulty);
+  const writerTokens = clampBudgetToTierCeiling(scaledWriter, tierWriterCeiling);
+  const criticTokens = clampBudgetToTierCeiling(scaledCritic, tierCriticCeiling);
+
   const baseExecutionPolicy: Record<string, unknown> = {
     ...policyForEffort(selectedMode, opts.criticBackgroundDefault),
-    scaled_writer_budget: taskIsTrivial ? 768 : Math.round(1200 + difficulty * 2600),
-    scaled_critic_budget: Math.round(800 + difficulty * 1200),
+    scaled_writer_budget: writerTokens,
+    scaled_critic_budget: criticTokens,
   };
   const inputPolicy =
     state.execution_policy && typeof state.execution_policy === "object" && !Array.isArray(state.execution_policy)
@@ -181,8 +197,8 @@ export function classifyEntry(
     selected_effort_mode: selectedMode,
     execution_policy: executionPolicy,
     max_iterations: Number(executionPolicy.max_iterations ?? 3),
-    writer_max_tokens: Number(executionPolicy.scaled_writer_budget ?? state.writer_max_tokens ?? 1800),
-    critic_max_tokens: Number(executionPolicy.scaled_critic_budget ?? state.critic_max_tokens ?? 1200),
+    writer_max_tokens: Number(executionPolicy.scaled_writer_budget ?? state.writer_max_tokens ?? cfg.SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE),
+    critic_max_tokens: Number(executionPolicy.scaled_critic_budget ?? state.critic_max_tokens ?? cfg.SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE),
     domain_profile: domainProfile,
     show_assumptions: showAssumptions,
     style_contract_locked: styleContractLocked,

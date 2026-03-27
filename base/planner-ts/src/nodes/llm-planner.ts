@@ -17,6 +17,7 @@ import { chatCompletion, isLlmAvailable, ZERO_USAGE, type LlmUsage } from "../ll
 import { validateWithRepair } from "../validation/json-repair.js";
 import type { GraphState } from "../state/types.js";
 import { TRUST_POLICY_COMPACT } from "../security/trust-prompts.js";
+import { loadConfig } from "../config.js";
 
 const PlannerOutputSchema = z.object({
   steps: z.array(z.object({
@@ -201,12 +202,13 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       prior.map((m) => `[${m.role}]: ${m.content.slice(0, 300)}`).join("\n") + "\n\n";
   }
 
+  const plannerCfg = loadConfig();
   let result: { content: string; usage: LlmUsage };
   try {
     result = await chatCompletion({
       model: process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0,
-      max_tokens: 1200,
+      max_tokens: plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
       messages: [
         {
           role: "system",

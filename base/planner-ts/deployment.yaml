@@ -60,6 +60,8 @@ spec:
               value: "synesis-general"
             - name: SYNESIS_PLANNER_TS_CRITIC_MODEL
               value: "synesis-critic"
+            - name: SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS
+              value: "300000"
             - name: SYNESIS_PLANNER_TS_LLM_API_KEY
               valueFrom:
                 secretKeyRef:

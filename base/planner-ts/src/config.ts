@@ -14,7 +14,21 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_LLM_API_KEY: z.string().default(""),
   SYNESIS_PLANNER_TS_WRITER_MODEL: z.string().default("Synesis"),
   SYNESIS_PLANNER_TS_CRITIC_MODEL: z.string().default("Synesis"),
-  SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS: z.coerce.number().default(15000),
+  SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS: z.coerce.number().default(300000),
+  /** Writer: trivial fast-path cap (tokens). */
+  SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET: z.coerce.number().default(768),
+  /** Writer: scaled budget at difficulty 0 (tokens). */
+  SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE: z.coerce.number().default(2048),
+  /** Writer: scaled budget at difficulty 1 before tier clamp (tokens). */
+  SYNESIS_PLANNER_TS_WRITER_BUDGET_MAX: z.coerce.number().default(32768),
+  /** Critic: linear scale base (tokens). */
+  SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE: z.coerce.number().default(800),
+  /** Critic: linear scale max before global clamp (tokens). */
+  SYNESIS_PLANNER_TS_CRITIC_BUDGET_MAX: z.coerce.number().default(4000),
+  /** Hard ceiling on critic `max_tokens` (tokens). */
+  SYNESIS_PLANNER_TS_CRITIC_MAX_TOKENS: z.coerce.number().default(4096),
+  /** LLM planner JSON plan output cap. */
+  SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS: z.coerce.number().default(1200),
   SYNESIS_PLANNER_TS_CRITIC_BACKGROUND: z
     .string()
     .optional()

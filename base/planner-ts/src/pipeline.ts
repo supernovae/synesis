@@ -23,6 +23,8 @@ import type { LlmUsage, TraceLLMCallRecord } from "@synesis/telemetry";
 import type { DecisionEntry } from "./contracts/schemas.js";
 import type { GraphState } from "./state/types.js";
 import { SpanCollector } from "./tracing/span-collector.js";
+import { loadConfig } from "./config.js";
+import { writerBudgetSpanMetadata } from "./budgets.js";
 
 let _retrievalClient: RetrievalClient | undefined;
 
@@ -119,6 +121,10 @@ export async function entryPipelineNode(state: GraphState): Promise<GraphState> 
     confidence: withFrame.difficulty ?? 0,
     metadata: {
       difficulty: withFrame.difficulty,
+      writer_max_tokens: withFrame.writer_max_tokens,
+      critic_max_tokens: withFrame.critic_max_tokens,
+      task_is_trivial: withFrame.task_is_trivial,
+      model_tier: withFrame.model_tier,
       task_size: withFrame.task_size,
       cynefin_domain: withFrame.cynefin_domain,
       plan_required: withFrame.plan_required,
@@ -188,6 +194,7 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
 
 async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
   const collector = ensureCollector(state);
+  const plannerCfg = loadConfig();
   const task = state.task_description ?? "User request";
   let plannerResult: Awaited<ReturnType<typeof runLlmPlanner>>;
   try {
@@ -195,7 +202,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     process.stderr.write(JSON.stringify({ level: 40, msg: "llmDrivenPlanner failed, falling back to deterministic", error: detail, time: Date.now() }) + "\n");
-    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail } });
+    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail, max_tokens: loadConfig().SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS } });
     return deterministicPlanner(state);
   }
   const { result, clarification } = plannerResult;
@@ -209,6 +216,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
       tokens_used: result.usage?.total_tokens ?? 0,
       llm_calls: llmCall ? [llmCall] : [],
       metadata: {
+        max_tokens: plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
         open_questions: result.plan.open_questions,
         assumptions: result.plan.assumptions,
         clarification_question: clarification.question,
@@ -245,6 +253,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
     tokens_used: result.usage?.total_tokens ?? 0,
     llm_calls: llmCall ? [llmCall] : [],
     metadata: {
+      max_tokens: plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
       steps_count: result.plan.steps.length,
       open_questions: result.plan.open_questions,
       assumptions: result.plan.assumptions,
@@ -376,6 +385,10 @@ async function writerNodeCore(state: GraphState): Promise<GraphState> {
     metadata: {
       content_length: result.content.length,
       evidence_packets_used: (state.evidence_packets ?? []).length,
+      ...writerBudgetSpanMetadata(
+        state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
+        result.usage,
+      ),
     },
   });
   return ensureForwarded({
@@ -404,6 +417,10 @@ async function writerNodeStreamingCore(
     metadata: {
       content_length: result.content.length,
       evidence_packets_used: (state.evidence_packets ?? []).length,
+      ...writerBudgetSpanMetadata(
+        state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
+        result.usage,
+      ),
     },
   });
   return ensureForwarded({
@@ -452,6 +469,10 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
       violations: allViolations.length,
       routed_to: routed,
       iteration,
+      ...writerBudgetSpanMetadata(
+        state.critic_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE,
+        criticResult.usage,
+      ),
     },
   });
   const critiqued = ensureForwarded({
@@ -590,7 +611,14 @@ export async function directStreamPipeline(
   state = classifyEntry({ ...state, _span_collector: collector, iteration_count: 0, max_iterations: 1 });
   collector.endSpan("entry_pipeline", {
     outcome: "direct_stream_fast_path",
-    metadata: { difficulty: state.difficulty, task_size: state.task_size },
+    metadata: {
+      difficulty: state.difficulty,
+      task_size: state.task_size,
+      writer_max_tokens: state.writer_max_tokens,
+      critic_max_tokens: state.critic_max_tokens,
+      task_is_trivial: state.task_is_trivial,
+      model_tier: state.model_tier,
+    },
   });
 
   if (!state.task_is_trivial && state.rag_mode !== "disabled") {
@@ -602,6 +630,12 @@ export async function directStreamPipeline(
   collector.endSpan("writer", {
     outcome: "direct_stream_complete",
     tokens_used: result.usage?.total_tokens ?? 0,
+    metadata: {
+      ...writerBudgetSpanMetadata(
+        state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
+        result.usage,
+      ),
+    },
   });
 
   return ensureForwarded({

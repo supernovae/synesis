@@ -15,6 +15,7 @@ import {
   wrapUntrusted,
 } from "../security/trust-prompts.js";
 import { sanitizeStepAction } from "../security/step-sanitizer.js";
+import { loadConfig } from "../config.js";
 
 export interface WriterResult {
   content: string;
@@ -135,7 +136,7 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
     const result = await chatCompletion({
       model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0.2,
-      max_tokens: state.writer_max_tokens ?? 1800,
+      max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
       messages: buildWriterMessages(state),
     });
     return {
@@ -169,7 +170,7 @@ export async function composeWriterDraftStream(
       {
         model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
         temperature: 0.2,
-        max_tokens: state.writer_max_tokens ?? 1800,
+        max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
         messages: buildWriterMessages(state),
       },
       onDelta,

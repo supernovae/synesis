@@ -4,7 +4,7 @@ Single-source reference for all token budgets, context limits, and temperature
 settings across the Synesis pipeline. Use this when tuning throughput, diagnosing
 truncation, or auditing model behavior.
 
-Last updated: 2026-03-15
+Last updated: 2026-03-27
 
 ---
 
@@ -26,6 +26,28 @@ formula is always `base + difficulty × (max − base)` unless noted.
 - **Hard** (difficulty 1.0): 32,768 tokens
 
 Scaling: `scaled_writer_budget(d) = 2048 + d × (32768 − 2048)`
+
+### planner-ts (`base/planner-ts`)
+
+Pure scaling lives in [`base/planner-ts/src/budgets.ts`](../base/planner-ts/src/budgets.ts); defaults are loaded via [`loadConfig`](../base/planner-ts/src/config.ts) (`SYNESIS_PLANNER_TS_*`). The entry classifier applies **tier ceilings** from [`model-tiers.ts`](../base/planner-ts/src/model-tiers.ts): `min(scaled_budget, tier.writerMaxTokens)` (and likewise for critic) so named tiers can cap output below the global curve.
+
+| Setting (env) | Default | Notes |
+|---|---|---|
+| `SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET` | 768 | Trivial fast-path writer |
+| `SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE` | 2,048 | Scaled writer at difficulty 0 |
+| `SYNESIS_PLANNER_TS_WRITER_BUDGET_MAX` | 32,768 | Scaled writer at difficulty 1 (before tier clamp) |
+| `SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE` | 800 | Critic linear scale |
+| `SYNESIS_PLANNER_TS_CRITIC_BUDGET_MAX` | 4,000 | Critic scale endpoint before global clamp |
+| `SYNESIS_PLANNER_TS_CRITIC_MAX_TOKENS` | 4,096 | Hard ceiling on critic `max_tokens` |
+| `SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS` | 1,200 | LLM JSON plan output |
+| `SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS` | 300,000 | LLM HTTP timeout (ms) |
+
+**Trace metadata** (see [`pipeline.ts`](../base/planner-ts/src/pipeline.ts)): `entry_pipeline` records `writer_max_tokens`, `critic_max_tokens`, `task_is_trivial`, `model_tier`; `writer` and `critic` spans add `max_output_tokens`, token usage fields, and `budget_utilization` when applicable; LLM `planner` spans include `max_tokens` for the planner call.
+
+**LiteLLM:** Each request’s effective generation limit is the minimum of the **LiteLLM route** `max_tokens` (from admin Model Registry / static gateway config) and the **provider** limit. Planner-ts still sends `max_tokens` on each node; the gateway may clamp further.
+
+**Legacy Python planner** (`base/planner/`): separate runtime; this doc aligns *intent* and formulas; it does not imply a shared on-disk config with planner-ts.
+
 
 ### Executor (text-mode responses)
 
@@ -202,6 +224,7 @@ Quick lookup for where to change each type of limit:
 | What to change | Primary file | Secondary file |
 |---|---|---|
 | Writer/evidence/section budgets | `base/planner/app/config.py` | — |
+| Writer / critic / planner budgets (TS) | `base/planner-ts/src/config.ts` | `base/planner-ts/src/budgets.ts`, `model-tiers.ts` |
 | Executor token budget curve | `base/planner/app/nodes/writer.py` | — |
 | LiteLLM max_tokens (self-hosted) | `base/gateway/litellm-config.yaml` | — |
 | LiteLLM max_tokens (OpenRouter) | `overlays/openrouter/litellm-config-openrouter.yaml` | — |

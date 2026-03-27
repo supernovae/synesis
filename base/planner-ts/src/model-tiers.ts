@@ -50,8 +50,8 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       responseModel: "Synesis Pulse",
       tier,
       critiquePasses: 1,
-      writerMaxTokens: 1000,
-      criticMaxTokens: 700
+      writerMaxTokens: 8192,
+      criticMaxTokens: 4096
     };
   }
 
@@ -61,8 +61,8 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       responseModel: "Synesis Horizon",
       tier,
       critiquePasses: 3,
-      writerMaxTokens: 2600,
-      criticMaxTokens: 1600
+      writerMaxTokens: 32768,
+      criticMaxTokens: 4096
     };
   }
 
@@ -72,8 +72,8 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       responseModel: "Synesis Core",
       tier,
       critiquePasses: 2,
-      writerMaxTokens: 1800,
-      criticMaxTokens: 1200
+      writerMaxTokens: 16384,
+      criticMaxTokens: 4096
     };
   }
 
@@ -82,7 +82,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
     responseModel: "Synesis Auto",
     tier: "auto",
     critiquePasses: 2,
-    writerMaxTokens: 1800,
-    criticMaxTokens: 1200
+    writerMaxTokens: 32768,
+    criticMaxTokens: 4096
   };
 }

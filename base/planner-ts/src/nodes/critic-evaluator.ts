@@ -2,6 +2,7 @@ import { CriticOutSchema, type CriticOut } from "../contracts/schemas.js";
 import { chatCompletion, isLlmAvailable, ZERO_USAGE, type LlmUsage } from "../llm/client.js";
 import type { GraphState } from "../state/types.js";
 import { validateWithRepair } from "../validation/json-repair.js";
+import { loadConfig } from "../config.js";
 import { TRUST_POLICY_COMPACT } from "../security/trust-prompts.js";
 
 export type CriticResult = CriticOut & { usage: LlmUsage };
@@ -179,7 +180,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
   const result = await chatCompletion({
     model: process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "Synesis",
     temperature: 0,
-    max_tokens: state.critic_max_tokens ?? 1200,
+    max_tokens: state.critic_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE,
     messages: [
       {
         role: "system",
