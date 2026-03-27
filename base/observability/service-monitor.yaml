@@ -1,7 +1,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: synesis-planner
+  name: synesis-planner-ts
   namespace: synesis-planner
   labels:
     app.kubernetes.io/part-of: synesis
@@ -9,7 +9,24 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: synesis-planner
+      app.kubernetes.io/name: synesis-planner-ts
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: synesis-yarn
+  namespace: synesis-yarn
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-yarn
   endpoints:
     - port: http
       interval: 15s

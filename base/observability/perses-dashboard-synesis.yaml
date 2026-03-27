@@ -5,7 +5,10 @@
 # - COO installed with Perses enabled (Observe > Dashboards (Perses) in OpenShift console)
 # - PersesDatasource named "prometheus-datasource" pointing to Thanos/Prometheus
 #   (COO or user workload monitoring). Create in same namespace as this dashboard.
-# - ServiceMonitors for synesis-planner, synesis-health-monitor, synesis-gateway
+# - ServiceMonitors for synesis-planner-ts, synesis-yarn, synesis-health-monitor, synesis-gateway
+#
+# Metrics source: planner-ts and yarn-ts use @synesis/telemetry (packages/synesis-telemetry)
+# which registers synesis_planner_* and synesis_yarn_* metrics via prom-client.
 #
 # Namespace: synesis-admin (same as admin UI). COO Perses must watch this namespace.
 apiVersion: perses.dev/v1alpha1
@@ -19,73 +22,103 @@ metadata:
 spec:
   display:
     name: Synesis - LLM Assistant Overview
-    description: Planner, RAG, sandbox, LSP, and critic metrics
+    description: Planner-ts, Yarn, sandbox, LSP, and model serving metrics
   duration: 1h
   refreshInterval: 30s
   layouts:
     - kind: Grid
       spec:
         display:
-          title: Request & Health
-        items:
-          - x: 0
-            y: 0
-            width: 12
-            height: 6
-            content:
-              $ref: "#/spec/panels/latency"
-          - x: 12
-            y: 0
-            width: 6
-            height: 6
-            content:
-              $ref: "#/spec/panels/service-health"
-          - x: 18
-            y: 0
-            width: 6
-            height: 6
-            content:
-              $ref: "#/spec/panels/circuit-breaker"
-    - kind: Grid
-      spec:
-        display:
-          title: Critic & Tokens
-        items:
-          - x: 0
-            y: 0
-            width: 12
-            height: 6
-            content:
-              $ref: "#/spec/panels/critic-rejections"
-          - x: 12
-            y: 0
-            width: 12
-            height: 6
-            content:
-              $ref: "#/spec/panels/token-throughput"
-    - kind: Grid
-      spec:
-        display:
-          title: RAG Retrieval
+          title: Planner
         items:
           - x: 0
             y: 0
             width: 8
             height: 6
             content:
-              $ref: "#/spec/panels/retrieval-source"
+              $ref: "#/spec/panels/planner-latency"
           - x: 8
             y: 0
             width: 8
             height: 6
             content:
-              $ref: "#/spec/panels/reranker-latency"
+              $ref: "#/spec/panels/planner-request-rate"
           - x: 16
             y: 0
             width: 8
             height: 6
             content:
-              $ref: "#/spec/panels/bm25-fallback"
+              $ref: "#/spec/panels/planner-cache-hit"
+          - x: 0
+            y: 6
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/planner-tokens"
+          - x: 8
+            y: 6
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/planner-cost"
+          - x: 16
+            y: 6
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/planner-compaction"
+    - kind: Grid
+      spec:
+        display:
+          title: Yarn
+        items:
+          - x: 0
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/yarn-latency"
+          - x: 8
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/yarn-request-rate"
+          - x: 16
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/yarn-cache-hit"
+          - x: 0
+            y: 6
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/yarn-tokens"
+          - x: 8
+            y: 6
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/yarn-cost"
+    - kind: Grid
+      spec:
+        display:
+          title: Health & Infrastructure
+        items:
+          - x: 0
+            y: 0
+            width: 12
+            height: 6
+            content:
+              $ref: "#/spec/panels/service-health"
+          - x: 12
+            y: 0
+            width: 12
+            height: 6
+            content:
+              $ref: "#/spec/panels/circuit-breaker"
     - kind: Grid
       spec:
         display:
@@ -141,23 +174,6 @@ spec:
     - kind: Grid
       spec:
         display:
-          title: Graph Internals
-        items:
-          - x: 0
-            y: 0
-            width: 12
-            height: 6
-            content:
-              $ref: "#/spec/panels/iteration-distribution"
-          - x: 12
-            y: 0
-            width: 12
-            height: 6
-            content:
-              $ref: "#/spec/panels/node-confidence"
-    - kind: Grid
-      spec:
-        display:
           title: Model Serving (vLLM)
         items:
           - x: 0
@@ -179,7 +195,8 @@ spec:
             content:
               $ref: "#/spec/panels/model-gpu-cache"
   panels:
-    latency:
+    # ── Planner (synesis_planner_* from @synesis/telemetry) ──────────────
+    planner-latency:
       kind: Panel
       spec:
         display:
@@ -200,7 +217,7 @@ spec:
                       datasource:
                         kind: PrometheusDatasource
                         name: prometheus-datasource
-                      query: histogram_quantile(0.95, rate(synesis_chat_duration_seconds_bucket[5m]))
+                      query: histogram_quantile(0.95, rate(synesis_planner_request_duration_seconds_bucket[5m]))
                   seriesNameFormat: p95
               - kind: TimeSeriesQuery
                 spec:
@@ -210,8 +227,237 @@ spec:
                       datasource:
                         kind: PrometheusDatasource
                         name: prometheus-datasource
-                      query: histogram_quantile(0.50, rate(synesis_chat_duration_seconds_bucket[5m]))
+                      query: histogram_quantile(0.50, rate(synesis_planner_request_duration_seconds_bucket[5m]))
                   seriesNameFormat: p50
+    planner-request-rate:
+      kind: Panel
+      spec:
+        display:
+          name: Planner Request Rate
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(rate(synesis_planner_request_total[5m])) by (status)
+                  seriesNameFormat: "{{status}}"
+    planner-tokens:
+      kind: Panel
+      spec:
+        display:
+          name: Planner Token Throughput
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(rate(synesis_planner_token_total[5m])) by (direction)
+                  seriesNameFormat: "{{direction}} tokens/sec"
+    planner-cost:
+      kind: Panel
+      spec:
+        display:
+          name: Planner Estimated Cost (USD)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(rate(synesis_planner_cost_estimated_usd_total[5m])) by (model)
+                  seriesNameFormat: "{{model}} $/sec"
+    planner-cache-hit:
+      kind: Panel
+      spec:
+        display:
+          name: Planner Prefix Cache Hit Ratio
+        plugin:
+          kind: GaugeChart
+          spec:
+            calculation: last
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: synesis_planner_cache_hit_ratio
+                  seriesNameFormat: "{{model}}"
+    planner-compaction:
+      kind: Panel
+      spec:
+        display:
+          name: Planner Compaction Events
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(rate(synesis_planner_compaction_total[5m])) by (type)
+                  seriesNameFormat: "{{type}}"
+    # ── Yarn (synesis_yarn_* from @synesis/telemetry) ────────────────────
+    yarn-latency:
+      kind: Panel
+      spec:
+        display:
+          name: Yarn Request Latency (p95/p50)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            unit: s
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.95, rate(synesis_yarn_request_duration_seconds_bucket[5m]))
+                  seriesNameFormat: p95
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.50, rate(synesis_yarn_request_duration_seconds_bucket[5m]))
+                  seriesNameFormat: p50
+    yarn-request-rate:
+      kind: Panel
+      spec:
+        display:
+          name: Yarn Request Rate
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(rate(synesis_yarn_request_total[5m])) by (status)
+                  seriesNameFormat: "{{status}}"
+    yarn-tokens:
+      kind: Panel
+      spec:
+        display:
+          name: Yarn Token Throughput
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(rate(synesis_yarn_token_total[5m])) by (direction)
+                  seriesNameFormat: "{{direction}} tokens/sec"
+    yarn-cost:
+      kind: Panel
+      spec:
+        display:
+          name: Yarn Estimated Cost (USD)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(rate(synesis_yarn_cost_estimated_usd_total[5m])) by (model)
+                  seriesNameFormat: "{{model}} $/sec"
+    yarn-cache-hit:
+      kind: Panel
+      spec:
+        display:
+          name: Yarn Prefix Cache Hit Ratio
+        plugin:
+          kind: GaugeChart
+          spec:
+            calculation: last
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: synesis_yarn_cache_hit_ratio
+                  seriesNameFormat: "{{model}}"
+    # ── Health & Infrastructure (from health-monitor, unchanged) ─────────
     service-health:
       kind: Panel
       spec:
@@ -252,125 +498,7 @@ spec:
                         name: prometheus-datasource
                       query: synesis_circuit_breaker_state
                   seriesNameFormat: "{{service}}"
-    critic-rejections:
-      kind: Panel
-      spec:
-        display:
-          name: Critic Rejection Rate
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-            queries:
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: rate(synesis_critic_rejections_total[5m])
-                  seriesNameFormat: rejections/sec
-    token-throughput:
-      kind: Panel
-      spec:
-        display:
-          name: Token Throughput
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-            queries:
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: rate(synesis_tokens_total[5m])
-                  seriesNameFormat: "{{model}} tokens/sec"
-    retrieval-source:
-      kind: Panel
-      spec:
-        display:
-          name: Retrieval Source Distribution
-        plugin:
-          kind: StatChart
-          spec:
-            calculation: last
-            queries:
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: sum(synesis_retrieval_source_total) by (source)
-                  seriesNameFormat: "{{source}}"
-    reranker-latency:
-      kind: Panel
-      spec:
-        display:
-          name: Re-ranker Latency (p95/p50)
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-            unit: s
-            queries:
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: histogram_quantile(0.95, rate(synesis_reranker_duration_seconds_bucket[5m]))
-                  seriesNameFormat: "{{reranker}} p95"
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: histogram_quantile(0.50, rate(synesis_reranker_duration_seconds_bucket[5m]))
-                  seriesNameFormat: "{{reranker}} p50"
-    bm25-fallback:
-      kind: Panel
-      spec:
-        display:
-          name: BM25 Fallback Rate
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-            queries:
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: rate(synesis_bm25_fallback_total[5m])
-                  seriesNameFormat: fallbacks/sec
+    # ── Sandbox (unchanged) ──────────────────────────────────────────────
     sandbox-executions:
       kind: Panel
       spec:
@@ -446,6 +574,7 @@ spec:
                         name: prometheus-datasource
                       query: sum(synesis_sandbox_failures_by_type_total) by (error_type)
                   seriesNameFormat: "{{error_type}}"
+    # ── LSP (unchanged) ─────────────────────────────────────────────────
     lsp-latency:
       kind: Panel
       spec:
@@ -541,48 +670,7 @@ spec:
                         name: prometheus-datasource
                       query: synesis_lsp_circuit_breaker_state
                   seriesNameFormat: "{{language}}"
-    iteration-distribution:
-      kind: Panel
-      spec:
-        display:
-          name: Graph Iteration Distribution
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-            queries:
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: synesis_graph_iterations_bucket
-                  seriesNameFormat: "{{le}} iterations"
-    node-confidence:
-      kind: Panel
-      spec:
-        display:
-          name: Average Confidence by Node
-        plugin:
-          kind: GaugeChart
-          spec:
-            calculation: last
-            queries:
-              - kind: TimeSeriesQuery
-                spec:
-                  plugin:
-                    kind: PrometheusTimeSeriesQuery
-                    spec:
-                      datasource:
-                        kind: PrometheusDatasource
-                        name: prometheus-datasource
-                      query: avg(synesis_node_confidence) by (node)
-                  seriesNameFormat: "{{node}}"
+    # ── Model Serving / vLLM (unchanged) ─────────────────────────────────
     model-ttft:
       kind: Panel
       spec:

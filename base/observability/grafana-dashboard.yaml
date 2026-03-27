@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: synesis-grafana-dashboard
-  namespace: synesis-planner
+  namespace: synesis-admin
   labels:
     app.kubernetes.io/part-of: synesis
     app.kubernetes.io/component: observability
@@ -19,16 +19,16 @@ data:
       "liveNow": false,
       "panels": [
         {
-          "title": "Planner Request Latency (p95)",
+          "title": "Planner Request Latency (p95/p50)",
           "type": "timeseries",
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, rate(synesis_chat_duration_seconds_bucket[5m]))",
+              "expr": "histogram_quantile(0.95, rate(synesis_planner_request_duration_seconds_bucket[5m]))",
               "legendFormat": "p95"
             },
             {
-              "expr": "histogram_quantile(0.50, rate(synesis_chat_duration_seconds_bucket[5m]))",
+              "expr": "histogram_quantile(0.50, rate(synesis_planner_request_duration_seconds_bucket[5m]))",
               "legendFormat": "p50"
             }
           ],
@@ -39,9 +39,77 @@ data:
           }
         },
         {
+          "title": "Planner Request Rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(rate(synesis_planner_request_total[5m])) by (status)",
+              "legendFormat": "{{status}}"
+            }
+          ]
+        },
+        {
+          "title": "Planner Token Throughput",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(synesis_planner_token_total[5m])) by (direction)",
+              "legendFormat": "{{direction}} tokens/sec"
+            }
+          ]
+        },
+        {
+          "title": "Planner Estimated Cost (USD)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(synesis_planner_cost_estimated_usd_total[5m])) by (model)",
+              "legendFormat": "{{model}} $/sec"
+            }
+          ]
+        },
+        {
+          "title": "Planner Prefix Cache Hit Ratio",
+          "type": "gauge",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+          "targets": [
+            {
+              "expr": "synesis_planner_cache_hit_ratio",
+              "legendFormat": "{{model}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "steps": [
+                  { "color": "red", "value": 0 },
+                  { "color": "orange", "value": 0.3 },
+                  { "color": "green", "value": 0.6 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "title": "Planner Compaction Events",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+          "targets": [
+            {
+              "expr": "sum(rate(synesis_planner_compaction_total[5m])) by (type)",
+              "legendFormat": "{{type}}"
+            }
+          ]
+        },
+        {
           "title": "Service Health",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
+          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 16 },
           "targets": [
             {
               "expr": "synesis_service_health",
@@ -58,7 +126,7 @@ data:
         {
           "title": "Circuit Breaker State",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 12, "x": 12, "y": 4 },
+          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 20 },
           "targets": [
             {
               "expr": "synesis_circuit_breaker_state",
@@ -80,86 +148,17 @@ data:
           }
         },
         {
-          "title": "Critic Rejection Rate",
+          "title": "Yarn Request Latency (p95/p50)",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
           "targets": [
             {
-              "expr": "rate(synesis_critic_rejections_total[5m])",
-              "legendFormat": "rejections/sec"
-            }
-          ]
-        },
-        {
-          "title": "Token Throughput",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-          "targets": [
-            {
-              "expr": "rate(synesis_tokens_total[5m])",
-              "legendFormat": "{{model}} tokens/sec"
-            }
-          ]
-        },
-        {
-          "title": "Iteration Distribution",
-          "type": "bargauge",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-          "targets": [
-            {
-              "expr": "synesis_graph_iterations_bucket",
-              "legendFormat": "{{le}} iterations"
-            }
-          ]
-        },
-        {
-          "title": "Average Confidence by Node",
-          "type": "gauge",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-          "targets": [
-            {
-              "expr": "avg(synesis_node_confidence) by (node)",
-              "legendFormat": "{{node}}"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "min": 0,
-              "max": 1,
-              "thresholds": {
-                "steps": [
-                  { "color": "red", "value": 0 },
-                  { "color": "orange", "value": 0.4 },
-                  { "color": "yellow", "value": 0.7 },
-                  { "color": "green", "value": 0.85 }
-                ]
-              }
-            }
-          }
-        },
-        {
-          "title": "Retrieval Source Distribution",
-          "type": "piechart",
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
-          "targets": [
-            {
-              "expr": "sum(synesis_retrieval_source_total) by (source)",
-              "legendFormat": "{{source}}"
-            }
-          ]
-        },
-        {
-          "title": "Re-ranker Latency (p95)",
-          "type": "timeseries",
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.95, rate(synesis_reranker_duration_seconds_bucket[5m]))",
-              "legendFormat": "{{reranker}} p95"
+              "expr": "histogram_quantile(0.95, rate(synesis_yarn_request_duration_seconds_bucket[5m]))",
+              "legendFormat": "p95"
             },
             {
-              "expr": "histogram_quantile(0.50, rate(synesis_reranker_duration_seconds_bucket[5m]))",
-              "legendFormat": "{{reranker}} p50"
+              "expr": "histogram_quantile(0.50, rate(synesis_yarn_request_duration_seconds_bucket[5m]))",
+              "legendFormat": "p50"
             }
           ],
           "fieldConfig": {
@@ -169,22 +168,57 @@ data:
           }
         },
         {
-          "title": "BM25 Fallback Rate",
+          "title": "Yarn Request Rate",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
           "targets": [
             {
-              "expr": "rate(synesis_bm25_fallback_total[5m])",
-              "legendFormat": "fallbacks/sec"
+              "expr": "sum(rate(synesis_yarn_request_total[5m])) by (status)",
+              "legendFormat": "{{status}}"
+            }
+          ]
+        },
+        {
+          "title": "Yarn Token Throughput",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+          "targets": [
+            {
+              "expr": "sum(rate(synesis_yarn_token_total[5m])) by (direction)",
+              "legendFormat": "{{direction}} tokens/sec"
+            }
+          ]
+        },
+        {
+          "title": "Yarn Estimated Cost (USD)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+          "targets": [
+            {
+              "expr": "sum(rate(synesis_yarn_cost_estimated_usd_total[5m])) by (model)",
+              "legendFormat": "{{model}} $/sec"
+            }
+          ]
+        },
+        {
+          "title": "Yarn Prefix Cache Hit Ratio",
+          "type": "gauge",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+          "targets": [
+            {
+              "expr": "synesis_yarn_cache_hit_ratio",
+              "legendFormat": "{{model}}"
             }
           ],
           "fieldConfig": {
             "defaults": {
+              "min": 0,
+              "max": 1,
               "thresholds": {
                 "steps": [
-                  { "color": "green", "value": 0 },
-                  { "color": "orange", "value": 0.01 },
-                  { "color": "red", "value": 0.1 }
+                  { "color": "red", "value": 0 },
+                  { "color": "orange", "value": 0.3 },
+                  { "color": "green", "value": 0.6 }
                 ]
               }
             }
@@ -193,7 +227,7 @@ data:
         {
           "title": "Sandbox Execution Success/Failure",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 48 },
           "targets": [
             {
               "expr": "rate(synesis_sandbox_executions_total{outcome=\"success\"}[5m])",
@@ -208,7 +242,7 @@ data:
         {
           "title": "Sandbox Latency by Language (p95)",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 48 },
           "targets": [
             {
               "expr": "histogram_quantile(0.95, rate(synesis_sandbox_duration_seconds_bucket[5m]))",
@@ -224,7 +258,7 @@ data:
         {
           "title": "Sandbox Failure Types",
           "type": "piechart",
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 48 },
           "targets": [
             {
               "expr": "sum(synesis_sandbox_failures_by_type_total) by (error_type)",
@@ -233,9 +267,9 @@ data:
           ]
         },
         {
-          "title": "LSP Analysis Latency (p95)",
+          "title": "LSP Analysis Latency (p95/p50)",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 56 },
           "targets": [
             {
               "expr": "histogram_quantile(0.95, rate(synesis_lsp_analysis_duration_seconds_bucket[5m]))",
@@ -255,7 +289,7 @@ data:
         {
           "title": "LSP Diagnostics by Severity",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 56 },
           "targets": [
             {
               "expr": "rate(synesis_lsp_diagnostics_count[5m])",
@@ -266,7 +300,7 @@ data:
         {
           "title": "LSP Language Usage",
           "type": "piechart",
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 40 },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 56 },
           "targets": [
             {
               "expr": "sum(synesis_lsp_analysis_requests_total{outcome=\"success\"}) by (language)",
@@ -277,7 +311,7 @@ data:
         {
           "title": "LSP Circuit Breaker State",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 12, "x": 0, "y": 48 },
+          "gridPos": { "h": 4, "w": 12, "x": 0, "y": 64 },
           "targets": [
             {
               "expr": "synesis_lsp_circuit_breaker_state",

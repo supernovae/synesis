@@ -22,55 +22,49 @@ ServiceMonitors    -->  Prometheus (user workload monitoring)
 2. Navigate to **Observe > Dashboards**
 3. Select **Synesis - LLM Assistant Overview**
 
-The dashboard is deployed to the `perses-dev` namespace as a `PersesDashboard` CR.
+The dashboard is deployed to the `synesis-admin` namespace as a `PersesDashboard` CR.
 A legacy Grafana ConfigMap (`synesis-grafana-dashboard`) also exists for clusters still
 running the Grafana Operator.
 
+## Metrics Source
+
+Planner-ts and yarn-ts both use the shared `@synesis/telemetry` package (`packages/synesis-telemetry/src/metrics.ts`) which registers a standardized metric set. All planner metrics use the `synesis_planner_*` prefix; all Yarn metrics use `synesis_yarn_*`. The same `createServiceMetrics()` factory ensures consistent naming, labels, and types across both runtimes.
+
 ## What's Monitored
 
-### Request and Health
+### Planner (synesis_planner_*)
 
 | Panel | PromQL | Description |
 |-------|--------|-------------|
-| Planner Latency (p95/p50) | `histogram_quantile(0.95, rate(synesis_chat_duration_seconds_bucket[5m]))` | End-to-end request latency |
+| Request Latency (p95/p50) | `histogram_quantile(0.95, rate(synesis_planner_request_duration_seconds_bucket[5m]))` | End-to-end planner request latency |
+| Request Rate | `sum(rate(synesis_planner_request_total[5m])) by (status)` | Request rate by status (ok/error) |
+| Token Throughput | `sum(rate(synesis_planner_token_total[5m])) by (direction)` | Tokens/sec by direction (in/out) |
+| Estimated Cost | `sum(rate(synesis_planner_cost_estimated_usd_total[5m])) by (model)` | Estimated USD/sec by model |
+| Prefix Cache Hit Ratio | `synesis_planner_cache_hit_ratio` | Rolling cache hit ratio per model |
+| Compaction Events | `sum(rate(synesis_planner_compaction_total[5m])) by (type)` | Session compaction events |
+
+### Yarn (synesis_yarn_*)
+
+| Panel | PromQL | Description |
+|-------|--------|-------------|
+| Request Latency (p95/p50) | `histogram_quantile(0.95, rate(synesis_yarn_request_duration_seconds_bucket[5m]))` | End-to-end Yarn request latency |
+| Request Rate | `sum(rate(synesis_yarn_request_total[5m])) by (status)` | Request rate by status (ok/error) |
+| Token Throughput | `sum(rate(synesis_yarn_token_total[5m])) by (direction)` | Tokens/sec by direction (in/out) |
+| Estimated Cost | `sum(rate(synesis_yarn_cost_estimated_usd_total[5m])) by (model)` | Estimated USD/sec by model |
+| Prefix Cache Hit Ratio | `synesis_yarn_cache_hit_ratio` | Rolling cache hit ratio per model |
+
+### Health & Infrastructure
+
+| Panel | PromQL | Description |
+|-------|--------|-------------|
 | Service Health | `synesis_service_health` | Per-service health gauge (1=up, 0=down) |
 | Circuit Breaker State | `synesis_circuit_breaker_state` | 0=closed, 1=half-open, 2=open |
 
 Admin API note:
 
 - `/api/v1/observability/circuit-breakers` combines:
-  - planner infrastructure/web breaker metrics (`synesis_circuit_breaker_*`, `synesis_web_search_breaker_*`)
+  - health-monitor infrastructure/web breaker metrics (`synesis_circuit_breaker_*`)
   - LiteLLM model endpoint health (`/health`) + `litellm_deployment_failure_total` for the LLM category
-- Planner-local `synesis_llm_*` breaker/retry/fallback metrics are not the default signal in gateway-only mode.
-
-### Critic and Tokens
-
-| Panel | PromQL | Description |
-|-------|--------|-------------|
-| Critic Rejection Rate | `rate(synesis_critic_rejections_total[5m])` | How often the critic rejects executor output |
-| Token Throughput | `rate(synesis_tokens_total[5m])` | Tokens/sec by model |
-
-### Token Budget Health
-
-| Panel | PromQL | Description |
-|-------|--------|-------------|
-| Budget Remaining (last) | `synesis_token_budget_remaining` | Last observed remaining budget at request end |
-| Budget Exhausted | `rate(synesis_token_budget_exhausted_total[5m])` | Requests hitting hard-stop (0 tokens left) |
-| Budget Degraded | `rate(synesis_token_budget_degraded_total[5m])` | Requests entering degraded mode (below warn threshold) |
-| Node Overspend | `rate(synesis_token_budget_overspend_total[5m])` | Per-node calls exceeding remaining budget |
-| Anomaly Trips | `rate(synesis_token_budget_anomaly_trips_total[5m])` | Repeated overspend anomaly signals |
-
-Config SSOT: `SYNESIS_TOKEN_BUDGET_TOTAL` (falls back to `SYNESIS_MAX_TOKENS_PER_REQUEST`).
-Warn threshold: `SYNESIS_TOKEN_BUDGET_WARN_PCT` (default 0.20 = 20% remaining).
-Admin API: `/api/v1/observability/token-budget` returns budget risk signals from planner metrics.
-
-### RAG Retrieval
-
-| Panel | PromQL | Description |
-|-------|--------|-------------|
-| Retrieval Source Distribution | `sum(synesis_retrieval_source_total) by (source)` | Milvus vs BM25 vs hybrid hits |
-| Re-ranker Latency | `histogram_quantile(0.95, rate(synesis_reranker_duration_seconds_bucket[5m]))` | FlashRank/BGE re-ranking time |
-| BM25 Fallback Rate | `rate(synesis_bm25_fallback_total[5m])` | Fallback when vector search fails |
 
 ### Sandbox
 
@@ -88,14 +82,6 @@ Admin API: `/api/v1/observability/token-budget` returns budget risk signals from
 | Diagnostics by Severity | `rate(synesis_lsp_diagnostics_count[5m])` | error, warning, info counts |
 | Language Usage | `sum(synesis_lsp_analysis_requests_total) by (language)` | Which languages get analyzed |
 | Circuit Breaker State | `synesis_lsp_circuit_breaker_state` | Per-language circuit state |
-
-### Graph Internals
-
-| Panel | PromQL | Description |
-|-------|--------|-------------|
-| Iteration Distribution | `synesis_graph_iterations_bucket` | How many graph iterations per request |
-| Average Confidence by Node | `synesis_node_confidence` | Per-node confidence scores |
-| Runs by critic turn kind | `sum(rate(synesis_runs_by_critic_turn_kind_total[5m])) by (critic_turn_kind)` | `final` vs `interactive_continue`, etc. (low-cardinality labels only) |
 
 **Traces (Postgres):** `conversation_id`, `parent_trace_id`, and `root_trace_id` link runs in a chat session. Admin: `GET /api/v1/traces?conversation_id=...` or `DELETE /api/v1/traces/session/{conversation_id}` to purge a session. Do not put raw conversation IDs on Prometheus metric labels.
 
@@ -126,7 +112,8 @@ All Synesis components read `SYNESIS_LOG_LEVEL` from the environment:
 
 **Components that respect `SYNESIS_LOG_LEVEL`:**
 
-- Planner (`base/planner/app/main.py`) -- central config via Pydantic Settings
+- Planner-ts (`base/planner-ts/src/config.ts`)
+- Yarn-ts (`base/yarn-ts/src/index.ts`)
 - Health Monitor (`base/planner/app/health_monitor.py`)
 - MCP Server (`base/mcp/app/server.py`)
 - LSP Gateway (`base/lsp/gateway/app/main.py`)
@@ -138,7 +125,7 @@ strategic merge patches (immune to env list reordering).
 ### Overriding at runtime
 
 ```bash
-oc set env deployment/synesis-planner -n synesis-planner SYNESIS_LOG_LEVEL=debug
+oc set env deployment/synesis-planner-ts -n synesis-planner SYNESIS_LOG_LEVEL=debug
 ```
 
 This triggers a rolling restart. To revert, redeploy the overlay.
@@ -147,7 +134,8 @@ This triggers a rolling restart. To revert, redeploy the overlay.
 
 | ServiceMonitor | Namespace | Targets | Interval |
 |---------------|-----------|---------|----------|
-| synesis-planner | synesis-planner | Planner API `/metrics` | 15s |
+| synesis-planner-ts | synesis-planner | Planner-ts API `/metrics` | 15s |
+| synesis-yarn | synesis-yarn | Yarn-ts API `/metrics` | 15s |
 | synesis-health-monitor | synesis-planner | Health monitor `/metrics` | 15s |
 | synesis-gateway | synesis-gateway | LiteLLM proxy `/metrics` | 15s |
 | synesis-lsp-gateway | synesis-lsp | LSP gateway `/metrics` | 15s |
@@ -166,32 +154,47 @@ No dashboard changes are needed when switching profiles.
 
 ## Adding New Metrics
 
-1. Define the metric in your Python module using `prometheus_client`:
+For planner-ts or yarn-ts, add metrics to the shared `@synesis/telemetry` package (`packages/synesis-telemetry/src/metrics.ts`) using the `createServiceMetrics()` factory:
+
+```typescript
+// In packages/synesis-telemetry/src/metrics.ts — ServiceMetrics interface
+myNewCounter: new Counter({
+  name: `synesis_${service}_my_new_total`,
+  help: `Description of the metric`,
+  registers: [registry],
+  labelNames: ["label1", "label2"],
+}),
+```
+
+For other Python services, use `prometheus_client`:
 
 ```python
 from prometheus_client import Counter
 MY_METRIC = Counter("synesis_my_metric_total", "Description", ["label"])
 ```
 
-2. Ensure the service exposes `/metrics` (FastAPI apps use `generate_latest()`)
+Steps:
+
+1. Define the metric in `@synesis/telemetry` (TypeScript) or the service module (Python)
+2. Ensure the service exposes `GET /metrics` (Fastify apps via `prom-client`; FastAPI via `generate_latest()`)
 3. Verify a ServiceMonitor exists for the namespace (see table above)
 4. Add a panel to `base/observability/perses-dashboard-synesis.yaml`
 5. Test with: `curl http://localhost:<port>/metrics | grep synesis_my_metric`
 
-## LLM Tracing: SynesisTracer
+## LLM Tracing: SpanCollector
 
-Synesis includes a lightweight built-in tracing system that captures per-request
-pipeline traces and persists them to Redis. No external infrastructure required —
-the tracer reuses the existing Redis instance already deployed for feedback storage
-and LangGraph checkpointing.
+Planner-ts includes a lightweight built-in tracing system (`SpanCollector` in
+`base/planner-ts/src/telemetry/`) that captures per-request pipeline spans and
+persists them to Redis. No external infrastructure required — the tracer reuses
+the existing Redis instance already deployed for feedback storage and session
+persistence.
 
-### What SynesisTracer Provides
+### What SpanCollector Provides
 
-- **Per-node span tracing**: entry_pipeline, router, planner, executor, writer, critic — auto-traced via LangChain `BaseCallbackHandler`
-- **Per-LLM-call detail**: model name, prompt/completion token counts, latency, truncated prompt/completion snippets
-- **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` attached to the trace record
-- **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, `response_length`
-- **Admin UI integration**: Trace list with filtering, trace detail with waterfall timeline, span tree, LLM call drill-down, and critic scores panel
+- **Per-node span tracing**: entry_pipeline, router, planner, retrieval, writer, critic — auto-traced via `SpanCollector`
+- **Per-LLM-call detail**: model name, prompt/completion token counts, latency
+- **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `response_length`
+- **Admin UI integration**: Trace list with filtering, trace detail with waterfall timeline
 
 ### Configuration
 
@@ -275,8 +278,8 @@ Run this after every indexer pipeline completion to close the feedback loop betw
 
 ## Future Enhancements
 
-- **PrometheusRule alerting**: Latency p95 > 60s, circuit breaker open, high critic
-  rejection rate, BM25 fallback spikes, model pod restarts
+- **PrometheusRule alerting**: Planner/Yarn latency p95 > 60s, circuit breaker open,
+  cost anomaly detection, model pod restarts
 - **Perses datasource TLS**: Enable if Thanos Querier enforces mTLS on your cluster
   (uncomment TLS section in `base/observability/perses-datasource.yaml`)
 - **Prompt optimization**: Use collected trace data for offline prompt tuning
