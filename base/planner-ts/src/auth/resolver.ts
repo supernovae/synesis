@@ -57,9 +57,12 @@ export function resolveAuthContext(request: FastifyRequest, config: AppConfig): 
   const tenantIdsFromHeader = parseCsvHeader(request.headers["x-synesis-tenant-ids"]);
   const scopeHeader = parseCsvHeader(request.headers["x-synesis-token-scopes"]);
 
+  const forwardedEmail = String(request.headers["x-openwebui-user-email"] ?? "");
+
   if (trustedForwarded) {
     return {
       userId: String(request.headers["x-openwebui-user-id"] ?? "forwarded-user"),
+      userEmail: forwardedEmail,
       orgId: String(request.headers["x-synesis-org-id"] ?? ""),
       tenantIds: tenantIdsFromHeader,
       role: "user",
@@ -72,6 +75,7 @@ export function resolveAuthContext(request: FastifyRequest, config: AppConfig): 
   if (!token) {
     return {
       userId: "anonymous",
+      userEmail: "",
       orgId: "",
       tenantIds: [],
       role: "readonly",
@@ -84,6 +88,7 @@ export function resolveAuthContext(request: FastifyRequest, config: AppConfig): 
   if (token.startsWith("syn-")) {
     return {
       userId: "pat-user",
+      userEmail: "",
       orgId: "",
       tenantIds: tenantIdsFromHeader,
       role: "user",
@@ -95,6 +100,7 @@ export function resolveAuthContext(request: FastifyRequest, config: AppConfig): 
 
   return {
     userId: "bearer-user",
+    userEmail: "",
     orgId: "",
     tenantIds: tenantIdsFromHeader,
     role: "user",

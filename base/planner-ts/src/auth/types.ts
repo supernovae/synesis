@@ -1,5 +1,6 @@
 export interface AuthContext {
   userId: string;
+  userEmail: string;
   orgId: string;
   tenantIds: string[];
   role: "readonly" | "user" | "org_admin" | "platform_admin";

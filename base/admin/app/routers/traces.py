@@ -180,7 +180,7 @@ async def ingest_trace(request: Request, body: dict = Body(...)):
         "user_id": body.get("user_id", ""),
         "org_id": body.get("org_id", ""),
         "tenant_id": body.get("tenant_id", ""),
-        "query_snippet": "",
+        "query_snippet": body.get("query_snippet", ""),
         "timestamp": body.get("timestamp", time.time()),
         "total_duration_ms": body.get("latency_ms", 0),
         "total_tokens": total_tokens,

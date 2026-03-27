@@ -97,6 +97,7 @@ export interface TraceRecord {
     rates_snapshot: PricingRates;
   };
   latency_ms: number;
+  query_snippet?: string;
   spans?: unknown[];
   decision_ledger?: unknown[];
   node_traces?: unknown[];

@@ -172,7 +172,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const baseState: GraphState = {
       messages: optimized.messages.map((m) => ({ role: m.role, content: m.content ?? "" })),
-      user_id: auth.userId,
+      user_id: auth.userEmail || auth.userId,
       org_id: auth.orgId,
       tenant_ids: auth.tenantIds,
       token_scopes: auth.tokenScopes,
@@ -367,10 +367,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
       trace_id: state.authz_trace_id ?? crypto.randomUUID(),
       request_id: state.run_id ?? crypto.randomUUID(),
       timestamp: Date.now() / 1000,
-      user_id: auth.userId,
+      user_id: auth.userEmail || auth.userId,
       org_id: auth.orgId,
       tenant_id: auth.tenantIds?.[0] ?? "",
       model,
+      query_snippet: state.task_description?.slice(0, 200) ?? "",
       tokens: usage,
       cost: {
         estimated_usd: usage.estimated_cost_usd,

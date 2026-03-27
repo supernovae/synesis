@@ -14,6 +14,7 @@ describe("authorization policy engine", () => {
     const engine = createAuthorizationPolicyEngine(makeConfig());
     const decision = engine.authorize("chat.completions", "invoke", {
       userId: "u1",
+      userEmail: "u1@test.com",
       orgId: "",
       tenantIds: [],
       role: "user",
@@ -31,6 +32,7 @@ describe("authorization policy engine", () => {
     const engine = createAuthorizationPolicyEngine(makeConfig());
     const decision = engine.authorize("chat.completions", "invoke", {
       userId: "u1",
+      userEmail: "u1@test.com",
       orgId: "",
       tenantIds: [],
       role: "user",
@@ -54,6 +56,7 @@ describe("authorization policy engine", () => {
     expect(engine.engineName).toBe("openfga_stub");
     const decision = engine.authorize("chat.completions", "invoke", {
       userId: "u1",
+      userEmail: "u1@test.com",
       orgId: "",
       tenantIds: [],
       role: "user",

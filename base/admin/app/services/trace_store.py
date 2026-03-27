@@ -10,6 +10,7 @@ import logging
 import time
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import case, desc, func, select
 
 from ..db.engine import async_session
@@ -274,11 +275,21 @@ async def upsert_trace(record: dict[str, Any]) -> None:
             stmt = stmt.on_conflict_do_update(
                 index_elements=["trace_id"],
                 set_={
-                    "total_duration_ms": stmt.excluded.total_duration_ms,
-                    "total_tokens": stmt.excluded.total_tokens,
-                    "estimated_cost_usd": stmt.excluded.estimated_cost_usd,
-                    "actual_cost_usd": stmt.excluded.actual_cost_usd,
-                    "full_record": stmt.excluded.full_record,
+                    "total_duration_ms": sa.func.greatest(
+                        Trace.total_duration_ms, stmt.excluded.total_duration_ms,
+                    ),
+                    "total_tokens": sa.func.greatest(
+                        Trace.total_tokens, stmt.excluded.total_tokens,
+                    ),
+                    "estimated_cost_usd": sa.func.greatest(
+                        Trace.estimated_cost_usd, stmt.excluded.estimated_cost_usd,
+                    ),
+                    "actual_cost_usd": sa.func.greatest(
+                        Trace.actual_cost_usd, stmt.excluded.actual_cost_usd,
+                    ),
+                    "full_record": sa.func.coalesce(Trace.full_record, sa.text("'{}'::jsonb")).op("||")(
+                        stmt.excluded.full_record,
+                    ),
                 },
             )
             await session.execute(stmt)
