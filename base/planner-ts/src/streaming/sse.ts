@@ -22,7 +22,7 @@ export function writeStatusEvent(response: ServerResponse, payload: StatusEventP
   writeSseData(response, { event: payload });
 }
 
-export function writeCompletionChunk(
+export function writeContentDelta(
   response: ServerResponse,
   payload: {
     id: string;
@@ -36,8 +36,39 @@ export function writeCompletionChunk(
     object: "chat.completion.chunk",
     created: payload.created,
     model: payload.model,
-    choices: [{ index: 0, delta: { content: payload.content }, finish_reason: null }]
+    choices: [{ index: 0, delta: { content: payload.content }, finish_reason: null }],
   });
+}
+
+export function writeReasoningDelta(
+  response: ServerResponse,
+  payload: {
+    id: string;
+    created: number;
+    model: string;
+    reasoning_content: string;
+  }
+): void {
+  writeSseData(response, {
+    id: payload.id,
+    object: "chat.completion.chunk",
+    created: payload.created,
+    model: payload.model,
+    choices: [{ index: 0, delta: { reasoning_content: payload.reasoning_content }, finish_reason: null }],
+  });
+}
+
+/** @deprecated Use writeContentDelta instead */
+export function writeCompletionChunk(
+  response: ServerResponse,
+  payload: {
+    id: string;
+    created: number;
+    model: string;
+    content: string;
+  }
+): void {
+  writeContentDelta(response, payload);
 }
 
 export function writeFinalChunk(

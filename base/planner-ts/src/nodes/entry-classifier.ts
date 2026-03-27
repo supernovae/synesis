@@ -1,4 +1,5 @@
 import type { GraphState } from "../state/types.js";
+import { buildDomainProfile } from "./domain-profile.js";
 
 type EffortMode = "pulse" | "core" | "horizon";
 
@@ -121,6 +122,18 @@ export function classifyEntry(
     !inputPlanRequired && (taskIsTrivial || (ragMode === "disabled" && !planRequired));
   const nextNode: GraphState["next_node"] = useWriterFastPath ? "writer" : "planner";
 
+  const domainProfile = state.domain_profile ?? buildDomainProfile(text);
+
+  const outputControls = (taxonomy.output_controls ?? {}) as Record<string, boolean>;
+  const showAssumptions = Boolean(outputControls.show_assumptions) || difficulty >= 0.55;
+
+  const styleContractLocked: Record<string, unknown> = {
+    clarify_first: Boolean(outputControls.clarify_first),
+    show_assumptions: showAssumptions,
+    precise: Boolean(outputControls.precise),
+    frame_coherence: domainProfile.frameCoherence,
+  };
+
   return {
     ...state,
     difficulty,
@@ -136,7 +149,10 @@ export function classifyEntry(
     max_iterations: Number(policyRecord.max_iterations ?? 3),
     writer_max_tokens: Number(policyRecord.scaled_writer_budget ?? state.writer_max_tokens ?? 1800),
     critic_max_tokens: Number(policyRecord.scaled_critic_budget ?? state.critic_max_tokens ?? 1200),
-    next_node: nextNode
+    domain_profile: domainProfile,
+    show_assumptions: showAssumptions,
+    style_contract_locked: styleContractLocked,
+    next_node: nextNode,
   };
 }
 

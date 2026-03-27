@@ -1,5 +1,13 @@
 import type { GraphState } from "../state/types.js";
-import { chatCompletion, isLlmAvailable, ZERO_USAGE, type LlmUsage } from "../llm/client.js";
+import {
+  chatCompletion,
+  chatCompletionStream,
+  isLlmAvailable,
+  ZERO_USAGE,
+  type LlmUsage,
+  type StreamDelta,
+  type ChatMessage,
+} from "../llm/client.js";
 
 export interface WriterResult {
   content: string;
@@ -39,43 +47,110 @@ function deterministicDraft(state: GraphState): string {
   ].join("\n");
 }
 
+function buildAssumptionInstructions(state: GraphState): string {
+  if (!state.show_assumptions) return "";
+
+  const assumptions = state.assumptions ?? [];
+  const answeredClarification = Boolean(state.user_answer_to_clarification);
+  const difficulty = state.difficulty ?? 0.3;
+
+  const rules: string[] = [
+    "ASSUMPTION AND ESTIMATE TAGGING RULES:",
+    "- When you make a material assumption that affects the answer, tag it inline with [Assumption: brief description].",
+    "- When you give a numerical approximation or estimate, tag it with [Estimate: brief basis].",
+  ];
+
+  if (answeredClarification) {
+    rules.push("- Items the user clarified should be tagged with [Clarified] to show they were confirmed.");
+  }
+
+  if (assumptions.length > 0) {
+    rules.push(`\nThe planner identified these assumptions: ${assumptions.map((a) => `"${a}"`).join(", ")}. Tag them in your response where relevant.`);
+  }
+
+  if (difficulty >= 0.6) {
+    rules.push("\nFor this complex topic, include a brief 'Assumptions & Caveats' section at the end summarizing key assumptions and their impact.");
+  }
+
+  return rules.join("\n");
+}
+
+function buildWriterMessages(state: GraphState): ChatMessage[] {
+  const task = state.task_description ?? "No task provided";
+  const planBlock = renderPlanContext(state);
+  const evidenceBlock = renderEvidenceContext(state);
+  const assumptionBlock = buildAssumptionInstructions(state);
+
+  const systemParts = [
+    "You are Synesis Writer.",
+    "Return only the final user-facing answer; do not expose internal planning scaffolds.",
+    "Never emit headings like 'Plan:', 'Evidence:', 'Answer:', 'Draft Response', or similar meta-sections unless the user explicitly asks for that format.",
+    "If the prompt is a follow-up request (e.g., 'more detail', 'expand', 'clarify'), extend the answer with new detail instead of repeating prior wording verbatim.",
+    "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - url].",
+  ];
+  if (assumptionBlock) systemParts.push(assumptionBlock);
+
+  return [
+    { role: "system" as const, content: systemParts.join(" ") },
+    { role: "user" as const, content: `Task:\n${task}\n\n${planBlock}\n\n${evidenceBlock}` },
+  ];
+}
+
 export async function composeWriterDraft(state: GraphState): Promise<WriterResult> {
   const fallback = deterministicDraft(state);
   if (!isLlmAvailable()) return { content: fallback, usage: ZERO_USAGE };
 
   try {
-    const task = state.task_description ?? "No task provided";
-    const planBlock = renderPlanContext(state);
-    const evidenceBlock = renderEvidenceContext(state);
     const result = await chatCompletion({
       model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0.2,
       max_tokens: state.writer_max_tokens ?? 1800,
-      messages: [
-        {
-          role: "system",
-          content:
-            [
-              "You are Synesis Writer.",
-              "Return only the final user-facing answer; do not expose internal planning scaffolds.",
-              "Never emit headings like 'Plan:', 'Evidence:', 'Answer:', 'Draft Response', or similar meta-sections unless the user explicitly asks for that format.",
-              "If the prompt is a follow-up request (e.g., 'more detail', 'expand', 'clarify'), extend the answer with new detail instead of repeating prior wording verbatim.",
-              "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - url]."
-            ].join(" ")
-        },
-        {
-          role: "user",
-          content: `Task:\n${task}\n\n${planBlock}\n\n${evidenceBlock}`
-        }
-      ]
+      messages: buildWriterMessages(state),
     });
     return {
       content: result.content.trim() || fallback,
-      usage: result.usage
+      usage: result.usage,
     };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`[writer-compose] LLM writer failed, using deterministic fallback: ${detail}`);
+    return { content: fallback, usage: ZERO_USAGE };
+  }
+}
+
+/**
+ * Streaming variant — calls onDelta for every token fragment so the SSE layer
+ * can forward them to the client in real-time. Returns the same WriterResult
+ * when complete so the critic can evaluate the full draft.
+ */
+export async function composeWriterDraftStream(
+  state: GraphState,
+  onDelta: (delta: StreamDelta) => void,
+): Promise<WriterResult> {
+  const fallback = deterministicDraft(state);
+  if (!isLlmAvailable()) {
+    onDelta({ content: fallback });
+    return { content: fallback, usage: ZERO_USAGE };
+  }
+
+  try {
+    const result = await chatCompletionStream(
+      {
+        model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+        temperature: 0.2,
+        max_tokens: state.writer_max_tokens ?? 1800,
+        messages: buildWriterMessages(state),
+      },
+      onDelta,
+    );
+    return {
+      content: result.content.trim() || fallback,
+      usage: result.usage,
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`[writer-compose] LLM streaming writer failed, using deterministic fallback: ${detail}`);
+    onDelta({ content: fallback });
     return { content: fallback, usage: ZERO_USAGE };
   }
 }

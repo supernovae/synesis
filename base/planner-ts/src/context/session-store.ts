@@ -8,6 +8,11 @@ export interface SessionData {
   lastSeenAt: number;
   history: ChatMessage[];
   checkpointBlock?: string;
+  pendingClarification?: {
+    question: string;
+    options: string[];
+    assumptions: string[];
+  };
 }
 
 export interface SessionStore {

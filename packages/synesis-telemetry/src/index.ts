@@ -4,6 +4,9 @@ export type {
   CostResult,
   UsageEvent,
   TraceRecord,
+  TraceSensemaking,
+  TraceCriticResult,
+  TraceClassification,
 } from "./types.js";
 
 export {

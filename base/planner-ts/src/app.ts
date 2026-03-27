@@ -9,6 +9,9 @@ import {
   emitTrace,
   type LlmUsage,
   type TraceRecord,
+  type TraceSensemaking,
+  type TraceCriticResult,
+  type TraceClassification,
 } from "@synesis/telemetry";
 import { ChatCompletionRequestSchema } from "./api-schemas.js";
 import { authorizeChatCompletionsWithPolicy } from "./auth/authorizer.js";
@@ -21,19 +24,22 @@ import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
 import { createSessionStore } from "./context/session-store.js";
-import { invokeGraph } from "./graph.js";
+import { invokeGraph, streamGraph } from "./graph.js";
 import { setPricingContext } from "./llm/client.js";
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
+import { buildDomainProfile } from "./nodes/domain-profile.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
 import { optimizeContext } from "./optimization/context-optimizer.js";
 import {
   endSse,
   initSse,
   writeCompletionChunk,
+  writeContentDelta,
+  writeReasoningDelta,
   writeFinalChunk,
-  writeStatusEvent
+  writeStatusEvent,
 } from "./streaming/sse.js";
-import { chunkContent, describePhase } from "./streaming/phases.js";
+import { describePhase } from "./streaming/phases.js";
 import type { GraphState } from "./state/types.js";
 
 type ErrorWithMeta = Error & {
@@ -95,18 +101,46 @@ export function buildApp(config: AppConfig): FastifyInstance {
           {
             authzTraceId: state.authz_trace_id,
             approved: result.approved,
-            needMoreEvidence: result.need_more_evidence
+            needMoreEvidence: result.need_more_evidence,
           },
-          "background critic completed"
+          "background critic completed",
         );
+        const criticTrace: TraceRecord = {
+          service: "planner",
+          trace_id: state.authz_trace_id ?? crypto.randomUUID(),
+          request_id: state.run_id ?? crypto.randomUUID(),
+          timestamp: Date.now() / 1000,
+          user_id: state.user_id ?? "",
+          org_id: state.org_id ?? "",
+          tenant_id: state.tenant_ids?.[0] ?? "",
+          model: state.response_model ?? state.requested_model ?? "unknown",
+          tokens: result.usage,
+          cost: {
+            estimated_usd: result.usage.estimated_cost_usd,
+            actual_usd: result.usage.actual_cost_usd,
+            rates_snapshot: pricingRegistry.getRates(
+              state.response_model ?? state.requested_model ?? "unknown",
+            ),
+          },
+          latency_ms: 0,
+          critic_result: {
+            approved: result.approved,
+            need_more_evidence: result.need_more_evidence,
+            scores: result.scores as unknown as Record<string, number>,
+            blocking_issues: result.blocking_issues ?? [],
+            nonblocking: result.nonblocking ?? [],
+            is_background: true,
+          },
+        };
+        emitTrace(criticTrace, traceEmitterConfig, app.log);
       })
       .catch((error: unknown) => {
         requestLog.warn(
           {
             authzTraceId: state.authz_trace_id,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
           },
-          "background critic failed"
+          "background critic failed",
         );
       });
   }
@@ -130,9 +164,15 @@ export function buildApp(config: AppConfig): FastifyInstance {
     optimizationCounters.rawCharsTotal += optimized.stats.rawCharsTotal;
 
     const userMessage = [...requestBody.messages].reverse().find((m) => m.role === "user");
+    const taskText = userMessage?.content ?? "";
     const tierSettings = resolveTierSettings(requestBody.model);
     const requestedEffortMode = tierSettings.tier;
-    return {
+
+    const domainProfile = buildDomainProfile(taskText);
+    const sessionKey = requestBody.conversation_id || requestBody.user || "anon";
+    const pendingClarification = await sessionManager.consumePendingClarification(sessionKey);
+
+    const baseState: GraphState = {
       messages: optimized.messages.map((m) => ({ role: m.role, content: m.content ?? "" })),
       user_id: auth.userId,
       org_id: auth.orgId,
@@ -146,7 +186,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       response_model: tierSettings.responseModel,
       model_tier: tierSettings.tier,
       requested_effort_mode: requestedEffortMode,
-      task_description: userMessage?.content ?? "",
+      task_description: taskText,
       evidence_packets: [],
       decision_ledger: [],
       critique_register: {},
@@ -156,10 +196,18 @@ export function buildApp(config: AppConfig): FastifyInstance {
       critic_max_tokens: tierSettings.criticMaxTokens,
       execution_policy: {
         critique_passes: tierSettings.critiquePasses,
-        critic_background: config.SYNESIS_PLANNER_TS_CRITIC_BACKGROUND
+        critic_background: config.SYNESIS_PLANNER_TS_CRITIC_BACKGROUND,
       },
-      run_id: requestBody.conversation_id ?? undefined
+      run_id: requestBody.conversation_id ?? undefined,
+      domain_profile: domainProfile,
     };
+
+    if (pendingClarification) {
+      baseState.user_answer_to_clarification = taskText;
+      baseState.assumptions = pendingClarification.assumptions;
+    }
+
+    return baseState;
   }
 
   app.get("/health", async () => ({
@@ -259,11 +307,60 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }
   });
 
+  function countAssumptionTags(text: string): TraceSensemaking["assumption_tags_applied"] {
+    return {
+      assumption: (text.match(/\[Assumption[:\]]/g) ?? []).length,
+      estimate: (text.match(/\[Estimate[:\]]/g) ?? []).length,
+      clarified: (text.match(/\[Clarified[\]]/g) ?? []).length,
+    };
+  }
+
+  function buildSensemakingTrace(state: GraphState): TraceSensemaking {
+    return {
+      domain_profile: state.domain_profile,
+      planner_confidence: state.planner_confidence ?? 0,
+      clarification_triggered: Boolean(state.clarification_question),
+      clarification_question: state.clarification_question,
+      clarification_options: state.clarification_options,
+      assumptions: state.assumptions ?? [],
+      frame_coherence: state.domain_profile?.frameCoherence ?? "unknown",
+      assumption_tags_applied: countAssumptionTags(state.generated_code ?? ""),
+    };
+  }
+
+  function buildClassificationTrace(state: GraphState): TraceClassification {
+    const taxonomy = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
+    return {
+      difficulty: state.difficulty ?? 0,
+      task_size: state.task_size ?? "unknown",
+      risk_score: state.risk_score ?? 0,
+      effort_mode: state.selected_effort_mode ?? state.recommended_effort_mode ?? "auto",
+      model_tier: state.model_tier ?? "auto",
+      rag_mode: state.rag_mode ?? "disabled",
+      plan_required: state.plan_required ?? false,
+      show_assumptions: state.show_assumptions ?? false,
+      taxonomy_key: String(taxonomy.taxonomy_key ?? "unknown"),
+    };
+  }
+
+  function buildInlineCriticTrace(state: GraphState): TraceCriticResult | undefined {
+    if (!state.critic_scores) return undefined;
+    return {
+      approved: state.critic_approved ?? false,
+      need_more_evidence: state.need_more_evidence ?? false,
+      scores: state.critic_scores ?? {},
+      blocking_issues: state.blocking_issues ?? [],
+      nonblocking: state.critic_nonblocking ?? [],
+      is_background: false,
+    };
+  }
+
   function emitPlannerTrace(
     state: GraphState,
     usage: LlmUsage,
     latencyMs: number,
     auth: ReturnType<typeof resolveAuthContext>,
+    streamingCtx?: { mode: "streaming" | "non-streaming"; timeToFirstTokenMs?: number },
   ): void {
     const model = state.response_model ?? state.requested_model ?? "unknown";
     const rates = pricingRegistry.getRates(model);
@@ -285,6 +382,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
       latency_ms: latencyMs,
       decision_ledger: state.decision_ledger,
       node_traces: state.node_traces,
+      sensemaking: buildSensemakingTrace(state),
+      classification: buildClassificationTrace(state),
+      critic_result: buildInlineCriticTrace(state),
+      iteration_count: state.iteration_count,
+      max_iterations: state.max_iterations,
+      streaming: streamingCtx
+        ? { mode: streamingCtx.mode, time_to_first_token_ms: streamingCtx.timeToFirstTokenMs }
+        : undefined,
     };
     emitTrace(trace, traceEmitterConfig, app.log);
   }
@@ -315,21 +420,28 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const initialState = await toState(body, auth, authzTraceId, policyDecision);
       const responseModel = initialState.response_model ?? body.model;
 
+      const sessionKey = body.conversation_id || body.user || "anon";
+
       if (!body.stream) {
         const reqStart = Date.now();
         const state = await invokeGraph(initialState);
         const content = state.generated_code ?? "";
         const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-        await sessionManager.recordTurn(
-          body.conversation_id || body.user || "anon",
-          latestUser ?? "",
-          content
-        );
+        await sessionManager.recordTurn(sessionKey, latestUser ?? "", content);
+
+        if (state.clarification_question) {
+          await sessionManager.setPendingClarification(sessionKey, {
+            question: state.clarification_question,
+            options: state.clarification_options ?? [],
+            assumptions: state.assumptions ?? [],
+          });
+        }
+
         spawnBackgroundCritic(state, request.log);
         const usage = state.llm_usage ?? ZERO_USAGE;
         const latencyS = (Date.now() - reqStart) / 1000;
         recordUsageMetrics(metrics, responseModel, initialState.model_tier ?? "auto", usage, latencyS);
-        emitPlannerTrace(state, usage, Date.now() - reqStart, auth);
+        emitPlannerTrace(state, usage, Date.now() - reqStart, auth, { mode: "non-streaming" });
         return {
           id: completionId,
           object: "chat.completion",
@@ -356,79 +468,80 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
 
       const streamReqStart = Date.now();
+      let firstTokenAt: number | undefined;
       initSse(reply.raw);
       writeStatusEvent(reply.raw, {
         description: "Planner request accepted",
         done: false,
-        authz_trace_id: authzTraceId
+        authz_trace_id: authzTraceId,
       });
-      writeStatusEvent(reply.raw, {
-        description: describePhase("entry_pipeline"),
-        done: false,
-        node: "entry_pipeline",
-        authz_trace_id: authzTraceId
-      });
-      if (initialState.next_node === "writer") {
-        writeStatusEvent(reply.raw, {
-          description: "Fast path selected for low-complexity request",
-          done: false,
-          node: "writer",
-          authz_trace_id: authzTraceId
-        });
-      }
 
-      const heartbeat = setInterval(() => {
+      let finalState: GraphState = initialState;
+
+      const writerDeltaHandler = (delta: import("./llm/client.js").StreamDelta) => {
         if (reply.raw.writableEnded) return;
-        writeStatusEvent(reply.raw, {
-          description: "Planner is still processing",
-          done: false,
-          authz_trace_id: authzTraceId
-        });
-      }, 1800);
+        if (!firstTokenAt && (delta.content || delta.reasoning_content)) {
+          firstTokenAt = Date.now();
+        }
+        if (delta.content) {
+          writeContentDelta(reply.raw, {
+            id: completionId,
+            created,
+            model: responseModel,
+            content: delta.content,
+          });
+        }
+        if (delta.reasoning_content) {
+          writeReasoningDelta(reply.raw, {
+            id: completionId,
+            created,
+            model: responseModel,
+            reasoning_content: delta.reasoning_content,
+          });
+        }
+      };
 
-      const state = await invokeGraph(initialState).finally(() => clearInterval(heartbeat));
-      const content = state.generated_code ?? "";
+      for await (const event of streamGraph(initialState, writerDeltaHandler)) {
+        if (reply.raw.writableEnded) break;
+        finalState = event.state;
+
+        if (event.node !== "respond") {
+          writeStatusEvent(reply.raw, {
+            description: describePhase(event.node),
+            done: false,
+            node: event.node,
+            authz_trace_id: authzTraceId,
+          });
+        }
+      }
+
+      const content = finalState.generated_code ?? "";
       const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-      await sessionManager.recordTurn(
-        body.conversation_id || body.user || "anon",
-        latestUser ?? "",
-        content
-      );
-      spawnBackgroundCritic(state, request.log);
+      await sessionManager.recordTurn(sessionKey, latestUser ?? "", content);
 
-      const traces = state.node_traces ?? [];
-      const emitted = new Set<string>();
-      for (const trace of traces) {
-        const node = typeof trace === "object" && trace !== null ? String((trace as { node_name?: string }).node_name ?? "") : "";
-        if (!node || emitted.has(node)) continue;
-        emitted.add(node);
-        writeStatusEvent(reply.raw, {
-          description: describePhase(node),
-          done: false,
-          node,
-          authz_trace_id: authzTraceId
+      if (finalState.clarification_question) {
+        await sessionManager.setPendingClarification(sessionKey, {
+          question: finalState.clarification_question,
+          options: finalState.clarification_options ?? [],
+          assumptions: finalState.assumptions ?? [],
         });
       }
 
-      for (const chunk of chunkContent(content)) {
-        writeCompletionChunk(reply.raw, {
-          id: completionId,
-          created,
-          model: responseModel,
-          content: chunk
-        });
-      }
+      spawnBackgroundCritic(finalState, request.log);
 
       writeStatusEvent(reply.raw, {
         description: "Planner response complete",
         done: true,
         node: "respond",
-        authz_trace_id: authzTraceId
+        authz_trace_id: authzTraceId,
       });
-      const streamUsage = state.llm_usage ?? ZERO_USAGE;
+      const streamUsage = finalState.llm_usage ?? ZERO_USAGE;
       const streamLatencyS = (Date.now() - streamReqStart) / 1000;
       recordUsageMetrics(metrics, responseModel, initialState.model_tier ?? "auto", streamUsage, streamLatencyS);
-      emitPlannerTrace(state, streamUsage, Date.now() - streamReqStart, auth);
+      emitPlannerTrace(finalState, streamUsage, Date.now() - streamReqStart, auth, {
+        mode: "streaming",
+        timeToFirstTokenMs: firstTokenAt ? firstTokenAt - streamReqStart : undefined,
+      });
       writeFinalChunk(reply.raw, {
         id: completionId,
         created,
@@ -439,8 +552,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
           total_tokens: streamUsage.total_tokens,
           cached_prompt_tokens: streamUsage.cached_prompt_tokens,
           estimated_cost_usd: streamUsage.estimated_cost_usd,
-          actual_cost_usd: streamUsage.actual_cost_usd
-        }
+          actual_cost_usd: streamUsage.actual_cost_usd,
+        },
       });
       endSse(reply.raw);
       return reply;

@@ -102,6 +102,31 @@ export class SessionManager {
     await this.store.set(key, session, this.opts.ttlMs);
   }
 
+  async setPendingClarification(
+    key: string,
+    clarification: { question: string; options: string[]; assumptions: string[] },
+  ): Promise<void> {
+    if (!this.opts.enabled) return;
+    const session = await this.ensureSession(key);
+    session.pendingClarification = clarification;
+    session.lastSeenAt = this.now();
+    await this.store.set(key, session, this.opts.ttlMs);
+  }
+
+  async consumePendingClarification(
+    key: string,
+  ): Promise<{ question: string; options: string[]; assumptions: string[] } | undefined> {
+    if (!this.opts.enabled) return undefined;
+    const session = await this.ensureSession(key);
+    const pending = session.pendingClarification;
+    if (pending) {
+      session.pendingClarification = undefined;
+      session.lastSeenAt = this.now();
+      await this.store.set(key, session, this.opts.ttlMs);
+    }
+    return pending;
+  }
+
   async purge(key: string): Promise<boolean> {
     return this.store.delete(key);
   }

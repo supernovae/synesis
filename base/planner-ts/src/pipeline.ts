@@ -12,7 +12,10 @@ import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { planGate } from "./nodes/plan-gate.js";
 import { runRouter } from "./nodes/router.js";
 import { validatedNode } from "./nodes/validated-node.js";
-import { composeWriterDraft } from "./nodes/writer-compose.js";
+import { composeWriterDraft, composeWriterDraftStream } from "./nodes/writer-compose.js";
+import { runLlmPlanner, isClarificationWaiver } from "./nodes/llm-planner.js";
+import { isLlmAvailable } from "./llm/client.js";
+import type { StreamDelta } from "./llm/client.js";
 import { mergeUsage } from "@synesis/telemetry";
 import type { DecisionEntry } from "./contracts/schemas.js";
 import type { GraphState } from "./state/types.js";
@@ -80,10 +83,85 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
         open_questions: [],
         assumptions: []
       },
+      planner_confidence: 0.9,
       plan_gate_passed: true,
       next_node: "router"
     }, "planner"));
   }
+
+  if (state.user_answer_to_clarification && isClarificationWaiver(state.user_answer_to_clarification)) {
+    return ensureForwarded(withNodeTrace({
+      ...state,
+      clarification_question: undefined,
+      clarification_options: undefined,
+      plan_gate_passed: true,
+      next_node: "router"
+    }, "planner"));
+  }
+
+  if (isLlmAvailable()) {
+    return llmDrivenPlanner(state);
+  }
+  return deterministicPlanner(state);
+}
+
+async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
+  const task = state.task_description ?? "User request";
+  const { result, clarification } = await runLlmPlanner(state);
+
+  if (clarification) {
+    const planned = ensureForwarded(withNodeTrace({
+      ...state,
+      execution_plan: {
+        steps: result.plan.steps.map((s) => ({ ...s, files: [], dependencies: s.dependencies ?? [] })),
+        open_questions: result.plan.open_questions,
+        assumptions: result.plan.assumptions,
+      },
+      assumptions: result.plan.assumptions,
+      planner_confidence: result.plan.confidence,
+      clarification_question: clarification.question,
+      clarification_options: clarification.options,
+      llm_usage: mergeUsage(state.llm_usage, result.usage),
+      next_node: "respond",
+      generated_code: clarification.question,
+    }, "planner"));
+    return appendDecisionLedger(planned, {
+      category: "approach",
+      chosen: "clarify_before_acting",
+      rejected_alternatives: ["proceed_with_assumptions"],
+      rationale: `Planner triggered clarification (confidence=${result.plan.confidence}, open_questions=${result.plan.open_questions.length}, frame=${state.domain_profile?.frameCoherence ?? "unknown"})`,
+      decided_by: "planner",
+      frozen: false,
+    });
+  }
+
+  const feedback = state.plan_gate_feedback ? `\nFeedback: ${state.plan_gate_feedback}` : "";
+  const planned = ensureForwarded(withNodeTrace({
+    ...state,
+    execution_plan: {
+      steps: result.plan.steps.map((s) => ({ ...s, files: [], dependencies: s.dependencies ?? [] })),
+      open_questions: result.plan.open_questions,
+      assumptions: result.plan.assumptions,
+    },
+    assumptions: result.plan.assumptions,
+    planner_confidence: result.plan.confidence,
+    clarification_question: undefined,
+    clarification_options: undefined,
+    llm_usage: mergeUsage(state.llm_usage, result.usage),
+    next_node: "plan_gate",
+    plan_gate_feedback: `Plan drafted for: ${task}${feedback}`,
+  }, "planner"));
+  return appendDecisionLedger(planned, {
+    category: "approach",
+    chosen: "plan_then_gate",
+    rejected_alternatives: ["direct_writer_without_plan", "clarify_before_acting"],
+    rationale: `LLM planner generated plan (confidence=${result.plan.confidence}, assumptions=${result.plan.assumptions.length}, authz_trace_id=${state.authz_trace_id ?? "none"})`,
+    decided_by: "planner",
+    frozen: false,
+  });
+}
+
+function deterministicPlanner(state: GraphState): GraphState {
   const task = state.task_description ?? "User request";
   const feedback = state.plan_gate_feedback ? `\n\nPlan gate feedback:\n${state.plan_gate_feedback}` : "";
   const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
@@ -102,6 +180,7 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
       open_questions: [],
       assumptions: []
     },
+    planner_confidence: 0.7,
     next_node: "plan_gate",
     plan_gate_feedback: `Plan drafted for: ${task}${feedback}`
   }, "planner"));
@@ -109,9 +188,9 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
     category: "approach",
     chosen: "plan_then_gate",
     rejected_alternatives: ["direct_writer_without_plan"],
-    rationale: `Planner generated execution plan before writer handoff (authz_trace_id=${state.authz_trace_id ?? "none"})`,
+    rationale: `Deterministic planner generated execution plan (authz_trace_id=${state.authz_trace_id ?? "none"})`,
     decided_by: "planner",
-    frozen: false
+    frozen: false,
   });
 }
 
@@ -154,6 +233,21 @@ export async function routerNode(state: GraphState): Promise<GraphState> {
 
 async function writerNodeCore(state: GraphState): Promise<GraphState> {
   const result = await composeWriterDraft(state);
+  const fingerprint = fingerprintDraft(result.content);
+  return ensureForwarded(withNodeTrace({
+    ...state,
+    generated_code: result.content,
+    draft_fingerprints: [...(state.draft_fingerprints ?? []), fingerprint],
+    llm_usage: mergeUsage(state.llm_usage, result.usage),
+    next_node: "critic"
+  }, "writer"));
+}
+
+async function writerNodeStreamingCore(
+  state: GraphState,
+  onDelta: (delta: StreamDelta) => void,
+): Promise<GraphState> {
+  const result = await composeWriterDraftStream(state, onDelta);
   const fingerprint = fingerprintDraft(result.content);
   return ensureForwarded(withNodeTrace({
     ...state,
@@ -217,6 +311,21 @@ export const writerNode = validatedNode(
     })
   }
 );
+
+export async function writerNodeStreaming(
+  state: GraphState,
+  onDelta: (delta: StreamDelta) => void,
+): Promise<GraphState> {
+  const result = await writerNodeStreamingCore(state, onDelta);
+  const styleCheck = validateStyleCompliance(result);
+  if (styleCheck.violations.length > 0) {
+    return {
+      ...result,
+      _validation_warnings: [...(result._validation_warnings ?? []), ...styleCheck.violations],
+    };
+  }
+  return result;
+}
 
 export const criticNode = validatedNode(
   criticNodeCore,

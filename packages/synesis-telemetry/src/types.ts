@@ -42,6 +42,45 @@ export interface UsageEvent {
   };
 }
 
+export interface TraceSensemaking {
+  domain_profile?: {
+    domains: Array<{ key: string; weight: number }>;
+    frameCoherence: string;
+  };
+  planner_confidence: number;
+  clarification_triggered: boolean;
+  clarification_question?: string;
+  clarification_options?: string[];
+  assumptions: string[];
+  frame_coherence: string;
+  assumption_tags_applied?: {
+    assumption: number;
+    estimate: number;
+    clarified: number;
+  };
+}
+
+export interface TraceCriticResult {
+  approved: boolean;
+  need_more_evidence: boolean;
+  scores: Record<string, number>;
+  blocking_issues: unknown[];
+  nonblocking: unknown[];
+  is_background: boolean;
+}
+
+export interface TraceClassification {
+  difficulty: number;
+  task_size: string;
+  risk_score: number;
+  effort_mode: string;
+  model_tier: string;
+  rag_mode: string;
+  plan_required: boolean;
+  show_assumptions: boolean;
+  taxonomy_key: string;
+}
+
 export interface TraceRecord {
   service: "planner" | "yarn";
   trace_id: string;
@@ -61,4 +100,13 @@ export interface TraceRecord {
   spans?: unknown[];
   decision_ledger?: unknown[];
   node_traces?: unknown[];
+  sensemaking?: TraceSensemaking;
+  critic_result?: TraceCriticResult;
+  classification?: TraceClassification;
+  iteration_count?: number;
+  max_iterations?: number;
+  streaming?: {
+    mode: "streaming" | "non-streaming";
+    time_to_first_token_ms?: number;
+  };
 }

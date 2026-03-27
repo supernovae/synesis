@@ -73,4 +73,15 @@ export interface GraphState {
   llm_usage?: import("@synesis/telemetry").LlmUsage;
   error?: string;
   run_id?: string;
+
+  domain_profile?: {
+    domains: Array<{ key: string; weight: number }>;
+    frameCoherence: "focused" | "composite" | "diffuse";
+  };
+  clarification_question?: string;
+  clarification_options?: string[];
+  user_answer_to_clarification?: string;
+  assumptions?: string[];
+  show_assumptions?: boolean;
+  planner_confidence?: number;
 }
