@@ -45,7 +45,7 @@ In small profile, Qwen2.5-14B-Instruct handles routing, planning, and critic rol
 
 ## Important: Do NOT point Open WebUI directly at vLLM
 
-The dev overlay configures Open WebUI to talk to the **planner** endpoint (`synesis-planner:8000/v1`), not directly to vLLM. This is intentional:
+The dev overlay configures Open WebUI to talk to the **planner-ts** endpoint (`synesis-planner-ts:8080/v1`), not directly to vLLM. This is intentional:
 
 - **Through the planner**: Thinking tokens are properly handled — router/planner use `enable_thinking=False` for fast classification, critic uses `enable_thinking=True` for reasoning. vLLM's `--enable-reasoning` parser separates thinking into `reasoning_content` (invisible to the user).
 - **Directly to vLLM**: The Qwen3 chat template defaults to `enable_thinking=True`. Every response will include thinking tokens, adding latency and potentially showing raw `<think>` blocks in the UI.
@@ -85,7 +85,7 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 ## Network Policy
 
-Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planner (`synesis-planner:8000`), plus DNS. In the dev overlay, traffic goes directly to the planner (bypasses LiteLLM). It has no access to Milvus, sandbox, or external internet.
+Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planner (`synesis-planner-ts:8080`), plus DNS. In the dev overlay, traffic goes directly to the planner (bypasses LiteLLM). It has no access to Milvus, sandbox, or external internet.
 
 ## Theme
 

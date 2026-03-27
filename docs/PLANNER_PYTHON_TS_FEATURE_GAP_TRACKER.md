@@ -106,6 +106,54 @@ Working document to track parity between `base/planner` (Python) and `base/plann
   - `/debug/retrieval-config` and `/debug/session-stats` (admin-token-gated)
   - evidence: `base/planner-ts/src/app.ts`
 
+### 6) Multi-query expansion and HyDE
+
+- Status: `missing` in TS
+- Python behavior:
+  - Router generates 3 query variants per evidence request (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints)
+  - Variants retrieved in parallel, merged via RRF before reranking
+  - evidence: `base/planner/app/nodes/router.py` (`_build_query_variants`, `retrieve_multi_query_fused`)
+- TS behavior:
+  - Single-query RAG; RRF merges RAG + web only
+  - evidence: `base/planner-ts/src/retrieval/unified.ts`, `base/planner-ts/src/nodes/router.ts`
+- Decision: optional parity — implement when retrieval quality metrics justify the added latency
+
+### 7) Keyword query distillation
+
+- Status: `missing` in TS
+- Python behavior:
+  - Before retrieval, user query is distilled into focused keyphrases via keyword-service
+  - Prevents keyword pollution that causes irrelevant BM25 matches
+  - evidence: `base/planner/app/unified_retrieval.py`
+- TS behavior:
+  - RAG client sends raw query to Milvus hybrid search (no pre-distillation)
+  - evidence: `base/planner-ts/src/retrieval/rag-client.ts`
+- Decision: gap — implement when keyword-service integration lands in TS retrieval path
+
+### 8) Strategic advisor
+
+- Status: `missing` in TS
+- Python behavior:
+  - Entry pipeline includes a strategic advisor step that runs concurrently with classifier and frame extractor
+  - evidence: `base/planner/app/nodes/entry_pipeline.py`
+- TS behavior:
+  - Entry pipeline runs classifier + optional frame extractor; no advisor
+  - evidence: `base/planner-ts/src/nodes/entry-classifier.ts`
+- Decision: evaluate whether planner-ts's scoring engine + frame extraction cover the advisor's function; port or declare explicit non-goal
+
+### 9) Full taxonomy L2 resolution from YAML/admin API
+
+- Status: `partial` in TS
+- Python behavior:
+  - `TaxonomyPromptFactory` compiles all ~190 domain entries from `taxonomy_prompt_config.yaml` at startup with Pydantic validation
+  - Injects persona, depth, output_style_guidance, epistemic_guidance, required_elements per domain
+  - evidence: `base/planner/app/taxonomy_prompt_factory.py`, `base/planner/taxonomy_prompt_config.yaml`
+- TS behavior:
+  - Scoring engine uses embedded weights from `intent_weights.yaml` for BM25 intent classification and split-axis scoring
+  - No runtime YAML taxonomy resolution or admin API-driven domain injection into writer/critic
+  - evidence: `base/planner-ts/src/nodes/scoring-engine.ts`
+- Decision: gap — port taxonomy L2 resolution for writer/critic prompt injection when domain-specific output shaping is needed
+
 ## Recently fixed TS regressions (already landed)
 
 - Latest user message selection in follow-ups (prevent reusing stale prompt context).
@@ -175,6 +223,10 @@ Files:
 7. ~~Unified retrieval (RAG + web + cohesion) in TS.~~ **Done.** See `base/planner-ts/src/retrieval/`.
 8. ~~Frame extraction (GLiNER + LLM segmentation) in TS.~~ **Done.** See `base/planner-ts/src/nodes/frame-extractor.ts`.
 9. ~~YAML-driven scoring engine parity.~~ **Done.** See `base/planner-ts/src/nodes/scoring-engine.ts`.
+10. Add TS multi-query expansion + HyDE for improved retrieval recall (optional parity, latency-gated).
+11. Add TS keyword-service distillation before embed/search.
+12. Evaluate strategic advisor port or declare explicit non-goal.
+13. Add TS taxonomy L2 resolution from YAML/admin API for writer/critic domain-specific prompt injection.
 
 ## Intentional non-parity (do not port as-is)
 
@@ -199,6 +251,14 @@ Seed candidates (editable):
   - Owner: platform
   - Date: 2026-03-27
   - Revisit trigger: only if strict offline fallback requirements emerge.
+
+- Feature: Hybrid retrieval cache (`retrieval_cache.py`)
+  - Decision: `drop entirely`
+  - Reason: Removed as a product feature. Milvus hybrid search + RRF provides equivalent deduplication at the retrieval layer without in-process caching complexity.
+  - Risk if ported unchanged: stale cached evidence, memory pressure, added maintenance.
+  - Owner: platform
+  - Date: 2026-03-27
+  - Revisit trigger: none — feature removed by design.
 
 - Feature: Python slash commands (`/why`, `/reclassify`) in production chat endpoint
   - Decision: `replace in TS`

@@ -1,14 +1,15 @@
 # Synesis Workflow
 
-This document describes the LangGraph orchestration flow, routing logic, and key design invariants.
+This document describes the planner-ts pipeline flow, routing logic, and key design invariants. The active runtime is **planner-ts** (`base/planner-ts/`); the Python planner (`base/planner/`) is retained as a behavioral reference only and will be removed.
 
 ## Overview
 
-The compiled LangGraph has **eight nodes**: `entry_pipeline`, `planner`,
-`plan_gate`, `router`, `writer`, `critic`, `final_scrubber`, and `respond`.
-The **entry_pipeline** node runs the Entry Classifier (deterministic scoring),
-Strategic Advisor, and Frame Extractor concurrently (plus optional GLiNER /
-LLM repair) — they are not separate graph vertices.
+The planner-ts pipeline has **eight nodes**: `entry_pipeline`, `planner`,
+`plan_gate`, `router`, `writer`, `critic`, `final_scrubber`, and `respond`
+(see `base/planner-ts/src/graph.ts`).
+The **entry_pipeline** node runs the Entry Classifier (deterministic scoring
+via `ScoringEngine`) and optional Frame Extractor (LLM segmentation + GLiNER
+NER enrichment) — they are not separate graph vertices.
 
 Every request follows the same canonical path through those nodes — the
 Planner scales plan depth based on difficulty and deliverable count, ensuring
@@ -48,7 +49,7 @@ LLM instructions are composed in **three layers** (full rationale: [PROMPT_EPIST
 
 **Critic vs taxonomy:** The critic loads **L0 → L1** first; taxonomy and intent blocks **append** as L2. Taxonomy **expands** the rubric for matched domains; it does **not** replace universal trust or epistemics. Vertical configs (`critic_mode`, `critic_tiers`) continue to tune strictness per industry.
 
-**Adding new verticals:** Prefer new taxonomy keys / DB rows / plugin entries with optional fields such as `regulated_domain`, `epistemic_guidance`, and regulated writer/critic overlay strings (see [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md)) rather than hardcoding industry rules in `critic.py` / `writer.py`.
+**Adding new verticals:** Prefer new taxonomy keys / DB rows / plugin entries with optional fields such as `regulated_domain`, `epistemic_guidance`, and regulated writer/critic overlay strings (see [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md)) rather than hardcoding industry rules in critic or writer node code.
 
 ## Models
 
@@ -77,7 +78,7 @@ lightweight 1-step plan, hard prompts get full multi-step decomposition.
 
 ```mermaid
 flowchart TD
-    EP["entry_pipeline\n(classifier + advisor + frame)"] --> PL["planner\n(+ clarification resume)"]
+    EP["entry_pipeline\n(classifier + optional frame)"] --> PL["planner\n(+ clarification resume)"]
     PL --> PG["plan_gate\n(deterministic validation)"]
     PG -->|"fail, retries left"| PL
     PG -->|"clarification_question"| RS["respond"]
@@ -159,7 +160,7 @@ The document-path critic has several optimizations to reduce latency:
 
 ## Router-Governed Evidence Architecture
 
-The Router is a **LangGraph node** (deterministic orchestrator), not an LLM persona.
+The Router is a **pipeline node** (deterministic orchestrator), not an LLM persona.
 It invokes LLMs for specific sub-tasks but owns all system-level logic.
 
 The Router respects the `rag_mode` state signal set by the Entry Classifier:
@@ -450,7 +451,7 @@ while preserving flexibility for justified overrides. Controls are deterministic
 
 ### Entry Pipeline Internals
 
-The `entry_pipeline` node runs classifier, strategic advisor, and frame extractor concurrently. For complex prompts where GLiNER's first pass misses critical fields (e.g. `main_question`), a second-pass LLM repair call runs via `ChatOpenAI(streaming=True)`. The streaming flag ensures that LangChain emits `on_chat_model_stream` events during the LLM call, keeping the SSE event iterator active. This prevents the heartbeat poll from seeing a silent window and allows the pipeline to complete normally.
+The `entry_pipeline` node runs the classifier and optional frame extractor. In planner-ts, the `ScoringEngine` (`base/planner-ts/src/nodes/scoring-engine.ts`) handles deterministic entry classification, and the frame extractor (`base/planner-ts/src/nodes/frame-extractor.ts`) performs LLM segmentation + GLiNER NER enrichment when the frame is needed. For complex prompts where GLiNER's first pass misses critical fields (e.g. `main_question`), a second-pass LLM repair call fills in gaps.
 
 **Clarification resume** still executes the full entry pipeline before the planner; the draft plan is reused inside the planner (see `docs/PLANNER_PREFIX_KV_CACHE.md`). Inference-side **prefix / KV cache** on static system prompts is the preferred way to keep repeat turns cheap and fast before considering skip-entry optimizations—validate cached-prefill metrics and billing in your deployment.
 
@@ -769,14 +770,14 @@ OpenAI-compatible `/v1/chat/completions` endpoint.
 
 | Path | Mechanism | Reasoning |
 |------|-----------|-----------|
-| Trivial / easy, no retrieval | Writer returns `direct_stream_request`; `main.py` streams via raw OpenAI SDK | Fast time-to-first-token; preserves `reasoning_content` when the model emits it |
-| Full graph (default hard path) | LangGraph `astream_events` in `main.py`; writer streaming through the graph | Phase status, pipeline trace; final chunk carries usage / `finish_reason` (e.g. `length` if truncated) |
+| Trivial / easy, no retrieval | `directStreamPipeline()` in `pipeline.ts`; streams LLM directly | Fast time-to-first-token; preserves `reasoning_content` when the model emits it |
+| Full graph (default hard path) | Pipeline graph execution in `pipeline.ts`; writer streaming through the graph | Phase status, pipeline trace; final chunk carries usage / `finish_reason` (e.g. `length` if truncated) |
 
 **Phase-based status**: Nodes are grouped into user-facing phases:
 
 | Phase | Nodes | Description |
 |-------|-------|-------------|
-| **Planning...** | entry_classifier, strategic_advisor, frame_extractor, planner, plan_gate | Fast (~2s total) |
+| **Planning...** | entry_classifier, frame_extractor, planner, plan_gate | Fast (~2s total) |
 | **Researching...** | router | Evidence gathering, refinement |
 | **Writing...** | writer, final_scrubber, respond | Knowledge synthesis, final assembly |
 | **Reviewing...** | critic | Quality review |
@@ -1004,10 +1005,9 @@ trust* from *authority weight*.
 
 ### SearchProvider Protocol
 
-Web search is abstracted behind a `SearchProvider` protocol
-(`base/planner/app/search_provider.py`). The current implementation wraps
-SearXNG. The `engine_authority_map` in `config.py` lets SearXNG engines
-be tagged with trust tiers.
+Web search is abstracted behind a search provider interface. In planner-ts,
+`base/planner-ts/src/retrieval/web-search.ts` wraps SearXNG. The
+`engine_authority_map` in config lets SearXNG engines be tagged with trust tiers.
 
 ## LiteLLM, spend logs, and prompt-cache tokens
 

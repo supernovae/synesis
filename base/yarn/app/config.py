@@ -76,7 +76,7 @@ class Settings(BaseSettings):
 
     # --- Upstream services ---
     admin_api_url: str = "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
-    planner_url: str = "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+    planner_url: str = "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
     planner_internal_token: str = Field(default="", alias="SYNESIS_INTERNAL_SERVICE_TOKEN")
     mcp_url: str = "http://synesis-mcp.synesis-planner.svc.cluster.local:8100"
     enforce_mcp_authz: bool = True

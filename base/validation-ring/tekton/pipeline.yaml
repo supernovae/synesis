@@ -16,7 +16,7 @@ spec:
       description: Testing Labs run ID
     - name: planner-url
       type: string
-      default: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+      default: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
     - name: admin-url
       type: string
       default: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"

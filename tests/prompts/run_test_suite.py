@@ -10,7 +10,7 @@ Usage:
     python tests/prompts/run_test_suite.py --api-url https://synesis-api.apps.openshiftdemo.dev
 
     # Against internal service:
-    python tests/prompts/run_test_suite.py --api-url http://synesis-planner.synesis-planner.svc.cluster.local:8000
+    python tests/prompts/run_test_suite.py --api-url http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
 
     # Run a single category:
     python tests/prompts/run_test_suite.py --category knowledge

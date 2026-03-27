@@ -1,22 +1,26 @@
 # Hybrid RAG Pipeline
 
-Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus collection with `authority` as partition key for all domain knowledge. The unified indexer (`base/rag/indexer/`) writes to this catalog with enrichment fields (`context_prefix`, `heading_path`, `chunk_summary`, `keywords`, `tags`, `document_name`) and provenance metadata (`authority`, `origin_type`, `source_url`). **Ingestion topology** (queue, Milvus v9, optional preprocess/spam/gatekeeper, dependent services) is documented in [INDEXERS.md](INDEXERS.md) and [INGESTION_ENRICHMENT.md](INGESTION_ENRICHMENT.md). A hybrid retrieval pipeline combines semantic vector search with keyword-based BM25, merged via Reciprocal Rank Fusion (RRF), and refined by a cross-encoder reranker. Semantic search catches paraphrases; BM25 catches exact syntax (critical for code). The BM25 corpus includes all indexed metadata — heading_path, chunk_summary, document_name, keywords, and tags — for maximum recall.
+Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus collection with `authority` as partition key for all domain knowledge. The unified indexer (`base/rag/indexer/`) writes to this catalog with enrichment fields (`context_prefix`, `heading_path`, `chunk_summary`, `keywords`, `tags`, `document_name`) and provenance metadata (`authority`, `origin_type`, `source_url`). **Ingestion topology** (queue, Milvus v9, optional preprocess/spam/gatekeeper, dependent services) is documented in [INDEXERS.md](INDEXERS.md) and [INGESTION_ENRICHMENT.md](INGESTION_ENRICHMENT.md).
 
-## How It Works
+## How It Works (planner-ts)
 
-1. **Keyword Query Distillation**: Before retrieval, the user query is distilled into focused keyphrases using the keyword-service microservice (reusing the TEI embedder for embeddings). This extracts the salient terms from the query instead of sending raw prompt text, preventing keyword pollution that causes irrelevant matches.
+The active planner runtime (`base/planner-ts/`) retrieves evidence through the unified retrieval path (`base/planner-ts/src/retrieval/unified.ts`). The router dispatches parallel RAG and web searches, merging results via Reciprocal Rank Fusion (RRF).
 
-2. **Adaptive Overfetch**: The number of candidates fetched from Milvus scales with the continuous difficulty score (30 candidates for simple queries, up to 50 for complex ones). Complex queries benefit from a wider candidate net; simple queries avoid noise.
+1. **Milvus Hybrid Search**: The RAG client (`base/planner-ts/src/retrieval/rag-client.ts`) queries Milvus using its native `hybrid_search` (dense vectors + sparse BM25 vectors in a single request). This replaces the Python planner's in-process BM25 corpus with server-side sparse retrieval.
 
-3. **Ensemble Retrieval**: The distilled query is sent to both retrievers in parallel:
-   - **Vector search** (Milvus): Embeds the query and finds semantically similar chunks via cosine similarity.
-   - **BM25 search** (in-memory): Keyword matching using BM25Okapi, built from chunks cached from Milvus at startup and refreshed every 10 minutes. The BM25 corpus includes all indexed metadata (`heading_path`, `chunk_summary`, `document_name`, `keywords`, `tags`) for richer recall. A lightweight suffix-stripping stemmer handles common English inflections (e.g. "architecture" matches "architectural", "design" matches "designing") without requiring NLTK or other external dependencies.
+2. **Cross-Encoder Reranking**: The merged candidates are re-scored by the configured reranker (BGE cross-encoder by default, FlashRank as a faster alternative). The reranker computes query-passage relevance scores that are more accurate than the initial retrieval scores.
 
-4. **Reciprocal Rank Fusion**: Results from both retrievers (over `synesis_catalog`) are merged using RRF (`score = sum(1/(k + rank))`). Each result is tagged with its source ("vector", "bm25", or "both").
+3. **Similarity-Gap Adaptive Top-K**: Instead of returning a fixed number of results, the pipeline detects the natural "relevance cliff" — the point where reranker scores drop sharply. Results above the cliff are included; results below are dropped. This cuts token waste from low-relevance filler.
 
-5. **Cross-Encoder Reranking**: The merged candidates are re-scored by the configured reranker (BGE cross-encoder by default, FlashRank as a faster alternative). The reranker computes query-passage relevance scores that are more accurate than the initial retrieval scores.
+4. **Unified RRF Merge**: RAG results and web search results are merged via a second RRF pass in `retrieveUnified()`, producing a single ranked evidence list with source provenance.
 
-6. **Similarity-Gap Adaptive Top-K**: Instead of returning a fixed number of results, the pipeline detects the natural "relevance cliff" — the point where reranker scores drop sharply. Results above the cliff are included; results below are dropped. This cuts token waste from low-relevance filler.
+### Planned parity items (from Python reference)
+
+The Python planner (`base/planner/`) included additional retrieval features that are tracked in [PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md):
+
+- **Keyword query distillation** — distilling the user query into focused keyphrases via the keyword-service before retrieval. Prevents keyword pollution that causes irrelevant matches.
+- **Multi-query expansion** — generating 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via RRF.
+- **In-process BM25** — the Python planner maintained an in-memory BM25Okapi index built from Milvus chunks at startup. In planner-ts, this is replaced by Milvus server-side sparse retrieval.
 
 ## Re-ranker Options
 
@@ -40,9 +44,7 @@ The retrieval pipeline is informed by the following research:
 
 ## Resilience
 
-If Milvus or the embedder service goes down, the pipeline automatically degrades to **BM25-only** from cached chunks. No external dependency is needed for BM25 — it runs entirely in the planner's memory. This means retrieval continues even during vector service outages, and the Perses dashboard tracks fallback events so you can monitor service health.
-
-If the BGE reranker service is unreachable, the reranker gracefully falls back to returning results in their RRF-merged order. If the keyword service fails, query distillation falls back to first-sentence truncation.
+If the BGE reranker service is unreachable, the reranker gracefully falls back to returning results in their RRF-merged order. The Perses dashboard tracks fallback events so you can monitor service health.
 
 ## Per-Request Control
 
@@ -81,7 +83,7 @@ All retrieval settings are environment variables (prefixed `SYNESIS_`):
 | `RAG_OVERFETCH_MIN` | `30` | Minimum candidates fetched from Milvus (at difficulty=0) |
 | `RAG_OVERFETCH_MAX` | `50` | Maximum candidates fetched from Milvus (at difficulty=1) |
 | `RAG_ADAPTIVE_GAP_MULTIPLIER` | `1.5` | Similarity-gap cliff threshold (higher = less aggressive pruning) |
-| `RAG_BM25_REFRESH_INTERVAL_SECONDS` | `600` | BM25 index rebuild interval |
+
 | `RAG_RRF_K` | `60` | RRF fusion constant |
 | `RAG_BGE_RERANKER_URL` | (empty) | BGE service URL (enable accuracy mode) |
 
@@ -89,9 +91,8 @@ All retrieval settings are environment variables (prefixed `SYNESIS_`):
 
 Three Prometheus metrics and Perses panels track retrieval health:
 
-- **Retrieval Source Distribution**: Pie chart showing proportion of results from vector, BM25, or both retrievers — useful for understanding which retriever is winning and whether your RAG corpus works better with semantic or keyword search.
+- **Retrieval Source Distribution**: Pie chart showing proportion of results from vector, BM25 (sparse), or both retrievers — useful for understanding which retriever is winning and whether your RAG corpus works better with semantic or keyword search.
 - **Re-ranker Latency (p50/p95)**: Time series of reranking latency by reranker type (FlashRank, BGE).
-- **BM25 Fallback Rate**: Tracks how often the pipeline falls back to BM25-only due to vector service failures. A sustained non-zero rate indicates Milvus/embedder health issues.
 
 ## Content Integrity
 
@@ -116,8 +117,8 @@ The BGE reranker service runs as a separate deployment in the planner namespace:
 # Deploy the BGE reranker service
 oc apply -k base/planner/bge-reranker/
 
-# Point the planner to it
-oc set env deployment/synesis-planner -n synesis-planner \
+# Point planner-ts to it
+oc set env deployment/synesis-planner-ts -n synesis-planner \
   SYNESIS_RAG_RERANKER=bge \
   SYNESIS_RAG_BGE_RERANKER_URL=http://bge-reranker.synesis-planner.svc.cluster.local:8000
 ```

@@ -6,7 +6,7 @@ scores results, and reports back to admin.
 
 Usage (in-cluster):
     python replay_runner.py --run-id tl-abc123 \
-        --planner-url http://synesis-planner.synesis-planner.svc.cluster.local:8000 \
+        --planner-url http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080 \
         --admin-url http://synesis-admin.synesis-admin.svc.cluster.local:8080
 """
 
@@ -129,7 +129,7 @@ def _auth_headers(api_key: str) -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Testing Labs replay runner")
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--planner-url", default="http://synesis-planner.synesis-planner.svc.cluster.local:8000")
+    parser.add_argument("--planner-url", default="http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080")
     parser.add_argument("--admin-url", default="http://synesis-admin.synesis-admin.svc.cluster.local:8080")
     parser.add_argument("--api-key", default="")
     args = parser.parse_args()

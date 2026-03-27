@@ -33,7 +33,7 @@ spec:
             - name: RUN_ID
               value: ""
             - name: PLANNER_URL
-              value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+              value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
             - name: ADMIN_URL
               value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
             - name: API_KEY

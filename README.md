@@ -36,7 +36,7 @@ The architecture doesn't even require a full agent. For lighter use cases, a gui
 
 ## Architecture
 
-Synesis separates concerns across specialized model roles. A deterministic entry classifier routes requests through a LangGraph pipeline, while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. [`models.yaml`](models.yaml) defines the build-time reference for model repos, vLLM args, and deployment profiles; **runtime model routing** is configured in the **admin Model Registry** (Postgres) and reconciled to LiteLLM — use admin "Seed from YAML" to re-bootstrap from the file.
+Synesis separates concerns across specialized model roles. A deterministic entry classifier routes requests through the **planner-ts** pipeline (`base/planner-ts/`, Fastify + TypeScript graph), while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. [`models.yaml`](models.yaml) defines the build-time reference for model repos, vLLM args, and deployment profiles; **runtime model routing** is configured in the **admin Model Registry** (Postgres) and reconciled to LiteLLM — use admin "Seed from YAML" to re-bootstrap from the file.
 
 ```mermaid
 flowchart TD
@@ -50,8 +50,8 @@ flowchart TD
         MCP[MCP server]
     end
 
-    subgraph graph [LangGraph — unified knowledge pipeline]
-        EP[entry_pipeline\nclassifier + advisor + frame]
+    subgraph graph [planner-ts — unified knowledge pipeline]
+        EP[entry_pipeline\nclassifier + frame]
         PL[planner]
         PG[plan_gate]
         RT[router\nRAG + web]
@@ -88,22 +88,22 @@ flowchart TD
     RT -.-> WEB
 ```
 
-Canonical order is **entry → planner → plan gate → router → writer → (critic or scrubber) → respond**. The entry node runs classifier, advisor, and frame work **before** planning (not router-first). Clarification and plan-approval prompts return from **respond**; the user’s next message resumes via **conversation memory** (often `entry_pipeline` → **planner** with merged answers — see [docs/WORKFLOW.md](docs/WORKFLOW.md)). Code execution / patch workflows are **not** on this graph; IDE coding uses the **coder** front door and optional MCP tools. Model names and GPUs: [`models.yaml`](models.yaml).
+Canonical order is **entry → planner → plan gate → router → writer → (critic or scrubber) → respond**. The entry node runs classifier and optional frame extraction **before** planning (not router-first). Clarification and plan-approval prompts return from **respond**; the user’s next message resumes via **conversation memory** (often `entry_pipeline` → **planner** with merged answers — see [docs/WORKFLOW.md](docs/WORKFLOW.md)). Code execution / patch workflows are **not** on this graph; IDE coding uses the **coder** front door and optional MCP tools. Model names and GPUs: [`models.yaml`](models.yaml).
 
 **Key design decisions:**
 
-- **Unified planner-first graph** — every chat turn hits **entry_pipeline → planner → plan_gate** before retrieval. **Plan gate** validates the structured plan and can **retry the planner** with repair feedback. **Clarification** and **plan approval** short-circuit to **respond**; the next user turn restores pending context (draft plan, frame) from conversation memory. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
-- **Router-governed evidence architecture** — after the plan passes the gate, the **router** is the only retrieval orchestrator (RAG + web search). Evidence flows as structured **Evidence Packets**. A hybrid retrieval cache reduces duplicate fetches. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
-- **Multi-query retrieval enrichment** — each evidence request produces 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via Reciprocal Rank Fusion. BM25 corpus includes all indexed metadata (keywords, tags, document_name) with lightweight stemming.
-- **Taxonomy-driven output style** — ~190 domain entries (see `taxonomy_prompt_config.yaml`) define persona, depth, `output_style_guidance`, `epistemic_guidance`, and `required_elements` injected into the Writer. High-complexity domains (>= 0.8) promote required elements to soft mandates in the Critic. All raw YAML fields pass through automatically — no plumbing changes needed when adding new fields.
+- **Unified planner-first graph** — every chat turn hits **entry_pipeline → planner → plan_gate** before retrieval. The planner-ts graph (`base/planner-ts/src/graph.ts`) implements this pipeline in TypeScript. **Plan gate** validates the structured plan and can **retry the planner** with repair feedback. **Clarification** and **plan approval** short-circuit to **respond**; the next user turn restores pending context (draft plan, frame) from conversation memory. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
+- **Router-governed evidence architecture** — after the plan passes the gate, the **router** is the only retrieval orchestrator (RAG + web search). Evidence flows as structured **Evidence Packets**. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
+- **Unified retrieval with RRF** — the router dispatches parallel RAG and web searches, merged via Reciprocal Rank Fusion. RAG uses Milvus hybrid search (dense + sparse vectors) with adaptive top-K and cross-encoder reranking (BGE or FlashRank). Multi-query expansion (HyDE, conceptual variants) and keyword distillation are planned parity items from the Python reference — see [docs/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](docs/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md).
+- **Taxonomy-driven output style** — ~190 domain entries (see `taxonomy_prompt_config.yaml`) define persona, depth, `output_style_guidance`, `epistemic_guidance`, and `required_elements` injected into the Writer. In planner-ts, the scoring engine uses embedded weights from `intent_weights.yaml` for BM25 intent classification and split-axis scoring. Full L2 taxonomy resolution from YAML/admin API is a planned parity item. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
 - **Sensemaking-driven domain profiling** — Frame extraction builds a **TopicFrame** (conceptual entity guiding retrieval) and a **DomainProfile** (weighted multi-domain understanding of the prompt). Instead of hard single-domain locking, the system classifies frame coherence as **focused** (one dominant domain), **composite** (multi-domain prompt addressed proportionally), or **diffuse** (unclear frame — Cynefin probe triggered). For focused frames, a soft CohesionLock filters retrieval. For composite frames, all domains stay active and evidence is retrieved broadly. YAML-driven conflict groups (`cohesion_groups.yaml`) still inform which technologies are alternatives vs. complementary. See [docs/SENSEMAKING_REFERENCES.md](docs/SENSEMAKING_REFERENCES.md) for the research basis.
 - **Evidence-aware critic** — 6-axis scoring with `evidence_utilization` (0.10 weight), deterministic citation rate check, and a strict depth gate that blocks shallow responses at high difficulty. Evidence is budget-trimmed (default 24k chars) to prevent token-budget fading. See [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md).
-- **IDEs connect directly to Coder** — a separate vLLM endpoint with tool-calling support, no LangGraph overhead. The MCP server lets the Coder reach Synesis capabilities (RAG, taxonomy, architecture knowledge) as tool calls when needed.
+- **IDEs connect directly to Coder** — a separate vLLM endpoint with tool-calling support, no planner pipeline overhead. The MCP server lets the Coder reach Synesis capabilities (RAG, taxonomy, architecture knowledge) as tool calls when needed.
 - **Sandbox and LSP are exception-flow tools** — they fire on code validation failures, not on every request. This keeps the happy path fast. See [docs/SANDBOX.md](docs/SANDBOX.md) and [docs/LSP.md](docs/LSP.md).
 - **Taxonomy-driven prompt shaping** — Domain behavior, critic depth, writer persona, epistemic guidance, and planner decomposition rules are YAML-configurable (`taxonomy_prompt_config.yaml`). Taxonomy config is compiled at startup with Pydantic schema validation and orphan detection. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
 - **Anti-oscillation controls** — immutable semantic frame, decision ledger consumed by writer (not planner prose), deterministic validators block style drift and decision oscillation across nodes, oscillation detector force-terminates runaway retry loops, retrieval churn detection. When prompts are ambiguous, **clarify-first** returns a short clarification question instead of guessing, reducing cost and avoiding retry loops.
 - **Design theory (Cynefin, sensemaking, JCS, safety-II)** — Synesis is grounded in established sensemaking research. Frame coherence maps directly to the Cynefin framework (Snowden & Boone, 2007): **focused** = obvious/complicated (sense-categorize-respond); **composite** = complicated with multiple expert domains (sense-analyze-respond proportionally); **diffuse** = complex (probe-sense-respond, ask the user before retrieving blindly). Prompts are modeled as topic mixtures with weights (Blei et al., 2003 LDA), not single-label classifications. Data-Frame sensemaking (Klein et al., 2007) drives frame extraction: build a holistic understanding of the prompt before acting, rather than locking on the first keyword signal. Information foraging theory (Pirolli & Card, 1999) shapes how evidence is gathered after the frame is established. This keeps the system a joint cognitive system (human + AI), supports multi-disciplinary prompts (scientists managing cloud GPU ML clusters), and avoids the "whack-a-mole" failure mode of keyword-based hard exclusion. See [docs/SENSEMAKING_REFERENCES.md](docs/SENSEMAKING_REFERENCES.md).
-- **Prompt injection hardening** — defense-in-depth with 8 layers: pattern scanning (Tier 1 + 2), trust delimiters (`<context trust="untrusted">`), instruction hierarchy (trust policies in every system prompt), sandwich defense (post-evidence reminders), datamarking (`[R:authority]`/`[W]` provenance), state sanitization (persona blocklist, step action scanning), index-time RAG scanning with admin review queue, and output guardrails. All external content — including human-vetted documents — is always wrapped as untrusted in prompts. Vetting boosts ranking, not trust. A shared **guardrails core** (`base/security/`) provides unified regex scanning, Unicode normalization, base64 payload detection, and a deterministic **policy matrix** (event type × severity × confidence → action) for both Planner and Yarn. Detections feed Prometheus metrics and the admin **Security Console** for triage and containment. See [docs/SECURITY.md](docs/SECURITY.md).
+- **Prompt injection hardening** — defense-in-depth with 8 layers: pattern scanning (Tier 1 + 2), trust delimiters (`<context trust="untrusted">`), instruction hierarchy (trust policies in every system prompt), sandwich defense (post-evidence reminders), datamarking (`[R:authority]`/`[W]` provenance), state sanitization (persona blocklist, step action scanning), index-time RAG scanning with admin review queue, and output guardrails. All external content — including human-vetted documents — is always wrapped as untrusted in prompts. Vetting boosts ranking, not trust. A shared **guardrails core** (`base/security/`) provides unified regex scanning, Unicode normalization, base64 payload detection, and a deterministic **policy matrix** (event type × severity × confidence → action) for both **planner-ts** and Yarn. Detections feed Prometheus metrics and the admin **Security Console** for triage and containment. See [docs/SECURITY.md](docs/SECURITY.md).
 - **EFS-backed model storage** — all model weights share a single AWS EFS PVC (`synesis-models-efs`), multi-AZ for Karpenter spot flexibility. No per-model EBS volumes.
 
 ## Model Roles
@@ -202,7 +202,7 @@ done
 |----------|------------|----------|
 | **synesis-api** | `https://synesis-api.<cluster>/v1` | Full pipeline via LiteLLM (Open WebUI, API clients) |
 | **synesis-coder** | `https://synesis-coder.<cluster>/v1` | Direct vLLM coder for Cursor / Claude Code |
-| **synesis-planner** | `https://synesis-planner.<cluster>/v1` | LangGraph pipeline without LiteLLM |
+| **synesis-planner-ts** | `https://synesis-planner-ts.<cluster>/v1` | Planner pipeline without LiteLLM |
 | **synesis-admin** | `https://synesis-admin.<cluster>/` | Model Registry, Provider Management, traces, RAG review, security console, AI assistant |
 
 The admin service serves the React SPA and a JSON API under `/api/v1`. **Interactive API docs** (Swagger UI) live at `/api/docs` on the same host; OpenAPI JSON at `/api/openapi.json`. Key admin surfaces:
@@ -225,19 +225,19 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 |-----------|-------------|---------------|
 | **Sensemaking Domain Profiling** | Weighted multi-domain frame coherence (focused/composite/diffuse) with Cynefin-inspired clarification for complex frames | [docs/SENSEMAKING_REFERENCES.md](docs/SENSEMAKING_REFERENCES.md) |
 | **Taxonomy-Driven Prompt Shaping** | ~190 domain entries with persona, depth, epistemic guidance, output style — compiled at startup with Pydantic validation | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
-| **Hybrid RAG** | Vector + BM25 retrieval, multi-query expansion (HyDE + conceptual), RRF, authority-weighted provenance | [docs/RAG.md](docs/RAG.md) |
+| **Hybrid RAG** | Milvus hybrid search (dense + sparse), RRF merge of RAG + web, cross-encoder reranking (BGE/FlashRank), authority-weighted provenance | [docs/RAG.md](docs/RAG.md) |
 | **Knowledge Indexers** | Queue-driven indexer with handler plugins: code (tree-sitter AST), API specs, docs, license, web pages — content managed via admin UI | [docs/INDEXERS.md](docs/INDEXERS.md) |
 | **Code Sandbox** | Exception-flow validation: lint, security scan, execute in isolated pods | [docs/SANDBOX.md](docs/SANDBOX.md) |
 | **LSP Intelligence** | 6-language deep diagnostics (Python, Go, TypeScript, Bash, Java, Rust) | [docs/LSP.md](docs/LSP.md) |
 | **Web Search** | Self-hosted SearXNG for live grounding — no API keys, no tracking | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
 | **Conversation Memory** | L1 in-process turns + pending state; optional Redis L2 for pending checkpoints and pivot archives | [docs/CONVERSATION_MEMORY.md](docs/CONVERSATION_MEMORY.md) |
-| **Failure Knowledge** | Vector store of past mistakes; fail-fast cache for instant pattern matching | [docs/FAILURE_KB.md](docs/FAILURE_KB.md) |
+
 | **Observability** | Perses dashboards (COO), Prometheus metrics, per-profile model panels | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
-| **LLM Tracing** | Per-node LangGraph tracing, LLM call rollups, critic scores, waterfall in admin UI (Postgres `traces`). Prompt-cache breakdowns: use LiteLLM spend logs or extend tracer — see [docs/WORKFLOW.md](docs/WORKFLOW.md#litellm-spend-logs-and-prompt-cache-tokens) | [docs/WORKFLOW.md](docs/WORKFLOW.md#observability-synesistracer) |
+| **LLM Tracing** | Span-based pipeline tracing (SpanCollector), LLM call rollups, critic scores, waterfall in admin UI (Postgres `traces`). Prompt-cache breakdowns: use LiteLLM spend logs or extend tracer — see [docs/WORKFLOW.md](docs/WORKFLOW.md#litellm-spend-logs-and-prompt-cache-tokens) | [docs/WORKFLOW.md](docs/WORKFLOW.md#observability-synesistracer) |
 | **Web Search HITL** | Search event log, domain breakdown, per-URL vet/block/ingest actions, URL policy management — admin UI for human-in-the-loop web search review | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
 | **Open WebUI** | Themed child image (Synesis `custom.css`), LiteLLM integration, SSE phases | [docs/OPENWEBUI.md](docs/OPENWEBUI.md) |
 | **Prompt Injection Hardening** | 8-layer defense-in-depth: pattern scanning, trust delimiters, instruction hierarchy, sandwich defense, datamarking, state sanitization, index-time RAG scanning, output guardrails | [docs/SECURITY.md](docs/SECURITY.md) |
-| **Universal Guardrails** | Shared scanner core (`base/security/`) for Planner and Yarn: regex scanning, Unicode normalization, base64 detection, deterministic policy matrix, Prometheus metrics | [docs/SECURITY.md](docs/SECURITY.md) |
+| **Universal Guardrails** | Shared scanner core (`base/security/`) for planner-ts and Yarn: regex scanning, Unicode normalization, base64 detection, deterministic policy matrix, Prometheus metrics | [docs/SECURITY.md](docs/SECURITY.md) |
 | **Admin Model Registry** | Role-based model assignment, LiteLLM reconciliation, provider governance, effective serving view, security event console | [base/admin/README.md](base/admin/README.md) |
 | **Anti-Oscillation Framework** | Immutable frame, decision ledger, monotonic reducers, deterministic validators, oscillation detection, retrieval churn detection | [docs/WORKFLOW.md](docs/WORKFLOW.md#anti-oscillation-framework) |
 
@@ -248,14 +248,14 @@ synesis/
 ├── models.yaml                 # Build-time reference for model roles, profiles, and codegen
 ├── docs/                       # Architecture, guides, and capability deep-dives
 ├── base/
-│   ├── planner/                # FastAPI + LangGraph orchestrator
-│   │   ├── app/graph.py        # entry_pipeline → planner → plan_gate → router → writer → critic|scrubber → respond
-│   │   ├── app/nodes/          # Node implementations (router, executor, writer, planner, critic, cohesion, etc.)
-│   │   ├── app/taxonomy_prompt_factory.py  # Taxonomy resolver — startup-compiled, all YAML fields forwarded
-│   │   ├── app/taxonomy_config_linter.py   # Pydantic schema validation for taxonomy config
-│   │   ├── taxonomy_prompt_config.yaml     # Domain behavior entries (persona, depth, epistemic, output style)
-│   │   ├── intent_weights.yaml             # Intent classification + routing thresholds
-│   │   └── plugins/weights/                # Vertical domain overlays (41 plugins)
+│   ├── planner-ts/             # Fastify + TypeScript pipeline (primary planner runtime)
+│   │   ├── src/graph.ts        # entry_pipeline → planner → plan_gate → router → writer → critic|scrubber → respond
+│   │   ├── src/pipeline.ts     # Graph execution, direct-stream fast path
+│   │   ├── src/nodes/          # Node implementations (router, writer, planner, critic, scoring-engine, etc.)
+│   │   ├── src/retrieval/      # Unified RAG + web retrieval, cohesion, RRF merge
+│   │   ├── src/security/       # Scanner, normalizer, trust prompts, step sanitizer
+│   │   └── src/tracing/        # SpanCollector — pipeline-level span tracing
+│   ├── planner/                # Python planner (legacy reference — being removed)
 │   ├── model-serving/          # vLLM deployments + InferenceService manifests
 │   ├── gateway/                # LiteLLM proxy (OpenAI-compatible API)
 │   ├── mcp/                    # MCP server for IDE tool integration
@@ -285,6 +285,7 @@ synesis/
 | Document | Description |
 |----------|-------------|
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Full graph flow, retries, clarification resume, router-governed evidence |
+| [docs/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](docs/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md) | Python vs TypeScript planner parity tracker and decision log |
 | [docs/PLANNER_PREFIX_KV_CACHE.md](docs/PLANNER_PREFIX_KV_CACHE.md) | Prefix / KV cache expectations, clarification resume, LiteLLM usage notes |
 | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) | How to customize model behavior via YAML configuration |
 | [docs/INTENT_TAXONOMY.md](docs/INTENT_TAXONOMY.md) | Intent classes, BM25 routing, critic behavior by intent |
@@ -295,7 +296,7 @@ synesis/
 | [docs/LSP.md](docs/LSP.md) | LSP Gateway architecture, supported languages, circuit breakers |
 | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) | SearXNG integration, search profiles, auto-trigger logic |
 | [docs/CONVERSATION_MEMORY.md](docs/CONVERSATION_MEMORY.md) | L1/L2 memory, scope key, Redis pending + pivot archive, future durable-chat notes |
-| [docs/FAILURE_KB.md](docs/FAILURE_KB.md) | Failure vector store, fail-fast cache, admin dashboard |
+
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Perses dashboards, metrics catalog, logging levels |
 | [docs/OPENWEBUI.md](docs/OPENWEBUI.md) | Open WebUI setup, troubleshooting, available models |
 | [docs/HARDWARE_SIZING.md](docs/HARDWARE_SIZING.md) | GPU memory, bandwidth, cluster sizing by profile |
@@ -315,7 +316,7 @@ synesis/
 | [docs/STREAMING_BUFFERING.md](docs/STREAMING_BUFFERING.md) | HAProxy buffering, SSE streaming, critic modes |
 | [docs/IDE_CLIENT_COORDINATION.md](docs/IDE_CLIENT_COORDINATION.md) | IDE/agent client trust model, prompt injection defense |
 | [docs/UV_TOOLING.md](docs/UV_TOOLING.md) | UV for Python dependency management (local, CI, containers) |
-| [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Design experiments: parallel critic, adaptive depth mode |
+
 | [docs/YARN_RUNTIME.md](docs/YARN_RUNTIME.md) | Yarn IDE/agent runtime architecture, trust model, tool-calling |
 | [docs/TESTING.md](docs/TESTING.md) | CI workflows, test inventory, local test instructions |
 | [docs/ARCHITECTURE_AUDIT.md](docs/ARCHITECTURE_AUDIT.md) | Historical architecture audit and remediation log |

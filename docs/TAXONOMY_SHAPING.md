@@ -15,6 +15,14 @@ This document maps every extension point to its YAML file so you can build
 custom configurations (safety-critical systems, educational platforms, domain
 experts) by editing YAML alone.
 
+> **planner-ts v1 note:** The active runtime (`base/planner-ts/`) implements
+> entry classification via the `ScoringEngine` with embedded weights from
+> `intent_weights.yaml`. Full L2 taxonomy resolution (runtime YAML compilation,
+> `TaxonomyPromptFactory`, Pydantic validation) is tracked as a parity item in
+> [PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md).
+> The YAML schema and extension points documented below remain the target
+> contract for both runtimes.
+
 ## Architecture
 
 ```
@@ -47,9 +55,9 @@ are never corrected.
 |---|---|---|
 | Extra jargon (never correct) | `query_normalizer_config.yaml` | `extra_jargon` |
 | Extra protected patterns | `query_normalizer_config.yaml` | `extra_protected_patterns` |
-| Enable/disable | `config.py` | `query_normalizer_enabled` |
-| Confidence threshold | `config.py` | `query_normalizer_confidence_threshold` |
-| Search both original + corrected | `config.py` | `query_normalizer_search_both` |
+| Enable/disable | planner config | `query_normalizer_enabled` |
+| Confidence threshold | planner config | `query_normalizer_confidence_threshold` |
+| Search both original + corrected | planner config | `query_normalizer_search_both` |
 
 The normalizer enriches domain coverage automatically: adding new
 `domain_keywords` or `query_expansion_hints` to taxonomy/intent configs
@@ -122,7 +130,7 @@ to prevent token-budget fading in long responses.
 | Epistemic discipline | `taxonomy_prompt_config.yaml` | `epistemic_guidance` |
 | Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` (scoped to cohesion entity when lock active) |
 | Domain coverage checklist | `taxonomy_prompt_config.yaml` | `required_elements` (secondary to Document Outline) |
-| Evidence budget | `config.py` | `evidence_budget_chars` (default 24000, capped relative to `compiler_model_context`) |
+| Evidence budget | planner config | `evidence_budget_chars` (default 24000, capped relative to `compiler_model_context`) |
 | Vertical-specific persona block | vertical plugins | `vertical_prompt.executor_persona_block` |
 
 **Example**: When the domain is `software_architecture`, the Writer receives
@@ -220,7 +228,7 @@ the Executor's response covers those elements. No additional YAML needed.
 **Layer 4: Thinking budget** (code-controlled)
 
 R1 thinking tokens scale with `task_size`: easy=256, medium=1024, hard=2048.
-This is set in code (`_CRITIC_THINKING_BUDGETS` in `critic.py`) and maps
+This is set in code (planner-ts: `critic-evaluator.ts`; Python legacy: `critic.py`) and maps
 from the YAML-driven difficulty score.
 
 ## How to Add a New Domain
@@ -445,9 +453,23 @@ and pedagogical structure -- all from YAML.
 | `query_normalizer_config.yaml` | Extra jargon, protected patterns for typo correction | Query Normalizer |
 | `intent_prompts.yaml` | Intent-specific critic behavior overlays | Critic |
 | `plugins/weights/vertical_*.yaml` | 41 vertical plugins (keywords, risk, prompts, critic tiers) | All roles |
-| `app/query_normalizer.py` | Deterministic typo correction — compiled lexicon, protected tokens, scoring | Entry Classifier (pre-pass) |
-| `app/taxonomy_config_linter.py` | Pydantic schema validation (startup) | Startup validation |
-| `app/taxonomy_prompt_factory.py` | Taxonomy resolver — startup-compiled, all YAML fields forwarded | All roles |
+
+**planner-ts implementations:**
+
+| File | Purpose |
+|---|---|
+| `base/planner-ts/src/nodes/scoring-engine.ts` | YAML-driven `ScoringEngine` (BM25 intent, split-axis scoring) |
+| `base/planner-ts/src/nodes/entry-classifier.ts` | Entry classification with difficulty/domain routing |
+| `base/planner-ts/src/nodes/critic-evaluator.ts` | Critic thinking budget + quality scoring |
+| `base/planner-ts/src/nodes/writer-compose.ts` | Writer with taxonomy-shaped prompts |
+
+**Python planner (legacy reference — being removed):**
+
+| File | Purpose |
+|---|---|
+| `base/planner/app/query_normalizer.py` | Deterministic typo correction — compiled lexicon, protected tokens |
+| `base/planner/app/taxonomy_config_linter.py` | Pydantic schema validation (startup) |
+| `base/planner/app/taxonomy_prompt_factory.py` | Taxonomy resolver — startup-compiled, all YAML fields forwarded |
 
 ## Precedence
 

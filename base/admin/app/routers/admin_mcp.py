@@ -679,7 +679,7 @@ async def _synesis_search(user: UserInfo, args: dict) -> Any:
     from ..config import get_settings
 
     cfg = get_settings()
-    planner_url = cfg.planner_url or "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+    planner_url = cfg.planner_url or "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(

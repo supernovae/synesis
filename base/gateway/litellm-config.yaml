@@ -19,7 +19,7 @@ data:
       - model_name: Synesis
         litellm_params:
           model: openai/Synesis
-          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_base: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 32768
           temperature: 0.2
@@ -28,7 +28,7 @@ data:
       - model_name: Synesis Thinking
         litellm_params:
           model: openai/Synesis Thinking
-          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_base: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 32768
           temperature: 0.2

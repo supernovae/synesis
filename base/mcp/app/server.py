@@ -27,7 +27,7 @@ logger = get_logger("synesis.mcp")
 
 PLANNER_URL = os.environ.get(
     "SYNESIS_PLANNER_URL",
-    "http://synesis-planner.synesis-planner.svc.cluster.local:8000",
+    "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",
 )
 CRITIC_URL = os.environ.get(
     "SYNESIS_CRITIC_URL",

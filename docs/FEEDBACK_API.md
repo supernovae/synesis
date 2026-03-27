@@ -90,7 +90,7 @@ Re-run sync periodically or after bursts of user feedback if you want the admin 
 A **Pipe plugin** adds a "Synesis Feedback" model. Use it to view **planner** stored thumbs with classification context:
 
 1. Import: **Workspace → Functions → Import Functions** → upload `integrations/openwebui-synesis-feedback/synesis_feedback_export.json`
-2. Configure: Edit the function Valves, set `synesis_planner_url` (e.g. `http://synesis-planner:8000`)
+2. Configure: Edit the function Valves, set `synesis_planner_url` (e.g. `http://synesis-planner-ts:8080`)
 3. Use: Start a chat, select **Synesis Feedback** as model, send `show` or `show down`
 
 See `integrations/openwebui-synesis-feedback/README.md`.

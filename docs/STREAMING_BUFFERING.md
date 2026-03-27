@@ -68,7 +68,7 @@ If using LiteLLM in front of the Planner, ensure it does not buffer:
 
 For lowest latency and most reliable streaming:
 
-- Point Open WebUI directly at the Planner service (e.g. `http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1`).
+- Point Open WebUI directly at the Planner service (e.g. `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1`).
 - Use a route/ingress that does not buffer (or configure buffering off).
 - Avoid HAProxy in the path when possible.
 

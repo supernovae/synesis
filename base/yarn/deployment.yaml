@@ -51,7 +51,7 @@ spec:
             - name: SYNESIS_YARN_MEMORY_REDIS_URL
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/4"
             - name: SYNESIS_YARN_PLANNER_URL
-              value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+              value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
             - name: SYNESIS_YARN_MCP_URL
               value: "http://synesis-mcp.synesis-planner.svc.cluster.local:8100"
             - name: SYNESIS_YARN_ADMIN_API_URL

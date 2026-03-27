@@ -13,7 +13,7 @@ from ..deps import LITELLM_URL
 logger = logging.getLogger("synesis.admin.health_prober")
 
 CORE_SERVICES = [
-    {"name": "synesis-planner", "url": "http://synesis-planner.synesis-planner.svc.cluster.local:8000/health"},
+    {"name": "synesis-planner-ts", "url": "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/health"},
     {"name": "milvus", "url": "http://synesis-milvus.synesis-rag.svc.cluster.local:9091/healthz"},
     {"name": "embedder", "url": "http://embedder.synesis-rag.svc.cluster.local:8080/health"},
     {"name": "keyword-service", "url": "http://keyword-service.synesis-rag.svc.cluster.local:8080/health"},

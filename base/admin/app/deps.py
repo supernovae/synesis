@@ -14,7 +14,7 @@ MILVUS_HOST = os.getenv(
 MILVUS_PORT = int(os.getenv("SYNESIS_MILVUS_PORT", "19530"))
 PLANNER_URL = os.getenv(
     "SYNESIS_PLANNER_URL",
-    "http://synesis-planner.synesis-planner.svc.cluster.local:8000",
+    "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",
 )
 PLANNER_TS_URL = os.getenv(
     "SYNESIS_PLANNER_TS_URL",
