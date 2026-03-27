@@ -11,6 +11,7 @@ import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
 import { invokeGraph } from "./graph.js";
+import { listModelIds, resolveTierSettings } from "./model-tiers.js";
 import { optimizeContext } from "./optimization/context-optimizer.js";
 import {
   endSse,
@@ -66,6 +67,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     optimizationCounters.rawCharsTotal += optimized.stats.rawCharsTotal;
 
     const userMessage = [...optimized.messages].reverse().find((m) => m.role === "user");
+    const tierSettings = resolveTierSettings(requestBody.model);
     return {
       messages: optimized.messages.map((m) => ({ role: m.role, content: m.content ?? "" })),
       user_id: auth.userId,
@@ -76,12 +78,20 @@ export function buildApp(config: AppConfig): FastifyInstance {
       authz_trace_id: authzTraceId,
       authz_engine: authzPolicyEngine.engineName,
       authz_rules: policyDecision.matchedRules,
+      requested_model: tierSettings.requestedModel || requestBody.model,
+      response_model: tierSettings.responseModel,
+      model_tier: tierSettings.tier,
       task_description: userMessage?.content ?? "",
       evidence_packets: [],
       decision_ledger: [],
       critique_register: {},
       draft_fingerprints: [],
       patch_ops: [],
+      writer_max_tokens: tierSettings.writerMaxTokens,
+      critic_max_tokens: tierSettings.criticMaxTokens,
+      execution_policy: {
+        critique_passes: tierSettings.critiquePasses
+      },
       run_id: requestBody.conversation_id ?? undefined
     };
   }
@@ -121,14 +131,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.get("/v1/models", async () => ({
     object: "list",
-    data: [
-      {
-        id: config.SYNESIS_PLANNER_TS_MODEL_ID,
-        object: "model",
-        created: Math.floor(Date.now() / 1000),
-        owned_by: "synesis"
-      }
-    ]
+    data: listModelIds(config).map((id) => ({
+      id,
+      object: "model",
+      created: Math.floor(Date.now() / 1000),
+      owned_by: "synesis"
+    }))
   }));
 
   app.post("/v1/chat/completions", async (request, reply) => {
@@ -168,7 +176,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           id: completionId,
           object: "chat.completion",
           created,
-          model: body.model,
+          model: state.response_model ?? body.model,
           choices: [
             {
               index: 0,
@@ -212,7 +220,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         writeCompletionChunk(reply.raw, {
           id: completionId,
           created,
-          model: body.model,
+          model: state.response_model ?? body.model,
           content: chunk
         });
       }
@@ -226,7 +234,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       writeFinalChunk(reply.raw, {
         id: completionId,
         created,
-        model: body.model,
+        model: state.response_model ?? body.model,
         usage: {
           prompt_tokens: 0,
           completion_tokens: 0,

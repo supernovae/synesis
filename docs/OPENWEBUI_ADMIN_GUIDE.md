@@ -10,7 +10,7 @@ This guide shows Open WebUI administrators how to import, configure, and use the
 |------|----------|---------|
 | **Synesis Feedback** | Inside Open WebUI (Pipe plugin) | View thumbs up/down with classification context for classifier tuning |
 | **synesis-admin** | Separate web app (port-forward or Route) | Failure patterns, Knowledge Gaps, self-heal workflow |
-| **Planner API** | `synesis-planner:8000` | `/v1/feedback`, `/v1/knowledge/submit`, health checks |
+| **Planner API** | `synesis-planner-ts:8080` | `/v1/feedback`, `/v1/knowledge/submit`, health checks |
 
 ---
 
@@ -21,7 +21,7 @@ The **Synesis Feedback** Pipe adds a "model" to Open WebUI that displays classif
 ### Prerequisites
 
 - Open WebUI must reach the Synesis planner (same Kubernetes cluster, or port-forward, or public URL)
-- Planner URL, e.g. `http://synesis-planner:8000` or `http://synesis-planner.synesis-planner.svc.cluster.local:8000`
+- Planner URL, e.g. `http://synesis-planner-ts:8080` or `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080`
 
 ### Import the plugin
 
@@ -38,9 +38,9 @@ The **Synesis Feedback** Pipe adds a "model" to Open WebUI that displays classif
 1. In **Workspace → Functions**, find **Synesis Feedback**
 2. Click the function to open its settings
 3. Set **synesis_planner_url**:
-   - Same cluster (recommended): `http://synesis-planner:8000`
-   - With namespace: `http://synesis-planner.synesis-planner.svc.cluster.local:8000`
-   - Local dev: `http://localhost:8000` (with port-forward)
+   - Same cluster (recommended): `http://synesis-planner-ts:8080`
+   - With namespace: `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080`
+   - Local dev: `http://localhost:8080` (with port-forward)
 4. Optionally set **limit** (default 20) — max feedback entries to fetch
 
 ### Use it
@@ -160,8 +160,8 @@ Use these from scripts, curl, or custom tooling. See [FEEDBACK_API.md](FEEDBACK_
 
 | Service | Default URL |
 |---------|------------|
-| Planner (internal) | `http://synesis-planner:8000` |
-| Planner (with ns) | `http://synesis-planner.synesis-planner.svc.cluster.local:8000` |
+| Planner (internal) | `http://synesis-planner-ts:8080` |
+| Planner (with ns) | `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080` |
 | synesis-admin (port-forward) | `http://localhost:8080` |
 
 ---

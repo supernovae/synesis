@@ -20,6 +20,9 @@ export interface GraphState {
   authz_trace_id?: string;
   authz_engine?: string;
   authz_rules?: string[];
+  requested_model?: string;
+  response_model?: string;
+  model_tier?: "auto" | "pulse" | "core" | "horizon";
   task_description?: string;
   task_frame?: Record<string, unknown>;
   execution_plan?: Record<string, unknown>;
@@ -45,6 +48,8 @@ export interface GraphState {
   blocking_issues?: Array<Record<string, unknown>>;
   critic_nonblocking?: Array<Record<string, unknown>>;
   execution_policy?: Record<string, unknown>;
+  writer_max_tokens?: number;
+  critic_max_tokens?: number;
   generated_code?: string;
   code_explanation?: string;
   patch_ops?: unknown[];

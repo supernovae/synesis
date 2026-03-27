@@ -4,7 +4,8 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().default(8080),
   HOST: z.string().default("0.0.0.0"),
   LOG_LEVEL: z.string().default("info"),
-  SYNESIS_PLANNER_TS_MODEL_ID: z.string().default("Synesis"),
+  SYNESIS_PLANNER_TS_MODEL_ID: z.string().default("Synesis Auto"),
+  SYNESIS_PLANNER_TS_MODEL_IDS: z.string().default("Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon"),
   SYNESIS_PLANNER_TS_LLM_ENABLED: z
     .string()
     .optional()

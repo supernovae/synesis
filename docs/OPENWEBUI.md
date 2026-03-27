@@ -2,7 +2,7 @@
 
 Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. In the dev (small) profile, it connects directly to the Synesis planner; in staging/prod it can route through LiteLLM.
 
-Synesis ships a thin child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.10`) that injects a branded light/dark theme via `/static/custom.css`. The theme is baked into the image — no manual CSS paste is required.
+Synesis ships a thin child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.11`) that injects a branded light/dark theme via `/static/custom.css`. The theme is baked into the image — no manual CSS paste is required.
 
 ## Zero-Configuration Setup
 
@@ -71,7 +71,7 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 |---------|---------|-------------|
 | `WEBUI_AUTH` | `true` | Require login (first user becomes admin) |
 | `ENABLE_SIGNUP` | `true` | Allow new user registration |
-| `DEFAULT_MODELS` | `synesis-agent` | Pre-selected model for new conversations |
+| `DEFAULT_MODELS` | `Synesis Auto` | Pre-selected model tier for new conversations |
 | `ENABLE_OLLAMA_API` | `false` | Disabled — all inference goes through planner/LiteLLM |
 
 ## Resource Requirements
@@ -142,11 +142,11 @@ oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=100
    oc rollout restart deployment/open-webui -n synesis-webui
    ```
 
-2. **Verify planner is reachable**:
+2. **Verify planner-ts is reachable**:
    ```bash
-   oc get pods -n synesis-planner -l app.kubernetes.io/name=synesis-planner
+   oc get pods -n synesis-planner -l app.kubernetes.io/name=synesis-planner-ts
    oc run -it --rm debug --image=curlimages/curl --restart=Never -n synesis-webui -- \
-     curl -s http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1/models
+     curl -s http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1/models
    ```
 
 3. **Switch to LiteLLM** — if planner path is broken, remove the direct-planner patch and set `OPENAI_API_BASE_URL` to `http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1`.

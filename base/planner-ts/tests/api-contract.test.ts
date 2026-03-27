@@ -11,6 +11,39 @@ function makeConfig(overrides: Record<string, string> = {}) {
 }
 
 describe("API contract", () => {
+  it("lists Synesis tier model ids", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/models"
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const ids = (body.data ?? []).map((m: { id?: string }) => String(m.id ?? ""));
+    expect(ids).toContain("Synesis Auto");
+    expect(ids).toContain("Synesis Pulse");
+    expect(ids).toContain("Synesis Core");
+    expect(ids).toContain("Synesis Horizon");
+    await app.close();
+  });
+
+  it("normalizes response model id for selected tier", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "synesis horizon",
+        messages: [{ role: "user", content: "hello planner" }],
+        stream: false
+      }
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.model).toBe("Synesis Horizon");
+    await app.close();
+  });
+
   it("reports authz engine on health", async () => {
     const app = buildApp(makeConfig());
     const response = await app.inject({

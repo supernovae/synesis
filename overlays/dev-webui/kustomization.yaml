@@ -18,7 +18,7 @@ patches:
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
-        value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1"
+        value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1"
       - op: replace
         path: /spec/template/spec/containers/0/resources/requests/cpu
         value: "100m"

@@ -26,7 +26,7 @@ patches:
       name: synesis-supervisor-config
     path: supervisor-config-patch.yaml
 
-  # WebUI: point directly at the planner so SSE status events pass through
+  # WebUI: point directly at planner-ts so SSE status events pass through
   # without being stripped by LiteLLM's response normalizer.
   # Auth: use the internal service token so the planner trusts forwarded
   # X-OpenWebUI-* identity headers (strict_forwarded_identity_mode).
@@ -45,12 +45,14 @@ patches:
               - name: open-webui
                 env:
                   - name: OPENAI_API_BASE_URL
-                    value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1"
+                    value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1"
                   - name: OPENAI_API_KEY
                     valueFrom:
                       secretKeyRef:
                         name: synesis-internal-service-auth
                         key: token
+                  - name: RESET_CONFIG_ON_START
+                    value: "true"
 
   # Planner: all model URLs through LiteLLM. Registry-backed routes are pushed
   # to LiteLLM via Prisma (/model/new); the OpenRouter ConfigMap is bootstrap only.

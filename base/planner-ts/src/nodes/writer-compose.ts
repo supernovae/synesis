@@ -56,7 +56,7 @@ export async function composeWriterDraft(state: GraphState): Promise<string> {
     const output = await chatCompletion({
       model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0.2,
-      max_tokens: 1800,
+      max_tokens: state.writer_max_tokens ?? 1800,
       messages: [
         {
           role: "system",

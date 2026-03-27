@@ -73,7 +73,7 @@ async function llmCritic(state: GraphState): Promise<CriticOut> {
   const content = await chatCompletion({
     model: process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "Synesis",
     temperature: 0,
-    max_tokens: 1200,
+    max_tokens: state.critic_max_tokens ?? 1200,
     messages: [
       {
         role: "system",

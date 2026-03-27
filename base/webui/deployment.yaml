@@ -23,19 +23,19 @@ spec:
     spec:
       containers:
         - name: open-webui
-          image: ghcr.io/open-webui/open-webui:v0.8.10
+          image: ghcr.io/open-webui/open-webui:v0.8.11
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
           env:
             - name: OPENAI_API_BASE_URL
-              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+              value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1"
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: webui-api-key
-                  key: api-key
+                  name: synesis-internal-service-auth
+                  key: token
             - name: WEBUI_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -82,10 +82,12 @@ spec:
               value: "synesis-admin"
             - name: OAUTH_ALLOWED_ROLES
               value: "synesis-user,synesis-admin"
-            # V3: Synesis = default pipeline; Synesis Thinking = writer thinking param;
+            # V3: Synesis Auto = default planner-ts tier.
+            # Other selectable tiers are exposed from planner-ts /v1/models.
+            # Synesis Thinking = writer thinking param;
             # synesis-thinking = R1 optional; Synesis Coder / synesis-yarn = IDE. From LiteLLM /v1/models.
             - name: DEFAULT_MODELS
-              value: "Synesis"
+              value: "Synesis Auto"
             - name: ENABLE_OLLAMA_API
               value: "false"
             - name: WEBUI_NAME
