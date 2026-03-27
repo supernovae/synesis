@@ -749,47 +749,52 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let finishReason = "stop";
   const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
 
-  for await (const part of streamed.fullStream) {
-    const ts = Math.floor(Date.now() / 1000);
-    if (part.type === "text-delta") {
-      reply.raw.write(`data: ${JSON.stringify({
-        id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-        choices: [{ index: 0, delta: { content: (part as unknown as { text: string }).text ?? "" }, finish_reason: null }]
-      })}\n\n`);
-    } else if (part.type === "tool-call" || part.type === "tool-input-start") {
-      const tc = part as unknown as { toolCallId?: string; toolName?: string; args?: unknown };
-      if (part.type === "tool-input-start") {
-        pendingToolCalls.push({ index: pendingToolCalls.length, id: tc.toolCallId ?? "", name: tc.toolName ?? "", args: "" });
+  try {
+    for await (const part of streamed.fullStream) {
+      const ts = Math.floor(Date.now() / 1000);
+      if (part.type === "text-delta") {
         reply.raw.write(`data: ${JSON.stringify({
           id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-          choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length - 1, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: "" } }] }, finish_reason: null }]
+          choices: [{ index: 0, delta: { content: (part as unknown as { text: string }).text ?? "" }, finish_reason: null }]
         })}\n\n`);
-      } else if (part.type === "tool-call") {
-        finishReason = "tool_calls";
-        const argsStr = typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args ?? {});
-        const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
-        if (existing) {
+      } else if (part.type === "tool-call" || part.type === "tool-input-start") {
+        const tc = part as unknown as { toolCallId?: string; toolName?: string; args?: unknown };
+        if (part.type === "tool-input-start") {
+          pendingToolCalls.push({ index: pendingToolCalls.length, id: tc.toolCallId ?? "", name: tc.toolName ?? "", args: "" });
           reply.raw.write(`data: ${JSON.stringify({
             id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-            choices: [{ index: 0, delta: { tool_calls: [{ index: existing.index, function: { arguments: argsStr } }] }, finish_reason: null }]
+            choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length - 1, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: "" } }] }, finish_reason: null }]
           })}\n\n`);
-        } else {
+        } else if (part.type === "tool-call") {
+          finishReason = "tool_calls";
+          const argsStr = typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args ?? {});
+          const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
+          if (existing) {
+            reply.raw.write(`data: ${JSON.stringify({
+              id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
+              choices: [{ index: 0, delta: { tool_calls: [{ index: existing.index, function: { arguments: argsStr } }] }, finish_reason: null }]
+            })}\n\n`);
+          } else {
+            reply.raw.write(`data: ${JSON.stringify({
+              id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
+              choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: argsStr } }] }, finish_reason: null }]
+            })}\n\n`);
+          }
+        }
+      } else if (part.type === "tool-input-delta") {
+        const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
+        const idx = pendingToolCalls.findIndex((p) => p.id === td.toolCallId);
+        if (idx >= 0) {
           reply.raw.write(`data: ${JSON.stringify({
             id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-            choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: argsStr } }] }, finish_reason: null }]
+            choices: [{ index: 0, delta: { tool_calls: [{ index: idx, function: { arguments: td.inputTextDelta ?? "" } }] }, finish_reason: null }]
           })}\n\n`);
         }
       }
-    } else if (part.type === "tool-input-delta") {
-      const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
-      const idx = pendingToolCalls.findIndex((p) => p.id === td.toolCallId);
-      if (idx >= 0) {
-        reply.raw.write(`data: ${JSON.stringify({
-          id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-          choices: [{ index: 0, delta: { tool_calls: [{ index: idx, function: { arguments: td.inputTextDelta ?? "" } }] }, finish_reason: null }]
-        })}\n\n`);
-      }
     }
+  } catch (streamErr) {
+    const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
+    app.log.error({ err: streamErr, reqId, model: resolved.resolvedModelId }, `OpenAI stream error: ${detail}`);
   }
 
   reply.raw.write(`data: ${JSON.stringify({
@@ -953,57 +958,68 @@ app.post("/v1/messages", async (req, reply) => {
     let stopReason = "end_turn";
     const pendingClaudeToolIds = new Set<string>();
 
-    for await (const part of streamed.fullStream) {
-      if (part.type === "text-delta") {
-        const delta = (part as unknown as { text?: string }).text ?? "";
-        if (!inTextBlock) {
-          sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
-          inTextBlock = true;
-        }
-        sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: delta } });
-      } else if (part.type === "reasoning-start") {
-        if (inTextBlock) {
-          sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-          blockIdx++;
-          inTextBlock = false;
-        }
-        const text = (part as unknown as { text?: string }).text ?? "";
-        sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "thinking", thinking: "" } });
-        if (text) {
+    try {
+      for await (const part of streamed.fullStream) {
+        if (part.type === "text-delta") {
+          const delta = (part as unknown as { text?: string }).text ?? "";
+          if (!inTextBlock) {
+            sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
+            inTextBlock = true;
+          }
+          sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: delta } });
+        } else if (part.type === "reasoning-start") {
+          if (inTextBlock) {
+            sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+            blockIdx++;
+            inTextBlock = false;
+          }
+          const text = (part as unknown as { text?: string }).text ?? "";
+          sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "thinking", thinking: "" } });
+          if (text) {
+            sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
+          }
+        } else if (part.type === "reasoning-delta") {
+          const text = (part as unknown as { textDelta?: string }).textDelta ?? "";
           sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
-        }
-      } else if (part.type === "reasoning-delta") {
-        const text = (part as unknown as { textDelta?: string }).textDelta ?? "";
-        sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
-      } else if (part.type === "reasoning-end") {
-        sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-        blockIdx++;
-      } else if (part.type === "tool-input-start") {
-        const tc = part as unknown as { toolCallId?: string; toolName?: string };
-        if (tc.toolName === ARTIFACT_TOOL_NAME) {
-          pendingClaudeToolIds.add(tc.toolCallId ?? "");
-          continue;
-        }
-        if (inTextBlock) {
+        } else if (part.type === "reasoning-end") {
           sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
-          inTextBlock = false;
+        } else if (part.type === "tool-input-start") {
+          const tc = part as unknown as { toolCallId?: string; toolName?: string };
+          if (tc.toolName === ARTIFACT_TOOL_NAME) {
+            pendingClaudeToolIds.add(tc.toolCallId ?? "");
+            continue;
+          }
+          if (inTextBlock) {
+            sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+            blockIdx++;
+            inTextBlock = false;
+          }
+          sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" } });
+          stopReason = "tool_use";
+        } else if (part.type === "tool-input-delta") {
+          const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
+          const tdToolCall = pendingClaudeToolIds.has(td.toolCallId ?? "");
+          if (!tdToolCall) {
+            sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
+          }
+        } else if (part.type === "tool-call") {
+          const tc = part as unknown as { toolName?: string };
+          if (tc.toolName === ARTIFACT_TOOL_NAME) continue;
+          sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+          blockIdx++;
+          stopReason = "tool_use";
         }
-        sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" } });
-        stopReason = "tool_use";
-      } else if (part.type === "tool-input-delta") {
-        const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
-        const tdToolCall = pendingClaudeToolIds.has(td.toolCallId ?? "");
-        if (!tdToolCall) {
-          sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
-        }
-      } else if (part.type === "tool-call") {
-        const tc = part as unknown as { toolName?: string };
-        if (tc.toolName === ARTIFACT_TOOL_NAME) continue;
-        sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-        blockIdx++;
-        stopReason = "tool_use";
       }
+    } catch (streamErr) {
+      const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
+      app.log.error({ err: streamErr, reqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
+      if (!inTextBlock) {
+        sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
+        inTextBlock = true;
+      }
+      sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: `\n\n[Upstream provider error: ${detail}]` } });
+      stopReason = "end_turn";
     }
 
     if (inTextBlock) {
