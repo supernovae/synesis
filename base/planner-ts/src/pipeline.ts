@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { routeAfterCritic } from "./nodes/critic-routing.js";
+import { classifyEntry } from "./nodes/entry-classifier.js";
 import {
   annotateViolations,
   fingerprintDraft,
@@ -46,15 +47,26 @@ function appendDecisionLedger(
 }
 
 export async function entryPipelineNode(state: GraphState): Promise<GraphState> {
-  return ensureForwarded(withNodeTrace({
+  return ensureForwarded(withNodeTrace(classifyEntry({
     ...state,
-    next_node: "planner",
     iteration_count: state.iteration_count ?? 0,
     max_iterations: state.max_iterations ?? 4
-  }, "entry_pipeline"));
+  }), "entry_pipeline"));
 }
 
 export async function plannerNode(state: GraphState): Promise<GraphState> {
+  if (state.plan_required === false) {
+    return ensureForwarded(withNodeTrace({
+      ...state,
+      execution_plan: {
+        steps: [{ id: 1, action: `Directly answer: ${state.task_description ?? "User request"}`, files: [], dependencies: [] }],
+        open_questions: [],
+        assumptions: []
+      },
+      plan_gate_passed: true,
+      next_node: "router"
+    }, "planner"));
+  }
   const task = state.task_description ?? "User request";
   const feedback = state.plan_gate_feedback ? `\n\nPlan gate feedback:\n${state.plan_gate_feedback}` : "";
   const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
@@ -87,6 +99,29 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
 }
 
 export async function routerNode(state: GraphState): Promise<GraphState> {
+  if (state.rag_mode === "disabled") {
+    return appendDecisionLedger(
+      ensureForwarded(
+        withNodeTrace(
+          {
+            ...state,
+            evidence_packets: state.evidence_packets ?? [],
+            need_more_evidence: false,
+            next_node: "writer"
+          },
+          "router"
+        )
+      ),
+      {
+        category: "scope",
+        chosen: "skip_retrieval_trivial_path",
+        rejected_alternatives: ["retrieve_more_evidence"],
+        rationale: "Entry classifier selected trivial/no-RAG path for latency protection",
+        decided_by: "router",
+        frozen: false
+      }
+    );
+  }
   const routed = await runRouter(state);
   const traced = ensureForwarded(withNodeTrace(routed, "router"));
   const chosen = traced.need_more_evidence ? "retrieve_more_evidence" : "use_current_evidence";
@@ -200,15 +235,26 @@ export async function respondNode(state: GraphState): Promise<GraphState> {
 export async function runCanonicalPipeline(input: GraphState): Promise<GraphState> {
   let state: GraphState = { ...input, run_id: input.run_id ?? randomUUID() };
   state = await entryPipelineNode(state);
+  if (state.next_node === "respond") return ensureForwarded(state);
   while (state.next_node === "planner") {
     state = await plannerNode(state);
-    state = ensureForwarded(planGate(state));
+    if (state.plan_required !== false) {
+      state = ensureForwarded(planGate(state));
+    }
     if (state.next_node === "respond") return state;
     if (state.next_node === "router") break;
   }
-  state = await routerNode(state);
-  state = await writerNode(state);
-  state = await criticNode(state);
+  if (state.next_node === "router") state = await routerNode(state);
+  if (state.next_node === "writer") state = await writerNode(state);
+  if (state.next_node === "critic") {
+    const background = Boolean((state.execution_policy ?? {}).critic_background);
+    if (background) {
+      state = await finalScrubberNode(state);
+      state = await respondNode(state);
+      return ensureForwarded(state);
+    }
+    state = await criticNode(state);
+  }
   if (state.next_node === "respond") {
     return ensureForwarded(state);
   }

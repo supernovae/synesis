@@ -15,6 +15,12 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_WRITER_MODEL: z.string().default("Synesis"),
   SYNESIS_PLANNER_TS_CRITIC_MODEL: z.string().default("Synesis"),
   SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS: z.coerce.number().default(15000),
+  SYNESIS_PLANNER_TS_CRITIC_BACKGROUND: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_PLANNER_TS_CRITIC_SKIP_BELOW_DIFFICULTY: z.coerce.number().default(0.15),
+  SYNESIS_PLANNER_TS_CRITIC_LENIENT_BELOW_DIFFICULTY: z.coerce.number().default(0.4),
   SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS: z.coerce.number().default(12000),
   SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT: z.coerce.number().default(24),
   SYNESIS_PLANNER_TS_SESSION_ENABLED: z

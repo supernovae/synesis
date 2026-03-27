@@ -11,6 +11,7 @@ import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
 import { invokeGraph } from "./graph.js";
+import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
 import { optimizeContext } from "./optimization/context-optimizer.js";
 import {
@@ -48,6 +49,32 @@ export function buildApp(config: AppConfig): FastifyInstance {
   });
   const authzPolicyEngine = createAuthorizationPolicyEngine(config);
 
+  function spawnBackgroundCritic(state: GraphState, requestLog: FastifyInstance["log"]): void {
+    const executionPolicy = state.execution_policy ?? {};
+    if (!Boolean((executionPolicy as Record<string, unknown>).critic_background)) return;
+    if (!(state.generated_code ?? "").trim()) return;
+    void evaluateCritic({ ...state, next_node: "critic" })
+      .then((result) => {
+        requestLog.info(
+          {
+            authzTraceId: state.authz_trace_id,
+            approved: result.approved,
+            needMoreEvidence: result.need_more_evidence
+          },
+          "background critic completed"
+        );
+      })
+      .catch((error: unknown) => {
+        requestLog.warn(
+          {
+            authzTraceId: state.authz_trace_id,
+            error: error instanceof Error ? error.message : String(error)
+          },
+          "background critic failed"
+        );
+      });
+  }
+
   function toState(
     requestBody: ReturnType<typeof ChatCompletionRequestSchema.parse>,
     auth: ReturnType<typeof resolveAuthContext>,
@@ -68,6 +95,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const userMessage = [...optimized.messages].reverse().find((m) => m.role === "user");
     const tierSettings = resolveTierSettings(requestBody.model);
+    const requestedEffortMode = tierSettings.tier;
     return {
       messages: optimized.messages.map((m) => ({ role: m.role, content: m.content ?? "" })),
       user_id: auth.userId,
@@ -81,6 +109,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       requested_model: tierSettings.requestedModel || requestBody.model,
       response_model: tierSettings.responseModel,
       model_tier: tierSettings.tier,
+      requested_effort_mode: requestedEffortMode,
       task_description: userMessage?.content ?? "",
       evidence_packets: [],
       decision_ledger: [],
@@ -90,7 +119,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
       writer_max_tokens: tierSettings.writerMaxTokens,
       critic_max_tokens: tierSettings.criticMaxTokens,
       execution_policy: {
-        critique_passes: tierSettings.critiquePasses
+        critique_passes: tierSettings.critiquePasses,
+        critic_background: config.SYNESIS_PLANNER_TS_CRITIC_BACKGROUND
       },
       run_id: requestBody.conversation_id ?? undefined
     };
@@ -162,16 +192,18 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const body = ChatCompletionRequestSchema.parse(request.body);
       const created = Math.floor(Date.now() / 1000);
       const completionId = `chatcmpl-${crypto.randomUUID()}`;
-      const state = await invokeGraph(toState(body, auth, authzTraceId, policyDecision));
-      const content = state.generated_code ?? "";
-      const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-      sessionManager.recordTurn(
-        body.conversation_id || body.user || "anon",
-        latestUser ?? "",
-        content
-      );
+      const initialState = toState(body, auth, authzTraceId, policyDecision);
 
       if (!body.stream) {
+        const state = await invokeGraph(initialState);
+        const content = state.generated_code ?? "";
+        const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+        sessionManager.recordTurn(
+          body.conversation_id || body.user || "anon",
+          latestUser ?? "",
+          content
+        );
+        spawnBackgroundCritic(state, request.log);
         return {
           id: completionId,
           object: "chat.completion",
@@ -201,6 +233,39 @@ export function buildApp(config: AppConfig): FastifyInstance {
         done: false,
         authz_trace_id: authzTraceId
       });
+      writeStatusEvent(reply.raw, {
+        description: describePhase("entry_pipeline"),
+        done: false,
+        node: "entry_pipeline",
+        authz_trace_id: authzTraceId
+      });
+      if (initialState.next_node === "writer") {
+        writeStatusEvent(reply.raw, {
+          description: "Fast path selected for low-complexity request",
+          done: false,
+          node: "writer",
+          authz_trace_id: authzTraceId
+        });
+      }
+
+      const heartbeat = setInterval(() => {
+        if (reply.raw.writableEnded) return;
+        writeStatusEvent(reply.raw, {
+          description: "Planner is still processing",
+          done: false,
+          authz_trace_id: authzTraceId
+        });
+      }, 1800);
+
+      const state = await invokeGraph(initialState).finally(() => clearInterval(heartbeat));
+      const content = state.generated_code ?? "";
+      const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+      sessionManager.recordTurn(
+        body.conversation_id || body.user || "anon",
+        latestUser ?? "",
+        content
+      );
+      spawnBackgroundCritic(state, request.log);
 
       const traces = state.node_traces ?? [];
       const emitted = new Set<string>();

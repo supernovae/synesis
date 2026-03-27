@@ -30,7 +30,20 @@ const compiledGraph = new StateGraph(EnvelopeAnnotation)
   .addNode("final_scrubber", async (state: GraphEnvelope) => ({ data: await finalScrubberNode(state.data) }))
   .addNode("respond", async (state: GraphEnvelope) => ({ data: await respondNode(state.data) }))
   .addEdge(START, "entry_pipeline")
-  .addEdge("entry_pipeline", "planner")
+  .addConditionalEdges(
+    "entry_pipeline",
+    (state: GraphEnvelope) => {
+      const next = state.data.next_node;
+      if (next === "writer") return "writer";
+      if (next === "respond") return "respond";
+      return "planner";
+    },
+    {
+      planner: "planner",
+      writer: "writer",
+      respond: "respond"
+    }
+  )
   .addEdge("planner", "plan_gate")
   .addConditionalEdges(
     "plan_gate",
@@ -43,10 +56,15 @@ const compiledGraph = new StateGraph(EnvelopeAnnotation)
   .addEdge("router", "writer")
   .addConditionalEdges(
     "writer",
-    (state: GraphEnvelope) => (state.data.next_node === "respond" ? "respond" : "critic"),
+    (state: GraphEnvelope) => {
+      if (state.data.next_node === "respond") return "respond";
+      const background = Boolean((state.data.execution_policy ?? {}).critic_background);
+      return background ? "final_scrubber" : "critic";
+    },
     {
       respond: "respond",
-      critic: "critic"
+      critic: "critic",
+      final_scrubber: "final_scrubber"
     }
   )
   .addConditionalEdges(

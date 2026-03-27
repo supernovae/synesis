@@ -23,6 +23,16 @@ export interface GraphState {
   requested_model?: string;
   response_model?: string;
   model_tier?: "auto" | "pulse" | "core" | "horizon";
+  task_size?: "easy" | "medium" | "hard";
+  difficulty?: number;
+  risk_score?: number;
+  plan_required?: boolean;
+  task_is_trivial?: boolean;
+  rag_mode?: "disabled" | "light" | "normal";
+  requested_effort_mode?: "auto" | "pulse" | "core" | "horizon";
+  recommended_effort_mode?: "pulse" | "core" | "horizon";
+  selected_effort_mode?: "pulse" | "core" | "horizon";
+  taxonomy_metadata?: Record<string, unknown>;
   task_description?: string;
   task_frame?: Record<string, unknown>;
   execution_plan?: Record<string, unknown>;
