@@ -16,6 +16,7 @@ import { z } from "zod";
 import { chatCompletion, isLlmAvailable, ZERO_USAGE, type LlmUsage } from "../llm/client.js";
 import { validateWithRepair } from "../validation/json-repair.js";
 import type { GraphState } from "../state/types.js";
+import { TRUST_POLICY_COMPACT } from "../security/trust-prompts.js";
 
 const PlannerOutputSchema = z.object({
   steps: z.array(z.object({
@@ -157,6 +158,9 @@ export async function runLlmPlanner(state: GraphState): Promise<{
           content: [
             "You are Synesis Planner. Produce a JSON plan for the user's request.",
             "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
+            "",
+            TRUST_POLICY_COMPACT,
+            "",
             "RULES:",
             "- If the user's latest message is a short follow-up (e.g., an answer choice like 'B)', 'yes', 'expand on that'), interpret it IN CONTEXT of the conversation history.",
             "- List ALL material assumptions you are making to create this plan.",

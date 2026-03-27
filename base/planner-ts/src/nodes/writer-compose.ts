@@ -8,6 +8,13 @@ import {
   type StreamDelta,
   type ChatMessage,
 } from "../llm/client.js";
+import {
+  TRUST_POLICY,
+  SANDWICH_REMINDER,
+  authorityDatamark,
+  wrapUntrusted,
+} from "../security/trust-prompts.js";
+import { sanitizeStepAction } from "../security/step-sanitizer.js";
 
 export interface WriterResult {
   content: string;
@@ -23,8 +30,11 @@ function renderEvidenceContext(state: GraphState): string {
     lines.push(`Query: ${packet.query}`);
     lines.push(packet.summary || "No summary available.");
     for (const source of packet.sources.slice(0, 3)) {
+      const authority = String(source.metadata.authority ?? "external");
+      const sourceType = source.type === "web" ? "web" : "rag";
+      const mark = authorityDatamark(authority, sourceType);
       const docName = String(source.metadata.document_name ?? source.uri);
-      lines.push(`- [Source: ${docName} - ${source.uri}]`);
+      lines.push(`${mark} [Source: ${docName} - ${source.uri}]`);
     }
   }
   return lines.join("\n");
@@ -34,7 +44,7 @@ function renderPlanContext(state: GraphState): string {
   const plan = state.execution_plan ?? {};
   const steps = Array.isArray(plan.steps) ? plan.steps : [];
   if (steps.length === 0) return "";
-  return steps.map((step) => `- ${String(step.action ?? "Unnamed step")}`).join("\n");
+  return steps.map((step) => `- ${sanitizeStepAction(String(step.action ?? "Unnamed step"))}`).join("\n");
 }
 
 function deterministicDraft(state: GraphState): string {
@@ -89,6 +99,8 @@ function buildWriterMessages(state: GraphState): ChatMessage[] {
     "Never emit headings like 'Plan:', 'Evidence:', 'Answer:', 'Draft Response', or similar meta-sections unless the user explicitly asks for that format.",
     "If the prompt is a follow-up request (e.g., 'more detail', 'expand', 'clarify'), extend the answer with new detail instead of repeating prior wording verbatim.",
     "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - url].",
+    "",
+    TRUST_POLICY,
   ];
   if (assumptionBlock) systemParts.push(assumptionBlock);
 
@@ -104,7 +116,11 @@ function buildWriterMessages(state: GraphState): ChatMessage[] {
     msgs.push(...prior.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })));
   }
 
-  const scaffoldParts = [planBlock, evidenceBlock].filter(Boolean).join("\n\n");
+  const hasEvidence = Boolean(evidenceBlock);
+  const wrappedEvidence = hasEvidence
+    ? `## Evidence\n${wrapUntrusted(evidenceBlock)}\n${SANDWICH_REMINDER}`
+    : "";
+  const scaffoldParts = [planBlock, wrappedEvidence].filter(Boolean).join("\n\n");
   const userContent = scaffoldParts ? `${task}\n\n${scaffoldParts}` : task;
   msgs.push({ role: "user" as const, content: userContent });
 

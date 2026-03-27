@@ -89,5 +89,7 @@ export interface GraphState {
   show_assumptions?: boolean;
   planner_confidence?: number;
   cohesion_lock?: CohesionLockData;
+  injection_detected?: boolean;
+  injection_scan_result?: { detected: boolean; patterns_found: string[]; source: string };
   _span_collector?: SpanCollector;
 }

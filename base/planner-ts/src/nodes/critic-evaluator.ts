@@ -2,6 +2,7 @@ import { CriticOutSchema, type CriticOut } from "../contracts/schemas.js";
 import { chatCompletion, isLlmAvailable, ZERO_USAGE, type LlmUsage } from "../llm/client.js";
 import type { GraphState } from "../state/types.js";
 import { validateWithRepair } from "../validation/json-repair.js";
+import { TRUST_POLICY_COMPACT } from "../security/trust-prompts.js";
 
 export type CriticResult = CriticOut & { usage: LlmUsage };
 
@@ -183,7 +184,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
       {
         role: "system",
         content:
-          "You are Synesis Critic. Output only valid JSON matching keys: approved, need_more_evidence, continue_reason, blocking_issues, nonblocking, repair_instructions, scores.",
+          `You are Synesis Critic. Output only valid JSON matching keys: approved, need_more_evidence, continue_reason, blocking_issues, nonblocking, repair_instructions, scores.\n\n${TRUST_POLICY_COMPACT}`,
       },
       {
         role: "user",

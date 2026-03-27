@@ -5,6 +5,7 @@
  */
 
 import type { SearchResult } from "./types.js";
+import { scanWebContent, redactPatterns } from "../security/scanner.js";
 
 export interface WebSearchConfig {
   url: string;
@@ -192,5 +193,16 @@ export async function searchAndProcess(
   }
 
   classifyTrust(results, config.engineAuthorityMap);
+
+  for (const r of results) {
+    const body = r.fetched_content || r.snippet;
+    if (!body) continue;
+    const scan = scanWebContent(body, `web:${r.url.slice(0, 80)}`);
+    if (scan.detected) {
+      r.fetched_content = redactPatterns(r.fetched_content || "", true);
+      r.snippet = redactPatterns(r.snippet, true);
+    }
+  }
+
   return scoreAndFilter(query, results, minRelevance);
 }

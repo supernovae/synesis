@@ -69,6 +69,15 @@ const EnvSchema = z.object({
   SYNESIS_ADMIN_INTERNAL_TOKEN: z.string().default(""),
   SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER: z.coerce.number().default(0.1),
 
+  // --- Injection scanning ---
+  SYNESIS_INJECTION_SCAN_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_INJECTION_ACTION: z
+    .enum(["reduce", "block", "log"])
+    .default("reduce"),
+
   // --- Frame extraction ---
   SYNESIS_GLINER_SERVICE_URL: z.string().default(""),
 

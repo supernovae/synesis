@@ -41,6 +41,7 @@ import {
 } from "./streaming/sse.js";
 import { describePhase } from "./streaming/phases.js";
 import type { GraphState } from "./state/types.js";
+import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scanner.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
@@ -201,9 +202,32 @@ export function buildApp(config: AppConfig): FastifyInstance {
     optimizationCounters.rawCharsTotal += optimized.stats.rawCharsTotal;
 
     const userMessage = [...requestBody.messages].reverse().find((m) => m.role === "user");
-    const taskText = userMessage?.content ?? "";
+    let taskText = userMessage?.content ?? "";
     const tierSettings = resolveTierSettings(requestBody.model);
     const requestedEffortMode = tierSettings.tier;
+
+    let injectionDetected = false;
+    let injectionScanResult: { detected: boolean; patterns_found: string[]; source: string } = {
+      detected: false, patterns_found: [], source: ""
+    };
+    if (config.SYNESIS_INJECTION_SCAN_ENABLED) {
+      const history = requestBody.messages
+        .filter((m) => m.role === "user")
+        .slice(0, -1)
+        .map((m) => m.content ?? "");
+      const [detected, details] = scanUserInput(taskText, history);
+      injectionDetected = detected;
+      injectionScanResult = details;
+
+      if (detected && config.SYNESIS_INJECTION_ACTION === "block") {
+        const err = new Error("Suspicious content detected. If this was unintentional, rephrase your message and try again.");
+        (err as Error & { statusCode?: number }).statusCode = 400;
+        throw err;
+      }
+      if (detected && config.SYNESIS_INJECTION_ACTION === "reduce" && taskText) {
+        taskText = redactPatterns(taskText);
+      }
+    }
 
     const domainProfile = buildDomainProfile(taskText);
     const sessionKey = requestBody.conversation_id || requestBody.user || "anon";
@@ -237,6 +261,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
       },
       run_id: requestBody.conversation_id ?? undefined,
       domain_profile: domainProfile,
+      injection_detected: injectionDetected,
+      injection_scan_result: injectionScanResult,
     };
 
     if (pendingClarification) {
@@ -557,6 +583,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
         const reqStart = Date.now();
         const state = await invokeGraph(initialState);
         const content = state.generated_code ?? "";
+
+        if (config.SYNESIS_INJECTION_SCAN_ENABLED && content) {
+          const outputScan = scanModelOutput(content);
+          if (outputScan.detected) {
+            request.log.warn(
+              { authzTraceId, patterns: outputScan.patterns_found.slice(0, 5) },
+              "output guardrail: possible injection compliance detected in model response"
+            );
+          }
+        }
+
         const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
         await sessionManager.recordTurn(sessionKey, latestUser ?? "", content);
 
@@ -651,6 +688,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
         }
 
         const content = finalState.generated_code ?? "";
+
+        if (config.SYNESIS_INJECTION_SCAN_ENABLED && content) {
+          const outputScan = scanModelOutput(content);
+          if (outputScan.detected) {
+            request.log.warn(
+              { authzTraceId, patterns: outputScan.patterns_found.slice(0, 5) },
+              "output guardrail: possible injection compliance detected in streamed response"
+            );
+          }
+        }
+
         const latestUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
         await sessionManager.recordTurn(sessionKey, latestUser ?? "", content);
 

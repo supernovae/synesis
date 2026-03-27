@@ -106,6 +106,41 @@ async function llmSegment(text: string): Promise<FrameUnit[]> {
 // Stage 2: Deterministic semantic linking
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Persona detection (port of _detect_persona from frame_extractor.py)
+// ---------------------------------------------------------------------------
+
+const PERSONA_PATTERNS: Array<{ pattern: RegExp; template: string; skipCheck: boolean }> = [
+  { pattern: /\blike\s+a\s+(\w+)\b/i, template: "{0}", skipCheck: false },
+  { pattern: /\bas\s+(?:a|an)\s+(\w+)\b/i, template: "{0}", skipCheck: false },
+  { pattern: /\bin\s+(?:the\s+)?(?:style|voice|tone)\s+of\s+(?:a\s+)?(\w+)/i, template: "{0}", skipCheck: false },
+  { pattern: /\bexplain\s+(?:it\s+)?to\s+(?:a\s+)?(\d+)[\s-]*year[\s-]*old\b/i, template: "ELI{0}", skipCheck: true },
+  { pattern: /\bexplain\s+(?:it\s+)?(?:like|as if)\s+(?:I'?m|i am)\s+(?:a\s+)?(\w+)\b/i, template: "{0}", skipCheck: false },
+];
+
+const PERSONA_STOPWORDS = new Set([
+  "the", "a", "an", "it", "this", "that", "my", "your", "me", "way",
+  "much", "more", "well", "also", "very", "how", "what", "why", "can",
+  "do", "should", "would", "could", "will", "following", "possible",
+]);
+
+function detectPersona(rawText: string): string {
+  for (const { pattern, template, skipCheck } of PERSONA_PATTERNS) {
+    const match = pattern.exec(rawText);
+    if (match) {
+      const captured = match[1].trim().toLowerCase();
+      if (skipCheck || (!PERSONA_STOPWORDS.has(captured) && captured.length > 1)) {
+        return template.replace("{0}", captured).slice(0, 40);
+      }
+    }
+  }
+  return "";
+}
+
+// ---------------------------------------------------------------------------
+// Constraint / artifact / format detection
+// ---------------------------------------------------------------------------
+
 const GLOBAL_CONSTRAINT_RE = /\b(all|every|each|always|never|entire|whole|throughout)\b/i;
 const EVIDENCE_RE = /\b(cite|evidence|sources?|references?|RAG|retriev|ground)\b/i;
 const ARTIFACT_TYPE_RE = /\b(json|yaml|yml|xml|csv|toml|code|diagram|mermaid|table|sql)\b/gi;
@@ -277,7 +312,7 @@ function linkUnitsToFrame(
     domain_tags: domainTags,
     technologies,
     needs_web: needsEvidence,
-    persona: "",
+    persona: detectPersona(rawText),
     topic_frame: topicFrame,
   };
 }
@@ -308,7 +343,7 @@ function buildDeterministicFrame(taskDescription: string, taxonomyKey: string): 
     domain_tags: domainTags,
     technologies: [],
     needs_web: false,
-    persona: "",
+    persona: detectPersona(taskDescription),
     topic_frame: firstLine,
   };
 }
