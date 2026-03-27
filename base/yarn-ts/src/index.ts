@@ -595,12 +595,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const sessionKey = getSessionKey(identity);
   const session = await getSessionState(sessionKey, identity);
 
+  const oaiMsgCount = (request.messages as unknown[]).length;
+  const oaiLastToolId = [...(request.messages as Array<{ role: string; tool_call_id?: string }>)]
+    .reverse().find((m) => m.role === "tool")?.tool_call_id ?? "";
   const policyPrecheck = policyEngine.evaluate({
     tools: request.tools as unknown[],
     repeatAttempt: {
       action: "chat_completion",
-      args: { model: request.model, tool_choice: request.tool_choice },
-      fsFingerprint: "unknown"
+      args: { model: request.model, msgCount: oaiMsgCount, lastToolId: oaiLastToolId },
+      fsFingerprint: String(oaiMsgCount)
     },
     sessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -869,12 +872,18 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeSessionKey = getSessionKey(claudeIdentity);
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
 
+  const claudeMsgCount = (body.messages as unknown[]).length;
+  const claudeLastToolUseId = [...(body.messages as Array<{ role: string; content: unknown }>)]
+    .reverse()
+    .flatMap((m) => Array.isArray(m.content) ? m.content : [])
+    .find((b: Record<string, unknown>) => b.type === "tool_result")
+    ?.tool_use_id as string ?? "";
   const claudePolicyPrecheck = policyEngine.evaluate({
     tools: (body.tools as unknown[]) ?? [],
     repeatAttempt: {
       action: "claude_messages",
-      args: { model: body.model, tool_choice: body.tool_choice },
-      fsFingerprint: "unknown"
+      args: { model: body.model, msgCount: claudeMsgCount, lastToolUseId: claudeLastToolUseId },
+      fsFingerprint: String(claudeMsgCount)
     },
     sessionKey: claudeSessionKey,
     sessionTokensIn: session.record.totalTokensIn,
