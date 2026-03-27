@@ -135,6 +135,16 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   const outputSchema = Array.isArray(taskFrame.output_schema) ? taskFrame.output_schema.map(String) : [];
   const schemaHint = outputSchema.length > 0 ? ` Output schema fields: ${outputSchema.join(", ")}.` : "";
 
+  const conversationHistory = (state.messages ?? []).filter(
+    (m) => m.role === "user" || m.role === "assistant",
+  );
+  let contextPreamble = "";
+  if (conversationHistory.length > 1) {
+    const prior = conversationHistory.slice(0, -1).slice(-4);
+    contextPreamble = "Recent conversation context:\n" +
+      prior.map((m) => `[${m.role}]: ${m.content.slice(0, 300)}`).join("\n") + "\n\n";
+  }
+
   let result: { content: string; usage: LlmUsage };
   try {
     result = await chatCompletion({
@@ -148,6 +158,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
             "You are Synesis Planner. Produce a JSON plan for the user's request.",
             "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
             "RULES:",
+            "- If the user's latest message is a short follow-up (e.g., an answer choice like 'B)', 'yes', 'expand on that'), interpret it IN CONTEXT of the conversation history.",
             "- List ALL material assumptions you are making to create this plan.",
             "- List ALL open questions where the user's intent is genuinely ambiguous.",
             "- Rate your confidence (0.0-1.0) that this plan addresses the user's actual need.",
@@ -158,7 +169,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
         },
         {
           role: "user",
-          content: `${task}${feedback}${clarificationContext}`,
+          content: `${contextPreamble}${task}${feedback}${clarificationContext}`,
         },
       ],
     });

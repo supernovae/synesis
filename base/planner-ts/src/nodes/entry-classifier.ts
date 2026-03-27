@@ -83,12 +83,32 @@ function policyForEffort(mode: EffortMode, criticBackgroundDefault: boolean): Re
   };
 }
 
+function isFollowUp(state: GraphState): boolean {
+  const msgs = state.messages ?? [];
+  const userMsgs = msgs.filter((m) => m.role === "user");
+  if (userMsgs.length < 2) return false;
+  const latest = (state.task_description ?? "").trim();
+  return latest.length < 80;
+}
+
+function buildClassificationText(state: GraphState): string {
+  const task = (state.task_description ?? "").trim();
+  if (!isFollowUp(state)) return task.slice(0, 2500);
+  const msgs = state.messages ?? [];
+  const prior = msgs
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .slice(-4)
+    .map((m) => m.content.slice(0, 300))
+    .join(" ");
+  return (prior + " " + task).slice(0, 2500);
+}
+
 export function classifyEntry(
   state: GraphState,
   opts: { criticBackgroundDefault: boolean } = { criticBackgroundDefault: true }
 ): GraphState {
   const task = (state.task_description ?? "").trim();
-  const text = task.slice(0, 2500);
+  const text = buildClassificationText(state);
   const difficulty = detectDifficulty(text);
   const taxonomy = detectTaxonomy(text);
   const riskScore = RISK_RE.test(text) ? 70 : 25;
@@ -96,7 +116,8 @@ export function classifyEntry(
     difficulty < 0.2 ? "easy" : difficulty < 0.55 ? "medium" : "hard";
   const inputPlanRequired = state.plan_required === true;
   const planRequired = inputPlanRequired ? true : difficulty >= 0.45;
-  const taskIsTrivial = difficulty < 0.15;
+  const followUp = isFollowUp(state);
+  const taskIsTrivial = !followUp && difficulty < 0.15;
   let ragMode: GraphState["rag_mode"] = difficulty < 0.2 ? "disabled" : difficulty < 0.45 ? "light" : "normal";
   if (inputPlanRequired && ragMode === "disabled") {
     ragMode = "light";

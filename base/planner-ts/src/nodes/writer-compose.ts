@@ -90,10 +90,23 @@ function buildWriterMessages(state: GraphState): ChatMessage[] {
   ];
   if (assumptionBlock) systemParts.push(assumptionBlock);
 
-  return [
+  const msgs: ChatMessage[] = [
     { role: "system" as const, content: systemParts.join(" ") },
-    { role: "user" as const, content: `Task:\n${task}\n\n${planBlock}\n\n${evidenceBlock}` },
   ];
+
+  const conversationHistory = (state.messages ?? []).filter(
+    (m) => m.role === "user" || m.role === "assistant",
+  );
+  if (conversationHistory.length > 1) {
+    const prior = conversationHistory.slice(0, -1).slice(-6);
+    msgs.push(...prior.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })));
+  }
+
+  const scaffoldParts = [planBlock, evidenceBlock].filter(Boolean).join("\n\n");
+  const userContent = scaffoldParts ? `${task}\n\n${scaffoldParts}` : task;
+  msgs.push({ role: "user" as const, content: userContent });
+
+  return msgs;
 }
 
 export async function composeWriterDraft(state: GraphState): Promise<WriterResult> {
