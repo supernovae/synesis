@@ -1,7 +1,7 @@
 """Add prefix_cache_snapshots and compaction_snapshots tables for telemetry persistence.
 
-Revision ID: 036
-Revises: 035
+Revision ID: 036_cache_compaction_snapshots
+Revises: 035_yarn_safety_events
 Create Date: 2026-03-27
 
 """
@@ -13,8 +13,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "036"
-down_revision: str | None = "035"
+revision: str = "036_cache_compaction_snapshots"
+down_revision: str | None = "035_yarn_safety_events"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

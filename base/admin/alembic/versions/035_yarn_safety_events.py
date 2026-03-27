@@ -1,7 +1,7 @@
 """Add yarn_safety_events table for policy engine event logging.
 
-Revision ID: 035
-Revises: 034
+Revision ID: 035_yarn_safety_events
+Revises: 034_ingestion_acl_fields
 Create Date: 2026-03-25
 
 """
@@ -13,8 +13,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "035"
-down_revision: str | None = "034"
+revision: str = "035_yarn_safety_events"
+down_revision: str | None = "034_ingestion_acl_fields"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
