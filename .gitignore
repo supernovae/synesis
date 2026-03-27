@@ -12,6 +12,9 @@ node_modules/
 base/admin/frontend/dist/
 base/admin/frontend/.vite/
 
+# Shared TS package build output (rebuilt in CI)
+packages/*/dist/
+
 # KFP compiled pipeline artifacts
 pipelines/*.yaml
 
