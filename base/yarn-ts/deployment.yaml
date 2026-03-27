@@ -50,6 +50,14 @@ spec:
               value: synesis-core
             - name: SYNESIS_YARN_PERSIST_USAGE_TO_DB
               value: "true"
+            - name: SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
+              value: "6"
+            - name: SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS
+              value: "500000"
+            - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
+              value: "8"
+            - name: SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
+              value: "false"
           envFrom:
             - secretRef:
                 name: provider-api-keys

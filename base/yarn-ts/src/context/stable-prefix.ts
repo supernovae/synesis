@@ -13,9 +13,7 @@ export interface StablePrefixStats {
 }
 
 const BASE_INSTRUCTIONS =
-  "You are an AI coding assistant provided by Synesis. " +
-  "Tool results may be compressed summaries — if an artifact_handle is present, " +
-  "the full content is available via the synesis_artifact_retrieve tool.";
+  "You are an AI coding assistant provided by Synesis.";
 
 export class StablePrefixService {
   private stats: StablePrefixStats = {

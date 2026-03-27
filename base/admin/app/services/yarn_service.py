@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import case, func, select, text
 
 from ..db.engine import async_session
-from ..db.models import YarnSession, YarnUsageLog
+from ..db.models import YarnSafetyEvent, YarnSession, YarnUsageLog
 
 logger = logging.getLogger("synesis.admin.yarn_service")
 
@@ -451,4 +451,88 @@ async def get_yarn_intelligence(
         "error_like_rate": round((int(row.error_like or 0) / requests), 4) if requests else 0.0,
         "top_models": top_models,
         "finish_reason_counts": finish_reason_counts,
+    }
+
+
+# ── Safety events ─────────────────────────────────────────────────────────────
+
+
+async def list_yarn_safety_events(
+    page: int = 1,
+    page_size: int = 50,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+    since_hours: int = 24,
+    event_kind: str | None = None,
+) -> dict:
+    cutoff = _cutoff(since_hours)
+    async with async_session() as session:
+        base = select(YarnSafetyEvent).where(YarnSafetyEvent.created_at >= cutoff)
+        if scope_user_id:
+            base = base.where(YarnSafetyEvent.user_id == scope_user_id)
+        elif scope_org_id:
+            base = base.where(YarnSafetyEvent.org_id == scope_org_id)
+        if event_kind:
+            base = base.where(YarnSafetyEvent.event_kind == event_kind)
+
+        total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+
+        offset = (page - 1) * page_size
+        stmt = base.order_by(YarnSafetyEvent.created_at.desc()).offset(offset).limit(page_size)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+    events = [
+        {
+            "id": r.id,
+            "session_key": r.session_key,
+            "user_id": r.user_id,
+            "org_id": r.org_id,
+            "event_kind": r.event_kind,
+            "detail": r.detail,
+            "repeat_count": r.repeat_count,
+            "tokens_burned": r.tokens_burned,
+            "consecutive_tool_calls": r.consecutive_tool_calls,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+    return {"events": events, "total": total}
+
+
+async def get_yarn_safety_summary(
+    since_hours: int = 24,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> dict:
+    cutoff = _cutoff(since_hours)
+    async with async_session() as session:
+        base = select(YarnSafetyEvent).where(YarnSafetyEvent.created_at >= cutoff)
+        if scope_user_id:
+            base = base.where(YarnSafetyEvent.user_id == scope_user_id)
+        elif scope_org_id:
+            base = base.where(YarnSafetyEvent.org_id == scope_org_id)
+        sub = base.subquery()
+
+        total = (await session.execute(select(func.count()).select_from(sub))).scalar() or 0
+
+        by_kind_result = await session.execute(
+            select(sub.c.event_kind, func.count().label("count"))
+            .select_from(sub)
+            .group_by(sub.c.event_kind)
+            .order_by(text("count DESC"))
+        )
+        by_kind = {r.event_kind: int(r.count) for r in by_kind_result}
+
+        total_tokens_burned = (
+            await session.execute(
+                select(func.coalesce(func.sum(sub.c.tokens_burned), 0)).select_from(sub)
+            )
+        ).scalar() or 0
+
+    return {
+        "since_hours": since_hours,
+        "total_events": total,
+        "by_kind": by_kind,
+        "total_tokens_burned": int(total_tokens_burned),
     }

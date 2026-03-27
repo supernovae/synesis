@@ -585,6 +585,29 @@ class YarnUsageLog(Base):
     )
 
 
+class YarnSafetyEvent(Base):
+    __tablename__ = "yarn_safety_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    detail: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    repeat_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_burned: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    consecutive_tool_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_yarn_safety_session", "session_key"),
+        Index("ix_yarn_safety_user", "user_id"),
+        Index("ix_yarn_safety_kind", "event_kind"),
+        Index("ix_yarn_safety_created", "created_at"),
+    )
+
+
 class PersonalAccessToken(Base):
     """User-generated API tokens for programmatic access (Cursor, Claude Code, scripts).
 

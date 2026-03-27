@@ -20,7 +20,7 @@ import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-r
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { WorkingFrameService } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
-import { DeterministicPolicyEngine } from "./policy/deterministic-policy-engine.js";
+import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator } from "./orchestration/phase-model-orchestrator.js";
 import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
@@ -39,8 +39,35 @@ import {
 type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
   toolCallsSinceCheckpoint: number;
+  consecutiveToolCalls: number;
   record: SessionRecord;
 };
+
+interface RequestDiagnostic {
+  timestamp: number;
+  sessionKey: string;
+  path: string;
+  systemMessageCount: number;
+  userMessageCount: number;
+  toolMessageCount: number;
+  totalInputChars: number;
+  toolDefinitionCount: number;
+  artifactToolInjected: boolean;
+  reducedToolResults: number;
+  finishReason: string;
+  tokensIn: number;
+  tokensOut: number;
+  policyDecision: string;
+  latencyMs: number;
+}
+
+const diagnosticRing: RequestDiagnostic[] = [];
+const DIAGNOSTIC_RING_MAX = 20;
+
+function pushDiagnostic(d: RequestDiagnostic): void {
+  diagnosticRing.push(d);
+  if (diagnosticRing.length > DIAGNOSTIC_RING_MAX) diagnosticRing.shift();
+}
 
 const config = loadConfig();
 const app = Fastify({
@@ -73,7 +100,9 @@ function enrichWithFrameAndManifest(
 ): Array<{ role: string; content: unknown }> {
   const out = [...messages];
 
-  const { stablePrefix } = stablePrefixService.partition(sessionKey, adapterBlock);
+  const systemPrefix = config.SYNESIS_YARN_STABLE_PREFIX_ENABLED
+    ? stablePrefixService.partition(sessionKey, adapterBlock).stablePrefix
+    : "You are an AI coding assistant provided by Synesis.";
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
   if (config.SYNESIS_YARN_WORKING_FRAME_ENABLED) {
@@ -86,12 +115,14 @@ function enrichWithFrameAndManifest(
   }
 
   const enriched: Array<{ role: string; content: unknown }> = [
-    { role: "system", content: stablePrefix },
+    { role: "system", content: systemPrefix },
     ...volatileBlocks,
     ...out
   ];
 
-  return attentionPositioning.position(enriched).messages;
+  return config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED
+    ? attentionPositioning.position(enriched).messages
+    : enriched;
 }
 
 interface SessionIdentity {
@@ -132,7 +163,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
   };
   const history: SessionState["history"] = [];
 
-  if (!loaded && identity.userId !== "anon") {
+  if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED) {
     const prevContinuity = await sessionStore.loadContinuity(identity.userId);
     if (prevContinuity) {
       const block = sessionContinuity.toSystemBlock(prevContinuity);
@@ -142,7 +173,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     }
   }
 
-  const state: SessionState = { history, toolCallsSinceCheckpoint: 0, record };
+  const state: SessionState = { history, toolCallsSinceCheckpoint: 0, consecutiveToolCalls: 0, record };
   sessions.set(key, state);
   return state;
 }
@@ -249,6 +280,13 @@ function persistSessionAndUsage(
   state.record.metadata.total_cost_usd = prevCost + normalizedCostUsd;
   state.record.requestCount += 1;
   state.record.lastActiveAt = Date.now();
+
+  if (finishReason === "tool_calls" || finishReason === "tool_use") {
+    state.consecutiveToolCalls += 1;
+  } else {
+    state.consecutiveToolCalls = 0;
+  }
+
   void casSessionSave(state);
   usageWriter.enqueueSessionUpsert(state.record);
   usageWriter.enqueueUsageInsert({
@@ -281,6 +319,53 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
     cachedTokens: Number.isFinite(cached) ? cached : 0,
     costUsd: Number.isFinite(cost) ? cost : 0
   };
+}
+
+function countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
+  systemMessageCount: number;
+  userMessageCount: number;
+  toolMessageCount: number;
+  totalInputChars: number;
+} {
+  let systemMessageCount = 0;
+  let userMessageCount = 0;
+  let toolMessageCount = 0;
+  let totalInputChars = 0;
+  for (const m of messages) {
+    const chars = typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length;
+    totalInputChars += chars;
+    if (m.role === "system") systemMessageCount++;
+    else if (m.role === "user") userMessageCount++;
+    else if (m.role === "tool") toolMessageCount++;
+  }
+  return { systemMessageCount, userMessageCount, toolMessageCount, totalInputChars };
+}
+
+function logAndPersistSafetyEvent(
+  decision: PolicyDecision,
+  sessionKey: string,
+  sessionTokensIn: number
+): void {
+  for (const event of policyEngine.getRecentEvents().slice(-1)) {
+    app.log.warn({
+      safetyEvent: event.kind,
+      sessionKey,
+      detail: event.detail,
+      repeatCount: event.repeatCount,
+      tokensBurned: event.tokensBurned ?? sessionTokensIn,
+      consecutiveToolCalls: event.consecutiveToolCalls
+    }, `policy_safety_event: ${event.kind}`);
+    usageWriter.enqueueSafetyEventInsert({
+      sessionKey,
+      userId: "",
+      orgId: "",
+      eventKind: event.kind,
+      detail: event.detail,
+      repeatCount: event.repeatCount,
+      tokensBurned: event.tokensBurned ?? sessionTokensIn,
+      consecutiveToolCalls: event.consecutiveToolCalls
+    });
+  }
 }
 
 function getBearerToken(authHeader: string | undefined): string {
@@ -401,9 +486,27 @@ app.get("/health/telemetry", async () => {
     artifactRetrieval: artifactRetrieval.getStats(),
     attentionPositioning: attentionPositioning.getStats(),
     compressionEfficiencyIndex: computeEfficiencyIndex(),
-    sessionContinuity: sessionContinuity.getStats()
+    sessionContinuity: sessionContinuity.getStats(),
+    featureFlags: {
+      stablePrefix: config.SYNESIS_YARN_STABLE_PREFIX_ENABLED,
+      jsonCompaction: config.SYNESIS_YARN_JSON_COMPACTION_ENABLED,
+      attentionPositioning: config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED,
+      artifactRetrieval: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+      sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
+      contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED
+    },
+    safetyLimits: {
+      hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+      sessionMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+      consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
+    }
   };
 });
+
+app.get("/v1/diagnostics/recent", async () => ({
+  diagnostics: [...diagnosticRing],
+  count: diagnosticRing.length
+}));
 
 app.get("/v1", async () => ({
   status: "ok",
@@ -469,17 +572,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   const request = parsed.data;
-  const policyPrecheck = policyEngine.evaluate({
-    tools: request.tools as unknown[],
-    repeatAttempt: {
-      action: "chat_completion",
-      args: { model: request.model, tool_choice: request.tool_choice },
-      fsFingerprint: "unknown"
-    }
-  });
-  if (!policyPrecheck.allow) {
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
-  }
   const reducedOpenAI = toolResultReduction.reduceMessages(request.messages as never);
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = validationNormalization.normalizeMessages(reducedOpenAI.messages as never);
@@ -501,13 +593,32 @@ app.post("/v1/chat/completions", async (req, reply) => {
     conversationId: request.conversation_id || ""
   };
   const sessionKey = getSessionKey(identity);
+  const session = await getSessionState(sessionKey, identity);
+
+  const policyPrecheck = policyEngine.evaluate({
+    tools: request.tools as unknown[],
+    repeatAttempt: {
+      action: "chat_completion",
+      args: { model: request.model, tool_choice: request.tool_choice },
+      fsFingerprint: "unknown"
+    },
+    sessionKey,
+    sessionTokensIn: session.record.totalTokensIn,
+    maxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+    consecutiveToolCalls: session.consecutiveToolCalls,
+    consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
+    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
+  });
+  if (!policyPrecheck.allow) {
+    logAndPersistSafetyEvent(policyPrecheck, sessionKey, session.record.totalTokensIn);
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
+  }
   const normalizedRequest: OpenAIChatCompletionRequest = {
     ...request,
     model: orchestration.selectedModel,
     messages: enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as never
   };
 
-  const session = await getSessionState(sessionKey, identity);
   session.toolCallsSinceCheckpoint += toolResultCount;
   const reqId = `chatcmpl-${crypto.randomUUID()}`;
   if (policyPrecheck.pivotPrompt) {
@@ -523,7 +634,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session
   ) as never;
 
-  normalizedRequest.tools = artifactRetrieval.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
+  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
+    normalizedRequest.tools = artifactRetrieval.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
+  }
 
   const { resolved, messages } = runOpenAIRequest(normalizedRequest);
   const sdkTools = openAIToolsToSDK(normalizedRequest.tools);
@@ -588,8 +701,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
     session.history.push({ role: "assistant", content: finalResult.text });
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, finishReason);
+    const oaiLatency = Date.now() - started;
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason);
     maybeCheckpoint(session);
+
+    const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
+    pushDiagnostic({
+      timestamp: Date.now(), sessionKey, path: "/v1/chat/completions",
+      ...msgCounts,
+      toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
+      artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+      reducedToolResults: reducedOpenAI.reducedCount,
+      finishReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
+      policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiLatency
+    });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
     if (externalToolCalls.length > 0) {
@@ -675,8 +800,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (streamedText) {
     session.history.push({ role: "assistant", content: streamedText });
   }
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, readUsage(totalUsage as unknown), Date.now() - started, finishReason);
+  const oaiStreamUsage = readUsage(totalUsage as unknown);
+  const oaiStreamLatency = Date.now() - started;
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason);
   maybeCheckpoint(session);
+  const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
+  pushDiagnostic({
+    timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)",
+    ...oaiStreamMsgCounts,
+    toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
+    artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+    reducedToolResults: reducedOpenAI.reducedCount,
+    finishReason, tokensIn: oaiStreamUsage.inputTokens, tokensOut: oaiStreamUsage.outputTokens,
+    policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiStreamLatency
+  });
   return reply;
 });
 
@@ -706,21 +843,6 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
   const body: ClaudeMessagesRequest = parsed.data;
-  const claudePolicyPrecheck = policyEngine.evaluate({
-    tools: (body.tools as unknown[]) ?? [],
-    repeatAttempt: {
-      action: "claude_messages",
-      args: { model: body.model, tool_choice: body.tool_choice },
-      fsFingerprint: "unknown"
-    }
-  });
-  if (!claudePolicyPrecheck.allow) {
-    return reply.code(400).send({
-      type: "error",
-      error: { type: "invalid_request_error", message: claudePolicyPrecheck.rejectReason ?? "Policy rejected request." }
-    });
-  }
-
   const openAIMessages = claudeMessagesToOpenAI(
     body.messages as never,
     (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
@@ -745,12 +867,35 @@ app.post("/v1/messages", async (req, reply) => {
     conversationId: ""
   };
   const claudeSessionKey = getSessionKey(claudeIdentity);
+  const session = await getSessionState(claudeSessionKey, claudeIdentity);
+
+  const claudePolicyPrecheck = policyEngine.evaluate({
+    tools: (body.tools as unknown[]) ?? [],
+    repeatAttempt: {
+      action: "claude_messages",
+      args: { model: body.model, tool_choice: body.tool_choice },
+      fsFingerprint: "unknown"
+    },
+    sessionKey: claudeSessionKey,
+    sessionTokensIn: session.record.totalTokensIn,
+    maxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+    consecutiveToolCalls: session.consecutiveToolCalls,
+    consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
+    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
+  });
+  if (!claudePolicyPrecheck.allow) {
+    logAndPersistSafetyEvent(claudePolicyPrecheck, claudeSessionKey, session.record.totalTokensIn);
+    return reply.code(400).send({
+      type: "error",
+      error: { type: "invalid_request_error", message: claudePolicyPrecheck.rejectReason ?? "Policy rejected request." }
+    });
+  }
+
   const openAIShape: OpenAIChatCompletionRequest = {
     model: claudeOrchestration.selectedModel,
     messages: enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock) as never,
     stream: body.stream
   };
-  const session = await getSessionState(claudeSessionKey, claudeIdentity);
   session.toolCallsSinceCheckpoint += claudeToolResultCount;
   const reqId = `msg-${crypto.randomUUID()}`;
   if (claudePolicyPrecheck.pivotPrompt) {
@@ -766,7 +911,8 @@ app.post("/v1/messages", async (req, reply) => {
     session
   ) as never;
 
-  body.tools = artifactRetrieval.injectToolClaude(body.tools as unknown[]) as never;
+  // P0 FIX: Do NOT inject artifact tool into Claude path — no auto-resolve exists for streaming.
+  // Artifact retrieval stays OpenAI-only until streaming interception is implemented.
 
   const { resolved, messages } = runOpenAIRequest(openAIShape);
   const sdkTools = claudeToolsToSDK(body.tools as never);
@@ -796,6 +942,7 @@ app.post("/v1/messages", async (req, reply) => {
     let blockIdx = 0;
     let inTextBlock = false;
     let stopReason = "end_turn";
+    const pendingClaudeToolIds = new Set<string>();
 
     for await (const part of streamed.fullStream) {
       if (part.type === "text-delta") {
@@ -823,18 +970,27 @@ app.post("/v1/messages", async (req, reply) => {
         sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
         blockIdx++;
       } else if (part.type === "tool-input-start") {
+        const tc = part as unknown as { toolCallId?: string; toolName?: string };
+        if (tc.toolName === ARTIFACT_TOOL_NAME) {
+          pendingClaudeToolIds.add(tc.toolCallId ?? "");
+          continue;
+        }
         if (inTextBlock) {
           sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
           inTextBlock = false;
         }
-        const tc = part as unknown as { toolCallId?: string; toolName?: string };
         sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" } });
         stopReason = "tool_use";
       } else if (part.type === "tool-input-delta") {
-        const td = part as unknown as { inputTextDelta?: string };
-        sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
+        const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
+        const tdToolCall = pendingClaudeToolIds.has(td.toolCallId ?? "");
+        if (!tdToolCall) {
+          sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
+        }
       } else if (part.type === "tool-call") {
+        const tc = part as unknown as { toolName?: string };
+        if (tc.toolName === ARTIFACT_TOOL_NAME) continue;
         sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
         blockIdx++;
         stopReason = "tool_use";
@@ -858,8 +1014,19 @@ app.post("/v1/messages", async (req, reply) => {
     if (claudeStreamedText) {
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, stopReason);
+    const claudeStreamLatency = Date.now() - started;
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason);
     maybeCheckpoint(session);
+    const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
+    pushDiagnostic({
+      timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)",
+      ...claudeStreamMsgCounts,
+      toolDefinitionCount: (body.tools as unknown[] ?? []).length,
+      artifactToolInjected: false,
+      reducedToolResults: claudeToolResultCount,
+      finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
+      policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeStreamLatency
+    });
     return reply;
   }
 
@@ -873,15 +1040,27 @@ app.post("/v1/messages", async (req, reply) => {
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
     ...(providerOptions ? { providerOptions } : {})
   });
-  const toolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+  const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+  const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
-  const stopReason = toolCalls.length > 0 ? "tool_use" : "end_turn";
+  const stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
   if (result.text) {
     session.history.push({ role: "assistant", content: result.text });
   }
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, stopReason);
+  const claudeNonStreamLatency = Date.now() - started;
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason);
   maybeCheckpoint(session);
+  const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
+  pushDiagnostic({
+    timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages",
+    ...claudeNonStreamMsgCounts,
+    toolDefinitionCount: (body.tools as unknown[] ?? []).length,
+    artifactToolInjected: false,
+    reducedToolResults: claudeToolResultCount,
+    finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
+    policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeNonStreamLatency
+  });
 
   const content: Array<Record<string, unknown>> = [];
   if (reasoning) {
@@ -890,8 +1069,8 @@ app.post("/v1/messages", async (req, reply) => {
   if (result.text) {
     content.push({ type: "text", text: result.text });
   }
-  if (toolCalls.length > 0) {
-    for (const tc of sdkToolCallsToClaude(toolCalls)) {
+  if (externalClaudeToolCalls.length > 0) {
+    for (const tc of sdkToolCallsToClaude(externalClaudeToolCalls)) {
       content.push({ ...tc });
     }
   }

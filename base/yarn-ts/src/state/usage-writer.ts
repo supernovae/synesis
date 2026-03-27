@@ -19,6 +19,17 @@ export interface UsageEvent {
   finishReason: string;
 }
 
+export interface SafetyEventInsert {
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+  eventKind: string;
+  detail: string;
+  repeatCount?: number;
+  tokensBurned?: number;
+  consecutiveToolCalls?: number;
+}
+
 export interface WriterStats {
   queueDepth: number;
   totalEnqueued: number;
@@ -30,7 +41,11 @@ export interface WriterStats {
 
 export class UsageWriter {
   private readonly pool: Pool | null;
-  private readonly queue: Array<{ type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent }> = [];
+  private readonly queue: Array<
+    | { type: "session"; session: SessionRecord }
+    | { type: "usage"; event: UsageEvent }
+    | { type: "safety"; event: SafetyEventInsert }
+  > = [];
   private readonly queueMax: number;
   private readonly flushIntervalMs: number;
   private flushTimer: NodeJS.Timeout | null = null;
@@ -68,6 +83,10 @@ export class UsageWriter {
     this.enqueue({ type: "usage", event });
   }
 
+  enqueueSafetyEventInsert(event: SafetyEventInsert): void {
+    this.enqueue({ type: "safety", event });
+  }
+
   getStats(): WriterStats {
     return {
       queueDepth: this.queue.length,
@@ -79,7 +98,7 @@ export class UsageWriter {
     };
   }
 
-  private enqueue(item: { type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent }): void {
+  private enqueue(item: { type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent } | { type: "safety"; event: SafetyEventInsert }): void {
     if (!this.pool) return;
     if (this.queue.length >= this.queueMax) {
       this.queue.shift();
@@ -171,6 +190,28 @@ export class UsageWriter {
     );
   }
 
+  private async insertSafetyEvent(event: SafetyEventInsert): Promise<void> {
+    if (!this.pool) return;
+    await this.pool.query(
+      `
+      INSERT INTO yarn_safety_events (
+        session_key, user_id, org_id, event_kind, detail,
+        repeat_count, tokens_burned, consecutive_tool_calls
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        event.sessionKey,
+        event.userId,
+        event.orgId,
+        event.eventKind,
+        event.detail.slice(0, 1000),
+        event.repeatCount ?? null,
+        event.tokensBurned ?? null,
+        event.consecutiveToolCalls ?? null
+      ]
+    );
+  }
+
   async flush(): Promise<void> {
     if (!this.pool || this.flushing || this.queue.length === 0) return;
     this.flushing = true;
@@ -181,8 +222,10 @@ export class UsageWriter {
         try {
           if (item.type === "session") {
             await this.upsertSession(item.session);
-          } else {
+          } else if (item.type === "usage") {
             await this.insertUsage(item.event);
+          } else if (item.type === "safety") {
+            await this.insertSafetyEvent(item.event);
           }
           this._totalFlushed++;
         } catch {

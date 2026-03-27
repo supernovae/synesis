@@ -49,6 +49,37 @@ const EnvSchema = z.object({
   SYNESIS_YARN_PERSIST_USAGE_TO_DB: z
     .string()
     .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // Safety limits
+  SYNESIS_YARN_POLICY_HARD_REJECT_AFTER: z.coerce.number().default(6),
+  SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS: z.coerce.number().default(500_000),
+  SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(8),
+
+  // M10 feature flags (individual kill-switches for bisecting regressions)
+  SYNESIS_YARN_STABLE_PREFIX_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_JSON_COMPACTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_SESSION_CONTINUITY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_CONTENT_DISPATCH_ENABLED: z
+    .string()
+    .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false")
 });
 

@@ -234,6 +234,56 @@ async def yarn_verify(
     return {"overall": "pass" if all_pass else "fail", "checks": checks}
 
 
+# ── Safety events ─────────────────────────────────────────────────────────────
+
+
+@router.get("/safety-events")
+async def yarn_safety_events(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    since_hours: int = Query(24, ge=1, le=720),
+    event_kind: str | None = Query(None),
+    user: UserInfo = Depends(require_org_admin),
+):
+    scope_user_id, scope_org_id, _tenant_id = _scope(user)
+    return await yarn_service.list_yarn_safety_events(
+        page=page,
+        page_size=page_size,
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
+        since_hours=since_hours,
+        event_kind=event_kind,
+    )
+
+
+@router.get("/safety-summary")
+async def yarn_safety_summary(
+    since_hours: int = Query(24, ge=1, le=720),
+    user: UserInfo = Depends(require_org_admin),
+):
+    scope_user_id, scope_org_id, _tenant_id = _scope(user)
+    return await yarn_service.get_yarn_safety_summary(
+        since_hours=since_hours,
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
+    )
+
+
+@router.get("/diagnostics/recent")
+async def yarn_diagnostics_recent(
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Proxy recent request diagnostics from Yarn service."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{_YARN_URL.rstrip('/')}/v1/diagnostics/recent")
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("yarn_diagnostics_recent_proxy_error: %s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail="Could not reach Yarn diagnostics endpoint")
+
+
 # ── User-scoped usage (for account page) ─────────────────────────────────────
 
 
