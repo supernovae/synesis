@@ -1,4 +1,4 @@
-import type { GraphState } from "../state/types.js";
+import type { CynefinDomain, GraphState } from "../state/types.js";
 import { buildDomainProfile } from "./domain-profile.js";
 
 type EffortMode = "pulse" | "core" | "horizon";
@@ -91,6 +91,25 @@ function isFollowUp(state: GraphState): boolean {
   return latest.length < 80;
 }
 
+/**
+ * Map difficulty, frame coherence, and taxonomy complexity to a Cynefin domain.
+ * Clear: low difficulty, focused frame — obvious cause-effect.
+ * Complicated: moderate difficulty, analysis needed but knowable.
+ * Complex: high difficulty or composite frame — outcomes visible only in retrospect.
+ * Chaotic: diffuse frame + high difficulty — no stable pattern, clarify first.
+ */
+function classifyCynefin(
+  difficulty: number,
+  frameCoherence: "focused" | "composite" | "diffuse",
+  taxonomyComplexity: number,
+): CynefinDomain {
+  if (frameCoherence === "diffuse" && difficulty >= 0.55) return "chaotic";
+  if (frameCoherence === "diffuse" && difficulty >= 0.4) return "complex";
+  if (difficulty >= 0.6 || (frameCoherence === "composite" && taxonomyComplexity >= 0.6)) return "complex";
+  if (difficulty >= 0.35 || taxonomyComplexity >= 0.5) return "complicated";
+  return "clear";
+}
+
 function buildClassificationText(state: GraphState): string {
   const task = (state.task_description ?? "").trim();
   if (!isFollowUp(state)) return task.slice(0, 2500);
@@ -144,6 +163,7 @@ export function classifyEntry(
   const nextNode: GraphState["next_node"] = useWriterFastPath ? "writer" : "planner";
 
   const domainProfile = state.domain_profile ?? buildDomainProfile(text);
+  const cynefinDomain = classifyCynefin(difficulty, domainProfile.frameCoherence, Number(taxonomy.complexity_score ?? 0.4));
 
   const outputControls = (taxonomy.output_controls ?? {}) as Record<string, boolean>;
   const showAssumptions = Boolean(outputControls.show_assumptions) || difficulty >= 0.55;
@@ -164,6 +184,7 @@ export function classifyEntry(
     task_is_trivial: taskIsTrivial,
     rag_mode: ragMode,
     taxonomy_metadata: taxonomy,
+    cynefin_domain: cynefinDomain,
     recommended_effort_mode: selectedMode,
     selected_effort_mode: selectedMode,
     execution_policy: executionPolicy,

@@ -103,6 +103,7 @@ export async function entryPipelineNode(state: GraphState): Promise<GraphState> 
     metadata: {
       difficulty: classified.difficulty,
       task_size: classified.task_size,
+      cynefin_domain: classified.cynefin_domain,
       plan_required: classified.plan_required,
       rag_mode: classified.rag_mode,
       domain_profile: classified.domain_profile,

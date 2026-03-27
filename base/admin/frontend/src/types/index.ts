@@ -706,6 +706,7 @@ export interface TraceClassification {
   plan_required: boolean;
   show_assumptions: boolean;
   taxonomy_key: string;
+  cynefin_domain?: "clear" | "complicated" | "complex" | "chaotic";
 }
 
 export interface TraceRecord {

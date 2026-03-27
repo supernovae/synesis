@@ -371,6 +371,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       plan_required: state.plan_required ?? false,
       show_assumptions: state.show_assumptions ?? false,
       taxonomy_key: String(taxonomy.taxonomy_key ?? "unknown"),
+      cynefin_domain: state.cynefin_domain,
     };
   }
 

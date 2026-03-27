@@ -11,6 +11,8 @@ export type GraphNodeName =
   | "final_scrubber"
   | "respond";
 
+export type CynefinDomain = "clear" | "complicated" | "complex" | "chaotic";
+
 export interface GraphState {
   messages?: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
   user_id?: string;
@@ -74,6 +76,7 @@ export interface GraphState {
   error?: string;
   run_id?: string;
 
+  cynefin_domain?: CynefinDomain;
   domain_profile?: {
     domains: Array<{ key: string; weight: number }>;
     frameCoherence: "focused" | "composite" | "diffuse";

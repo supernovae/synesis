@@ -78,6 +78,7 @@ export const CriticScoresSchema = z.object({
   correctness: z.number().min(0).max(10).default(0),
   actionability: z.number().min(0).max(10).default(0),
   clarity: z.number().min(0).max(10).default(0),
+  evidence_utilization: z.number().min(0).max(10).default(0),
   weighted_overall: z.number().min(0).max(10).default(0)
 });
 
@@ -93,6 +94,7 @@ export const CriticOutSchema = z.object({
     correctness: 0,
     actionability: 0,
     clarity: 0,
+    evidence_utilization: 0,
     weighted_overall: 0
   })
 });

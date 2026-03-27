@@ -7,18 +7,29 @@ export type CriticResult = CriticOut & { usage: LlmUsage };
 
 function scoreDraft(state: GraphState): CriticOut["scores"] {
   const draft = state.generated_code ?? "";
-  const hasEvidence = (state.evidence_packets ?? []).length > 0;
+  const packets = state.evidence_packets ?? [];
+  const hasEvidence = packets.length > 0;
   const hasCitation = draft.includes("[Source:");
+  const citationCount = (draft.match(/\[Source:/g) ?? []).length;
 
   const grounding = hasEvidence && hasCitation ? 8 : hasEvidence ? 6 : 3;
   const correctness = draft.length > 80 ? 7 : 4;
   const hasActionableContent = /```|\d+\.\s|^[-*]\s.{10,}/m.test(draft);
   const actionability = hasActionableContent ? 7 : 4;
   const clarity = draft.length > 200 ? 7 : 5;
+
+  let evidence_utilization = 0;
+  if (!hasEvidence) {
+    evidence_utilization = 5;
+  } else {
+    const ratio = Math.min(1, citationCount / packets.length);
+    evidence_utilization = Math.round(3 + ratio * 7);
+  }
+
   const weighted_overall = Number(
-    ((grounding * 0.35) + (correctness * 0.25) + (actionability * 0.2) + (clarity * 0.2)).toFixed(2)
+    ((grounding * 0.3) + (correctness * 0.2) + (actionability * 0.15) + (clarity * 0.15) + (evidence_utilization * 0.2)).toFixed(2)
   );
-  return { grounding, correctness, actionability, clarity, weighted_overall };
+  return { grounding, correctness, actionability, clarity, evidence_utilization, weighted_overall };
 }
 
 function checkAssumptionLabels(state: GraphState): {
@@ -34,6 +45,9 @@ function checkAssumptionLabels(state: GraphState): {
   const assumptions = state.assumptions ?? [];
   const hasAssumptionTags = /\[Assumption[:\]]/.test(draft);
   const hasEstimateTags = /\[Estimate[:\]]/.test(draft);
+  const hasTargetTags = /\[Target[:\]]/.test(draft);
+  const hasMeasuredTags = /\[Measured[:\]]/.test(draft);
+  const hasAnyEpistemicTag = hasAssumptionTags || hasEstimateTags || hasTargetTags || hasMeasuredTags;
 
   if (assumptions.length > 0 && !hasAssumptionTags) {
     nonblocking.push({
@@ -47,9 +61,22 @@ function checkAssumptionLabels(state: GraphState): {
     });
   }
 
+  const hasNumericClaims = /\b\d{2,}[\s%]|\b\d+\.\d+\b/.test(draft);
+  if (hasNumericClaims && !hasEstimateTags && !hasTargetTags && !hasMeasuredTags) {
+    nonblocking.push({
+      item_id: "numeric_labels_missing",
+      category: "transparency",
+      description: "Response contains numeric claims but lacks [Estimate], [Target], or [Measured] labels.",
+      status: "open" as const,
+      evidence_ref: "",
+      resolved_by: "",
+      reopen_count: 0,
+    });
+  }
+
   const definitivePhrases = /\b(definitely|certainly|always|never|guaranteed|impossible)\b/i;
   const confidence = state.planner_confidence ?? 0.7;
-  if (confidence < 0.6 && definitivePhrases.test(draft) && !hasAssumptionTags && !hasEstimateTags) {
+  if (confidence < 0.6 && definitivePhrases.test(draft) && !hasAnyEpistemicTag) {
     nonblocking.push({
       item_id: "false_certainty",
       category: "transparency",
@@ -101,14 +128,38 @@ function deterministicCritic(state: GraphState): CriticOut {
     });
   }
 
+  const draftText = state.generated_code ?? "";
+  const describesRoutingSystem = /\b(rout(er?|ing)|escalat(e|ion)|failover|triage|dispatch)\b/i.test(draftText)
+    && /\b(request|query|message|ticket)\b/i.test(draftText);
+  const mentionsRefusalPolicy = /\b(refus|reject|out[- ]of[- ]scope|decline|unsupported)\b/i.test(draftText);
+  if (describesRoutingSystem && !mentionsRefusalPolicy) {
+    nonblocking.push({
+      item_id: "missing_escalation_refusal_policy",
+      category: "completeness",
+      description: "Response describes a routing/escalation system but does not state when to refuse, decline, or handle out-of-scope requests.",
+      status: "open" as const,
+      evidence_ref: "",
+      resolved_by: "",
+      reopen_count: 0,
+    });
+  }
+
   const assumptionChecks = checkAssumptionLabels(state);
   blocking_issues.push(...assumptionChecks.blocking);
   nonblocking.push(...assumptionChecks.nonblocking);
 
+  const noUsableEvidence = !hasUsableSources && scores.evidence_utilization < 4;
+  const need_more_evidence = !!(blocking_issues.length > 0 && noUsableEvidence && (state.rag_mode ?? "disabled") !== "disabled");
+
+  let continue_reason: string | undefined;
+  if (blocking_issues.length > 0) {
+    continue_reason = need_more_evidence ? "needs_evidence" : "needs_revision";
+  }
+
   return {
     approved: blocking_issues.length === 0,
-    need_more_evidence: false,
-    continue_reason: blocking_issues.length > 0 ? "needs_revision" : undefined,
+    need_more_evidence,
+    continue_reason,
     blocking_issues,
     nonblocking,
     repair_instructions,

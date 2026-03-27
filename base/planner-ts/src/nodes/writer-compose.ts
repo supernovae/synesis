@@ -55,9 +55,11 @@ function buildAssumptionInstructions(state: GraphState): string {
   const difficulty = state.difficulty ?? 0.3;
 
   const rules: string[] = [
-    "ASSUMPTION AND ESTIMATE TAGGING RULES:",
+    "EPISTEMIC LABELING RULES:",
     "- When you make a material assumption that affects the answer, tag it inline with [Assumption: brief description].",
     "- When you give a numerical approximation or estimate, tag it with [Estimate: brief basis].",
+    "- When citing a specific goal, SLA, or requirement, tag it with [Target: source or context].",
+    "- When citing a directly measured or observed value, tag it with [Measured: source or method].",
   ];
 
   if (answeredClarification) {
