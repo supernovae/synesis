@@ -74,14 +74,22 @@ Working document to track parity between `base/planner` (Python) and `base/plann
 
 ### 4) Context pivot handling
 
-- Status: `missing` in TS
+- Status: `partial` — frame-aware compaction landed, explicit pivot detection planned
 - Python behavior:
   - language/domain/deliverable pivot detection
   - pivot summarization + memory flush/archive behavior
   - evidence: `base/planner/app/main.py`, `history_summarizer.py`, `conversation_memory.py`
 - TS behavior:
-  - session memory exists but no explicit pivot detector/summarizer pipeline
-  - evidence: `base/planner-ts/src/context/session-manager.ts`
+  - **Frame-aware structured compaction** replaces lossy truncation summarizer. Checkpoints now include:
+    - domain profile (weighted, with frame coherence from Data-Frame theory)
+    - topic thread tracking with `active`/`resolved` status and turn ranges
+    - user fact/preference extraction (survives compaction)
+    - conversation arc classification (`tutoring`, `debugging`, `coding`, `exploration`, `analysis`, `general`)
+    - last 6 verbatim exchanges for immediate context
+  - Deterministic, zero LLM cost — runs `buildDomainProfile` over full history at compaction time
+  - Explicit pivot detection (domain shift → memory reset/archive) planned as expansion
+  - evidence: `base/planner-ts/src/context/session-manager.ts`, `base/planner-ts/src/nodes/domain-profile.ts`
+  - docs: `docs/SESSION_FRAME_COMPACTION.md`
 
 ### 5) Observability/debug surface
 
@@ -159,7 +167,7 @@ Files:
 2. ~~Add TS Redis-backed L1/L2 session persistence (keep in-memory as fallback).~~ **Done.** See `base/planner-ts/src/context/session-store.ts`, `docs/PLANNER_MEMORY_LIFECYCLE.md`.
 3. Add TS direct-stream fast path for trivial/easy-no-retrieval tasks.
 4. Add TS UI-helper and slash-command pre-routing (`/why`, `/reclassify`, helper prompt filter).
-5. Add TS pivot detection and controlled memory reset/summarization.
+5. ~~Add TS pivot detection and controlled memory reset/summarization.~~ **Partial.** Frame-aware structured compaction landed (domain profiling, topic threads, user facts, arc classification). Explicit pivot detection + memory reset planned. See `docs/SESSION_FRAME_COMPACTION.md`.
 6. Add TS debug observability endpoints to match Python operational introspection.
 
 ## Intentional non-parity (do not port as-is)

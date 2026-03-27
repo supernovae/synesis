@@ -49,9 +49,9 @@ describe("plan gate", () => {
     });
     expect(state.next_node).toBe("respond");
     expect((state.generated_code ?? "").length).toBeGreaterThan(0);
-    const traces = (state.node_traces ?? []) as Array<{ node_name?: string; authz_trace_id?: string }>;
-    expect(traces.length).toBeGreaterThan(0);
-    expect(traces.every((trace) => trace.authz_trace_id === "trace-test-1")).toBe(true);
+    const spans = state._span_collector?.getSpans() ?? [];
+    expect(spans.length).toBeGreaterThan(0);
+    expect(spans.every((s) => s.node_name && s.latency_ms >= 0)).toBe(true);
     expect((state.decision_ledger ?? []).some((entry) => entry.rationale.includes("authz_trace_id=trace-test-1"))).toBe(true);
   });
 });

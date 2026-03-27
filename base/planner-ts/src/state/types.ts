@@ -1,4 +1,5 @@
 import type { CritiqueItem, DecisionEntry, EvidencePacket } from "../contracts/schemas.js";
+import type { SpanCollector } from "../tracing/span-collector.js";
 
 export type GraphNodeName =
   | "entry_pipeline"
@@ -68,7 +69,6 @@ export interface GraphState {
   max_iterations?: number;
   planner_error_count?: number;
   override_log?: Array<Record<string, unknown>>;
-  node_traces?: Array<{ node_name?: string } | Record<string, unknown>>;
   _validation_warnings?: string[];
   llm_usage?: import("@synesis/telemetry").LlmUsage;
   error?: string;
@@ -84,4 +84,5 @@ export interface GraphState {
   assumptions?: string[];
   show_assumptions?: boolean;
   planner_confidence?: number;
+  _span_collector?: SpanCollector;
 }

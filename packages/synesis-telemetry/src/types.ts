@@ -81,6 +81,35 @@ export interface TraceClassification {
   taxonomy_key: string;
 }
 
+export interface TraceLLMCallRecord {
+  model: string;
+  node: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_prompt_tokens?: number;
+  latency_ms: number;
+  prompt_snippet?: string;
+  completion_snippet?: string;
+  timestamp: number;
+  actual_cost?: number;
+  estimated_cost?: number;
+}
+
+export interface TraceSpanRecord {
+  node_name: string;
+  intent?: string;
+  start_time: number;
+  end_time: number;
+  latency_ms: number;
+  tokens_used: number;
+  confidence: number;
+  outcome: string;
+  reasoning?: string;
+  llm_calls: TraceLLMCallRecord[];
+  metadata?: Record<string, unknown>;
+}
+
 export interface TraceRecord {
   service: "planner" | "yarn";
   trace_id: string;
@@ -98,14 +127,24 @@ export interface TraceRecord {
   };
   latency_ms: number;
   query_snippet?: string;
-  spans?: unknown[];
+  spans?: TraceSpanRecord[];
   decision_ledger?: unknown[];
-  node_traces?: unknown[];
   sensemaking?: TraceSensemaking;
   critic_result?: TraceCriticResult;
+  background_critic?: Record<string, unknown>;
   classification?: TraceClassification;
+  difficulty?: number;
+  task_type?: string;
+  domain_tags?: string[];
+  is_code_task?: boolean;
+  has_error?: boolean;
   iteration_count?: number;
   max_iterations?: number;
+  phase_timings?: Record<string, number>;
+  trace_context?: Record<string, unknown>;
+  evidence_summary?: Record<string, unknown>;
+  taxonomy?: Record<string, unknown>;
+  critic_scores?: Record<string, unknown>;
   streaming?: {
     mode: "streaming" | "non-streaming";
     time_to_first_token_ms?: number;

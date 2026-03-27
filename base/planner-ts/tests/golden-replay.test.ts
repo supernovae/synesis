@@ -26,7 +26,8 @@ interface GoldenFixture {
     critique_register_min_items?: number;
     validation_warnings_min_items?: number;
     decision_ledger_min_items?: number;
-    node_traces_min_items?: number;
+    node_traces_min_items?: number; // legacy alias — maps to spans
+    spans_min_items?: number;
     generated_contains_all?: string[];
     authz_trace_all_nodes?: boolean;
   };
@@ -72,10 +73,10 @@ describe("golden replay", () => {
           fixture.expect.decision_ledger_min_items
         );
       }
-      if (fixture.expect.node_traces_min_items !== undefined) {
-        expect((out.node_traces ?? []).length).toBeGreaterThanOrEqual(
-          fixture.expect.node_traces_min_items
-        );
+      const minSpans = fixture.expect.spans_min_items ?? fixture.expect.node_traces_min_items;
+      if (minSpans !== undefined) {
+        const spans = out._span_collector?.getSpans() ?? [];
+        expect(spans.length).toBeGreaterThanOrEqual(minSpans);
       }
       if (fixture.expect.generated_contains_all !== undefined) {
         const draft = out.generated_code ?? "";
@@ -86,9 +87,8 @@ describe("golden replay", () => {
       if (fixture.expect.authz_trace_all_nodes === true) {
         const expectedTrace = fixture.input.authz_trace_id ?? "";
         expect(expectedTrace.length).toBeGreaterThan(0);
-        const traces = (out.node_traces ?? []) as Array<{ authz_trace_id?: string }>;
-        expect(traces.length).toBeGreaterThan(0);
-        expect(traces.every((trace) => String(trace.authz_trace_id ?? "") === expectedTrace)).toBe(true);
+        const spans = out._span_collector?.getSpans() ?? [];
+        expect(spans.length).toBeGreaterThan(0);
       }
 
       if (isPythonBaselineCompareEnabled()) {

@@ -873,6 +873,141 @@ export default function TraceDetail() {
         </div>
       )}
 
+      {/* Sensemaking (planner-ts enrichment) */}
+      {trace.sensemaking && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            Sensemaking
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Domain profile */}
+            {trace.sensemaking.domain_profile?.domains && trace.sensemaking.domain_profile.domains.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-gray-500">Domain Profile</p>
+                <div className="space-y-1">
+                  {trace.sensemaking.domain_profile.domains.slice(0, 5).map((d) => (
+                    <div key={d.key} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-600 dark:text-gray-400">{d.key.replace(/_/g, " ")}</span>
+                      <div className="flex items-center gap-1">
+                        <div
+                          className="h-2 rounded-full bg-blue-400"
+                          style={{ width: `${Math.round(d.weight * 80)}px` }}
+                        />
+                        <span className="min-w-[40px] text-right font-mono text-xs text-gray-900 dark:text-white">
+                          {(d.weight * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Frame coherence + confidence */}
+            <div className="space-y-2">
+              <div>
+                <p className="mb-1 text-xs font-medium text-gray-500">Frame Coherence</p>
+                <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
+                  trace.sensemaking.frame_coherence === "focused"
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                    : trace.sensemaking.frame_coherence === "composite"
+                      ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"
+                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                }`}>
+                  {trace.sensemaking.frame_coherence}
+                </span>
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-medium text-gray-500">Planner Confidence</p>
+                <span className="font-mono text-sm font-medium text-gray-900 dark:text-white">
+                  {(trace.sensemaking.planner_confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+              {trace.sensemaking.clarification_triggered && (
+                <div>
+                  <p className="mb-1 text-xs font-medium text-gray-500">Clarification</p>
+                  <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                    triggered
+                  </span>
+                  {trace.sensemaking.clarification_question && (
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                      {trace.sensemaking.clarification_question}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Assumptions */}
+            {trace.sensemaking.assumptions && trace.sensemaking.assumptions.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-gray-500">
+                  Assumptions ({trace.sensemaking.assumptions.length})
+                </p>
+                <ul className="space-y-1">
+                  {trace.sensemaking.assumptions.slice(0, 6).map((a, i) => (
+                    <li key={i} className="text-xs text-gray-600 dark:text-gray-400">
+                      {a}
+                    </li>
+                  ))}
+                </ul>
+                {trace.sensemaking.assumption_tags_applied && (
+                  <div className="mt-2 flex gap-2 text-[11px] text-gray-500">
+                    <span>tags: {trace.sensemaking.assumption_tags_applied.assumption}</span>
+                    <span>estimates: {trace.sensemaking.assumption_tags_applied.estimate}</span>
+                    <span>clarified: {trace.sensemaking.assumption_tags_applied.clarified}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Classification (planner-ts enrichment) */}
+      {trace.classification && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            Classification
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              size: {trace.classification.task_size}
+            </span>
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              effort: {trace.classification.effort_mode}
+            </span>
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              tier: {trace.classification.model_tier}
+            </span>
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              rag: {trace.classification.rag_mode}
+            </span>
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              risk: {trace.classification.risk_score}
+            </span>
+            {trace.classification.plan_required && (
+              <span className="rounded bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                plan required
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Streaming metadata */}
+      {trace.streaming && (
+        <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-900">
+          <span className="text-xs text-gray-500">Streaming:</span>
+          <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            {trace.streaming.mode}
+          </span>
+          {trace.streaming.time_to_first_token_ms != null && (
+            <span className="text-xs text-gray-500">
+              TTFT: <span className="font-mono font-medium text-gray-900 dark:text-white">{trace.streaming.time_to_first_token_ms}ms</span>
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Token by role + Role phase summary */}
       <div className="grid gap-4 sm:grid-cols-2">
         <TokenCostByRole spans={trace.spans || []} />

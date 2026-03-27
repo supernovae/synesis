@@ -102,8 +102,10 @@ function gateFeedback(errors: string[]): string {
 }
 
 export function planGate(state: GraphState): GraphState {
-  const traces = state.node_traces ?? [];
   if (state.next_node === "respond") return state;
+
+  const collector = state._span_collector;
+  collector?.startSpan("plan_gate");
 
   const plan = state.execution_plan ?? {};
   const rawSteps = Array.isArray((plan as Record<string, unknown>).steps)
@@ -132,9 +134,18 @@ export function planGate(state: GraphState): GraphState {
   const maxRetries = 2;
   const nextNode = passed ? "router" : plannerErrorCount > maxRetries ? "respond" : "planner";
 
+  collector?.endSpan("plan_gate", {
+    outcome: passed ? "passed" : "failed",
+    metadata: {
+      errors_count: errors.length,
+      errors: errors.slice(0, 5),
+      planner_error_count: plannerErrorCount,
+      routed_to: nextNode,
+    },
+  });
+
   return {
     ...state,
-    node_traces: [...traces, { node_name: "plan_gate", authz_trace_id: state.authz_trace_id ?? "" }],
     plan_gate_passed: passed,
     plan_gate_errors: errors,
     plan_gate_feedback: gateFeedback(errors),

@@ -93,8 +93,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const executionPolicy = state.execution_policy ?? {};
     if (!Boolean((executionPolicy as Record<string, unknown>).critic_background)) return;
     if (!(state.generated_code ?? "").trim()) return;
+    const criticStartTime = Date.now() / 1000;
     void evaluateCritic({ ...state, next_node: "critic" })
       .then((result) => {
+        const criticEndTime = Date.now() / 1000;
+        const criticLatencyMs = Math.round((criticEndTime - criticStartTime) * 1000);
         requestLog.info(
           {
             authzTraceId: state.authz_trace_id,
@@ -103,32 +106,62 @@ export function buildApp(config: AppConfig): FastifyInstance {
           },
           "background critic completed",
         );
+        const model = state.response_model ?? state.requested_model ?? "unknown";
+        const bgCriticData: Record<string, unknown> = {
+          approved: result.approved,
+          need_more_evidence: result.need_more_evidence,
+          scores: result.scores,
+          blocking_issues: result.blocking_issues ?? [],
+          nonblocking: result.nonblocking ?? [],
+          latency_ms: criticLatencyMs,
+          is_background: true,
+        };
+        const syntheticSpan: import("@synesis/telemetry").TraceSpanRecord = {
+          node_name: "background_critic",
+          intent: "Background Critic (async)",
+          start_time: criticStartTime,
+          end_time: criticEndTime,
+          latency_ms: criticLatencyMs,
+          tokens_used: result.usage?.total_tokens ?? 0,
+          confidence: typeof result.scores === "object"
+            ? Object.values(result.scores as Record<string, number>).reduce((a, b) => a + b, 0) /
+              Math.max(Object.keys(result.scores as Record<string, number>).length, 1)
+            : 0,
+          outcome: result.approved ? "approved" : "rejected",
+          llm_calls: result.usage?.total_tokens
+            ? [{
+                model,
+                node: "background_critic",
+                prompt_tokens: result.usage.prompt_tokens,
+                completion_tokens: result.usage.completion_tokens,
+                total_tokens: result.usage.total_tokens,
+                cached_prompt_tokens: result.usage.cached_prompt_tokens || undefined,
+                latency_ms: criticLatencyMs,
+                timestamp: criticEndTime,
+                actual_cost: result.usage.actual_cost_usd || undefined,
+                estimated_cost: result.usage.estimated_cost_usd || undefined,
+              }]
+            : [],
+          metadata: { async: true, ...bgCriticData },
+        };
         const criticTrace: TraceRecord = {
           service: "planner",
           trace_id: state.authz_trace_id ?? crypto.randomUUID(),
           request_id: state.run_id ?? crypto.randomUUID(),
-          timestamp: Date.now() / 1000,
+          timestamp: criticEndTime,
           user_id: state.user_id ?? "",
           org_id: state.org_id ?? "",
           tenant_id: state.tenant_ids?.[0] ?? "",
-          model: state.response_model ?? state.requested_model ?? "unknown",
+          model,
           tokens: result.usage,
           cost: {
             estimated_usd: result.usage.estimated_cost_usd,
             actual_usd: result.usage.actual_cost_usd,
-            rates_snapshot: pricingRegistry.getRates(
-              state.response_model ?? state.requested_model ?? "unknown",
-            ),
+            rates_snapshot: pricingRegistry.getRates(model),
           },
           latency_ms: 0,
-          critic_result: {
-            approved: result.approved,
-            need_more_evidence: result.need_more_evidence,
-            scores: result.scores as unknown as Record<string, number>,
-            blocking_issues: result.blocking_issues ?? [],
-            nonblocking: result.nonblocking ?? [],
-            is_background: true,
-          },
+          background_critic: bgCriticData,
+          spans: [syntheticSpan],
         };
         emitTrace(criticTrace, traceEmitterConfig, app.log);
       })
@@ -353,6 +386,44 @@ export function buildApp(config: AppConfig): FastifyInstance {
     };
   }
 
+  function buildEvidenceSummary(state: GraphState): Record<string, unknown> {
+    const packets = state.evidence_packets ?? [];
+    if (packets.length === 0) return {};
+    const sourceUris = packets.flatMap((p) => p.sources.map((s) => s.uri)).filter(Boolean);
+    const avgConfidence = packets.reduce((sum, p) => sum + p.confidence, 0) / packets.length;
+    return {
+      packets_count: packets.length,
+      avg_confidence: Math.round(avgConfidence * 100) / 100,
+      source_urls: [...new Set(sourceUris)].slice(0, 10),
+    };
+  }
+
+  function buildTaxonomy(state: GraphState): Record<string, unknown> {
+    const classification = buildClassificationTrace(state);
+    return {
+      difficulty: classification.difficulty,
+      task_size: classification.task_size,
+      risk_score: classification.risk_score,
+      effort_mode: classification.effort_mode,
+      model_tier: classification.model_tier,
+      rag_mode: classification.rag_mode,
+      plan_required: classification.plan_required,
+      taxonomy_key: classification.taxonomy_key,
+    };
+  }
+
+  function buildTraceContext(state: GraphState): Record<string, unknown> {
+    const ctx: Record<string, unknown> = {};
+    if (state.writer_max_tokens) ctx.token_budget_total = state.writer_max_tokens;
+    if (state.iteration_count !== undefined) ctx.iteration_count = state.iteration_count;
+    if (state.max_iterations !== undefined) ctx.max_iterations = state.max_iterations;
+    if (state.error) {
+      ctx.failure_stage = state.next_node ?? "unknown";
+      ctx.failure_reason = state.error;
+    }
+    return ctx;
+  }
+
   function emitPlannerTrace(
     state: GraphState,
     usage: LlmUsage,
@@ -362,6 +433,21 @@ export function buildApp(config: AppConfig): FastifyInstance {
   ): void {
     const model = state.response_model ?? state.requested_model ?? "unknown";
     const rates = pricingRegistry.getRates(model);
+    const collector = state._span_collector;
+    const spans = collector?.getSpans() ?? [];
+    const phaseTimings = collector?.getPhaseTimings() ?? {};
+
+    const classification = buildClassificationTrace(state);
+    const domainProfile = state.domain_profile;
+    const domainTags = domainProfile?.domains?.map((d) => d.key) ?? [];
+    const taxonomyKey = classification.taxonomy_key ?? "";
+    const isCode = taxonomyKey.startsWith("code") || taxonomyKey.includes("programming");
+
+    const inlineCritic = buildInlineCriticTrace(state);
+    const criticScores: Record<string, unknown> = inlineCritic
+      ? { ...inlineCritic.scores, approved: inlineCritic.approved }
+      : {};
+
     const trace: TraceRecord = {
       service: "planner",
       trace_id: state.authz_trace_id ?? crypto.randomUUID(),
@@ -379,11 +465,21 @@ export function buildApp(config: AppConfig): FastifyInstance {
         rates_snapshot: rates,
       },
       latency_ms: latencyMs,
+      spans,
+      phase_timings: phaseTimings,
       decision_ledger: state.decision_ledger,
-      node_traces: state.node_traces,
       sensemaking: buildSensemakingTrace(state),
-      classification: buildClassificationTrace(state),
-      critic_result: buildInlineCriticTrace(state),
+      classification,
+      critic_result: inlineCritic,
+      critic_scores: Object.keys(criticScores).length > 0 ? criticScores : undefined,
+      evidence_summary: buildEvidenceSummary(state),
+      taxonomy: buildTaxonomy(state),
+      trace_context: buildTraceContext(state),
+      difficulty: classification.difficulty,
+      task_type: taxonomyKey || undefined,
+      domain_tags: domainTags.length > 0 ? domainTags : undefined,
+      is_code_task: isCode,
+      has_error: Boolean(state.error),
       iteration_count: state.iteration_count,
       max_iterations: state.max_iterations,
       streaming: streamingCtx

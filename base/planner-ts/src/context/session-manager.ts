@@ -4,6 +4,7 @@ import {
   type SessionData,
   type SessionStore
 } from "./session-store.js";
+import { buildDomainProfile, type DomainProfile } from "../nodes/domain-profile.js";
 
 function sanitizeAssistantContent(content: string): string {
   let out = content;
@@ -16,6 +17,141 @@ function sanitizeAssistantContent(content: string): string {
     if (match?.[1]) out = match[1];
   }
   return out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// ── Frame-aware structured compaction ──────────────────────────────
+
+interface TopicThread {
+  topic: string;
+  status: "active" | "resolved";
+  firstTurn: number;
+  lastTurn: number;
+}
+
+interface SessionCheckpoint {
+  domains: DomainProfile;
+  topics: TopicThread[];
+  userFacts: string[];
+  conversationArc: string;
+  turnCount: number;
+}
+
+const FACT_RE = /\b(i(?:'m| am)|my|we use|our|i prefer|i need|i want|i have|using|running)\b/i;
+const ARC_PATTERNS: Array<{ arc: string; re: RegExp }> = [
+  { arc: "tutoring", re: /\b(quiz|study|vocabulary|practice|exercise|learn|teach|test me|drill)\b/i },
+  { arc: "debugging", re: /\b(error|bug|fail|crash|broken|fix|debug|stack\s*trace|exception)\b/i },
+  { arc: "coding", re: /\b(code|snippet|function|implement|refactor|class|component)\b/i },
+  { arc: "exploration", re: /\b(explore|ideas|creative|brainstorm|what if|possibilities|compare)\b/i },
+  { arc: "analysis", re: /\b(analyze|review|evaluate|assess|audit|performance|benchmark)\b/i },
+];
+
+function extractUserFacts(userMessages: string[]): string[] {
+  const facts: string[] = [];
+  for (const msg of userMessages) {
+    for (const sentence of msg.split(/[.!?\n]+/)) {
+      const trimmed = sentence.trim();
+      if (trimmed.length < 8 || trimmed.length > 200) continue;
+      if (FACT_RE.test(trimmed)) {
+        facts.push(trimmed);
+      }
+    }
+  }
+  const unique = [...new Set(facts)];
+  return unique.slice(-12);
+}
+
+function detectConversationArc(allText: string): string {
+  for (const { arc, re } of ARC_PATTERNS) {
+    if (re.test(allText)) return arc;
+  }
+  return "general";
+}
+
+function extractTopics(history: ChatMessage[]): TopicThread[] {
+  const windowSize = 4;
+  const topics: TopicThread[] = [];
+  let prevDomainKey = "";
+
+  for (let i = 0; i < history.length; i += windowSize) {
+    const window = history.slice(i, i + windowSize);
+    const windowText = window.map((m) => m.content).join(" ");
+    const profile = buildDomainProfile(windowText);
+    const topDomain = profile.domains[0]?.key ?? "general";
+
+    if (topDomain !== prevDomainKey) {
+      if (topics.length > 0) {
+        const prev = topics[topics.length - 1];
+        prev.lastTurn = i - 1;
+        prev.status = "resolved";
+      }
+      topics.push({
+        topic: topDomain,
+        status: "active",
+        firstTurn: i,
+        lastTurn: history.length - 1,
+      });
+      prevDomainKey = topDomain;
+    } else if (topics.length > 0) {
+      topics[topics.length - 1].lastTurn = Math.min(i + windowSize - 1, history.length - 1);
+    }
+  }
+
+  return topics;
+}
+
+function buildStructuredCheckpoint(history: ChatMessage[]): SessionCheckpoint {
+  const userTexts = history.filter((m) => m.role === "user").map((m) => m.content);
+  const allText = history.map((m) => m.content).join(" ");
+
+  const domains = buildDomainProfile(allText);
+  const topics = extractTopics(history);
+  const userFacts = extractUserFacts(userTexts);
+  const conversationArc = detectConversationArc(allText);
+
+  return {
+    domains,
+    topics,
+    userFacts,
+    conversationArc,
+    turnCount: history.length,
+  };
+}
+
+function renderCheckpoint(checkpoint: SessionCheckpoint, recentHistory: ChatMessage[]): string {
+  const parts: string[] = ["<SESSION_STATE>"];
+
+  parts.push(`Conversation arc: ${checkpoint.conversationArc} (${checkpoint.turnCount} turns)`);
+
+  const domainDesc = checkpoint.domains.domains
+    .slice(0, 4)
+    .map((d) => `${d.key}(${(d.weight * 100).toFixed(0)}%)`)
+    .join(", ");
+  parts.push(`Active domains: ${domainDesc} [coherence: ${checkpoint.domains.frameCoherence}]`);
+
+  if (checkpoint.topics.length > 0) {
+    const topicLines = checkpoint.topics.map(
+      (t) => `  - ${t.topic} [${t.status}] (turns ${t.firstTurn}-${t.lastTurn})`,
+    );
+    parts.push("Topic threads:");
+    parts.push(...topicLines);
+  }
+
+  if (checkpoint.userFacts.length > 0) {
+    parts.push("User stated facts/preferences:");
+    for (const fact of checkpoint.userFacts) {
+      parts.push(`  - ${fact}`);
+    }
+  }
+
+  if (recentHistory.length > 0) {
+    parts.push("Recent exchanges:");
+    for (const m of recentHistory.slice(-6)) {
+      parts.push(`  [${m.role}]: ${m.content.replace(/\s+/g, " ").slice(0, 300)}`);
+    }
+  }
+
+  parts.push("</SESSION_STATE>");
+  return parts.join("\n");
 }
 
 export interface SessionTelemetry {
@@ -48,15 +184,9 @@ export class SessionManager {
     return Date.now();
   }
 
-  private summarize(history: ChatMessage[]): string {
-    const tail = history.slice(-20);
-    const lines = tail.map((m) => `[${m.role}] ${m.content.replace(/\s+/g, " ").slice(0, 240)}`);
-    return [
-      "<SESSION_STATE>",
-      "Recent conversation trajectory summary:",
-      ...lines,
-      "</SESSION_STATE>"
-    ].join("\n");
+  private summarize(history: ChatMessage[], recentTail: ChatMessage[]): string {
+    const checkpoint = buildStructuredCheckpoint(history);
+    return renderCheckpoint(checkpoint, recentTail);
   }
 
   private async ensureSession(key: string): Promise<SessionData> {
@@ -95,8 +225,9 @@ export class SessionManager {
     }
 
     if (session.history.length >= this.opts.checkpointEveryMessages) {
-      session.checkpointBlock = this.summarize(session.history);
-      session.history = session.history.slice(-Math.floor(this.opts.checkpointEveryMessages / 2));
+      const recentTail = session.history.slice(-Math.floor(this.opts.checkpointEveryMessages / 2));
+      session.checkpointBlock = this.summarize(session.history, recentTail);
+      session.history = recentTail;
     }
     session.lastSeenAt = this.now();
     await this.store.set(key, session, this.opts.ttlMs);

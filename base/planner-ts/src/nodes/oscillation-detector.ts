@@ -44,12 +44,8 @@ function scoreDecisionOscillation(state: GraphState): number {
 }
 
 function scoreRetrievalOscillation(state: GraphState): number {
-  const traces = state.node_traces ?? [];
-  const routerPasses = traces.filter((trace) => {
-    if (typeof trace !== "object" || trace === null) return false;
-    const nodeName = "node_name" in trace ? String(trace.node_name ?? "") : "";
-    return nodeName === "router";
-  }).length;
+  const spans = state._span_collector?.getSpans() ?? [];
+  const routerPasses = spans.filter((s) => s.node_name === "router").length;
   if (routerPasses >= 3) return Math.min(1, routerPasses * 0.25);
   if (routerPasses >= 2) return 0.3;
   return state.need_more_evidence ? 0.2 : 0;

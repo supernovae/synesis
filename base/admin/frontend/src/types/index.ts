@@ -678,6 +678,36 @@ export interface SpanRecord {
   metadata?: Record<string, unknown>;
 }
 
+export interface TraceSensemaking {
+  domain_profile?: {
+    domains: Array<{ key: string; weight: number }>;
+    frameCoherence: string;
+  };
+  planner_confidence: number;
+  clarification_triggered: boolean;
+  clarification_question?: string;
+  clarification_options?: string[];
+  assumptions: string[];
+  frame_coherence: string;
+  assumption_tags_applied?: {
+    assumption: number;
+    estimate: number;
+    clarified: number;
+  };
+}
+
+export interface TraceClassification {
+  difficulty: number;
+  task_size: string;
+  risk_score: number;
+  effort_mode: string;
+  model_tier: string;
+  rag_mode: string;
+  plan_required: boolean;
+  show_assumptions: boolean;
+  taxonomy_key: string;
+}
+
 export interface TraceRecord {
   trace_id: string;
   user_id: string;
@@ -718,6 +748,13 @@ export interface TraceRecord {
     [key: string]: unknown;
   };
   short_circuit_reason?: string;
+  sensemaking?: TraceSensemaking;
+  classification?: TraceClassification;
+  streaming?: {
+    mode: string;
+    time_to_first_token_ms?: number;
+  };
+  decision_ledger?: unknown[];
 }
 
 export interface TraceStats {

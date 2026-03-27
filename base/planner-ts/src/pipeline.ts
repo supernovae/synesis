@@ -17,8 +17,10 @@ import { runLlmPlanner, isClarificationWaiver } from "./nodes/llm-planner.js";
 import { isLlmAvailable } from "./llm/client.js";
 import type { StreamDelta } from "./llm/client.js";
 import { mergeUsage } from "@synesis/telemetry";
+import type { LlmUsage, TraceLLMCallRecord } from "@synesis/telemetry";
 import type { DecisionEntry } from "./contracts/schemas.js";
 import type { GraphState } from "./state/types.js";
+import { SpanCollector } from "./tracing/span-collector.js";
 
 function ensureForwarded(state: GraphState): GraphState {
   return {
@@ -30,11 +32,31 @@ function ensureForwarded(state: GraphState): GraphState {
   };
 }
 
-function withNodeTrace(state: GraphState, nodeName: string): GraphState {
-  const traces = state.node_traces ?? [];
+function ensureCollector(state: GraphState): SpanCollector {
+  if (!state._span_collector) {
+    state._span_collector = new SpanCollector();
+  }
+  return state._span_collector;
+}
+
+function usageToLlmCall(
+  nodeName: string,
+  model: string,
+  usage: LlmUsage | undefined,
+  latencyMs: number,
+): TraceLLMCallRecord | undefined {
+  if (!usage || usage.total_tokens === 0) return undefined;
   return {
-    ...state,
-    node_traces: [...traces, { node_name: nodeName, authz_trace_id: state.authz_trace_id ?? "" }]
+    model,
+    node: nodeName,
+    prompt_tokens: usage.prompt_tokens,
+    completion_tokens: usage.completion_tokens,
+    total_tokens: usage.total_tokens,
+    cached_prompt_tokens: usage.cached_prompt_tokens || undefined,
+    latency_ms: latencyMs,
+    timestamp: Date.now() / 1000,
+    actual_cost: usage.actual_cost_usd || undefined,
+    estimated_cost: usage.estimated_cost_usd || undefined,
   };
 }
 
@@ -67,16 +89,40 @@ function scrubInternalScaffolding(output: string): string {
 }
 
 export async function entryPipelineNode(state: GraphState): Promise<GraphState> {
-  return ensureForwarded(withNodeTrace(classifyEntry({
+  const collector = ensureCollector(state);
+  collector.startSpan("entry_pipeline");
+  const classified = classifyEntry({
     ...state,
+    _span_collector: collector,
     iteration_count: state.iteration_count ?? 0,
     max_iterations: state.max_iterations ?? 4
-  }), "entry_pipeline"));
+  });
+  collector.endSpan("entry_pipeline", {
+    outcome: classified.task_is_trivial ? "trivial_fast_path" : "classified",
+    confidence: classified.difficulty ?? 0,
+    metadata: {
+      difficulty: classified.difficulty,
+      task_size: classified.task_size,
+      plan_required: classified.plan_required,
+      rag_mode: classified.rag_mode,
+      domain_profile: classified.domain_profile,
+      taxonomy: classified.taxonomy_metadata,
+    },
+  });
+  return ensureForwarded(classified);
 }
 
 export async function plannerNode(state: GraphState): Promise<GraphState> {
+  const collector = ensureCollector(state);
+  collector.startSpan("planner");
+
   if (state.plan_required === false) {
-    return ensureForwarded(withNodeTrace({
+    collector.endSpan("planner", {
+      outcome: "skip_plan_not_required",
+      confidence: 0.9,
+      metadata: { reason: "plan_required=false" },
+    });
+    return ensureForwarded({
       ...state,
       execution_plan: {
         steps: [{ id: 1, action: `Directly answer: ${state.task_description ?? "User request"}`, files: [], dependencies: [] }],
@@ -86,17 +132,21 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
       planner_confidence: 0.9,
       plan_gate_passed: true,
       next_node: "router"
-    }, "planner"));
+    });
   }
 
   if (state.user_answer_to_clarification && isClarificationWaiver(state.user_answer_to_clarification)) {
-    return ensureForwarded(withNodeTrace({
+    collector.endSpan("planner", {
+      outcome: "clarification_waived",
+      metadata: { waiver: state.user_answer_to_clarification },
+    });
+    return ensureForwarded({
       ...state,
       clarification_question: undefined,
       clarification_options: undefined,
       plan_gate_passed: true,
       next_node: "router"
-    }, "planner"));
+    });
   }
 
   if (isLlmAvailable()) {
@@ -106,6 +156,7 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
 }
 
 async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
+  const collector = ensureCollector(state);
   const task = state.task_description ?? "User request";
   let plannerResult: Awaited<ReturnType<typeof runLlmPlanner>>;
   try {
@@ -113,12 +164,26 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     process.stderr.write(JSON.stringify({ level: 40, msg: "llmDrivenPlanner failed, falling back to deterministic", error: detail, time: Date.now() }) + "\n");
+    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail } });
     return deterministicPlanner(state);
   }
   const { result, clarification } = plannerResult;
+  const model = state.response_model ?? state.requested_model ?? "unknown";
+  const llmCall = usageToLlmCall("planner", model, result.usage, 0);
 
   if (clarification) {
-    const planned = ensureForwarded(withNodeTrace({
+    collector.endSpan("planner", {
+      outcome: "clarification_triggered",
+      confidence: result.plan.confidence,
+      tokens_used: result.usage?.total_tokens ?? 0,
+      llm_calls: llmCall ? [llmCall] : [],
+      metadata: {
+        open_questions: result.plan.open_questions,
+        assumptions: result.plan.assumptions,
+        clarification_question: clarification.question,
+      },
+    });
+    const planned = ensureForwarded({
       ...state,
       execution_plan: {
         steps: result.plan.steps.map((s) => ({ ...s, files: [], dependencies: s.dependencies ?? [] })),
@@ -132,7 +197,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
       llm_usage: mergeUsage(state.llm_usage, result.usage),
       next_node: "respond",
       generated_code: clarification.question,
-    }, "planner"));
+    });
     return appendDecisionLedger(planned, {
       category: "approach",
       chosen: "clarify_before_acting",
@@ -143,8 +208,19 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
     });
   }
 
+  collector.endSpan("planner", {
+    outcome: "plan_generated",
+    confidence: result.plan.confidence,
+    tokens_used: result.usage?.total_tokens ?? 0,
+    llm_calls: llmCall ? [llmCall] : [],
+    metadata: {
+      steps_count: result.plan.steps.length,
+      open_questions: result.plan.open_questions,
+      assumptions: result.plan.assumptions,
+    },
+  });
   const feedback = state.plan_gate_feedback ? `\nFeedback: ${state.plan_gate_feedback}` : "";
-  const planned = ensureForwarded(withNodeTrace({
+  const planned = ensureForwarded({
     ...state,
     execution_plan: {
       steps: result.plan.steps.map((s) => ({ ...s, files: [], dependencies: s.dependencies ?? [] })),
@@ -158,7 +234,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
     llm_usage: mergeUsage(state.llm_usage, result.usage),
     next_node: "plan_gate",
     plan_gate_feedback: `Plan drafted for: ${task}${feedback}`,
-  }, "planner"));
+  });
   return appendDecisionLedger(planned, {
     category: "approach",
     chosen: "plan_then_gate",
@@ -170,6 +246,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
 }
 
 function deterministicPlanner(state: GraphState): GraphState {
+  const collector = ensureCollector(state);
   const task = state.task_description ?? "User request";
   const feedback = state.plan_gate_feedback ? `\n\nPlan gate feedback:\n${state.plan_gate_feedback}` : "";
   const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
@@ -181,7 +258,12 @@ function deterministicPlanner(state: GraphState): GraphState {
   const schemaHint = outputSchema.length > 0 ? ` with schema fields ${outputSchema.join(", ")}` : "";
   const deliverableHint = deliverableLabels.length > 0 ? ` covering deliverables ${deliverableLabels.join(", ")}` : "";
   const stepAction = `Produce a grounded ${requestedFormat} response${schemaHint}${deliverableHint} for: ${task}`;
-  const planned = ensureForwarded(withNodeTrace({
+  collector.endSpan("planner", {
+    outcome: "deterministic_plan",
+    confidence: 0.7,
+    metadata: { mode: "deterministic", requested_format: requestedFormat },
+  });
+  const planned = ensureForwarded({
     ...state,
     execution_plan: {
       steps: [{ id: 1, action: stepAction, files: [], dependencies: [] }],
@@ -191,7 +273,7 @@ function deterministicPlanner(state: GraphState): GraphState {
     planner_confidence: 0.7,
     next_node: "plan_gate",
     plan_gate_feedback: `Plan drafted for: ${task}${feedback}`
-  }, "planner"));
+  });
   return appendDecisionLedger(planned, {
     category: "approach",
     chosen: "plan_then_gate",
@@ -203,19 +285,21 @@ function deterministicPlanner(state: GraphState): GraphState {
 }
 
 export async function routerNode(state: GraphState): Promise<GraphState> {
+  const collector = ensureCollector(state);
+  collector.startSpan("router");
+
   if (state.rag_mode === "disabled") {
+    collector.endSpan("router", {
+      outcome: "skip_retrieval_rag_disabled",
+      metadata: { rag_mode: "disabled", packets: 0 },
+    });
     return appendDecisionLedger(
-      ensureForwarded(
-        withNodeTrace(
-          {
-            ...state,
-            evidence_packets: state.evidence_packets ?? [],
-            need_more_evidence: false,
-            next_node: "writer"
-          },
-          "router"
-        )
-      ),
+      ensureForwarded({
+        ...state,
+        evidence_packets: state.evidence_packets ?? [],
+        need_more_evidence: false,
+        next_node: "writer"
+      }),
       {
         category: "scope",
         chosen: "skip_retrieval_trivial_path",
@@ -227,7 +311,15 @@ export async function routerNode(state: GraphState): Promise<GraphState> {
     );
   }
   const routed = await runRouter(state);
-  const traced = ensureForwarded(withNodeTrace(routed, "router"));
+  const packets = routed.evidence_packets ?? [];
+  collector.endSpan("router", {
+    outcome: routed.need_more_evidence ? "needs_more_evidence" : "evidence_sufficient",
+    metadata: {
+      packets_found: packets.length,
+      rag_mode: state.rag_mode,
+    },
+  });
+  const traced = ensureForwarded(routed);
   const chosen = traced.need_more_evidence ? "retrieve_more_evidence" : "use_current_evidence";
   return appendDecisionLedger(traced, {
     category: "scope",
@@ -240,33 +332,61 @@ export async function routerNode(state: GraphState): Promise<GraphState> {
 }
 
 async function writerNodeCore(state: GraphState): Promise<GraphState> {
+  const collector = ensureCollector(state);
+  collector.startSpan("writer");
   const result = await composeWriterDraft(state);
   const fingerprint = fingerprintDraft(result.content);
-  return ensureForwarded(withNodeTrace({
+  const model = state.response_model ?? state.requested_model ?? "unknown";
+  const llmCall = usageToLlmCall("writer", model, result.usage, 0);
+  collector.endSpan("writer", {
+    outcome: "draft_composed",
+    tokens_used: result.usage?.total_tokens ?? 0,
+    llm_calls: llmCall ? [llmCall] : [],
+    metadata: {
+      content_length: result.content.length,
+      evidence_packets_used: (state.evidence_packets ?? []).length,
+    },
+  });
+  return ensureForwarded({
     ...state,
     generated_code: result.content,
     draft_fingerprints: [...(state.draft_fingerprints ?? []), fingerprint],
     llm_usage: mergeUsage(state.llm_usage, result.usage),
     next_node: "critic"
-  }, "writer"));
+  });
 }
 
 async function writerNodeStreamingCore(
   state: GraphState,
   onDelta: (delta: StreamDelta) => void,
 ): Promise<GraphState> {
+  const collector = ensureCollector(state);
+  collector.startSpan("writer");
   const result = await composeWriterDraftStream(state, onDelta);
   const fingerprint = fingerprintDraft(result.content);
-  return ensureForwarded(withNodeTrace({
+  const model = state.response_model ?? state.requested_model ?? "unknown";
+  const llmCall = usageToLlmCall("writer", model, result.usage, 0);
+  collector.endSpan("writer", {
+    outcome: "draft_composed_streaming",
+    tokens_used: result.usage?.total_tokens ?? 0,
+    llm_calls: llmCall ? [llmCall] : [],
+    metadata: {
+      content_length: result.content.length,
+      evidence_packets_used: (state.evidence_packets ?? []).length,
+    },
+  });
+  return ensureForwarded({
     ...state,
     generated_code: result.content,
     draft_fingerprints: [...(state.draft_fingerprints ?? []), fingerprint],
     llm_usage: mergeUsage(state.llm_usage, result.usage),
     next_node: "critic"
-  }, "writer"));
+  });
 }
 
 async function criticNodeCore(state: GraphState): Promise<GraphState> {
+  const collector = ensureCollector(state);
+  collector.startSpan("critic");
   const iteration = (state.iteration_count ?? 0) + 1;
   const criticResult = await evaluateCritic(state);
   const critic = criticResult;
@@ -284,7 +404,26 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
     need_more_evidence: needMoreEvidence,
     critic_should_continue: shouldContinue
   });
-  const critiqued = ensureForwarded(withNodeTrace({
+  const model = state.response_model ?? state.requested_model ?? "unknown";
+  const llmCall = usageToLlmCall("critic", model, criticResult.usage, 0);
+  collector.endSpan("critic", {
+    outcome: approved ? "approved" : "rejected",
+    confidence: typeof critic.scores === "object"
+      ? Object.values(critic.scores as Record<string, number>).reduce((a, b) => a + b, 0) /
+        Math.max(Object.keys(critic.scores as Record<string, number>).length, 1)
+      : 0,
+    tokens_used: criticResult.usage?.total_tokens ?? 0,
+    llm_calls: llmCall ? [llmCall] : [],
+    metadata: {
+      approved,
+      scores: critic.scores,
+      blocking_issues: critic.blocking_issues,
+      violations: allViolations.length,
+      routed_to: routed,
+      iteration,
+    },
+  });
+  const critiqued = ensureForwarded({
     ...state,
     iteration_count: iteration,
     critic_approved: approved,
@@ -297,7 +436,7 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
     critic_continue_reason: critic.continue_reason ?? null,
     llm_usage: mergeUsage(state.llm_usage, criticResult.usage),
     next_node: routed
-  }, "critic"));
+  });
   return appendDecisionLedger(critiqued, {
     category: "approach",
     chosen: routed,
@@ -355,22 +494,49 @@ export const criticNode = validatedNode(
 );
 
 export async function finalScrubberNode(state: GraphState): Promise<GraphState> {
-  return ensureForwarded(withNodeTrace({
+  const collector = ensureCollector(state);
+  collector.startSpan("final_scrubber");
+  const original = (state.generated_code ?? "").trim();
+  const scrubbed = scrubInternalScaffolding(original);
+  collector.endSpan("final_scrubber", {
+    outcome: scrubbed.length < original.length ? "scrubbed" : "pass_through",
+    metadata: {
+      original_length: original.length,
+      scrubbed_length: scrubbed.length,
+      chars_removed: original.length - scrubbed.length,
+    },
+  });
+  return ensureForwarded({
     ...state,
-    generated_code: scrubInternalScaffolding((state.generated_code ?? "").trim()),
+    generated_code: scrubbed,
     next_node: "respond"
-  }, "final_scrubber"));
+  });
 }
 
 export async function respondNode(state: GraphState): Promise<GraphState> {
-  return ensureForwarded(withNodeTrace({
+  const collector = ensureCollector(state);
+  collector.startSpan("respond");
+  collector.endSpan("respond", {
+    outcome: "ok",
+    metadata: {
+      response_length: (state.generated_code ?? "").length,
+      iteration_count: state.iteration_count,
+    },
+  });
+  return ensureForwarded({
     ...state,
     next_node: "respond"
-  }, "respond"));
+  });
 }
 
+export { SpanCollector } from "./tracing/span-collector.js";
+
 export async function runCanonicalPipeline(input: GraphState): Promise<GraphState> {
-  let state: GraphState = { ...input, run_id: input.run_id ?? randomUUID() };
+  let state: GraphState = {
+    ...input,
+    run_id: input.run_id ?? randomUUID(),
+    _span_collector: input._span_collector ?? new SpanCollector(),
+  };
   state = await entryPipelineNode(state);
   if (state.next_node === "respond") return ensureForwarded(state);
   while (state.next_node === "planner") {

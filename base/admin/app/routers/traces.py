@@ -175,6 +175,15 @@ async def ingest_trace(request: Request, body: dict = Body(...)):
         tokens.get("prompt_tokens", 0) + tokens.get("completion_tokens", 0)
     )
 
+    classification = body.get("classification") or {}
+    difficulty = body.get("difficulty") or classification.get("difficulty", 0)
+    task_type = body.get("task_type") or classification.get("taxonomy_key", "")
+    is_code = body.get("is_code_task", False)
+    if not is_code and isinstance(task_type, str):
+        is_code = task_type.startswith("code") or "programming" in task_type
+    has_error = bool(body.get("error") or body.get("has_error", False))
+    iteration_count = body.get("iteration_count", 0) or 0
+
     trace_data = {
         "trace_id": trace_id,
         "user_id": body.get("user_id", ""),
@@ -186,6 +195,11 @@ async def ingest_trace(request: Request, body: dict = Body(...)):
         "total_tokens": total_tokens,
         "estimated_cost_usd": cost.get("estimated_usd", 0),
         "actual_cost_usd": cost.get("actual_usd", 0),
+        "difficulty": difficulty,
+        "task_type": task_type,
+        "is_code_task": is_code,
+        "has_error": has_error,
+        "iteration_count": iteration_count,
         "full_record": body,
     }
 

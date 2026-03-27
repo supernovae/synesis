@@ -4,6 +4,8 @@ export type {
   CostResult,
   UsageEvent,
   TraceRecord,
+  TraceSpanRecord,
+  TraceLLMCallRecord,
   TraceSensemaking,
   TraceCriticResult,
   TraceClassification,

@@ -59,4 +59,42 @@ describe("SessionManager", () => {
     const result = await manager.purge("nonexistent");
     expect(result).toBe(false);
   });
+
+  it("produces structured checkpoint with domain profile and topics", async () => {
+    const manager = new SessionManager({
+      enabled: true,
+      maxHistory: 40,
+      checkpointEveryMessages: 4,
+      ttlMs: 100000
+    });
+    await manager.recordTurn("c5", "Help me study vocabulary and quiz me", "Sure! Fill in the blank: The ______ was impressive. A) elation B) hesitation");
+    await manager.recordTurn("c5", "B) hesitation", "Correct! Hesitation means a pause before action.");
+
+    const enriched = await manager.enrichIncomingMessages("c5", [{ role: "user", content: "next question" }]);
+    const checkpoint = enriched[0]?.content ?? "";
+
+    expect(checkpoint).toContain("<SESSION_STATE>");
+    expect(checkpoint).toContain("Conversation arc: tutoring");
+    expect(checkpoint).toContain("Active domains:");
+    expect(checkpoint).toContain("coherence:");
+    expect(checkpoint).toContain("Recent exchanges:");
+    expect(checkpoint).toContain("</SESSION_STATE>");
+  });
+
+  it("extracts user facts/preferences into checkpoint", async () => {
+    const manager = new SessionManager({
+      enabled: true,
+      maxHistory: 40,
+      checkpointEveryMessages: 4,
+      ttlMs: 100000
+    });
+    await manager.recordTurn("c6", "I'm using React and TypeScript for my frontend", "Great combo!");
+    await manager.recordTurn("c6", "I prefer functional components over class components", "Understood, I'll use functional components.");
+
+    const enriched = await manager.enrichIncomingMessages("c6", [{ role: "user", content: "show me a button" }]);
+    const checkpoint = enriched[0]?.content ?? "";
+
+    expect(checkpoint).toContain("User stated facts/preferences:");
+    expect(checkpoint).toMatch(/using React/i);
+  });
 });
