@@ -46,6 +46,22 @@ function appendDecisionLedger(
   };
 }
 
+function scrubInternalScaffolding(output: string): string {
+  let text = output ?? "";
+  text = text.replace(/^\s*\[planner\].*$/gim, "");
+  const hasPlan = /(^|\n)\s*(?:#+\s*)?Plan:?(\s|$)/i.test(text);
+  const hasEvidence = /(^|\n)\s*(?:#+\s*)?Evidence:?(\s|$)/i.test(text);
+  const hasAnswer = /(^|\n)\s*(?:#+\s*)?Answer:?(\s|$)/i.test(text);
+  const hasScaffold = hasPlan && hasEvidence && hasAnswer;
+  if (hasScaffold) {
+    const answerMatch = text.match(/(?:^|\n)\s*(?:#+\s*)?Answer:?\s*([\s\S]*)$/i);
+    if (answerMatch?.[1]) {
+      text = answerMatch[1];
+    }
+  }
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export async function entryPipelineNode(state: GraphState): Promise<GraphState> {
   return ensureForwarded(withNodeTrace(classifyEntry({
     ...state,
@@ -220,7 +236,7 @@ export const criticNode = validatedNode(
 export async function finalScrubberNode(state: GraphState): Promise<GraphState> {
   return ensureForwarded(withNodeTrace({
     ...state,
-    generated_code: (state.generated_code ?? "").trim(),
+    generated_code: scrubInternalScaffolding((state.generated_code ?? "").trim()),
     next_node: "respond"
   }, "final_scrubber"));
 }

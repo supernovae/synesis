@@ -93,7 +93,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     optimizationCounters.reducedCharsTotal += optimized.stats.reducedCharsTotal;
     optimizationCounters.rawCharsTotal += optimized.stats.rawCharsTotal;
 
-    const userMessage = [...optimized.messages].reverse().find((m) => m.role === "user");
+    const userMessage = [...requestBody.messages].reverse().find((m) => m.role === "user");
     const tierSettings = resolveTierSettings(requestBody.model);
     const requestedEffortMode = tierSettings.tier;
     return {
@@ -195,15 +195,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const initialState = toState(body, auth, authzTraceId, policyDecision);
       const responseModel = initialState.response_model ?? body.model;
 
-      const emitProgressText = (content: string): void => {
-        writeCompletionChunk(reply.raw, {
-          id: completionId,
-          created,
-          model: responseModel,
-          content
-        });
-      };
-
       if (!body.stream) {
         const state = await invokeGraph(initialState);
         const content = state.generated_code ?? "";
@@ -243,14 +234,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
         done: false,
         authz_trace_id: authzTraceId
       });
-      emitProgressText("\n[planner] request accepted\n");
       writeStatusEvent(reply.raw, {
         description: describePhase("entry_pipeline"),
         done: false,
         node: "entry_pipeline",
         authz_trace_id: authzTraceId
       });
-      emitProgressText("[planner] classifying and framing request\n");
       if (initialState.next_node === "writer") {
         writeStatusEvent(reply.raw, {
           description: "Fast path selected for low-complexity request",
@@ -258,10 +247,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
           node: "writer",
           authz_trace_id: authzTraceId
         });
-        emitProgressText("[planner] fast path selected\n");
       }
 
-      let heartbeatEmits = 0;
       const heartbeat = setInterval(() => {
         if (reply.raw.writableEnded) return;
         writeStatusEvent(reply.raw, {
@@ -269,10 +256,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
           done: false,
           authz_trace_id: authzTraceId
         });
-        if (heartbeatEmits < 3) {
-          heartbeatEmits += 1;
-          emitProgressText("[planner] still processing...\n");
-        }
       }, 1800);
 
       const state = await invokeGraph(initialState).finally(() => clearInterval(heartbeat));
@@ -297,7 +280,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
           node,
           authz_trace_id: authzTraceId
         });
-        emitProgressText(`[planner] ${describePhase(node)}\n`);
       }
 
       for (const chunk of chunkContent(content)) {

@@ -8,6 +8,21 @@ interface SessionRecord {
   checkpointBlock?: string;
 }
 
+function sanitizeAssistantContent(content: string): string {
+  let out = content;
+  // Drop synthetic planner progress lines from memory checkpoints.
+  out = out.replace(/^\s*\[planner\].*$/gim, "");
+  // If scaffolding leaked, keep only the final answer section for memory.
+  const hasPlan = /(^|\n)\s*(?:#+\s*)?Plan:?(\s|$)/i.test(out);
+  const hasEvidence = /(^|\n)\s*(?:#+\s*)?Evidence:?(\s|$)/i.test(out);
+  const hasAnswer = /(^|\n)\s*(?:#+\s*)?Answer:?(\s|$)/i.test(out);
+  if (hasPlan && hasEvidence && hasAnswer) {
+    const match = out.match(/(?:^|\n)\s*(?:#+\s*)?Answer:?\s*([\s\S]*)$/i);
+    if (match?.[1]) out = match[1];
+  }
+  return out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export interface SessionTelemetry {
   activeSessions: number;
   checkpointedSessions: number;
@@ -78,7 +93,8 @@ export class SessionManager {
     if (!this.opts.enabled) return;
     const session = this.ensureSession(key);
     if (userContent.trim()) session.history.push({ role: "user", content: userContent });
-    if (assistantContent.trim()) session.history.push({ role: "assistant", content: assistantContent });
+    const cleanedAssistant = sanitizeAssistantContent(assistantContent);
+    if (cleanedAssistant.trim()) session.history.push({ role: "assistant", content: cleanedAssistant });
     if (session.history.length > this.opts.maxHistory) {
       session.history = session.history.slice(-this.opts.maxHistory);
     }

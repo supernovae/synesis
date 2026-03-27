@@ -118,6 +118,33 @@ describe("API contract", () => {
     await app.close();
   });
 
+  it("uses the latest user message for task framing", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_PLANNER_TS_LLM_ENABLED: "false"
+      })
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis Auto",
+        stream: false,
+        messages: [
+          { role: "user", content: "old prompt should not be reused" },
+          { role: "assistant", content: "ack" },
+          { role: "user", content: "new follow up prompt should be used" }
+        ]
+      }
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const content = String(body.choices?.[0]?.message?.content ?? "");
+    expect(content).toContain("new follow up prompt should be used");
+    expect(content).not.toContain("old prompt should not be reused");
+    await app.close();
+  });
+
   it("enforces bearer auth when configured", async () => {
     const app = buildApp(
       makeConfig({

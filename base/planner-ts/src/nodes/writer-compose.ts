@@ -50,7 +50,13 @@ export async function composeWriterDraft(state: GraphState): Promise<string> {
         {
           role: "system",
           content:
-            "You are Synesis Writer. Produce a grounded markdown response using plan and evidence. Include source tags as [Source: name - url] where claims rely on evidence."
+            [
+              "You are Synesis Writer.",
+              "Return only the final user-facing answer; do not expose internal planning scaffolds.",
+              "Never emit headings like 'Plan:', 'Evidence:', 'Answer:', 'Draft Response', or similar meta-sections unless the user explicitly asks for that format.",
+              "If the prompt is a follow-up request (e.g., 'more detail', 'expand', 'clarify'), extend the answer with new detail instead of repeating prior wording verbatim.",
+              "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - url]."
+            ].join(" ")
         },
         {
           role: "user",
