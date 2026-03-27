@@ -38,9 +38,59 @@ export interface LlmPlannerResult {
 }
 
 const WAIVER_PATTERNS = /\b(proceed|go\s*ahead|just\s*(do|answer)\s*it|use\s*(the\s*)?assumptions|skip\s*clarif|continue|let'?s\s*go)\b/i;
+const ARCH_SIGNALS = /\b(architect|infrastructure|deploy|production|scale|cluster|kubernetes|k8s|microservice|platform|system design|saas|paas)\b/i;
+const CLOUD_GENERIC = /\bcloud\b/i;
+const CLOUD_SPECIFIC = /\b(aws|amazon|azure|gcp|google cloud|oci|oracle cloud|digitalocean|hetzner|linode|on-prem|on premise|self-hosted)\b/i;
+const MODEL_GENERIC = /\b(model|llm|language model|embedding model|ai model|foundation model|chat model)\b/i;
+const MODEL_SPECIFIC = /\b(gpt-4|claude|gemini|llama|mistral|qwen|deepseek|open.?source|proprietary|frontier|openai|anthropic|hugging.?face|vllm|ollama|openrouter)\b/i;
+const SCALE_SIGNALS = /\b(concurrent|concurrency|throughput|rps|requests per|users|traffic|load|qps|tps|scale to)\b/i;
 
 export function isClarificationWaiver(text: string): boolean {
   return WAIVER_PATTERNS.test(text.trim());
+}
+
+function buildAmbiguityCorpus(state: GraphState): string {
+  const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
+  const goals = Array.isArray(taskFrame.goals) ? taskFrame.goals.map(String).join(" ") : "";
+  const tasks = Array.isArray(taskFrame.tasks)
+    ? taskFrame.tasks
+        .map((t) => (t && typeof t === "object" ? String((t as Record<string, unknown>).description ?? "") : ""))
+        .join(" ")
+    : "";
+  const mainQuestion = String(taskFrame.main_question ?? "");
+  const constraints = Array.isArray(taskFrame.global_constraints)
+    ? taskFrame.global_constraints.map(String).join(" ")
+    : "";
+  return `${mainQuestion} ${goals} ${tasks} ${constraints} ${(state.task_description ?? "")}`.trim();
+}
+
+/**
+ * Ports the Python planner's targeted ambiguity probes (cloud/model/scale)
+ * to preserve clarify-first behavior for architecture/system-design prompts.
+ */
+function detectActionableAmbiguities(state: GraphState): string[] {
+  const difficulty = state.difficulty ?? 0;
+  if (difficulty < 0.45) return [];
+  const corpus = buildAmbiguityCorpus(state);
+  if (!ARCH_SIGNALS.test(corpus)) return [];
+
+  const probes: string[] = [];
+  if (CLOUD_GENERIC.test(corpus) && !CLOUD_SPECIFIC.test(corpus)) {
+    probes.push(
+      "You mention cloud but not a specific provider. Do you prefer AWS, Azure, GCP, on-prem, or should I keep it cloud-agnostic?",
+    );
+  }
+  if (MODEL_GENERIC.test(corpus) && !MODEL_SPECIFIC.test(corpus)) {
+    probes.push(
+      "You reference AI/LLM models but not a model strategy. Should this target self-hosted open-weight models, hosted APIs, or both?",
+    );
+  }
+  if (!SCALE_SIGNALS.test(corpus)) {
+    probes.push(
+      "What scale are you targeting (for example team size, concurrent users, or request volume)? This materially changes architecture choices.",
+    );
+  }
+  return probes.slice(0, 3);
 }
 
 export function shouldClarify(state: GraphState, plan: PlannerOutput): boolean {
@@ -55,9 +105,12 @@ export function shouldClarify(state: GraphState, plan: PlannerOutput): boolean {
   const taxonomy = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
   const controls = (taxonomy.output_controls ?? {}) as Record<string, unknown>;
   const clarifyFirst = Boolean(controls.clarify_first);
+  const targetedAmbiguities = detectActionableAmbiguities(state);
 
   if (frameCoherence === "diffuse" && difficulty >= 0.4) return true;
   if (confidence < 0.5 && openQCount >= 1) return true;
+  if (targetedAmbiguities.length > 0) return true;
+  if (clarifyFirst && difficulty >= 0.4 && openQCount >= 1) return true;
   if (clarifyFirst && openQCount >= 2 && difficulty >= 0.4) return true;
 
   return false;
@@ -74,6 +127,7 @@ function buildClarificationQuestion(
     : "general";
 
   const questions = plan.open_questions.slice(0, 3);
+  const targeted = detectActionableAmbiguities(state);
   const assumptions = plan.assumptions.slice(0, 3);
 
   const parts: string[] = [
@@ -81,9 +135,10 @@ function buildClarificationQuestion(
     "",
   ];
 
-  if (questions.length > 0) {
-    for (let i = 0; i < questions.length; i++) {
-      parts.push(`${i + 1}. ${questions[i]}`);
+  const allQuestions = [...questions, ...targeted].slice(0, 4);
+  if (allQuestions.length > 0) {
+    for (let i = 0; i < allQuestions.length; i++) {
+      parts.push(`${i + 1}. ${allQuestions[i]}`);
     }
     parts.push("");
   }
@@ -99,7 +154,7 @@ function buildClarificationQuestion(
   parts.push('You can answer the questions above, or say "proceed" to use my assumptions.');
 
   const options = [
-    ...questions.map((q) => q.replace(/\?$/, "").slice(0, 100)),
+    ...allQuestions.map((q) => q.replace(/\?$/, "").slice(0, 120)),
     "Proceed with assumptions",
   ];
 

@@ -126,6 +126,18 @@ export async function entryPipelineNode(state: GraphState): Promise<GraphState> 
       domain_profile: withFrame.domain_profile,
       taxonomy: withFrame.taxonomy_metadata,
       has_task_frame: Boolean(withFrame.task_frame),
+      task_frame_summary: withFrame.task_frame
+        ? {
+            main_question: (withFrame.task_frame as Record<string, unknown>).main_question,
+            requested_format: (withFrame.task_frame as Record<string, unknown>).requested_format,
+            tasks_count: Array.isArray((withFrame.task_frame as Record<string, unknown>).tasks)
+              ? ((withFrame.task_frame as Record<string, unknown>).tasks as unknown[]).length
+              : 0,
+            ambiguities_count: Array.isArray((withFrame.task_frame as Record<string, unknown>).ambiguities)
+              ? ((withFrame.task_frame as Record<string, unknown>).ambiguities as unknown[]).length
+              : 0,
+          }
+        : undefined,
     },
   });
   return ensureForwarded(withFrame);

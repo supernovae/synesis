@@ -110,6 +110,27 @@ function buildHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+function estimateTokensFromText(text: string): number {
+  // Conservative approximation for providers that omit usage in streamed mode.
+  return Math.max(1, Math.ceil((text ?? "").length / 4));
+}
+
+function estimateUsage(request: ChatRequest, content: string): LlmUsage {
+  const promptChars = request.messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+  const promptTokens = Math.max(1, Math.ceil(promptChars / 4));
+  const completionTokens = estimateTokensFromText(content);
+  const base: LlmUsage = {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    cached_prompt_tokens: 0,
+    estimated_cost_usd: 0,
+    actual_cost_usd: 0,
+  };
+  const cost = computeCost(base, _pricingRates, _cachedMultiplier);
+  return { ...base, estimated_cost_usd: cost.estimated_cost_usd };
+}
+
 export async function chatCompletion(request: ChatRequest): Promise<ChatResult> {
   const { baseUrl, apiKey, timeoutMs, prefixCacheMode } = llmConfig();
   if (!isLlmAvailable()) {
@@ -133,7 +154,11 @@ export async function chatCompletion(request: ChatRequest): Promise<ChatResult> 
     const data = (await resp.json()) as ChatResponse;
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error("LLM returned empty content");
-    return { content, usage: extractUsage(data.usage) };
+    const usage = extractUsage(data.usage);
+    return {
+      content,
+      usage: usage.total_tokens > 0 ? usage : estimateUsage(request, content),
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -229,7 +254,10 @@ export async function chatCompletionStream(
     const fullContent = contentParts.join("");
     if (!fullContent) throw new Error("LLM stream returned empty content");
 
-    return { content: fullContent, usage: finalUsage };
+    return {
+      content: fullContent,
+      usage: finalUsage.total_tokens > 0 ? finalUsage : estimateUsage(request, fullContent),
+    };
   } finally {
     clearTimeout(timer);
   }

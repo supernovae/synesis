@@ -166,7 +166,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
             actual_usd: result.usage.actual_cost_usd,
             rates_snapshot: pricingRegistry.getRates(model),
           },
-          latency_ms: 0,
+          latency_ms: criticLatencyMs,
           background_critic: bgCriticData,
           spans: [syntheticSpan],
         };

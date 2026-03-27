@@ -272,6 +272,17 @@ async def upsert_trace(record: dict[str, Any]) -> None:
                 iteration_count=record.get("iteration_count", 0),
                 full_record=record.get("full_record", record),
             )
+            existing_full = sa.func.coalesce(Trace.full_record, sa.text("'{}'::jsonb"))
+            incoming_full = sa.func.coalesce(stmt.excluded.full_record, sa.text("'{}'::jsonb"))
+            merged_full = existing_full.op("||")(incoming_full)
+            merged_spans = sa.func.coalesce(Trace.full_record["spans"], sa.text("'[]'::jsonb")).op("||")(
+                sa.func.coalesce(stmt.excluded.full_record["spans"], sa.text("'[]'::jsonb")),
+            )
+            merged_phase_timings = sa.func.coalesce(Trace.full_record["phase_timings"], sa.text("'{}'::jsonb")).op("||")(
+                sa.func.coalesce(stmt.excluded.full_record["phase_timings"], sa.text("'{}'::jsonb")),
+            )
+            merged_full = sa.func.jsonb_set(merged_full, sa.text("'{spans}'"), merged_spans, True)
+            merged_full = sa.func.jsonb_set(merged_full, sa.text("'{phase_timings}'"), merged_phase_timings, True)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["trace_id"],
                 set_={
@@ -287,9 +298,7 @@ async def upsert_trace(record: dict[str, Any]) -> None:
                     "actual_cost_usd": sa.func.greatest(
                         Trace.actual_cost_usd, stmt.excluded.actual_cost_usd,
                     ),
-                    "full_record": sa.func.coalesce(Trace.full_record, sa.text("'{}'::jsonb")).op("||")(
-                        stmt.excluded.full_record,
-                    ),
+                    "full_record": merged_full,
                 },
             )
             await session.execute(stmt)
