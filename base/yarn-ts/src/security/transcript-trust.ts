@@ -8,7 +8,6 @@
 
 import {
   makeUntrusted,
-  makeSemiTrusted,
   serializeStableJson,
   scanText,
   scanWebContent,
@@ -133,15 +132,10 @@ export function applyTrustPackets(
     }
 
     if (role === "assistant") {
-      if (trustEnabled && raw) {
-        const packet = makeSemiTrusted(raw, "assistant_message", {
-          sourceId: ctx.sessionKey,
-          contentPurpose: "context",
-        });
-        out.push({ ...msg, content: wrapInPacket(packet) });
-      } else {
-        out.push(msg);
-      }
+      // Pass assistant messages through unchanged. Wrapping them in trust
+      // packets causes the upstream model to mimic the JSON envelope format
+      // in its own output, corrupting multi-turn conversations.
+      out.push(msg);
       continue;
     }
 

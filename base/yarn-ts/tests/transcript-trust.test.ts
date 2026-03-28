@@ -18,7 +18,7 @@ const INGEST: SecurityIngestConfig = { enabled: false, endpoint: "", authToken: 
 
 describe("applyTrustPackets", () => {
   describe("assistant messages with tool_calls", () => {
-    it("preserves tool_calls when trust wraps assistant text content", () => {
+    it("passes assistant messages through unchanged to avoid model mimicking JSON envelope", () => {
       const toolCalls = [
         { id: "call_1", type: "function" as const, function: { name: "bash", arguments: '{"cmd":"ls"}' } },
       ];
@@ -35,9 +35,7 @@ describe("applyTrustPackets", () => {
       const assistantMsg = result.messages[2] as Record<string, unknown>;
       expect(assistantMsg.role).toBe("assistant");
       expect(assistantMsg.tool_calls).toEqual(toolCalls);
-      expect(typeof assistantMsg.content).toBe("string");
-      expect(String(assistantMsg.content)).toContain('"trust_level":"semi_trusted"');
-      expect(String(assistantMsg.content)).toContain("Let me check.");
+      expect(assistantMsg.content).toBe("Let me check.");
     });
 
     it("preserves tool_calls when assistant text is only whitespace", () => {
