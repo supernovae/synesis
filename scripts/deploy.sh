@@ -1342,19 +1342,24 @@ ensure_openfga() {
         log "  OpenFGA is ready"
     fi
 
-    local fga_url="http://openfga.$authz_ns.svc.cluster.local:8080"
-    # For setup commands running from outside the cluster, port-forward
-    # or use the in-cluster URL via oc exec.  We use oc exec on an OpenFGA
-    # pod itself to call localhost (always reachable).
-    local fga_pod
-    fga_pod=$(oc get pod -n "$authz_ns" -l app=openfga \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    # The OpenFGA image is distroless (no shell/wget), so we port-forward
+    # and use curl from the deploy host for API calls.
+    local fga_local_port=18080
+    local pf_pid=""
+    oc port-forward -n "$authz_ns" svc/openfga "$fga_local_port:8080" &>/dev/null &
+    pf_pid=$!
+    sleep 2
 
-    if [[ -z "$fga_pod" ]]; then
-        log "WARNING: No OpenFGA pod found — cannot create store/model."
+    # Verify port-forward is alive
+    if ! kill -0 "$pf_pid" 2>/dev/null; then
+        log "WARNING: Port-forward to OpenFGA failed — cannot create store/model."
         log "  After pods are running, re-run deploy.sh to complete setup."
         return
     fi
+    local fga_base="http://localhost:$fga_local_port"
+
+    # Ensure port-forward is cleaned up on return
+    trap "kill $pf_pid 2>/dev/null || true" RETURN
 
     # ── Step 6: create the FGA store (idempotent) ─────────────────────────
     local store_id=""
@@ -1368,19 +1373,19 @@ ensure_openfga() {
     if [[ -z "$store_id" ]]; then
         log "  Creating OpenFGA store..."
         local store_resp
-        store_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
-            sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
-                   --header='Content-Type: application/json' \
-                   --post-data='{\"name\":\"synesis\"}' \
-                   http://localhost:8080/stores" 2>/dev/null || true)
+        store_resp=$(curl -sf -X POST \
+            -H "Authorization: Bearer $preshared_key" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"synesis"}' \
+            "$fga_base/stores" 2>/dev/null || true)
         store_id=$($PYTHON -c "import json,sys; d=json.loads(sys.argv[1]); print(d.get('id',''))" "$store_resp" 2>/dev/null || true)
 
         if [[ -z "$store_id" ]]; then
             # Try listing stores — maybe one already exists
             local list_resp
-            list_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
-                sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
-                       http://localhost:8080/stores" 2>/dev/null || true)
+            list_resp=$(curl -sf \
+                -H "Authorization: Bearer $preshared_key" \
+                "$fga_base/stores" 2>/dev/null || true)
             store_id=$($PYTHON -c "
 import json,sys
 d = json.loads(sys.argv[1])
@@ -1406,14 +1411,12 @@ for s in stores:
     local model_id=""
     if [[ -f "$schema_json" ]]; then
         log "  Writing authorization model..."
-        # Copy schema to the pod so we can POST it with --post-file (avoids shell quoting issues)
-        oc cp "$schema_json" "$authz_ns/$fga_pod:/tmp/schema.json" 2>/dev/null || true
         local model_resp
-        model_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
-            sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
-                   --header='Content-Type: application/json' \
-                   --post-file=/tmp/schema.json \
-                   http://localhost:8080/stores/$store_id/authorization-models" 2>/dev/null || true)
+        model_resp=$(curl -sf -X POST \
+            -H "Authorization: Bearer $preshared_key" \
+            -H "Content-Type: application/json" \
+            -d @"$schema_json" \
+            "$fga_base/stores/$store_id/authorization-models" 2>/dev/null || true)
         model_id=$($PYTHON -c "import json,sys; d=json.loads(sys.argv[1]); print(d.get('authorization_model_id',''))" "$model_resp" 2>/dev/null || true)
 
         if [[ -n "$model_id" ]]; then
@@ -1423,9 +1426,9 @@ for s in stores:
             log "  Response: $model_resp"
             # Try to read the latest existing model ID
             local models_resp
-            models_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
-                sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
-                       'http://localhost:8080/stores/$store_id/authorization-models?page_size=1'" 2>/dev/null || true)
+            models_resp=$(curl -sf \
+                -H "Authorization: Bearer $preshared_key" \
+                "$fga_base/stores/$store_id/authorization-models?page_size=1" 2>/dev/null || true)
             model_id=$($PYTHON -c "
 import json,sys
 d = json.loads(sys.argv[1])
@@ -1449,14 +1452,10 @@ if models: print(models[0].get('id',''))
         baseline_tuples=$($PYTHON -c "
 import json, sys
 tuples = [
-    # Every solo user can read public RAG catalog
     {'user': 'user:*', 'relation': 'can_read_public', 'object': 'rag_catalog:default'},
-    # Every solo user can invoke planner chat completions
     {'user': 'user:*', 'relation': 'can_invoke', 'object': 'planner_endpoint:chat_completions'},
-    # Every solo user can invoke yarn completions/messages
     {'user': 'user:*', 'relation': 'can_invoke', 'object': 'yarn_endpoint:completions'},
     {'user': 'user:*', 'relation': 'can_invoke', 'object': 'yarn_endpoint:messages'},
-    # Every solo user can read admin (self-service endpoints)
     {'user': 'user:*', 'relation': 'can_read', 'object': 'admin_endpoint:tokens'},
     {'user': 'user:*', 'relation': 'can_read', 'object': 'admin_endpoint:profile'},
 ]
@@ -1469,18 +1468,12 @@ body = {
 print(json.dumps(body))
 " "$model_id")
 
-        local tuples_file
-        tuples_file=$(mktemp)
-        printf '%s' "$baseline_tuples" > "$tuples_file"
-        oc cp "$tuples_file" "$authz_ns/$fga_pod:/tmp/baseline_tuples.json" 2>/dev/null || true
-        rm -f "$tuples_file"
         local tuples_resp
-        tuples_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
-            sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
-                   --header='Content-Type: application/json' \
-                   --post-file=/tmp/baseline_tuples.json \
-                   http://localhost:8080/stores/$store_id/write" 2>/dev/null || true)
-        # Empty response body means success; errors have a 'code' field
+        tuples_resp=$(curl -sf -X POST \
+            -H "Authorization: Bearer $preshared_key" \
+            -H "Content-Type: application/json" \
+            -d "$baseline_tuples" \
+            "$fga_base/stores/$store_id/write" 2>/dev/null || true)
         local write_err
         write_err=$($PYTHON -c "
 import json,sys

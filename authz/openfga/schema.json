@@ -101,6 +101,7 @@
           "can_invoke": {
             "directly_related_user_types": [
               { "type": "user" },
+              { "type": "user", "wildcard": {} },
               { "type": "platform", "relation": "admin" },
               { "type": "org", "relation": "member" },
               { "type": "org", "relation": "admin" },
@@ -123,6 +124,7 @@
           "can_invoke": {
             "directly_related_user_types": [
               { "type": "user" },
+              { "type": "user", "wildcard": {} },
               { "type": "platform", "relation": "admin" },
               { "type": "org", "relation": "member" },
               { "type": "org", "relation": "admin" },
@@ -154,6 +156,7 @@
           "can_read": {
             "directly_related_user_types": [
               { "type": "user" },
+              { "type": "user", "wildcard": {} },
               { "type": "platform", "relation": "admin" },
               { "type": "org", "relation": "member" },
               { "type": "org", "relation": "admin" },
@@ -182,6 +185,7 @@
           "can_read_public": {
             "directly_related_user_types": [
               { "type": "user" },
+              { "type": "user", "wildcard": {} },
               { "type": "platform", "relation": "admin" }
             ]
           },
@@ -223,6 +227,7 @@
           "enabled": {
             "directly_related_user_types": [
               { "type": "user" },
+              { "type": "user", "wildcard": {} },
               { "type": "platform", "relation": "admin" },
               { "type": "org", "relation": "member" },
               { "type": "org", "relation": "admin" },
@@ -259,6 +264,7 @@
           "allowed": {
             "directly_related_user_types": [
               { "type": "user" },
+              { "type": "user", "wildcard": {} },
               { "type": "platform", "relation": "admin" },
               { "type": "org", "relation": "member" },
               { "type": "org", "relation": "admin" },
@@ -295,6 +301,7 @@
           "allowed": {
             "directly_related_user_types": [
               { "type": "user" },
+              { "type": "user", "wildcard": {} },
               { "type": "platform", "relation": "admin" },
               { "type": "org", "relation": "member" },
               { "type": "org", "relation": "admin" },

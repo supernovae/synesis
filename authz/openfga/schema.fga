@@ -35,16 +35,16 @@ type tenant
 
 type planner_endpoint
   relations
-    define can_invoke: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define can_invoke: [user, user:*, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
 
 type yarn_endpoint
   relations
-    define can_invoke: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define can_invoke: [user, user:*, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
 
 type admin_endpoint
   relations
     define can_manage: [platform#admin, org#admin]
-    define can_read: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define can_read: [user, user:*, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
 
 # ─── RAG catalog access ──────────────────────────────────────────────────────
 # Two lanes:
@@ -56,7 +56,7 @@ type admin_endpoint
 
 type rag_catalog
   relations
-    define can_read_public: [user, platform#admin]
+    define can_read_public: [user, user:*, platform#admin]
     define can_read_org: [org#member, org#admin, platform#admin]
     define can_read_tenant: [tenant#member, tenant#admin, platform#admin]
 
@@ -68,7 +68,7 @@ type rag_catalog
 
 type feature
   relations
-    define enabled: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define enabled: [user, user:*, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
     define blocked: [user]
     define can_use: enabled but not blocked
 
@@ -79,13 +79,13 @@ type feature
 
 type tool
   relations
-    define allowed: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define allowed: [user, user:*, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
     define blocked: [user]
     define can_use: allowed but not blocked
 
 type tool_family
   relations
-    define allowed: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define allowed: [user, user:*, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
     define blocked: [user]
     define can_use: allowed but not blocked
 
