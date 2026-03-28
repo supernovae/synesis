@@ -1,0 +1,340 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {
+      "type": "user"
+    },
+    {
+      "type": "platform",
+      "relations": {
+        "admin": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "admin": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "org",
+      "relations": {
+        "member": {
+          "this": {}
+        },
+        "admin": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "member": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          },
+          "admin": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "tenant",
+      "relations": {
+        "parent_org": {
+          "this": {}
+        },
+        "member": {
+          "union": {
+            "child": [
+              { "this": {} },
+              { "tupleToUserset": { "tupleset": { "relation": "parent_org" }, "computedUserset": { "relation": "member" } } }
+            ]
+          }
+        },
+        "admin": {
+          "union": {
+            "child": [
+              { "this": {} },
+              { "tupleToUserset": { "tupleset": { "relation": "parent_org" }, "computedUserset": { "relation": "admin" } } }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "parent_org": {
+            "directly_related_user_types": [
+              { "type": "org" }
+            ]
+          },
+          "member": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          },
+          "admin": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "planner_endpoint",
+      "relations": {
+        "can_invoke": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_invoke": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "platform", "relation": "admin" },
+              { "type": "org", "relation": "member" },
+              { "type": "org", "relation": "admin" },
+              { "type": "tenant", "relation": "member" },
+              { "type": "tenant", "relation": "admin" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "yarn_endpoint",
+      "relations": {
+        "can_invoke": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_invoke": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "platform", "relation": "admin" },
+              { "type": "org", "relation": "member" },
+              { "type": "org", "relation": "admin" },
+              { "type": "tenant", "relation": "member" },
+              { "type": "tenant", "relation": "admin" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "admin_endpoint",
+      "relations": {
+        "can_manage": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_manage": {
+            "directly_related_user_types": [
+              { "type": "platform", "relation": "admin" },
+              { "type": "org", "relation": "admin" }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "platform", "relation": "admin" },
+              { "type": "org", "relation": "member" },
+              { "type": "org", "relation": "admin" },
+              { "type": "tenant", "relation": "member" },
+              { "type": "tenant", "relation": "admin" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "rag_catalog",
+      "relations": {
+        "can_read_public": {
+          "this": {}
+        },
+        "can_read_org": {
+          "this": {}
+        },
+        "can_read_tenant": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_read_public": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "platform", "relation": "admin" }
+            ]
+          },
+          "can_read_org": {
+            "directly_related_user_types": [
+              { "type": "org", "relation": "member" },
+              { "type": "org", "relation": "admin" },
+              { "type": "platform", "relation": "admin" }
+            ]
+          },
+          "can_read_tenant": {
+            "directly_related_user_types": [
+              { "type": "tenant", "relation": "member" },
+              { "type": "tenant", "relation": "admin" },
+              { "type": "platform", "relation": "admin" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "feature",
+      "relations": {
+        "enabled": {
+          "this": {}
+        },
+        "blocked": {
+          "this": {}
+        },
+        "can_use": {
+          "difference": {
+            "base": { "computedUserset": { "relation": "enabled" } },
+            "subtract": { "computedUserset": { "relation": "blocked" } }
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "enabled": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "platform", "relation": "admin" },
+              { "type": "org", "relation": "member" },
+              { "type": "org", "relation": "admin" },
+              { "type": "tenant", "relation": "member" },
+              { "type": "tenant", "relation": "admin" }
+            ]
+          },
+          "blocked": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "tool",
+      "relations": {
+        "allowed": {
+          "this": {}
+        },
+        "blocked": {
+          "this": {}
+        },
+        "can_use": {
+          "difference": {
+            "base": { "computedUserset": { "relation": "allowed" } },
+            "subtract": { "computedUserset": { "relation": "blocked" } }
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "allowed": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "platform", "relation": "admin" },
+              { "type": "org", "relation": "member" },
+              { "type": "org", "relation": "admin" },
+              { "type": "tenant", "relation": "member" },
+              { "type": "tenant", "relation": "admin" }
+            ]
+          },
+          "blocked": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "tool_family",
+      "relations": {
+        "allowed": {
+          "this": {}
+        },
+        "blocked": {
+          "this": {}
+        },
+        "can_use": {
+          "difference": {
+            "base": { "computedUserset": { "relation": "allowed" } },
+            "subtract": { "computedUserset": { "relation": "blocked" } }
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "allowed": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "platform", "relation": "admin" },
+              { "type": "org", "relation": "member" },
+              { "type": "org", "relation": "admin" },
+              { "type": "tenant", "relation": "member" },
+              { "type": "tenant", "relation": "admin" }
+            ]
+          },
+          "blocked": {
+            "directly_related_user_types": [
+              { "type": "user" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "platform_policy",
+      "relations": {
+        "blocked_tool": {
+          "this": {}
+        },
+        "blocked_feature": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "blocked_tool": {
+            "directly_related_user_types": [
+              { "type": "tool" },
+              { "type": "tool_family" }
+            ]
+          },
+          "blocked_feature": {
+            "directly_related_user_types": [
+              { "type": "feature" }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

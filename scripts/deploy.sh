@@ -1188,6 +1188,333 @@ ensure_keycloak() {
     _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_KEYCLOAK_ISSUER_URL" "$issuer_url" "yarn"
 }
 
+# -----------------------------------------------------------------------
+# OpenFGA: authorization-as-a-service.
+# Reuses the existing CNPG Postgres cluster (synesis-admin-db) with a
+# separate `openfga` database.  Idempotent: reuses existing store/model
+# if already created.
+# -----------------------------------------------------------------------
+ensure_openfga() {
+    local authz_ns="synesis-authz"
+    local admin_ns="synesis-admin"
+    local cluster_name="synesis-admin-db"
+    local cnpg_secret="${cluster_name}-app"
+    local fga_secret="openfga-config"
+    local preshared_secret="openfga-preshared-key"
+    local client_secret="openfga-client-config"
+    local fga_manifests="$PROJECT_ROOT/authz/openfga/deploy"
+    local schema_json="$PROJECT_ROOT/authz/openfga/schema.json"
+
+    if [[ -f "$fga_manifests/namespace.yaml" ]]; then
+        oc apply -f "$fga_manifests/namespace.yaml"
+    else
+        oc create namespace "$authz_ns" 2>/dev/null || true
+    fi
+
+    # ── Step 1: create the openfga database on the existing CNPG cluster ──
+    if ! oc get crd clusters.postgresql.cnpg.io &>/dev/null; then
+        log "WARNING: CloudNativePG CRD not found — skipping OpenFGA setup."
+        log "  Run ensure_admin_db first (deploy.sh sets up CNPG)."
+        return
+    fi
+
+    local pg_pass=""
+    if oc get secret "$cnpg_secret" -n "$admin_ns" &>/dev/null; then
+        pg_pass=$(oc get secret "$cnpg_secret" -n "$admin_ns" \
+            -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+
+    if [[ -z "$pg_pass" ]]; then
+        log "WARNING: CNPG password not available — skipping OpenFGA setup."
+        log "  Run ensure_admin_db first so the operator generates credentials."
+        return
+    fi
+
+    local encoded_pass
+    encoded_pass=$($PYTHON -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$pg_pass")
+    local svc_host="${cluster_name}-rw.${admin_ns}.svc"
+
+    # Create openfga database (idempotent — same pattern as _ensure_litellm_database)
+    local pod=""
+    pod=$(oc get pods -n "$admin_ns" -l "role=primary,cnpg.io/cluster=${cluster_name}" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || true
+    if [[ -n "$pod" ]]; then
+        local db_exists
+        db_exists=$(oc exec -n "$admin_ns" "$pod" -c postgres -- psql -U postgres -tAc \
+            "SELECT 1 FROM pg_database WHERE datname='openfga'" 2>/dev/null || true)
+        if [[ "$db_exists" != "1" ]]; then
+            if oc exec -n "$admin_ns" "$pod" -c postgres -- psql -U postgres -c "CREATE DATABASE openfga OWNER app;"; then
+                log "  Created database openfga on $cluster_name"
+            else
+                log "WARNING: CREATE DATABASE openfga failed"
+            fi
+        fi
+    else
+        log "WARNING: Cannot find Postgres primary pod — openfga DB may not exist"
+    fi
+
+    local fga_db_url="postgres://app:${encoded_pass}@${svc_host}:5432/openfga?sslmode=disable"
+
+    # ── Step 2: generate preshared key (or reuse existing) ────────────────
+    local preshared_key=""
+    if oc get secret "$preshared_secret" -n "$authz_ns" &>/dev/null; then
+        preshared_key=$(oc get secret "$preshared_secret" -n "$authz_ns" \
+            -o jsonpath='{.data.key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    preshared_key=$(printf '%s' "$preshared_key" | tr -d '\n\r')
+
+    if [[ -z "$preshared_key" ]]; then
+        preshared_key="fga-$(openssl rand -hex 32)"
+        log "  Generated OpenFGA preshared key"
+    else
+        log "  Reusing existing OpenFGA preshared key"
+    fi
+
+    # Store the raw key separately so we can read it back reliably
+    oc create secret generic "$preshared_secret" -n "$authz_ns" \
+        --from-literal=key="$preshared_key" \
+        --dry-run=client -o yaml | oc apply -f - >/dev/null
+
+    # ── Step 3: create/update openfga-config secret ───────────────────────
+    oc create secret generic "$fga_secret" -n "$authz_ns" \
+        --from-literal=OPENFGA_DATASTORE_URI="$fga_db_url" \
+        --from-literal=OPENFGA_AUTHN_PRESHARED_KEYS="$preshared_key" \
+        --dry-run=client -o yaml | oc apply -f - >/dev/null
+    log "  Secret $authz_ns/$fga_secret updated"
+
+    # ── Step 4: run the migration job ─────────────────────────────────────
+    if [[ -f "$fga_manifests/migrate-job.yaml" ]]; then
+        # Delete previous job if it exists (jobs are immutable)
+        oc delete job openfga-migrate -n "$authz_ns" --ignore-not-found 2>/dev/null || true
+        oc apply -f "$fga_manifests/migrate-job.yaml"
+        log "  Waiting for OpenFGA migration job..."
+        local mig_ok="false"
+        for _ in $(seq 1 24); do
+            local phase
+            phase=$(oc get job openfga-migrate -n "$authz_ns" \
+                -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)
+            if [[ "$phase" == "True" ]]; then
+                mig_ok="true"
+                break
+            fi
+            local failed
+            failed=$(oc get job openfga-migrate -n "$authz_ns" \
+                -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)
+            if [[ "$failed" == "True" ]]; then
+                log "WARNING: OpenFGA migration job failed"
+                break
+            fi
+            sleep 5
+        done
+        if [[ "$mig_ok" == "true" ]]; then
+            log "  OpenFGA migration complete"
+        else
+            log "WARNING: OpenFGA migration did not complete in 2 minutes"
+            log "  Check: oc logs -n $authz_ns job/openfga-migrate"
+        fi
+    fi
+
+    # ── Step 5: apply OpenFGA deployment + service ────────────────────────
+    if [[ -f "$fga_manifests/deployment.yaml" ]]; then
+        oc apply -f "$fga_manifests/deployment.yaml"
+        log "  OpenFGA deployment + service applied"
+    fi
+
+    # Wait for OpenFGA to be ready
+    log "  Waiting for OpenFGA pods..."
+    local fga_ready="false"
+    for _ in $(seq 1 30); do
+        local ready_replicas
+        ready_replicas=$(oc get deployment openfga -n "$authz_ns" \
+            -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+        if [[ "${ready_replicas:-0}" -ge 1 ]]; then
+            fga_ready="true"
+            break
+        fi
+        sleep 5
+    done
+
+    if [[ "$fga_ready" != "true" ]]; then
+        log "WARNING: OpenFGA not ready after 2.5 min"
+        log "  Check: oc get pods -n $authz_ns -l app=openfga"
+        log "  Continuing — store/model creation may fail."
+    else
+        log "  OpenFGA is ready"
+    fi
+
+    local fga_url="http://openfga.$authz_ns.svc.cluster.local:8080"
+    # For setup commands running from outside the cluster, port-forward
+    # or use the in-cluster URL via oc exec.  We use oc exec on an OpenFGA
+    # pod itself to call localhost (always reachable).
+    local fga_pod
+    fga_pod=$(oc get pod -n "$authz_ns" -l app=openfga \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+    if [[ -z "$fga_pod" ]]; then
+        log "WARNING: No OpenFGA pod found — cannot create store/model."
+        log "  After pods are running, re-run deploy.sh to complete setup."
+        return
+    fi
+
+    # ── Step 6: create the FGA store (idempotent) ─────────────────────────
+    local store_id=""
+    # Check if we already have a store ID saved
+    if oc get secret "$client_secret" -n "$admin_ns" &>/dev/null; then
+        store_id=$(oc get secret "$client_secret" -n "$admin_ns" \
+            -o jsonpath='{.data.store-id}' 2>/dev/null | base64 -d 2>/dev/null || true)
+        store_id=$(printf '%s' "$store_id" | tr -d '\n\r')
+    fi
+
+    if [[ -z "$store_id" ]]; then
+        log "  Creating OpenFGA store..."
+        local store_resp
+        store_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
+            sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
+                   --header='Content-Type: application/json' \
+                   --post-data='{\"name\":\"synesis\"}' \
+                   http://localhost:8080/stores" 2>/dev/null || true)
+        store_id=$($PYTHON -c "import json,sys; d=json.loads(sys.argv[1]); print(d.get('id',''))" "$store_resp" 2>/dev/null || true)
+
+        if [[ -z "$store_id" ]]; then
+            # Try listing stores — maybe one already exists
+            local list_resp
+            list_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
+                sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
+                       http://localhost:8080/stores" 2>/dev/null || true)
+            store_id=$($PYTHON -c "
+import json,sys
+d = json.loads(sys.argv[1])
+stores = d.get('stores', [])
+for s in stores:
+    if s.get('name') == 'synesis':
+        print(s['id'])
+        break
+" "$list_resp" 2>/dev/null || true)
+        fi
+
+        if [[ -z "$store_id" ]]; then
+            log "WARNING: Failed to create or find OpenFGA store"
+            log "  Response: $store_resp"
+            return
+        fi
+        log "  Store created: $store_id"
+    else
+        log "  Using existing store: $store_id"
+    fi
+
+    # ── Step 7: write the authorization model ─────────────────────────────
+    local model_id=""
+    if [[ -f "$schema_json" ]]; then
+        log "  Writing authorization model..."
+        # Copy schema to the pod so we can POST it with --post-file (avoids shell quoting issues)
+        oc cp "$schema_json" "$authz_ns/$fga_pod:/tmp/schema.json" 2>/dev/null || true
+        local model_resp
+        model_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
+            sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
+                   --header='Content-Type: application/json' \
+                   --post-file=/tmp/schema.json \
+                   http://localhost:8080/stores/$store_id/authorization-models" 2>/dev/null || true)
+        model_id=$($PYTHON -c "import json,sys; d=json.loads(sys.argv[1]); print(d.get('authorization_model_id',''))" "$model_resp" 2>/dev/null || true)
+
+        if [[ -n "$model_id" ]]; then
+            log "  Authorization model written: $model_id"
+        else
+            log "WARNING: Failed to write authorization model"
+            log "  Response: $model_resp"
+            # Try to read the latest existing model ID
+            local models_resp
+            models_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
+                sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
+                       'http://localhost:8080/stores/$store_id/authorization-models?page_size=1'" 2>/dev/null || true)
+            model_id=$($PYTHON -c "
+import json,sys
+d = json.loads(sys.argv[1])
+models = d.get('authorization_models', [])
+if models: print(models[0].get('id',''))
+" "$models_resp" 2>/dev/null || true)
+            if [[ -n "$model_id" ]]; then
+                log "  Using existing model: $model_id"
+            fi
+        fi
+    else
+        log "WARNING: $schema_json not found — cannot write authorization model"
+    fi
+
+    # ── Step 8: write baseline tuples (idempotent) ──────────────────────
+    # These grant all authenticated users access to public RAG and endpoints.
+    # Individual user/org/tenant tuples are managed by the admin service.
+    if [[ -n "$store_id" ]] && [[ -n "$model_id" ]]; then
+        log "  Writing baseline authorization tuples..."
+        local baseline_tuples
+        baseline_tuples=$($PYTHON -c "
+import json, sys
+tuples = [
+    # Every solo user can read public RAG catalog
+    {'user': 'user:*', 'relation': 'can_read_public', 'object': 'rag_catalog:default'},
+    # Every solo user can invoke planner chat completions
+    {'user': 'user:*', 'relation': 'can_invoke', 'object': 'planner_endpoint:chat_completions'},
+    # Every solo user can invoke yarn completions/messages
+    {'user': 'user:*', 'relation': 'can_invoke', 'object': 'yarn_endpoint:completions'},
+    {'user': 'user:*', 'relation': 'can_invoke', 'object': 'yarn_endpoint:messages'},
+    # Every solo user can read admin (self-service endpoints)
+    {'user': 'user:*', 'relation': 'can_read', 'object': 'admin_endpoint:tokens'},
+    {'user': 'user:*', 'relation': 'can_read', 'object': 'admin_endpoint:profile'},
+]
+body = {
+    'writes': {
+        'tuple_keys': tuples
+    },
+    'authorization_model_id': sys.argv[1]
+}
+print(json.dumps(body))
+" "$model_id")
+
+        local tuples_file
+        tuples_file=$(mktemp)
+        printf '%s' "$baseline_tuples" > "$tuples_file"
+        oc cp "$tuples_file" "$authz_ns/$fga_pod:/tmp/baseline_tuples.json" 2>/dev/null || true
+        rm -f "$tuples_file"
+        local tuples_resp
+        tuples_resp=$(oc exec -n "$authz_ns" "$fga_pod" -- \
+            sh -c "wget -q -O - --header='Authorization: Bearer $preshared_key' \
+                   --header='Content-Type: application/json' \
+                   --post-file=/tmp/baseline_tuples.json \
+                   http://localhost:8080/stores/$store_id/write" 2>/dev/null || true)
+        # Empty response body means success; errors have a 'code' field
+        local write_err
+        write_err=$($PYTHON -c "
+import json,sys
+try:
+    d = json.loads(sys.argv[1]) if sys.argv[1].strip() else {}
+    code = d.get('code','')
+    if code: print(d.get('message', code))
+except: pass
+" "$tuples_resp" 2>/dev/null || true)
+        if [[ -z "$write_err" ]]; then
+            log "  Baseline tuples written"
+        else
+            log "  Baseline tuples: $write_err (may already exist — OK)"
+        fi
+    fi
+
+    # ── Step 9: sync openfga-client-config to consumer namespaces ─────────
+    OPENFGA_STORE_ID="$store_id"
+    OPENFGA_MODEL_ID="${model_id:-}"
+    OPENFGA_AUTH_TOKEN="$preshared_key"
+
+    local consumer_ns
+    for consumer_ns in synesis-admin synesis-planner synesis-yarn; do
+        oc create namespace "$consumer_ns" 2>/dev/null || true
+        oc create secret generic "$client_secret" -n "$consumer_ns" \
+            --from-literal=store-id="$store_id" \
+            --from-literal=model-id="${model_id:-}" \
+            --from-literal=auth-token="$preshared_key" \
+            --dry-run=client -o yaml | oc apply -f - >/dev/null
+    done
+    log "  Secret $client_secret synced to synesis-admin, synesis-planner, synesis-yarn"
+    log "  OpenFGA setup complete"
+}
+
 log "=== Deploying Synesis ($MODE) ==="
 [[ "$REF" != "latest" ]] && log "Image ref: $REF (tag: $REF_SAFE)"
 if [[ "$MODE" == "api" ]]; then
@@ -1256,6 +1583,10 @@ log "Setting up admin Postgres..."
 ensure_admin_db
 
 reset_litellm_database
+
+log ""
+log "Setting up OpenFGA authorization service..."
+ensure_openfga
 
 log ""
 log "Setting up Keycloak auth DB..."
@@ -1603,7 +1934,7 @@ fi
 # - Set revisionHistoryLimit=2 on Synesis Deployments so new rollouts don't pile up.
 # - Delete old ReplicaSets with 0 replicas so failed or superseded rollouts don't linger.
 # -----------------------------------------------------------------------
-SYNESIS_NAMESPACES=(synesis-gateway synesis-planner synesis-rag synesis-webui synesis-admin synesis-yarn synesis-models synesis-lsp synesis-sandbox synesis-search)
+SYNESIS_NAMESPACES=(synesis-gateway synesis-planner synesis-rag synesis-webui synesis-admin synesis-yarn synesis-models synesis-lsp synesis-sandbox synesis-search synesis-authz)
 
 set_revision_history_limit() {
     local ns name
@@ -1711,6 +2042,7 @@ wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
 wait_for_deployment synesis-planner synesis-mcp
 wait_for_deployment synesis-yarn synesis-yarn
+wait_for_deployment synesis-authz openfga
 wait_for_deployment synesis-webui open-webui
 
 # Prune old ReplicaSets (0 replicas) after rollouts so we don't delete the new one.
