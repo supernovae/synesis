@@ -43,7 +43,8 @@ import {
   sdkToolCallsToOpenAI,
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
-  openAIMessagesToModelMessages
+  openAIMessagesToModelMessages,
+  sanitizeToolCalls
 } from "./tool-mapping.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
@@ -296,7 +297,8 @@ type ResolveResult =
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   try {
     const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER);
-    const messages = openAIMessagesToModelMessages(request.messages as never);
+    const sanitized = sanitizeToolCalls(request.messages as never);
+    const messages = openAIMessagesToModelMessages(sanitized);
     return { ok: true, resolved, messages };
   } catch {
     return { ok: false, error: "No model configuration available — the service may still be initializing" };

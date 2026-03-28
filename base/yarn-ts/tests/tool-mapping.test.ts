@@ -5,7 +5,8 @@ import {
   mapToolChoice,
   sdkToolCallsToOpenAI,
   sdkToolCallsToClaude,
-  claudeMessagesToOpenAI
+  claudeMessagesToOpenAI,
+  sanitizeToolCalls
 } from "../src/tool-mapping.js";
 
 describe("openAIToolsToSDK", () => {
@@ -185,5 +186,81 @@ describe("claudeMessagesToOpenAI", () => {
     expect(result[2].role).toBe("tool");
     expect(result[2].tool_call_id).toBe("toolu_01");
     expect(result[2].content).toBe("file1.ts\nfile2.ts");
+  });
+});
+
+describe("sanitizeToolCalls", () => {
+  it("passes through well-formed messages unchanged", () => {
+    const msgs = [
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "thinking", tool_calls: [
+        { id: "call_1", type: "function", function: { name: "Glob", arguments: '{"pattern":"*.ts"}' } }
+      ]},
+      { role: "tool", content: "file.ts", tool_call_id: "call_1" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[1].tool_calls![0].id).toBe("call_1");
+    expect(result[2].tool_call_id).toBe("call_1");
+  });
+
+  it("generates synthetic ID for empty tool_call id", () => {
+    const msgs = [
+      { role: "assistant", content: "let me check", tool_calls: [
+        { id: "", type: "function", function: { name: "Glob", arguments: '{}' } }
+      ]},
+      { role: "tool", content: "result", tool_call_id: "" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[0].tool_calls![0].id).toMatch(/^call_synth_/);
+    expect(result[1].tool_call_id).toBe(result[0].tool_calls![0].id);
+  });
+
+  it("fills missing function.arguments with '{}'", () => {
+    const msgs = [
+      { role: "assistant", content: "", tool_calls: [
+        { id: "call_1", type: "function", function: { name: "Glob" } }
+      ]},
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[0].tool_calls![0].function.arguments).toBe("{}");
+  });
+
+  it("handles missing function object entirely", () => {
+    const msgs = [
+      { role: "assistant", content: "", tool_calls: [
+        { id: "", type: "function" }
+      ]},
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[0].tool_calls![0].function.name).toBe("");
+    expect(result[0].tool_calls![0].function.arguments).toBe("{}");
+    expect(result[0].tool_calls![0].id).toMatch(/^call_synth_/);
+  });
+
+  it("matches multiple empty-id tool calls to subsequent tool messages in order", () => {
+    const msgs = [
+      { role: "assistant", content: "", tool_calls: [
+        { id: "", type: "function", function: { name: "A", arguments: "{}" } },
+        { id: "", type: "function", function: { name: "B", arguments: "{}" } },
+      ]},
+      { role: "tool", content: "a-result" },
+      { role: "tool", content: "b-result" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    const [idA, idB] = result[0].tool_calls!.map((tc: { id: string }) => tc.id);
+    expect(idA).not.toBe(idB);
+    expect(result[1].tool_call_id).toBe(idA);
+    expect(result[2].tool_call_id).toBe(idB);
+  });
+
+  it("does not rewrite tool messages that already have valid tool_call_id", () => {
+    const msgs = [
+      { role: "assistant", content: "", tool_calls: [
+        { id: "", type: "function", function: { name: "A", arguments: "{}" } },
+      ]},
+      { role: "tool", content: "result", tool_call_id: "existing_id" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[1].tool_call_id).toBe("existing_id");
   });
 });

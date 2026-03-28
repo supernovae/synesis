@@ -13,6 +13,54 @@ interface OpenAIChatMessage {
   }>;
 }
 
+let synthCounter = 0;
+
+/**
+ * Repair malformed tool_calls in conversation history so strict providers
+ * (e.g. DeepInfra) don't reject the request with 422.
+ *
+ * Fixes: empty tool-call IDs, missing function.arguments, and propagates
+ * synthetic IDs to the matching tool-result messages that follow.
+ */
+export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMessage[] {
+  const out: OpenAIChatMessage[] = [];
+  const pendingEmptyIdQueue: string[] = [];
+
+  for (const m of messages) {
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      let changed = false;
+      const fixedCalls = m.tool_calls.map((tc) => {
+        let id = tc.id;
+        if (!id) {
+          id = `call_synth_${++synthCounter}_${Date.now().toString(36)}`;
+          pendingEmptyIdQueue.push(id);
+          changed = true;
+        }
+        const fn = tc.function;
+        const args = fn?.arguments ?? "{}";
+        const name = fn?.name ?? "";
+        if (!fn || fn.arguments === undefined) changed = true;
+        return {
+          id,
+          type: tc.type ?? "function",
+          function: { name, arguments: args },
+        };
+      });
+      out.push(changed ? { ...m, tool_calls: fixedCalls } : m);
+      continue;
+    }
+
+    if (m.role === "tool" && !m.tool_call_id && pendingEmptyIdQueue.length > 0) {
+      out.push({ ...m, tool_call_id: pendingEmptyIdQueue.shift()! });
+      continue;
+    }
+
+    out.push(m);
+  }
+
+  return out;
+}
+
 /**
  * Convert raw OpenAI chat-format messages into the Vercel AI SDK ModelMessage
  * format that generateText / streamText accept directly.
