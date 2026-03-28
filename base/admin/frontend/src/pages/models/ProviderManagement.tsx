@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   useProviderGovernance,
   useUpdateProviderConfig,
@@ -334,6 +335,24 @@ export default function ProviderManagement() {
                 />
                 <span className="text-gray-700 dark:text-gray-300">Show in Model Registry</span>
               </label>
+
+              {editingProvider && !editingProvider.is_custom && editingProvider.needs_endpoint && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+                  <p className="font-medium text-blue-950 dark:text-blue-100">Base URL is not configured here</p>
+                  <p className="mt-1 text-blue-800/95 dark:text-blue-300/95">
+                    OpenAI-compatible endpoints (vLLM, KServe, DashScope, Azure, etc.) are set{" "}
+                    <strong>per pipeline role</strong> under{" "}
+                    <Link
+                      to="/models"
+                      className="font-medium underline hover:text-blue-950 dark:hover:text-blue-50"
+                    >
+                      Models → Registry
+                    </Link>
+                    : choose <em>Assign model</em> or <em>Change</em> for a role — the dialog includes{" "}
+                    <strong>Endpoint URL</strong> when the provider requires it.
+                  </p>
+                </div>
+              )}
 
               {editingProvider?.is_custom && (
                 <>
