@@ -359,7 +359,7 @@ async function refreshTierRegistry(): Promise<void> {
 }
 
 import type { ModelAdapter } from "./providers/model-adapter.js";
-import { repairWriteToolCall } from "./providers/model-adapter.js";
+import { normalizeHallucinatedLinuxWritePath, repairWriteToolCall } from "./providers/model-adapter.js";
 
 type ResolveResult =
   | { ok: true; resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
@@ -1558,8 +1558,18 @@ app.post("/v1/messages", async (req, reply) => {
             wasRemapped = remap.remapped;
           }
 
-          // Adapter-neutral: detect malformed Write content and rewrite as Bash heredoc
           let emitToolName = buf?.toolName ?? tcFull.toolName ?? "";
+          if (emitToolName === "Write") {
+            const fp = finalInput.file_path;
+            if (typeof fp === "string" && fp.trim()) {
+              const n = normalizeHallucinatedLinuxWritePath(fp);
+              if (n !== fp) {
+                finalInput = { ...finalInput, file_path: n };
+              }
+            }
+          }
+
+          // Adapter-neutral: detect malformed Write content and rewrite as Bash heredoc
           const repair = repairWriteToolCall(emitToolName, finalInput);
           if (repair) {
             emitToolName = repair.rewrittenToolName;

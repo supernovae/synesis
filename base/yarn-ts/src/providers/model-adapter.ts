@@ -184,17 +184,36 @@ export function repairWriteToolCall(
   const tooShortForCode = content.length < 20 && codeExtensions.test(filePath);
   const noNewlinesInCode = !content.includes("\n") && content.length < 50 && codeExtensions.test(filePath);
 
-  if (!looksLikePythonDict && !tooShortForCode && !noNewlinesInCode) return null;
+  // Never Bash-repair obvious JSON-serialization garbage — a heredoc of `{'World!': ''}` is worse than
+  // leaving the Write as-is so the client can show a failed tool / model can retry.
+  if (looksLikePythonDict) return null;
+
+  if (!tooShortForCode && !noNewlinesInCode) return null;
+
+  const safePath = normalizeHallucinatedLinuxWritePath(filePath);
 
   // Rewrite as Bash heredoc -- avoids JSON escaping entirely
-  const heredocCmd = `cat > ${shellEscape(filePath)} << 'SYNESIS_EOF'\n${content}\nSYNESIS_EOF`;
+  const heredocCmd = `cat > ${shellEscape(safePath)} << 'SYNESIS_EOF'\n${content}\nSYNESIS_EOF`;
   return {
     rewrittenToolName: "Bash",
     rewrittenInput: {
       command: heredocCmd,
-      description: `Create ${filePath} (repaired from malformed Write)`,
+      description: `Create ${safePath} (repaired from malformed Write)`,
     },
   };
+}
+
+/**
+ * Models often hallucinate `/home/user/foo.go` (Linux sandbox). Claude Code runs on the user's machine;
+ * use a relative path (basename or tail after /home/<user>/).
+ */
+export function normalizeHallucinatedLinuxWritePath(filePath: string): string {
+  const p = filePath.trim();
+  const homeUser = /^\/home\/[^/]+\/(.+)$/;
+  const m = p.match(homeUser);
+  if (m) return m[1];
+  if (p.startsWith("/root/")) return p.slice("/root/".length);
+  return p;
 }
 
 function shellEscape(s: string): string {

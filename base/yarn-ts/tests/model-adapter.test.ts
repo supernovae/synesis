@@ -5,6 +5,7 @@ import {
   GenericOpenAIAdapter,
   DeepSeekAdapter,
   repairWriteToolCall,
+  normalizeHallucinatedLinuxWritePath,
 } from "../src/providers/model-adapter.js";
 
 describe("resolveAdapter", () => {
@@ -221,15 +222,13 @@ describe("repairWriteToolCall", () => {
     expect(result).toBeNull();
   });
 
-  it("detects Python-dict-style garbled content", () => {
-    const result = repairWriteToolCall("Write", {
-      file_path: "hello.go",
-      content: "{'World!': ''}",
-    });
-    expect(result).not.toBeNull();
-    expect(result!.rewrittenToolName).toBe("Bash");
-    expect(result!.rewrittenInput.command).toContain("cat > hello.go");
-    expect(result!.rewrittenInput.command).toContain("SYNESIS_EOF");
+  it("does not Bash-repair Python-dict-style garbage (lets Write fail / model retry)", () => {
+    expect(
+      repairWriteToolCall("Write", {
+        file_path: "hello.go",
+        content: "{'World!': ''}",
+      }),
+    ).toBeNull();
   });
 
   it("detects suspiciously short content for code files", () => {
@@ -260,9 +259,25 @@ describe("repairWriteToolCall", () => {
   it("shell-escapes file paths with special characters", () => {
     const result = repairWriteToolCall("Write", {
       file_path: "my file (1).go",
-      content: "{'bad': ''}",
+      content: "x",
     });
     expect(result).not.toBeNull();
     expect(result!.rewrittenInput.command).toContain("'my file (1).go'");
+  });
+});
+
+describe("normalizeHallucinatedLinuxWritePath", () => {
+  it("strips /home/<user>/ prefix", () => {
+    expect(normalizeHallucinatedLinuxWritePath("/home/user/hello.go")).toBe("hello.go");
+    expect(normalizeHallucinatedLinuxWritePath("/home/ubuntu/proj/main.go")).toBe("proj/main.go");
+  });
+
+  it("passes through normal relative paths", () => {
+    expect(normalizeHallucinatedLinuxWritePath("hello.go")).toBe("hello.go");
+    expect(normalizeHallucinatedLinuxWritePath("cmd/main.go")).toBe("cmd/main.go");
+  });
+
+  it("strips /root/ prefix", () => {
+    expect(normalizeHallucinatedLinuxWritePath("/root/app.go")).toBe("app.go");
   });
 });
