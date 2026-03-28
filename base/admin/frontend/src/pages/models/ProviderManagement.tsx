@@ -30,6 +30,7 @@ interface CreateForm {
   litellm_prefix: string;
   api_key_env: string;
   needs_endpoint: boolean;
+  default_endpoint: string;
   placeholder: string;
   is_local: boolean;
 }
@@ -40,6 +41,7 @@ const EMPTY_CREATE: CreateForm = {
   litellm_prefix: "openai/",
   api_key_env: "",
   needs_endpoint: true,
+  default_endpoint: "",
   placeholder: "model-name",
   is_local: false,
 };
@@ -49,6 +51,8 @@ interface EditForm {
   default_max_tokens: string;
   default_temperature: string;
   notes: string;
+  /** Stored DB override; empty uses catalog default for built-in providers. */
+  default_endpoint: string;
   label?: string;
   litellm_prefix?: string;
   api_key_env?: string;
@@ -91,6 +95,7 @@ export default function ProviderManagement() {
       default_max_tokens: String(v.default_max_tokens),
       default_temperature: String(v.default_temperature),
       notes: v.notes,
+      default_endpoint: v.config?.default_endpoint ?? "",
       ...(v.is_custom
         ? {
             label: v.label,
@@ -123,6 +128,9 @@ export default function ProviderManagement() {
       payload.placeholder = editForm.placeholder;
       payload.is_local = editForm.is_local;
     }
+    if (editingProvider?.needs_endpoint) {
+      payload.default_endpoint = editForm.default_endpoint ?? "";
+    }
     updateMut.mutate(payload as Parameters<typeof updateMut.mutate>[0], {
       onSuccess: () => {
         setEditingKey(null);
@@ -151,6 +159,7 @@ export default function ProviderManagement() {
         litellm_prefix: createForm.litellm_prefix,
         api_key_env: createForm.api_key_env,
         needs_endpoint: createForm.needs_endpoint,
+        default_endpoint: createForm.needs_endpoint ? createForm.default_endpoint : "",
         placeholder: createForm.placeholder,
         is_local: createForm.is_local,
       },
@@ -211,6 +220,7 @@ export default function ProviderManagement() {
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">API Key</th>
                 <th className="px-4 py-3">Defaults</th>
+                <th className="px-4 py-3">Base URL</th>
                 <th className="px-4 py-3">Discovery</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -274,6 +284,15 @@ export default function ProviderManagement() {
                       <span>max_tok={v.default_max_tokens}</span>
                       <span className="ml-2">temp={v.default_temperature}</span>
                     </td>
+                    <td className="max-w-[200px] px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                      {v.needs_endpoint && v.default_endpoint ? (
+                        <span className="block truncate font-mono" title={v.default_endpoint}>
+                          {v.default_endpoint}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">\u2014</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       {v.supports_discovery ? (
                         <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
@@ -324,7 +343,7 @@ export default function ProviderManagement() {
       {/* Edit modal */}
       {editingKey && editForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
+          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
             <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
               <Shield className="mr-2 inline h-5 w-5 text-blue-500" />
               Configure {editingProvider?.label ?? editingKey}
@@ -339,24 +358,6 @@ export default function ProviderManagement() {
                 />
                 <span className="text-gray-700 dark:text-gray-300">Show in Model Registry</span>
               </label>
-
-              {editingProvider && !editingProvider.is_custom && editingProvider.needs_endpoint && (
-                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
-                  <p className="font-medium text-blue-950 dark:text-blue-100">Base URL is not configured here</p>
-                  <p className="mt-1 text-blue-800/95 dark:text-blue-300/95">
-                    OpenAI-compatible endpoints (vLLM, KServe, DashScope, Azure, etc.) are set{" "}
-                    <strong>per pipeline role</strong> under{" "}
-                    <Link
-                      to="/models"
-                      className="font-medium underline hover:text-blue-950 dark:hover:text-blue-50"
-                    >
-                      Models → Registry
-                    </Link>
-                    : choose <em>Assign model</em> or <em>Change</em> for a role — the dialog includes{" "}
-                    <strong>Endpoint URL</strong> when the provider requires it.
-                  </p>
-                </div>
-              )}
 
               {editingProvider?.is_custom && (
                 <>
@@ -429,6 +430,29 @@ export default function ProviderManagement() {
                     </label>
                   </div>
                 </>
+              )}
+
+              {editingProvider?.needs_endpoint && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Default OpenAI-compatible base URL
+                  </label>
+                  <input
+                    type="url"
+                    value={editForm.default_endpoint}
+                    onChange={(e) => setEditForm({ ...editForm, default_endpoint: e.target.value })}
+                    placeholder="https://example.com/v1"
+                    className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 font-mono text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                  />
+                  <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+                    Pre-fills new role assignments in{" "}
+                    <Link to="/models" className="underline hover:text-gray-700 dark:hover:text-gray-300">
+                      Model Registry
+                    </Link>
+                    . Leave empty to use the catalog default for built-in providers. Per-role assignments can
+                    still override.
+                  </p>
+                </div>
               )}
 
               <div>
@@ -591,10 +615,23 @@ export default function ProviderManagement() {
                   <span className="text-gray-700 dark:text-gray-300">Local</span>
                 </label>
               </div>
+              {createForm.needs_endpoint && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Default OpenAI-compatible base URL
+                  </label>
+                  <input
+                    type="url"
+                    value={createForm.default_endpoint}
+                    onChange={(e) => setCreateForm({ ...createForm, default_endpoint: e.target.value })}
+                    placeholder="https://api.example.com/v1"
+                    className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 font-mono text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                  />
+                </div>
+              )}
               <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                There is no URL field here — the OpenAI-compatible base URL is entered per role under{" "}
-                <strong>Models → Model Registry</strong> when you assign or change a model. Check &quot;Needs
-                Endpoint URL&quot; so that dialog shows the endpoint field for this provider.
+                &quot;Needs Endpoint URL&quot; controls whether the Model Registry assign dialog shows an
+                endpoint field. The default URL above pre-fills that dialog.
               </p>
 
               {createMut.isError && (

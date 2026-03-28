@@ -461,6 +461,7 @@ export function useCreateProvider() {
       litellm_prefix?: string;
       api_key_env?: string;
       needs_endpoint?: boolean;
+      default_endpoint?: string;
       placeholder?: string;
       is_local?: boolean;
       enabled?: boolean;

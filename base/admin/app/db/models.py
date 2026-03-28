@@ -733,6 +733,7 @@ class ProviderConfig(Base):
     needs_endpoint: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     placeholder: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_local: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
+    default_endpoint: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class FeedbackReview(Base):

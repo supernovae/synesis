@@ -11,10 +11,13 @@ from datetime import UTC, datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from ..auth import UserInfo, get_current_user, require_admin
+from ..db.engine import async_session
+from ..db.models import ProviderConfig
 from ..services.admin_audit import record_admin_audit
-from ..services.provider_catalog import PROVIDER_CATALOG, get_catalog
+from ..services.provider_catalog import PROVIDER_CATALOG, default_endpoint_for_provider, get_catalog
 from ..services.provider_discovery import (
     discover_models,
     get_defaults_for_model,
@@ -262,6 +265,17 @@ async def provider_catalog(_user=Depends(get_current_user)):
                 "supports_discovery": False,
                 "is_custom": True,
             }
+
+    overlays: dict[str, str] = {}
+    async with async_session() as session:
+        result = await session.execute(select(ProviderConfig.provider_key, ProviderConfig.default_endpoint))
+        for pk, de in result.all():
+            if de and str(de).strip():
+                overlays[str(pk)] = str(de).strip()
+    for k, v in providers.items():
+        override = overlays.get(k, "").strip()
+        base = default_endpoint_for_provider(k)
+        v["default_endpoint"] = override or base
 
     return {**catalog, "providers": providers}
 

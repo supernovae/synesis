@@ -120,6 +120,8 @@ export interface ProviderInfo {
   placeholder: string;
   is_local: boolean;
   supports_discovery: boolean;
+  /** Effective default OpenAI-compatible base URL (DB override or catalog default). */
+  default_endpoint?: string;
   /** Present on custom providers merged into GET /providers/catalog */
   is_custom?: boolean;
 }
@@ -188,6 +190,8 @@ export interface ProviderConfig {
   policies: Record<string, unknown> | null;
   notes: string;
   updated_at: string | null;
+  /** Stored override only; empty means use catalog default for built-ins. */
+  default_endpoint?: string | null;
 }
 
 export interface ProviderConfigInfo extends ProviderInfo {

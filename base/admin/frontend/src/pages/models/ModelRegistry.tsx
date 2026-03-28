@@ -552,7 +552,14 @@ function EditModal({
             <select
               value={editing.provider}
               onChange={(e) => {
-                setEditing({ ...editing, provider: e.target.value, api_key_env: "", endpoint: "" });
+                const next = e.target.value;
+                const def = providers[next]?.default_endpoint ?? "";
+                setEditing({
+                  ...editing,
+                  provider: next,
+                  api_key_env: "",
+                  endpoint: def,
+                });
                 setShowExplorer(false);
               }}
               className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"

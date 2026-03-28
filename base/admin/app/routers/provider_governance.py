@@ -13,7 +13,7 @@ from ..db.engine import async_session
 from ..db.models import ProviderConfig
 from ..rbac import require_platform_admin
 from ..services.admin_audit import record_admin_audit
-from ..services.provider_catalog import PROVIDER_CATALOG, get_catalog
+from ..services.provider_catalog import PROVIDER_CATALOG, default_endpoint_for_provider, get_catalog
 
 logger = logging.getLogger("synesis.admin.provider_governance")
 
@@ -65,7 +65,15 @@ def _row_to_config_dict(r: ProviderConfig) -> dict:
         "notes": r.notes,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         "is_custom": r.is_custom,
+        "default_endpoint": (r.default_endpoint or "").strip() or None,
     }
+
+
+def _effective_default_endpoint(row: ProviderConfig | None, provider_key: str) -> str:
+    db_ep = (row.default_endpoint or "").strip() if row else ""
+    if db_ep:
+        return db_ep
+    return default_endpoint_for_provider(provider_key)
 
 
 async def _get_all_configs() -> dict[str, dict]:
@@ -74,6 +82,13 @@ async def _get_all_configs() -> dict[str, dict]:
         result = await session.execute(select(ProviderConfig))
         rows = result.scalars().all()
     return {r.provider_key: _row_to_config_dict(r) for r in rows}
+
+
+async def _get_all_config_rows() -> dict[str, ProviderConfig]:
+    async with async_session() as session:
+        result = await session.execute(select(ProviderConfig))
+        rows = result.scalars().all()
+    return {r.provider_key: r for r in rows}
 
 
 async def _get_custom_rows() -> list[ProviderConfig]:
@@ -97,6 +112,7 @@ def _custom_row_to_provider(r: ProviderConfig) -> dict:
         "is_local": r.is_local or False,
         "supports_discovery": False,
         "is_custom": True,
+        "default_endpoint": _effective_default_endpoint(r, r.provider_key),
         "config": _row_to_config_dict(r),
         "enabled": r.enabled,
         "default_max_tokens": r.default_max_tokens,
@@ -113,14 +129,17 @@ async def list_provider_configs(_user: UserInfo = Depends(get_current_user)):
     """Return all providers (catalog + custom) with their governance config overlay."""
     catalog = get_catalog()
     configs = await _get_all_configs()
+    rows_by_key = await _get_all_config_rows()
 
     providers = []
     for key, info in catalog["providers"].items():
         cfg = configs.get(key, {})
+        row = rows_by_key.get(key)
         providers.append(
             {
                 **info,
                 "is_custom": False,
+                "default_endpoint": _effective_default_endpoint(row, key),
                 "config": cfg if cfg else None,
                 "enabled": cfg.get("enabled", True),
                 "default_max_tokens": cfg.get("default_max_tokens", 8192),
@@ -146,12 +165,15 @@ async def get_provider_config(provider_key: str, _user: UserInfo = Depends(get_c
     catalog = get_catalog()
     configs = await _get_all_configs()
     cfg = configs.get(provider_key, {})
+    rows_by_key = await _get_all_config_rows()
+    row = rows_by_key.get(provider_key)
 
     if provider_key in PROVIDER_CATALOG:
         info = catalog["providers"][provider_key]
         return {
             **info,
             "is_custom": False,
+            "default_endpoint": _effective_default_endpoint(row, provider_key),
             "config": cfg if cfg else None,
             "enabled": cfg.get("enabled", True),
             "default_max_tokens": cfg.get("default_max_tokens", 8192),
@@ -191,6 +213,7 @@ async def create_provider(
         if existing.scalar_one_or_none():
             raise HTTPException(409, f"Provider key '{key}' already exists")
 
+        de_create = str(data.get("default_endpoint", "") or "").strip()
         row = ProviderConfig(
             provider_key=key,
             is_custom=True,
@@ -204,6 +227,7 @@ async def create_provider(
             default_max_tokens=int(data.get("default_max_tokens", 8192)),
             default_temperature=float(data.get("default_temperature", 0.1)),
             notes=data.get("notes", ""),
+            default_endpoint=de_create or None,
         )
         session.add(row)
         await session.commit()
@@ -250,6 +274,10 @@ async def update_provider_config(
             row.policies = data["policies"] if data["policies"] else None
         if "notes" in data:
             row.notes = str(data.get("notes", ""))
+
+        if "default_endpoint" in data:
+            ep = str(data.get("default_endpoint") or "").strip()
+            row.default_endpoint = ep or None
 
         if row.is_custom:
             if "label" in data:
@@ -303,6 +331,7 @@ async def delete_or_reset_provider(
             row.allowed_roles = None
             row.policies = None
             row.notes = ""
+            row.default_endpoint = None
             action = "provider_governance.reset"
             summary = f"Reset provider config for {provider_key} to catalog defaults"
 
