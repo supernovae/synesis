@@ -183,6 +183,34 @@ Request IDs (`x-request-id` or `anthropic-request-id` from client, or generated
 | `SYNESIS_YARN_JITTER_BUFFER_ENABLED` | `true` | Move dynamic content (dates, paths, session IDs) from system messages to final user message |
 | `SYNESIS_YARN_DEBUG_PROTOCOL` | `false` | Emit structured per-request protocol logs (never includes prompt content) |
 
+## Session Scoping and Conversation Resolution
+
+Yarn isolates Redis history and Postgres usage per conversation using a canonical
+session key: `synesis:{userId}:{clientKind}:{conversationSlug}`.
+
+### Conversation ID Resolution by Client
+
+| Client | Protocol | Conversation source | Notes |
+|--------|----------|-------------------|-------|
+| **Open WebUI** | OpenAI `/v1/chat/completions` | `body.conversation_id` | Synesis extension field; Open WebUI sends it natively |
+| **Claude Code** | Anthropic `/v1/messages` | `body.metadata.synesis_conversation_id` or `conversation_id` or `session_id` | Claude Code SDK sessions are client-side; metadata is the documented contract |
+| **Cursor** | OpenAI `/v1/chat/completions` | `body.conversation_id` or header `x-synesis-conversation-id` | If Cursor doesn't send a conversation ID, sessions scope to user + client |
+| **Other OpenAI clients** | OpenAI `/v1/chat/completions` | `body.conversation_id` | Standard Synesis extension |
+| **Other Anthropic clients** | Anthropic `/v1/messages` | `body.metadata.*` or header `x-synesis-conversation-id` | Same resolution as Claude Code |
+
+### Fallback behavior
+
+When no conversation ID is provided, the session key uses `_` as the
+conversation slug. All requests from that user+client share a single session.
+This is acceptable for single-project workflows but causes state bleed when the
+same user runs multiple conversations concurrently.
+
+### Debug
+
+Set `SYNESIS_YARN_DEBUG_PROTOCOL=true` to log which source resolved the
+conversation ID and the resulting session key for each request (never logs
+secrets or prompt content).
+
 ## Resolved and Remaining Gaps (yarn-ts)
 
 ### Resolved

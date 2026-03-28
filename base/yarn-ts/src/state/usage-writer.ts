@@ -30,6 +30,17 @@ export interface SafetyEventInsert {
   consecutiveToolCalls?: number;
 }
 
+export interface SessionEventInsert {
+  sessionKey: string;
+  requestId?: string;
+  userId: string;
+  orgId: string;
+  eventKind: string;
+  component: string;
+  detail: string;
+  metadataJson?: Record<string, unknown>;
+}
+
 export interface WriterStats {
   queueDepth: number;
   totalEnqueued: number;
@@ -45,6 +56,7 @@ export class UsageWriter {
     | { type: "session"; session: SessionRecord }
     | { type: "usage"; event: UsageEvent }
     | { type: "safety"; event: SafetyEventInsert }
+    | { type: "session_event"; event: SessionEventInsert }
   > = [];
   private readonly queueMax: number;
   private readonly flushIntervalMs: number;
@@ -87,6 +99,10 @@ export class UsageWriter {
     this.enqueue({ type: "safety", event });
   }
 
+  enqueueSessionEvent(event: SessionEventInsert): void {
+    this.enqueue({ type: "session_event", event });
+  }
+
   getStats(): WriterStats {
     return {
       queueDepth: this.queue.length,
@@ -98,7 +114,7 @@ export class UsageWriter {
     };
   }
 
-  private enqueue(item: { type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent } | { type: "safety"; event: SafetyEventInsert }): void {
+  private enqueue(item: { type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent } | { type: "safety"; event: SafetyEventInsert } | { type: "session_event"; event: SessionEventInsert }): void {
     if (!this.pool) return;
     if (this.queue.length >= this.queueMax) {
       this.queue.shift();
@@ -114,17 +130,20 @@ export class UsageWriter {
       `
       INSERT INTO yarn_sessions (
         session_key, user_id, org_id, username, role, conversation_id,
-        provider, model, total_tokens_in, total_tokens_out, total_tokens_cached,
+        client_kind, provider, model,
+        total_tokens_in, total_tokens_out, total_tokens_cached,
         total_cost_usd, request_count, escalation_count, created_at, last_active_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11,
-        $12, $13, $14, to_timestamp($15), to_timestamp($16)
+        $7, $8, $9,
+        $10, $11, $12,
+        $13, $14, $15, to_timestamp($16), to_timestamp($17)
       )
       ON CONFLICT (session_key) DO UPDATE SET
         user_id = EXCLUDED.user_id,
         org_id = EXCLUDED.org_id,
         conversation_id = EXCLUDED.conversation_id,
+        client_kind = EXCLUDED.client_kind,
         provider = EXCLUDED.provider,
         model = EXCLUDED.model,
         total_tokens_in = EXCLUDED.total_tokens_in,
@@ -142,6 +161,7 @@ export class UsageWriter {
         "",
         "user",
         session.conversationId,
+        session.clientKind || "unknown",
         "synesis",
         "synesis",
         session.totalTokensIn,
@@ -190,6 +210,28 @@ export class UsageWriter {
     );
   }
 
+  private async insertSessionEvent(event: SessionEventInsert): Promise<void> {
+    if (!this.pool) return;
+    await this.pool.query(
+      `
+      INSERT INTO yarn_session_events (
+        session_key, request_id, user_id, org_id,
+        event_kind, component, detail, metadata_json
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        event.sessionKey,
+        event.requestId ?? null,
+        event.userId,
+        event.orgId,
+        event.eventKind,
+        event.component.slice(0, 64),
+        event.detail.slice(0, 2048),
+        event.metadataJson ? JSON.stringify(event.metadataJson) : null,
+      ]
+    );
+  }
+
   private async insertSafetyEvent(event: SafetyEventInsert): Promise<void> {
     if (!this.pool) return;
     await this.pool.query(
@@ -226,6 +268,8 @@ export class UsageWriter {
             await this.insertUsage(item.event);
           } else if (item.type === "safety") {
             await this.insertSafetyEvent(item.event);
+          } else if (item.type === "session_event") {
+            await this.insertSessionEvent(item.event);
           }
           this._totalFlushed++;
         } catch {

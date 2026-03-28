@@ -1943,6 +1943,7 @@ export interface YarnSessionRow {
   username: string | null;
   role: string | null;
   conversation_id: string | null;
+  client_kind: string | null;
   provider: string | null;
   model: string | null;
   total_tokens_in: number;
@@ -1971,9 +1972,20 @@ export interface YarnSessionRequestRow {
   created_at: string | null;
 }
 
+export interface YarnSessionEventRow {
+  id: number;
+  event_kind: string;
+  component: string;
+  detail: string;
+  request_id: string | null;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
 export interface YarnSessionDetailResponse {
   session: YarnSessionRow;
   requests: YarnSessionRequestRow[];
+  events: YarnSessionEventRow[];
 }
 
 export interface YarnEventRow {
@@ -2054,12 +2066,12 @@ export function useYarnRuntimeTelemetry() {
   });
 }
 
-export function useYarnSessions(page: number, pageSize: number) {
+export function useYarnSessions(page: number, pageSize: number, activeSinceHours = 168) {
   return useQuery<{ sessions: YarnSessionRow[]; total: number }>({
-    queryKey: ["yarn", "sessions", page, pageSize],
+    queryKey: ["yarn", "sessions", page, pageSize, activeSinceHours],
     queryFn: () =>
       client
-        .get("/yarn/sessions", { params: { page, page_size: pageSize } })
+        .get("/yarn/sessions", { params: { page, page_size: pageSize, active_since_hours: activeSinceHours } })
         .then((r) => r.data),
     placeholderData: keepPreviousData,
   });
@@ -2071,6 +2083,24 @@ export function useYarnSessionDetail(sessionKey: string | undefined) {
     queryFn: () =>
       client.get(`/yarn/sessions/${encodeURIComponent(sessionKey!)}`).then((r) => r.data),
     enabled: Boolean(sessionKey),
+  });
+}
+
+export interface YarnPurgeResult {
+  dry_run: boolean;
+  sessions: number;
+  usage_rows: number;
+  events: number;
+}
+
+export function useYarnSessionsPurge() {
+  const qc = useQueryClient();
+  return useMutation<YarnPurgeResult, Error, { older_than_days: number; session_key_prefix?: string; dry_run: boolean }>({
+    mutationFn: (params) =>
+      client.post("/yarn/sessions/purge", null, { params }).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["yarn"] });
+    },
   });
 }
 

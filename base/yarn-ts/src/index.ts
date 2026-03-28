@@ -158,10 +158,14 @@ interface SessionIdentity {
   userId: string;
   orgId: string;
   conversationId: string;
+  clientKind: string;
 }
 
 function getSessionKey(identity: SessionIdentity): string {
-  return identity.conversationId || identity.userId || "anon";
+  const user = identity.userId || "anon";
+  const client = identity.clientKind || "unknown";
+  const convo = identity.conversationId || "_";
+  return `synesis:${user}:${client}:${convo}`;
 }
 
 async function getSessionState(key: string, identity: SessionIdentity): Promise<SessionState> {
@@ -180,6 +184,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     userId: identity.userId,
     orgId: identity.orgId,
     conversationId: identity.conversationId,
+    clientKind: identity.clientKind,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
     totalTokensIn: 0,
@@ -233,6 +238,7 @@ async function casSessionSave(state: SessionState): Promise<void> {
     }
   } catch (err) {
     app.log.warn({ err }, "Session persistence failed (non-fatal)");
+    recordSessionEvent(state.record.sessionKey, state.record.userId, state.record.orgId, "persistence_error", "casSessionSave", String(err instanceof Error ? err.message : err).slice(0, 500));
   }
 }
 
@@ -249,6 +255,10 @@ function maybeCheckpoint(state: SessionState): void {
     const charsAfter = consolidated.summary.length;
     const charsSaved = Math.max(0, charsBefore - charsAfter);
     svcMetrics.compactionCharsSaved.inc(charsSaved);
+  }).catch((err: unknown) => {
+    const detail = err instanceof Error ? err.message : String(err);
+    app.log.warn({ err, sessionKey: state.record.sessionKey }, "compaction_failed");
+    recordSessionEvent(state.record.sessionKey, state.record.userId, state.record.orgId, "compaction_error", "sawtooth", detail.slice(0, 500));
   });
 }
 
@@ -321,6 +331,17 @@ function persistSessionAndUsage(
         (usage.cachedTokens / 1_000_000) * Number(tier?.cachedPerM ?? 0) +
         (usage.outputTokens / 1_000_000) * Number(tier?.outputPerM ?? 0);
   const normalizedCostUsd = Number.isFinite(computedCostUsd) ? Math.max(0, computedCostUsd) : 0;
+  if (normalizedCostUsd === 0 && (usage.inputTokens + usage.outputTokens) > 0) {
+    app.log.debug({
+      model: resolvedModelId,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      sdkCost: usage.costUsd,
+      tierInputPerM: tier?.inputPerM ?? null,
+      tierOutputPerM: tier?.outputPerM ?? null,
+      tierCachedPerM: tier?.cachedPerM ?? null,
+    }, "zero_cost_with_tokens: check admin rates or tier assignment");
+  }
   state.record.totalTokensIn += usage.inputTokens;
   state.record.totalTokensOut += usage.outputTokens;
   state.record.totalTokensCached += usage.cachedTokens;
@@ -392,7 +413,19 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
   const obj = (input ?? {}) as Record<string, unknown>;
   const prompt = Number(obj.inputTokens ?? obj.promptTokens ?? obj.input_tokens ?? 0);
   const completion = Number(obj.outputTokens ?? obj.completionTokens ?? obj.output_tokens ?? 0);
-  const cached = Number(obj.cachedInputTokens ?? obj.cached_tokens ?? 0);
+
+  let cached = Number(obj.cachedInputTokens ?? obj.cached_tokens ?? 0);
+  if (!cached) {
+    const details = obj.prompt_tokens_details as Record<string, unknown> | undefined;
+    if (details) {
+      cached = Number(details.cached_tokens ?? 0);
+    }
+  }
+  if (!cached) {
+    const cacheRead = obj.cache_read_input_tokens as number | undefined;
+    if (cacheRead) cached = Number(cacheRead);
+  }
+
   const cost = Number(obj.costUsd ?? obj.cost_usd ?? 0);
   return {
     inputTokens: Number.isFinite(prompt) ? prompt : 0,
@@ -400,6 +433,23 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
     cachedTokens: Number.isFinite(cached) ? cached : 0,
     costUsd: Number.isFinite(cost) ? cost : 0
   };
+}
+
+function resolveClaudeConversationId(
+  metadata: Record<string, unknown> | undefined,
+  headers: Record<string, unknown>,
+): string {
+  if (metadata) {
+    for (const key of ["synesis_conversation_id", "conversation_id", "session_id"]) {
+      const val = metadata[key];
+      if (typeof val === "string" && val.trim()) return val.trim();
+    }
+  }
+  for (const hdr of ["x-synesis-conversation-id"]) {
+    const val = headers[hdr];
+    if (typeof val === "string" && val.trim()) return val.trim();
+  }
+  return "";
 }
 
 function countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
@@ -447,6 +497,29 @@ function logAndPersistSafetyEvent(
       consecutiveToolCalls: event.consecutiveToolCalls
     });
   }
+}
+
+function recordSessionEvent(
+  sessionKey: string,
+  userId: string,
+  orgId: string,
+  eventKind: string,
+  component: string,
+  detail: string,
+  requestId?: string,
+  meta?: Record<string, unknown>,
+): void {
+  app.log.warn({ sessionKey, requestId, component, eventKind, detail: detail.slice(0, 200) }, `session_event: ${eventKind}`);
+  usageWriter.enqueueSessionEvent({
+    sessionKey,
+    requestId,
+    userId,
+    orgId,
+    eventKind,
+    component,
+    detail,
+    metadataJson: meta,
+  });
 }
 
 function getBearerToken(authHeader: string | undefined): string {
@@ -792,12 +865,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     latestUserText: String(latestUserText?.content ?? ""),
     riskProfile: preManifest.riskProfile
   });
+  const oaiClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown");
   const identity: SessionIdentity = {
     userId: request.user || authUser.userId,
     orgId: authUser.orgId,
-    conversationId: request.conversation_id || ""
+    conversationId: request.conversation_id || "",
+    clientKind: oaiClientKind,
   };
   const sessionKey = getSessionKey(identity);
+  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+    app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
+  }
   const session = await getSessionState(sessionKey, identity);
 
   const oaiMsgCount = (request.messages as unknown[]).length;
@@ -835,6 +913,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orgId: identity.orgId,
   }, securityIngestConfig, app.log as never);
   if (trustResult.blocked) {
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "trust_block", "transcript-trust", trustResult.blockReason ?? "Content blocked", oaiTraceReqId);
     return reply.code(400).send({ error: { type: "invalid_request_error", message: trustResult.blockReason ?? "Content blocked by trust scanner." } });
   }
   oaiEnrichedMsgs = trustResult.messages as typeof oaiEnrichedMsgs;
@@ -866,6 +945,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const resolveResult = runOpenAIRequest(normalizedRequest);
   if (!resolveResult.ok) {
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "resolve_failure", "tier-registry", resolveResult.error, reqId);
     return reply.code(503).send({ error: { type: "service_unavailable", message: resolveResult.error } });
   }
   const { resolved, messages } = resolveResult;
@@ -928,6 +1008,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
     } catch (err) {
       app.log.error({ err, reqId, model: resolved.resolvedModelId }, "OpenAI non-stream generateText failed");
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "upstream_error", "generateText", sanitizeUpstreamError(err), reqId, { model: resolved.resolvedModelId });
       return reply.code(502).send({ error: { type: "upstream_error", message: sanitizeUpstreamError(err) } });
     }
 
@@ -1027,6 +1108,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   } catch (streamErr) {
     const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
     app.log.error({ err: streamErr, reqId, model: resolved.resolvedModelId }, `OpenAI stream error: ${detail}`);
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "stream_error", "streamText", detail.slice(0, 500), reqId, { model: resolved.resolvedModelId });
     finishReason = "error";
     safeWrite(reply.raw, `data: ${JSON.stringify({
       id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
@@ -1137,12 +1219,18 @@ app.post("/v1/messages", async (req, reply) => {
     latestUserText: String(latestClaudeUser?.content ?? ""),
     riskProfile: claudeManifest.riskProfile
   });
+  const claudeClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
+  const claudeConversationId = resolveClaudeConversationId(body.metadata, req.headers as Record<string, unknown>);
   const claudeIdentity: SessionIdentity = {
     userId: claudeAuthUser.userId,
     orgId: claudeAuthUser.orgId,
-    conversationId: ""
+    conversationId: claudeConversationId,
+    clientKind: claudeClientKind,
   };
   const claudeSessionKey = getSessionKey(claudeIdentity);
+  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+    app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
+  }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
 
   const claudeMsgCount = (body.messages as unknown[]).length;
@@ -1187,6 +1275,7 @@ app.post("/v1/messages", async (req, reply) => {
     orgId: claudeIdentity.orgId,
   }, securityIngestConfig, app.log as never);
   if (claudeTrustResult.blocked) {
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "trust_block", "transcript-trust", claudeTrustResult.blockReason ?? "Content blocked", traceReqId);
     return reply.code(400).send({
       type: "error",
       error: { type: "invalid_request_error", message: claudeTrustResult.blockReason ?? "Content blocked by trust scanner." }
@@ -1220,6 +1309,7 @@ app.post("/v1/messages", async (req, reply) => {
 
   const claudeResolveResult = runOpenAIRequest(openAIShape);
   if (!claudeResolveResult.ok) {
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "resolve_failure", "tier-registry", claudeResolveResult.error, traceReqId);
     return reply.code(503).send({
       type: "error",
       error: { type: "service_unavailable", message: claudeResolveResult.error }
@@ -1314,6 +1404,7 @@ app.post("/v1/messages", async (req, reply) => {
     } catch (streamErr) {
       const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
       app.log.error({ err: streamErr, reqId: traceReqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "stream_error", "streamText", detail.slice(0, 500), traceReqId, { model: resolved.resolvedModelId });
       if (!inTextBlock) {
         safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
         inTextBlock = true;
@@ -1373,6 +1464,7 @@ app.post("/v1/messages", async (req, reply) => {
     });
   } catch (err) {
     app.log.error({ err, reqId, model: resolved.resolvedModelId }, "Claude non-stream generateText failed");
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "upstream_error", "generateText", sanitizeUpstreamError(err), reqId, { model: resolved.resolvedModelId });
     return reply.code(502).send({
       type: "error",
       error: { type: "upstream_error", message: sanitizeUpstreamError(err) }

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import case, func, select, text
 
 from ..db.engine import async_session
-from ..db.models import YarnSafetyEvent, YarnSession, YarnUsageLog
+from ..db.models import YarnSafetyEvent, YarnSession, YarnSessionEvent, YarnUsageLog
 
 logger = logging.getLogger("synesis.admin.yarn_service")
 
@@ -97,7 +97,7 @@ async def list_yarn_sessions(
     page_size: int = 20,
     scope_user_id: str = "",
     scope_org_id: str = "",
-    active_since_hours: int | None = None,
+    active_since_hours: int | None = 168,
 ) -> dict:
     async with async_session() as session:
         base = select(YarnSession)
@@ -124,6 +124,7 @@ async def list_yarn_sessions(
             "username": r.username,
             "role": r.role,
             "conversation_id": r.conversation_id,
+            "client_kind": getattr(r, "client_kind", "unknown"),
             "provider": r.provider,
             "model": r.model,
             "total_tokens_in": r.total_tokens_in,
@@ -172,6 +173,15 @@ async def get_yarn_session_detail(
         req_result = await session.execute(req_stmt)
         requests = req_result.scalars().all()
 
+        events_stmt = (
+            select(YarnSessionEvent)
+            .where(YarnSessionEvent.session_key == session_key)
+            .order_by(YarnSessionEvent.created_at.desc())
+            .limit(200)
+        )
+        events_result = await session.execute(events_stmt)
+        events = events_result.scalars().all()
+
     return {
         "session": {
             "id": r.id,
@@ -181,6 +191,7 @@ async def get_yarn_session_detail(
             "username": r.username,
             "role": r.role,
             "conversation_id": r.conversation_id,
+            "client_kind": getattr(r, "client_kind", "unknown"),
             "provider": r.provider,
             "model": r.model,
             "total_tokens_in": r.total_tokens_in,
@@ -209,6 +220,18 @@ async def get_yarn_session_detail(
                 "created_at": rq.created_at.isoformat() if rq.created_at else None,
             }
             for rq in requests
+        ],
+        "events": [
+            {
+                "id": ev.id,
+                "event_kind": ev.event_kind,
+                "component": ev.component,
+                "detail": ev.detail,
+                "request_id": ev.request_id,
+                "metadata_json": ev.metadata_json,
+                "created_at": ev.created_at.isoformat() if ev.created_at else None,
+            }
+            for ev in events
         ],
     }
 
@@ -535,4 +558,67 @@ async def get_yarn_safety_summary(
         "total_events": total,
         "by_kind": by_kind,
         "total_tokens_burned": int(total_tokens_burned),
+    }
+
+
+# ── Purge ─────────────────────────────────────────────────────────────────────
+
+
+async def purge_yarn_sessions(
+    older_than_days: int = 30,
+    session_key_prefix: str = "",
+    dry_run: bool = True,
+) -> dict:
+    """Delete sessions (and associated usage/events) older than a threshold.
+
+    Returns counts of rows that would be (or were) deleted.
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+    async with async_session() as session:
+        base = select(YarnSession.session_key).where(YarnSession.last_active_at < cutoff)
+        if session_key_prefix:
+            base = base.where(YarnSession.session_key.like(f"{session_key_prefix}%"))
+        result = await session.execute(base)
+        keys = [r[0] for r in result.all()]
+        if not keys:
+            return {"dry_run": dry_run, "sessions": 0, "usage_rows": 0, "events": 0}
+
+        usage_count_q = select(func.count()).select_from(
+            select(YarnUsageLog).where(YarnUsageLog.session_key.in_(keys)).subquery()
+        )
+        usage_count = (await session.execute(usage_count_q)).scalar() or 0
+
+        events_count_q = select(func.count()).select_from(
+            select(YarnSessionEvent).where(YarnSessionEvent.session_key.in_(keys)).subquery()
+        )
+        events_count = (await session.execute(events_count_q)).scalar() or 0
+
+        if dry_run:
+            return {
+                "dry_run": True,
+                "sessions": len(keys),
+                "usage_rows": int(usage_count),
+                "events": int(events_count),
+            }
+
+        await session.execute(
+            YarnSessionEvent.__table__.delete().where(YarnSessionEvent.session_key.in_(keys))
+        )
+        await session.execute(
+            YarnUsageLog.__table__.delete().where(YarnUsageLog.session_key.in_(keys))
+        )
+        await session.execute(
+            YarnSafetyEvent.__table__.delete().where(YarnSafetyEvent.session_key.in_(keys))
+        )
+        await session.execute(
+            YarnSession.__table__.delete().where(YarnSession.session_key.in_(keys))
+        )
+        await session.commit()
+
+    logger.info("purged_yarn_sessions older_than_days=%d sessions=%d", older_than_days, len(keys))
+    return {
+        "dry_run": False,
+        "sessions": len(keys),
+        "usage_rows": int(usage_count),
+        "events": int(events_count),
     }

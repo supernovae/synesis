@@ -21,11 +21,19 @@ function truncKey(key: string): string {
   return `${key.slice(0, 10)}…${key.slice(-6)}`;
 }
 
+const TIME_RANGES = [
+  { label: "24h", hours: 24 },
+  { label: "7d", hours: 168 },
+  { label: "30d", hours: 720 },
+  { label: "All", hours: 8760 },
+] as const;
+
 export default function YarnSessions() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
+  const [sinceHours, setSinceHours] = useState(168);
   const pageSize = 20;
-  const { data, isLoading, isError, error, isFetching } = useYarnSessions(page, pageSize);
+  const { data, isLoading, isError, error, isFetching } = useYarnSessions(page, pageSize, sinceHours);
 
   const sessions = data?.sessions ?? [];
   const total = data?.total ?? 0;
@@ -37,13 +45,32 @@ export default function YarnSessions() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-          Yarn Sessions
-        </h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Agent sessions aggregated from Yarn usage
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
+            Yarn Sessions
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Agent sessions aggregated from Yarn usage
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-lg border border-gray-200 p-0.5 dark:border-gray-700">
+          {TIME_RANGES.map((r) => (
+            <button
+              key={r.hours}
+              type="button"
+              onClick={() => { setSinceHours(r.hours); setPage(1); }}
+              className={clsx(
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                sinceHours === r.hours
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800",
+              )}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <ApiErrorBanner error={isError ? error : undefined} />
@@ -63,10 +90,10 @@ export default function YarnSessions() {
                       User
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      Session Key
+                      Client
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      Provider
+                      Conversation
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       Model
@@ -98,14 +125,14 @@ export default function YarnSessions() {
                         <td className="whitespace-nowrap px-4 py-3 text-gray-900 dark:text-gray-100">
                           {row.username || row.user_id || "—"}
                         </td>
-                        <td
-                          className="max-w-[200px] truncate px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300"
-                          title={row.session_key}
-                        >
-                          {truncKey(row.session_key)}
-                        </td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-300">
-                          {row.provider || "—"}
+                          {row.client_kind || "—"}
+                        </td>
+                        <td
+                          className="max-w-[160px] truncate px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300"
+                          title={row.conversation_id ?? undefined}
+                        >
+                          {row.conversation_id ? truncKey(row.conversation_id) : "—"}
                         </td>
                         <td
                           className="max-w-[160px] truncate px-4 py-3 text-gray-700 dark:text-gray-300"

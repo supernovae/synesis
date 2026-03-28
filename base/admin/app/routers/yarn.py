@@ -72,7 +72,7 @@ async def yarn_intelligence(
 async def yarn_sessions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    active_since_hours: int | None = Query(None, ge=1, le=720),
+    active_since_hours: int | None = Query(168, ge=1, le=8760),
     user: UserInfo = Depends(require_org_admin),
 ):
     scope_user_id, scope_org_id, _tenant_id = _scope(user)
@@ -232,6 +232,24 @@ async def yarn_verify(
 
     all_pass = all(c["status"] == "pass" for c in checks)
     return {"overall": "pass" if all_pass else "fail", "checks": checks}
+
+
+# ── Purge ─────────────────────────────────────────────────────────────────────
+
+
+@router.post("/sessions/purge")
+async def yarn_sessions_purge(
+    older_than_days: int = Query(30, ge=1, le=3650),
+    session_key_prefix: str = Query(""),
+    dry_run: bool = Query(True),
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Purge sessions (and usage/events) older than the given threshold."""
+    return await yarn_service.purge_yarn_sessions(
+        older_than_days=older_than_days,
+        session_key_prefix=session_key_prefix,
+        dry_run=dry_run,
+    )
 
 
 # ── Safety events ─────────────────────────────────────────────────────────────

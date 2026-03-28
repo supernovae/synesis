@@ -14,6 +14,7 @@ export interface SessionRecord {
   userId: string;
   orgId: string;
   conversationId: string;
+  clientKind: string;
   createdAt: number;
   lastActiveAt: number;
   totalTokensIn: number;

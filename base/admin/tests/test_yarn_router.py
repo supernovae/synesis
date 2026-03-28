@@ -320,6 +320,91 @@ def test_yarn_user_usage_any_authenticated_user(client, monkeypatch):
     mock_usage.assert_awaited_once_with("plain-user", since_hours=720)
 
 
+def test_yarn_sessions_list_passes_active_since_hours(client, monkeypatch):
+    mock_list = AsyncMock(return_value={"sessions": [], "total": 0})
+    monkeypatch.setattr("app.services.yarn_service.list_yarn_sessions", mock_list)
+    resp = client.get("/api/v1/yarn/sessions?active_since_hours=48")
+    assert resp.status_code == 200
+    kw = mock_list.await_args.kwargs
+    assert kw["active_since_hours"] == 48
+
+
+def test_yarn_sessions_list_defaults_to_168_hours(client, monkeypatch):
+    mock_list = AsyncMock(return_value={"sessions": [], "total": 0})
+    monkeypatch.setattr("app.services.yarn_service.list_yarn_sessions", mock_list)
+    resp = client.get("/api/v1/yarn/sessions")
+    assert resp.status_code == 200
+    kw = mock_list.await_args.kwargs
+    assert kw["active_since_hours"] == 168
+
+
+def test_yarn_session_detail_includes_events(client, monkeypatch):
+    detail = {
+        "session": {
+            "id": 1,
+            "session_key": "synesis:alice:claude-code:conv-1",
+            "user_id": "alice",
+            "org_id": "",
+            "username": "alice",
+            "role": "user",
+            "conversation_id": "conv-1",
+            "client_kind": "claude-code",
+            "provider": "deepinfra",
+            "model": "synesis-core",
+            "total_tokens_in": 100,
+            "total_tokens_out": 50,
+            "total_tokens_cached": 0,
+            "total_cost_usd": 0.05,
+            "request_count": 3,
+            "escalation_count": 0,
+            "created_at": "2026-03-28T00:00:00+00:00",
+            "last_active_at": "2026-03-28T01:00:00+00:00",
+        },
+        "requests": [],
+        "events": [
+            {
+                "id": 1,
+                "event_kind": "upstream_error",
+                "component": "generateText",
+                "detail": "502 Bad Gateway",
+                "request_id": "req-abc",
+                "metadata_json": None,
+                "created_at": "2026-03-28T00:30:00+00:00",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "app.services.yarn_service.get_yarn_session_detail",
+        AsyncMock(return_value=detail),
+    )
+    resp = client.get("/api/v1/yarn/sessions/synesis%3Aalice%3Aclaude-code%3Aconv-1")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "events" in body
+    assert len(body["events"]) == 1
+    assert body["events"][0]["event_kind"] == "upstream_error"
+    assert body["session"]["client_kind"] == "claude-code"
+
+
+def test_yarn_sessions_purge_dry_run(client, monkeypatch):
+    purge_result = {"dry_run": True, "sessions": 5, "usage_rows": 42, "events": 3}
+    monkeypatch.setattr(
+        "app.services.yarn_service.purge_yarn_sessions",
+        AsyncMock(return_value=purge_result),
+    )
+    resp = client.post("/api/v1/yarn/sessions/purge?older_than_days=30&dry_run=true")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["dry_run"] is True
+    assert body["sessions"] == 5
+
+
+def test_yarn_sessions_purge_requires_admin(client, monkeypatch):
+    _auth_ctx["user"] = _user(role="user")
+    resp = client.post("/api/v1/yarn/sessions/purge?older_than_days=30&dry_run=true")
+    assert resp.status_code == 403
+
+
 def test_yarn_rbac_blocks_regular_user_on_admin_routes(client, monkeypatch):
     _auth_ctx["user"] = _user(role="user")
     monkeypatch.setattr(

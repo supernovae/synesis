@@ -536,6 +536,7 @@ class YarnSession(Base):
     username: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     conversation_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    client_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="deepinfra")
     model: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     total_tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -582,6 +583,30 @@ class YarnUsageLog(Base):
         Index("ix_yarn_usage_org", "org_id"),
         Index("ix_yarn_usage_created", "created_at"),
         Index("ix_yarn_usage_provider", "provider"),
+        Index("ix_yarn_usage_request_id_unique", "request_id", unique=True),
+    )
+
+
+class YarnSessionEvent(Base):
+    __tablename__ = "yarn_session_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    component: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    detail: Mapped[str] = mapped_column(String(2048), nullable=False, default="")
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_yarn_session_events_session", "session_key"),
+        Index("ix_yarn_session_events_kind", "event_kind"),
+        Index("ix_yarn_session_events_created", "created_at"),
+        Index("ix_yarn_session_events_user", "user_id"),
     )
 
 

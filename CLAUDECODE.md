@@ -155,6 +155,35 @@ Adapter packs are listed at `GET /v1/adapter-packs`. They influence system
 prompt phrasing and policy behavior, not protocol shape — all clients speak
 either OpenAI chat completions or Anthropic Messages.
 
+## Session Scoping
+
+Yarn tracks per-conversation sessions to isolate state, usage, and cost across
+clients. Each session is keyed as `synesis:{userId}:{clientKind}:{conversationId}`.
+
+For Claude Code clients, Yarn resolves the conversation ID from these sources
+(first non-empty wins):
+
+1. `body.metadata.synesis_conversation_id`
+2. `body.metadata.conversation_id`
+3. `body.metadata.session_id`
+4. `x-synesis-conversation-id` header
+
+If none are provided, conversations for the same user and client share a single
+session. To get per-conversation isolation, pass a stable conversation identifier
+in your request metadata:
+
+```json
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 8192,
+  "metadata": { "synesis_conversation_id": "my-project-abc123" },
+  "messages": [...]
+}
+```
+
+Enable `SYNESIS_YARN_DEBUG_PROTOCOL=true` on the Yarn deployment to log which
+source resolved the conversation ID for each request.
+
 ## Debugging
 
 Set `SYNESIS_YARN_DEBUG_PROTOCOL=true` to emit structured protocol logs for

@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { clsx } from "clsx";
-import { useYarnSessionDetail, type YarnSessionRequestRow } from "../../api/hooks";
+import { useYarnSessionDetail, type YarnSessionRequestRow, type YarnSessionEventRow } from "../../api/hooks";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
@@ -78,6 +78,22 @@ export default function YarnSessionDetail() {
                 </dt>
                 <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                   {data.session.role || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Client
+                </dt>
+                <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                  {data.session.client_kind || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Conversation
+                </dt>
+                <dd className="mt-1 break-all font-mono text-xs text-gray-900 dark:text-gray-100">
+                  {data.session.conversation_id || "—"}
                 </dd>
               </div>
               <div>
@@ -219,6 +235,54 @@ export default function YarnSessionDetail() {
               </div>
             )}
           </div>
+
+          {data.events && data.events.length > 0 && (
+            <div>
+              <h2 className="mb-3 text-lg font-medium text-gray-900 dark:text-white">
+                Events
+              </h2>
+              <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-800">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Kind
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Component
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Detail
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Time
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-950">
+                      {data.events.map((ev: YarnSessionEventRow) => (
+                        <tr key={ev.id}>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-red-600 dark:text-red-400">
+                            {ev.event_kind}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-300">
+                            {ev.component || "—"}
+                          </td>
+                          <td className="max-w-[400px] truncate px-4 py-3 text-gray-600 dark:text-gray-400" title={ev.detail}>
+                            {ev.detail || "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right text-gray-600 dark:text-gray-400">
+                            {ev.created_at ? new Date(ev.created_at).toLocaleString() : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
