@@ -48,7 +48,6 @@ const breadcrumbLabels: Record<string, string> = {
   "authz-tuples": "FGA Tuples",
   "authz-checker": "Auth Debugger",
   settings: "Settings",
-  "provider-keys": "Provider Keys",
   "infra-costs": "Infrastructure Costs",
   audit: "Audit trail",
   assistant: "Assistant",

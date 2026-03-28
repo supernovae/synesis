@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import PageShell from "./components/layout/PageShell";
 import RequireRole from "./components/auth/RequireRole";
 
@@ -57,7 +57,6 @@ const ErrorDetail = lazy(() => import("./pages/observability/ErrorDetail"));
 
 const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
 const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
-const ProviderKeys = lazy(() => import("./pages/settings/ProviderKeys"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
 const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
 const ApiExplorer = lazy(() => import("./pages/settings/ApiExplorer"));
@@ -165,7 +164,10 @@ export const router = createBrowserRouter([
 
       { path: "assistant", element: <AdminAssistant /> },
       { path: "settings", element: <SystemConfig /> },
-      { path: "settings/provider-keys", element: <ProviderKeys /> },
+      {
+        path: "settings/provider-keys",
+        element: <Navigate to="/models/providers#provider-api-keys" replace />,
+      },
       { path: "settings/infra-costs", element: <InfraCosts /> },
       { path: "settings/audit", element: <AuditLog /> },
       { path: "settings/api-docs", element: <ApiExplorer /> },

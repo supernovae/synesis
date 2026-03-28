@@ -124,39 +124,96 @@ def _custom_row_to_provider(r: ProviderConfig) -> dict:
     }
 
 
+def _attach_api_key_configured(entry: dict, configured_key_names: set[str]) -> None:
+    env = (entry.get("api_key_env") or "").strip()
+    if not env:
+        entry["api_key_configured"] = None
+    else:
+        entry["api_key_configured"] = env in configured_key_names
+
+
+async def _configured_secret_key_names() -> set[str]:
+    """Return K8s secret data keys (env var names). Empty if unavailable (e.g. local dev)."""
+    try:
+        from ..routers import providers as providers_mod
+
+        secret = await providers_mod._get_secret()
+    except HTTPException:
+        logger.info("provider_secret_unavailable — governance list omits key overlay")
+        return set()
+    except Exception:
+        logger.warning("provider_secret_read_failed", exc_info=True)
+        return set()
+    if not secret or not secret.get("data"):
+        return set()
+    return set(secret["data"].keys())
+
+
 @router.get("")
 async def list_provider_configs(_user: UserInfo = Depends(get_current_user)):
-    """Return all providers (catalog + custom) with their governance config overlay."""
+    """Return all providers (catalog + custom) with governance overlay and cluster key status.
+
+    This is the admin SPA's single read for: provider policy, Model Registry picklist
+    (via enabled filter), and provider API key presence (never values). ``roles`` matches
+    ``GET /providers/catalog``; ``provider_secret_keys`` matches ``GET /providers/keys``.
+    """
     catalog = get_catalog()
     configs = await _get_all_configs()
     rows_by_key = await _get_all_config_rows()
+    configured_key_names = await _configured_secret_key_names()
 
     providers = []
     for key, info in catalog["providers"].items():
         cfg = configs.get(key, {})
         row = rows_by_key.get(key)
-        providers.append(
-            {
-                **info,
-                "is_custom": False,
-                "default_endpoint": _effective_default_endpoint(row, key),
-                "config": cfg if cfg else None,
-                "enabled": cfg.get("enabled", True),
-                "default_max_tokens": cfg.get("default_max_tokens", 8192),
-                "default_temperature": cfg.get("default_temperature", 0.1),
-                "allowed_roles": cfg.get("allowed_roles"),
-                "policies": cfg.get("policies"),
-                "notes": cfg.get("notes", ""),
-                "config_updated_at": cfg.get("updated_at"),
-            }
-        )
+        entry = {
+            **info,
+            "is_custom": False,
+            "default_endpoint": _effective_default_endpoint(row, key),
+            "config": cfg if cfg else None,
+            "enabled": cfg.get("enabled", True),
+            "default_max_tokens": cfg.get("default_max_tokens", 8192),
+            "default_temperature": cfg.get("default_temperature", 0.1),
+            "allowed_roles": cfg.get("allowed_roles"),
+            "policies": cfg.get("policies"),
+            "notes": cfg.get("notes", ""),
+            "config_updated_at": cfg.get("updated_at"),
+        }
+        _attach_api_key_configured(entry, configured_key_names)
+        providers.append(entry)
 
     custom_rows = await _get_custom_rows()
     for r in custom_rows:
         if r.provider_key not in catalog["providers"]:
-            providers.append(_custom_row_to_provider(r))
+            prov = _custom_row_to_provider(r)
+            _attach_api_key_configured(prov, configured_key_names)
+            providers.append(prov)
 
-    return {"providers": providers}
+    from ..routers.providers import KNOWN_PROVIDERS
+
+    all_key_names = set(KNOWN_PROVIDERS.keys()) | configured_key_names
+    provider_secret_keys = [
+        {
+            "name": n,
+            "provider": KNOWN_PROVIDERS.get(n, "Custom"),
+            "configured": n in configured_key_names,
+        }
+        for n in sorted(all_key_names)
+    ]
+    env_labels: dict[str, str] = {}
+    for p in providers:
+        env = (p.get("api_key_env") or "").strip()
+        if env and env not in env_labels:
+            env_labels[env] = p.get("label", "Custom")
+    for row in provider_secret_keys:
+        if row["provider"] == "Custom" and row["name"] in env_labels:
+            row["provider"] = env_labels[row["name"]]
+
+    return {
+        "providers": providers,
+        "roles": catalog["roles"],
+        "provider_secret_keys": provider_secret_keys,
+    }
 
 
 @router.get("/{provider_key}")

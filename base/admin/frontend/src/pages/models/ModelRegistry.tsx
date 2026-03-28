@@ -7,13 +7,12 @@ import {
   useDeactivateRole,
   useSyncModelsFromYaml,
   useReconcileModels,
-  useProviderKeys,
-  useProviderCatalog,
+  useProviderGovernance,
+  buildCatalogFromGovernance,
   usePipelineServices,
   useDiscoverModels,
   useProviderDefaults,
 } from "../../api/hooks";
-import type { ProviderKeyStatus } from "../../api/hooks";
 import type { ModelDeployment, ProviderInfo, DiscoveredModel } from "../../types";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
@@ -103,16 +102,25 @@ export default function ModelRegistry() {
   const syncYaml = useSyncModelsFromYaml();
   const reconcileMut = useReconcileModels();
 
-  const { data: catalogData } = useProviderCatalog();
-  const { data: providerKeysData } = useProviderKeys();
+  const { data: govData } = useProviderGovernance();
+  const catalogData = useMemo(
+    () => (govData ? buildCatalogFromGovernance(govData) : undefined),
+    [govData],
+  );
+  const configuredKeys = useMemo(
+    () =>
+      new Set(
+        (govData?.provider_secret_keys ?? [])
+          .filter((k) => k.configured)
+          .map((k) => k.name),
+      ),
+    [govData?.provider_secret_keys],
+  );
   const { data: pipelineServices } = usePipelineServices();
 
   const [editing, setEditing] = useState<EditState | null>(null);
 
   const providers = catalogData?.providers ?? {};
-  const configuredKeys = new Set(
-    (providerKeysData ?? []).filter((k: ProviderKeyStatus) => k.configured).map((k) => k.name),
-  );
 
   const roles: ModelDeployment[] = data?.roles ?? [];
   const assigned = roles.filter((r) => r.assigned);
@@ -140,7 +148,7 @@ export default function ModelRegistry() {
       if (editing.provider === "custom") {
         if (
           !window.confirm(
-            "This API key env var is not set under Settings → Provider API Keys. LiteLLM will fail until the key exists in the cluster secret. Continue saving?",
+            "This API key env var is not set under Models → Providers → Provider API keys. LiteLLM will fail until the key exists in the cluster secret. Continue saving?",
           )
         ) {
           return;
@@ -535,8 +543,11 @@ function EditModal({
                 <p className="font-medium">Set the provider key before saving</p>
                 <p className="text-amber-800/95 dark:text-amber-300/95">
                   Configure <code className="rounded bg-amber-100/80 px-1 font-mono dark:bg-amber-900/50">{keyEnv}</code> under{" "}
-                  <Link to="/settings/provider-keys" className="font-medium underline hover:text-amber-950 dark:hover:text-amber-100">
-                    Settings → Provider API Keys
+                  <Link
+                    to="/models/providers#provider-api-keys"
+                    className="font-medium underline hover:text-amber-950 dark:hover:text-amber-100"
+                  >
+                    Models → Providers → API keys
                   </Link>
                   . This dialog only maps roles to models; secrets stay in the cluster secret.
                 </p>
@@ -640,8 +651,11 @@ function EditModal({
               ) : (
                 <span className="ml-2 text-amber-600 dark:text-amber-400">
                   (not set —{" "}
-                  <Link to="/settings/provider-keys" className="underline hover:text-amber-700 dark:hover:text-amber-300">
-                    add in Provider API Keys
+                  <Link
+                    to="/models/providers#provider-api-keys"
+                    className="underline hover:text-amber-700 dark:hover:text-amber-300"
+                  >
+                    add under Models → Providers
                   </Link>
                   )
                 </span>
@@ -725,7 +739,7 @@ function EditModal({
                     const p = providers[editing.provider];
                     const env = (editing.api_key_env || p?.api_key_env || "").trim();
                     if (env && editing.provider !== "custom" && !configuredKeys.has(env)) {
-                      return "Configure this key under Settings → Provider API Keys first";
+                      return "Configure this key under Models → Providers → Provider API keys first";
                     }
                     return undefined;
                   })()

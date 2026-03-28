@@ -1,14 +1,13 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import {
   useProviderGovernance,
   useUpdateProviderConfig,
   useResetProviderConfig,
   useCreateProvider,
   useDeleteProvider,
-  useProviderKeys,
 } from "../../api/hooks";
-import type { ProviderKeyStatus } from "../../api/hooks";
+import ProviderKeysPanel from "./ProviderKeysPanel";
 import type { ProviderConfig, ProviderConfigInfo } from "../../types";
 import {
   Cloud,
@@ -63,7 +62,7 @@ interface EditForm {
 
 export default function ProviderManagement() {
   const { data, isLoading } = useProviderGovernance();
-  const { data: providerKeysData } = useProviderKeys();
+  const location = useLocation();
   const updateMut = useUpdateProviderConfig();
   const resetMut = useResetProviderConfig();
   const createMut = useCreateProvider();
@@ -79,14 +78,18 @@ export default function ProviderManagement() {
     () => [...providersRaw].sort((a, b) => a.label.localeCompare(b.label)),
     [providersRaw],
   );
-  const configuredKeys = new Set(
-    (providerKeysData ?? []).filter((k: ProviderKeyStatus) => k.configured).map((k) => k.name),
-  );
+
+  useEffect(() => {
+    if (location.hash === "#provider-api-keys") {
+      document.getElementById("provider-api-keys")?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [location.hash, location.pathname]);
 
   const enabledCount = providers.filter((v) => v.enabled).length;
-  const keyReadyCount = providers.filter(
-    (v) => !v.is_local && v.api_key_env && configuredKeys.has(v.api_key_env),
-  ).length;
+  const keyReadyCount = providers.filter((v) => {
+    if (v.is_local || !v.api_key_env) return false;
+    return v.api_key_configured === true;
+  }).length;
 
   const openEdit = (v: ProviderConfigInfo) => {
     setEditingKey(v.key);
@@ -180,7 +183,8 @@ export default function ProviderManagement() {
             Provider Management
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Enable or disable providers, set default policies, and manage custom providers.
+            Enable or disable providers, set default policies, manage custom providers, and configure
+            cluster API keys (same data as the former Settings → Provider Keys page).
           </p>
         </div>
         <button
@@ -229,7 +233,10 @@ export default function ProviderManagement() {
               {providers.map((v) => {
                 const Icon = v.is_local ? Server : Cloud;
                 const keyEnv = v.api_key_env;
-                const keyOk = !keyEnv || configuredKeys.has(keyEnv);
+                const keyOk =
+                  !keyEnv ||
+                  v.api_key_configured === true ||
+                  v.api_key_configured === null;
                 const isCustomized = !!v.config;
                 return (
                   <tr key={v.key} className={!v.enabled ? "opacity-50" : ""}>
@@ -339,6 +346,16 @@ export default function ProviderManagement() {
           </table>
         </div>
       )}
+
+      <section id="provider-api-keys" className="scroll-mt-8 space-y-3">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Provider API keys</h2>
+        <p className="text-sm text-gray-500">
+          Keys live in the Kubernetes secret <code className="text-xs">provider-api-keys</code> in
+          the gateway namespace. This panel uses the same read path as the provider table
+          (GET /api/v1/provider-governance).
+        </p>
+        <ProviderKeysPanel governance={data} isLoading={isLoading} />
+      </section>
 
       {/* Edit modal */}
       {editingKey && editForm && (

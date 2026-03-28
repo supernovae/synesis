@@ -278,20 +278,57 @@ export function useUpdateFallbacks() {
   });
 }
 
-// --- Provider Keys ---
+// --- Provider Keys (writes) + unified governance read ---
 
+const PROVIDER_GOVERNANCE_QUERY_KEY = ["provider-governance"] as const;
+
+async function fetchProviderGovernance(): Promise<import("../types").ProviderGovernanceResponse> {
+  return client.get("/provider-governance").then((r) => r.data);
+}
+
+export function buildCatalogFromGovernance(data: import("../types").ProviderGovernanceResponse): {
+  providers: Record<string, import("../types").ProviderInfo>;
+  roles: import("../types").RoleInfo[];
+} {
+  const roles = data.roles ?? [];
+  const providers: Record<string, import("../types").ProviderInfo> = {};
+  for (const p of data.providers) {
+    if (!p.enabled) continue;
+    providers[p.key] = {
+      key: p.key,
+      label: p.label,
+      litellm_prefix: p.litellm_prefix,
+      api_key_env: p.api_key_env,
+      needs_endpoint: p.needs_endpoint,
+      placeholder: p.placeholder,
+      is_local: p.is_local,
+      supports_discovery: p.supports_discovery,
+      is_custom: p.is_custom,
+      default_endpoint: p.default_endpoint,
+      api_key_configured: p.api_key_configured,
+    };
+  }
+  return { providers, roles };
+}
+
+const providerGovernanceQueryOptions = {
+  queryKey: PROVIDER_GOVERNANCE_QUERY_KEY,
+  queryFn: fetchProviderGovernance,
+  refetchInterval: 30_000,
+} as const;
+
+/** @deprecated Prefer fields on useProviderGovernance(); kept for shape parity with cluster secret rows */
 export interface ProviderKeyStatus {
   name: string;
   configured: boolean;
-  /** Display label from catalog; optional for legacy keys */
   provider?: string;
 }
 
+/** Derived from the same cache as useProviderGovernance (GET /provider-governance). */
 export function useProviderKeys() {
-  return useQuery<ProviderKeyStatus[]>({
-    queryKey: ["providers", "keys"],
-    queryFn: () => client.get("/providers/keys").then((r) => r.data.keys ?? r.data),
-    staleTime: 30_000,
+  return useQuery({
+    ...providerGovernanceQueryOptions,
+    select: (d: import("../types").ProviderGovernanceResponse) => d.provider_secret_keys ?? [],
   });
 }
 
@@ -301,7 +338,7 @@ export function useSetProviderKey() {
     mutationFn: ({ name, value }: { name: string; value: string }) =>
       client.put(`/providers/keys/${name}`, { value }).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["providers", "keys"] });
+      qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
@@ -314,7 +351,7 @@ export function useDeleteProviderKey() {
     mutationFn: (name: string) =>
       client.delete(`/providers/keys/${name}`).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["providers", "keys"] });
+      qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
@@ -373,13 +410,9 @@ export function useRoleHistory(role: string) {
 }
 
 export function useProviderCatalog() {
-  return useQuery<{
-    providers: Record<string, import("../types").ProviderInfo>;
-    roles: import("../types").RoleInfo[];
-  }>({
-    queryKey: ["providers", "catalog"],
-    queryFn: () => client.get("/providers/catalog").then((r) => r.data),
-    staleTime: 5 * 60_000,
+  return useQuery({
+    ...providerGovernanceQueryOptions,
+    select: buildCatalogFromGovernance,
   });
 }
 
@@ -419,11 +452,7 @@ export function useValidateModel() {
 // --- Provider Governance ---
 
 export function useProviderGovernance() {
-  return useQuery<{ providers: import("../types").ProviderConfigInfo[] }>({
-    queryKey: ["provider-governance"],
-    queryFn: () => client.get("/provider-governance").then((r) => r.data),
-    refetchInterval: 30_000,
-  });
+  return useQuery<import("../types").ProviderGovernanceResponse>(providerGovernanceQueryOptions);
 }
 
 export function useUpdateProviderConfig() {
@@ -432,8 +461,7 @@ export function useUpdateProviderConfig() {
     mutationFn: ({ providerKey, ...data }: { providerKey: string } & Partial<import("../types").ProviderConfig>) =>
       client.put(`/provider-governance/${providerKey}`, data).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["provider-governance"] });
-      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
@@ -445,8 +473,7 @@ export function useResetProviderConfig() {
     mutationFn: (providerKey: string) =>
       client.delete(`/provider-governance/${providerKey}`).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["provider-governance"] });
-      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
@@ -467,8 +494,7 @@ export function useCreateProvider() {
       enabled?: boolean;
     }) => client.post("/provider-governance", data).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["provider-governance"] });
-      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
@@ -480,8 +506,7 @@ export function useDeleteProvider() {
     mutationFn: (providerKey: string) =>
       client.delete(`/provider-governance/${providerKey}`).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["provider-governance"] });
-      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });

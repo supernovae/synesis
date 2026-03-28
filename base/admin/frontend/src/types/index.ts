@@ -124,6 +124,8 @@ export interface ProviderInfo {
   default_endpoint?: string;
   /** Present on custom providers merged into GET /providers/catalog */
   is_custom?: boolean;
+  /** From GET /provider-governance: whether cluster secret contains api_key_env (null = no key required). */
+  api_key_configured?: boolean | null;
 }
 
 export interface DiscoveredModel {
@@ -204,6 +206,20 @@ export interface ProviderConfigInfo extends ProviderInfo {
   policies: Record<string, unknown> | null;
   notes: string;
   config_updated_at: string | null;
+}
+
+/** Full payload from GET /api/v1/provider-governance (admin SPA canonical provider read). */
+export interface ProviderGovernanceResponse {
+  providers: ProviderConfigInfo[];
+  roles: RoleInfo[];
+  provider_secret_keys: ProviderSecretKeyRow[];
+}
+
+export interface ProviderSecretKeyRow {
+  name: string;
+  configured: boolean;
+  /** Display label from catalog or custom provider */
+  provider?: string;
 }
 
 // ServingEndpointEntry and ServingHealthCheck removed — serving is now a
