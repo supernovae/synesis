@@ -18,9 +18,13 @@ export default function RequireRole({ children, role }: Props) {
   useEffect(() => {
     if (!loading && !isAuthenticated && oidcEnabled && !redirecting.current) {
       redirecting.current = true;
+      const current = location.pathname + location.search;
+      if (current && current !== "/login" && current !== "/callback") {
+        sessionStorage.setItem("synesis_return_to", current);
+      }
       loginWithOidc();
     }
-  }, [loading, isAuthenticated, oidcEnabled, loginWithOidc]);
+  }, [loading, isAuthenticated, oidcEnabled, loginWithOidc, location]);
 
   if (loading) {
     return null;

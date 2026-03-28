@@ -74,7 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Schedule a silent refresh at 75% of token lifetime.
+  // Proactively refresh the access token before it expires.
+  // If the token is already nearly expired (< 60s), refresh immediately.
+  // Otherwise refresh at 75% of remaining lifetime.
   const scheduleRefresh = useCallback(() => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
@@ -83,10 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!expiresAt || !refreshToken) return;
 
     const remaining = expiresAt - Date.now();
-    // Refresh at 75% of remaining lifetime, minimum 30 seconds.
-    const delay = Math.max(remaining * 0.75, 30_000);
+    // If less than 60 seconds remain, refresh now; otherwise at 75% of remaining
+    const delay = remaining < 60_000 ? 0 : remaining * 0.75;
 
-    refreshTimerRef.current = setTimeout(async () => {
+    const doRefresh = async () => {
       try {
         const { data } = await axios.post<{
           access_token: string;
@@ -105,9 +107,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuth((prev) => ({ ...prev, token: data.access_token }));
         scheduleRefresh();
       } catch {
-        // Refresh failed — user will be redirected on next 401.
+        // Retry once after 10 seconds before giving up
+        refreshTimerRef.current = setTimeout(async () => {
+          try {
+            const rt = localStorage.getItem(REFRESH_KEY);
+            if (!rt) return;
+            const { data } = await axios.post<{
+              access_token: string;
+              refresh_token?: string;
+              expires_in?: number;
+              id_token?: string;
+            }>("/api/v1/auth/oauth/refresh", { refresh_token: rt });
+            persistTokens(
+              data.access_token,
+              data.refresh_token,
+              data.expires_in,
+              data.id_token,
+            );
+            setAuth((prev) => ({ ...prev, token: data.access_token }));
+            scheduleRefresh();
+          } catch {
+            // Give up — user will be redirected on next 401
+          }
+        }, 10_000);
       }
-    }, delay);
+    };
+
+    if (delay === 0) {
+      void doRefresh();
+    } else {
+      refreshTimerRef.current = setTimeout(doRefresh, delay);
+    }
   }, []);
 
   useEffect(() => {

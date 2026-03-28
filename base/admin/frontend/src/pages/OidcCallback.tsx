@@ -99,7 +99,9 @@ export default function OidcCallback() {
 
         localStorage.setItem("synesis_user", JSON.stringify(userInfo));
 
-        window.location.replace("/");
+        const returnTo = sessionStorage.getItem("synesis_return_to") || "/";
+        sessionStorage.removeItem("synesis_return_to");
+        window.location.replace(returnTo);
       } catch (err) {
         console.error("OIDC code exchange failed:", err);
         exchangeStarted.current = false;

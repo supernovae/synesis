@@ -86,6 +86,11 @@ client.interceptors.response.use(
     localStorage.removeItem("synesis_refresh_token");
     localStorage.removeItem("synesis_token_expires_at");
     localStorage.removeItem("synesis_user");
+    // Preserve the current path so the user returns here after re-auth
+    const current = window.location.pathname + window.location.search;
+    if (current && current !== "/login" && current !== "/callback") {
+      sessionStorage.setItem("synesis_return_to", current);
+    }
     window.location.href = "/login";
     return Promise.reject(error);
   },
