@@ -241,7 +241,9 @@ export async function chatCompletionStream(
                   : undefined;
 
             if (content) contentParts.push(content);
-            if (content || rc) onDelta({ content, reasoning_content: rc });
+            if (content || rc) {
+              try { onDelta({ content, reasoning_content: rc }); } catch { /* write to closed stream */ }
+            }
           }
         }
 

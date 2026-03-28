@@ -35,6 +35,7 @@ import { optimizeContext } from "./optimization/context-optimizer.js";
 import {
   endSse,
   initSse,
+  isSseWritable,
   writeContentDelta,
   writeReasoningDelta,
   writeFinalChunk,
@@ -86,6 +87,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
   void pricingRegistry.start().then(() => {
     const defaultRates = pricingRegistry.getRates("synesis-general");
     setPricingContext(defaultRates, pricingRegistry.getCachedMultiplier());
+  }).catch((err) => {
+    app.log.warn({ err }, "pricing registry startup failed (non-fatal)");
   });
 
   if (config.SYNESIS_EMBEDDER_URL) {
@@ -765,7 +768,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
       try {
         const writerDeltaHandler = (delta: import("./llm/client.js").StreamDelta) => {
-          if (reply.raw.writableEnded) return;
+          if (!isSseWritable(reply.raw)) return;
           if (!firstTokenAt && (delta.content || delta.reasoning_content)) {
             firstTokenAt = Date.now();
           }
@@ -794,7 +797,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           finalState = directState;
         } else {
           for await (const event of streamGraph(initialState, writerDeltaHandler)) {
-            if (reply.raw.writableEnded) break;
+            if (!isSseWritable(reply.raw)) break;
             finalState = event.state;
 
             if (event.node !== "respond") {
@@ -838,7 +841,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           { authzTraceId, error: streamingError.message },
           "streaming graph execution failed",
         );
-        if (!reply.raw.writableEnded) {
+        if (isSseWritable(reply.raw)) {
           writeContentDelta(reply.raw, {
             id: completionId,
             created,
@@ -855,7 +858,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         mode: "streaming",
         timeToFirstTokenMs: firstTokenAt ? firstTokenAt - streamReqStart : undefined,
       });
-      if (!reply.raw.writableEnded) {
+      if (isSseWritable(reply.raw)) {
         writeFinalChunk(reply.raw, {
           id: completionId,
           created,
@@ -904,6 +907,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
         error: rawMessage,
       };
       emitTrace(errorTrace, traceEmitterConfig, app.log);
+      if (reply.raw.headersSent) {
+        endSse(reply.raw);
+        return reply;
+      }
       const clientMessage = sanitizeErrorMessage(rawMessage);
       return reply.code(statusCode).send({
         error: {

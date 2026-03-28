@@ -142,7 +142,7 @@ class OpenFgaStubAuthorizationPolicyEngine implements AuthorizationPolicyEngine 
     this.stats.rejectedCount += 1;
     const decision = {
       allow: false,
-      rejectReason: `Authz engine '${this.engineName}' is not configured yet for ${resource}:${action}`,
+      rejectReason: "Authorization policy engine is not configured yet",
       matchedRules: ["deny_engine_not_configured"]
     };
     this.stats.recentEvents.push({

@@ -7,6 +7,10 @@ export interface StatusEventPayload {
   authz_trace_id?: string;
 }
 
+export function isSseWritable(response: ServerResponse): boolean {
+  return !response.writableEnded && !response.destroyed;
+}
+
 export function initSse(response: ServerResponse): void {
   response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   response.setHeader("Cache-Control", "no-cache, no-transform");
@@ -14,8 +18,12 @@ export function initSse(response: ServerResponse): void {
   response.flushHeaders();
 }
 
-export function writeSseData(response: ServerResponse, payload: unknown): void {
-  response.write(`data: ${JSON.stringify(payload)}\n\n`);
+export function writeSseData(response: ServerResponse, payload: unknown): boolean {
+  try {
+    if (!isSseWritable(response)) return false;
+    response.write(`data: ${JSON.stringify(payload)}\n\n`);
+    return true;
+  } catch { return false; }
 }
 
 export function writeStatusEvent(response: ServerResponse, payload: StatusEventPayload): void {
@@ -98,6 +106,9 @@ export function writeFinalChunk(
 }
 
 export function endSse(response: ServerResponse): void {
-  response.write("data: [DONE]\n\n");
-  response.end();
+  try {
+    if (!isSseWritable(response)) return;
+    response.write("data: [DONE]\n\n");
+    response.end();
+  } catch { /* client already gone */ }
 }
