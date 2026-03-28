@@ -24,7 +24,7 @@ import type { DecisionEntry } from "./contracts/schemas.js";
 import type { GraphState } from "./state/types.js";
 import { SpanCollector } from "./tracing/span-collector.js";
 import { loadConfig } from "./config.js";
-import { writerBudgetSpanMetadata } from "./budgets.js";
+import { budgetSpanMetadata } from "./budgets.js";
 import { maybePublishKnowledgeGap } from "./knowledge-backlog.js";
 
 let _retrievalClient: RetrievalClient | undefined;
@@ -203,7 +203,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     process.stderr.write(JSON.stringify({ level: 40, msg: "llmDrivenPlanner failed, falling back to deterministic", error: detail, time: Date.now() }) + "\n");
-    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail, max_tokens: loadConfig().SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS } });
+    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail, ...budgetSpanMetadata(loadConfig().SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, undefined) } });
     return deterministicPlanner(state);
   }
   const { result, clarification } = plannerResult;
@@ -217,10 +217,10 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
       tokens_used: result.usage?.total_tokens ?? 0,
       llm_calls: llmCall ? [llmCall] : [],
       metadata: {
-        max_tokens: plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
         open_questions: result.plan.open_questions,
         assumptions: result.plan.assumptions,
         clarification_question: clarification.question,
+        ...budgetSpanMetadata(plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, result.usage),
       },
     });
     const planned = ensureForwarded({
@@ -254,10 +254,10 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
     tokens_used: result.usage?.total_tokens ?? 0,
     llm_calls: llmCall ? [llmCall] : [],
     metadata: {
-      max_tokens: plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
       steps_count: result.plan.steps.length,
       open_questions: result.plan.open_questions,
       assumptions: result.plan.assumptions,
+      ...budgetSpanMetadata(plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, result.usage),
     },
   });
   const feedback = state.plan_gate_feedback ? `\nFeedback: ${state.plan_gate_feedback}` : "";
@@ -387,7 +387,7 @@ async function writerNodeCore(state: GraphState): Promise<GraphState> {
     metadata: {
       content_length: result.content.length,
       evidence_packets_used: (state.evidence_packets ?? []).length,
-      ...writerBudgetSpanMetadata(
+      ...budgetSpanMetadata(
         state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
         result.usage,
       ),
@@ -419,7 +419,7 @@ async function writerNodeStreamingCore(
     metadata: {
       content_length: result.content.length,
       evidence_packets_used: (state.evidence_packets ?? []).length,
-      ...writerBudgetSpanMetadata(
+      ...budgetSpanMetadata(
         state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
         result.usage,
       ),
@@ -471,7 +471,7 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
       violations: allViolations.length,
       routed_to: routed,
       iteration,
-      ...writerBudgetSpanMetadata(
+      ...budgetSpanMetadata(
         state.critic_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE,
         criticResult.usage,
       ),
@@ -633,7 +633,7 @@ export async function directStreamPipeline(
     outcome: "direct_stream_complete",
     tokens_used: result.usage?.total_tokens ?? 0,
     metadata: {
-      ...writerBudgetSpanMetadata(
+      ...budgetSpanMetadata(
         state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
         result.usage,
       ),

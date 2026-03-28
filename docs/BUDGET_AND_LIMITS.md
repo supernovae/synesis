@@ -42,7 +42,21 @@ Pure scaling lives in [`base/planner-ts/src/budgets.ts`](../base/planner-ts/src/
 | `SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS` | 1,200 | LLM JSON plan output |
 | `SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS` | 300,000 | LLM HTTP timeout (ms) |
 
-**Trace metadata** (see [`pipeline.ts`](../base/planner-ts/src/pipeline.ts)): `entry_pipeline` records `writer_max_tokens`, `critic_max_tokens`, `task_is_trivial`, `model_tier`; `writer` and `critic` spans add `max_output_tokens`, token usage fields, and `budget_utilization` when applicable; LLM `planner` spans include `max_tokens` for the planner call.
+**Trace metadata** (see [`pipeline.ts`](../base/planner-ts/src/pipeline.ts), [`budgets.ts`](../base/planner-ts/src/budgets.ts) `budgetSpanMetadata`):
+
+Every LLM-calling span (`writer`, `critic`, `planner`) emits a uniform set of budget fields via `budgetSpanMetadata(maxOutputTokens, usage)`:
+
+| Field | Type | Description |
+|---|---|---|
+| `max_output_tokens` | `number` | Generation cap sent to the LLM for this span |
+| `prompt_tokens` | `number` | Prompt tokens consumed (from usage) |
+| `completion_tokens` | `number` | Completion tokens generated |
+| `total_tokens` | `number` | Total tokens (prompt + completion) |
+| `budget_utilization` | `number?` | `completion_tokens / max_output_tokens` (omitted when cap is 0) |
+
+Additionally, `entry_pipeline` records `writer_max_tokens`, `critic_max_tokens`, `difficulty`, `task_is_trivial`, and `model_tier` so resolved caps are visible immediately after classification.
+
+Use `budget_utilization` to detect under-use (wasted headroom) or near-saturation (possible truncation). Filter spans with `jq '.metadata.budget_utilization > 0.9'` to find truncation-risk calls.
 
 **LiteLLM:** Each request’s effective generation limit is the minimum of the **LiteLLM route** `max_tokens` (from admin Model Registry / static gateway config) and the **provider** limit. Planner-ts still sends `max_tokens` on each node; the gateway may clamp further.
 

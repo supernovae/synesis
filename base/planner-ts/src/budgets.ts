@@ -43,8 +43,11 @@ export function budgetUtilization(completionTokens: number, maxOutputTokens: num
   return Number((completionTokens / maxOutputTokens).toFixed(4));
 }
 
-/** Metadata merged into writer/critic span `metadata` for budget observability. */
-export function writerBudgetSpanMetadata(
+/**
+ * Budget + usage metadata for any LLM-calling span (writer, critic, planner, router).
+ * Merged into `endSpan({ metadata })` so operators can correlate budget caps with actual usage.
+ */
+export function budgetSpanMetadata(
   maxOutputTokens: number,
   usage: LlmUsage | undefined,
 ): Record<string, unknown> {
@@ -59,3 +62,6 @@ export function writerBudgetSpanMetadata(
     ...(util !== undefined ? { budget_utilization: util } : {}),
   };
 }
+
+/** @deprecated Use `budgetSpanMetadata` — renamed for clarity since it applies to all LLM spans. */
+export const writerBudgetSpanMetadata = budgetSpanMetadata;

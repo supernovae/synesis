@@ -3,6 +3,9 @@ import {
   clampBudgetToTierCeiling,
   computeScaledCriticBudget,
   computeScaledWriterBudget,
+  budgetSpanMetadata,
+  budgetUtilization,
+  writerBudgetSpanMetadata,
 } from "../src/budgets.js";
 import { loadConfig } from "../src/config.js";
 
@@ -30,5 +33,54 @@ describe("budget scaling (parity with Python config defaults)", () => {
   it("clamps scaled budget to tier ceiling", () => {
     expect(clampBudgetToTierCeiling(50000, 8192)).toBe(8192);
     expect(clampBudgetToTierCeiling(1000, 8192)).toBe(1000);
+  });
+});
+
+describe("budgetSpanMetadata", () => {
+  it("returns token breakdown and utilization", () => {
+    const meta = budgetSpanMetadata(4096, {
+      prompt_tokens: 200,
+      completion_tokens: 1000,
+      total_tokens: 1200,
+      cached_prompt_tokens: 0,
+      estimated_cost_usd: 0,
+      actual_cost_usd: 0,
+    });
+    expect(meta).toEqual({
+      max_output_tokens: 4096,
+      prompt_tokens: 200,
+      completion_tokens: 1000,
+      total_tokens: 1200,
+      budget_utilization: 0.2441,
+    });
+  });
+
+  it("handles zero budget without utilization", () => {
+    const meta = budgetSpanMetadata(0, { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cached_prompt_tokens: 0, estimated_cost_usd: 0, actual_cost_usd: 0 });
+    expect(meta.budget_utilization).toBeUndefined();
+    expect(meta.max_output_tokens).toBe(0);
+  });
+
+  it("handles undefined usage", () => {
+    const meta = budgetSpanMetadata(1024, undefined);
+    expect(meta.prompt_tokens).toBe(0);
+    expect(meta.completion_tokens).toBe(0);
+    expect(meta.total_tokens).toBe(0);
+    expect(meta.budget_utilization).toBe(0);
+  });
+
+  it("writerBudgetSpanMetadata is an alias for budgetSpanMetadata", () => {
+    expect(writerBudgetSpanMetadata).toBe(budgetSpanMetadata);
+  });
+});
+
+describe("budgetUtilization", () => {
+  it("returns ratio of completion to budget", () => {
+    expect(budgetUtilization(500, 1000)).toBe(0.5);
+    expect(budgetUtilization(1000, 1000)).toBe(1);
+  });
+
+  it("returns undefined for zero budget", () => {
+    expect(budgetUtilization(100, 0)).toBeUndefined();
   });
 });
