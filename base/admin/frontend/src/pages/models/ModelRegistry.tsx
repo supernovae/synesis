@@ -40,6 +40,23 @@ const SOURCE_ICON: Record<string, typeof Cloud> = {
   azure: Cloud, vllm: Server, kserve: Server, custom: Cloud,
 };
 
+/** Whether the Assign/Change model dialog should show the OpenAI-compatible base URL field. */
+function showEndpointUrlField(providerKey: string, p?: ProviderInfo): boolean {
+  const hardcoded =
+    providerKey === "vllm" ||
+    providerKey === "kserve" ||
+    providerKey === "custom" ||
+    providerKey === "azure";
+  // DashScope: always offer URL so operators can pick intl vs US or a proxy (defaults still apply if empty).
+  if (providerKey === "dashscope" || providerKey === "dashscope-us") return true;
+  if (!p) return hardcoded;
+  if (p.needs_endpoint === true) return true;
+  if (p.needs_endpoint === false) return false;
+  // Custom providers from DB: show unless explicitly needs_endpoint=false
+  if (p.is_custom === true && p.needs_endpoint !== false) return true;
+  return hardcoded;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
   activating: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
@@ -585,12 +602,19 @@ function EditModal({
             )}
           </div>
 
-          {(providers[editing.provider]?.needs_endpoint ?? (editing.provider === "vllm" || editing.provider === "kserve" || editing.provider === "custom" || editing.provider === "azure")) && (
+          {showEndpointUrlField(editing.provider, providers[editing.provider]) && (
             <Field
-              label="Endpoint URL"
+              label="Endpoint URL (OpenAI-compatible base)"
               value={editing.endpoint}
               onChange={(v) => setEditing({ ...editing, endpoint: v })}
-              placeholder="http://model-service.namespace.svc:8080/v1"
+              placeholder={
+                editing.provider === "dashscope"
+                  ? "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                  : editing.provider === "dashscope-us"
+                    ? "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+                    : "http://model-service.namespace.svc:8080/v1"
+              }
+              hint="Leave blank to use the provider default from the catalog, if any. Required for vLLM, KServe, and Custom."
             />
           )}
 

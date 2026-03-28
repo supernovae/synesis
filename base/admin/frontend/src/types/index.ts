@@ -120,6 +120,8 @@ export interface ProviderInfo {
   placeholder: string;
   is_local: boolean;
   supports_discovery: boolean;
+  /** Present on custom providers merged into GET /providers/catalog */
+  is_custom?: boolean;
 }
 
 export interface DiscoveredModel {

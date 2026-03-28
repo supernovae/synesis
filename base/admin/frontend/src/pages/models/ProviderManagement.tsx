@@ -546,7 +546,7 @@ export default function ProviderManagement() {
                   className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
                 />
               </div>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -568,6 +568,11 @@ export default function ProviderManagement() {
                   <span className="text-gray-700 dark:text-gray-300">Local</span>
                 </label>
               </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                There is no URL field here — the OpenAI-compatible base URL is entered per role under{" "}
+                <strong>Models → Model Registry</strong> when you assign or change a model. Check &quot;Needs
+                Endpoint URL&quot; so that dialog shows the endpoint field for this provider.
+              </p>
 
               {createMut.isError && (
                 <p className="text-xs text-red-600">
