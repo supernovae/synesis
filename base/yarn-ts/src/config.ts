@@ -57,9 +57,12 @@ const EnvSchema = z.object({
 
   // Safety limits
   SYNESIS_YARN_POLICY_HARD_REJECT_AFTER: z.coerce.number().default(6),
-  SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS: z.coerce.number().default(500_000),
+  SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS: z.coerce.number().default(2_000_000),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(15),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT: z.coerce.number().default(10),
+
+  // Session lifecycle — auto-rotate when no conversation_id and idle > threshold
+  SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS: z.coerce.number().default(30 * 60 * 1000),
 
   // M10 feature flags (individual kill-switches for bisecting regressions)
   SYNESIS_YARN_STABLE_PREFIX_ENABLED: z

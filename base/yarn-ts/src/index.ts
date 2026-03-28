@@ -165,11 +165,59 @@ interface SessionIdentity {
   displayName?: string;
 }
 
-function getSessionKey(identity: SessionIdentity): string {
-  const user = identity.userId || "anon";
-  const client = identity.clientKind || "unknown";
-  const convo = identity.conversationId || "_";
+function buildSessionKey(userId: string, clientKind: string, conversationId: string): string {
+  const user = userId || "anon";
+  const client = clientKind || "unknown";
+  const convo = conversationId || "_";
   return `synesis:${user}:${client}:${convo}`;
+}
+
+/**
+ * Resolve the effective session key, applying inactivity rotation when no
+ * explicit conversation_id was provided by the client. Without rotation,
+ * clients like Claude Code (which never sends a conversation_id) accumulate
+ * all token spend into a single immortal session that eventually hits the
+ * budget ceiling.
+ *
+ * When the existing session has been idle longer than
+ * SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS, a new key with a
+ * timestamp-based rotation suffix is used so the user gets a fresh budget.
+ */
+async function getSessionKey(identity: SessionIdentity): Promise<string> {
+  const baseKey = buildSessionKey(identity.userId, identity.clientKind, identity.conversationId);
+  const hasExplicitConvo = !!(identity.conversationId && identity.conversationId.trim());
+
+  if (hasExplicitConvo) return baseKey;
+
+  const inMemory = sessions.get(baseKey);
+  if (inMemory) {
+    const idle = Date.now() - inMemory.record.lastActiveAt;
+    if (idle > config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) {
+      app.log.info(
+        { oldKey: baseKey, idleMs: idle, tokens: inMemory.record.totalTokensIn },
+        "session_inactivity_rotation"
+      );
+      sessions.delete(baseKey);
+      const rotated = `${baseKey}:r${Date.now()}`;
+      return rotated;
+    }
+    return baseKey;
+  }
+
+  const loaded = await sessionStore.load(baseKey);
+  if (loaded) {
+    const idle = Date.now() - loaded.lastActiveAt;
+    if (idle > config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) {
+      app.log.info(
+        { oldKey: baseKey, idleMs: idle, tokens: loaded.totalTokensIn },
+        "session_inactivity_rotation_redis"
+      );
+      const rotated = `${baseKey}:r${Date.now()}`;
+      return rotated;
+    }
+  }
+
+  return baseKey;
 }
 
 async function getSessionState(key: string, identity: SessionIdentity): Promise<SessionState> {
@@ -471,9 +519,16 @@ function resolveClaudeConversationId(
       if (typeof val === "string" && val.trim()) return val.trim();
     }
   }
-  for (const hdr of ["x-synesis-conversation-id"]) {
+  for (const hdr of ["x-synesis-conversation-id", "x-claude-session-id"]) {
     const val = headers[hdr];
     if (typeof val === "string" && val.trim()) return val.trim();
+  }
+  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+    app.log.debug({ metadata, knownHeaders: {
+      "x-synesis-conversation-id": headers["x-synesis-conversation-id"],
+      "x-claude-session-id": headers["x-claude-session-id"],
+      "x-request-id": headers["x-request-id"],
+    }}, "claude_conversation_id_resolution_miss");
   }
   return "";
 }
@@ -911,7 +966,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     clientKind: oaiClientKind,
     displayName: authUser.displayName,
   };
-  const sessionKey = getSessionKey(identity);
+  const sessionKey = await getSessionKey(identity);
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
@@ -1297,7 +1352,7 @@ app.post("/v1/messages", async (req, reply) => {
     clientKind: claudeClientKind,
     displayName: claudeAuthUser.displayName,
   };
-  const claudeSessionKey = getSessionKey(claudeIdentity);
+  const claudeSessionKey = await getSessionKey(claudeIdentity);
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }

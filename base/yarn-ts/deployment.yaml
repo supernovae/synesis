@@ -59,9 +59,9 @@ spec:
             - name: SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
               value: "6"
             - name: SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS
-              value: "500000"
+              value: "2000000"
             - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
-              value: "8"
+              value: "15"
             - name: SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
               value: "false"
             # ── OpenFGA authorization (required) ──
