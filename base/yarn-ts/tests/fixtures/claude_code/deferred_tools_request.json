@@ -1,0 +1,33 @@
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 4096,
+  "messages": [
+    {"role": "user", "content": "Read the file."}
+  ],
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read a file from disk",
+      "defer_loading": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"}
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "write_file",
+      "description": "Write to a file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "content": {"type": "string"}
+        },
+        "required": ["path", "content"]
+      }
+    }
+  ]
+}

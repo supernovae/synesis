@@ -45,6 +45,10 @@ import {
   claudeMessagesToOpenAI,
   openAIMessagesToModelMessages
 } from "./tool-mapping.js";
+import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
+import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
+import { sortToolSchemas } from "./compat/sorted-tools.js";
+import { applyTrustPackets } from "./security/transcript-trust.js";
 
 type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
@@ -91,6 +95,10 @@ const pricingRegistry = new PricingRegistry({
   adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
 });
 const traceEmitterConfig = {
+  adminUrl: config.SYNESIS_YARN_ADMIN_API_URL,
+  adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
+};
+const securityIngestConfig = {
   adminUrl: config.SYNESIS_YARN_ADMIN_API_URL,
   adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
 };
@@ -462,6 +470,41 @@ function sse(reply: { raw: { write(data: string): boolean } }, event: string, da
   reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+/**
+ * Convert Claude's top-level `system` field (string or content-block array)
+ * into a system-role message that can be prepended to the OpenAI message list.
+ */
+function claudeSystemToMessage(system: unknown): { role: "system"; content: string } | null {
+  if (!system) return null;
+  if (typeof system === "string") {
+    return system.length > 0 ? { role: "system", content: system } : null;
+  }
+  if (Array.isArray(system)) {
+    const textParts = system
+      .filter((b: unknown) => typeof b === "object" && b !== null && (b as Record<string, unknown>).type === "text")
+      .map((b: unknown) => String((b as Record<string, unknown>).text ?? ""));
+    const joined = textParts.join("\n");
+    return joined.length > 0 ? { role: "system", content: joined } : null;
+  }
+  return null;
+}
+
+function resolveRequestId(headers: Record<string, unknown>): string {
+  const explicit = headers["x-request-id"] ?? headers["anthropic-request-id"];
+  if (typeof explicit === "string" && explicit.length > 0) return explicit;
+  return `req-${crypto.randomUUID()}`;
+}
+
+function debugProtocolLog(
+  logger: { info(obj: Record<string, unknown>, msg: string): void },
+  reqId: string,
+  path: string,
+  extra: Record<string, unknown>
+): void {
+  if (!config.SYNESIS_YARN_DEBUG_PROTOCOL) return;
+  logger.info({ reqId, path, ...extra }, "debug_protocol");
+}
+
 // --- Session TTL eviction ---
 const SESSION_TTL_MS = config.SYNESIS_YARN_SESSION_TTL_MS;
 const sessionEvictionTimer = setInterval(() => {
@@ -553,7 +596,11 @@ app.get("/health/telemetry", async () => {
       attentionPositioning: config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED,
       artifactRetrieval: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
-      contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED
+      contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
+      claudeToolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
+      jitterBuffer: config.SYNESIS_YARN_JITTER_BUFFER_ENABLED,
+      sortedTools: config.SYNESIS_YARN_SORTED_TOOLS_ENABLED,
+      debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
     },
     safetyLimits: {
       hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
@@ -617,6 +664,15 @@ app.post("/v1/mcp/tools/call", async (req, reply) => {
     authResolver.requireCoderScope(user);
     const bearer = getBearerToken(req.headers.authorization);
     const data = await proxyMcpPost("/api/v1/mcp/tools/call", bearer, req.body);
+    if (config.SYNESIS_YARN_TRUST_PACKET_ENABLED) {
+      reply.header("X-Synesis-Trust-Metadata", JSON.stringify({
+        schema_version: 1,
+        trust_level: "untrusted",
+        source_type: "mcp_response",
+        instruction_execution_allowed: false,
+        content_purpose: "data",
+      }));
+    }
     return reply.send(data);
   } catch (error) {
     return reply.code(401).send({ error: { type: "auth_error", message: String(error) } });
@@ -637,6 +693,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   const request = parsed.data;
+  const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+
+  // Sorted tools for cache stability
+  if (config.SYNESIS_YARN_SORTED_TOOLS_ENABLED && request.tools) {
+    request.tools = sortToolSchemas(request.tools) as never;
+  }
+
   const reducedOpenAI = toolResultReduction.reduceMessages(request.messages as never);
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = validationNormalization.normalizeMessages(reducedOpenAI.messages as never);
@@ -647,6 +710,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const adapterBlock = clientAdapterPacks.toSystemBlock(adapterProfile);
   const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
+
+  debugProtocolLog(app.log as never, oaiTraceReqId, "/v1/chat/completions", {
+    model: request.model,
+    messageCount: (request.messages as unknown[]).length,
+    hasTools: !!(request.tools as unknown[])?.length,
+    stream: request.stream,
+    client: adapterProfile.client,
+  });
   const orchestration = phaseOrchestrator.decide({
     requestedModel: request.model,
     latestUserText: String(latestUserText?.content ?? ""),
@@ -681,14 +752,32 @@ app.post("/v1/chat/completions", async (req, reply) => {
     logAndPersistSafetyEvent(policyPrecheck, sessionKey, session.record.totalTokensIn);
     return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
   }
+  let oaiEnrichedMsgs = enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as Array<{ role: string; content: unknown }>;
+
+  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
+    const { stableMessages, jitterBlock } = splitJitter(oaiEnrichedMsgs);
+    oaiEnrichedMsgs = applyJitter(stableMessages, jitterBlock) as typeof oaiEnrichedMsgs;
+  }
+
+  const trustResult = applyTrustPackets(oaiEnrichedMsgs, config, {
+    requestId: oaiTraceReqId,
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+  }, securityIngestConfig, app.log as never);
+  if (trustResult.blocked) {
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: trustResult.blockReason ?? "Content blocked by trust scanner." } });
+  }
+  oaiEnrichedMsgs = trustResult.messages as typeof oaiEnrichedMsgs;
+
   const normalizedRequest: OpenAIChatCompletionRequest = {
     ...request,
     model: orchestration.selectedModel,
-    messages: enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as never
+    messages: oaiEnrichedMsgs as never
   };
 
   session.toolCallsSinceCheckpoint += toolResultCount;
-  const reqId = `chatcmpl-${crypto.randomUUID()}`;
+  const reqId = oaiTraceReqId;
   if (policyPrecheck.pivotPrompt) {
     session.history.push({ role: "system", content: policyPrecheck.pivotPrompt });
   }
@@ -916,12 +1005,41 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
   const body: ClaudeMessagesRequest = parsed.data;
-  const openAIMessages = claudeMessagesToOpenAI(
+  const traceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+
+  // Merge top-level `system` into the message list (parity with Anthropic SDK)
+  const claudeSystemMsg = claudeSystemToMessage(body.system);
+  const rawOpenAIMessages = claudeMessagesToOpenAI(
     body.messages as never,
     (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
   );
+  const openAIMessages = claudeSystemMsg ? [claudeSystemMsg, ...rawOpenAIMessages] : rawOpenAIMessages;
+
+  // Tool-search policy: strip defer_loading / tool_reference in disable mode
+  const toolSearchResult = applyToolSearchPolicy(
+    body.tools as Array<Record<string, unknown>> | undefined,
+    config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE
+  );
+  const processedTools = config.SYNESIS_YARN_SORTED_TOOLS_ENABLED
+    ? sortToolSchemas(toolSearchResult.tools)
+    : toolSearchResult.tools;
+
   const claudeToolResultCount = (body.messages as Array<{ role: string }>).filter((m) => m.role === "tool_result" || m.role === "tool").length;
   const normalizedFromClaude = validationNormalization.normalizeMessages(openAIMessages as never);
+
+  debugProtocolLog(app.log as never, traceReqId, "/v1/messages", {
+    model: body.model,
+    anthropicVersion: anthropicVersion,
+    anthropicBeta: req.headers["anthropic-beta"] ?? null,
+    messageCount: body.messages.length,
+    hasSystem: !!body.system,
+    hasTools: !!(body.tools as unknown[])?.length,
+    hasThinking: !!body.thinking,
+    stream: body.stream,
+    toolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
+    toolSearchStripped: toolSearchResult.strippedDeferredCount,
+  });
+
   const claudeAdapterProfile = clientAdapterPacks.resolve(
     String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
@@ -970,13 +1088,35 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
 
+  let enrichedClaudeMsgs = enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock) as Array<{ role: string; content: unknown }>;
+
+  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
+    const { stableMessages, jitterBlock } = splitJitter(enrichedClaudeMsgs);
+    enrichedClaudeMsgs = applyJitter(stableMessages, jitterBlock) as typeof enrichedClaudeMsgs;
+  }
+
+  const claudeTrustResult = applyTrustPackets(enrichedClaudeMsgs, config, {
+    requestId: traceReqId,
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+  }, securityIngestConfig, app.log as never);
+  if (claudeTrustResult.blocked) {
+    return reply.code(400).send({
+      type: "error",
+      error: { type: "invalid_request_error", message: claudeTrustResult.blockReason ?? "Content blocked by trust scanner." }
+    });
+  }
+  enrichedClaudeMsgs = claudeTrustResult.messages as typeof enrichedClaudeMsgs;
+
   const openAIShape: OpenAIChatCompletionRequest = {
     model: claudeOrchestration.selectedModel,
-    messages: enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock) as never,
-    stream: body.stream
+    messages: enrichedClaudeMsgs as never,
+    stream: body.stream,
+    ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
   };
   session.toolCallsSinceCheckpoint += claudeToolResultCount;
-  const reqId = `msg-${crypto.randomUUID()}`;
+  const reqId = traceReqId;
   if (claudePolicyPrecheck.pivotPrompt) {
     session.history.push({ role: "system", content: claudePolicyPrecheck.pivotPrompt });
   }
@@ -994,8 +1134,9 @@ app.post("/v1/messages", async (req, reply) => {
   // Artifact retrieval stays OpenAI-only until streaming interception is implemented.
 
   const { resolved, messages } = runOpenAIRequest(openAIShape);
-  const sdkTools = claudeToolsToSDK(body.tools as never);
+  const sdkTools = claudeToolsToSDK(processedTools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
+  const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
 
   // Thinking passthrough: forward via providerOptions if present.
   const providerOptions = body.thinking ? { openai: { thinking: body.thinking } } : undefined;
@@ -1006,6 +1147,8 @@ app.post("/v1/messages", async (req, reply) => {
       model: resolved.model as never,
       messages,
       maxOutputTokens: claudeOrchestration.maxOutputTokens,
+      ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+      ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
       ...(providerOptions ? { providerOptions } : {})
@@ -1078,7 +1221,7 @@ app.post("/v1/messages", async (req, reply) => {
       }
     } catch (streamErr) {
       const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
-      app.log.error({ err: streamErr, reqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
+      app.log.error({ err: streamErr, reqId: traceReqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
       if (!inTextBlock) {
         sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
         inTextBlock = true;
@@ -1126,6 +1269,8 @@ app.post("/v1/messages", async (req, reply) => {
     model: resolved.model as never,
     messages,
     maxOutputTokens: claudeOrchestration.maxOutputTokens,
+    ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+    ...(sdkStop ? { stopSequences: sdkStop } : {}),
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
     ...(providerOptions ? { providerOptions } : {})

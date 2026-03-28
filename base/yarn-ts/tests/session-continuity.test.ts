@@ -88,6 +88,6 @@ describe("SessionContinuityService", () => {
     });
     const stats = svc.getStats();
     expect(stats.extractionCount).toBe(1);
-    expect(stats.injectionCount).toBe(1);
+    expect(stats.continuityBlocksEmitted).toBe(1);
   });
 });

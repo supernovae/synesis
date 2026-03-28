@@ -7,14 +7,19 @@ WORKDIR /opt/app-root/src
 # resolve the full workspace dependency tree from the lockfile.
 COPY package.json package-lock.json ./
 COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
+COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
 COPY base/yarn-ts/package.json base/yarn-ts/
 COPY base/planner-ts/package.json base/planner-ts/
 RUN npm ci --ignore-scripts
 
-# Build shared package
+# Build shared packages
 COPY packages/synesis-telemetry/tsconfig.json packages/synesis-telemetry/
 COPY packages/synesis-telemetry/src packages/synesis-telemetry/src
 RUN npm run build --workspace=packages/synesis-telemetry
+
+COPY packages/synesis-context-trust/tsconfig.json packages/synesis-context-trust/
+COPY packages/synesis-context-trust/src packages/synesis-context-trust/src
+RUN npm run build --workspace=packages/synesis-context-trust
 
 # Build yarn-ts
 COPY base/yarn-ts/tsconfig.json base/yarn-ts/

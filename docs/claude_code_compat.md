@@ -141,14 +141,20 @@ management that power Claude Code"
 The gateway's Messages API surface is designed to be compatible with both
 Claude Code and Agent SDK clients.
 
-## Observability
+## Observability (yarn-ts)
 
-Structured log events at each translation boundary:
-- `claude_messages_inbound` — raw request shape (model, message count, tool/thinking flags)
-- `claude_messages_canonical` — after inbound translation (original + resolved model)
-- `claude_messages_outbound_openai` — downstream payload shape (debug level)
-- `claude_messages_response` / `claude_messages_stream_done` — response metadata
-- `tool_search_passthrough` / `tool_search_disabled_stripped` — tool-search policy actions
+Set `SYNESIS_YARN_DEBUG_PROTOCOL=true` for structured per-request logs.
+
+Log events emitted by yarn-ts:
+- `debug_protocol` — per-request one-liner: model, anthropic-version, message/tool
+  counts, system/tools/thinking presence, tool-search mode, stream flag
+- `Claude stream error` / `OpenAI stream error` — upstream failures with request ID
+- `policy_safety_event` — circuit breaker / repeat guard activations
+- `tier_registry_refreshed` / `tier_registry_refresh_failed` — admin polling
+
+Request IDs (`x-request-id` or `anthropic-request-id` from client, or generated
+`req-<uuid>`) propagate through all log entries, trace records, and the
+`GET /v1/diagnostics/recent` ring buffer.
 
 ## Configuration Reference
 
@@ -166,33 +172,44 @@ Structured log events at each translation boundary:
 | `SYNESIS_YARN_CLAUDE_TIER_MAP` | `""` | JSON override for Claude family-to-tier mapping |
 | `SYNESIS_YARN_TIER_POLL_INTERVAL` | `60` | Seconds between admin API config polls |
 
-### Claude Compatibility
+### Claude Compatibility and Premier Caching (yarn-ts)
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `SYNESIS_YARN_CLAUDE_COMPAT_ENABLED` | `false` | Force all `/v1/messages` traffic through Claude path (signal 1) |
 | `SYNESIS_YARN_CLAUDE_CUSTOM_MODEL_IDS` | `""` | Comma-separated custom model IDs to accept (signal 4) |
-| `SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE` | `disable` | `disable` or `passthrough` |
+| `SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE` | `disable` | `disable` strips `defer_loading` + `tool_reference`; `passthrough` preserves them |
+| `SYNESIS_YARN_SORTED_TOOLS_ENABLED` | `true` | Recursively sort tool schema JSON keys for cache-stable serialization |
+| `SYNESIS_YARN_JITTER_BUFFER_ENABLED` | `true` | Move dynamic content (dates, paths, session IDs) from system messages to final user message |
+| `SYNESIS_YARN_DEBUG_PROTOCOL` | `false` | Emit structured per-request protocol logs (never includes prompt content) |
 
-## Unsupported / Uncertain Features
+## Resolved and Remaining Gaps (yarn-ts)
 
-The following require further validation with real Claude Code traffic:
+### Resolved
 
-1. **Prompt caching** (`cache_control` on tools and system blocks) — fields are
-   preserved in canonical model but not forwarded to OpenAI providers.
-2. **Extended thinking** (`thinking` config) — preserved inbound but downstream
-   providers must support equivalent reasoning modes.
-3. **`anthropic-beta` feature flags** — passed through; actual behavior depends
-   on downstream provider support.
-4. **Tool search with `auto:N` thresholds** — the gateway's policy is binary
-   (passthrough or disable); per-threshold logic runs client-side.
-5. **`stop_sequences`** — mapped to OpenAI `stop` parameter; behavior may
-   differ across providers.
-6. **Multi-turn conversation context management** — Claude Code manages context
-   client-side via sessions; the gateway is stateless for `/v1/messages`.
-7. **Image content blocks** — parsed but not tested with downstream providers.
-8. **Bedrock/Vertex/Foundry-specific model ID formats** — `modelOverrides`
-   accepts arbitrary strings but ARN/version validation is not performed.
+- **Top-level `system`** field is now parsed and merged as a system message
+  (string and content-block array formats supported).
+- **`temperature`**, **`stop_sequences`** are forwarded to `generateText` /
+  `streamText` upstream calls.
+- **Tool-search policy** (`defer_loading`, `tool_reference` stripping) is
+  implemented with a `disable` / `passthrough` toggle.
+- **Sorted tool schemas** ensure byte-stable serialization across requests.
+- **Jitter buffer** separates dynamic system content from the cacheable prefix.
+- **Request-ID propagation** via `x-request-id` / `anthropic-request-id`.
+
+### Remaining / Uncertain
+
+1. **Prompt caching** (`cache_control: { type: "ephemeral" }` + `prompt-caching-2024-07-31`
+   beta header) requires a native Anthropic outbound path. OpenAI-compatible
+   tiers benefit from sorted tools + jitter buffer only.
+2. **Extended thinking** (`thinking` config) — forwarded via `providerOptions`
+   but downstream support depends on the model provider.
+3. **`anthropic-beta` feature flags** — preserved from client but not yet
+   merged with proxy-injected beta strings on the outbound path.
+4. **Tool search `auto:N` thresholds** — binary policy only (passthrough or
+   disable); per-threshold logic is client-side.
+5. **Image content blocks** — parsed but not validated end-to-end.
+6. **Bedrock/Vertex model IDs** — accepted but no ARN/version validation.
 
 ## Source References
 
@@ -206,3 +223,22 @@ The following require further validation with real Claude Code traffic:
 - [Using the Messages API](https://platform.claude.com/docs/en/build-with-claude/working-with-messages)
 - [Streaming Messages](https://platform.claude.com/docs/en/build-with-claude/streaming)
 - [How to Implement Tool Use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use)
+- [Prompt Caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching)
+
+## Multi-Client Adapter Packs
+
+Yarn-ts supports any OpenAI- or Anthropic Messages–compatible client. Clients
+identify themselves via `x-synesis-client` header; the adapter pack system
+adjusts system-prompt phrasing and policy hints accordingly.
+
+Known clients: `claude-code`, `cursor`, `roo`, `windsurf`, `continue`, `cline`,
+`codex-cli`, `vscode-copilot`, `junie`. Custom names are accepted and default
+to `ide` mode.
+
+Interaction modes (`x-synesis-mode` override):
+- `ide` — default for IDE clients; full context injection
+- `cli` — concise validation-oriented responses
+- `background` — planning workflow, artifact handles preferred
+- `mcp_native` — MCP-first clients
+
+The adapter catalog is available at `GET /v1/adapter-packs`.

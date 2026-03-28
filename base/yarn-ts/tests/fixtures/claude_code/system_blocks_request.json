@@ -1,0 +1,11 @@
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 2048,
+  "system": [
+    {"type": "text", "text": "You are a helpful assistant."},
+    {"type": "text", "text": "Always respond in JSON."}
+  ],
+  "messages": [
+    {"role": "user", "content": "List three colors."}
+  ]
+}

@@ -130,7 +130,7 @@ Exposed in `/health/telemetry` as `compressionEfficiencyIndex`.
   "stablePrefix": { "partitionsBuilt", "prefixCacheHits", "uniquePrefixHashes" },
   "artifactRetrieval": { "retrievalCount", "missCount", "queryFilterCount" },
   "attentionPositioning": { "positionedCount", "beginBlocksPlaced", "endBlocksPlaced" },
-  "sessionContinuity": { "extractionCount", "injectionCount", "avgFindingsPerSession" },
+  "sessionContinuity": { "extractionCount", "continuityBlocksEmitted", "avgFindingsPerSession" },
   "compressionEfficiencyIndex": { "score", "reducerHitRate", "tokenSavingsRate", "..." },
   "toolResultReduction": { "...", "jsonCompactionCount", "contentDispatchCount", "contentDispatch": { "byType": {...} } }
 }

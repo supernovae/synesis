@@ -50,7 +50,7 @@ flowchart TD
 
 ### Layer 1: Pattern Scanning
 
-Canonical implementation: `base/security/guardrails_core/` (`scanner.py`, `normalizer.py`, `schemas.py`). Planner-ts mirror: `base/planner-ts/src/security/scanner.ts` + `normalizer.ts`. Both runtimes share a fixture suite (`base/security/tests/fixtures/scanner_vectors.json`) to prevent pattern drift.
+Canonical TS implementation: `@synesis/context-trust` (`packages/synesis-context-trust/src/scanner.ts` + `normalizer.ts`). Planner-ts and yarn-ts import from this shared workspace package. Python reference: `base/security/guardrails_core/`. Both runtimes share a fixture suite (`base/security/tests/fixtures/scanner_vectors.json`) to prevent pattern drift.
 
 - **Tier 1 (core):** 20 regex patterns covering instruction override, role hijacking, chat template injection, instruction following redirects
 - **Tier 2 (web-extended):** 10 additional patterns for base64 payloads, JavaScript injection, invisible Unicode markers, data URI payloads, jailbreak framing, XML comment injection
@@ -67,9 +67,11 @@ Canonical implementation: `base/security/guardrails_core/` (`scanner.py`, `norma
   - `reduce`: redacts matched patterns with `[REDACTED]` and continues
   - `log`: records the detection in telemetry without altering content
 
+**Yarn-ts configuration:** `SYNESIS_YARN_INJECTION_SCAN_ENABLED` (default `true`), `SYNESIS_YARN_INJECTION_SCAN_ACTION` (`log` | `reduce` | `block`), `SYNESIS_YARN_SECURITY_INGEST_ENABLED` (default `true`). Scan hits are routed to admin `POST /api/v1/security/events/ingest` for unified triage in the Security console. See [`YARN_TS_CONTEXT_TRUST.md`](./YARN_TS_CONTEXT_TRUST.md) for the full yarn-ts trust pipeline.
+
 ### Layer 2: Trust Delimiters (Spotlighting)
 
-All untrusted content is wrapped in XML-style trust tags before entering any LLM prompt:
+**Planner-ts:** All untrusted content is wrapped in XML-style trust tags before entering any LLM prompt:
 
 ```
 <context trust="untrusted">
@@ -80,6 +82,8 @@ All untrusted content is wrapped in XML-style trust tags before entering any LLM
 This follows the Spotlighting approach (Microsoft, arXiv 2403.14720) — explicit delimiters help instruction-tuned models distinguish data from instructions.
 
 Applied in: planner, writer, critic (evidence reference), router summarizer.
+
+**Yarn-ts:** Uses **JSON trust packets** (`TrustPacketV1`) instead of XML tags. Each user, tool, and assistant message is wrapped in a versioned JSON envelope with fields like `trust_level`, `source_type`, `instruction_execution_allowed`, and `content_purpose`. The schema is defined in the shared package `@synesis/context-trust` (`packages/synesis-context-trust/src/trust-packet.ts`) and validated with Zod. See [`YARN_TS_CONTEXT_TRUST.md`](./YARN_TS_CONTEXT_TRUST.md) for the full specification.
 
 ### Layer 3: Trust Policies (Instruction Hierarchy)
 
@@ -243,9 +247,12 @@ The `/v1/knowledge/submit` endpoint scans user-submitted knowledge content with 
 
 | File | Purpose |
 |------|---------|
-| `base/planner-ts/src/security/scanner.ts` | TS pattern scanner (Tier 1 + 2 + 3, mirrors guardrails_core) |
-| `base/planner-ts/src/security/normalizer.ts` | TS confusable normalization + base64 probing |
-| `base/planner-ts/src/security/trust-prompts.ts` | Trust policy text, datamark helpers, sandwich reminder |
+| `packages/synesis-context-trust/src/` | **Shared TS package** — scanner, normalizer, sanitizer, trust packets (Zod), operational policy, security ingest client |
+| `base/planner-ts/src/security/scanner.ts` | Re-exports from `@synesis/context-trust` |
+| `base/planner-ts/src/security/normalizer.ts` | Re-exports from `@synesis/context-trust` |
+| `base/planner-ts/src/security/trust-prompts.ts` | Re-exports + legacy XML wrapper functions |
+| `base/yarn-ts/src/security/transcript-trust.ts` | Yarn-ts trust pipeline — wraps messages in TrustPacketV1, runs scanner, emits security events |
+| `base/yarn-ts/src/config.ts` | `SYNESIS_YARN_TRUST_PACKET_ENABLED`, `SYNESIS_YARN_INJECTION_SCAN_*`, `SYNESIS_YARN_SECURITY_INGEST_ENABLED` |
 | `base/planner-ts/src/security/step-sanitizer.ts` | Step action truncation + injection redaction |
 | `base/planner-ts/src/nodes/frame-extractor.ts` | Persona detection with stopword filter |
 | `base/planner-ts/src/nodes/writer-compose.ts` | Writer trust policy + trust tags + sandwich + datamarks |
@@ -268,3 +275,11 @@ The `/v1/knowledge/submit` endpoint scans user-submitted knowledge content with 
 | `base/planner/app/nodes/critic.py` | Critic trust policy + sandwich defense |
 | `base/planner/app/nodes/router.py` | Summarizer trust policy + sandwich defense |
 | `base/planner/app/routers/knowledge.py` | Knowledge submit with injection scan |
+
+### Security event ingest (service-to-service)
+
+Services (planner-ts, yarn-ts) report scanner detections and critical policy rejects to admin via `POST /api/v1/security/events/ingest` (`base/admin/app/routers/security.py`). This endpoint accepts a JSON body with fields including `event_id`, `event_type`, `severity`, `confidence`, `action_taken`, `service`, `request_id`, `patterns_found`, `excerpt`, and `scanner_name`. No user auth is required — the endpoint is intended for internal mesh/network-restricted callers only.
+
+The shared ingest client is `emitSecurityEvent` in `@synesis/context-trust` (`packages/synesis-context-trust/src/security-ingest.ts`). It is fire-and-forget with timeout, never blocking the response path. Helper functions `scanResultToPayload` and `policyRejectToPayload` map scanner results and policy decisions to the ingest payload shape.
+
+Events are stored in the `security_events` table and surfaced in the admin Security UI (`/security/events`) alongside resolution/triage actions. Yarn-specific policy events (repeat guard, tool call limits) continue to write to `yarn_safety_events` via `UsageWriter`.

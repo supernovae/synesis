@@ -1,4 +1,6 @@
-# Yarn context trust and prompt caching
+# Yarn context trust and prompt caching (Python — legacy)
+
+> **Note:** This document describes the Python Yarn runtime (`base/yarn/`), which is deprecated. For the active TypeScript implementation, see [`YARN_TS_CONTEXT_TRUST.md`](./YARN_TS_CONTEXT_TRUST.md). The shared trust package `@synesis/context-trust` (`packages/synesis-context-trust/`) is the canonical source for trust types, scanner, and sanitizer used by both yarn-ts and planner-ts.
 
 ## Trust planes
 

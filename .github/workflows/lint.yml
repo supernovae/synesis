@@ -144,6 +144,28 @@ jobs:
         working-directory: base/admin
         run: PYTHONPATH=. python -m pytest tests/ -q --tb=short
 
+  yarn-ts-tests:
+    name: Yarn-TS typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: base/yarn-ts
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: base/yarn-ts
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        working-directory: base/yarn-ts
+        run: npx vitest run
+
   hadolint:
     name: Dockerfile Lint
     runs-on: ubuntu-latest

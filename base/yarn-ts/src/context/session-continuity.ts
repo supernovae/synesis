@@ -7,7 +7,7 @@ const MAX_ITEMS = 8;
 
 export interface SessionContinuityStats {
   extractionCount: number;
-  injectionCount: number;
+  continuityBlocksEmitted: number;
   avgFindingsPerSession: number;
 }
 
@@ -25,7 +25,7 @@ function extractSentences(text: string): string[] {
 export class SessionContinuityService {
   private stats: SessionContinuityStats = {
     extractionCount: 0,
-    injectionCount: 0,
+    continuityBlocksEmitted: 0,
     avgFindingsPerSession: 0
   };
   private totalFindings = 0;
@@ -102,7 +102,7 @@ export class SessionContinuityService {
     if (parts.length <= 1) return null;
 
     parts.push("</SESSION_CONTINUITY>");
-    this.stats.injectionCount++;
+    this.stats.continuityBlocksEmitted++;
     return parts.join("\n");
   }
 

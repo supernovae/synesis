@@ -16,6 +16,7 @@
   "dependencies": {
     "@langchain/core": "^1.1.36",
     "@langchain/langgraph": "^1.2.6",
+    "@synesis/context-trust": "*",
     "@synesis/telemetry": "*",
     "fastify": "^5.8.4",
     "ioredis": "^5.10.1",

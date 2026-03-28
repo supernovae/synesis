@@ -118,9 +118,61 @@ After launching Claude Code with the above configuration:
 | "Unknown model" error | Model ID not matching any tier | Use a Claude model family name (haiku/sonnet/opus) or an explicit tier ID (synesis-pulse/core/horizon) |
 | Tool search not working | Disabled by default on non-first-party hosts | Set `ENABLE_TOOL_SEARCH=true` on client and `SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE=passthrough` on gateway |
 
+## Prompt Caching and Premier Provider Behavior
+
+Yarn-ts optimizes for prompt caching by default. Two features keep the
+cacheable prefix stable across requests so upstream providers can reuse it:
+
+**Sorted tool schemas.** All tool definitions are serialized with
+recursively sorted JSON keys (`SYNESIS_YARN_SORTED_TOOLS_ENABLED=true` by
+default). Two logically identical tool lists will always produce the same byte
+sequence, preventing cache misses from key-order drift.
+
+**Jitter buffer.** Dynamic content (timestamps, cwd paths, session IDs, branch
+names) is extracted from system messages and appended to the final user message
+inside an `<ENVIRONMENT_CONTEXT>` wrapper. The large static system prefix +
+tools remain byte-stable across turns. Enable/disable with
+`SYNESIS_YARN_JITTER_BUFFER_ENABLED` (default: true).
+
+When the upstream tier is an Anthropic Messages–compatible endpoint, Yarn will
+apply `cache_control: { type: "ephemeral" }` after the static prefix + tools
+and include the `prompt-caching-2024-07-31` beta header. This requires a native
+Anthropic outbound path (planned); OpenAI-compatible tiers benefit only from
+the structural stability provided by sorted tools and jitter buffer.
+
+## Multi-Client Support
+
+Yarn serves any OpenAI- or Anthropic Messages–compatible client. Send
+`x-synesis-client` and optionally `x-synesis-mode` headers for client-specific
+adapter behavior:
+
+| Header | Values | Effect |
+|--------|--------|--------|
+| `x-synesis-client` | `claude-code`, `cursor`, `roo`, `windsurf`, `continue`, `cline`, `codex-cli`, `vscode-copilot`, `junie`, or custom | Selects adapter pack (interaction mode, workflow hints) |
+| `x-synesis-mode` | `ide`, `cli`, `background`, `mcp_native` | Overrides auto-detected interaction mode |
+
+Adapter packs are listed at `GET /v1/adapter-packs`. They influence system
+prompt phrasing and policy behavior, not protocol shape — all clients speak
+either OpenAI chat completions or Anthropic Messages.
+
+## Debugging
+
+Set `SYNESIS_YARN_DEBUG_PROTOCOL=true` to emit structured protocol logs for
+every request (model, message/tool counts, presence of system/tools/thinking,
+client headers). Logs never include prompt content or auth tokens.
+
+Request IDs are propagated from the client `x-request-id` or
+`anthropic-request-id` header (or generated as `req-<uuid>`). They appear in
+all log entries and trace records.
+
+The `GET /v1/diagnostics/recent` endpoint returns the last 20 request
+summaries (message counts, latency, policy decisions, token usage) for
+operational debugging.
+
 ## Reference
 
 - [Claude Code Environment Variables](https://code.claude.com/docs/en/env-vars)
 - [Claude Code Model Configuration](https://docs.anthropic.com/en/docs/claude-code/model-config)
 - [Enterprise Deployment: Proxies and Gateways](https://docs.anthropic.com/en/docs/claude-code/bedrock-vertex-proxies)
+- [Anthropic Prompt Caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching)
 - [Synesis Design Note](docs/claude_code_compat.md)

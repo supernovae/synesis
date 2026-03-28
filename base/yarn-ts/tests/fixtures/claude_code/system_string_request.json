@@ -1,0 +1,8 @@
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 2048,
+  "system": "You are a helpful coding assistant.",
+  "messages": [
+    {"role": "user", "content": "Refactor this function."}
+  ]
+}

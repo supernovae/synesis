@@ -80,7 +80,43 @@ const EnvSchema = z.object({
   SYNESIS_YARN_CONTENT_DISPATCH_ENABLED: z
     .string()
     .optional()
-    .transform((v) => (v ?? "true").toLowerCase() !== "false")
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // Claude compat
+  SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE: z
+    .enum(["disable", "passthrough"])
+    .default("disable"),
+  SYNESIS_YARN_JITTER_BUFFER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_SORTED_TOOLS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // Trust / injection scan
+  SYNESIS_YARN_TRUST_PACKET_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_INJECTION_SCAN_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_INJECTION_SCAN_ACTION: z
+    .enum(["log", "reduce", "block"])
+    .default("log"),
+  SYNESIS_YARN_SECURITY_INGEST_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // Debug / trace
+  SYNESIS_YARN_DEBUG_PROTOCOL: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true")
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;
