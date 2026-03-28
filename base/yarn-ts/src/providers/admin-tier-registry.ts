@@ -50,7 +50,9 @@ const ROLE_TO_TIER: Record<string, TierId> = {
 
 const PROVIDER_BASE_URLS: Record<string, string> = {
   openrouter: "https://openrouter.ai/api/v1",
-  deepinfra: "https://api.deepinfra.com/v1/openai"
+  deepinfra: "https://api.deepinfra.com/v1/openai",
+  dashscope: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+  "dashscope-us": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
 };
 
 export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]> {

@@ -35,6 +35,7 @@ import {
 
 const SOURCE_ICON: Record<string, typeof Cloud> = {
   openrouter: Cloud, xai: Zap, groq: Cloud, together: Cloud, deepinfra: Cloud,
+  dashscope: Cloud, "dashscope-us": Cloud,
   fireworks: Cloud, openai: Cloud, anthropic: Cloud, mistral: Cloud,
   azure: Cloud, vllm: Server, kserve: Server, custom: Cloud,
 };

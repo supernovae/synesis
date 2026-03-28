@@ -32,6 +32,12 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
         ProviderInfo(
             "deepinfra", "DeepInfra", "deepinfra/", "DEEPINFRA_API_KEY", False, "meta-llama/Meta-Llama-3.1-70B"
         ),
+        ProviderInfo(
+            "dashscope", "Alibaba DashScope", "openai/", "DASHSCOPE_API_KEY", False, "qwen3-coder-next"
+        ),
+        ProviderInfo(
+            "dashscope-us", "Alibaba DashScope (US)", "openai/", "DASHSCOPE_API_KEY", False, "qwen3-coder-next"
+        ),
         ProviderInfo("together", "Together AI", "together_ai/", "TOGETHER_API_KEY", False, "meta-llama/Llama-3-70b"),
         ProviderInfo(
             "fireworks", "Fireworks AI", "fireworks_ai/", "FIREWORKS_API_KEY", False, "llama-v3p1-70b-instruct"
@@ -48,6 +54,8 @@ PROVIDER_DEFAULT_ENDPOINTS: dict[str, str] = {
     # OpenAI-compatible base URLs used when a role assignment omits endpoint.
     "openrouter": "https://openrouter.ai/api/v1",
     "deepinfra": "https://api.deepinfra.com/v1/openai",
+    "dashscope": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "dashscope-us": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
 }
 
 KNOWN_ROLES = (

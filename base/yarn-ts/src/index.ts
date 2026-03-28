@@ -359,6 +359,7 @@ async function refreshTierRegistry(): Promise<void> {
 }
 
 import type { ModelAdapter } from "./providers/model-adapter.js";
+import { repairWriteToolCall } from "./providers/model-adapter.js";
 
 type ResolveResult =
   | { ok: true; resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
@@ -1557,20 +1558,32 @@ app.post("/v1/messages", async (req, reply) => {
             wasRemapped = remap.remapped;
           }
 
+          // Adapter-neutral: detect malformed Write content and rewrite as Bash heredoc
+          let emitToolName = buf?.toolName ?? tcFull.toolName ?? "";
+          const repair = repairWriteToolCall(emitToolName, finalInput);
+          if (repair) {
+            emitToolName = repair.rewrittenToolName;
+            finalInput = repair.rewrittenInput;
+            app.log.warn({
+              reqId: traceReqId, originalTool: tcFull.toolName,
+              rewrittenTo: repair.rewrittenToolName,
+              filePath: (tcFull.input as Record<string, unknown>)?.file_path ?? (tcFull.input as Record<string, unknown>)?.path,
+            }, "write_tool_repaired_to_bash_heredoc");
+          }
+
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
             app.log.debug({
-              reqId: traceReqId, toolName: tcFull.toolName, toolCallId: tcFull.toolCallId,
+              reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId,
               argsLen: JSON.stringify(finalInput).length,
               argsPreview: JSON.stringify(finalInput).slice(0, 300),
-              remapped: wasRemapped,
+              remapped: wasRemapped, repaired: !!repair,
               adapterFamily: claudeAdapter.family,
             }, "claude_tool_call_streamed");
           }
 
           // Emit buffered tool call: start + single delta with normalized JSON + stop
           const toolCallId = tcFull.toolCallId ?? "";
-          const toolName = buf?.toolName ?? tcFull.toolName ?? "";
-          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: toolName } });
+          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
           const normalizedJson = JSON.stringify(finalInput);
           safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: normalizedJson } });
           safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });

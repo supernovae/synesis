@@ -52,8 +52,31 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   readonly supportsThinking = false;
   readonly maxEffectiveTools = 40;
 
+  /**
+   * When true, the backend handles XML→JSON tool call conversion natively
+   * (DashScope, vLLM with --tool-call-parser=qwen3_coder). We skip the
+   * heavy heredoc workaround prompt and trust tool calls to come through clean.
+   */
+  readonly nativeToolParser: boolean;
+
+  constructor(nativeToolParser = false) {
+    this.nativeToolParser = nativeToolParser;
+  }
+
   toolSystemPrompt(toolCount: number): string | undefined {
     if (toolCount === 0) return undefined;
+
+    // Backend with native XML parser handles tool calls correctly — minimal guidance only
+    if (this.nativeToolParser) {
+      return [
+        "# Tool Calling Guidelines",
+        "Use the EXACT parameter names from each tool's schema.",
+        "If a tool requires no arguments, pass an empty object: `{}`.",
+        "Use RELATIVE file paths (e.g., `hello.go`, `cmd/main.go`), not absolute paths.",
+      ].join("\n");
+    }
+
+    // JSON-only backend (DeepInfra, OpenRouter) — steer toward Bash heredoc for code
     return [
       "# Tool Calling Guidelines",
       "You have access to tools. When calling a tool, you MUST use the EXACT parameter names from the tool's schema.",
@@ -68,10 +91,17 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "- **Grep tool**: `pattern` (string).",
       "- **Glob tool**: `glob_pattern` (string).",
       "",
-      "## File content encoding (CRITICAL):",
-      "The `content` parameter for Write MUST be a JSON string containing the COMPLETE file source code.",
-      "Escape newlines as \\n and double quotes as \\\" inside the JSON string value.",
-      'Example Write call: {"file_path": "hello.go", "content": "package main\\n\\nimport \\"fmt\\"\\n\\nfunc main() {\\n\\tfmt.Println(\\"Hello, World!\\")\\n}\\n"}',
+      "## Creating files (PREFERRED method for source code):",
+      "For files containing source code, use the **Bash** tool with a heredoc instead of the Write tool.",
+      "This avoids JSON escaping problems with quotes and newlines in code.",
+      "",
+      "Example — create a Go file:",
+      '{"command": "cat > hello.go << \'EOF\'\\npackage main\\n\\nimport \\"fmt\\"\\n\\nfunc main() {\\n\\tfmt.Println(\\"Hello, World!\\")\\n}\\nEOF"}',
+      "",
+      "Example — create a Python file:",
+      '{"command": "cat > app.py << \'EOF\'\\nfrom flask import Flask\\n\\napp = Flask(__name__)\\n\\n@app.route(\\"/\\")\\ndef index():\\n    return \\"Hello\\"\\nEOF"}',
+      "",
+      "Only use the Write tool for short config files or single-line content.",
       "",
       "## File paths:",
       "Use RELATIVE paths from the current working directory (e.g., `hello.go`, `cmd/main.go`).",
@@ -123,12 +153,76 @@ export class DeepSeekAdapter implements ModelAdapter {
 }
 
 /**
+ * Adapter-neutral: detect malformed Write tool calls and convert to Bash heredoc.
+ *
+ * JSON tool calling breaks when code content contains nested quotes (the Qwen3-Coder
+ * paper explicitly notes "heavy escaping overhead for multi-line code" in JSON format).
+ * When the model fails to properly serialize code, the content comes through truncated
+ * or garbled. This function detects that and rewrites the tool call as a Bash heredoc,
+ * which avoids JSON escaping entirely.
+ *
+ * Returns null if no repair needed, or a replacement tool call if repaired.
+ */
+export function repairWriteToolCall(
+  toolName: string,
+  input: Record<string, unknown>,
+): { rewrittenToolName: string; rewrittenInput: Record<string, unknown> } | null {
+  if (toolName !== "Write") return null;
+
+  const filePath = input.file_path as string | undefined;
+  const content = input.content as string | undefined;
+
+  if (!filePath || typeof filePath !== "string") return null;
+  if (!content || typeof content !== "string") return null;
+
+  // Heuristics for garbled content:
+  // 1. Content looks like Python dict syntax (model failed JSON encoding)
+  // 2. Content is suspiciously short for a source file (< 20 chars) but has a code extension
+  // 3. Content has no newlines but the file extension suggests multi-line code
+  const codeExtensions = /\.(go|py|js|ts|jsx|tsx|rs|c|cpp|h|java|rb|sh|yaml|yml|toml|json|html|css)$/i;
+  const looksLikePythonDict = /^\{['"][^"']+['"]\s*:/.test(content.trim());
+  const tooShortForCode = content.length < 20 && codeExtensions.test(filePath);
+  const noNewlinesInCode = !content.includes("\n") && content.length < 50 && codeExtensions.test(filePath);
+
+  if (!looksLikePythonDict && !tooShortForCode && !noNewlinesInCode) return null;
+
+  // Rewrite as Bash heredoc -- avoids JSON escaping entirely
+  const heredocCmd = `cat > ${shellEscape(filePath)} << 'SYNESIS_EOF'\n${content}\nSYNESIS_EOF`;
+  return {
+    rewrittenToolName: "Bash",
+    rewrittenInput: {
+      command: heredocCmd,
+      description: `Create ${filePath} (repaired from malformed Write)`,
+    },
+  };
+}
+
+function shellEscape(s: string): string {
+  if (/^[a-zA-Z0-9_./-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Backends that handle the Qwen3-Coder XML tool format server-side,
+ * converting XML tool calls to clean JSON before returning them via the API.
+ */
+function hasNativeQwenToolParser(baseUrl?: string): boolean {
+  if (!baseUrl) return false;
+  const u = baseUrl.toLowerCase();
+  // DashScope (Alibaba) — all regional endpoints
+  if (u.includes("dashscope")) return true;
+  // Local vLLM with qwen3_coder parser — svc.cluster.local endpoints
+  if (u.includes(".svc.cluster.local") || u.includes("localhost") || u.includes("127.0.0.1")) return true;
+  return false;
+}
+
+/**
  * Resolve adapter from the backend model name (e.g. "Qwen/Qwen3-Coder-480B-A35B-Instruct").
  * Pattern-matches against known model families. Falls back to GenericOpenAIAdapter.
  */
-export function resolveAdapter(backendModel: string, _baseUrl?: string): ModelAdapter {
+export function resolveAdapter(backendModel: string, baseUrl?: string): ModelAdapter {
   const m = backendModel.toLowerCase();
-  if (/qwen3.*coder/i.test(m)) return new Qwen3CoderAdapter();
+  if (/qwen3.*coder/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
   if (/kimi|moonshot/i.test(m)) return new GenericOpenAIAdapter("kimi");
   if (/minimax|abab/i.test(m)) return new GenericOpenAIAdapter("minimax");

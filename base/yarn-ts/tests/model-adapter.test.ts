@@ -4,6 +4,7 @@ import {
   Qwen3CoderAdapter,
   GenericOpenAIAdapter,
   DeepSeekAdapter,
+  repairWriteToolCall,
 } from "../src/providers/model-adapter.js";
 
 describe("resolveAdapter", () => {
@@ -41,6 +42,47 @@ describe("resolveAdapter", () => {
     const adapter = resolveAdapter("qwen/qwen3-coder-something");
     expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
   });
+
+  it("enables nativeToolParser for DashScope URLs", () => {
+    const adapter = resolveAdapter(
+      "qwen3-coder-next",
+      "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    ) as Qwen3CoderAdapter;
+    expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
+    expect(adapter.nativeToolParser).toBe(true);
+  });
+
+  it("enables nativeToolParser for DashScope US URLs", () => {
+    const adapter = resolveAdapter(
+      "qwen3-coder-next",
+      "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+    ) as Qwen3CoderAdapter;
+    expect(adapter.nativeToolParser).toBe(true);
+  });
+
+  it("enables nativeToolParser for local vLLM (svc.cluster.local)", () => {
+    const adapter = resolveAdapter(
+      "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+      "http://synesis-coder.synesis-models.svc.cluster.local:8080/v1"
+    ) as Qwen3CoderAdapter;
+    expect(adapter.nativeToolParser).toBe(true);
+  });
+
+  it("disables nativeToolParser for DeepInfra URLs", () => {
+    const adapter = resolveAdapter(
+      "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+      "https://api.deepinfra.com/v1/openai"
+    ) as Qwen3CoderAdapter;
+    expect(adapter.nativeToolParser).toBe(false);
+  });
+
+  it("disables nativeToolParser for OpenRouter URLs", () => {
+    const adapter = resolveAdapter(
+      "qwen/qwen3-coder",
+      "https://openrouter.ai/api/v1"
+    ) as Qwen3CoderAdapter;
+    expect(adapter.nativeToolParser).toBe(false);
+  });
 });
 
 describe("Qwen3CoderAdapter", () => {
@@ -50,6 +92,7 @@ describe("Qwen3CoderAdapter", () => {
     expect(adapter.family).toBe("qwen3-coder");
     expect(adapter.supportsThinking).toBe(false);
     expect(adapter.maxEffectiveTools).toBe(40);
+    expect(adapter.nativeToolParser).toBe(false);
   });
 
   it("returns tool system prompt when tools are present", () => {
@@ -79,6 +122,56 @@ describe("Qwen3CoderAdapter", () => {
     const a = adapter.toolSystemPrompt!(5);
     const b = adapter.toolSystemPrompt!(5);
     expect(a).toBe(b);
+  });
+
+  it("remaps 'path' to 'file_path' for Write", () => {
+    const result = adapter.remapToolArgs!("Write", { path: "hello.go", content: "code" });
+    expect(result.remapped).toBe(true);
+    expect(result.input).toEqual({ file_path: "hello.go", content: "code" });
+  });
+
+  it("remaps 'cmd' to 'command' for Bash", () => {
+    const result = adapter.remapToolArgs!("Bash", { cmd: "ls -la" });
+    expect(result.remapped).toBe(true);
+    expect(result.input).toEqual({ command: "ls -la" });
+  });
+
+  it("does not remap when correct names already present", () => {
+    const result = adapter.remapToolArgs!("Write", { file_path: "hello.go", content: "code" });
+    expect(result.remapped).toBe(false);
+    expect(result.input).toEqual({ file_path: "hello.go", content: "code" });
+  });
+
+  it("returns unchanged for unknown tools", () => {
+    const result = adapter.remapToolArgs!("UnknownTool", { foo: "bar" });
+    expect(result.remapped).toBe(false);
+    expect(result.input).toEqual({ foo: "bar" });
+  });
+
+  it("toolSystemPrompt recommends Bash heredoc for code files (JSON backend)", () => {
+    const prompt = adapter.toolSystemPrompt!(10);
+    expect(prompt).toContain("heredoc");
+    expect(prompt).toContain("Bash");
+  });
+});
+
+describe("Qwen3CoderAdapter (nativeToolParser)", () => {
+  const adapter = new Qwen3CoderAdapter(true);
+
+  it("nativeToolParser flag is set", () => {
+    expect(adapter.nativeToolParser).toBe(true);
+  });
+
+  it("returns minimal prompt without heredoc workaround", () => {
+    const prompt = adapter.toolSystemPrompt!(10);
+    expect(prompt).toBeDefined();
+    expect(prompt).toContain("RELATIVE");
+    expect(prompt).not.toContain("heredoc");
+    expect(prompt).not.toContain("cat >");
+  });
+
+  it("still returns undefined for zero tools", () => {
+    expect(adapter.toolSystemPrompt!(0)).toBeUndefined();
   });
 });
 
@@ -111,5 +204,65 @@ describe("DeepSeekAdapter", () => {
   it("returns provider options for reasoning", () => {
     const opts = adapter.providerOptions!();
     expect(opts).toEqual({ openai: { reasoningParser: "deepseek_r1" } });
+  });
+});
+
+describe("repairWriteToolCall", () => {
+  it("returns null for non-Write tools", () => {
+    expect(repairWriteToolCall("Bash", { command: "ls" })).toBeNull();
+    expect(repairWriteToolCall("Read", { file_path: "foo.go" })).toBeNull();
+  });
+
+  it("returns null for Write with valid multi-line content", () => {
+    const result = repairWriteToolCall("Write", {
+      file_path: "main.go",
+      content: 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello")\n}\n',
+    });
+    expect(result).toBeNull();
+  });
+
+  it("detects Python-dict-style garbled content", () => {
+    const result = repairWriteToolCall("Write", {
+      file_path: "hello.go",
+      content: "{'World!': ''}",
+    });
+    expect(result).not.toBeNull();
+    expect(result!.rewrittenToolName).toBe("Bash");
+    expect(result!.rewrittenInput.command).toContain("cat > hello.go");
+    expect(result!.rewrittenInput.command).toContain("SYNESIS_EOF");
+  });
+
+  it("detects suspiciously short content for code files", () => {
+    const result = repairWriteToolCall("Write", {
+      file_path: "app.py",
+      content: "x = 1",
+    });
+    expect(result).not.toBeNull();
+    expect(result!.rewrittenToolName).toBe("Bash");
+  });
+
+  it("does not trigger for short content with non-code extension", () => {
+    const result = repairWriteToolCall("Write", {
+      file_path: "README.txt",
+      content: "Hello world",
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when file_path is missing", () => {
+    expect(repairWriteToolCall("Write", { content: "{'bad': true}" })).toBeNull();
+  });
+
+  it("returns null when content is missing", () => {
+    expect(repairWriteToolCall("Write", { file_path: "foo.go" })).toBeNull();
+  });
+
+  it("shell-escapes file paths with special characters", () => {
+    const result = repairWriteToolCall("Write", {
+      file_path: "my file (1).go",
+      content: "{'bad': ''}",
+    });
+    expect(result).not.toBeNull();
+    expect(result!.rewrittenInput.command).toContain("'my file (1).go'");
   });
 });
