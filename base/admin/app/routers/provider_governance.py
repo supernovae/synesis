@@ -85,6 +85,19 @@ def _effective_default_endpoint(row: ProviderConfig | None, provider_key: str) -
     return default_endpoint_for_provider(provider_key)
 
 
+def _effective_provider_fields(info: dict, row: ProviderConfig | None) -> dict:
+    """Merge catalog provider info with ProviderConfig overrides (for built-ins and custom)."""
+    return {
+        **info,
+        "label": (row.label or info.get("label", "")) if row else info.get("label", ""),
+        "litellm_prefix": (row.litellm_prefix or info.get("litellm_prefix", "")) if row else info.get("litellm_prefix", ""),
+        "api_key_env": (row.api_key_env or info.get("api_key_env", "")) if row else info.get("api_key_env", ""),
+        "needs_endpoint": row.needs_endpoint if (row and row.needs_endpoint is not None) else info.get("needs_endpoint", False),
+        "placeholder": (row.placeholder or info.get("placeholder", "")) if row else info.get("placeholder", ""),
+        "is_local": bool(row.is_local) if row and row.is_local is not None else bool(info.get("is_local", False)),
+    }
+
+
 async def _get_all_configs() -> dict[str, dict]:
     """Load all ProviderConfig rows, keyed by provider_key."""
     async with async_session() as session:
@@ -175,8 +188,9 @@ async def list_provider_configs(_user: UserInfo = Depends(get_current_user)):
     for key, info in catalog["providers"].items():
         cfg = configs.get(key, {})
         row = rows_by_key.get(key)
+        merged_info = _effective_provider_fields(info, row)
         entry = {
-            **info,
+            **merged_info,
             "is_custom": False,
             "default_endpoint": _effective_default_endpoint(row, key),
             "config": cfg if cfg else None,
@@ -236,8 +250,9 @@ async def get_provider_config(provider_key: str, _user: UserInfo = Depends(get_c
 
     if provider_key in PROVIDER_CATALOG:
         info = catalog["providers"][provider_key]
+        merged_info = _effective_provider_fields(info, row)
         return {
-            **info,
+            **merged_info,
             "is_custom": False,
             "default_endpoint": _effective_default_endpoint(row, provider_key),
             "config": cfg if cfg else None,
@@ -345,19 +360,18 @@ async def update_provider_config(
             ep = str(data.get("default_endpoint") or "").strip()
             row.default_endpoint = ep or None
 
-        if row.is_custom:
-            if "label" in data:
-                row.label = data["label"]
-            if "litellm_prefix" in data:
-                row.litellm_prefix = data["litellm_prefix"]
-            if "api_key_env" in data:
-                row.api_key_env = data["api_key_env"]
-            if "needs_endpoint" in data:
-                row.needs_endpoint = data["needs_endpoint"]
-            if "placeholder" in data:
-                row.placeholder = data["placeholder"]
-            if "is_local" in data:
-                row.is_local = data["is_local"]
+        if "label" in data:
+            row.label = data["label"]
+        if "litellm_prefix" in data:
+            row.litellm_prefix = data["litellm_prefix"]
+        if "api_key_env" in data:
+            row.api_key_env = data["api_key_env"]
+        if "needs_endpoint" in data:
+            row.needs_endpoint = data["needs_endpoint"]
+        if "placeholder" in data:
+            row.placeholder = data["placeholder"]
+        if "is_local" in data:
+            row.is_local = data["is_local"]
 
         await session.commit()
         await session.refresh(row)
@@ -398,6 +412,12 @@ async def delete_or_reset_provider(
             row.policies = None
             row.notes = ""
             row.default_endpoint = None
+            row.label = None
+            row.litellm_prefix = None
+            row.api_key_env = None
+            row.needs_endpoint = None
+            row.placeholder = None
+            row.is_local = None
             action = "provider_governance.reset"
             summary = f"Reset provider config for {provider_key} to catalog defaults"
 

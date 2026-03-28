@@ -40,7 +40,7 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
         ProviderInfo("vllm", "Local vLLM", "openai/", "", True, "synesis-router", is_local=True),
         ProviderInfo("kserve", "OpenShift AI (KServe)", "openai/", "", True, "synesis-router", is_local=True),
         ProviderInfo("openrouter", "OpenRouter", "openrouter/", "OPENROUTER_API_KEY", False, "x-ai/grok-4-fast"),
-        ProviderInfo("xai", "xAI (Grok)", "xai/", "XAI_API_KEY", False, "grok-4-0709"),
+        ProviderInfo("xai", "xAI (Grok)", "xai/", "XAI_API_KEY", True, "grok-4-0709"),
         ProviderInfo("groq", "Groq", "groq/", "GROQ_API_KEY", False, "llama-3.3-70b-versatile"),
         ProviderInfo(
             "deepinfra", "DeepInfra", "deepinfra/", "DEEPINFRA_API_KEY", False, "meta-llama/Meta-Llama-3.1-70B"
@@ -77,6 +77,7 @@ PROVIDER_DEFAULT_ENDPOINTS: dict[str, str] = {
     # OpenAI-compatible base URLs used when a role assignment omits endpoint.
     "openrouter": "https://openrouter.ai/api/v1",
     "deepinfra": "https://api.deepinfra.com/v1/openai",
+    "xai": "https://api.x.ai/v1",
     "dashscope": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "dashscope-us": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
 }

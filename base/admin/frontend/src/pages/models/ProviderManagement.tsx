@@ -113,17 +113,13 @@ export default function ProviderManagement() {
       default_max_tokens: String(v.default_max_tokens),
       default_temperature: String(v.default_temperature),
       notes: v.notes,
-      default_endpoint: v.config?.default_endpoint ?? "",
-      ...(v.is_custom
-        ? {
-            label: v.label,
-            litellm_prefix: v.litellm_prefix,
-            api_key_env: v.api_key_env,
-            needs_endpoint: v.needs_endpoint,
-            placeholder: v.placeholder,
-            is_local: v.is_local,
-          }
-        : {}),
+      default_endpoint: v.config?.default_endpoint ?? v.default_endpoint ?? "",
+      label: v.label,
+      litellm_prefix: v.litellm_prefix,
+      api_key_env: v.api_key_env,
+      needs_endpoint: v.needs_endpoint,
+      placeholder: v.placeholder,
+      is_local: v.is_local,
     });
   };
 
@@ -131,8 +127,7 @@ export default function ProviderManagement() {
 
   const showDefaultEndpointInEdit = useMemo(() => {
     if (!editingProvider || !editForm) return false;
-    if (editingProvider.is_custom) return editForm.needs_endpoint ?? true;
-    return Boolean(editingProvider.needs_endpoint);
+    return editForm.needs_endpoint ?? true;
   }, [editingProvider, editForm]);
 
   const handleSave = () => {
@@ -144,17 +139,13 @@ export default function ProviderManagement() {
       default_temperature: Number(editForm.default_temperature) || 0.1,
       notes: editForm.notes,
     };
-    if (editingProvider.is_custom) {
-      payload.label = editForm.label;
-      payload.litellm_prefix = editForm.litellm_prefix;
-      payload.api_key_env = editForm.api_key_env;
-      payload.needs_endpoint = editForm.needs_endpoint;
-      payload.placeholder = editForm.placeholder;
-      payload.is_local = editForm.is_local;
-    }
-    const endpointApplies = editingProvider.is_custom
-      ? (editForm.needs_endpoint ?? true)
-      : Boolean(editingProvider.needs_endpoint);
+    payload.label = editForm.label;
+    payload.litellm_prefix = editForm.litellm_prefix;
+    payload.api_key_env = editForm.api_key_env;
+    payload.needs_endpoint = editForm.needs_endpoint;
+    payload.placeholder = editForm.placeholder;
+    payload.is_local = editForm.is_local;
+    const endpointApplies = editForm.needs_endpoint ?? true;
     if (endpointApplies) {
       payload.default_endpoint = editForm.default_endpoint ?? "";
     }
@@ -400,8 +391,7 @@ export default function ProviderManagement() {
                 <span className="text-gray-700 dark:text-gray-300">Show in Model Registry</span>
               </label>
 
-              {editingProvider?.is_custom && (
-                <>
+              <>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                       Display Label
@@ -470,8 +460,7 @@ export default function ProviderManagement() {
                       <span className="text-gray-700 dark:text-gray-300">Local</span>
                     </label>
                   </div>
-                </>
-              )}
+              </>
 
               {showDefaultEndpointInEdit && (
                 <div>
