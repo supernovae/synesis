@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   useProviderGovernance,
@@ -70,7 +70,11 @@ export default function ProviderManagement() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState<CreateForm>({ ...EMPTY_CREATE });
 
-  const providers: ProviderConfigInfo[] = data?.providers ?? [];
+  const providersRaw: ProviderConfigInfo[] = data?.providers ?? [];
+  const providers = useMemo(
+    () => [...providersRaw].sort((a, b) => a.label.localeCompare(b.label)),
+    [providersRaw],
+  );
   const configuredKeys = new Set(
     (providerKeysData ?? []).filter((k: ProviderKeyStatus) => k.configured).map((k) => k.name),
   );

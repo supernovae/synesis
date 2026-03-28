@@ -512,6 +512,11 @@ function EditModal({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
+  const providerOptions = useMemo(
+    () => Object.entries(providers).sort(([, a], [, b]) => a.label.localeCompare(b.label)),
+    [providers],
+  );
+
   const keyEnv = (editing.api_key_env || prov?.api_key_env || "").trim();
   const catalogKeyBlocked = !!keyEnv && editing.provider !== "custom" && !configuredKeys.has(keyEnv);
 
@@ -552,7 +557,7 @@ function EditModal({
               }}
               className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
             >
-              {Object.entries(providers).map(([key, p]) => (
+              {providerOptions.map(([key, p]) => (
                 <option key={key} value={key}>
                   {p.label}
                   {p.api_key_env ? (configuredKeys.has(p.api_key_env) ? " ✓" : " • key needed") : ""}

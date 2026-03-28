@@ -33,10 +33,20 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
             "deepinfra", "DeepInfra", "deepinfra/", "DEEPINFRA_API_KEY", False, "meta-llama/Meta-Llama-3.1-70B"
         ),
         ProviderInfo(
-            "dashscope", "Alibaba DashScope", "openai/", "DASHSCOPE_API_KEY", True, "qwen3-coder-next"
+            "dashscope",
+            "DashScope (Alibaba Cloud, intl)",
+            "openai/",
+            "DASHSCOPE_API_KEY",
+            True,
+            "qwen3-coder-next",
         ),
         ProviderInfo(
-            "dashscope-us", "Alibaba DashScope (US)", "openai/", "DASHSCOPE_API_KEY", True, "qwen3-coder-next"
+            "dashscope-us",
+            "DashScope (Alibaba Cloud, US)",
+            "openai/",
+            "DASHSCOPE_API_KEY",
+            True,
+            "qwen3-coder-next",
         ),
         ProviderInfo("together", "Together AI", "together_ai/", "TOGETHER_API_KEY", False, "meta-llama/Llama-3-70b"),
         ProviderInfo(
