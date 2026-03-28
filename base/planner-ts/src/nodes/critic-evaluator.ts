@@ -4,6 +4,9 @@ import type { GraphState } from "../state/types.js";
 import { validateWithRepair } from "../validation/json-repair.js";
 import { loadConfig } from "../config.js";
 import { TRUST_POLICY_COMPACT } from "../security/trust-prompts.js";
+import { getCriticRegulatedBlock, getCriticAssistantSystemsBlock } from "../taxonomy/taxonomy-prompt-factory.js";
+import { getCriticMode, getCriticTierPrompt, selectCriticTier } from "../taxonomy/vertical-prompts.js";
+import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 
 export type CriticResult = CriticOut & { usage: LlmUsage };
 
@@ -177,6 +180,49 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
   const assumptionContext = assumptions.length > 0 && state.show_assumptions
     ? `\n\nPlanner assumptions: ${assumptions.join("; ")}. Check that material assumptions are tagged with [Assumption] and definitive claims about uncertain topics are qualified.`
     : "";
+  // Build taxonomy hints for the critic (matching Python _build_taxonomy_hints)
+  const taxonomyMeta = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
+  const difficulty = state.difficulty ?? 0;
+  const taxonomyHintParts: string[] = [];
+  const domain = String(taxonomyMeta.path ?? "General").trim();
+  const taxonomyComplexity = Number(taxonomyMeta.complexity_score ?? 0.5);
+  const requiredElements = (taxonomyMeta.required_elements ?? []) as string[];
+  const depthGuidance = String(taxonomyMeta.depth_instructions ?? "").trim();
+  const personaHint = String(taxonomyMeta.persona_instructions ?? "").trim();
+
+  taxonomyHintParts.push(`Domain: ${domain}`, `Complexity: ${taxonomyComplexity.toFixed(1)}`);
+  if (requiredElements.length > 0) {
+    const joined = requiredElements.join(", ");
+    if (taxonomyComplexity >= 0.8) {
+      taxonomyHintParts.push(`Expected sections for this domain (flag as insufficient_depth if missing): ${joined}`);
+    } else {
+      taxonomyHintParts.push(`Typical elements for this domain: ${joined}`);
+    }
+  }
+  if (depthGuidance) taxonomyHintParts.push(`Depth guidance: ${depthGuidance}`);
+  if (personaHint) taxonomyHintParts.push(`Tone/persona: ${personaHint}`);
+  taxonomyHintParts.push(`Difficulty: ${difficulty.toFixed(2)}`);
+  const taxonomyHints = taxonomyHintParts.join("\n");
+
+  // Regulated / assistant-systems blocks
+  const regulatedBlock = getCriticRegulatedBlock(taxonomyMeta);
+  const assistantBlock = getCriticAssistantSystemsBlock(taxonomyMeta);
+
+  // Vertical critic steering
+  const activeVertical = String(taxonomyMeta.active_vertical ?? "generic");
+  const snap = getOntologySnapshot();
+  const criticMode = getCriticMode(snap.verticalPrompts, activeVertical);
+  let verticalCriticBlock = "";
+  if (criticMode === "tiered") {
+    const tier = selectCriticTier(difficulty);
+    const tierPrompt = getCriticTierPrompt(snap.verticalPrompts, activeVertical, tier);
+    if (tierPrompt) verticalCriticBlock = `\nCritic tier (${tier}):\n${tierPrompt}`;
+  }
+
+  const dynamicSuffix = [taxonomyHints, regulatedBlock, assistantBlock, verticalCriticBlock]
+    .filter(Boolean)
+    .join("\n\n");
+
   const result = await chatCompletion({
     model: process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "Synesis",
     temperature: 0,
@@ -189,7 +235,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
       },
       {
         role: "user",
-        content: `Evaluate this response:\n\n${state.generated_code ?? ""}\n\nEvidence packet count: ${(state.evidence_packets ?? []).length}${assumptionContext}`,
+        content: `Evaluate this response:\n\n${state.generated_code ?? ""}\n\nEvidence packet count: ${(state.evidence_packets ?? []).length}${assumptionContext}\n\nTaxonomy context:\n${dynamicSuffix}`,
       },
     ],
   });

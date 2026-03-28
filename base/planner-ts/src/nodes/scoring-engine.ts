@@ -5,9 +5,12 @@
  * BM25-inspired intent classification, brevity weights, risk veto, and
  * deliverable counting.
  *
- * Weights are embedded from intent_weights.yaml for self-contained deployment.
- * Structure supports future YAML loading if needed.
+ * When the OntologyStore is available (Phase 1 live merge), ScoringEngine
+ * receives its config from the merged snapshot. Falls back to embedded
+ * defaults when no YAML files are present.
  */
+
+import type { MergedOntologySnapshot } from "../ontology/merge-plugins.js";
 
 type TaskSize = "easy" | "medium" | "hard";
 
@@ -28,7 +31,14 @@ interface IntentClassEntry {
   criticBehaviorBlock?: string;
 }
 
-interface ScoringConfig {
+export interface PairingRule {
+  keywords: string[];
+  extra_weight: number;
+  axis: "risk" | "complexity";
+  domain?: string;
+}
+
+export interface ScoringConfig {
   thresholds: {
     easyMax: number;
     mediumMax: number;
@@ -50,6 +60,27 @@ interface ScoringConfig {
   intentClasses: Record<string, IntentClassEntry>;
   riskVetoTriggers: string[];
   overrides: Record<string, string[]>;
+  pairings?: PairingRule[];
+}
+
+/** Build a ScoringConfig from MergedOntologySnapshot. */
+export function scoringConfigFromSnapshot(snap: MergedOntologySnapshot): ScoringConfig {
+  const domainKeywords: Record<string, DomainEntry> = {};
+  for (const [k, v] of Object.entries(snap.domainKeywords)) {
+    domainKeywords[k] = { domain: v.domain, keywords: v.keywords, minHits: v.minHits ?? 1 };
+  }
+  return {
+    thresholds: snap.thresholds as ScoringConfig["thresholds"],
+    routingThresholds: snap.routingThresholds as ScoringConfig["routingThresholds"],
+    complexityWeights: snap.complexityWeights,
+    riskWeights: snap.riskWeights,
+    domainKeywords,
+    brevityWeights: snap.brevityWeights,
+    intentClasses: snap.intentClasses,
+    riskVetoTriggers: snap.riskVetoTriggers,
+    overrides: snap.overrides,
+    pairings: snap.pairings,
+  };
 }
 
 export interface ScoringResult {
@@ -295,7 +326,34 @@ export class ScoringEngine {
       }
     }
 
-    // 4. Density tax
+    // 4. Pairings: keyword co-occurrence rules that boost risk/complexity
+    //    and can inject additional active domains (multidimensional signal).
+    for (const pair of (this.config.pairings ?? [])) {
+      const kwList = pair.keywords;
+      if (!kwList || kwList.length === 0) continue;
+      const allPresent = kwList.every((kw) => {
+        const re = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+        return re.test(lower);
+      });
+      if (!allPresent) continue;
+      const extra = pair.extra_weight;
+      const pairKey = `pairing(${kwList.join("+")})`;
+      hits.push(`${pairKey}(+${extra})`);
+      breakdown[pairKey] = (breakdown[pairKey] ?? 0) + extra;
+      if (pair.axis === "complexity") {
+        complexityScore += extra;
+      } else {
+        riskScore += extra;
+      }
+      const domain = pair.domain;
+      if (domain && domain.trim()) {
+        const d = domain.trim();
+        domainRefCounts[d] = (domainRefCounts[d] ?? 0) + 1;
+        if (!activeDomains.includes(d)) activeDomains.push(d);
+      }
+    }
+
+    // 5. Density tax
     const heavyCategories = Object.keys(hitsByCategory).filter(
       (c) => this.complexityPatterns.has(c) && (this.complexityPatterns.get(c)!.weight > 2),
     );
@@ -305,7 +363,7 @@ export class ScoringEngine {
       breakdown.density_tax = this.config.thresholds.densityTax;
     }
 
-    // 5. Brevity
+    // 6. Brevity
     let brevityScore = 0;
     for (const [cat, { weight, pattern }] of this.brevityPatterns) {
       pattern.lastIndex = 0;
@@ -317,7 +375,7 @@ export class ScoringEngine {
       }
     }
 
-    // 6. Deliverable bonus
+    // 7. Deliverable bonus
     const deliverables = countDeliverables(t);
     if (deliverables > 3) {
       const bonus = (deliverables - 3) * 2;
@@ -326,7 +384,7 @@ export class ScoringEngine {
       breakdown.deliverable_bonus = bonus;
     }
 
-    // 7. Task size
+    // 8. Task size
     const th = this.config.thresholds;
     let taskSize: TaskSize;
     if (riskScore >= th.riskHigh) {
@@ -347,7 +405,7 @@ export class ScoringEngine {
       taskSize = "hard";
     }
 
-    // 8. Intent class (BM25 scoring)
+    // 9. Intent class (BM25 scoring)
     const docLen = Math.max(1, lower.split(/\s+/).length);
     const intents = this.config.intentClasses;
     const nIntents = Math.max(1, Object.keys(intents).length);
@@ -394,7 +452,7 @@ export class ScoringEngine {
       hits.push(`intent:${intentClass}(bm25=${intentScores.get(intentClass)?.toFixed(2)})`);
     }
 
-    // 8b. Complexity exemption for non-code intents
+    // 9b. Complexity exemption for non-code intents
     if (!CODE_INTENTS.has(intentClass)) {
       for (const exempt of ["io_basic", "query_basic"]) {
         if (breakdown[exempt]) {
@@ -461,4 +519,17 @@ let _engine: ScoringEngine | null = null;
 export function getScoringEngine(): ScoringEngine {
   if (!_engine) _engine = new ScoringEngine();
   return _engine;
+}
+
+/**
+ * Build the scoring engine from an OntologySnapshot.
+ * Called once at startup by the entry classifier when live merge is active.
+ */
+export function initScoringEngineFromSnapshot(snap: MergedOntologySnapshot): ScoringEngine {
+  _engine = new ScoringEngine(scoringConfigFromSnapshot(snap));
+  return _engine;
+}
+
+export function resetScoringEngine(): void {
+  _engine = null;
 }

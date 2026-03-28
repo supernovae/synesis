@@ -143,16 +143,25 @@ Working document to track parity between `base/planner` (Python) and `base/plann
 
 ### 9) Full taxonomy L2 resolution from YAML/admin API
 
-- Status: `partial` in TS
+- Status: `done` in TS (Phase 1 — file-based parity with Python)
 - Python behavior:
   - `TaxonomyPromptFactory` compiles all ~190 domain entries from `taxonomy_prompt_config.yaml` at startup with Pydantic validation
   - Injects persona, depth, output_style_guidance, epistemic_guidance, required_elements per domain
-  - evidence: `base/planner/app/taxonomy_prompt_factory.py`, `base/planner/taxonomy_prompt_config.yaml`
+  - `plugin_weight_loader.py` merges `intent_weights.yaml` + `plugins/weights/*.yaml` into unified scoring config with vertical_prompts
+  - evidence: `base/planner/app/taxonomy_prompt_factory.py`, `base/planner/app/plugin_weight_loader.py`, `base/planner/taxonomy_prompt_config.yaml`
 - TS behavior:
-  - Scoring engine uses embedded weights from `intent_weights.yaml` for BM25 intent classification and split-axis scoring
-  - No runtime YAML taxonomy resolution or admin API-driven domain injection into writer/critic
-  - evidence: `base/planner-ts/src/nodes/scoring-engine.ts`
-- Decision: gap — port taxonomy L2 resolution for writer/critic prompt injection when domain-specific output shaping is needed
+  - `merge-plugins.ts` ports full `plugin_weight_loader.py` merge: core YAML + all enabled plugins, producing `MergedOntologySnapshot` with complexity/risk/domain/intent/pairings/overrides/thresholds/vertical_prompts
+  - `taxonomy-prompt-factory.ts` loads `taxonomy_prompt_config.yaml`, resolves metadata with domain_ref_counts tie-break, and provides prompt helper functions
+  - `vertical-prompts.ts` resolves active vertical and provides persona/critic/decomposition helpers
+  - Entry classifier builds full taxonomy metadata from merged ontology + YAML config
+  - Writer injects depth, output_style, epistemic, discovery, required_elements, regulated, and vertical persona blocks (prefix-cache-aware ordering)
+  - Critic receives taxonomy hints, regulated/assistant-systems blocks, and vertical tiered/safety_ii steering
+  - Planner appends taxonomy required_elements + vertical decomposition rules
+  - Traces enriched with discovery (taxonomy_key, active_vertical, domain_ref_counts, semantic_validation) and steering_applied list
+  - Containerfile copies `intent_weights.yaml`, `taxonomy_prompt_config.yaml`, and `plugins/weights/` into image
+  - Config env vars: `SYNESIS_ENTRY_CLASSIFIER_WEIGHTS`, `SYNESIS_TAXONOMY_PROMPT_CONFIG`, `SYNESIS_ONTOLOGY_REFRESH_S`, `SYNESIS_MODEL_CAPABILITY_TIER`, `SYNESIS_ONTOLOGY_SERVICE_URL` (Phase 2)
+  - evidence: `base/planner-ts/src/ontology/merge-plugins.ts`, `base/planner-ts/src/taxonomy/taxonomy-prompt-factory.ts`, `base/planner-ts/src/taxonomy/vertical-prompts.ts`, `base/planner-ts/src/nodes/entry-classifier.ts`, `base/planner-ts/src/nodes/writer-compose.ts`, `base/planner-ts/src/nodes/critic-evaluator.ts`, `base/planner-ts/src/nodes/llm-planner.ts`, `base/planner-ts/src/app.ts`, `base/planner-ts/Containerfile`, `base/planner-ts/tests/taxonomy.test.ts`
+- Future: Phase 2 (optional taxonomy-config microservice) and Phase 3 (Postgres `taxonomy_domains` admin sync) are documented in `.cursor/plans/planner-ts_taxonomy_l2_6ad85dd0.plan.md`
 
 ## Recently fixed TS regressions (already landed)
 

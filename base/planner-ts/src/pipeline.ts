@@ -102,7 +102,7 @@ function scrubInternalScaffolding(output: string): string {
 export async function entryPipelineNode(state: GraphState): Promise<GraphState> {
   const collector = ensureCollector(state);
   collector.startSpan("entry_pipeline");
-  const classified = classifyEntry({
+  const classified = await classifyEntry({
     ...state,
     _span_collector: collector,
     iteration_count: state.iteration_count ?? 0,
@@ -610,7 +610,7 @@ export async function directStreamPipeline(
 
   const collector = ensureCollector(state);
   collector.startSpan("entry_pipeline");
-  state = classifyEntry({ ...state, _span_collector: collector, iteration_count: 0, max_iterations: 1 });
+  state = await classifyEntry({ ...state, _span_collector: collector, iteration_count: 0, max_iterations: 1 });
   collector.endSpan("entry_pipeline", {
     outcome: "direct_stream_fast_path",
     metadata: {

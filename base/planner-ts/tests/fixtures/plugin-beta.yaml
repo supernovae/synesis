@@ -1,0 +1,16 @@
+domain_keywords:
+  fintech:
+    domain: fintech
+    keywords: [payment, ledger, transaction]
+
+risk_weights:
+  financial_risk:
+    weight: 18
+    keywords: [payment processing, money transfer]
+
+vertical_prompt:
+  name: fintech
+  active_domain_refs: [fintech]
+  worker_persona_block: |
+    You are a fintech compliance-aware assistant.
+  critic_mode: safety_ii

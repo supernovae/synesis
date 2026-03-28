@@ -1,0 +1,54 @@
+generic:
+  path: General
+  complexity: 0.4
+  persona: Helpful Assistant
+  depth_instructions: Provide balanced coverage.
+  required_elements:
+    - Direct Answer
+  output_style_guidance: Clear and concise.
+  epistemic_guidance: Distinguish established facts from interpretations.
+  output_controls:
+    precise: false
+    show_assumptions: false
+    clarify_first: false
+
+cloud:
+  path: Cloud & Infrastructure > General
+  complexity: 0.65
+  persona: Cloud Infrastructure Specialist
+  depth_instructions: Cover scaling, cost, and availability trade-offs.
+  required_elements:
+    - Architecture Overview
+    - Cost Implications
+    - Security Considerations
+  output_style_guidance: Use diagrams where helpful; bullet comparisons for vendor differences.
+  epistemic_guidance: Flag vendor-specific claims vs. general best practices.
+  regulated_domain: false
+  output_controls:
+    precise: true
+    show_assumptions: true
+    clarify_first: false
+
+kubernetes:
+  path: Cloud & Infrastructure > Kubernetes
+  complexity: 0.7
+  persona: Kubernetes Expert
+  depth_instructions: Cover resource limits, networking, and RBAC.
+  required_elements:
+    - Deployment Strategy
+    - Resource Manifests
+    - Networking
+  output_style_guidance: Prefer YAML examples with inline annotations.
+  epistemic_guidance: Distinguish upstream K8s from vendor extensions.
+  writer_regulated_block: Ensure all manifests include resource limits.
+  critic_regulated_block: Flag missing resource limits as blocking.
+  critic_assistant_systems_block: Consider multi-cluster and GitOps implications.
+  query_expansion_hints:
+    - resource limits
+    - network policies
+  preferred_web_scopes:
+    - kubernetes.io
+  output_controls:
+    precise: true
+    show_assumptions: true
+    clarify_first: true

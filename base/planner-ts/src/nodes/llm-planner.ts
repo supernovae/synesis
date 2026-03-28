@@ -18,6 +18,9 @@ import { validateWithRepair } from "../validation/json-repair.js";
 import type { GraphState } from "../state/types.js";
 import { TRUST_POLICY_COMPACT } from "../security/trust-prompts.js";
 import { loadConfig } from "../config.js";
+import { getPlannerSystemPromptAppend } from "../taxonomy/taxonomy-prompt-factory.js";
+import { getPlannerDecompositionRules } from "../taxonomy/vertical-prompts.js";
+import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 
 const PlannerOutputSchema = z.object({
   steps: z.array(z.object({
@@ -203,6 +206,22 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   }
 
   const plannerCfg = loadConfig();
+
+  // Taxonomy-driven dynamic suffix (appended after static core per prefix-cache rule)
+  const taxonomyMeta = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
+  const taxonomyAppend = getPlannerSystemPromptAppend(taxonomyMeta);
+  const activeVertical = String(taxonomyMeta.active_vertical ?? "generic");
+  const snap = getOntologySnapshot();
+  const decompositionRules = getPlannerDecompositionRules(
+    snap.verticalPrompts,
+    activeVertical,
+    taxonomyMeta,
+    String(taxonomyMeta.taxonomy_key ?? ""),
+  );
+  const decompositionBlock = decompositionRules
+    ? `\n\nDOMAIN DECOMPOSITION RULES (${activeVertical}):\n${decompositionRules}`
+    : "";
+
   let result: { content: string; usage: LlmUsage };
   try {
     result = await chatCompletion({
@@ -226,7 +245,9 @@ export async function runLlmPlanner(state: GraphState): Promise<{
             "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
             "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
             `- Target format: ${requestedFormat}.${schemaHint}`,
-          ].join("\n"),
+            taxonomyAppend,
+            decompositionBlock,
+          ].filter(Boolean).join("\n"),
         },
         {
           role: "user",

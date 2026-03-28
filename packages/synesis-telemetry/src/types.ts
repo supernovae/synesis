@@ -80,6 +80,7 @@ export interface TraceClassification {
   show_assumptions: boolean;
   taxonomy_key: string;
   cynefin_domain?: "clear" | "complicated" | "complex" | "chaotic";
+  active_vertical?: string;
 }
 
 export interface TraceLLMCallRecord {

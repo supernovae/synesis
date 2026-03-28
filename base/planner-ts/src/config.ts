@@ -143,6 +143,16 @@ const EnvSchema = z.object({
   SYNESIS_COHESION_LLM_BORDERLINE_LOW: z.coerce.number().default(0.15),
   SYNESIS_COHESION_LLM_BORDERLINE_HIGH: z.coerce.number().default(0.30),
   SYNESIS_COHESION_COMPRESSION_THRESHOLD: z.coerce.number().default(0.20),
+
+  // --- Taxonomy / Ontology ---
+  SYNESIS_ENTRY_CLASSIFIER_WEIGHTS: z.string().default(""),
+  SYNESIS_PLANNER_TS_PLUGIN_WEIGHTS_DIR: z.string().default(""),
+  SYNESIS_ENTRY_CLASSIFIER_PLUGINS: z.string().default(""),
+  SYNESIS_TAXONOMY_PROMPT_CONFIG: z.string().default(""),
+  SYNESIS_TAXONOMY_CACHE_TTL: z.coerce.number().default(300),
+  SYNESIS_ONTOLOGY_REFRESH_S: z.coerce.number().default(300),
+  SYNESIS_MODEL_CAPABILITY_TIER: z.string().default("small"),
+  SYNESIS_ONTOLOGY_SERVICE_URL: z.string().default(""),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

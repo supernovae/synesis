@@ -7,7 +7,10 @@ import {
 import { loadConfig } from "../config.js";
 import { resolveTierSettings } from "../model-tiers.js";
 import { buildDomainProfile } from "./domain-profile.js";
-import { getScoringEngine, type ScoringResult } from "./scoring-engine.js";
+import { getScoringEngine, initScoringEngineFromSnapshot, type ScoringResult } from "./scoring-engine.js";
+import { getOntologySnapshot } from "../ontology/merge-plugins.js";
+import { resolveTaxonomyMetadataAsync } from "../taxonomy/taxonomy-prompt-factory.js";
+import { resolveActiveVertical } from "../taxonomy/vertical-prompts.js";
 
 type EffortMode = "pulse" | "core" | "horizon";
 
@@ -90,12 +93,42 @@ function buildClassificationText(state: GraphState): string {
   return (prior + " " + task).slice(0, 2500);
 }
 
-function scoringToTaxonomy(scoring: ScoringResult): Record<string, unknown> {
-  const taxonomyKey = scoring.activeDomains[0] ?? scoring.intentClass ?? "generic";
-  const complexity = clip01(scoring.complexityScore / 15);
+async function buildFullTaxonomy(scoring: ScoringResult, text: string): Promise<Record<string, unknown>> {
+  const snap = getOntologySnapshot();
+
+  // Initialize scoring engine from merged ontology on first call
+  try { initScoringEngineFromSnapshot(snap); } catch { /* already initialized */ }
+
+  // Resolve taxonomy metadata from YAML config (with optional semantic cross-check)
+  const taxonomyMeta = await resolveTaxonomyMetadataAsync({
+    activeDomainRefs: scoring.activeDomains,
+    taskSize: scoring.taskSize,
+    intentClass: scoring.intentClass,
+    complexityScore: scoring.complexityScore,
+    domainRefCounts: scoring.domainRefCounts,
+    queryText: text,
+  });
+
+  // Resolve active vertical from merged plugin data
+  const activeVertical = resolveActiveVertical(
+    snap.verticalPrompts,
+    scoring.activeDomains,
+  );
+
+  // Scoring-derived output_controls as baseline
+  const scoringComplexity = clip01(scoring.complexityScore / 15);
+  const scoringControls = {
+    precise: scoringComplexity >= 0.6,
+    show_assumptions: scoringComplexity >= 0.55,
+    clarify_first: scoringComplexity >= 0.7,
+  };
+
+  // YAML output_controls override scoring defaults (matching Python merge)
+  const yamlControls = (taxonomyMeta.output_controls ?? {}) as Record<string, boolean>;
+  const mergedControls = { ...scoringControls, ...yamlControls };
+
   return {
-    taxonomy_key: taxonomyKey,
-    complexity_score: complexity,
+    ...taxonomyMeta,
     intent_class: scoring.intentClass,
     domain_hints: scoring.domainHints,
     score_breakdown: scoring.scoreBreakdown,
@@ -103,24 +136,21 @@ function scoringToTaxonomy(scoring: ScoringResult): Record<string, unknown> {
     active_domains: scoring.activeDomains,
     domain_ref_counts: scoring.domainRefCounts,
     explicit_deliverables: scoring.explicitDeliverables,
-    output_controls: {
-      precise: complexity >= 0.6,
-      show_assumptions: complexity >= 0.55,
-      clarify_first: complexity >= 0.7,
-    },
+    active_vertical: activeVertical,
+    output_controls: mergedControls,
   };
 }
 
-export function classifyEntry(
+export async function classifyEntry(
   state: GraphState,
   opts: { criticBackgroundDefault: boolean } = { criticBackgroundDefault: true },
-): GraphState {
+): Promise<GraphState> {
   const text = buildClassificationText(state);
   const engine = getScoringEngine();
   const scoring = engine.analyze(text);
 
   const difficulty = scoring.difficulty;
-  const taxonomy = scoringToTaxonomy(scoring);
+  const taxonomy = await buildFullTaxonomy(scoring, text);
   const taxonomyComplexity = Number(taxonomy.complexity_score ?? 0.4);
   const riskScore = scoring.riskScore;
   const taskSize: GraphState["task_size"] = scoring.taskSize;

@@ -16,6 +16,14 @@ import {
 } from "../security/trust-prompts.js";
 import { sanitizeStepAction } from "../security/step-sanitizer.js";
 import { loadConfig } from "../config.js";
+import {
+  getOutputStyleGuidance,
+  getEpistemicGuidanceBlock,
+  getWriterRegulatedBlock,
+  getDiscoveryPrompt,
+} from "../taxonomy/taxonomy-prompt-factory.js";
+import { getWorkerPersonaBlock } from "../taxonomy/vertical-prompts.js";
+import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 
 export interface WriterResult {
   content: string;
@@ -104,6 +112,56 @@ function buildWriterMessages(state: GraphState): ChatMessage[] {
     TRUST_POLICY,
   ];
   if (assumptionBlock) systemParts.push(assumptionBlock);
+
+  // --- Dynamic taxonomy suffix (prefix-cache: static above, dynamic below) ---
+  const taxonomyMeta = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
+  const difficulty = state.difficulty ?? 0;
+  const complexity = Number(taxonomyMeta.complexity_score ?? 0);
+  const depthInstr = String(taxonomyMeta.depth_instructions ?? "").trim();
+
+  if (complexity > 0.55 && depthInstr) {
+    systemParts.push(`\nDOMAIN DEPTH:\n${depthInstr}`);
+  }
+  const styleGuidance = getOutputStyleGuidance(taxonomyMeta);
+  if (styleGuidance) {
+    systemParts.push(`\nOUTPUT STYLE:\n${styleGuidance}`);
+  }
+  if (difficulty >= 0.5) {
+    const epistemic = getEpistemicGuidanceBlock(taxonomyMeta);
+    if (epistemic) systemParts.push(`\nEPISTEMIC DISCIPLINE:\n${epistemic}`);
+  }
+  if (difficulty >= 0.4) {
+    const discovery = getDiscoveryPrompt(taxonomyMeta);
+    if (discovery) systemParts.push(`\nDISCOVERY:\n${discovery}`);
+  }
+  if (difficulty >= 0.5) {
+    const requiredElements = (taxonomyMeta.required_elements ?? []) as string[];
+    if (requiredElements.length > 0) {
+      const elems = requiredElements.map((e) => `- ${e}`).join("\n");
+      systemParts.push(
+        "\nDOMAIN COVERAGE CHECKLIST (secondary to the Document Outline above):\n" +
+        "The Document Outline is your primary structure. Additionally, ensure " +
+        "these domain-mandated topics are covered somewhere in the response " +
+        "(they may already appear in the outline):\n" + elems,
+      );
+    }
+  }
+
+  // L2 taxonomy blocks
+  const eg = getEpistemicGuidanceBlock(taxonomyMeta);
+  if (eg && difficulty >= 0.5) {
+    systemParts.push(`\nDISCIPLINE EPISTEMICS (taxonomy):\n${eg}`);
+  }
+  const wr = getWriterRegulatedBlock(taxonomyMeta);
+  if (wr) systemParts.push(`\nREGULATED CONTEXT (taxonomy):\n${wr}`);
+
+  // Vertical persona block
+  const activeVertical = String(taxonomyMeta.active_vertical ?? "generic");
+  if (activeVertical !== "generic") {
+    const snap = getOntologySnapshot();
+    const personaBlock = getWorkerPersonaBlock(snap.verticalPrompts, activeVertical, task);
+    if (personaBlock) systemParts.push(`\n${personaBlock}`);
+  }
 
   const msgs: ChatMessage[] = [
     { role: "system" as const, content: systemParts.join(" ") },

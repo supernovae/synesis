@@ -433,6 +433,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       show_assumptions: state.show_assumptions ?? false,
       taxonomy_key: String(taxonomy.taxonomy_key ?? "unknown"),
       cynefin_domain: state.cynefin_domain,
+      active_vertical: String(taxonomy.active_vertical ?? "generic"),
     };
   }
 
@@ -462,6 +463,41 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   function buildTaxonomy(state: GraphState): Record<string, unknown> {
     const classification = buildClassificationTrace(state);
+    const taxonomy = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
+
+    // Discovery: how the taxonomy key was resolved
+    const discovery: Record<string, unknown> = {
+      taxonomy_key: String(taxonomy.taxonomy_key ?? "unknown"),
+      active_vertical: String(taxonomy.active_vertical ?? "generic"),
+      active_domains: taxonomy.active_domains,
+      domain_ref_counts: taxonomy.domain_ref_counts,
+    };
+    if (taxonomy.taxonomy_semantic) {
+      discovery.semantic_validation = taxonomy.taxonomy_semantic;
+    }
+
+    // Prompt steering: which taxonomy/vertical blocks were injected
+    const steeringApplied: string[] = [];
+    const difficulty = state.difficulty ?? 0;
+    const complexity = Number(taxonomy.complexity_score ?? 0);
+    if (complexity > 0.55 && String(taxonomy.depth_instructions ?? "").trim()) steeringApplied.push("depth_instructions");
+    if (String(taxonomy.output_style_guidance ?? "").trim()) steeringApplied.push("output_style_guidance");
+    if (difficulty >= 0.5 && String(taxonomy.epistemic_guidance ?? "").trim()) steeringApplied.push("epistemic_guidance");
+    if (difficulty >= 0.4 && String(taxonomy.discovery_prompt ?? "").trim()) steeringApplied.push("discovery_prompt");
+    if (difficulty >= 0.5 && Array.isArray(taxonomy.required_elements) && taxonomy.required_elements.length > 0) steeringApplied.push("required_elements");
+    if (String(taxonomy.writer_regulated_block ?? "").trim()) steeringApplied.push("writer_regulated_block");
+    if (String(taxonomy.critic_regulated_block ?? "").trim()) steeringApplied.push("critic_regulated_block");
+
+    const activeVertical = String(taxonomy.active_vertical ?? "generic");
+    if (activeVertical !== "generic") {
+      steeringApplied.push(`vertical:${activeVertical}`);
+      // critic_mode from vertical
+      const criticMode = taxonomy._critic_mode ?? undefined;
+      if (criticMode) {
+        discovery.critic_mode = criticMode;
+      }
+    }
+
     return {
       difficulty: classification.difficulty,
       task_size: classification.task_size,
@@ -470,7 +506,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
       model_tier: classification.model_tier,
       rag_mode: classification.rag_mode,
       plan_required: classification.plan_required,
-      taxonomy_key: classification.taxonomy_key,
+      taxonomy_key: String(taxonomy.taxonomy_key ?? classification.taxonomy_key),
+      active_vertical: String(taxonomy.active_vertical ?? "generic"),
+      discovery,
+      steering_applied: steeringApplied,
     };
   }
 
