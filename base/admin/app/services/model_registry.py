@@ -272,11 +272,19 @@ async def set_deployment_active(deployment_id: int, active: bool) -> dict | None
 def _deployment_to_dict(row: ModelDeployment) -> dict:
     provider = row.provider or row.source
     lp = dict(row.litellm_params or {})
-    resolved_endpoint = (
-        (row.endpoint or "").strip()
-        or str(lp.get("api_base") or "").strip()
-        or default_endpoint_for_provider(provider)
-    )
+    prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
+    if prov_info.needs_endpoint:
+        resolved_endpoint = (
+            (row.endpoint or "").strip()
+            or str(lp.get("api_base") or "").strip()
+            or default_endpoint_for_provider(provider)
+        )
+    else:
+        resolved_endpoint = (
+            default_endpoint_for_provider(provider)
+            or (row.endpoint or "").strip()
+            or str(lp.get("api_base") or "").strip()
+        )
     if resolved_endpoint and not lp.get("api_base"):
         lp["api_base"] = resolved_endpoint
     return {
@@ -370,7 +378,10 @@ async def assign_role(
     served_name = ROLE_SERVED_NAMES.get(role, f"synesis-{role}")
     norm_fallbacks = _normalize_fallbacks(fallbacks, served_name)
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
-    resolved_endpoint = (endpoint or "").strip() or default_endpoint_for_provider(provider)
+    if prov_info.needs_endpoint:
+        resolved_endpoint = (endpoint or "").strip() or default_endpoint_for_provider(provider)
+    else:
+        resolved_endpoint = default_endpoint_for_provider(provider) or (endpoint or "").strip()
     lp = build_litellm_params(
         provider,
         model,
