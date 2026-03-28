@@ -347,9 +347,22 @@ function injectSessionContext(
 async function refreshTierRegistry(): Promise<void> {
   try {
     const tiers = await fetchTierConfigs(config);
+    tierRegistry.updateTiers(tiers);
     if (tiers.length > 0) {
-      tierRegistry.updateTiers(tiers);
       app.log.info({ tiers: tiers.map((t) => t.id) }, "tier_registry_refreshed");
+      for (const t of tiers) {
+        if (!t.apiKey?.trim()) {
+          app.log.warn(
+            { tier: t.id, baseUrl: t.baseUrl, backendModel: t.backendModel },
+            "tier_missing_api_key_env — set the key in provider-api-keys secret (same namespace as yarn) or SYNESIS_YARN_OPENAI_COMPAT_API_KEY",
+          );
+        }
+      }
+    } else {
+      app.log.warn(
+        {},
+        "tier_registry_empty — no assigned coder-pulse / coder-core / coder-horizon / coder-compaction roles in admin, or role fetch returned none",
+      );
     }
     const compactionTier = tierRegistry.getTierConfig("synesis-compaction");
     if (compactionTier) {
