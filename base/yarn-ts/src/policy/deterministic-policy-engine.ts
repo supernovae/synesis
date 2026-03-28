@@ -12,6 +12,7 @@ export interface PolicyContext {
   maxInputTokens?: number;
   consecutiveToolCalls?: number;
   consecutiveToolCallsLimit?: number;
+  consecutiveToolCallsPivot?: number;
   hardRejectAfter?: number;
 }
 
@@ -124,8 +125,9 @@ export class DeterministicPolicyEngine {
       };
     }
 
-    // Rule 3: consecutive tool_calls loop detection
-    const toolCallsLimit = ctx.consecutiveToolCallsLimit ?? 8;
+    // Rule 3: consecutive tool_calls — soft pivot then hard reject
+    const toolCallsLimit = ctx.consecutiveToolCallsLimit ?? 15;
+    const toolCallsPivot = ctx.consecutiveToolCallsPivot ?? 10;
     if (ctx.consecutiveToolCalls && ctx.consecutiveToolCalls >= toolCallsLimit) {
       matchedRules.push("consecutive_tool_calls_limit");
       this.stats.rejectedCount += 1;
@@ -140,6 +142,23 @@ export class DeterministicPolicyEngine {
       return {
         allow: false,
         rejectReason: `Tool call loop detected: ${ctx.consecutiveToolCalls} consecutive tool_call responses without progress. The model may be stuck. Start a new session or provide guidance.`,
+        matchedRules
+      };
+    }
+    if (ctx.consecutiveToolCalls && ctx.consecutiveToolCalls >= toolCallsPivot) {
+      matchedRules.push("consecutive_tool_calls_pivot");
+      this.stats.pivotCount += 1;
+      this.recordEvent({
+        kind: "pivot_injected",
+        sessionKey,
+        detail: `Soft pivot at ${ctx.consecutiveToolCalls} consecutive tool calls (hard limit at ${toolCallsLimit})`,
+        consecutiveToolCalls: ctx.consecutiveToolCalls,
+        timestamp: Date.now()
+      });
+      return {
+        allow: true,
+        pivotPrompt:
+          `System: You have made ${ctx.consecutiveToolCalls} consecutive tool calls without a text response. Stop calling tools and explain to the user what you are trying to do so they can help. (${toolCallsLimit - ctx.consecutiveToolCalls} calls remaining before circuit breaker)`,
         matchedRules
       };
     }

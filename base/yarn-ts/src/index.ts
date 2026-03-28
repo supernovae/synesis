@@ -162,6 +162,7 @@ interface SessionIdentity {
   orgId: string;
   conversationId: string;
   clientKind: string;
+  displayName?: string;
 }
 
 function getSessionKey(identity: SessionIdentity): string {
@@ -188,16 +189,21 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     orgId: identity.orgId,
     conversationId: identity.conversationId,
     clientKind: identity.clientKind,
+    displayName: identity.displayName,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
     totalTokensIn: 0,
     totalTokensOut: 0,
     totalTokensCached: 0,
+    totalTokensSaved: 0,
     requestCount: 0,
     escalationCount: 0,
     metadata: {},
     version: 0
   };
+  if (identity.displayName && !record.displayName) {
+    record.displayName = identity.displayName;
+  }
   const history: SessionState["history"] = [];
 
   if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED) {
@@ -230,6 +236,7 @@ async function casSessionSave(state: SessionState): Promise<void> {
         reloaded.totalTokensIn = Math.max(reloaded.totalTokensIn, state.record.totalTokensIn);
         reloaded.totalTokensOut = Math.max(reloaded.totalTokensOut, state.record.totalTokensOut);
         reloaded.totalTokensCached = Math.max(reloaded.totalTokensCached, state.record.totalTokensCached);
+        reloaded.totalTokensSaved = Math.max(reloaded.totalTokensSaved ?? 0, state.record.totalTokensSaved ?? 0);
         reloaded.requestCount = Math.max(reloaded.requestCount, state.record.requestCount);
         reloaded.lastActiveAt = Math.max(reloaded.lastActiveAt, state.record.lastActiveAt);
         const remoteCost = Number(reloaded.metadata.total_cost_usd ?? 0);
@@ -303,8 +310,10 @@ async function refreshTierRegistry(): Promise<void> {
   }
 }
 
+import type { ModelAdapter } from "./providers/model-adapter.js";
+
 type ResolveResult =
-  | { ok: true; resolved: { model: unknown; resolvedModelId: string }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
+  | { ok: true; resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
   | { ok: false; error: string };
 
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
@@ -324,7 +333,8 @@ function persistSessionAndUsage(
   resolvedModelId: string,
   usage: { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number },
   latencyMs: number,
-  finishReason: string
+  finishReason: string,
+  tokensSavedByReduction = 0
 ): void {
   const tier = tierRegistry.getTierConfig(resolvedModelId);
   const computedCostUsd =
@@ -348,6 +358,7 @@ function persistSessionAndUsage(
   state.record.totalTokensIn += usage.inputTokens;
   state.record.totalTokensOut += usage.outputTokens;
   state.record.totalTokensCached += usage.cachedTokens;
+  state.record.totalTokensSaved = (state.record.totalTokensSaved ?? 0) + tokensSavedByReduction;
   const prevCost = Number(state.record.metadata.total_cost_usd ?? 0);
   state.record.metadata.total_cost_usd = prevCost + normalizedCostUsd;
   state.record.requestCount += 1;
@@ -371,6 +382,7 @@ function persistSessionAndUsage(
     tokensIn: usage.inputTokens,
     tokensOut: usage.outputTokens,
     tokensCached: usage.cachedTokens,
+    tokensSavedByReduction,
     latencyMs,
     costUsd: normalizedCostUsd,
     escalated: false,
@@ -414,6 +426,11 @@ function persistSessionAndUsage(
 
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number } {
   const obj = (input ?? {}) as Record<string, unknown>;
+
+  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+    app.log.debug({ rawUsage: obj }, "raw_usage_from_sdk");
+  }
+
   const prompt = Number(obj.inputTokens ?? obj.promptTokens ?? obj.input_tokens ?? 0);
   const completion = Number(obj.outputTokens ?? obj.completionTokens ?? obj.output_tokens ?? 0);
 
@@ -428,8 +445,14 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
     const cacheRead = obj.cache_read_input_tokens as number | undefined;
     if (cacheRead) cached = Number(cacheRead);
   }
+  if (!cached) {
+    const inputTokenDetails = obj.inputTokenDetails as Record<string, unknown> | undefined;
+    if (inputTokenDetails) {
+      cached = Number(inputTokenDetails.cacheReadTokens ?? inputTokenDetails.cachedTokens ?? 0);
+    }
+  }
 
-  const cost = Number(obj.costUsd ?? obj.cost_usd ?? 0);
+  const cost = Number(obj.costUsd ?? obj.cost_usd ?? obj.estimated_cost ?? 0);
   return {
     inputTokens: Number.isFinite(prompt) ? prompt : 0,
     outputTokens: Number.isFinite(completion) ? completion : 0,
@@ -731,7 +754,8 @@ app.get("/health/telemetry", async (req, reply) => {
     safetyLimits: {
       hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
       sessionMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
-      consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
+      consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
+      consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT
     }
   };
 });
@@ -885,6 +909,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orgId: authUser.orgId,
     conversationId: request.conversation_id || "",
     clientKind: oaiClientKind,
+    displayName: authUser.displayName,
   };
   const sessionKey = getSessionKey(identity);
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
@@ -907,6 +932,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     maxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
+    consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
     hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
   });
   if (!policyPrecheck.allow) {
@@ -963,8 +989,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(503).send({ error: { type: "service_unavailable", message: resolveResult.error } });
   }
   const { resolved, messages } = resolveResult;
+  const { adapter } = resolved;
   const sdkTools = openAIToolsToSDK(normalizedRequest.tools);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
+
+  const modelToolPrompt = adapter.toolSystemPrompt?.(((normalizedRequest.tools as unknown[]) ?? []).length);
+  if (modelToolPrompt) {
+    oaiEnrichedMsgs = [{ role: "system", content: modelToolPrompt }, ...oaiEnrichedMsgs];
+  }
+  const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
@@ -976,7 +1009,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         messages: currentMessages,
         maxOutputTokens: orchestration.maxOutputTokens,
         ...(sdkTools ? { tools: sdkTools } : {}),
-        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
+        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+        ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
       });
 
       for (let round = 0; round < 3; round++) {
@@ -1032,7 +1066,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.history.push({ role: "assistant", content: finalResult.text });
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     const oaiLatency = Date.now() - started;
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason);
+    const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason, oaiSaved);
     maybeCheckpoint(session);
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
@@ -1065,7 +1100,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     messages,
     maxOutputTokens: orchestration.maxOutputTokens,
     ...(sdkTools ? { tools: sdkTools } : {}),
-    ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
+    ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+    ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
   });
   reply.raw.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -1094,7 +1130,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
           })}\n\n`);
         } else if (part.type === "tool-call") {
           finishReason = "tool_calls";
-          const argsStr = typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {});
+          let argsStr = typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {});
+          const rawArgsLen = argsStr.length;
+          if (adapter.normalizeToolCallArgs) argsStr = adapter.normalizeToolCallArgs(argsStr);
+          if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+            app.log.debug({
+              reqId, toolName: tc.toolName, toolCallId: tc.toolCallId,
+              argsLen: rawArgsLen, normalized: argsStr.length !== rawArgsLen,
+              adapterFamily: adapter.family,
+            }, "tool_call_streamed");
+          }
           const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
           if (existing) {
             safeWrite(reply.raw, `data: ${JSON.stringify({
@@ -1145,7 +1190,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.history.push({ role: "assistant", content: streamedText });
   }
   const oaiStreamLatency = Date.now() - started;
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason);
+  const oaiStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved);
   maybeCheckpoint(session);
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
@@ -1249,6 +1295,7 @@ app.post("/v1/messages", async (req, reply) => {
     orgId: claudeAuthUser.orgId,
     conversationId: claudeConversationId,
     clientKind: claudeClientKind,
+    displayName: claudeAuthUser.displayName,
   };
   const claudeSessionKey = getSessionKey(claudeIdentity);
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
@@ -1274,6 +1321,7 @@ app.post("/v1/messages", async (req, reply) => {
     maxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
+    consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
     hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
   });
   if (!claudePolicyPrecheck.allow) {
@@ -1339,12 +1387,20 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
   const { resolved, messages } = claudeResolveResult;
+  const { adapter: claudeAdapter } = resolved;
   const sdkTools = claudeToolsToSDK(processedTools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
 
-  // Thinking passthrough: forward via providerOptions if present.
-  const providerOptions = body.thinking ? { openai: { thinking: body.thinking } } : undefined;
+  const claudeModelToolPrompt = claudeAdapter.toolSystemPrompt?.(((body.tools as unknown[]) ?? []).length);
+  if (claudeModelToolPrompt) {
+    enrichedClaudeMsgs = [{ role: "system", content: claudeModelToolPrompt }, ...enrichedClaudeMsgs];
+  }
+
+  const adapterClaudeProviderOptions = claudeAdapter.providerOptions?.();
+  const providerOptions = body.thinking
+    ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
+    : adapterClaudeProviderOptions;
 
   if (body.stream) {
     const started = Date.now();
@@ -1356,7 +1412,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
-      ...(providerOptions ? { providerOptions } : {})
+      ...(providerOptions ? { providerOptions: providerOptions as never } : {})
     });
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -1419,6 +1475,14 @@ app.post("/v1/messages", async (req, reply) => {
         } else if (part.type === "tool-call") {
           const tc = part as unknown as { toolName?: string };
           if (tc.toolName === ARTIFACT_TOOL_NAME) continue;
+          if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+            const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
+            app.log.debug({
+              reqId: traceReqId, toolName: tcFull.toolName, toolCallId: tcFull.toolCallId,
+              argsLen: JSON.stringify(tcFull.input ?? {}).length,
+              adapterFamily: claudeAdapter.family,
+            }, "claude_tool_call_streamed");
+          }
           safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
           stopReason = "tool_use";
@@ -1456,7 +1520,8 @@ app.post("/v1/messages", async (req, reply) => {
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
     const claudeStreamLatency = Date.now() - started;
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason);
+    const claudeStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved);
     maybeCheckpoint(session);
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
@@ -1483,7 +1548,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
-      ...(providerOptions ? { providerOptions } : {})
+      ...(providerOptions ? { providerOptions: providerOptions as never } : {})
     });
   } catch (err) {
     app.log.error({ err, reqId, model: resolved.resolvedModelId }, "Claude non-stream generateText failed");
@@ -1502,7 +1567,8 @@ app.post("/v1/messages", async (req, reply) => {
     session.history.push({ role: "assistant", content: result.text });
   }
   const claudeNonStreamLatency = Date.now() - started;
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason);
+  const claudeNonStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved);
   maybeCheckpoint(session);
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({

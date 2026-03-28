@@ -124,6 +124,14 @@ export default function YarnSessionDetail() {
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Tokens saved (reduction)
+                </dt>
+                <dd className="mt-1 text-sm tabular-nums text-green-600 dark:text-green-400">
+                  {fmtTokens(data.session.total_tokens_saved ?? 0)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   Total cost
                 </dt>
                 <dd className="mt-1 text-sm tabular-nums text-gray-900 dark:text-gray-100">
@@ -166,6 +174,9 @@ export default function YarnSessionDetail() {
                           Cached
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Saved
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           Latency
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -199,6 +210,9 @@ export default function YarnSessionDetail() {
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                             {fmtTokens(rq.tokens_cached)}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-green-600 dark:text-green-400">
+                            {rq.tokens_saved_by_reduction ? fmtTokens(rq.tokens_saved_by_reduction) : "—"}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                             {fmtDurationMs(rq.latency_ms)}

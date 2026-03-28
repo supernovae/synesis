@@ -105,6 +105,9 @@ export default function YarnSessions() {
                       Tokens
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      Saved
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       Cost
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -145,6 +148,9 @@ export default function YarnSessions() {
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                           {fmtTokens(tok)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-green-600 dark:text-green-400">
+                          {row.total_tokens_saved ? fmtTokens(row.total_tokens_saved) : "—"}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                           {fmtCost(row.total_cost_usd)}

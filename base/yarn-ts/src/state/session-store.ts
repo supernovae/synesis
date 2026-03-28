@@ -15,11 +15,13 @@ export interface SessionRecord {
   orgId: string;
   conversationId: string;
   clientKind: string;
+  displayName?: string;
   createdAt: number;
   lastActiveAt: number;
   totalTokensIn: number;
   totalTokensOut: number;
   totalTokensCached: number;
+  totalTokensSaved: number;
   requestCount: number;
   escalationCount: number;
   metadata: Record<string, unknown>;

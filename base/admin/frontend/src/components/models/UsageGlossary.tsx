@@ -26,6 +26,10 @@ export function UsageGlossaryBanner({ className = "" }: { className?: string }) 
           </Link>
           .
         </li>
+        <li>
+          <strong>Tokens Saved</strong> — estimated tokens prevented from reaching the model by
+          tool-result reduction, JSON compaction, content dispatch, and admission normalization.
+        </li>
       </ul>
     </div>
   );

@@ -1,6 +1,7 @@
 import { customProvider } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { TierConfig } from "./admin-tier-registry.js";
+import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 
 export class SynesisProviderRegistry {
   private tierMap = new Map<string, TierConfig>();
@@ -21,7 +22,7 @@ export class SynesisProviderRegistry {
     }));
   }
 
-  resolve(modelId: string, fallbackModelId: string): { model: unknown; resolvedModelId: string } {
+  resolve(modelId: string, fallbackModelId: string): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const selected = this.tierMap.get(modelId) ?? this.tierMap.get(fallbackModelId);
     if (!selected) {
       throw new Error(`No tier config available for ${modelId} or fallback ${fallbackModelId}`);
@@ -35,9 +36,11 @@ export class SynesisProviderRegistry {
         [selected.id]: upstream.chat(selected.backendModel)
       }
     });
+    const adapter = resolveAdapter(selected.backendModel, selected.baseUrl);
     return {
       model: provider.languageModel(selected.id),
-      resolvedModelId: selected.id
+      resolvedModelId: selected.id,
+      adapter
     };
   }
 

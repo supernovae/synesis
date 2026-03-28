@@ -88,6 +88,16 @@ export class ValidationNormalizationService {
     return { messages: out, normalizedCount };
   }
 
+  private _savedCheckpoint = 0;
+
+  /** Returns estimated tokens saved since the last call (per-request delta). */
+  getPerRequestDelta(): number {
+    const current = this.stats.tokensSavedEstimateTotal;
+    const delta = current - this._savedCheckpoint;
+    this._savedCheckpoint = current;
+    return Math.max(0, delta);
+  }
+
   getStats(): NormalizationStats {
     return { ...this.stats };
   }

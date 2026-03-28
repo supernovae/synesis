@@ -12,6 +12,7 @@ export interface UsageEvent {
   tokensIn: number;
   tokensOut: number;
   tokensCached: number;
+  tokensSavedByReduction: number;
   latencyMs: number;
   costUsd: number;
   escalated: boolean;
@@ -132,16 +133,19 @@ export class UsageWriter {
         session_key, user_id, org_id, username, role, conversation_id,
         client_kind, provider, model,
         total_tokens_in, total_tokens_out, total_tokens_cached,
-        total_cost_usd, request_count, escalation_count, created_at, last_active_at
+        total_tokens_saved, total_cost_usd,
+        request_count, escalation_count, created_at, last_active_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6,
         $7, $8, $9,
         $10, $11, $12,
-        $13, $14, $15, to_timestamp($16), to_timestamp($17)
+        $13, $14,
+        $15, $16, to_timestamp($17), to_timestamp($18)
       )
       ON CONFLICT (session_key) DO UPDATE SET
         user_id = EXCLUDED.user_id,
         org_id = EXCLUDED.org_id,
+        username = CASE WHEN EXCLUDED.username != '' THEN EXCLUDED.username ELSE yarn_sessions.username END,
         conversation_id = EXCLUDED.conversation_id,
         client_kind = EXCLUDED.client_kind,
         provider = EXCLUDED.provider,
@@ -149,6 +153,7 @@ export class UsageWriter {
         total_tokens_in = EXCLUDED.total_tokens_in,
         total_tokens_out = EXCLUDED.total_tokens_out,
         total_tokens_cached = EXCLUDED.total_tokens_cached,
+        total_tokens_saved = EXCLUDED.total_tokens_saved,
         total_cost_usd = EXCLUDED.total_cost_usd,
         request_count = EXCLUDED.request_count,
         escalation_count = EXCLUDED.escalation_count,
@@ -158,7 +163,7 @@ export class UsageWriter {
         session.sessionKey,
         session.userId,
         session.orgId,
-        "",
+        session.displayName || "",
         "user",
         session.conversationId,
         session.clientKind || "unknown",
@@ -167,6 +172,7 @@ export class UsageWriter {
         session.totalTokensIn,
         session.totalTokensOut,
         session.totalTokensCached,
+        session.totalTokensSaved ?? 0,
         Number(session.metadata.total_cost_usd ?? 0),
         session.requestCount,
         session.escalationCount,
@@ -182,12 +188,14 @@ export class UsageWriter {
       `
       INSERT INTO yarn_usage_log (
         session_key, request_id, user_id, org_id, provider, model,
-        tokens_in, tokens_out, tokens_cached, latency_ms, cost_usd,
+        tokens_in, tokens_out, tokens_cached, tokens_saved_by_reduction,
+        latency_ms, cost_usd,
         escalated, tool_calls_count, finish_reason
       ) VALUES (
         $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11,
-        $12, $13, $14
+        $7, $8, $9, $10,
+        $11, $12,
+        $13, $14, $15
       )
       ON CONFLICT (request_id) DO NOTHING
       `,
@@ -201,6 +209,7 @@ export class UsageWriter {
         event.tokensIn,
         event.tokensOut,
         event.tokensCached,
+        event.tokensSavedByReduction,
         event.latencyMs,
         event.costUsd,
         event.escalated,

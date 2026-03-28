@@ -1949,6 +1949,7 @@ export interface YarnSessionRow {
   total_tokens_in: number;
   total_tokens_out: number;
   total_tokens_cached: number;
+  total_tokens_saved: number;
   total_cost_usd: number;
   request_count: number;
   escalation_count: number;
@@ -1964,6 +1965,7 @@ export interface YarnSessionRequestRow {
   tokens_in: number;
   tokens_out: number;
   tokens_cached: number;
+  tokens_saved_by_reduction: number;
   latency_ms: number;
   cost_usd: number;
   escalated: boolean;

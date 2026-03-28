@@ -9,6 +9,7 @@ export interface AuthUser {
   role: string;
   authMethod: "pat" | "bearer";
   tokenScopes: string[];
+  displayName?: string;
 }
 
 export class AuthResolver {
@@ -71,7 +72,7 @@ export class AuthResolver {
     const tokenHash = this.hashPat(token);
     const result = await this.pool.query(
       `
-      SELECT user_id, org_id, tenant_ids, role, scopes
+      SELECT user_id, org_id, tenant_ids, role, scopes, username
       FROM personal_access_tokens
       WHERE token_hash = $1
         AND revoked = false
@@ -87,6 +88,7 @@ export class AuthResolver {
       tenant_ids: string[] | null;
       role: string | null;
       scopes: string[] | null;
+      username: string | null;
     };
     const orgId = (row.org_id ?? "").trim();
     const tenantIds = (row.tenant_ids ?? []).map((t) => String(t).trim().slice(0, 64)).filter(Boolean).slice(0, 50);
@@ -103,7 +105,8 @@ export class AuthResolver {
       tenantIds,
       role: row.role ?? "user",
       authMethod: "pat",
-      tokenScopes: row.scopes ?? ["model:readonly"]
+      tokenScopes: row.scopes ?? ["model:readonly"],
+      displayName: row.username || undefined
     };
   }
 }

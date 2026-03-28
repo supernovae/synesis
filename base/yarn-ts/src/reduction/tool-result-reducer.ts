@@ -191,6 +191,16 @@ export class ToolResultReductionService {
     return summary;
   }
 
+  private _savedCheckpoint = 0;
+
+  /** Returns estimated tokens saved since the last call (per-request delta). */
+  getPerRequestDelta(): number {
+    const current = this.stats.tokensSavedEstimateTotal;
+    const delta = current - this._savedCheckpoint;
+    this._savedCheckpoint = current;
+    return Math.max(0, delta);
+  }
+
   getStats(): ToolResultReductionStats & { contentDispatch: ReturnType<ContentDispatchService["getStats"]> } {
     this.stats.lifecycle = this.registry.lifecycleStates();
     return { ...this.stats, contentDispatch: this.contentDispatch.getStats() };
