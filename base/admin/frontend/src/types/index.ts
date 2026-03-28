@@ -194,6 +194,9 @@ export interface ProviderConfig {
   updated_at: string | null;
   /** Stored override only; empty means use catalog default for built-ins. */
   default_endpoint?: string | null;
+  /** From Postgres; null means inherit static catalog (built-ins) or top-level custom fields. */
+  api_key_env?: string | null;
+  litellm_prefix?: string | null;
 }
 
 export interface ProviderConfigInfo extends ProviderInfo {

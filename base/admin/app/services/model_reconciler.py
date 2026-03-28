@@ -1,4 +1,9 @@
-"""Reconciler: syncs active model_deployments in DB to LiteLLM proxy via management API."""
+"""Reconciler: syncs active model_deployments in DB to LiteLLM proxy via management API.
+
+Uses ``resolve_deployment_routing_for_deployment`` so pushed routes always match
+current ProviderConfig + catalog (same merge as Model Registry API), not stale
+``litellm_params`` JSON frozen at last assign.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +17,11 @@ from sqlalchemy import select
 from ..db.engine import async_session
 from ..db.models import ModelDeployment
 from . import litellm_client
+from .model_registry import (
+    ProviderGovernanceMaps,
+    load_provider_governance_maps,
+    resolve_deployment_routing_for_deployment,
+)
 
 logger = logging.getLogger("synesis.admin.model_reconciler")
 
@@ -143,13 +153,15 @@ async def _push_active_route(
     row: ModelDeployment,
     existing_routes: list[dict],
     provider_keys: dict[str, str],
+    maps: ProviderGovernanceMaps,
 ) -> tuple[str, bool, int]:
     """Sync one active deployment to LiteLLM.
 
     Returns (action, success, removed_count) where action is unchanged|added|updated|error|skip_no_model.
     """
     served_name = row.served_name
-    params, unresolved_key = _resolve_litellm_params(row.litellm_params, provider_keys)
+    computed = resolve_deployment_routing_for_deployment(row, maps).litellm_params
+    params, unresolved_key = _resolve_litellm_params(computed, provider_keys)
     if not params.get("model"):
         logger.warning("reconcile_skip_no_model served=%s", served_name)
         return "skip_no_model", False, 0
@@ -213,6 +225,7 @@ async def reconcile() -> dict:
     litellm_models = await litellm_client.list_models()
     litellm_by_name = _index_litellm_by_name(litellm_models)
     provider_keys = await _load_provider_api_keys()
+    maps = await load_provider_governance_maps()
 
     async with async_session() as session:
         result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
@@ -240,7 +253,7 @@ async def reconcile() -> dict:
             continue
 
         existing_routes = litellm_by_name.get(served_name, [])
-        action, ok, removed_count = await _push_active_route(row, existing_routes, provider_keys)
+        action, ok, removed_count = await _push_active_route(row, existing_routes, provider_keys, maps)
         duplicate_routes_removed += removed_count
         if action == "unchanged":
             unchanged += 1
@@ -307,7 +320,8 @@ async def reconcile_single(deployment_id: int) -> bool:
             litellm_by_name = _index_litellm_by_name(await litellm_client.list_models())
             existing_routes = litellm_by_name.get(served_name, [])
             provider_keys = await _load_provider_api_keys()
-            action, ok, _removed = await _push_active_route(row, existing_routes, provider_keys)
+            maps = await load_provider_governance_maps()
+            action, ok, _removed = await _push_active_route(row, existing_routes, provider_keys, maps)
             return ok and action != "skip_no_model"
         else:
             litellm_by_name = _index_litellm_by_name(await litellm_client.list_models())

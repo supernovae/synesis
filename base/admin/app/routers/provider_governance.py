@@ -1,4 +1,10 @@
-"""Provider Governance API — provider enablement, defaults, and policies."""
+"""Provider Governance API — provider enablement, defaults, and policies.
+
+ProviderConfig rows are the database source for: ``default_endpoint``,
+``api_key_env``, ``litellm_prefix`` (custom providers), enablement, and policies.
+Model Registry assignments inherit these via ``resolve_deployment_routing_*`` in
+``model_registry`` (see ``provider_catalog`` module docstring).
+"""
 
 from __future__ import annotations
 
@@ -66,6 +72,9 @@ def _row_to_config_dict(r: ProviderConfig) -> dict:
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         "is_custom": r.is_custom,
         "default_endpoint": (r.default_endpoint or "").strip() or None,
+        # DB-stored routing metadata (custom providers); built-ins often null → use catalog top-level.
+        "api_key_env": (r.api_key_env or "").strip() or None,
+        "litellm_prefix": (r.litellm_prefix or "").strip() or None,
     }
 
 

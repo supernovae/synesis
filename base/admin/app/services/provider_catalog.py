@@ -1,8 +1,21 @@
-"""Provider catalog — single source of truth for supported LLM providers.
+"""Provider catalog — static defaults for built-in LLM providers.
 
-Both the backend (role assignment, LiteLLM param building) and the frontend
-(provider picklist, API key status) consume this catalog via
-GET /api/v1/providers/catalog.
+Canonical routing for a role merges, in order:
+
+1. **This module** — built-in defaults: ``litellm_prefix``, ``api_key_env``,
+   ``needs_endpoint``, default base URLs in ``PROVIDER_DEFAULT_ENDPOINTS``.
+2. **ProviderConfig** (Postgres) — per-provider overrides: ``default_endpoint``,
+   ``api_key_env``, ``litellm_prefix`` (required for custom providers), enablement,
+   policies. Loaded via ``load_provider_governance_maps()`` in ``model_registry``.
+3. **ModelDeployment** — per-role binding: ``provider``, ``model``, optional
+   ``endpoint`` / ``api_key_env`` overrides, and ``litellm_params`` used only for
+   ``max_tokens`` / ``temperature`` when not supplied on assign.
+
+LiteLLM reconciliation and JSON APIs both use
+``resolve_deployment_routing_for_deployment()`` so stored ``litellm_params`` cannot
+drift from governance after a provider key or prefix change.
+
+The admin SPA merges catalog + governance in ``GET /api/v1/provider-governance``.
 """
 
 from __future__ import annotations
@@ -150,11 +163,17 @@ def build_litellm_params(
     *,
     max_tokens: int = 8192,
     temperature: float = 0.1,
+    litellm_prefix_override: str = "",
 ) -> dict:
-    """Construct the litellm_params dict for a deployment."""
+    """Construct the litellm_params dict for a deployment.
+
+    ``litellm_prefix_override`` comes from ProviderConfig (custom providers);
+    when empty, the static catalog prefix is used.
+    """
     info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
+    prefix = (litellm_prefix_override or "").strip() or info.litellm_prefix
     params: dict = {
-        "model": f"{info.litellm_prefix}{model}",
+        "model": f"{prefix}{model}",
         "max_tokens": max_tokens,
         "temperature": temperature,
     }

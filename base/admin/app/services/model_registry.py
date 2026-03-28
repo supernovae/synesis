@@ -1,11 +1,19 @@
-"""Model registry: bootstrap from models.yaml, role-first CRUD, cost estimates."""
+"""Model registry: bootstrap from models.yaml, role-first CRUD, cost estimates.
+
+Role assignments (``ModelDeployment``) inherit provider identity from
+``ProviderConfig`` + static ``provider_catalog`` via
+``resolve_deployment_routing_for_deployment``. API responses and LiteLLM
+reconciliation both use that resolver so ``litellm_params`` in the DB cannot
+silently drift from provider governance (API key env name, prefix, default base).
+"""
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from sqlalchemy import delete, func, select
@@ -169,15 +177,52 @@ async def seed_model_deployments(*, force: bool = False) -> int:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ProviderGovernanceMaps:
+    """Non-empty ProviderConfig fields keyed by provider_key (see provider_catalog docstring)."""
+
+    default_endpoints: dict[str, str]
+    api_key_envs: dict[str, str]
+    litellm_prefixes: dict[str, str]
+
+
+class ResolvedDeploymentRouting(NamedTuple):
+    """Canonical LiteLLM routing for one deployment row (merged with governance)."""
+
+    litellm_params: dict[str, Any]
+    effective_api_key_env: str
+    resolved_endpoint: str
+
+
+async def load_provider_governance_maps() -> ProviderGovernanceMaps:
+    """Load ProviderConfig-derived maps (non-empty columns only)."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(
+                ProviderConfig.provider_key,
+                ProviderConfig.default_endpoint,
+                ProviderConfig.api_key_env,
+                ProviderConfig.litellm_prefix,
+            )
+        )
+        endpoints: dict[str, str] = {}
+        key_envs: dict[str, str] = {}
+        prefixes: dict[str, str] = {}
+        for pk, de, ake, lpf in result.all():
+            pks = str(pk)
+            if de and str(de).strip():
+                endpoints[pks] = str(de).strip()
+            if ake and str(ake).strip():
+                key_envs[pks] = str(ake).strip()
+            if lpf and str(lpf).strip():
+                prefixes[pks] = str(lpf).strip()
+    return ProviderGovernanceMaps(endpoints, key_envs, prefixes)
+
+
 async def _provider_default_endpoint_overrides() -> dict[str, str]:
     """provider_key → DB default_endpoint (non-empty only). Merged with static catalog in resolution."""
-    async with async_session() as session:
-        result = await session.execute(select(ProviderConfig.provider_key, ProviderConfig.default_endpoint))
-        out: dict[str, str] = {}
-        for pk, de in result.all():
-            if de and str(de).strip():
-                out[str(pk)] = str(de).strip()
-        return out
+    maps = await load_provider_governance_maps()
+    return maps.default_endpoints
 
 
 def _merged_catalog_endpoint(provider: str, overrides: dict[str, str] | None) -> str:
@@ -189,13 +234,108 @@ def _merged_catalog_endpoint(provider: str, overrides: dict[str, str] | None) ->
     return default_endpoint_for_provider(p)
 
 
+def _merged_governance_key_env(provider: str, overrides: dict[str, str] | None) -> str:
+    p = (provider or "").strip()
+    if not overrides or not p:
+        return ""
+    v = overrides.get(p) or overrides.get(p.lower(), "")
+    return v.strip() if isinstance(v, str) else ""
+
+
+def _merged_governance_litellm_prefix(provider: str, overrides: dict[str, str] | None) -> str:
+    p = (provider or "").strip()
+    if not overrides or not p:
+        return ""
+    v = overrides.get(p) or overrides.get(p.lower(), "")
+    return v.strip() if isinstance(v, str) else ""
+
+
+def _resolve_role_endpoint(
+    *,
+    provider: str,
+    endpoint_field: str,
+    stored_litellm_params: dict | None,
+    maps: ProviderGovernanceMaps,
+) -> str:
+    prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
+    catalog_eff = _merged_catalog_endpoint(provider, maps.default_endpoints)
+    lp_stored = dict(stored_litellm_params or {})
+    if prov_info.needs_endpoint:
+        return (
+            (endpoint_field or "").strip()
+            or str(lp_stored.get("api_base") or "").strip()
+            or catalog_eff
+        )
+    return (
+        catalog_eff
+        or (endpoint_field or "").strip()
+        or str(lp_stored.get("api_base") or "").strip()
+    )
+
+
+def resolve_deployment_routing_for_parts(
+    *,
+    provider: str,
+    model: str,
+    endpoint_field: str,
+    api_key_env_field: str,
+    stored_litellm_params: dict | None,
+    maps: ProviderGovernanceMaps,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> ResolvedDeploymentRouting:
+    """Merge catalog + governance + assignment fields into LiteLLM params (single reconciliation path)."""
+    p = (provider or "").strip()
+    prov_info = PROVIDER_CATALOG.get(p, PROVIDER_CATALOG["custom"])
+    lp_stored = dict(stored_litellm_params or {})
+    mt = int(max_tokens if max_tokens is not None else lp_stored.get("max_tokens") or 8192)
+    temp = float(temperature if temperature is not None else lp_stored.get("temperature") or 0.1)
+    resolved_endpoint = _resolve_role_endpoint(
+        provider=p,
+        endpoint_field=endpoint_field,
+        stored_litellm_params=stored_litellm_params,
+        maps=maps,
+    )
+    gov_key = _merged_governance_key_env(p, maps.api_key_envs)
+    effective_api_key_env = (api_key_env_field or "").strip() or gov_key or (prov_info.api_key_env or "")
+    prefix_ov = _merged_governance_litellm_prefix(p, maps.litellm_prefixes)
+    lp = build_litellm_params(
+        p,
+        model,
+        endpoint=resolved_endpoint,
+        api_key_env=effective_api_key_env,
+        max_tokens=mt,
+        temperature=temp,
+        litellm_prefix_override=prefix_ov,
+    )
+    return ResolvedDeploymentRouting(lp, effective_api_key_env, resolved_endpoint)
+
+
+def resolve_deployment_routing_for_deployment(
+    row: ModelDeployment,
+    maps: ProviderGovernanceMaps,
+) -> ResolvedDeploymentRouting:
+    """Canonical routing for an existing ORM row (API + reconciler)."""
+    p = (row.provider or row.source or "").strip()
+    return resolve_deployment_routing_for_parts(
+        provider=p,
+        model=row.model,
+        endpoint_field=(row.endpoint or "").strip(),
+        api_key_env_field=(row.api_key_env or "").strip(),
+        stored_litellm_params=row.litellm_params,
+        maps=maps,
+        max_tokens=None,
+        temperature=None,
+    )
+
+
 async def get_model_deployments() -> list[dict]:
     """Return all model deployments from DB."""
-    overrides = await _provider_default_endpoint_overrides()
+    maps = await load_provider_governance_maps()
     async with async_session() as session:
         result = await session.execute(select(ModelDeployment).order_by(ModelDeployment.role))
         rows = result.scalars().all()
-        return [_deployment_to_dict(r, overrides) for r in rows]
+        return [_deployment_to_dict(r, maps) for r in rows]
 
 
 async def get_active_deployments() -> list[ModelDeployment]:
@@ -230,7 +370,8 @@ async def create_deployment(data: dict) -> dict:
         session.add(row)
         await session.commit()
         await session.refresh(row)
-        return _deployment_to_dict(row)
+        maps = await load_provider_governance_maps()
+        return _deployment_to_dict(row, maps)
 
 
 async def update_deployment(deployment_id: int, data: dict) -> dict | None:
@@ -261,7 +402,8 @@ async def update_deployment(deployment_id: int, data: dict) -> dict | None:
                     setattr(row, field, data[field])
         await session.commit()
         await session.refresh(row)
-        return _deployment_to_dict(row)
+        maps = await load_provider_governance_maps()
+        return _deployment_to_dict(row, maps)
 
 
 async def delete_deployment(deployment_id: int) -> bool:
@@ -287,41 +429,26 @@ async def set_deployment_active(deployment_id: int, active: bool) -> dict | None
             row.litellm_model_id = None
         await session.commit()
         await session.refresh(row)
-        return _deployment_to_dict(row)
+        maps = await load_provider_governance_maps()
+        return _deployment_to_dict(row, maps)
 
 
-def _deployment_to_dict(row: ModelDeployment, endpoint_overrides: dict[str, str] | None = None) -> dict:
+def _deployment_to_dict(row: ModelDeployment, maps: ProviderGovernanceMaps) -> dict:
+    routing = resolve_deployment_routing_for_deployment(row, maps)
     provider = row.provider or row.source
-    lp = dict(row.litellm_params or {})
-    prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
-    catalog_eff = _merged_catalog_endpoint(provider, endpoint_overrides)
-    if prov_info.needs_endpoint:
-        resolved_endpoint = (
-            (row.endpoint or "").strip()
-            or str(lp.get("api_base") or "").strip()
-            or catalog_eff
-        )
-    else:
-        resolved_endpoint = (
-            catalog_eff
-            or (row.endpoint or "").strip()
-            or str(lp.get("api_base") or "").strip()
-        )
-    if resolved_endpoint and not lp.get("api_base"):
-        lp["api_base"] = resolved_endpoint
     return {
         "id": row.id,
         "environment": row.environment or "",
         "role": row.role,
         "model": row.model,
-        "endpoint": resolved_endpoint,
+        "endpoint": routing.resolved_endpoint,
         "served_name": row.served_name,
         "status": row.status,
         "profile": row.profile,
         "provider": provider,
         "source": row.source,
-        "api_key_env": row.api_key_env or "",
-        "litellm_params": lp,
+        "api_key_env": routing.effective_api_key_env,
+        "litellm_params": routing.litellm_params,
         "is_active": row.is_active,
         "description": row.description,
         "notes": row.notes,
@@ -339,7 +466,7 @@ def _deployment_to_dict(row: ModelDeployment, endpoint_overrides: dict[str, str]
 
 async def get_role_assignments() -> list[dict]:
     """Return one entry per canonical role with the active assignment (or unassigned)."""
-    overrides = await _provider_default_endpoint_overrides()
+    maps = await load_provider_governance_maps()
     async with async_session() as session:
         result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
         active = {r.role: r for r in result.scalars().all()}
@@ -348,7 +475,7 @@ async def get_role_assignments() -> list[dict]:
     for role in KNOWN_ROLES:
         row = active.get(role)
         if row:
-            d = _deployment_to_dict(row, overrides)
+            d = _deployment_to_dict(row, maps)
             d["assigned"] = True
         else:
             d = {
@@ -400,21 +527,20 @@ async def assign_role(
 
     served_name = ROLE_SERVED_NAMES.get(role, f"synesis-{role}")
     norm_fallbacks = _normalize_fallbacks(fallbacks, served_name)
-    prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
-    overrides = await _provider_default_endpoint_overrides()
-    catalog_eff = _merged_catalog_endpoint(provider, overrides)
-    if prov_info.needs_endpoint:
-        resolved_endpoint = (endpoint or "").strip() or catalog_eff
-    else:
-        resolved_endpoint = catalog_eff or (endpoint or "").strip()
-    lp = build_litellm_params(
-        provider,
-        model,
-        endpoint=resolved_endpoint,
-        api_key_env=api_key_env,
+    maps = await load_provider_governance_maps()
+    routing = resolve_deployment_routing_for_parts(
+        provider=provider,
+        model=model,
+        endpoint_field=(endpoint or "").strip(),
+        api_key_env_field=(api_key_env or "").strip(),
+        stored_litellm_params=None,
+        maps=maps,
         max_tokens=max_tokens,
         temperature=temperature,
     )
+    lp = routing.litellm_params
+    effective_api_key_env = routing.effective_api_key_env
+    resolved_endpoint = routing.resolved_endpoint
 
     async with async_session() as session:
         # Deactivate current active assignment for this role (if any).
@@ -449,7 +575,7 @@ async def assign_role(
             status="activating",
             source=provider if provider in ("vllm", "kserve", "openrouter") else "external",
             provider=provider,
-            api_key_env=api_key_env or prov_info.api_key_env,
+            api_key_env=effective_api_key_env,
             litellm_params=lp,
             is_active=True,
             description=description,
@@ -459,14 +585,14 @@ async def assign_role(
         session.add(row)
         await session.commit()
         await session.refresh(row)
-        d = _deployment_to_dict(row, overrides)
+        d = _deployment_to_dict(row, maps)
         d["assigned"] = True
         return d
 
 
 async def deactivate_role(role: str) -> dict | None:
     """Deactivate the active assignment for a role."""
-    overrides = await _provider_default_endpoint_overrides()
+    maps = await load_provider_governance_maps()
     async with async_session() as session:
         result = await session.execute(
             select(ModelDeployment).where(
@@ -491,7 +617,7 @@ async def deactivate_role(role: str) -> dict | None:
         )
         await session.commit()
         await session.refresh(row)
-        return _deployment_to_dict(row, overrides)
+        return _deployment_to_dict(row, maps)
 
 
 async def get_role_history(role: str, *, days: int = 90) -> list[dict]:
