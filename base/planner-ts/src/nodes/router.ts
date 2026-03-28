@@ -157,6 +157,8 @@ export async function runRouter(
         preseededLock,
         callerOrgId: state.org_id,
         callerTenantIds: state.tenant_ids,
+        callerUserId: state.user_id,
+        callerConversationId: state.conversation_id,
       };
 
       const bundle: RetrievalBundle = await client.retrieveUnified(unifiedRequest);

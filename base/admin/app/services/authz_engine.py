@@ -1,8 +1,7 @@
-"""Authorization policy engine for admin — OpenFGA-ready interface.
+"""Authorization policy engine for admin — OpenFGA enforcement.
 
-Wraps existing RBAC logic with the same AuthorizationPolicyEngine interface
-used by planner-ts and yarn-ts. Shadow-mode OpenFGA logs decisions alongside
-deterministic engine but never enforces.
+All authorization decisions go through OpenFGA. PAT scopes are a local
+capability check (conjunction: scope allows verb AND FGA allows relation).
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from typing import Any
 
 logger = logging.getLogger("synesis.admin.authz_engine")
 
-SYNESIS_AUTHZ_ENGINE = os.getenv("SYNESIS_AUTHZ_ENGINE", "deterministic")
 SYNESIS_OPENFGA_API_URL = os.getenv("SYNESIS_OPENFGA_API_URL", "")
 SYNESIS_OPENFGA_STORE_ID = os.getenv("SYNESIS_OPENFGA_STORE_ID", "")
 SYNESIS_OPENFGA_MODEL_ID = os.getenv("SYNESIS_OPENFGA_MODEL_ID", "")
@@ -40,31 +38,53 @@ class PolicyEvent:
     timestamp: float
 
 
+_fga_client = None
+
+
+def _get_fga_client():
+    global _fga_client
+    if _fga_client is not None:
+        return _fga_client
+    if not SYNESIS_OPENFGA_API_URL or not SYNESIS_OPENFGA_STORE_ID:
+        return None
+    try:
+        from openfga_sdk import ClientConfiguration, OpenFgaClient
+        configuration = ClientConfiguration(
+            api_url=SYNESIS_OPENFGA_API_URL,
+            store_id=SYNESIS_OPENFGA_STORE_ID,
+            authorization_model_id=SYNESIS_OPENFGA_MODEL_ID or None,
+        )
+        if SYNESIS_OPENFGA_AUTH_TOKEN:
+            configuration.credentials = {
+                "method": "api_token",
+                "configuration": {"token": SYNESIS_OPENFGA_AUTH_TOKEN},
+            }
+        _fga_client = OpenFgaClient(configuration)
+        return _fga_client
+    except Exception:
+        logger.exception("openfga_client_init_failed")
+        return None
+
+
+async def fga_check(user: str, relation: str, object_type: str, object_id: str) -> bool:
+    """Run an OpenFGA check. Returns False on error or if not configured."""
+    client = _get_fga_client()
+    if client is None:
+        return False
+    try:
+        from openfga_sdk import ClientCheckRequest
+        body = ClientCheckRequest(user=user, relation=relation, object=f"{object_type}:{object_id}")
+        response = await client.check(body)
+        return bool(getattr(response, "allowed", False))
+    except Exception:
+        logger.exception("openfga_check_failed user=%s relation=%s object=%s:%s", user, relation, object_type, object_id)
+        return False
+
+
 class AuthorizationPolicyEngine:
-    """Canonical interface — matches planner-ts and yarn-ts implementations."""
+    """OpenFGA-backed authorization engine."""
 
-    engine_name: str
-
-    def authorize(
-        self,
-        resource: str,
-        action: str,
-        *,
-        user_id: str = "",
-        org_id: str = "",
-        roles: list[str] | None = None,
-        trace_id: str = "",
-    ) -> PolicyDecision:
-        raise NotImplementedError
-
-    def get_stats(self) -> dict[str, Any]:
-        raise NotImplementedError
-
-
-class DeterministicAuthzEngine(AuthorizationPolicyEngine):
-    """Wraps existing admin RBAC logic behind the canonical interface."""
-
-    engine_name = "deterministic"
+    engine_name = "openfga"
 
     def __init__(self) -> None:
         self._evaluations = 0
@@ -72,7 +92,7 @@ class DeterministicAuthzEngine(AuthorizationPolicyEngine):
         self._recent: list[PolicyEvent] = []
         self._max_recent = 50
 
-    def authorize(
+    async def authorize(
         self,
         resource: str,
         action: str,
@@ -85,37 +105,29 @@ class DeterministicAuthzEngine(AuthorizationPolicyEngine):
         self._evaluations += 1
         matched: list[str] = []
 
-        roles = roles or []
-        is_admin = any(r in roles for r in ("admin", "platform_admin", "org_admin"))
+        fga_user = f"user:{user_id}" if user_id else ""
+        if not fga_user:
+            self._rejections += 1
+            matched.append("deny_no_user_id")
+            decision = PolicyDecision(allow=False, reject_reason="No user identity", matched_rules=matched)
+            self._record(PolicyEvent(trace_id=trace_id, resource=resource, action=action, allow=False, matched_rules=matched, user_id=user_id, timestamp=time.time()))
+            return decision
 
-        if resource == "admin.dashboard" and action == "read":
-            matched.append("allow_dashboard_read")
+        fga_object_type = "admin_endpoint"
+        fga_relation = "can_read" if action == "read" else "can_manage"
+        fga_object_id = resource.replace(".", "_")
+
+        allowed = await fga_check(fga_user, fga_relation, fga_object_type, fga_object_id)
+
+        if allowed:
+            matched.append(f"allow_openfga_{fga_relation}")
             decision = PolicyDecision(allow=True, matched_rules=matched)
-        elif resource.startswith("admin.") and action in ("write", "manage"):
-            if is_admin:
-                matched.append("allow_admin_write")
-                decision = PolicyDecision(allow=True, matched_rules=matched)
-            else:
-                self._rejections += 1
-                matched.append("deny_insufficient_role")
-                decision = PolicyDecision(
-                    allow=False,
-                    reject_reason="Admin write access requires admin role",
-                    matched_rules=matched,
-                )
         else:
-            matched.append("allow_default")
-            decision = PolicyDecision(allow=True, matched_rules=matched)
+            self._rejections += 1
+            matched.append(f"deny_openfga_{fga_relation}")
+            decision = PolicyDecision(allow=False, reject_reason=f"Authorization denied for {resource}:{action}", matched_rules=matched)
 
-        self._record(PolicyEvent(
-            trace_id=trace_id,
-            resource=resource,
-            action=action,
-            allow=decision.allow,
-            matched_rules=matched,
-            user_id=user_id,
-            timestamp=time.time(),
-        ))
+        self._record(PolicyEvent(trace_id=trace_id, resource=resource, action=action, allow=decision.allow, matched_rules=matched, user_id=user_id, timestamp=time.time()))
         return decision
 
     def get_stats(self) -> dict[str, Any]:
@@ -123,6 +135,7 @@ class DeterministicAuthzEngine(AuthorizationPolicyEngine):
             "engine": self.engine_name,
             "evaluations": self._evaluations,
             "rejections": self._rejections,
+            "openfga_configured": bool(SYNESIS_OPENFGA_API_URL and SYNESIS_OPENFGA_STORE_ID),
             "recent_events": [
                 {
                     "trace_id": e.trace_id,
@@ -143,51 +156,6 @@ class DeterministicAuthzEngine(AuthorizationPolicyEngine):
             self._recent = self._recent[-self._max_recent:]
 
 
-class OpenFgaShadowEngine(AuthorizationPolicyEngine):
-    """Shadow-mode: logs OpenFGA decisions alongside deterministic, never enforces."""
-
-    engine_name = "openfga_shadow"
-
-    def __init__(self) -> None:
-        self._deterministic = DeterministicAuthzEngine()
-        self._shadow_checks = 0
-        self._shadow_mismatches = 0
-
-    def authorize(
-        self,
-        resource: str,
-        action: str,
-        *,
-        user_id: str = "",
-        org_id: str = "",
-        roles: list[str] | None = None,
-        trace_id: str = "",
-    ) -> PolicyDecision:
-        decision = self._deterministic.authorize(
-            resource, action, user_id=user_id, org_id=org_id, roles=roles, trace_id=trace_id
-        )
-
-        if SYNESIS_OPENFGA_API_URL:
-            self._shadow_checks += 1
-            # Shadow check would go here — log but never enforce
-            logger.debug(
-                "openfga_shadow_check resource=%s action=%s user=%s deterministic_allow=%s",
-                resource, action, user_id, decision.allow,
-            )
-
-        return decision
-
-    def get_stats(self) -> dict[str, Any]:
-        base = self._deterministic.get_stats()
-        base["engine"] = self.engine_name
-        base["shadow_checks"] = self._shadow_checks
-        base["shadow_mismatches"] = self._shadow_mismatches
-        base["openfga_configured"] = bool(SYNESIS_OPENFGA_API_URL)
-        return base
-
-
 def create_authz_engine() -> AuthorizationPolicyEngine:
-    """Factory: create the configured authorization engine."""
-    if SYNESIS_AUTHZ_ENGINE == "openfga_shadow":
-        return OpenFgaShadowEngine()
-    return DeterministicAuthzEngine()
+    """Factory: create the OpenFGA authorization engine."""
+    return AuthorizationPolicyEngine()

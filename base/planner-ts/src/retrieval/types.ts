@@ -36,6 +36,8 @@ export interface ScopeFilterOptions {
   callerOrgId?: string;
   callerTenantIds?: string[];
   callerAclGroups?: string[];
+  callerUserId?: string;
+  callerConversationId?: string;
 }
 
 export interface UnifiedRetrievalRequest {
@@ -53,6 +55,8 @@ export interface UnifiedRetrievalRequest {
   callerOrgId?: string;
   callerTenantIds?: string[];
   callerAclGroups?: string[];
+  callerUserId?: string;
+  callerConversationId?: string;
 }
 
 export interface SearchResult {

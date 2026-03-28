@@ -45,19 +45,12 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES: z.coerce.number().default(12),
   SYNESIS_PLANNER_TS_SESSION_TTL_MS: z.coerce.number().default(14400000),
   SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: z.string().default(""),
-  SYNESIS_PLANNER_TS_AUTHZ_ENGINE: z
-    .enum(["deterministic", "openfga_stub"])
-    .default("deterministic"),
-  SYNESIS_PLANNER_TS_OPENFGA_API_URL: z.string().default(""),
-  SYNESIS_PLANNER_TS_OPENFGA_STORE_ID: z.string().default(""),
-  SYNESIS_PLANNER_TS_OPENFGA_MODEL_ID: z.string().default(""),
-  SYNESIS_PLANNER_TS_OPENFGA_AUTH_TOKEN: z.string().default(""),
-
   SYNESIS_OPENFGA_API_URL: z.string().default(""),
   SYNESIS_OPENFGA_STORE_ID: z.string().default(""),
   SYNESIS_OPENFGA_MODEL_ID: z.string().default(""),
   SYNESIS_OPENFGA_AUTH_TOKEN: z.string().default(""),
-  SYNESIS_AUTHZ_ENGINE: z.enum(["deterministic", "openfga_shadow", "openfga_enforce"]).default("deterministic"),
+  SYNESIS_PLANNER_TS_ADMIN_DB_URL: z.string().default(""),
+  SYNESIS_PAT_PEPPER: z.string().default(""),
   SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: z
     .string()
     .optional()

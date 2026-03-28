@@ -5,6 +5,7 @@ import type { AppConfig } from "./config.js";
 export interface AuthUser {
   userId: string;
   orgId: string;
+  tenantIds: string[];
   role: string;
   authMethod: "pat" | "bearer";
   tokenScopes: string[];
@@ -29,6 +30,7 @@ export class AuthResolver {
     return {
       userId: "bearer-user",
       orgId: "",
+      tenantIds: [],
       role: "user",
       authMethod: "bearer",
       tokenScopes: []
@@ -69,7 +71,7 @@ export class AuthResolver {
     const tokenHash = this.hashPat(token);
     const result = await this.pool.query(
       `
-      SELECT user_id, org_id, role, scopes
+      SELECT user_id, org_id, tenant_ids, role, scopes
       FROM personal_access_tokens
       WHERE token_hash = $1
         AND revoked = false
@@ -82,12 +84,23 @@ export class AuthResolver {
     const row = result.rows[0] as {
       user_id: string;
       org_id: string | null;
+      tenant_ids: string[] | null;
       role: string | null;
       scopes: string[] | null;
     };
+    const orgId = (row.org_id ?? "").trim();
+    const tenantIds = (row.tenant_ids ?? []).map((t) => String(t).trim().slice(0, 64)).filter(Boolean).slice(0, 50);
+    if (tenantIds.length > 0 && !orgId) return null;
+
+    // Fire-and-forget last_used update
+    this.pool!
+      .query("UPDATE personal_access_tokens SET last_used_at = now() WHERE token_hash = $1", [tokenHash])
+      .catch(() => {});
+
     return {
       userId: row.user_id,
-      orgId: row.org_id ?? "",
+      orgId,
+      tenantIds,
       role: row.role ?? "user",
       authMethod: "pat",
       tokenScopes: row.scopes ?? ["model:readonly"]

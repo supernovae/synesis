@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { setFgaCheckOverride } from "../src/auth/openfga-client.js";
+
+beforeAll(() => { setFgaCheckOverride(() => ({ allowed: true })); });
+afterAll(() => { setFgaCheckOverride(null); });
 
 function makeConfig(overrides: Record<string, string> = {}) {
   return loadConfig({

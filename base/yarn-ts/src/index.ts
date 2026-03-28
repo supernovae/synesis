@@ -84,7 +84,10 @@ function pushDiagnostic(d: RequestDiagnostic): void {
   if (diagnosticRing.length > DIAGNOSTIC_RING_MAX) diagnosticRing.shift();
 }
 
+import { initFgaClient, fgaCheck } from "./openfga-client.js";
+
 const config = loadConfig();
+initFgaClient(config);
 const app = Fastify({
   logger: { level: config.LOG_LEVEL },
   forceCloseConnections: "idle"
@@ -834,6 +837,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
   }
 
+  try {
+    authResolver.requireCoderScope(authUser);
+  } catch {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Insufficient scope for coder access" } });
+  }
+
+  const fgaResult = await fgaCheck(`user:${authUser.userId}`, "can_invoke", "yarn_endpoint", "completions");
+  if (!fgaResult.allowed) {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
+  }
+
   const request = parsed.data;
   const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
 
@@ -1156,6 +1170,15 @@ app.post("/v1/messages", async (req, reply) => {
       type: "error",
       error: { type: "authentication_error", message: "Authentication required" }
     });
+  }
+  try {
+    authResolver.requireCoderScope(claudeAuthUser);
+  } catch {
+    return reply.code(403).send({ type: "error", error: { type: "permission_error", message: "Insufficient scope" } });
+  }
+  const claudeFgaResult = await fgaCheck(`user:${claudeAuthUser.userId}`, "can_invoke", "yarn_endpoint", "messages");
+  if (!claudeFgaResult.allowed) {
+    return reply.code(403).send({ type: "error", error: { type: "permission_error", message: "Authorization denied by policy" } });
   }
   const anthropicVersion = req.headers["anthropic-version"];
   if (!anthropicVersion || typeof anthropicVersion !== "string") {

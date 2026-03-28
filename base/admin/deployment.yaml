@@ -98,17 +98,25 @@ spec:
               value: "http://synesis-planner.synesis-planner.svc.cluster.local:8080"
             - name: SYNESIS_YARN_TS_URL
               value: "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000"
-            # ── Authorization engine ──
-            - name: SYNESIS_AUTHZ_ENGINE
-              value: "deterministic"
+            # ── OpenFGA authorization (required) ──
             - name: SYNESIS_OPENFGA_API_URL
-              value: ""
+              value: "http://openfga.synesis-authz.svc.cluster.local:8080"
             - name: SYNESIS_OPENFGA_STORE_ID
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: store-id
             - name: SYNESIS_OPENFGA_MODEL_ID
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: model-id
+                  optional: true
             - name: SYNESIS_OPENFGA_AUTH_TOKEN
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: auth-token
             # Keep OpenAPI/docs disabled by default on public deployments.
             - name: SYNESIS_ENABLE_OPENAPI
               value: "false"

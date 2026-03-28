@@ -1,5 +1,6 @@
 import type { AppConfig } from "../config.js";
 import type { AuthContext } from "./types.js";
+import { fgaCheck, type FgaCheckResult } from "./openfga-client.js";
 
 export type PlannerResource = "chat.completions";
 export type PlannerAction = "invoke";
@@ -31,13 +32,13 @@ export interface AuthorizeOptions {
 }
 
 export interface AuthorizationPolicyEngine {
-  readonly engineName: "deterministic" | "openfga_stub" | "openfga_shadow";
+  readonly engineName: "openfga";
   authorize(
     resource: PlannerResource,
     action: PlannerAction,
     auth: AuthContext,
     options?: AuthorizeOptions
-  ): PolicyDecision;
+  ): Promise<PolicyDecision>;
   getStats(): PolicyStats;
 }
 
@@ -46,72 +47,67 @@ function hasScope(scopes: string[], prefix: string): boolean {
   return scopes.some((scope) => scope.startsWith(prefix));
 }
 
-class DeterministicAuthorizationPolicyEngine implements AuthorizationPolicyEngine {
-  readonly engineName = "deterministic" as const;
+class OpenFgaPolicyEngine implements AuthorizationPolicyEngine {
+  readonly engineName = "openfga" as const;
   private stats: PolicyStats = { evaluations: 0, rejectedCount: 0, recentEvents: [] };
   private static readonly MAX_RECENT_EVENTS = 50;
 
-  authorize(
+  async authorize(
     resource: PlannerResource,
     action: PlannerAction,
     auth: AuthContext,
     options?: AuthorizeOptions
-  ): PolicyDecision {
+  ): Promise<PolicyDecision> {
     this.stats.evaluations += 1;
     const traceId = options?.traceId ?? "unknown";
     const matchedRules: string[] = [];
 
     if (resource === "chat.completions" && action === "invoke") {
       matchedRules.push("resource_chat_completions");
+
       if (!hasScope(auth.tokenScopes, "model")) {
         this.stats.rejectedCount += 1;
         matchedRules.push("deny_missing_model_scope");
-        const decision = {
+        const decision: PolicyDecision = {
           allow: false,
           rejectReason: "Token missing required scope: model",
-          matchedRules
-        };
-        this.recordEvent({
-          traceId,
-          resource,
-          action,
-          allow: decision.allow,
           matchedRules,
-          userId: auth.userId,
-          timestamp: Date.now()
-        });
+        };
+        this.recordEvent({ traceId, resource, action, allow: false, matchedRules, userId: auth.userId, timestamp: Date.now() });
         return decision;
       }
-      matchedRules.push("allow_model_scope");
-      const decision = { allow: true, matchedRules };
-      this.recordEvent({
-        traceId,
-        resource,
-        action,
-        allow: decision.allow,
-        matchedRules,
-        userId: auth.userId,
-        timestamp: Date.now()
-      });
+      matchedRules.push("scope_model_ok");
+
+      const fgaUser = `user:${auth.userId}`;
+      const fgaResult: FgaCheckResult = await fgaCheck(fgaUser, "can_invoke", "planner_endpoint", "chat_completions");
+
+      if (!fgaResult.allowed) {
+        this.stats.rejectedCount += 1;
+        matchedRules.push("deny_openfga_planner_invoke");
+        if (fgaResult.resolution) matchedRules.push(`fga:${fgaResult.resolution}`);
+        const decision: PolicyDecision = {
+          allow: false,
+          rejectReason: "Authorization denied by policy",
+          matchedRules,
+        };
+        this.recordEvent({ traceId, resource, action, allow: false, matchedRules, userId: auth.userId, timestamp: Date.now() });
+        return decision;
+      }
+      matchedRules.push("allow_openfga_planner_invoke");
+
+      const decision: PolicyDecision = { allow: true, matchedRules };
+      this.recordEvent({ traceId, resource, action, allow: true, matchedRules, userId: auth.userId, timestamp: Date.now() });
       return decision;
     }
 
     this.stats.rejectedCount += 1;
     matchedRules.push("deny_unknown_resource");
-    const decision = {
+    const decision: PolicyDecision = {
       allow: false,
       rejectReason: `Unsupported policy target: ${resource}:${action}`,
-      matchedRules
-    };
-    this.recordEvent({
-      traceId,
-      resource,
-      action,
-      allow: decision.allow,
       matchedRules,
-      userId: auth.userId,
-      timestamp: Date.now()
-    });
+    };
+    this.recordEvent({ traceId, resource, action, allow: false, matchedRules, userId: auth.userId, timestamp: Date.now() });
     return decision;
   }
 
@@ -121,57 +117,12 @@ class DeterministicAuthorizationPolicyEngine implements AuthorizationPolicyEngin
 
   private recordEvent(event: PolicyEvent): void {
     this.stats.recentEvents.push(event);
-    if (this.stats.recentEvents.length > DeterministicAuthorizationPolicyEngine.MAX_RECENT_EVENTS) {
+    if (this.stats.recentEvents.length > OpenFgaPolicyEngine.MAX_RECENT_EVENTS) {
       this.stats.recentEvents.shift();
     }
   }
 }
 
-class OpenFgaStubAuthorizationPolicyEngine implements AuthorizationPolicyEngine {
-  readonly engineName = "openfga_stub" as const;
-  private stats: PolicyStats = { evaluations: 0, rejectedCount: 0, recentEvents: [] };
-  private static readonly MAX_RECENT_EVENTS = 50;
-
-  authorize(
-    resource: PlannerResource,
-    action: PlannerAction,
-    auth: AuthContext,
-    options?: AuthorizeOptions
-  ): PolicyDecision {
-    this.stats.evaluations += 1;
-    this.stats.rejectedCount += 1;
-    const decision = {
-      allow: false,
-      rejectReason: "Authorization policy engine is not configured yet",
-      matchedRules: ["deny_engine_not_configured"]
-    };
-    this.stats.recentEvents.push({
-      traceId: options?.traceId ?? "unknown",
-      resource,
-      action,
-      allow: decision.allow,
-      matchedRules: decision.matchedRules,
-      userId: auth.userId,
-      timestamp: Date.now()
-    });
-    if (this.stats.recentEvents.length > OpenFgaStubAuthorizationPolicyEngine.MAX_RECENT_EVENTS) {
-      this.stats.recentEvents.shift();
-    }
-    return decision;
-  }
-
-  getStats(): PolicyStats {
-    return { ...this.stats, recentEvents: [...this.stats.recentEvents] };
-  }
-}
-
-export function createAuthorizationPolicyEngine(config: AppConfig): AuthorizationPolicyEngine {
-  const engine = config.SYNESIS_AUTHZ_ENGINE !== "deterministic"
-    ? config.SYNESIS_AUTHZ_ENGINE
-    : config.SYNESIS_PLANNER_TS_AUTHZ_ENGINE;
-
-  if (engine === "openfga_stub" || engine === "openfga_shadow") {
-    return new OpenFgaStubAuthorizationPolicyEngine();
-  }
-  return new DeterministicAuthorizationPolicyEngine();
+export function createAuthorizationPolicyEngine(_config: AppConfig): AuthorizationPolicyEngine {
+  return new OpenFgaPolicyEngine();
 }

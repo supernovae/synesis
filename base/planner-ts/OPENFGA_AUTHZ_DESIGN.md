@@ -1,84 +1,43 @@
-# OpenFGA Authz Design (Planner/Admin/Yarn)
+# OpenFGA Authorization — Enforcement Architecture
 
-This document defines a staged OpenFGA rollout for shared authorization across `planner`, `admin`, and `yarn`.
+OpenFGA is the **single authorization decision point** across planner-ts,
+yarn-ts, and admin. Staged rollout and deterministic fallback engines have
+been removed. Schema source of truth: `authz/openfga/schema.fga`.
 
-## Goals
+## Principal contract (all callers)
 
-- Unify authorization decisions across services with one relationship model.
-- Preserve current deny-by-default semantics.
-- Keep current deterministic policy engine available as fallback during migration.
-- Roll out safely with shadow logging before enforcement.
+Every request to planner-ts or yarn-ts must carry a **non-forgeable principal**:
 
-## Proposed Shared Contracts
+| Path | Identity source | Validation |
+|------|----------------|------------|
+| End-user PAT (`syn-*`) | Bearer token → Postgres lookup | DB hash match; `user_id`, `org_id`, `tenant_ids`, `role`, `scopes` from row |
+| Keycloak JWT | Bearer token → JWKS verification | `sub` claim = principal ID |
+| Internal gateway (forwarded) | `SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN` match + `x-openwebui-*` headers | Only trusted when bearer equals internal service token |
 
-- Shared request context:
-  - `userId`
-  - `orgId`
-  - `tenantIds`
-  - `tokenScopes`
-  - `authMethod`
-- Shared authorization request:
-  - `resourceType`
-  - `resourceId`
-  - `action`
-- Shared authorization decision:
-  - `allow`
-  - `reason`
-  - `matchedRules`
-  - `traceId`
+**No internal shortcut exists.** MCP servers, Yarn, or any service calling
+planner RAG endpoints must use the end-user's PAT/JWT or the internal
+service token path with forwarded identity. Planner-ts runs FGA checks on
+the resolved principal identically for all paths.
 
-## Tuple Model (Initial)
+## Authorization flow
 
-- `type user`
-- `type org`
-  - relations:
-    - `member: [user]`
-    - `admin: [user]`
-- `type tenant`
-  - relations:
-    - `parent_org: [org]`
-    - `member: [user, org#member]`
-    - `admin: [user, org#admin]`
-- `type planner_endpoint`
-  - relations:
-    - `tenant: [tenant]`
-    - `can_invoke: [user, tenant#member, tenant#admin]`
+1. **Identity resolve** — PAT DB lookup or JWT verification
+2. **Scope check** — PAT `tokenScopes` must include required prefix (`model:` for planner, `coder:` for yarn)
+3. **OpenFGA check** — `user:<id>` + `can_invoke` on `planner_endpoint:chat_completions` (or `yarn_endpoint:completions`)
+4. **RAG gate** (planner only) — `can_read_public` or `can_read_org`/`can_read_tenant` on `rag_catalog:default` before retrieval
+5. **Milvus scope filter** — data-plane visibility/ACL enforcement
 
-## Planner Mapping (Phase 1)
+## Environment variables (all services)
 
-- `POST /v1/chat/completions`:
-  - resource: `planner_endpoint:chat_completions`
-  - action: `invoke`
-  - required:
-    - token scope includes `model:*`
-    - OpenFGA check allows `can_invoke`
+- `SYNESIS_OPENFGA_API_URL`
+- `SYNESIS_OPENFGA_STORE_ID`
+- `SYNESIS_OPENFGA_MODEL_ID`
+- `SYNESIS_OPENFGA_AUTH_TOKEN`
 
-The scope gate remains local; OpenFGA adds org/tenant relationship enforcement.
+## MCP / Yarn → planner
 
-## Staged Rollout
-
-1. **Schema + client readiness**
-   - Add OpenFGA config/env scaffolding in each service.
-   - Keep deterministic engine as primary.
-2. **Shadow mode**
-   - Execute OpenFGA checks in parallel, log decision deltas only.
-   - Do not block requests on OpenFGA results yet.
-3. **Soft enforcement**
-   - Enforce OpenFGA for a small tenant cohort.
-   - Keep deterministic fallback and explicit feature flag.
-4. **Full enforcement**
-   - Enforce OpenFGA globally.
-   - Retain audit telemetry + trace lineage.
-
-## Environment Variables (Planner TS)
-
-- `SYNESIS_PLANNER_TS_OPENFGA_API_URL`
-- `SYNESIS_PLANNER_TS_OPENFGA_STORE_ID`
-- `SYNESIS_PLANNER_TS_OPENFGA_MODEL_ID`
-- `SYNESIS_PLANNER_TS_OPENFGA_AUTH_TOKEN`
-
-## Success Criteria
-
-- No authorization drift between planner/admin/yarn for equivalent requests.
-- All allow/deny decisions carry traceable IDs and rationale.
-- Shadow-mode delta rate remains within agreed threshold before enforcement.
+Yarn or MCP tools that call planner endpoints forward the **user's bearer
+token** in the `Authorization` header. Planner validates it as any other
+request — no delegation shortcut. If machine-to-machine credentials are
+needed in the future, model a `service:yarn` type in the FGA schema with
+`delegate` relation.

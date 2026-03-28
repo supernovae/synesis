@@ -66,6 +66,9 @@ const navigation: NavItem[] = [
       { label: "ACL Groups", path: "/security/acl-groups" },
       { label: "ACL Policies", path: "/security/acl-policies" },
       { label: "Effective Permissions", path: "/security/effective-permissions" },
+      { label: "Authorization Policy", path: "/security/authz" },
+      { label: "FGA Tuples", path: "/security/authz-tuples" },
+      { label: "Auth Debugger", path: "/security/authz-checker" },
     ],
   },
   {

@@ -9,28 +9,15 @@ function makeConfig(overrides: Record<string, string> = {}) {
   });
 }
 
-describe("authorization policy engine", () => {
-  it("allows chat invoke when model scope exists", () => {
+describe("authorization policy engine (OpenFGA)", () => {
+  it("engine name is openfga", () => {
     const engine = createAuthorizationPolicyEngine(makeConfig());
-    const decision = engine.authorize("chat.completions", "invoke", {
-      userId: "u1",
-      userEmail: "u1@test.com",
-      orgId: "",
-      tenantIds: [],
-      role: "user",
-      tokenScopes: ["model:readonly"],
-      authMethod: "bearer",
-      trustedForwardedIdentity: false
-    });
-    expect(decision.allow).toBe(true);
-    expect(decision.matchedRules).toContain("allow_model_scope");
-    expect(engine.getStats().recentEvents.length).toBeGreaterThanOrEqual(1);
-    expect(engine.getStats().recentEvents[0]?.allow).toBe(true);
+    expect(engine.engineName).toBe("openfga");
   });
 
-  it("denies chat invoke when model scope is missing", () => {
+  it("denies when model scope missing", async () => {
     const engine = createAuthorizationPolicyEngine(makeConfig());
-    const decision = engine.authorize("chat.completions", "invoke", {
+    const decision = await engine.authorize("chat.completions", "invoke", {
       userId: "u1",
       userEmail: "u1@test.com",
       orgId: "",
@@ -41,20 +28,13 @@ describe("authorization policy engine", () => {
       trustedForwardedIdentity: false
     });
     expect(decision.allow).toBe(false);
-    expect(decision.rejectReason).toContain("required scope");
-    const stats = engine.getStats();
-    expect(stats.recentEvents.length).toBeGreaterThanOrEqual(1);
-    expect(stats.recentEvents[stats.recentEvents.length - 1]?.allow).toBe(false);
+    expect(decision.rejectReason).toContain("scope");
+    expect(decision.matchedRules).toContain("deny_missing_model_scope");
   });
 
-  it("uses openfga stub engine when selected", () => {
-    const engine = createAuthorizationPolicyEngine(
-      makeConfig({
-        SYNESIS_PLANNER_TS_AUTHZ_ENGINE: "openfga_stub"
-      })
-    );
-    expect(engine.engineName).toBe("openfga_stub");
-    const decision = engine.authorize("chat.completions", "invoke", {
+  it("denies when FGA not configured (no store)", async () => {
+    const engine = createAuthorizationPolicyEngine(makeConfig());
+    const decision = await engine.authorize("chat.completions", "invoke", {
       userId: "u1",
       userEmail: "u1@test.com",
       orgId: "",
@@ -65,6 +45,24 @@ describe("authorization policy engine", () => {
       trustedForwardedIdentity: false
     });
     expect(decision.allow).toBe(false);
-    expect(decision.rejectReason).toContain("not configured yet");
+    expect(decision.matchedRules).toContain("deny_openfga_planner_invoke");
+  });
+
+  it("tracks stats across evaluations", async () => {
+    const engine = createAuthorizationPolicyEngine(makeConfig());
+    await engine.authorize("chat.completions", "invoke", {
+      userId: "u1",
+      userEmail: "",
+      orgId: "",
+      tenantIds: [],
+      role: "user",
+      tokenScopes: ["coder:readonly"],
+      authMethod: "bearer",
+      trustedForwardedIdentity: false
+    });
+    const stats = engine.getStats();
+    expect(stats.evaluations).toBeGreaterThanOrEqual(1);
+    expect(stats.rejectedCount).toBeGreaterThanOrEqual(1);
+    expect(stats.recentEvents.length).toBeGreaterThanOrEqual(1);
   });
 });

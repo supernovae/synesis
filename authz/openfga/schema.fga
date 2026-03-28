@@ -1,0 +1,101 @@
+model
+  schema 1.1
+
+# ─── Base principal ───────────────────────────────────────────────────────────
+# Users exist independently — org membership is optional.
+# Principal IDs: Keycloak `sub` claim for JWT users, admin DB `user_id` for PAT
+# users. All tuple writers MUST use the same canonical ID space.
+
+type user
+
+# ─── Platform (singleton: platform:synesis) ───────────────────────────────────
+
+type platform
+  relations
+    define admin: [user]
+
+# ─── Organization (optional — solo users never require one) ───────────────────
+
+type org
+  relations
+    define member: [user]
+    define admin: [user]
+
+# ─── Tenant (sub-org workspace, inherits org membership) ──────────────────────
+
+type tenant
+  relations
+    define parent_org: [org]
+    define member: [user] or member from parent_org
+    define admin: [user] or admin from parent_org
+
+# ─── Service endpoints ───────────────────────────────────────────────────────
+# Instances: planner_endpoint:chat_completions, yarn_endpoint:completions, etc.
+# Solo users get direct `can_invoke` tuples; in-org users inherit via org/tenant.
+
+type planner_endpoint
+  relations
+    define can_invoke: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+
+type yarn_endpoint
+  relations
+    define can_invoke: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+
+type admin_endpoint
+  relations
+    define can_manage: [platform#admin, org#admin]
+    define can_read: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+
+# ─── RAG catalog access ──────────────────────────────────────────────────────
+# Two lanes:
+#   can_read_public — global+open-ACL catalog (solo users, platform admins)
+#   can_read_org    — org-scoped content (requires org membership)
+#   can_read_tenant — tenant-scoped content (requires tenant membership)
+# Milvus metadata (visibility_scope, acl_mode, acl_groups) is the data-plane
+# filter; FGA is the control-plane gate that runs BEFORE retrieval.
+
+type rag_catalog
+  relations
+    define can_read_public: [user, platform#admin]
+    define can_read_org: [org#member, org#admin, platform#admin]
+    define can_read_tenant: [tenant#member, tenant#admin, platform#admin]
+
+# ─── Platform features (web search, etc.) ─────────────────────────────────────
+# `enabled` grants the capability; `blocked` is a per-user deny override.
+# `can_use = enabled but not blocked` — deny wins for the blocked principal.
+# Org/tenant-wide blocks use application-level two-step check via
+# platform_policy:default#blocked_feature (see below).
+
+type feature
+  relations
+    define enabled: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define blocked: [user]
+    define can_use: enabled but not blocked
+
+# ─── Tool invocation (per-tool or per-family) ────────────────────────────────
+# Same allow+deny pattern as features.
+# Platform-wide tool blocks (known abuse vectors) are modeled on
+# platform_policy and checked first in application code.
+
+type tool
+  relations
+    define allowed: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define blocked: [user]
+    define can_use: allowed but not blocked
+
+type tool_family
+  relations
+    define allowed: [user, platform#admin, org#member, org#admin, tenant#member, tenant#admin]
+    define blocked: [user]
+    define can_use: allowed but not blocked
+
+# ─── Platform policy (global deny-lists, checked in application code) ─────────
+# Singleton: platform_policy:default
+# Application flow: check blocked_tool/blocked_feature FIRST, then per-user
+# can_use. This avoids complex inherited deny in the FGA model while keeping
+# global safety knobs simple for platform admins.
+
+type platform_policy
+  relations
+    define blocked_tool: [tool, tool_family]
+    define blocked_feature: [feature]

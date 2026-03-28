@@ -240,6 +240,26 @@ require_model_scope = require_scope("model")
 require_coder_scope = require_scope("coder")
 
 
+# ── OpenFGA-backed dependency ─────────────────────────────────────────────────
+
+def require_fga(object_type: str, object_id: str, relation: str):
+    """FastAPI dependency that enforces an OpenFGA check on the current user."""
+
+    async def _dep(user: UserInfo = Depends(get_current_user)) -> UserInfo:
+        from .services.authz_engine import fga_check
+
+        fga_user = f"user:{user.user_id or user.username}"
+        allowed = await fga_check(fga_user, relation, object_type, object_id)
+        if not allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Authorization denied: {object_type}:{object_id}#{relation}",
+            )
+        return user
+
+    return _dep
+
+
 def trace_scope_filters(user: UserInfo) -> dict[str, str]:
     """Return keyword filters to pass into ``trace_store.list_traces``
     so only rows the user is authorized to see are returned.

@@ -682,3 +682,60 @@ async def validate_knowledge_gaps(
         errors=errors,
         details=details,
     )
+
+
+# ── OpenFGA Authorization Status ─────────────────────────────────────────────
+
+
+class FgaStatusResponse(BaseModel):
+    engine: str
+    openfga_configured: bool
+    evaluations: int
+    rejections: int
+    recent_events: list[dict]
+
+
+@router.get("/fga-status", response_model=FgaStatusResponse)
+async def fga_status(_admin: UserInfo = Depends(require_admin)):
+    """Return OpenFGA authorization engine status and recent evaluation events."""
+    from ..services.authz_engine import create_authz_engine
+
+    engine = create_authz_engine()
+    stats = engine.get_stats()
+    return FgaStatusResponse(
+        engine=stats["engine"],
+        openfga_configured=stats["openfga_configured"],
+        evaluations=stats["evaluations"],
+        rejections=stats["rejections"],
+        recent_events=stats["recent_events"],
+    )
+
+
+class TokenFgaExplanation(BaseModel):
+    """Explains how PAT scopes relate to FGA relationships for the current user."""
+    scopes: list[str]
+    fga_relations_explain: list[str]
+
+
+@router.get("/token-fga-explain", response_model=TokenFgaExplanation)
+async def token_fga_explain(user: UserInfo = Depends(get_current_user)):
+    """Explain the FGA relationship implications of the current user's token scopes."""
+    scopes = user.token_scopes or []
+    explain: list[str] = []
+
+    if not scopes:
+        explain.append("JWT session: all FGA relationships apply based on user identity (no scope restriction)")
+    else:
+        if any(s.startswith("model") for s in scopes):
+            explain.append("model scope: grants planner_endpoint:chat_completions#can_invoke + rag_catalog:default#can_read_public")
+        if any(s.startswith("coder") for s in scopes):
+            explain.append("coder scope: grants yarn_endpoint:completions#can_invoke + yarn_endpoint:messages#can_invoke")
+        if not any(s.startswith("model") for s in scopes) and not any(s.startswith("coder") for s in scopes):
+            explain.append("token has no recognized scope prefix: FGA invocation checks will likely fail")
+
+    if user.org_id:
+        explain.append(f"org context: org:{user.org_id}#member — enables org-scoped RAG and admin access")
+    else:
+        explain.append("no org context: solo user — FGA grants public catalog access only")
+
+    return TokenFgaExplanation(scopes=scopes, fga_relations_explain=explain)

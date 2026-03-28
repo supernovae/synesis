@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
 import type { AppConfig } from "../config.js";
 import type { AuthContext } from "./types.js";
+import { resolvePatFromDb } from "./pat-resolver.js";
 
 function parseBearerToken(request: FastifyRequest): string {
   const raw = String(request.headers.authorization ?? "");
@@ -31,7 +32,7 @@ function hasForwardedIdentityHeaders(request: FastifyRequest): boolean {
   });
 }
 
-export function resolveAuthContext(request: FastifyRequest, config: AppConfig): AuthContext {
+export async function resolveAuthContext(request: FastifyRequest, config: AppConfig): Promise<AuthContext> {
   const token = parseBearerToken(request);
   const forwardedPresent = hasForwardedIdentityHeaders(request);
 
@@ -54,12 +55,11 @@ export function resolveAuthContext(request: FastifyRequest, config: AppConfig): 
     throw err;
   }
 
-  const tenantIdsFromHeader = parseCsvHeader(request.headers["x-synesis-tenant-ids"]);
   const scopeHeader = parseCsvHeader(request.headers["x-synesis-token-scopes"]);
 
-  const forwardedEmail = String(request.headers["x-openwebui-user-email"] ?? "");
-
   if (trustedForwarded) {
+    const forwardedEmail = String(request.headers["x-openwebui-user-email"] ?? "");
+    const tenantIdsFromHeader = parseCsvHeader(request.headers["x-synesis-tenant-ids"]);
     return {
       userId: String(request.headers["x-openwebui-user-id"] ?? "forwarded-user"),
       userEmail: forwardedEmail,
@@ -86,13 +86,19 @@ export function resolveAuthContext(request: FastifyRequest, config: AppConfig): 
   }
 
   if (token.startsWith("syn-")) {
+    const pat = await resolvePatFromDb(token, config.SYNESIS_PAT_PEPPER);
+    if (!pat) {
+      const err = new Error("Invalid token");
+      (err as Error & { statusCode?: number }).statusCode = 401;
+      throw err;
+    }
     return {
-      userId: "pat-user",
+      userId: pat.userId,
       userEmail: "",
-      orgId: "",
-      tenantIds: tenantIdsFromHeader,
-      role: "user",
-      tokenScopes: scopeHeader.length > 0 ? scopeHeader : ["model:readonly"],
+      orgId: pat.orgId,
+      tenantIds: pat.tenantIds,
+      role: pat.role as AuthContext["role"],
+      tokenScopes: pat.scopes,
       authMethod: "pat",
       trustedForwardedIdentity: false
     };
@@ -102,7 +108,7 @@ export function resolveAuthContext(request: FastifyRequest, config: AppConfig): 
     userId: "bearer-user",
     userEmail: "",
     orgId: "",
-    tenantIds: tenantIdsFromHeader,
+    tenantIds: [],
     role: "user",
     tokenScopes: scopeHeader,
     authMethod: "bearer",

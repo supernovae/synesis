@@ -194,6 +194,8 @@ export async function retrieveUnified(
     callerOrgId,
     callerTenantIds,
     callerAclGroups,
+    callerUserId,
+    callerConversationId,
   } = request;
 
   const t0 = performance.now();
@@ -212,7 +214,7 @@ export async function retrieveUnified(
   const ragPromise = retrieveContext(query, settings.rag, {
     collections,
     topK: overfetch,
-    scopeFilter: { callerOrgId, callerTenantIds, callerAclGroups },
+    scopeFilter: { callerOrgId, callerTenantIds, callerAclGroups, callerUserId, callerConversationId },
   }).catch((err) => {
     ragDegraded = true;
     degradationNotes.push(`RAG failed: ${err instanceof Error ? err.message : String(err)}`);

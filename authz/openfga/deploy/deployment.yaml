@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openfga
+  namespace: synesis-authz
+  labels:
+    app.kubernetes.io/name: openfga
+    app.kubernetes.io/part-of: synesis
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: openfga
+  template:
+    metadata:
+      labels:
+        app: openfga
+        app.kubernetes.io/name: openfga
+    spec:
+      containers:
+        - name: openfga
+          image: openfga/openfga:v1.8.5
+          args: ["run"]
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 8081
+              name: grpc
+              protocol: TCP
+            - containerPort: 2112
+              name: metrics
+              protocol: TCP
+          env:
+            - name: OPENFGA_DATASTORE_ENGINE
+              value: postgres
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-config
+                  key: OPENFGA_DATASTORE_URI
+            - name: OPENFGA_AUTHN_METHOD
+              value: preshared
+            - name: OPENFGA_AUTHN_PRESHARED_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-config
+                  key: OPENFGA_AUTHN_PRESHARED_KEYS
+            - name: OPENFGA_LOG_FORMAT
+              value: json
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openfga
+  namespace: synesis-authz
+  labels:
+    app.kubernetes.io/name: openfga
+    app.kubernetes.io/part-of: synesis
+spec:
+  selector:
+    app: openfga
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: grpc
+      port: 8081
+      targetPort: grpc
+    - name: metrics
+      port: 2112
+      targetPort: metrics

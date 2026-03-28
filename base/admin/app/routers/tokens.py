@@ -136,6 +136,15 @@ async def create_token(
     session.add(pat)
     await session.commit()
 
+    from ..services.fga_tuple_writer import on_pat_created
+    await on_pat_created(
+        user_id=user.user_id or user.username,
+        org_id=user.org_id or "",
+        tenant_ids=tenant_ids,
+        role=user.role,
+        scopes=scopes,
+    )
+
     return TokenCreated(
         id=pat_id,
         name=body.name,
@@ -201,6 +210,9 @@ async def revoke_token(
     await session.execute(update(PersonalAccessToken).where(PersonalAccessToken.id == token_id).values(revoked=True))
     await session.commit()
 
+    from ..services.fga_tuple_writer import on_pat_revoked
+    await on_pat_revoked(pat.user_id)
+
 
 # ── Admin-only endpoints ─────────────────────────────────────────────────────
 
@@ -238,3 +250,14 @@ async def purge_revoked(
     """Hard-delete all revoked tokens (admin only)."""
     await session.execute(delete(PersonalAccessToken).where(PersonalAccessToken.revoked.is_(True)))
     await session.commit()
+
+
+@router.post("/admin/backfill-fga")
+async def backfill_fga_tuples(
+    _admin: UserInfo = Depends(require_platform_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Backfill OpenFGA tuples from existing PAT rows (platform admin only)."""
+    from ..services.fga_tuple_writer import backfill_from_db
+    result = await backfill_from_db(session)
+    return result

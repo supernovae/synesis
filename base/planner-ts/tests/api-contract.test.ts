@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { setFgaCheckOverride } from "../src/auth/openfga-client.js";
+
+beforeAll(() => {
+  setFgaCheckOverride(() => ({ allowed: true }));
+});
+afterAll(() => {
+  setFgaCheckOverride(null);
+});
 
 function makeConfig(overrides: Record<string, string> = {}) {
   return loadConfig({
@@ -52,7 +60,7 @@ describe("API contract", () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.auth?.engine).toBe("deterministic");
+    expect(body.auth?.engine).toBe("openfga");
     expect(body.auth?.policyStats).toBeTruthy();
     expect(body.auth?.openfga).toBeTruthy();
     expect(body.auth?.openfga?.apiUrlConfigured).toBe(false);
@@ -62,35 +70,37 @@ describe("API contract", () => {
   it("returns authz recent events on dedicated health endpoint", async () => {
     const app = buildApp(
       makeConfig({
-        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "false",
         SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "debug-token"
       })
     );
-    await app.inject({
-      method: "POST",
-      url: "/v1/chat/completions",
-      headers: {
-        authorization: "Bearer syn-test-token",
-        "x-synesis-token-scopes": "coder:readonly"
-      },
-      payload: {
-        model: "Synesis",
-        messages: [{ role: "user", content: "hello planner" }],
-        stream: false
-      }
-    });
-    const response = await app.inject({
-      method: "GET",
-      url: "/health/authz-events",
-      headers: { authorization: "Bearer debug-token" }
-    });
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.auth?.engine).toBe("deterministic");
-    expect(Array.isArray(body.auth?.recentEvents)).toBe(true);
-    expect((body.auth?.recentEvents ?? []).length).toBeGreaterThanOrEqual(1);
-    expect(body.auth?.recentEvents?.slice(-1)?.[0]?.allow).toBe(false);
-    await app.close();
+    setFgaCheckOverride(() => ({ allowed: false, resolution: "test_deny" }));
+    try {
+      await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { authorization: "Bearer test-token" },
+        payload: {
+          model: "Synesis",
+          messages: [{ role: "user", content: "hello planner" }],
+          stream: false
+        }
+      });
+      const response = await app.inject({
+        method: "GET",
+        url: "/health/authz-events",
+        headers: { authorization: "Bearer debug-token" }
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.auth?.engine).toBe("openfga");
+      expect(Array.isArray(body.auth?.recentEvents)).toBe(true);
+      expect((body.auth?.recentEvents ?? []).length).toBeGreaterThanOrEqual(1);
+      expect(body.auth?.recentEvents?.slice(-1)?.[0]?.allow).toBe(false);
+    } finally {
+      setFgaCheckOverride(() => ({ allowed: true }));
+      await app.close();
+    }
   });
 
   it("returns OpenAI-like non-stream response", async () => {
@@ -112,8 +122,8 @@ describe("API contract", () => {
     expect(body.usage).toBeTruthy();
     expect(typeof body.authz_trace_id).toBe("string");
     expect(body.authz_trace_id.length).toBeGreaterThan(10);
-    expect(response.headers["x-synesis-authz-engine"]).toBe("deterministic");
-    expect(String(response.headers["x-synesis-authz-rules"] ?? "")).toContain("allow_model_scope");
+    expect(response.headers["x-synesis-authz-engine"]).toBe("openfga");
+    expect(String(response.headers["x-synesis-authz-rules"] ?? "")).toContain("scope_model_ok");
     const responseTraceId = String(response.headers["x-synesis-authz-trace-id"] ?? "");
     expect(responseTraceId.length).toBeGreaterThan(10);
     expect(body.authz_trace_id).toBe(responseTraceId);
@@ -168,7 +178,7 @@ describe("API contract", () => {
     await app.close();
   });
 
-  it("rejects PAT without model scope", async () => {
+  it("rejects bearer without model scope", async () => {
     const app = buildApp(
       makeConfig({
         SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true"
@@ -178,7 +188,7 @@ describe("API contract", () => {
       method: "POST",
       url: "/v1/chat/completions",
       headers: {
-        authorization: "Bearer syn-test-token",
+        authorization: "Bearer non-pat-bearer-token",
         "x-synesis-token-scopes": "coder:readonly"
       },
       payload: {
@@ -189,8 +199,8 @@ describe("API contract", () => {
     });
     expect(response.statusCode).toBe(403);
     const body = response.json();
-    expect(body.error?.message).toContain("required scope");
-    expect(response.headers["x-synesis-authz-engine"]).toBe("deterministic");
+    expect(body.error?.message).toContain("scope");
+    expect(response.headers["x-synesis-authz-engine"]).toBe("openfga");
     expect(String(response.headers["x-synesis-authz-rules"] ?? "")).toContain("deny_missing_model_scope");
     expect(String(response.headers["x-synesis-authz-trace-id"] ?? "").length).toBeGreaterThan(10);
     await app.close();
@@ -206,7 +216,7 @@ describe("API contract", () => {
       method: "POST",
       url: "/v1/chat/completions",
       headers: {
-        authorization: "Bearer syn-test-token",
+        authorization: "Bearer non-pat-bearer-token",
         "x-synesis-token-scopes": "coder:readonly"
       },
       payload: {
@@ -328,30 +338,26 @@ describe("API contract", () => {
     await app.close();
   });
 
-  it("returns 403 when openfga stub engine is selected", async () => {
-    const app = buildApp(
-      makeConfig({
-        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
-        SYNESIS_PLANNER_TS_AUTHZ_ENGINE: "openfga_stub"
-      })
-    );
-    const response = await app.inject({
-      method: "POST",
-      url: "/v1/chat/completions",
-      headers: {
-        authorization: "Bearer syn-test-token",
-        "x-synesis-token-scopes": "model:readonly"
-      },
-      payload: {
-        model: "Synesis",
-        messages: [{ role: "user", content: "hello planner" }],
-        stream: false
-      }
-    });
-    expect(response.statusCode).toBe(403);
-    const body = response.json();
-    expect(body.error?.message).toContain("not configured yet");
-    await app.close();
+  it("returns 403 when openfga denies the check", async () => {
+    const app = buildApp(makeConfig());
+    setFgaCheckOverride(() => ({ allowed: false, resolution: "test_deny" }));
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        payload: {
+          model: "Synesis",
+          messages: [{ role: "user", content: "hello planner" }],
+          stream: false
+        }
+      });
+      expect(response.statusCode).toBe(403);
+      const body = response.json();
+      expect(body.error?.message).toContain("denied");
+    } finally {
+      setFgaCheckOverride(() => ({ allowed: true }));
+      await app.close();
+    }
   });
 
   it("includes cached_prompt_tokens in usage (non-stream)", async () => {

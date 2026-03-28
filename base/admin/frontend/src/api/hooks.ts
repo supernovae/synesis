@@ -2255,6 +2255,113 @@ export function useResolveSecurityEvent() {
 }
 
 // ---------------------------------------------------------------------------
+// Authorization / OpenFGA
+// ---------------------------------------------------------------------------
+
+export interface AuthzStatus {
+  engine: string;
+  evaluations: number;
+  rejections: number;
+  openfga_configured: boolean;
+  recent_events: Array<{
+    trace_id: string;
+    resource: string;
+    action: string;
+    allow: boolean;
+    matched_rules: string[];
+    user_id: string;
+    timestamp: number;
+  }>;
+  store: { store_id: string; api_url: string } | null;
+  latest_model: { id: string; type_definitions_count: number } | null;
+}
+
+export function useAuthzStatus() {
+  return useQuery<AuthzStatus>({
+    queryKey: ["authz", "status"],
+    queryFn: () => client.get("/authz/status").then((r) => r.data),
+    refetchInterval: 15_000,
+  });
+}
+
+export interface AuthzTuple {
+  user: string;
+  relation: string;
+  object: string;
+  timestamp?: string;
+}
+
+export function useAuthzTuples(filters: { user?: string; relation?: string; object?: string }) {
+  return useQuery<{ tuples: AuthzTuple[]; count: number }>({
+    queryKey: ["authz", "tuples", filters],
+    queryFn: () => client.get("/authz/tuples", { params: filters }).then((r) => r.data),
+  });
+}
+
+export function useWriteAuthzTuple() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { user: string; relation: string; object: string }) =>
+      client.post("/authz/tuples", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["authz"] });
+    },
+  });
+}
+
+export function useDeleteAuthzTuple() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { user: string; relation: string; object: string }) =>
+      client.delete("/authz/tuples", { data }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["authz"] });
+    },
+  });
+}
+
+export interface AuthzCheckResult {
+  user: string;
+  relation: string;
+  object: string;
+  allowed: boolean;
+}
+
+export function useRunAuthzCheck() {
+  return useMutation<AuthzCheckResult, Error, { user: string; relation: string; object: string }>({
+    mutationFn: (data) => client.post("/authz/check", data).then((r) => r.data),
+  });
+}
+
+export interface AuthzUserPermissions {
+  user_id: string;
+  fga_user: string;
+  direct_tuples: AuthzTuple[];
+  computed_checks: Record<string, boolean>;
+}
+
+export function useAuthzUserPermissions(userId: string) {
+  return useQuery<AuthzUserPermissions>({
+    queryKey: ["authz", "user-permissions", userId],
+    queryFn: () => client.get(`/authz/user-permissions/${userId}`).then((r) => r.data),
+    enabled: !!userId,
+  });
+}
+
+export interface AuthzSchemaType {
+  type: string;
+  relations: Record<string, { directly_related: string[] }>;
+}
+
+export function useAuthzSchemaTypes() {
+  return useQuery<{ types: AuthzSchemaType[]; model_id: string | null }>({
+    queryKey: ["authz", "schema-types"],
+    queryFn: () => client.get("/authz/schema-types").then((r) => r.data),
+    staleTime: 60_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Model Policies — conditional model selection rules
 // ---------------------------------------------------------------------------
 

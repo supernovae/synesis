@@ -164,6 +164,7 @@ from app.routers.admin_mcp import router as admin_mcp_router
 from app.routers.assistant import router as assistant_router
 from app.routers.audit import router as audit_router
 from app.routers.auth_router import router as auth_router
+from app.routers.authz import router as authz_router
 from app.routers.conflict_groups import router as conflict_groups_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.feedback import router as feedback_router
@@ -189,6 +190,7 @@ from app.routers.yarn import router as yarn_router
 app.include_router(admin_mcp_router)
 app.include_router(acl_router)
 app.include_router(assistant_router)
+app.include_router(authz_router)
 app.include_router(audit_router)
 app.include_router(auth_router)
 app.include_router(conflict_groups_router)

@@ -21,6 +21,7 @@ export interface GraphState {
   tenant_ids?: string[];
   token_scopes?: string[];
   auth_method?: "anonymous" | "bearer" | "pat" | "internal_service";
+  conversation_id?: string;
   authz_trace_id?: string;
   authz_engine?: string;
   authz_rules?: string[];

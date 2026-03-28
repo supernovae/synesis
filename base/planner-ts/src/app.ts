@@ -20,6 +20,7 @@ import {
   type PolicyDecision
 } from "./auth/policy-engine.js";
 import { resolveAuthContext } from "./auth/resolver.js";
+import { initFgaClient } from "./auth/openfga-client.js";
 import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
@@ -51,8 +52,10 @@ type ErrorWithMeta = Error & {
 
 const SAFE_ERROR_PATTERNS = [
   /^Missing Bearer token$/,
+  /^Invalid token$/,
+  /^Untrusted forwarded identity/,
   /^Token missing required scope:/,
-  /^Authorization denied$/,
+  /^Authorization denied/,
   /^Unsupported policy target:/,
   /is not configured yet/,
   /^Rate limit exceeded/,
@@ -70,6 +73,8 @@ function sanitizeErrorMessage(raw: string): string {
 }
 
 export function buildApp(config: AppConfig): FastifyInstance {
+  initFgaClient(config);
+
   const app = Fastify({
     logger: { level: config.LOG_LEVEL },
     forceCloseConnections: "idle"
@@ -208,7 +213,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   async function toState(
     requestBody: ReturnType<typeof ChatCompletionRequestSchema.parse>,
-    auth: ReturnType<typeof resolveAuthContext>,
+    auth: Awaited<ReturnType<typeof resolveAuthContext>>,
     authzTraceId: string,
     policyDecision: PolicyDecision
   ): Promise<GraphState> {
@@ -263,6 +268,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       tenant_ids: auth.tenantIds,
       token_scopes: auth.tokenScopes,
       auth_method: auth.authMethod,
+      conversation_id: requestBody.conversation_id ?? undefined,
       authz_trace_id: authzTraceId,
       authz_engine: authzPolicyEngine.engineName,
       authz_rules: policyDecision.matchedRules,
@@ -313,10 +319,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
       engine: authzPolicyEngine.engineName,
       policyStats: authzPolicyEngine.getStats(),
       openfga: {
-        apiUrlConfigured: Boolean(config.SYNESIS_PLANNER_TS_OPENFGA_API_URL),
-        storeConfigured: Boolean(config.SYNESIS_PLANNER_TS_OPENFGA_STORE_ID),
-        modelConfigured: Boolean(config.SYNESIS_PLANNER_TS_OPENFGA_MODEL_ID),
-        authTokenConfigured: Boolean(config.SYNESIS_PLANNER_TS_OPENFGA_AUTH_TOKEN)
+        apiUrlConfigured: Boolean(config.SYNESIS_OPENFGA_API_URL),
+        storeConfigured: Boolean(config.SYNESIS_OPENFGA_STORE_ID),
+        modelConfigured: Boolean(config.SYNESIS_OPENFGA_MODEL_ID),
+        authTokenConfigured: Boolean(config.SYNESIS_OPENFGA_AUTH_TOKEN)
       },
       requireBearerAuth: config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH,
       trustForwardedIdentityHeaders: config.SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS,
@@ -388,8 +394,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     reply.header("x-synesis-authz-trace-id", authzTraceId);
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
     try {
-      const auth = resolveAuthContext(request, config);
-      const policyDecision = authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
+      const auth = await resolveAuthContext(request, config);
+      const policyDecision = await authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
         traceId: authzTraceId
       });
       reply.header("x-synesis-authz-rules", policyDecision.matchedRules.join(","));
@@ -611,7 +617,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     state: GraphState,
     usage: LlmUsage,
     latencyMs: number,
-    auth: ReturnType<typeof resolveAuthContext>,
+    auth: Awaited<ReturnType<typeof resolveAuthContext>>,
     streamingCtx?: { mode: "streaming" | "non-streaming"; timeToFirstTokenMs?: number },
   ): void {
     const model = state.response_model ?? state.requested_model ?? "unknown";
@@ -681,8 +687,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
     try {
       assertCapabilityLock();
-      const auth = resolveAuthContext(request, config);
-      const policyDecision = authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
+      const auth = await resolveAuthContext(request, config);
+      const policyDecision = await authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
         traceId: authzTraceId
       });
       reply.header("x-synesis-authz-rules", policyDecision.matchedRules.join(","));

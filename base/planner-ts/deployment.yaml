@@ -102,17 +102,25 @@ spec:
                   optional: true
             - name: SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER
               value: "0.1"
-            # ── Shared authz env vars ──
-            - name: SYNESIS_AUTHZ_ENGINE
-              value: "deterministic"
+            # ── OpenFGA authorization (required) ──
             - name: SYNESIS_OPENFGA_API_URL
-              value: ""
+              value: "http://openfga.synesis-authz.svc.cluster.local:8080"
             - name: SYNESIS_OPENFGA_STORE_ID
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: store-id
             - name: SYNESIS_OPENFGA_MODEL_ID
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: model-id
+                  optional: true
             - name: SYNESIS_OPENFGA_AUTH_TOKEN
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: auth-token
           resources:
             requests:
               cpu: 500m
