@@ -518,6 +518,16 @@ function resolveClaudeConversationId(
       const val = metadata[key];
       if (typeof val === "string" && val.trim()) return val.trim();
     }
+    // Claude Code nests session_id inside metadata.user_id as a JSON string:
+    // {"device_id":"...","account_uuid":"","session_id":"<uuid>"}
+    const rawUserId = metadata.user_id;
+    if (typeof rawUserId === "string" && rawUserId.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(rawUserId) as Record<string, unknown>;
+        const nested = parsed.session_id;
+        if (typeof nested === "string" && nested.trim()) return nested.trim();
+      } catch { /* not JSON, ignore */ }
+    }
   }
   for (const hdr of ["x-synesis-conversation-id", "x-claude-session-id"]) {
     const val = headers[hdr];
@@ -1481,6 +1491,7 @@ app.post("/v1/messages", async (req, reply) => {
     let inTextBlock = false;
     let stopReason = "end_turn";
     const pendingClaudeToolIds = new Set<string>();
+    const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
 
     try {
       for await (const part of streamed.fullStream) {
@@ -1519,27 +1530,52 @@ app.post("/v1/messages", async (req, reply) => {
             blockIdx++;
             inTextBlock = false;
           }
-          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" } });
+          // Buffer tool input for normalization instead of streaming immediately.
+          // We emit the start + deltas + stop together in tool-call handler after remapping.
+          claudeToolBuffer.set(tc.toolCallId ?? "", { toolName: tc.toolName ?? "", toolCallId: tc.toolCallId ?? "", chunks: [] });
           stopReason = "tool_use";
         } else if (part.type === "tool-input-delta") {
           const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
-          const tdToolCall = pendingClaudeToolIds.has(td.toolCallId ?? "");
-          if (!tdToolCall) {
+          const tdId = td.toolCallId ?? "";
+          if (pendingClaudeToolIds.has(tdId)) continue;
+          const buf = claudeToolBuffer.get(tdId);
+          if (buf) {
+            buf.chunks.push(td.inputTextDelta ?? "");
+          } else {
             safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
           }
         } else if (part.type === "tool-call") {
-          const tc = part as unknown as { toolName?: string };
-          if (tc.toolName === ARTIFACT_TOOL_NAME) continue;
+          const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
+          if (tcFull.toolName === ARTIFACT_TOOL_NAME) continue;
+          const buf = claudeToolBuffer.get(tcFull.toolCallId ?? "");
+          let finalInput = (tcFull.input ?? {}) as Record<string, unknown>;
+          let wasRemapped = false;
+
+          if (claudeAdapter.remapToolArgs) {
+            const remap = claudeAdapter.remapToolArgs(tcFull.toolName ?? "", finalInput);
+            finalInput = remap.input;
+            wasRemapped = remap.remapped;
+          }
+
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-            const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
             app.log.debug({
               reqId: traceReqId, toolName: tcFull.toolName, toolCallId: tcFull.toolCallId,
-              argsLen: JSON.stringify(tcFull.input ?? {}).length,
+              argsLen: JSON.stringify(finalInput).length,
+              argsPreview: JSON.stringify(finalInput).slice(0, 300),
+              remapped: wasRemapped,
               adapterFamily: claudeAdapter.family,
             }, "claude_tool_call_streamed");
           }
+
+          // Emit buffered tool call: start + single delta with normalized JSON + stop
+          const toolCallId = tcFull.toolCallId ?? "";
+          const toolName = buf?.toolName ?? tcFull.toolName ?? "";
+          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: toolName } });
+          const normalizedJson = JSON.stringify(finalInput);
+          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: normalizedJson } });
           safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
+          claudeToolBuffer.delete(toolCallId);
           stopReason = "tool_use";
         }
       }
