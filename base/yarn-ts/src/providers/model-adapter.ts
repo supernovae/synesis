@@ -41,7 +41,18 @@ const CLAUDE_CODE_PARAM_ALIASES: Record<string, Record<string, string>> = {
   Write: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", text: "content", code: "content", file_content: "content", body: "content" },
   Read: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path" },
   Edit: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", find: "old_string", search: "old_string", replace: "new_string", replacement: "new_string" },
-  Bash: { cmd: "command", script: "command", shell_command: "command", bash_command: "command", run: "command" },
+  Bash: {
+    cmd: "command",
+    script: "command",
+    shell_command: "command",
+    bash_command: "command",
+    run: "command",
+    input: "command",
+    text: "command",
+    shell: "command",
+    line: "command",
+    code: "command",
+  },
   Glob: { pattern: "glob_pattern", glob: "glob_pattern", path: "target_directory", directory: "target_directory" },
   Grep: { query: "pattern", search: "pattern", regex: "pattern", path: "target_directory", directory: "target_directory" },
   WebFetch: { url: "url" },
@@ -163,6 +174,54 @@ export class DeepSeekAdapter implements ModelAdapter {
  *
  * Returns null if no repair needed, or a replacement tool call if repaired.
  */
+/**
+ * Qwen3 / JSON tool backends sometimes emit Bash with the shell command in a
+ * wrong property, or a single stray key copied from user text (e.g. `{"World!":""}`)
+ * with no `command` field — the client then treats the stray key as the command
+ * (`command not found: World!:`).
+ */
+export function repairBashToolCall(
+  toolName: string,
+  input: Record<string, unknown>,
+): { input: Record<string, unknown>; repaired: boolean } | null {
+  if (toolName !== "Bash") return null;
+
+  const ALLOWED = new Set(["command", "description", "is_background", "timeout"]);
+  const cmd = input.command;
+  if (typeof cmd === "string" && cmd.trim()) return null;
+
+  const extras = Object.entries(input).filter(([k]) => k && !ALLOWED.has(k));
+  const nonEmptyStringPairs = extras.filter(([, v]) => typeof v === "string" && (v as string).trim());
+
+  // Wrong key but the value is the real shell command
+  if (nonEmptyStringPairs.length === 1) {
+    const [, v] = nonEmptyStringPairs[0];
+    const out: Record<string, unknown> = { command: v };
+    if (typeof input.description === "string") out.description = input.description;
+    if (typeof input.is_background === "boolean") out.is_background = input.is_background;
+    return { input: out, repaired: true };
+  }
+
+  // Single stray key with empty value — unrecoverable; fail clearly for the user
+  if (extras.length === 1 && nonEmptyStringPairs.length === 0) {
+    const [k, v] = extras[0];
+    if (v === "" || v === null || v === undefined) {
+      const msg =
+        "Synesis Yarn: model sent invalid Bash arguments (no command string). " +
+        "Try again, or use a backend with native Qwen3 tool parsing (vLLM --tool-call-parser=qwen3_coder or DashScope).";
+      return {
+        input: {
+          command: `echo ${shellEscape(msg)} >&2; exit 1`,
+          description: `Repaired malformed Bash args (stray key ${JSON.stringify(k)})`,
+        },
+        repaired: true,
+      };
+    }
+  }
+
+  return null;
+}
+
 export function repairWriteToolCall(
   toolName: string,
   input: Record<string, unknown>,

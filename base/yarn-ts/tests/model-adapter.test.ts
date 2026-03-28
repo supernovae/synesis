@@ -5,6 +5,7 @@ import {
   GenericOpenAIAdapter,
   DeepSeekAdapter,
   repairWriteToolCall,
+  repairBashToolCall,
   normalizeHallucinatedLinuxWritePath,
 } from "../src/providers/model-adapter.js";
 
@@ -137,6 +138,12 @@ describe("Qwen3CoderAdapter", () => {
     expect(result.input).toEqual({ command: "ls -la" });
   });
 
+  it("remaps 'input' to 'command' for Bash", () => {
+    const result = adapter.remapToolArgs!("Bash", { input: "whoami" });
+    expect(result.remapped).toBe(true);
+    expect(result.input).toEqual({ command: "whoami" });
+  });
+
   it("does not remap when correct names already present", () => {
     const result = adapter.remapToolArgs!("Write", { file_path: "hello.go", content: "code" });
     expect(result.remapped).toBe(false);
@@ -205,6 +212,27 @@ describe("DeepSeekAdapter", () => {
   it("returns provider options for reasoning", () => {
     const opts = adapter.providerOptions!();
     expect(opts).toEqual({ openai: { reasoningParser: "deepseek_r1" } });
+  });
+});
+
+describe("repairBashToolCall", () => {
+  it("returns null when command is already set", () => {
+    expect(repairBashToolCall("Bash", { command: "ls -la" })).toBeNull();
+    expect(repairBashToolCall("Read", { file_path: "x" })).toBeNull();
+  });
+
+  it("promotes a single non-empty string value to command", () => {
+    const r = repairBashToolCall("Bash", { wrong_key: "echo ok" });
+    expect(r?.repaired).toBe(true);
+    expect(r?.input).toEqual({ command: "echo ok" });
+  });
+
+  it("replaces stray empty-value key (Qwen garbage) with explanatory failing command", () => {
+    const r = repairBashToolCall("Bash", { "World!": "" });
+    expect(r?.repaired).toBe(true);
+    expect(r?.input.command).toMatch(/exit 1/);
+    expect(r?.input.command).toMatch(/Synesis Yarn/);
+    expect(String(r?.input.description)).toContain("stray key");
   });
 });
 

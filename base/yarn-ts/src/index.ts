@@ -372,7 +372,11 @@ async function refreshTierRegistry(): Promise<void> {
 }
 
 import type { ModelAdapter } from "./providers/model-adapter.js";
-import { normalizeHallucinatedLinuxWritePath, repairWriteToolCall } from "./providers/model-adapter.js";
+import {
+  normalizeHallucinatedLinuxWritePath,
+  repairBashToolCall,
+  repairWriteToolCall,
+} from "./providers/model-adapter.js";
 
 type ResolveResult =
   | { ok: true; resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
@@ -1598,12 +1602,21 @@ app.post("/v1/messages", async (req, reply) => {
             }, "write_tool_repaired_to_bash_heredoc");
           }
 
+          const bashRepair = repairBashToolCall(emitToolName, finalInput);
+          if (bashRepair) {
+            finalInput = bashRepair.input;
+            app.log.warn(
+              { reqId: traceReqId, toolName: emitToolName, bashRepaired: bashRepair.repaired },
+              "bash_tool_args_repaired",
+            );
+          }
+
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
             app.log.debug({
               reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId,
               argsLen: JSON.stringify(finalInput).length,
               argsPreview: JSON.stringify(finalInput).slice(0, 300),
-              remapped: wasRemapped, repaired: !!repair,
+              remapped: wasRemapped, repaired: !!repair || !!bashRepair,
               adapterFamily: claudeAdapter.family,
             }, "claude_tool_call_streamed");
           }
