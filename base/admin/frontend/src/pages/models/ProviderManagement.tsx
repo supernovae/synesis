@@ -114,8 +114,14 @@ export default function ProviderManagement() {
 
   const editingProvider = providers.find((v) => v.key === editingKey);
 
+  const showDefaultEndpointInEdit = useMemo(() => {
+    if (!editingProvider || !editForm) return false;
+    if (editingProvider.is_custom) return editForm.needs_endpoint ?? true;
+    return Boolean(editingProvider.needs_endpoint);
+  }, [editingProvider, editForm]);
+
   const handleSave = () => {
-    if (!editingKey || !editForm) return;
+    if (!editingKey || !editForm || !editingProvider) return;
     const payload: { providerKey: string } & Partial<ProviderConfig> & Record<string, unknown> = {
       providerKey: editingKey,
       enabled: editForm.enabled,
@@ -123,7 +129,7 @@ export default function ProviderManagement() {
       default_temperature: Number(editForm.default_temperature) || 0.1,
       notes: editForm.notes,
     };
-    if (editingProvider?.is_custom) {
+    if (editingProvider.is_custom) {
       payload.label = editForm.label;
       payload.litellm_prefix = editForm.litellm_prefix;
       payload.api_key_env = editForm.api_key_env;
@@ -131,7 +137,10 @@ export default function ProviderManagement() {
       payload.placeholder = editForm.placeholder;
       payload.is_local = editForm.is_local;
     }
-    if (editingProvider?.needs_endpoint) {
+    const endpointApplies = editingProvider.is_custom
+      ? (editForm.needs_endpoint ?? true)
+      : Boolean(editingProvider.needs_endpoint);
+    if (endpointApplies) {
       payload.default_endpoint = editForm.default_endpoint ?? "";
     }
     updateMut.mutate(payload as Parameters<typeof updateMut.mutate>[0], {
@@ -449,13 +458,15 @@ export default function ProviderManagement() {
                 </>
               )}
 
-              {editingProvider?.needs_endpoint && (
+              {showDefaultEndpointInEdit && (
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                     Default OpenAI-compatible base URL
                   </label>
                   <input
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    autoComplete="off"
                     value={editForm.default_endpoint}
                     onChange={(e) => setEditForm({ ...editForm, default_endpoint: e.target.value })}
                     placeholder="https://example.com/v1"

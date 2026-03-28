@@ -1,7 +1,7 @@
 """Add tokens_saved columns to yarn tables for tracking reduction savings.
 
 Revision ID: 038
-Revises: 037
+Revises: 037_yarn_session_scoping
 Create Date: 2026-03-28
 
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "038"
-down_revision: str | None = "037"
+down_revision: str | None = "037_yarn_session_scoping"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
