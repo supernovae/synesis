@@ -6,6 +6,8 @@ import {
   useResetProviderConfig,
   useCreateProvider,
   useDeleteProvider,
+  useSetProviderKey,
+  useDeleteProviderKey,
 } from "../../api/hooks";
 import ProviderKeysPanel from "./ProviderKeysPanel";
 import type { ProviderConfig, ProviderConfigInfo } from "../../types";
@@ -21,6 +23,8 @@ import {
   Plus,
   Trash2,
   Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 interface CreateForm {
@@ -67,8 +71,12 @@ export default function ProviderManagement() {
   const resetMut = useResetProviderConfig();
   const createMut = useCreateProvider();
   const deleteMut = useDeleteProvider();
+  const setKeyMut = useSetProviderKey();
+  const deleteKeyMut = useDeleteProviderKey();
 
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [keyInputValue, setKeyInputValue] = useState("");
+  const [showKeyPlain, setShowKeyPlain] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState<CreateForm>({ ...EMPTY_CREATE });
@@ -84,6 +92,13 @@ export default function ProviderManagement() {
       document.getElementById("provider-api-keys")?.scrollIntoView({ behavior: "smooth" });
     }
   }, [location.hash, location.pathname]);
+
+  useEffect(() => {
+    setKeyInputValue("");
+    setShowKeyPlain(false);
+    setKeyMut.reset();
+    deleteKeyMut.reset();
+  }, [editingKey]);
 
   const enabledCount = providers.filter((v) => v.enabled).length;
   const keyReadyCount = providers.filter((v) => {
@@ -369,7 +384,7 @@ export default function ProviderManagement() {
       {/* Edit modal */}
       {editingKey && editForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
+          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
             <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
               <Shield className="mr-2 inline h-5 w-5 text-blue-500" />
               Configure {editingProvider?.label ?? editingKey}
@@ -521,6 +536,115 @@ export default function ProviderManagement() {
                   className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
                 />
               </div>
+
+              {(() => {
+                const ke = (editingProvider?.api_key_env ?? "").trim();
+                if (!ke || editingProvider?.is_local) return null;
+                const configured = editingProvider?.api_key_configured === true;
+                return (
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 p-3 dark:border-indigo-800 dark:bg-indigo-950/25">
+                    <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                      <Key className="h-4 w-4 text-indigo-500" />
+                      <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                        Cluster API key
+                      </span>
+                      {configured ? (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                          Set in secret
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          Not set
+                        </span>
+                      )}
+                    </div>
+                    <p className="mb-2 text-[10px] leading-snug text-gray-600 dark:text-gray-400">
+                      Writes <code className="rounded bg-white/80 px-1 font-mono dark:bg-gray-900/60">{ke}</code> in
+                      the <code className="font-mono">provider-api-keys</code> secret (LiteLLM gateway namespace).
+                      Saving a key triggers a short LiteLLM restart.{" "}
+                      <a
+                        href="#provider-api-keys"
+                        className="text-indigo-700 underline dark:text-indigo-400"
+                        onClick={() => {
+                          setEditingKey(null);
+                          setEditForm(null);
+                        }}
+                      >
+                        All keys ↓
+                      </a>
+                    </p>
+                    <div className="relative mb-2">
+                      <input
+                        type={showKeyPlain ? "text" : "password"}
+                        value={keyInputValue}
+                        onChange={(e) => setKeyInputValue(e.target.value)}
+                        placeholder={configured ? "Paste new key to rotate…" : "Paste API key…"}
+                        autoComplete="off"
+                        className="w-full rounded border border-gray-300 bg-white py-1.5 pl-2 pr-9 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowKeyPlain(!showKeyPlain)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        aria-label={showKeyPlain ? "Hide key" : "Show key"}
+                      >
+                        {showKeyPlain ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!keyInputValue.trim()) return;
+                          setKeyMut.mutate(
+                            { name: ke, value: keyInputValue.trim() },
+                            {
+                              onSuccess: () => {
+                                setKeyInputValue("");
+                                setShowKeyPlain(false);
+                              },
+                            },
+                          );
+                        }}
+                        disabled={setKeyMut.isPending || !keyInputValue.trim()}
+                        className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {setKeyMut.isPending ? "Saving…" : configured ? "Rotate key" : "Save key"}
+                      </button>
+                      {configured && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                `Remove ${ke} from the cluster secret? Models using this provider will fail until a new key is set.`,
+                              )
+                            )
+                              return;
+                            deleteKeyMut.mutate(ke, {
+                              onSuccess: () => {
+                                setKeyInputValue("");
+                              },
+                            });
+                          }}
+                          disabled={deleteKeyMut.isPending}
+                          className="rounded border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/40 disabled:opacity-50"
+                        >
+                          Remove from secret
+                        </button>
+                      )}
+                    </div>
+                    {(setKeyMut.isError || deleteKeyMut.isError) && (
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {(setKeyMut.error as Error)?.message ??
+                          (deleteKeyMut.error as Error)?.message ??
+                          "Key update failed (platform admin required)."}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   onClick={() => {
