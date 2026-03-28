@@ -1060,16 +1060,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
   const modelToolPrompt = adapter.toolSystemPrompt?.(((normalizedRequest.tools as unknown[]) ?? []).length);
-  if (modelToolPrompt) {
-    oaiEnrichedMsgs = [{ role: "system", content: modelToolPrompt }, ...oaiEnrichedMsgs];
-  }
+  const modelMessages = modelToolPrompt
+    ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
+    : messages;
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
     let finalResult;
     try {
-      let currentMessages = messages;
+      let currentMessages = modelMessages;
       finalResult = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
@@ -1163,7 +1163,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const started = Date.now();
   const streamed = streamText({
     model: resolved.model as never,
-    messages,
+    messages: modelMessages,
     maxOutputTokens: orchestration.maxOutputTokens,
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
@@ -1459,9 +1459,9 @@ app.post("/v1/messages", async (req, reply) => {
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
 
   const claudeModelToolPrompt = claudeAdapter.toolSystemPrompt?.(((body.tools as unknown[]) ?? []).length);
-  if (claudeModelToolPrompt) {
-    enrichedClaudeMsgs = [{ role: "system", content: claudeModelToolPrompt }, ...enrichedClaudeMsgs];
-  }
+  const claudeModelMessages = claudeModelToolPrompt
+    ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)
+    : messages;
 
   const adapterClaudeProviderOptions = claudeAdapter.providerOptions?.();
   const providerOptions = body.thinking
@@ -1472,7 +1472,7 @@ app.post("/v1/messages", async (req, reply) => {
     const started = Date.now();
     const streamed = streamText({
       model: resolved.model as never,
-      messages,
+      messages: claudeModelMessages,
       maxOutputTokens: claudeOrchestration.maxOutputTokens,
       ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
@@ -1656,7 +1656,7 @@ app.post("/v1/messages", async (req, reply) => {
   try {
     result = await generateText({
       model: resolved.model as never,
-      messages,
+      messages: claudeModelMessages,
       maxOutputTokens: claudeOrchestration.maxOutputTokens,
       ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
