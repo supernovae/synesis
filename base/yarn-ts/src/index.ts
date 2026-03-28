@@ -980,15 +980,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
       });
 
       for (let round = 0; round < 3; round++) {
-        const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+        const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
         const artifactCalls = allCalls.filter((tc) => tc.toolName === ARTIFACT_TOOL_NAME);
         if (artifactCalls.length === 0) break;
         const clientCalls = allCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
 
         const toolResults: Array<{ type: "tool-result"; toolCallId: string; toolName: string; output: { type: "text"; value: string } }> = [];
         for (const ac of artifactCalls) {
-          const args = ac.args as { artifact_handle?: string; query?: string };
-          const result = artifactRetrieval.retrieve(args.artifact_handle ?? "", args.query);
+          const inp = ac.input as { artifact_handle?: string; query?: string };
+          const result = artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
           toolResults.push({
             type: "tool-result",
             toolCallId: ac.toolCallId,
@@ -999,10 +999,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
         if (clientCalls.length > 0) break;
 
-        const assistantParts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }> = [];
+        const assistantParts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
         if (finalResult.text) assistantParts.push({ type: "text", text: finalResult.text });
         for (const ac of artifactCalls) {
-          assistantParts.push({ type: "tool-call", toolCallId: ac.toolCallId, toolName: ac.toolName, args: ac.args });
+          assistantParts.push({ type: "tool-call", toolCallId: ac.toolCallId, toolName: ac.toolName, input: ac.input });
         }
         if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
 
@@ -1026,7 +1026,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       return reply.code(502).send({ error: { type: "upstream_error", message: sanitizeUpstreamError(err) } });
     }
 
-    const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+    const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
     const externalToolCalls = toolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
     session.history.push({ role: "assistant", content: finalResult.text });
@@ -1085,7 +1085,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           choices: [{ index: 0, delta: { content: (part as unknown as { text: string }).text ?? "" }, finish_reason: null }]
         })}\n\n`);
       } else if (part.type === "tool-call" || part.type === "tool-input-start") {
-        const tc = part as unknown as { toolCallId?: string; toolName?: string; args?: unknown };
+        const tc = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
         if (part.type === "tool-input-start") {
           pendingToolCalls.push({ index: pendingToolCalls.length, id: tc.toolCallId ?? "", name: tc.toolName ?? "", args: "" });
           safeWrite(reply.raw, `data: ${JSON.stringify({
@@ -1094,7 +1094,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           })}\n\n`);
         } else if (part.type === "tool-call") {
           finishReason = "tool_calls";
-          const argsStr = typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args ?? {});
+          const argsStr = typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {});
           const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
           if (existing) {
             safeWrite(reply.raw, `data: ${JSON.stringify({
@@ -1493,7 +1493,7 @@ app.post("/v1/messages", async (req, reply) => {
       error: { type: "upstream_error", message: sanitizeUpstreamError(err) }
     });
   }
-  const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+  const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
   const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);

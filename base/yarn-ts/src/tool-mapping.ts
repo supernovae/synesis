@@ -79,18 +79,18 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
         out.push({ role: "user", content: String(m.content ?? "") });
         break;
       case "assistant": {
-        const parts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }> = [];
+        const parts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
         const text = typeof m.content === "string" ? m.content : "";
         if (text) parts.push({ type: "text", text });
         if (m.tool_calls) {
           for (const tc of m.tool_calls) {
-            let parsedArgs: unknown = {};
-            try { parsedArgs = JSON.parse(tc.function?.arguments ?? "{}"); } catch { /* keep {} */ }
+            let parsedInput: unknown = {};
+            try { parsedInput = JSON.parse(tc.function?.arguments ?? "{}"); } catch { /* keep {} */ }
             parts.push({
               type: "tool-call",
               toolCallId: tc.id,
               toolName: tc.function?.name ?? "",
-              args: parsedArgs
+              input: parsedInput
             });
           }
         }
@@ -195,7 +195,7 @@ export function mapToolChoice(choice: unknown): "auto" | "none" | "required" | {
 interface SDKToolCall {
   toolCallId: string;
   toolName: string;
-  args: unknown;
+  input: unknown;
 }
 
 export function sdkToolCallsToOpenAI(toolCalls: SDKToolCall[]): Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> {
@@ -204,7 +204,7 @@ export function sdkToolCallsToOpenAI(toolCalls: SDKToolCall[]): Array<{ id: stri
     type: "function" as const,
     function: {
       name: tc.toolName,
-      arguments: typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args)
+      arguments: typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input)
     }
   }));
 }
@@ -214,7 +214,7 @@ export function sdkToolCallsToClaude(toolCalls: SDKToolCall[]): ClaudeContentBlo
     type: "tool_use",
     id: tc.toolCallId,
     name: tc.toolName,
-    input: tc.args
+    input: tc.input
   }));
 }
 

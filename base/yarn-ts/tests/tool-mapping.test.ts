@@ -65,7 +65,7 @@ describe("mapToolChoice", () => {
 describe("sdkToolCallsToOpenAI", () => {
   it("maps SDK tool calls to OpenAI format", () => {
     const result = sdkToolCallsToOpenAI([
-      { toolCallId: "tc_1", toolName: "read_file", args: { path: "/foo" } }
+      { toolCallId: "tc_1", toolName: "read_file", input: { path: "/foo" } }
     ]);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("tc_1");
@@ -78,7 +78,7 @@ describe("sdkToolCallsToOpenAI", () => {
 describe("sdkToolCallsToClaude", () => {
   it("maps SDK tool calls to Claude content blocks", () => {
     const result = sdkToolCallsToClaude([
-      { toolCallId: "tc_1", toolName: "bash", args: { command: "ls" } }
+      { toolCallId: "tc_1", toolName: "bash", input: { command: "ls" } }
     ]);
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("tool_use");
