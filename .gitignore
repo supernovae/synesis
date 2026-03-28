@@ -87,4 +87,5 @@ htmlcov/
 # Local review / working documents (not for commit)
 state_review.md
 
-# Docs: track all documentation (no docs/* ignore)
+# Docs: track all documentation except experimental WIP under docs/wip/
+docs/wip/

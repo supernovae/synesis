@@ -62,7 +62,8 @@ describe("API contract", () => {
   it("returns authz recent events on dedicated health endpoint", async () => {
     const app = buildApp(
       makeConfig({
-        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true"
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "debug-token"
       })
     );
     await app.inject({
@@ -80,7 +81,8 @@ describe("API contract", () => {
     });
     const response = await app.inject({
       method: "GET",
-      url: "/health/authz-events"
+      url: "/health/authz-events",
+      headers: { authorization: "Bearer debug-token" }
     });
     expect(response.statusCode).toBe(200);
     const body = response.json();
@@ -312,7 +314,8 @@ describe("API contract", () => {
 
     const eventsResponse = await app.inject({
       method: "GET",
-      url: "/health/authz-events"
+      url: "/health/authz-events",
+      headers: { authorization: "Bearer internal-service-token" }
     });
     expect(eventsResponse.statusCode).toBe(200);
     const eventsBody = eventsResponse.json();

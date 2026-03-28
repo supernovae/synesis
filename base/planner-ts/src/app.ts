@@ -48,6 +48,26 @@ type ErrorWithMeta = Error & {
   policyDecision?: { matchedRules?: string[] };
 };
 
+const SAFE_ERROR_PATTERNS = [
+  /^Missing Bearer token$/,
+  /^Token missing required scope:/,
+  /^Authorization denied$/,
+  /^Unsupported policy target:/,
+  /is not configured yet/,
+  /^Rate limit exceeded/,
+  /^Request too large/,
+  /^LLM is not enabled$/,
+];
+
+function sanitizeErrorMessage(raw: string): string {
+  for (const pat of SAFE_ERROR_PATTERNS) {
+    if (pat.test(raw)) return raw;
+  }
+  if (raw.startsWith("LLM HTTP ")) return "Upstream model service error";
+  if (raw.includes("ZodError") || raw.includes("Expected")) return "Request validation failed";
+  return "Internal server error";
+}
+
 export function buildApp(config: AppConfig): FastifyInstance {
   const app = Fastify({
     logger: { level: config.LOG_LEVEL },
@@ -306,23 +326,29 @@ export function buildApp(config: AppConfig): FastifyInstance {
     return promRegistry.metrics();
   });
 
-  app.get("/health/authz-events", async () => ({
-    status: "ok",
-    service: "planner-ts",
-    auth: {
-      engine: authzPolicyEngine.engineName,
-      recentEvents: authzPolicyEngine.getStats().recentEvents
-    }
-  }));
-
-  app.get("/debug/retrieval-config", async (request) => {
+  app.get("/health/authz-events", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (token && request.headers.authorization !== `Bearer ${token}`) {
-      return { error: "unauthorized" };
+    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    return {
+      status: "ok",
+      service: "planner-ts",
+      auth: {
+        engine: authzPolicyEngine.engineName,
+        recentEvents: authzPolicyEngine.getStats().recentEvents
+      }
+    };
+  });
+
+  app.get("/debug/retrieval-config", async (request, reply) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+      return reply.code(401).send({ error: "unauthorized" });
     }
     return {
       embedder_url: config.SYNESIS_EMBEDDER_URL ? "configured" : "not_set",
-      milvus_host: config.SYNESIS_MILVUS_HOST,
+      milvus_host: config.SYNESIS_MILVUS_HOST ? "configured" : "not_set",
       web_search_enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
       web_search_url: config.SYNESIS_WEB_SEARCH_URL ? "configured" : "not_set",
       cohesion_lock_enabled: config.SYNESIS_COHESION_LOCK_ENABLED,
@@ -332,10 +358,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
     };
   });
 
-  app.get("/debug/session-stats", async (request) => {
+  app.get("/debug/session-stats", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (token && request.headers.authorization !== `Bearer ${token}`) {
-      return { error: "unauthorized" };
+    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+      return reply.code(401).send({ error: "unauthorized" });
     }
     return {
       session_enabled: config.SYNESIS_PLANNER_TS_SESSION_ENABLED,
@@ -382,16 +408,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
       );
       return { deleted, conversation_id: conversationId.trim(), authz_trace_id: authzTraceId };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown server error";
+      const rawMessage = error instanceof Error ? error.message : "Unknown server error";
       const err = error as ErrorWithMeta;
       if (err.policyDecision?.matchedRules?.length) {
         reply.header("x-synesis-authz-rules", err.policyDecision.matchedRules.join(","));
       }
-      request.log.warn({ authzTraceId, errorMessage: message }, "memory purge rejected");
-      const statusCode = err.statusCode ?? (message === "Missing Bearer token" ? 401 : 400);
+      request.log.warn({ authzTraceId, errorMessage: rawMessage }, "memory purge rejected");
+      const statusCode = err.statusCode ?? (rawMessage === "Missing Bearer token" ? 401 : 400);
+      const clientMessage = sanitizeErrorMessage(rawMessage);
       return reply.code(statusCode).send({
         error: {
-          message,
+          message: clientMessage,
           type: statusCode === 401 ? "authentication_error" : "invalid_request_error",
           code: String(statusCode)
         }
@@ -846,7 +873,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
       return reply;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown server error";
+      const rawMessage = error instanceof Error ? error.message : "Unknown server error";
       const err = error as ErrorWithMeta;
       if (err.policyDecision?.matchedRules?.length) {
         reply.header("x-synesis-authz-rules", err.policyDecision.matchedRules.join(","));
@@ -856,12 +883,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
           authzTraceId,
           authzEngine: authzPolicyEngine.engineName,
           authzRules: err.policyDecision?.matchedRules ?? [],
-          errorMessage: message
+          errorMessage: rawMessage
         },
         "authz reject or request validation failure"
       );
       const statusCode = err.statusCode
-        ?? (message === "Missing Bearer token" ? 401 : 400);
+        ?? (rawMessage === "Missing Bearer token" ? 401 : 400);
       const errorTrace: TraceRecord = {
         service: "planner",
         trace_id: authzTraceId,
@@ -874,12 +901,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
         tokens: ZERO_USAGE,
         cost: { estimated_usd: 0, actual_usd: 0, rates_snapshot: { input_per_million: 0, output_per_million: 0, cached_input_per_million: null } },
         latency_ms: 0,
-        error: message,
+        error: rawMessage,
       };
       emitTrace(errorTrace, traceEmitterConfig, app.log);
+      const clientMessage = sanitizeErrorMessage(rawMessage);
       return reply.code(statusCode).send({
         error: {
-          message,
+          message: clientMessage,
           type: statusCode === 401 ? "authentication_error" : "invalid_request_error",
           code: String(statusCode)
         }

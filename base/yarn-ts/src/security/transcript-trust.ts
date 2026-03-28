@@ -125,7 +125,7 @@ export function applyTrustPackets(
           sanitization: applied,
           imperativeLikelihood,
         });
-        out.push({ role, content: wrapInPacket(packet) });
+        out.push({ ...msg, content: wrapInPacket(packet) });
       } else {
         out.push(msg);
       }
@@ -138,7 +138,7 @@ export function applyTrustPackets(
           sourceId: ctx.sessionKey,
           contentPurpose: "context",
         });
-        out.push({ role, content: wrapInPacket(packet) });
+        out.push({ ...msg, content: wrapInPacket(packet) });
       } else {
         out.push(msg);
       }
