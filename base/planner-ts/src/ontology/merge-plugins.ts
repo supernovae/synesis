@@ -10,8 +10,11 @@
  */
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { resolve, join, basename, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Types
