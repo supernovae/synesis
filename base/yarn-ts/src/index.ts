@@ -208,26 +208,30 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
 
 
 async function casSessionSave(state: SessionState): Promise<void> {
-  if (state.history.length > 2 && state.record.userId !== "anon") {
-    const continuity = sessionContinuity.extract(state.history);
-    state.record.continuity = continuity;
-    void sessionStore.saveContinuity(state.record.userId, continuity);
-  }
-  const ok = await sessionStore.save(state.record);
-  if (!ok) {
-    const reloaded = await sessionStore.load(state.record.sessionKey);
-    if (reloaded) {
-      reloaded.totalTokensIn = Math.max(reloaded.totalTokensIn, state.record.totalTokensIn);
-      reloaded.totalTokensOut = Math.max(reloaded.totalTokensOut, state.record.totalTokensOut);
-      reloaded.totalTokensCached = Math.max(reloaded.totalTokensCached, state.record.totalTokensCached);
-      reloaded.requestCount = Math.max(reloaded.requestCount, state.record.requestCount);
-      reloaded.lastActiveAt = Math.max(reloaded.lastActiveAt, state.record.lastActiveAt);
-      const remoteCost = Number(reloaded.metadata.total_cost_usd ?? 0);
-      const localCost = Number(state.record.metadata.total_cost_usd ?? 0);
-      reloaded.metadata.total_cost_usd = Math.max(remoteCost, localCost);
-      state.record = reloaded;
-      await sessionStore.save(state.record);
+  try {
+    if (state.history.length > 2 && state.record.userId !== "anon") {
+      const continuity = sessionContinuity.extract(state.history);
+      state.record.continuity = continuity;
+      void sessionStore.saveContinuity(state.record.userId, continuity).catch(() => {});
     }
+    const ok = await sessionStore.save(state.record);
+    if (!ok) {
+      const reloaded = await sessionStore.load(state.record.sessionKey);
+      if (reloaded) {
+        reloaded.totalTokensIn = Math.max(reloaded.totalTokensIn, state.record.totalTokensIn);
+        reloaded.totalTokensOut = Math.max(reloaded.totalTokensOut, state.record.totalTokensOut);
+        reloaded.totalTokensCached = Math.max(reloaded.totalTokensCached, state.record.totalTokensCached);
+        reloaded.requestCount = Math.max(reloaded.requestCount, state.record.requestCount);
+        reloaded.lastActiveAt = Math.max(reloaded.lastActiveAt, state.record.lastActiveAt);
+        const remoteCost = Number(reloaded.metadata.total_cost_usd ?? 0);
+        const localCost = Number(state.record.metadata.total_cost_usd ?? 0);
+        reloaded.metadata.total_cost_usd = Math.max(remoteCost, localCost);
+        state.record = reloaded;
+        await sessionStore.save(state.record);
+      }
+    }
+  } catch (err) {
+    app.log.warn({ err }, "Session persistence failed (non-fatal)");
   }
 }
 
@@ -285,10 +289,18 @@ async function refreshTierRegistry(): Promise<void> {
   }
 }
 
-function runOpenAIRequest(request: OpenAIChatCompletionRequest) {
-  const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER);
-  const messages = openAIMessagesToModelMessages(request.messages as never);
-  return { resolved, messages };
+type ResolveResult =
+  | { ok: true; resolved: { model: unknown; resolvedModelId: string }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
+  | { ok: false; error: string };
+
+function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
+  try {
+    const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER);
+    const messages = openAIMessagesToModelMessages(request.messages as never);
+    return { ok: true, resolved, messages };
+  } catch {
+    return { ok: false, error: "No model configuration available — the service may still be initializing" };
+  }
 }
 
 function persistSessionAndUsage(
@@ -470,6 +482,39 @@ function sse(reply: { raw: { write(data: string): boolean } }, event: string, da
   reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function safeWrite(raw: NodeJS.WritableStream & { destroyed?: boolean }, data: string): boolean {
+  try {
+    if (raw.destroyed) return false;
+    raw.write(data);
+    return true;
+  } catch { return false; }
+}
+
+function safeSse(reply: { raw: NodeJS.WritableStream & { destroyed?: boolean } }, event: string, data: unknown): boolean {
+  return safeWrite(reply.raw, `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function safeEnd(raw: NodeJS.WritableStream & { destroyed?: boolean }): void {
+  try { if (!raw.destroyed) raw.end(); } catch { /* already closed */ }
+}
+
+function sanitizeUpstreamError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/timed?\s*out/i.test(raw)) return "Upstream model request timed out";
+  if (/ECONNREFUSED|ENOTFOUND|ECONNRESET|socket hang up/i.test(raw)) return "Upstream model service unavailable";
+  if (/\b[45]\d{2}\b/.test(raw)) return "Upstream model service error";
+  if (/rate.?limit/i.test(raw)) return "Upstream rate limit exceeded";
+  if (/context.?length|too.?long|too.?large/i.test(raw)) return "Request too large for model context window";
+  return "Model request failed";
+}
+
+function requireInternalToken(req: { headers: Record<string, unknown> }): boolean {
+  const token = config.SYNESIS_INTERNAL_SERVICE_TOKEN;
+  if (!token) return false;
+  const bearer = getBearerToken(req.headers.authorization as string | undefined);
+  return bearer === token;
+}
+
 /**
  * Convert Claude's top-level `system` field (string or content-block array)
  * into a system-role message that can be prepended to the OpenAI message list.
@@ -558,7 +603,10 @@ function computeEfficiencyIndex(): {
 // --- Health endpoints ---
 app.get("/health", async () => ({ status: "ok" }));
 app.get("/health/readiness", async () => ({ status: "ready" }));
-app.get("/health/telemetry", async () => {
+app.get("/health/telemetry", async (req, reply) => {
+  if (!requireInternalToken(req as never)) {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
+  }
   let activeSessionCount = 0;
   let totalHistoryEntries = 0;
   let checkpointedSessions = 0;
@@ -615,10 +663,12 @@ app.get("/metrics", async (_req, reply) => {
   return promRegistry.metrics();
 });
 
-app.get("/v1/diagnostics/recent", async () => ({
-  diagnostics: [...diagnosticRing],
-  count: diagnosticRing.length
-}));
+app.get("/v1/diagnostics/recent", async (req, reply) => {
+  if (!requireInternalToken(req as never)) {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
+  }
+  return { diagnostics: [...diagnosticRing], count: diagnosticRing.length };
+});
 
 app.get("/v1", async () => ({
   status: "ok",
@@ -637,6 +687,11 @@ app.get("/v1/adapter-packs", async () => ({
 }));
 
 app.get("/v1/artifacts/:id", async (req, reply) => {
+  try {
+    await authResolver.resolve(req.headers.authorization);
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  }
   const id = (req.params as { id: string }).id;
   const artifact = artifactStore.get(id);
   if (!artifact) {
@@ -647,21 +702,32 @@ app.get("/v1/artifacts/:id", async (req, reply) => {
 
 // --- MCP proxy ---
 app.get("/v1/mcp/tools", async (req, reply) => {
+  let user;
   try {
-    const user = await authResolver.resolve(req.headers.authorization);
+    user = await authResolver.resolve(req.headers.authorization);
     authResolver.requireCoderScope(user);
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  }
+  try {
     const bearer = getBearerToken(req.headers.authorization);
     const data = await proxyMcpGet("/api/v1/mcp/tools", bearer);
     return reply.send(data);
-  } catch (error) {
-    return reply.code(401).send({ error: { type: "auth_error", message: String(error) } });
+  } catch (err) {
+    app.log.error({ err }, "MCP tools proxy failed");
+    return reply.code(502).send({ error: { type: "upstream_error", message: "MCP service unavailable" } });
   }
 });
 
 app.post("/v1/mcp/tools/call", async (req, reply) => {
+  let user;
   try {
-    const user = await authResolver.resolve(req.headers.authorization);
+    user = await authResolver.resolve(req.headers.authorization);
     authResolver.requireCoderScope(user);
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  }
+  try {
     const bearer = getBearerToken(req.headers.authorization);
     const data = await proxyMcpPost("/api/v1/mcp/tools/call", bearer, req.body);
     if (config.SYNESIS_YARN_TRUST_PACKET_ENABLED) {
@@ -674,8 +740,9 @@ app.post("/v1/mcp/tools/call", async (req, reply) => {
       }));
     }
     return reply.send(data);
-  } catch (error) {
-    return reply.code(401).send({ error: { type: "auth_error", message: String(error) } });
+  } catch (err) {
+    app.log.error({ err }, "MCP tools/call proxy failed");
+    return reply.code(502).send({ error: { type: "upstream_error", message: "MCP service unavailable" } });
   }
 });
 
@@ -688,8 +755,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let authUser: import("./auth.js").AuthUser;
   try {
     authUser = await authResolver.resolve(req.headers.authorization);
-  } catch (error) {
-    return reply.code(401).send({ error: { type: "auth_error", message: String(error) } });
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
   }
 
   const request = parsed.data;
@@ -795,55 +862,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedRequest.tools = artifactRetrieval.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
 
-  const { resolved, messages } = runOpenAIRequest(normalizedRequest);
+  const resolveResult = runOpenAIRequest(normalizedRequest);
+  if (!resolveResult.ok) {
+    return reply.code(503).send({ error: { type: "service_unavailable", message: resolveResult.error } });
+  }
+  const { resolved, messages } = resolveResult;
   const sdkTools = openAIToolsToSDK(normalizedRequest.tools);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
-    let currentMessages = messages;
-    let finalResult = await generateText({
-      model: resolved.model as never,
-      messages: currentMessages,
-      maxOutputTokens: orchestration.maxOutputTokens,
-      ...(sdkTools ? { tools: sdkTools } : {}),
-      ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
-    });
-
-    // Auto-resolve artifact retrieval tool calls (max 3 rounds to prevent loops)
-    for (let round = 0; round < 3; round++) {
-      const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
-      const artifactCalls = allCalls.filter((tc) => tc.toolName === ARTIFACT_TOOL_NAME);
-      if (artifactCalls.length === 0) break;
-      const clientCalls = allCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
-
-      const toolResults: Array<{ type: "tool-result"; toolCallId: string; toolName: string; output: { type: "text"; value: string } }> = [];
-      for (const ac of artifactCalls) {
-        const args = ac.args as { artifact_handle?: string; query?: string };
-        const result = artifactRetrieval.retrieve(args.artifact_handle ?? "", args.query);
-        toolResults.push({
-          type: "tool-result",
-          toolCallId: ac.toolCallId,
-          toolName: ARTIFACT_TOOL_NAME,
-          output: { type: "text", value: result.content }
-        });
-      }
-
-      if (clientCalls.length > 0) break;
-
-      const assistantParts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }> = [];
-      if (finalResult.text) assistantParts.push({ type: "text", text: finalResult.text });
-      for (const ac of artifactCalls) {
-        assistantParts.push({ type: "tool-call", toolCallId: ac.toolCallId, toolName: ac.toolName, args: ac.args });
-      }
-      if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
-
-      currentMessages = [
-        ...currentMessages,
-        { role: "assistant", content: assistantParts } as never,
-        { role: "tool", content: toolResults } as never
-      ];
-
+    let finalResult;
+    try {
+      let currentMessages = messages;
       finalResult = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
@@ -851,6 +882,51 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
       });
+
+      for (let round = 0; round < 3; round++) {
+        const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+        const artifactCalls = allCalls.filter((tc) => tc.toolName === ARTIFACT_TOOL_NAME);
+        if (artifactCalls.length === 0) break;
+        const clientCalls = allCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+
+        const toolResults: Array<{ type: "tool-result"; toolCallId: string; toolName: string; output: { type: "text"; value: string } }> = [];
+        for (const ac of artifactCalls) {
+          const args = ac.args as { artifact_handle?: string; query?: string };
+          const result = artifactRetrieval.retrieve(args.artifact_handle ?? "", args.query);
+          toolResults.push({
+            type: "tool-result",
+            toolCallId: ac.toolCallId,
+            toolName: ARTIFACT_TOOL_NAME,
+            output: { type: "text", value: result.content }
+          });
+        }
+
+        if (clientCalls.length > 0) break;
+
+        const assistantParts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }> = [];
+        if (finalResult.text) assistantParts.push({ type: "text", text: finalResult.text });
+        for (const ac of artifactCalls) {
+          assistantParts.push({ type: "tool-call", toolCallId: ac.toolCallId, toolName: ac.toolName, args: ac.args });
+        }
+        if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
+
+        currentMessages = [
+          ...currentMessages,
+          { role: "assistant", content: assistantParts } as never,
+          { role: "tool", content: toolResults } as never
+        ];
+
+        finalResult = await generateText({
+          model: resolved.model as never,
+          messages: currentMessages,
+          maxOutputTokens: orchestration.maxOutputTokens,
+          ...(sdkTools ? { tools: sdkTools } : {}),
+          ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
+        });
+      }
+    } catch (err) {
+      app.log.error({ err, reqId, model: resolved.resolvedModelId }, "OpenAI non-stream generateText failed");
+      return reply.code(502).send({ error: { type: "upstream_error", message: sanitizeUpstreamError(err) } });
     }
 
     const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
@@ -907,7 +983,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     for await (const part of streamed.fullStream) {
       const ts = Math.floor(Date.now() / 1000);
       if (part.type === "text-delta") {
-        reply.raw.write(`data: ${JSON.stringify({
+        safeWrite(reply.raw, `data: ${JSON.stringify({
           id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
           choices: [{ index: 0, delta: { content: (part as unknown as { text: string }).text ?? "" }, finish_reason: null }]
         })}\n\n`);
@@ -915,7 +991,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         const tc = part as unknown as { toolCallId?: string; toolName?: string; args?: unknown };
         if (part.type === "tool-input-start") {
           pendingToolCalls.push({ index: pendingToolCalls.length, id: tc.toolCallId ?? "", name: tc.toolName ?? "", args: "" });
-          reply.raw.write(`data: ${JSON.stringify({
+          safeWrite(reply.raw, `data: ${JSON.stringify({
             id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
             choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length - 1, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: "" } }] }, finish_reason: null }]
           })}\n\n`);
@@ -924,12 +1000,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
           const argsStr = typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args ?? {});
           const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
           if (existing) {
-            reply.raw.write(`data: ${JSON.stringify({
+            safeWrite(reply.raw, `data: ${JSON.stringify({
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
               choices: [{ index: 0, delta: { tool_calls: [{ index: existing.index, function: { arguments: argsStr } }] }, finish_reason: null }]
             })}\n\n`);
           } else {
-            reply.raw.write(`data: ${JSON.stringify({
+            safeWrite(reply.raw, `data: ${JSON.stringify({
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
               choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: argsStr } }] }, finish_reason: null }]
             })}\n\n`);
@@ -939,7 +1015,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
         const idx = pendingToolCalls.findIndex((p) => p.id === td.toolCallId);
         if (idx >= 0) {
-          reply.raw.write(`data: ${JSON.stringify({
+          safeWrite(reply.raw, `data: ${JSON.stringify({
             id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
             choices: [{ index: 0, delta: { tool_calls: [{ index: idx, function: { arguments: td.inputTextDelta ?? "" } }] }, finish_reason: null }]
           })}\n\n`);
@@ -949,20 +1025,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
   } catch (streamErr) {
     const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
     app.log.error({ err: streamErr, reqId, model: resolved.resolvedModelId }, `OpenAI stream error: ${detail}`);
+    finishReason = "error";
+    safeWrite(reply.raw, `data: ${JSON.stringify({
+      id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
+      choices: [{ index: 0, delta: { content: "\n\n[Upstream provider error — retrying may help]" }, finish_reason: null }]
+    })}\n\n`);
   }
 
-  reply.raw.write(`data: ${JSON.stringify({
+  safeWrite(reply.raw, `data: ${JSON.stringify({
     id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
     choices: [{ index: 0, delta: {}, finish_reason: finishReason }]
   })}\n\n`);
-  reply.raw.write("data: [DONE]\n\n");
-  reply.raw.end();
-  const totalUsage = await streamed.totalUsage;
-  const streamedText = await streamed.text;
+  safeWrite(reply.raw, "data: [DONE]\n\n");
+  safeEnd(reply.raw);
+
+  let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+  let streamedText = "";
+  try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
+  try { streamedText = await streamed.text; } catch { /* stream aborted */ }
   if (streamedText) {
     session.history.push({ role: "assistant", content: streamedText });
   }
-  const oaiStreamUsage = readUsage(totalUsage as unknown);
   const oaiStreamLatency = Date.now() - started;
   persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason);
   maybeCheckpoint(session);
@@ -984,10 +1067,10 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeAuthUser: import("./auth.js").AuthUser;
   try {
     claudeAuthUser = await authResolver.resolve(req.headers.authorization);
-  } catch (error) {
+  } catch {
     return reply.code(401).send({
       type: "error",
-      error: { type: "authentication_error", message: String(error) }
+      error: { type: "authentication_error", message: "Authentication required" }
     });
   }
   const anthropicVersion = req.headers["anthropic-version"];
@@ -1133,7 +1216,14 @@ app.post("/v1/messages", async (req, reply) => {
   // P0 FIX: Do NOT inject artifact tool into Claude path — no auto-resolve exists for streaming.
   // Artifact retrieval stays OpenAI-only until streaming interception is implemented.
 
-  const { resolved, messages } = runOpenAIRequest(openAIShape);
+  const claudeResolveResult = runOpenAIRequest(openAIShape);
+  if (!claudeResolveResult.ok) {
+    return reply.code(503).send({
+      type: "error",
+      error: { type: "service_unavailable", message: claudeResolveResult.error }
+    });
+  }
+  const { resolved, messages } = claudeResolveResult;
   const sdkTools = claudeToolsToSDK(processedTools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
@@ -1159,7 +1249,7 @@ app.post("/v1/messages", async (req, reply) => {
       Connection: "keep-alive"
     });
     const msgId = `msg_${crypto.randomUUID()}`;
-    sse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [] } });
+    safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [] } });
 
     let blockIdx = 0;
     let inTextBlock = false;
@@ -1171,26 +1261,26 @@ app.post("/v1/messages", async (req, reply) => {
         if (part.type === "text-delta") {
           const delta = (part as unknown as { text?: string }).text ?? "";
           if (!inTextBlock) {
-            sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
+            safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
             inTextBlock = true;
           }
-          sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: delta } });
+          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: delta } });
         } else if (part.type === "reasoning-start") {
           if (inTextBlock) {
-            sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
             blockIdx++;
             inTextBlock = false;
           }
           const text = (part as unknown as { text?: string }).text ?? "";
-          sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "thinking", thinking: "" } });
+          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "thinking", thinking: "" } });
           if (text) {
-            sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
+            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
           }
         } else if (part.type === "reasoning-delta") {
           const text = (part as unknown as { textDelta?: string }).textDelta ?? "";
-          sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
+          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
         } else if (part.type === "reasoning-end") {
-          sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
         } else if (part.type === "tool-input-start") {
           const tc = part as unknown as { toolCallId?: string; toolName?: string };
@@ -1199,22 +1289,22 @@ app.post("/v1/messages", async (req, reply) => {
             continue;
           }
           if (inTextBlock) {
-            sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
             blockIdx++;
             inTextBlock = false;
           }
-          sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" } });
+          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" } });
           stopReason = "tool_use";
         } else if (part.type === "tool-input-delta") {
           const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
           const tdToolCall = pendingClaudeToolIds.has(td.toolCallId ?? "");
           if (!tdToolCall) {
-            sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
+            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
           }
         } else if (part.type === "tool-call") {
           const tc = part as unknown as { toolName?: string };
           if (tc.toolName === ARTIFACT_TOOL_NAME) continue;
-          sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
           stopReason = "tool_use";
         }
@@ -1223,27 +1313,29 @@ app.post("/v1/messages", async (req, reply) => {
       const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
       app.log.error({ err: streamErr, reqId: traceReqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
       if (!inTextBlock) {
-        sse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
+        safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
         inTextBlock = true;
       }
-      sse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: `\n\n[Upstream provider error: ${detail}]` } });
+      safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: `\n\n[Upstream provider error — retrying may help]` } });
       stopReason = "end_turn";
     }
 
     if (inTextBlock) {
-      sse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
     }
 
-    const totalUsage = await streamed.totalUsage;
-    const usage = readUsage(totalUsage as unknown);
-    sse(reply, "message_delta", {
+    let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+    try { usage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
+    safeSse(reply, "message_delta", {
       type: "message_delta",
       delta: { stop_reason: stopReason },
       usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }
     });
-    sse(reply, "message_stop", { type: "message_stop" });
-    reply.raw.end();
-    const claudeStreamedText = await streamed.text;
+    safeSse(reply, "message_stop", { type: "message_stop" });
+    safeEnd(reply.raw);
+
+    let claudeStreamedText = "";
+    try { claudeStreamedText = await streamed.text; } catch { /* stream aborted */ }
     if (claudeStreamedText) {
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
@@ -1265,16 +1357,25 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Non-streaming
   const started = Date.now();
-  const result = await generateText({
-    model: resolved.model as never,
-    messages,
-    maxOutputTokens: claudeOrchestration.maxOutputTokens,
-    ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
-    ...(sdkStop ? { stopSequences: sdkStop } : {}),
-    ...(sdkTools ? { tools: sdkTools } : {}),
-    ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
-    ...(providerOptions ? { providerOptions } : {})
-  });
+  let result;
+  try {
+    result = await generateText({
+      model: resolved.model as never,
+      messages,
+      maxOutputTokens: claudeOrchestration.maxOutputTokens,
+      ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+      ...(sdkStop ? { stopSequences: sdkStop } : {}),
+      ...(sdkTools ? { tools: sdkTools } : {}),
+      ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+      ...(providerOptions ? { providerOptions } : {})
+    });
+  } catch (err) {
+    app.log.error({ err, reqId, model: resolved.resolvedModelId }, "Claude non-stream generateText failed");
+    return reply.code(502).send({
+      type: "error",
+      error: { type: "upstream_error", message: sanitizeUpstreamError(err) }
+    });
+  }
   const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
   const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;

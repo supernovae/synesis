@@ -73,8 +73,12 @@ export class SessionStore {
     if (!raw) {
       return null;
     }
-    const parsed = JSON.parse(raw) as Partial<SessionRecord>;
-    return { version: 0, ...parsed } as SessionRecord;
+    try {
+      const parsed = JSON.parse(raw) as Partial<SessionRecord>;
+      return { version: 0, ...parsed } as SessionRecord;
+    } catch {
+      return null;
+    }
   }
 
   /**
