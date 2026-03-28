@@ -246,3 +246,14 @@ Quick lookup for where to change each type of limit:
 | Temperature (gateway default) | `base/gateway/litellm-config.yaml` | `overlays/openrouter/litellm-config-openrouter.yaml` |
 | Context window | `base/planner/app/config.py` (`compiler_model_context`) | — |
 | HTTP timeouts | `base/planner/app/config.py` | — |
+
+---
+
+## Yarn (fabric)
+
+Yarn's token and tool budgets follow a similar philosophy to the planner — scale
+with context, enforce via ledger — but substitute **interaction mode + client
+preset** for task difficulty. See
+[docs/CLIENT_ADAPTER_PACKS_M7.md](CLIENT_ADAPTER_PACKS_M7.md) for the full
+architecture: session ledger, per-turn caps, tool-output budgets, JSON presets,
+and compatibility negotiation.
