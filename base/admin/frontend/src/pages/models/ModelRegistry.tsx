@@ -95,6 +95,17 @@ function editFromDeployment(d: ModelDeployment): EditState {
   };
 }
 
+/** Pre-fill endpoint from Models → Providers default when DB row is empty but catalog has a URL. */
+function mergeEditEndpointFromProvider(
+  state: EditState,
+  providers: Record<string, ProviderInfo>,
+): EditState {
+  if ((state.endpoint ?? "").trim()) return state;
+  const def = (providers[state.provider]?.default_endpoint ?? "").trim();
+  if (!def) return state;
+  return { ...state, endpoint: def };
+}
+
 export default function ModelRegistry() {
   const { data, isLoading } = useRoleAssignments();
   const assignMut = useAssignRole();
@@ -160,12 +171,15 @@ export default function ModelRegistry() {
     const fbList = editing.fallbacks.split(",").map((s) => s.trim()).filter(Boolean);
     const parsedMaxTokens = Number(editing.max_tokens);
     const parsedTemp = Number(editing.temperature);
+    const defEp = (prov?.default_endpoint ?? "").trim();
+    const ep = (editing.endpoint ?? "").trim();
+    const endpointForApi = defEp && ep === defEp ? "" : ep;
     assignMut.mutate(
       {
         role: editing.role,
         provider: editing.provider,
         model: editing.model,
-        endpoint: editing.endpoint,
+        endpoint: endpointForApi,
         api_key_env: editing.api_key_env,
         max_tokens: parsedMaxTokens > 0 ? parsedMaxTokens : 8192,
         temperature: !isNaN(parsedTemp) && parsedTemp >= 0 ? parsedTemp : 0.1,
@@ -259,7 +273,13 @@ export default function ModelRegistry() {
                       )}
                     </div>
                     <button
-                      onClick={() => setEditing(r.assigned ? editFromDeployment(r) : emptyEdit(r.role))}
+                      onClick={() =>
+                        setEditing(
+                          r.assigned
+                            ? mergeEditEndpointFromProvider(editFromDeployment(r), providers)
+                            : emptyEdit(r.role),
+                        )
+                      }
                       className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"
                       title={r.assigned ? "Change model" : "Assign model"}
                     >
@@ -637,7 +657,11 @@ function EditModal({
                     ? "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
                     : "http://model-service.namespace.svc:8080/v1"
               }
-              hint="Leave blank to use the provider default from the catalog, if any. Required for vLLM, KServe, and Custom."
+              hint={
+                (prov?.default_endpoint ?? "").trim()
+                  ? "Pre-filled from Models → Providers (same as the provider default). Clear the field to inherit that default from settings, or override here only for this role."
+                  : "Leave blank to use the static catalog default or the URL you set under Models → Providers. Required for vLLM, KServe, and Custom."
+              }
             />
           )}
 

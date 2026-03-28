@@ -11,7 +11,7 @@ import yaml
 from sqlalchemy import delete, func, select
 
 from ..db.engine import async_session
-from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory
+from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory, ProviderConfig
 from ..db.models import ModelCost as ModelCostRow
 from ..deps import MODELS_YAML_PATH
 from .provider_catalog import (
@@ -169,12 +169,33 @@ async def seed_model_deployments(*, force: bool = False) -> int:
 # ---------------------------------------------------------------------------
 
 
+async def _provider_default_endpoint_overrides() -> dict[str, str]:
+    """provider_key → DB default_endpoint (non-empty only). Merged with static catalog in resolution."""
+    async with async_session() as session:
+        result = await session.execute(select(ProviderConfig.provider_key, ProviderConfig.default_endpoint))
+        out: dict[str, str] = {}
+        for pk, de in result.all():
+            if de and str(de).strip():
+                out[str(pk)] = str(de).strip()
+        return out
+
+
+def _merged_catalog_endpoint(provider: str, overrides: dict[str, str] | None) -> str:
+    p = (provider or "").strip()
+    if overrides:
+        v = overrides.get(p) or overrides.get(p.lower(), "")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return default_endpoint_for_provider(p)
+
+
 async def get_model_deployments() -> list[dict]:
     """Return all model deployments from DB."""
+    overrides = await _provider_default_endpoint_overrides()
     async with async_session() as session:
         result = await session.execute(select(ModelDeployment).order_by(ModelDeployment.role))
         rows = result.scalars().all()
-        return [_deployment_to_dict(r) for r in rows]
+        return [_deployment_to_dict(r, overrides) for r in rows]
 
 
 async def get_active_deployments() -> list[ModelDeployment]:
@@ -269,19 +290,20 @@ async def set_deployment_active(deployment_id: int, active: bool) -> dict | None
         return _deployment_to_dict(row)
 
 
-def _deployment_to_dict(row: ModelDeployment) -> dict:
+def _deployment_to_dict(row: ModelDeployment, endpoint_overrides: dict[str, str] | None = None) -> dict:
     provider = row.provider or row.source
     lp = dict(row.litellm_params or {})
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
+    catalog_eff = _merged_catalog_endpoint(provider, endpoint_overrides)
     if prov_info.needs_endpoint:
         resolved_endpoint = (
             (row.endpoint or "").strip()
             or str(lp.get("api_base") or "").strip()
-            or default_endpoint_for_provider(provider)
+            or catalog_eff
         )
     else:
         resolved_endpoint = (
-            default_endpoint_for_provider(provider)
+            catalog_eff
             or (row.endpoint or "").strip()
             or str(lp.get("api_base") or "").strip()
         )
@@ -317,6 +339,7 @@ def _deployment_to_dict(row: ModelDeployment) -> dict:
 
 async def get_role_assignments() -> list[dict]:
     """Return one entry per canonical role with the active assignment (or unassigned)."""
+    overrides = await _provider_default_endpoint_overrides()
     async with async_session() as session:
         result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
         active = {r.role: r for r in result.scalars().all()}
@@ -325,7 +348,7 @@ async def get_role_assignments() -> list[dict]:
     for role in KNOWN_ROLES:
         row = active.get(role)
         if row:
-            d = _deployment_to_dict(row)
+            d = _deployment_to_dict(row, overrides)
             d["assigned"] = True
         else:
             d = {
@@ -378,10 +401,12 @@ async def assign_role(
     served_name = ROLE_SERVED_NAMES.get(role, f"synesis-{role}")
     norm_fallbacks = _normalize_fallbacks(fallbacks, served_name)
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
+    overrides = await _provider_default_endpoint_overrides()
+    catalog_eff = _merged_catalog_endpoint(provider, overrides)
     if prov_info.needs_endpoint:
-        resolved_endpoint = (endpoint or "").strip() or default_endpoint_for_provider(provider)
+        resolved_endpoint = (endpoint or "").strip() or catalog_eff
     else:
-        resolved_endpoint = default_endpoint_for_provider(provider) or (endpoint or "").strip()
+        resolved_endpoint = catalog_eff or (endpoint or "").strip()
     lp = build_litellm_params(
         provider,
         model,
@@ -434,13 +459,14 @@ async def assign_role(
         session.add(row)
         await session.commit()
         await session.refresh(row)
-        d = _deployment_to_dict(row)
+        d = _deployment_to_dict(row, overrides)
         d["assigned"] = True
         return d
 
 
 async def deactivate_role(role: str) -> dict | None:
     """Deactivate the active assignment for a role."""
+    overrides = await _provider_default_endpoint_overrides()
     async with async_session() as session:
         result = await session.execute(
             select(ModelDeployment).where(
@@ -465,7 +491,7 @@ async def deactivate_role(role: str) -> dict | None:
         )
         await session.commit()
         await session.refresh(row)
-        return _deployment_to_dict(row)
+        return _deployment_to_dict(row, overrides)
 
 
 async def get_role_history(role: str, *, days: int = 90) -> list[dict]:
