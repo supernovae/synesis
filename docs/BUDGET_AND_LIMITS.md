@@ -257,3 +257,65 @@ preset** for task difficulty. See
 [docs/CLIENT_ADAPTER_PACKS_M7.md](CLIENT_ADAPTER_PACKS_M7.md) for the full
 architecture: session ledger, per-turn caps, tool-output budgets, JSON presets,
 and compatibility negotiation.
+
+### Session budget & safety limits
+
+| Setting | Default | Env var | Notes |
+|---|---|---|---|
+| Session max input tokens | 2,000,000 | `SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS` | Cumulative input tokens per session key |
+| Consecutive tool calls (hard) | 15 | `SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT` | Circuit breaker — rejects request |
+| Consecutive tool calls (pivot) | 10 | `SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT` | Soft pivot — injects "stop and explain" prompt |
+| Hard reject after N repeats | 6 | `SYNESIS_YARN_POLICY_HARD_REJECT_AFTER` | Identical-action dedup |
+| Inactivity rotation threshold | 30 min | `SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS` | Auto-rotates session key when idle (see below) |
+
+### Session lifecycle & inactivity rotation
+
+Sessions are keyed as `synesis:{userId}:{clientKind}:{conversationId}`. Clients
+that provide an explicit `conversation_id` (via body field, `metadata.session_id`,
+or `x-synesis-conversation-id` / `x-claude-session-id` headers) get one session
+per conversation.
+
+**Problem:** Claude Code does not send a conversation ID. All requests from a
+single user collapse into `synesis:{uid}:claude-code:_`, accumulating tokens
+across logically unrelated conversations.
+
+**Fix (shipped):** When no explicit conversation ID is present and the existing
+session has been idle longer than `SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS`
+(default 30 min), yarn-ts generates a fresh session key with a rotation suffix
+(`...:_:r{timestamp}`). The old session remains in Redis/Postgres for audit but
+stops accumulating. Active conversations within the idle window continue normally.
+
+Session records are stored in Redis (4-hour TTL, refreshed on each request) and
+persisted to Postgres via the usage writer for the admin session viewer.
+
+### TODO: Context-aware session pivot (future)
+
+The inactivity rotation handles the time-based case (user comes back after a
+break), but misses the **context-shift** case — e.g., back-to-back projects in
+the same sitting where the cached prefix from a Terraform session is dead weight
+for a new Go project.
+
+**Proposed approach:**
+
+1. **Project manifest fingerprint** — the `ProjectManifestService` already
+   detects project type (Go mod, package.json, Cargo.toml, etc.) per request.
+   Hash the detected language, project root, and key files at session start.
+2. **Divergence check** — on each request, recompute and compare. If the
+   fingerprint diverges beyond a threshold, trigger a `session_context_pivot`
+   rotation (same mechanism as inactivity rotation, different trigger).
+3. **Signals available today:**
+   - Working frame file extensions (`.tf` → `.go`)
+   - Project manifest detected project type
+   - Tool result file paths (language/framework indicators)
+   - First user message ("new project", radically different domain)
+4. **Cache-efficiency benefit** — rotating on context shift avoids paying
+   full-price input tokens for a stale prefix that yields zero cache hits
+   upstream. The new session starts with a clean prefix that the provider can
+   cache effectively.
+
+**Cost of the check:** Near-zero — manifest and working frame services already
+run per-request. The fingerprint hash + comparison is O(1).
+
+**Blocked on:** Nothing technical; this is a prioritization/scheduling item. The
+rotation infrastructure (`getSessionKey` → `buildSessionKey` + async rotation
+logic) is in place and extensible.
