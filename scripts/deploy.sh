@@ -22,6 +22,14 @@ set -euo pipefail
 # Yarn (IDE path) and the MCP agent deploy with both api and model overlays
 # (namespaces synesis-yarn, synesis-planner/synesis-mcp). Images: ghcr.io/.../yarn, .../mcp.
 #
+# Yarn → Admin DB (sessions, usage, PAT lookup):
+#   - Secret synesis-admin-db-url in synesis-yarn (keys admin-url, trace-url), same as admin/planner.
+#   - ensure_admin_db + patch_admin_db_urls create/update it from CNPG synesis-admin-db-app.
+#   - synesis-yarn is rollout-restarted after each DB URL patch so pods load SYNESIS_YARN_ADMIN_DB_URL.
+#   - SYNESIS_YARN_PERSIST_USAGE_TO_DB=true (default in base/yarn-ts/deployment.yaml) required for
+#     yarn_sessions / yarn_usage_log rows to appear in Admin → Yarn.
+#   - Optional: SYNESIS_PAT_PEPPER on yarn-ts must match admin when using HMAC PAT hashing.
+#
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
 #   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
@@ -699,6 +707,17 @@ ensure_admin_db() {
     _upsert_litellm_db_credentials
 
     log "  Admin DB wired: $svc_host/$db_name (user=$db_user)"
+    _restart_yarn_after_admin_db_url_update
+}
+
+# Yarn reads SYNESIS_YARN_ADMIN_DB_URL at container start; rolling restart picks up new secret data.
+_restart_yarn_after_admin_db_url_update() {
+    local yn="synesis-yarn"
+    if ! oc get deployment synesis-yarn -n "$yn" &>/dev/null; then
+        return 0
+    fi
+    log "  Restarting $yn/synesis-yarn to reload synesis-admin-db-url (usage + session persistence to admin DB)"
+    oc rollout restart deployment/synesis-yarn -n "$yn" 2>/dev/null || true
 }
 
 # Store admin + planner DB URLs in a single Secret per namespace.
@@ -1065,6 +1084,7 @@ patch_admin_db_urls() {
     _upsert_admin_db_url_secret "$admin_url" "$planner_url"
     _ensure_litellm_database "$ns" "$cluster_name" || true
     _upsert_litellm_database_secret "$litellm_url"
+    _restart_yarn_after_admin_db_url_update
 }
 
 # -----------------------------------------------------------------------

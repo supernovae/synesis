@@ -12,7 +12,15 @@ const EnvSchema = z.object({
   SYNESIS_YARN_OPENAI_COMPAT_API_KEY: z.string().default(""),
   SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS: z.coerce.number().default(12),
   SYNESIS_YARN_SESSION_REDIS_URL: z.string().default("redis://localhost:6379/3"),
-  SYNESIS_YARN_ADMIN_DB_URL: z.string().default(""),
+  // deploy.sh stores SQLAlchemy async URLs in synesis-admin-db-url; node-pg rejects +asyncpg
+  SYNESIS_YARN_ADMIN_DB_URL: z
+    .string()
+    .default("")
+    .transform((v) => {
+      const t = (v ?? "").trim();
+      if (!t) return "";
+      return t.replace(/^postgresql\+asyncpg:\/\//i, "postgresql://");
+    }),
   SYNESIS_PAT_PEPPER: z.string().default(""),
   SYNESIS_OPENFGA_API_URL: z.string().default(""),
   SYNESIS_OPENFGA_STORE_ID: z.string().default(""),
