@@ -9,11 +9,11 @@ from datetime import date as date_type
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
-from ..db.models import ModelPolicy, Trace
+from ..db.models import CostRateSnapshot, ModelPolicy, Trace, UsageRollup
 from ..deps import PLANNER_URL
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
@@ -542,6 +542,7 @@ async def _build_active_cost_rows() -> list[dict]:
                 {
                     "role": role,
                     "model": model,
+                    "served_name": served_name or f"synesis-{role}",
                     "profile": "",
                     "source": manual.get("source", provider),
                     "provider": provider,
@@ -564,10 +565,12 @@ async def _build_active_cost_rows() -> list[dict]:
                     {
                         "role": role,
                         "model": model,
+                        "served_name": served_name or f"synesis-{role}",
                         "profile": "",
                         "source": provider,
                         "provider": provider,
                         "input_per_million": infra["input_per_million"],
+                        "input_cached_per_million": None,
                         "output_per_million": infra["output_per_million"],
                         "monthly_fixed_cost": infra.get("hourly_rate", 0) * 730,
                         "cost_formula": f"{infra.get('cloud', '')} {infra.get('instance_type', '')} @ ${infra.get('hourly_rate', 0):.2f}/hr",
@@ -585,10 +588,12 @@ async def _build_active_cost_rows() -> list[dict]:
                 {
                     "role": role,
                     "model": model,
+                    "served_name": served_name or f"synesis-{role}",
                     "profile": "",
                     "source": provider,
                     "provider": provider,
                     "input_per_million": rates[0],
+                    "input_cached_per_million": rates[2],
                     "output_per_million": rates[1],
                     "monthly_fixed_cost": 0.0,
                     "cost_formula": "",
@@ -603,10 +608,12 @@ async def _build_active_cost_rows() -> list[dict]:
             {
                 "role": role,
                 "model": model,
+                "served_name": served_name or f"synesis-{role}",
                 "profile": "",
                 "source": provider,
                 "provider": provider,
                 "input_per_million": 0.0,
+                "input_cached_per_million": None,
                 "output_per_million": 0.0,
                 "monthly_fixed_cost": 0.0,
                 "cost_formula": "",
@@ -616,6 +623,23 @@ async def _build_active_cost_rows() -> list[dict]:
         )
 
     return result
+
+
+def _pricing_by_role_from_active_rows(
+    active_rows: list[dict],
+) -> dict[str, tuple[float, float, float | None]]:
+    return {
+        str(r.get("role", "")): (
+            float(r.get("input_per_million", 0.0) or 0.0),
+            float(r.get("output_per_million", 0.0) or 0.0),
+            (
+                float(r.get("input_cached_per_million"))
+                if r.get("input_cached_per_million") is not None
+                else None
+            ),
+        )
+        for r in active_rows
+    }
 
 
 @router.get("/costs/active")
@@ -654,6 +678,30 @@ async def update_model_cost(
     return result
 
 
+@router.post("/costs/hard-purge-legacy")
+async def hard_purge_legacy_cost_aggregates(
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Hard-purge derived legacy cost aggregates so dashboards rebuild from canonical traces."""
+    async with async_session() as session:
+        rollup_deleted = await session.execute(delete(UsageRollup))
+        snapshots_deleted = await session.execute(delete(CostRateSnapshot))
+        await session.commit()
+
+    detail = {
+        "usage_rollups_deleted": int(rollup_deleted.rowcount or 0),
+        "cost_rate_snapshots_deleted": int(snapshots_deleted.rowcount or 0),
+    }
+    await record_admin_audit(
+        user=_user,
+        action="models.costs_hard_purge_legacy",
+        status="success",
+        summary="Purged legacy derived cost aggregates",
+        detail=detail,
+    )
+    return {"status": "ok", **detail}
+
+
 @router.get("/costs/by-model")
 async def costs_by_model(
     _user: UserInfo = Depends(require_org_admin),
@@ -674,15 +722,7 @@ async def costs_by_model(
             result = await session.execute(q)
             rows = result.all()
 
-        cost_rates = await get_cost_estimates()
-        pricing_by_role: dict[str, tuple[float, float, float | None]] = {
-            c.get("role", ""): (
-                c["input_per_million"],
-                c["output_per_million"],
-                c.get("input_cached_per_million"),
-            )
-            for c in cost_rates
-        }
+        pricing_by_role = _pricing_by_role_from_active_rows(await _build_active_cost_rows())
 
         model_agg: dict[str, dict] = {}
         for row in rows:
@@ -706,7 +746,11 @@ async def costs_by_model(
                     agg["completion_tokens"] += call.get("completion_tokens", 0)
                     agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     agg["requests"] += 1
-                    role = _infer_role(node, call.get("model", ""))
+                    role = _resolve_llm_call_role(
+                        call_role=call.get("role", ""),
+                        node_name=node,
+                        model_name=call.get("model", ""),
+                    )
                     inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
                     est = parse_recorded_estimated_cost(call)
                     agg["estimated_cost_usd"] += (
@@ -756,14 +800,7 @@ async def costs_by_role(
             result = await session.execute(q)
             rows = result.all()
 
-        cost_rates = await get_cost_estimates()
-        pricing: dict[str, tuple[float, float, float | None]] = {}
-        for c in cost_rates:
-            pricing[c.get("role", "")] = (
-                c["input_per_million"],
-                c["output_per_million"],
-                c.get("input_cached_per_million"),
-            )
+        pricing = _pricing_by_role_from_active_rows(await _build_active_cost_rows())
 
         role_agg: dict[str, dict] = {}
         for row in rows:
@@ -771,7 +808,11 @@ async def costs_by_role(
             for span in full.get("spans", []):
                 node = span.get("node_name", "unknown")
                 for call in span.get("llm_calls", []):
-                    role = _infer_role(node, call.get("model", ""))
+                    role = _resolve_llm_call_role(
+                        call_role=call.get("role", ""),
+                        node_name=node,
+                        model_name=call.get("model", ""),
+                    )
                     if role not in role_agg:
                         role_agg[role] = {
                             "role": role,
@@ -832,6 +873,13 @@ def _infer_role(node_name: str, model_name: str) -> str:
     if "general" in model_lower:
         return "general"
     return node_name or "unknown"
+
+
+def _resolve_llm_call_role(call_role: str, node_name: str, model_name: str) -> str:
+    explicit = str(call_role or "").strip().lower()
+    if explicit:
+        return explicit
+    return _infer_role(node_name, model_name)
 
 
 @router.get("/costs/daily")
@@ -1091,7 +1139,11 @@ async def performance_by_role(
             for span in full.get("spans", []):
                 node = span.get("node_name", "unknown")
                 for call in span.get("llm_calls", []):
-                    role = _infer_role(node, call.get("model", ""))
+                    role = _resolve_llm_call_role(
+                        call_role=call.get("role", ""),
+                        node_name=node,
+                        model_name=call.get("model", ""),
+                    )
                     if role not in role_stats:
                         role_stats[role] = {
                             "role": role,

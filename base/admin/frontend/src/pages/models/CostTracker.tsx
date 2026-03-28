@@ -18,6 +18,7 @@ import {
   useCostsByRole,
   useCostsDaily,
   useCostRateHistory,
+  useHardPurgeLegacyCosts,
 } from "../../api/hooks";
 import type { CostByRoleEntry, DailyCostEntry } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
@@ -172,6 +173,7 @@ export default function CostTracker() {
   const { data: roleData } = useCostsByRole(days);
   const { data: dailyData } = useCostsDaily(days);
   const { data: rateHistoryData } = useCostRateHistory(90);
+  const hardPurgeMutation = useHardPurgeLegacyCosts();
   const [editing, setEditing] = useState<ModelCost | null>(null);
 
   const activeRoles: ActiveCostEntry[] = activeData?.roles ?? [];
@@ -235,6 +237,21 @@ export default function CostTracker() {
           <option value={14}>Last 14d</option>
           <option value={30}>Last 30d</option>
         </select>
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            const ok = window.confirm(
+              "Hard purge legacy derived cost aggregates? This deletes historical rollups/snapshots and rebuilds forward from traces.",
+            );
+            if (ok) hardPurgeMutation.mutate();
+          }}
+          disabled={hardPurgeMutation.isPending}
+          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          {hardPurgeMutation.isPending ? "Purging..." : "Hard Purge Legacy Aggregates"}
+        </button>
       </div>
 
       <UsageGlossaryBanner />

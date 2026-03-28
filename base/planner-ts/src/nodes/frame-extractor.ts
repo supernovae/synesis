@@ -14,6 +14,7 @@
 
 import type { GraphState } from "../state/types.js";
 import { chatCompletion, isLlmAvailable } from "../llm/client.js";
+import type { PricingRates } from "@synesis/telemetry";
 import { extractGliner, type GlinerExtractionResult } from "./gliner-client.js";
 import { buildDomainProfile } from "./domain-profile.js";
 
@@ -77,7 +78,7 @@ Output JSON: {"units": [{"text": "...", "type": "goal|task|constraint|context|de
 
 const VALID_UNIT_TYPES = new Set(["goal", "task", "constraint", "context", "dependency", "evaluation"]);
 
-async function llmSegment(text: string): Promise<FrameUnit[]> {
+async function llmSegment(text: string, pricingRates?: PricingRates): Promise<FrameUnit[]> {
   if (!isLlmAvailable()) return [];
 
   try {
@@ -85,6 +86,7 @@ async function llmSegment(text: string): Promise<FrameUnit[]> {
       model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0,
       max_tokens: 1200,
+      pricingRates,
       messages: [
         { role: "system", content: SEGMENT_SYSTEM },
         { role: "user", content: text.slice(0, 3000) },
@@ -368,7 +370,7 @@ export async function frameExtractorNode(state: GraphState): Promise<GraphState>
   }
 
   const [units, gliner] = await Promise.all([
-    llmSegment(taskDescription),
+    llmSegment(taskDescription, state.pricing_rates_by_role?.router),
     extractGliner(taskDescription, glinerUrl),
   ]);
 

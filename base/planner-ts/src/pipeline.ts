@@ -57,9 +57,17 @@ function usageToLlmCall(
   latencyMs: number,
 ): TraceLLMCallRecord | undefined {
   if (!usage || usage.total_tokens === 0) return undefined;
+  const node = (nodeName || "").toLowerCase();
+  const role =
+    node.includes("critic")
+      ? "critic"
+      : (node.includes("router") || node.includes("planner") || node.includes("entry") || node.includes("frame"))
+        ? "router"
+        : "general";
   return {
     model,
     node: nodeName,
+    role,
     prompt_tokens: usage.prompt_tokens,
     completion_tokens: usage.completion_tokens,
     total_tokens: usage.total_tokens,

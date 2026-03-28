@@ -195,6 +195,7 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
       model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0.2,
       max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
+      pricingRates: state.pricing_rates_by_role?.general,
       messages: buildWriterMessages(state),
     });
     return {
@@ -229,6 +230,7 @@ export async function composeWriterDraftStream(
         model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
         temperature: 0.2,
         max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
+        pricingRates: state.pricing_rates_by_role?.general,
         messages: buildWriterMessages(state),
       },
       onDelta,

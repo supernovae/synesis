@@ -17,6 +17,7 @@ export interface ChatRequest {
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
+  pricingRates?: PricingRates;
 }
 
 export interface ChatResult {
@@ -60,9 +61,10 @@ export function setPricingContext(rates: PricingRates, cachedMultiplier: number)
   _cachedMultiplier = cachedMultiplier;
 }
 
-function extractUsage(raw?: ProviderUsage): LlmUsage {
+function extractUsage(raw?: ProviderUsage, pricingRates?: PricingRates): LlmUsage {
   const base = sharedExtractUsage(raw as Record<string, unknown>);
-  const cost = computeCost(base, _pricingRates, _cachedMultiplier);
+  const rates = pricingRates ?? _pricingRates;
+  const cost = computeCost(base, rates, _cachedMultiplier);
   return {
     ...base,
     estimated_cost_usd: cost.estimated_cost_usd,
@@ -127,7 +129,8 @@ function estimateUsage(request: ChatRequest, content: string): LlmUsage {
     estimated_cost_usd: 0,
     actual_cost_usd: 0,
   };
-  const cost = computeCost(base, _pricingRates, _cachedMultiplier);
+  const rates = request.pricingRates ?? _pricingRates;
+  const cost = computeCost(base, rates, _cachedMultiplier);
   return { ...base, estimated_cost_usd: cost.estimated_cost_usd };
 }
 
@@ -154,7 +157,7 @@ export async function chatCompletion(request: ChatRequest): Promise<ChatResult> 
     const data = (await resp.json()) as ChatResponse;
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error("LLM returned empty content");
-    const usage = extractUsage(data.usage);
+    const usage = extractUsage(data.usage, request.pricingRates);
     return {
       content,
       usage: usage.total_tokens > 0 ? usage : estimateUsage(request, content),
@@ -248,7 +251,7 @@ export async function chatCompletionStream(
         }
 
         if (parsed.usage) {
-          finalUsage = extractUsage(parsed.usage as ProviderUsage);
+          finalUsage = extractUsage(parsed.usage as ProviderUsage, request.pricingRates);
         }
       }
     }

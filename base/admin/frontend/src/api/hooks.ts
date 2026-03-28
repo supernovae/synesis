@@ -151,6 +151,22 @@ export function useUpdateModelCost() {
   });
 }
 
+export function useHardPurgeLegacyCosts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.post("/models/costs/hard-purge-legacy").then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "costs"] });
+      qc.invalidateQueries({ queryKey: ["models", "active-costs"] });
+      qc.invalidateQueries({ queryKey: ["models", "costs", "by-role"] });
+      qc.invalidateQueries({ queryKey: ["models", "costs", "daily"] });
+      qc.invalidateQueries({ queryKey: ["usage"] });
+      qc.invalidateQueries({ queryKey: ["usage-reconcile"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
 interface ModelPerformanceEntry {
   [key: string]: unknown;
   model: string;

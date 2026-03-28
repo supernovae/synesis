@@ -228,6 +228,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       model: process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
       temperature: 0,
       max_tokens: plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
+      pricingRates: state.pricing_rates_by_role?.router,
       messages: [
         {
           role: "system",

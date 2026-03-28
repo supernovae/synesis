@@ -416,12 +416,23 @@ function persistSessionAndUsage(
   tokensSavedByReduction = 0
 ): void {
   const tier = tierRegistry.getTierConfig(resolvedModelId);
-  const computedCostUsd =
-    usage.costUsd > 0
-      ? usage.costUsd
-      : ((usage.inputTokens - usage.cachedTokens) / 1_000_000) * Number(tier?.inputPerM ?? 0) +
-        (usage.cachedTokens / 1_000_000) * Number(tier?.cachedPerM ?? 0) +
-        (usage.outputTokens / 1_000_000) * Number(tier?.outputPerM ?? 0);
+  const computedCostUsd = usage.costUsd > 0
+    ? usage.costUsd
+    : computeCost(
+      {
+        prompt_tokens: usage.inputTokens,
+        completion_tokens: usage.outputTokens,
+        total_tokens: usage.inputTokens + usage.outputTokens,
+        cached_prompt_tokens: usage.cachedTokens,
+        estimated_cost_usd: 0,
+        actual_cost_usd: 0,
+      },
+      {
+        input_per_million: Number(tier?.inputPerM ?? 0),
+        output_per_million: Number(tier?.outputPerM ?? 0),
+        cached_input_per_million: tier?.cachedPerM ?? null,
+      },
+    ).estimated_cost_usd;
   const normalizedCostUsd = Number.isFinite(computedCostUsd) ? Math.max(0, computedCostUsd) : 0;
   if (normalizedCostUsd === 0 && (usage.inputTokens + usage.outputTokens) > 0) {
     app.log.debug({

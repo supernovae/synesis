@@ -38,7 +38,7 @@ export interface TierConfig {
   apiKey: string;
   inputPerM: number;
   outputPerM: number;
-  cachedPerM: number;
+  cachedPerM: number | null;
 }
 
 const ROLE_TO_TIER: Record<string, TierId> = {
@@ -101,7 +101,10 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
       apiKey,
       inputPerM: Number(cost?.input_per_million ?? 0),
       outputPerM: Number(cost?.output_per_million ?? 0),
-      cachedPerM: Number(cost?.input_cached_per_million ?? 0)
+      cachedPerM:
+        cost?.input_cached_per_million == null
+          ? null
+          : Number(cost.input_cached_per_million)
     });
   }
   return out;

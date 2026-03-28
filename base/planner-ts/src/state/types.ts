@@ -75,6 +75,11 @@ export interface GraphState {
   override_log?: Array<Record<string, unknown>>;
   _validation_warnings?: string[];
   llm_usage?: import("@synesis/telemetry").LlmUsage;
+  pricing_rates_by_role?: {
+    router: import("@synesis/telemetry").PricingRates;
+    general: import("@synesis/telemetry").PricingRates;
+    critic: import("@synesis/telemetry").PricingRates;
+  };
   error?: string;
   run_id?: string;
 

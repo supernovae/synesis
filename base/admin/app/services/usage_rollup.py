@@ -37,6 +37,13 @@ def _infer_role(node_name: str, model_name: str) -> str:
     return node_name or "unknown"
 
 
+def _resolve_role(call_role: str, node_name: str, model_name: str) -> str:
+    explicit = str(call_role or "").strip().lower()
+    if explicit:
+        return explicit
+    return _infer_role(node_name, model_name)
+
+
 def _truncate_bucket(ts: float) -> datetime:
     """Truncate a unix timestamp to the nearest 5-minute bucket."""
     dt = datetime.fromtimestamp(ts, tz=UTC)
@@ -85,7 +92,11 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
                         if tt > dominant_tokens:
                             dominant_tokens = tt
                             dominant_model = str(call.get("model", "") or "")
-                            dominant_role = _infer_role(node_name, dominant_model)
+                            dominant_role = _resolve_role(
+                                call.get("role", ""),
+                                node_name,
+                                dominant_model,
+                            )
 
                 model = dominant_model or rec.get("model", "") or "unknown"
                 role = dominant_role or rec.get("role", "") or "unknown"

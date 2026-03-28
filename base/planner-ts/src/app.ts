@@ -90,7 +90,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
   });
 
   void pricingRegistry.start().then(() => {
-    const defaultRates = pricingRegistry.getRates("synesis-general");
+    const defaultRates = pricingRegistry.getRates("router");
     setPricingContext(defaultRates, pricingRegistry.getCachedMultiplier());
   }).catch((err) => {
     app.log.warn({ err }, "pricing registry startup failed (non-fatal)");
@@ -142,6 +142,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           "background critic completed",
         );
         const model = state.response_model ?? state.requested_model ?? "unknown";
+        const criticRates = state.pricing_rates_by_role?.critic ?? pricingRegistry.getRates("critic");
         const bgCriticData: Record<string, unknown> = {
           approved: result.approved,
           need_more_evidence: result.need_more_evidence,
@@ -167,6 +168,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
             ? [{
                 model,
                 node: "background_critic",
+                role: "critic",
                 prompt_tokens: result.usage.prompt_tokens,
                 completion_tokens: result.usage.completion_tokens,
                 total_tokens: result.usage.total_tokens,
@@ -192,7 +194,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           cost: {
             estimated_usd: result.usage.estimated_cost_usd,
             actual_usd: result.usage.actual_cost_usd,
-            rates_snapshot: pricingRegistry.getRates(model),
+            rates_snapshot: criticRates,
           },
           latency_ms: criticLatencyMs,
           background_critic: bgCriticData,
@@ -275,6 +277,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
       requested_model: tierSettings.requestedModel || requestBody.model,
       response_model: tierSettings.responseModel,
       model_tier: tierSettings.tier,
+      pricing_rates_by_role: {
+        router: pricingRegistry.getRates("router"),
+        general: pricingRegistry.getRates("general"),
+        critic: pricingRegistry.getRates("critic"),
+      },
       requested_effort_mode: requestedEffortMode,
       task_description: taskText,
       evidence_packets: [],
@@ -621,7 +628,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     streamingCtx?: { mode: "streaming" | "non-streaming"; timeToFirstTokenMs?: number },
   ): void {
     const model = state.response_model ?? state.requested_model ?? "unknown";
-    const rates = pricingRegistry.getRates(model);
+    const rates = state.pricing_rates_by_role?.general ?? pricingRegistry.getRates("general");
     const collector = state._span_collector;
     const spans = collector?.getSpans() ?? [];
     const phaseTimings = collector?.getPhaseTimings() ?? {};
