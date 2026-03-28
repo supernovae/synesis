@@ -111,6 +111,19 @@ const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPO
 const sessions = new Map<string, SessionState>();
 const sessionStore = new SessionStore(config);
 const usageWriter = new UsageWriter(config);
+const usagePersistenceEnabled =
+  config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(String(config.SYNESIS_YARN_ADMIN_DB_URL ?? "").trim());
+if (!usagePersistenceEnabled) {
+  app.log.warn(
+    {
+      persistFlag: config.SYNESIS_YARN_PERSIST_USAGE_TO_DB,
+      hasAdminDbUrl: Boolean(String(config.SYNESIS_YARN_ADMIN_DB_URL ?? "").trim()),
+    },
+    "yarn_usage_persistence_disabled: set SYNESIS_YARN_ADMIN_DB_URL to the same Postgres URL admin uses, or admin Yarn pages stay stale/empty",
+  );
+} else {
+  app.log.info("yarn_usage_persistence_enabled");
+}
 const authResolver = new AuthResolver(config);
 const artifactStore = new ArtifactStore();
 const artifactRetrieval = new ArtifactRetrievalService(artifactStore);
@@ -768,7 +781,11 @@ function computeEfficiencyIndex(): {
 }
 
 // --- Health endpoints ---
-app.get("/health", async () => ({ status: "ok" }));
+app.get("/health", async () => ({
+  status: "ok",
+  usage_persistence_enabled: usagePersistenceEnabled,
+  usage_write_queue: usageWriter.getStats(),
+}));
 app.get("/health/readiness", async () => ({ status: "ready" }));
 app.get("/health/telemetry", async (req, reply) => {
   if (!requireInternalToken(req as never)) {
