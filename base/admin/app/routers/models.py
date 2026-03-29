@@ -584,6 +584,7 @@ async def _build_active_cost_rows() -> list[dict]:
         pricing = await resolve_pricing(provider, model, served_name)
         if pricing:
             rates, source = pricing
+            cached_rate = rates[2] if len(rates) > 2 else None
             result.append(
                 {
                     "role": role,
@@ -593,7 +594,7 @@ async def _build_active_cost_rows() -> list[dict]:
                     "source": provider,
                     "provider": provider,
                     "input_per_million": rates[0],
-                    "input_cached_per_million": rates[2],
+                    "input_cached_per_million": cached_rate,
                     "output_per_million": rates[1],
                     "monthly_fixed_cost": 0.0,
                     "cost_formula": "",
