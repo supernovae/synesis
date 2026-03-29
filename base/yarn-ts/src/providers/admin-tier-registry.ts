@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  FALLBACK_BASE_RATES,
+  hasNonZeroRates,
+  type PricingRates,
+  type PricingSource,
+} from "@synesis/telemetry";
 import type { AppConfig } from "../config.js";
 
 const RoleSchema = z.object({
@@ -19,7 +25,8 @@ const CostRowSchema = z.object({
   role: z.string(),
   input_per_million: z.number().optional(),
   output_per_million: z.number().optional(),
-  input_cached_per_million: z.number().nullable().optional()
+  input_cached_per_million: z.number().nullable().optional(),
+  pricing_source: z.string().optional(),
 });
 
 const CostEnvelopeSchema = z
@@ -39,13 +46,21 @@ export interface TierConfig {
   inputPerM: number;
   outputPerM: number;
   cachedPerM: number | null;
+  pricingSource: PricingSource;
 }
 
-const ROLE_TO_TIER: Record<string, TierId> = {
+export const ROLE_TO_TIER: Record<string, TierId> = {
   "coder-pulse": "synesis-pulse",
   "coder-core": "synesis-core",
   "coder-horizon": "synesis-horizon",
   "coder-compaction": "synesis-compaction"
+};
+
+export const TIER_TO_ROLE: Record<TierId, string> = {
+  "synesis-pulse": "coder-pulse",
+  "synesis-core": "coder-core",
+  "synesis-horizon": "coder-horizon",
+  "synesis-compaction": "coder-compaction",
 };
 
 const PROVIDER_BASE_URLS: Record<string, string> = {
@@ -54,6 +69,16 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   dashscope: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
   "dashscope-us": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
 };
+
+export function resolveTierRates(
+  registryRates: PricingRates | undefined,
+  registrySource: PricingSource | undefined,
+): { rates: PricingRates; pricingSource: PricingSource } {
+  if (registryRates && hasNonZeroRates(registryRates)) {
+    return { rates: registryRates, pricingSource: registrySource ?? "manual" };
+  }
+  return { rates: { ...FALLBACK_BASE_RATES }, pricingSource: "fallback_base" };
+}
 
 export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]> {
   const hasToken = Boolean(config.SYNESIS_INTERNAL_SERVICE_TOKEN);
@@ -94,17 +119,27 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
     const keyEnv = (row.api_key_env ?? "").trim();
     const apiKey = (keyEnv ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
     const cost = costByRole.get(row.role);
+    const registryRates: PricingRates = {
+      input_per_million: Number(cost?.input_per_million ?? 0),
+      output_per_million: Number(cost?.output_per_million ?? 0),
+      cached_input_per_million:
+        cost?.input_cached_per_million == null
+          ? null
+          : Number(cost.input_cached_per_million),
+    };
+    const { rates, pricingSource } = resolveTierRates(
+      registryRates,
+      cost?.pricing_source as PricingSource | undefined,
+    );
     out.push({
       id: tierId,
       backendModel: row.model ?? "",
       baseUrl: endpoint,
       apiKey,
-      inputPerM: Number(cost?.input_per_million ?? 0),
-      outputPerM: Number(cost?.output_per_million ?? 0),
-      cachedPerM:
-        cost?.input_cached_per_million == null
-          ? null
-          : Number(cost.input_cached_per_million)
+      inputPerM: rates.input_per_million,
+      outputPerM: rates.output_per_million,
+      cachedPerM: rates.cached_input_per_million,
+      pricingSource,
     });
   }
   return out;

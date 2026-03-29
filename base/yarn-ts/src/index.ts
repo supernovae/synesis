@@ -3,12 +3,12 @@ import Fastify from "fastify";
 import { Registry } from "prom-client";
 import { generateText, streamText } from "ai";
 import {
-  PricingRegistry,
   createServiceMetrics,
   recordUsageMetrics,
   computeCost,
   emitTrace,
   type LlmUsage as TelemetryLlmUsage,
+  type PricingSource,
   type TraceRecord,
 } from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
@@ -100,10 +100,6 @@ const app = Fastify({
 });
 const promRegistry = new Registry();
 const svcMetrics = createServiceMetrics("yarn", promRegistry);
-const pricingRegistry = new PricingRegistry({
-  adminUrl: config.SYNESIS_YARN_ADMIN_API_URL,
-  adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
-});
 const traceEmitterConfig = {
   adminUrl: config.SYNESIS_YARN_ADMIN_API_URL,
   adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
@@ -464,9 +460,18 @@ function persistSessionAndUsage(
   tokensSavedByReduction = 0
 ): void {
   const tier = tierRegistry.getTierConfig(resolvedModelId);
-  const computedCostUsd = usage.costUsd > 0
-    ? usage.costUsd
-    : computeCost(
+  const tierRates = {
+    input_per_million: Number(tier?.inputPerM ?? 0),
+    output_per_million: Number(tier?.outputPerM ?? 0),
+    cached_input_per_million: tier?.cachedPerM ?? null,
+  };
+  let pricingSource: PricingSource = tier?.pricingSource ?? "unknown";
+  let computedCostUsd: number;
+  if (usage.costUsd > 0) {
+    computedCostUsd = usage.costUsd;
+    pricingSource = "provider";
+  } else {
+    const result = computeCost(
       {
         prompt_tokens: usage.inputTokens,
         completion_tokens: usage.outputTokens,
@@ -475,23 +480,21 @@ function persistSessionAndUsage(
         estimated_cost_usd: 0,
         actual_cost_usd: 0,
       },
-      {
-        input_per_million: Number(tier?.inputPerM ?? 0),
-        output_per_million: Number(tier?.outputPerM ?? 0),
-        cached_input_per_million: tier?.cachedPerM ?? null,
-      },
-    ).estimated_cost_usd;
+      tierRates,
+    );
+    computedCostUsd = result.estimated_cost_usd;
+    pricingSource = result.pricing_source;
+  }
   const normalizedCostUsd = Number.isFinite(computedCostUsd) ? Math.max(0, computedCostUsd) : 0;
-  if (normalizedCostUsd === 0 && (usage.inputTokens + usage.outputTokens) > 0) {
-    app.log.debug({
+  if (pricingSource === "fallback_base" && (usage.inputTokens + usage.outputTokens) > 0) {
+    app.log.info({
       model: resolvedModelId,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      sdkCost: usage.costUsd,
+      pricingSource,
       tierInputPerM: tier?.inputPerM ?? null,
       tierOutputPerM: tier?.outputPerM ?? null,
-      tierCachedPerM: tier?.cachedPerM ?? null,
-    }, "zero_cost_with_tokens: check admin rates or tier assignment");
+    }, "fallback_pricing_in_effect: set rates in admin Model Registry for accurate costs");
   }
   state.record.totalTokensIn += usage.inputTokens;
   state.record.totalTokensOut += usage.outputTokens;
@@ -523,6 +526,7 @@ function persistSessionAndUsage(
     tokensSavedByReduction,
     latencyMs,
     costUsd: normalizedCostUsd,
+    pricingSource,
     escalated: false,
     toolCallsCount: state.toolCallsSinceCheckpoint,
     finishReason
@@ -823,7 +827,6 @@ const sessionEvictionTimer = setInterval(() => {
 async function shutdown(): Promise<void> {
   clearInterval(sessionEvictionTimer);
   clearInterval(tierPollTimer);
-  pricingRegistry.stop();
   await app.close();
   await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close()]);
   process.exit(0);
@@ -1785,7 +1788,6 @@ app.post("/v1/messages", async (req, reply) => {
 });
 
 await refreshTierRegistry();
-void pricingRegistry.start();
 const tierPollTimer = setInterval(() => {
   void refreshTierRegistry();
 }, config.SYNESIS_YARN_TIER_POLL_INTERVAL * 1000);

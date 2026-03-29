@@ -56,7 +56,7 @@ export default function YarnReducers() {
       ) : !trr ? (
         <EmptyState
           title="No reducer telemetry available"
-          description="The Yarn service hasn't reported reducer metrics yet. Ensure the service is running and has processed at least one tool result."
+          description="Reducer metrics appear after Yarn processes tool results that match a reducer family. Possible reasons for no data: the service hasn't started, no tool-calling requests have been made, tool outputs were too small to trigger reduction (under max raw chars), or reducers are disabled via SYNESIS_YARN_REDUCERS_ENABLED=false."
         />
       ) : (
         <>
@@ -320,7 +320,7 @@ export default function YarnReducers() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {!trr
                     ? "Awaiting first request — historical data will appear after compaction events are recorded."
-                    : "No historical compaction data in this period."}
+                    : `No historical compaction data in this period. Compaction checkpoints occur after ${12} tool calls or when history reaches 60 messages. The admin telemetry scraper must also be running and able to reach Yarn's /metrics endpoint.`}
                 </p>
               </ChartCard>
             )}

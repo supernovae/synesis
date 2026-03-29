@@ -1,6 +1,7 @@
 export type {
   LlmUsage,
   PricingRates,
+  PricingSource,
   CostResult,
   UsageEvent,
   TraceRecord,
@@ -13,6 +14,8 @@ export type {
 
 export {
   ZERO_USAGE,
+  FALLBACK_BASE_RATES,
+  hasNonZeroRates,
   computeCost,
   resolveEffectiveCost,
   mergeUsage,
@@ -20,7 +23,12 @@ export {
 
 export { extractUsage } from "./usage-extract.js";
 
-export { PricingRegistry, type PricingRegistryConfig } from "./pricing.js";
+export {
+  PricingRegistry,
+  type PricingRegistryConfig,
+  type RatesByRole,
+  type ResolvedRates,
+} from "./pricing.js";
 
 export {
   createServiceMetrics,

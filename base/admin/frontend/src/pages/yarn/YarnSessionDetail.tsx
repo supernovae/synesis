@@ -5,7 +5,7 @@ import { useYarnSessionDetail, type YarnSessionRequestRow, type YarnSessionEvent
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
-import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
+import { fmtCost, fmtDurationMs, fmtTokens, isFallbackPricing, pricingSourceLabel } from "../../lib/formatUsage";
 
 function truncId(id: string): string {
   if (id.length <= 18) return id;
@@ -218,7 +218,12 @@ export default function YarnSessionDetail() {
                             {fmtDurationMs(rq.latency_ms)}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                            {fmtCost(rq.cost_usd)}
+                            <span>{fmtCost(rq.cost_usd)}</span>
+                            {isFallbackPricing(rq.pricing_source) && (
+                              <span className="ml-1 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-400 dark:ring-amber-500/30" title="Cost derived from fallback base rates — set pricing in Model Registry">
+                                {pricingSourceLabel(rq.pricing_source)}
+                              </span>
+                            )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {rq.escalated ? (

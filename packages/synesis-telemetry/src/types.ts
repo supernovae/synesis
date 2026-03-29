@@ -13,8 +13,26 @@ export interface PricingRates {
   cached_input_per_million: number | null;
 }
 
+/**
+ * Where pricing was resolved from — ordered by preference.
+ * - provider:      the model provider reported a USD cost directly
+ * - manual:        operator set rates in the admin Model Registry
+ * - infra_calc:    computed from infrastructure cost (vLLM / KServe)
+ * - api_lookup:    auto-resolved from provider pricing tables
+ * - fallback_base: no source available; using platform-wide base defaults
+ * - unknown:       no pricing information at all (should not persist)
+ */
+export type PricingSource =
+  | "provider"
+  | "manual"
+  | "infra_calc"
+  | "api_lookup"
+  | "fallback_base"
+  | "unknown";
+
 export interface CostResult {
   estimated_cost_usd: number;
+  pricing_source: PricingSource;
 }
 
 export interface UsageEvent {

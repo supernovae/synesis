@@ -4,17 +4,7 @@ import { clsx } from "clsx";
 import { useYarnSessions, type YarnSessionRow } from "../../api/hooks";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function fmtCost(n: number): string {
-  if (n < 0.01 && n > 0) return `$${n.toFixed(4)}`;
-  return `$${n.toFixed(2)}`;
-}
+import { fmtTokens, fmtCost } from "../../lib/formatUsage";
 
 function truncKey(key: string): string {
   if (key.length <= 20) return key;

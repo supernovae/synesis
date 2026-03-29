@@ -574,6 +574,7 @@ class YarnUsageLog(Base):
     tokens_saved_by_reduction: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    pricing_source: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     tool_calls_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     finish_reason: Mapped[str] = mapped_column(String(32), nullable=False, default="")

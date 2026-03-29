@@ -604,7 +604,7 @@ async def _build_active_cost_rows() -> list[dict]:
             )
             continue
 
-        # Fallback: zero rates.
+        # Fallback: conservative base rates so costs never silently stay $0.
         result.append(
             {
                 "role": role,
@@ -613,13 +613,13 @@ async def _build_active_cost_rows() -> list[dict]:
                 "profile": "",
                 "source": provider,
                 "provider": provider,
-                "input_per_million": 0.0,
-                "input_cached_per_million": None,
-                "output_per_million": 0.0,
+                "input_per_million": 1.0,
+                "input_cached_per_million": 0.1,
+                "output_per_million": 5.0,
                 "monthly_fixed_cost": 0.0,
                 "cost_formula": "",
-                "notes": "",
-                "pricing_source": "unknown",
+                "notes": "fallback base rates — set real pricing in Model Registry",
+                "pricing_source": "fallback_base",
             }
         )
 

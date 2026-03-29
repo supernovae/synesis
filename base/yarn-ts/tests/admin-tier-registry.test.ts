@@ -66,6 +66,7 @@ describe("fetchTierConfigs", () => {
     expect(tiers[0].inputPerM).toBe(1.25);
     expect(tiers[0].outputPerM).toBe(4.5);
     expect(tiers[0].cachedPerM).toBe(0.3);
+    expect(tiers[0].pricingSource).toBe("manual");
   });
 
   it("falls back to SYNESIS_YARN_OPENAI_COMPAT_API_KEY when api_key_env is empty", async () => {
@@ -77,6 +78,9 @@ describe("fetchTierConfigs", () => {
     const tiers = await fetchTierConfigs(makeConfig({ SYNESIS_YARN_OPENAI_COMPAT_API_KEY: "global-fallback-key" }));
     expect(tiers).toHaveLength(1);
     expect(tiers[0].apiKey).toBe("global-fallback-key");
+    expect(tiers[0].pricingSource).toBe("fallback_base");
+    expect(tiers[0].inputPerM).toBe(1.0);
+    expect(tiers[0].outputPerM).toBe(5.0);
   });
 
   it("uses explicit endpoint when provided instead of provider default", async () => {
@@ -145,6 +149,21 @@ describe("fetchTierConfigs", () => {
     expect(tiers).toHaveLength(1);
     expect(tiers[0].id).toBe("synesis-compaction");
     expect(tiers[0].inputPerM).toBe(0.15);
-    expect(tiers[0].cachedPerM).toBe(0);
+    expect(tiers[0].cachedPerM).toBeNull();
+    expect(tiers[0].pricingSource).toBe("manual");
+  });
+
+  it("applies fallback base rates when admin returns zero pricing for a role", async () => {
+    stubFetch(
+      { roles: [{ role: "coder-core", assigned: true, provider: "vllm", model: "local-model", endpoint: "http://local:8000/v1" }] },
+      { costs: [{ role: "coder-core", input_per_million: 0, output_per_million: 0 }] }
+    );
+
+    const tiers = await fetchTierConfigs(makeConfig());
+    expect(tiers).toHaveLength(1);
+    expect(tiers[0].pricingSource).toBe("fallback_base");
+    expect(tiers[0].inputPerM).toBe(1.0);
+    expect(tiers[0].outputPerM).toBe(5.0);
+    expect(tiers[0].cachedPerM).toBe(0.1);
   });
 });

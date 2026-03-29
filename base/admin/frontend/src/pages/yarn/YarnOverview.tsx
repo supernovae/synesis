@@ -260,20 +260,26 @@ export default function YarnOverview() {
 
               <ChartCard
                 title="Top Models"
-                subtitle="Most active models in this window"
+                subtitle="Most active models by request count and cost"
               >
                 <div className="space-y-2">
                   {intelligence.top_models.length === 0 ? (
                     <p className="text-sm text-gray-500">No model data yet.</p>
                   ) : (
-                    intelligence.top_models.map((m) => (
-                      <div key={m.model} className="flex items-center justify-between text-sm">
-                        <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{m.model}</span>
-                        <span className="text-gray-500 dark:text-gray-400">
-                          {m.requests} req · {fmtCost(m.cost_usd)}
-                        </span>
-                      </div>
-                    ))
+                    intelligence.top_models.map((m) => {
+                      const avgCost = m.requests > 0 ? m.cost_usd / m.requests : 0;
+                      return (
+                        <div key={m.model} className="flex items-center justify-between text-sm">
+                          <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{m.model}</span>
+                          <span className="text-right text-gray-500 dark:text-gray-400">
+                            <span className="tabular-nums">{m.requests}</span> req · {fmtCost(m.cost_usd)}
+                            <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
+                              ({fmtCost(avgCost)}/req)
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </ChartCard>

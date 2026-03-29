@@ -15,6 +15,7 @@ export interface UsageEvent {
   tokensSavedByReduction: number;
   latencyMs: number;
   costUsd: number;
+  pricingSource: string;
   escalated: boolean;
   toolCallsCount: number;
   finishReason: string;
@@ -189,13 +190,13 @@ export class UsageWriter {
       INSERT INTO yarn_usage_log (
         session_key, request_id, user_id, org_id, provider, model,
         tokens_in, tokens_out, tokens_cached, tokens_saved_by_reduction,
-        latency_ms, cost_usd,
+        latency_ms, cost_usd, pricing_source,
         escalated, tool_calls_count, finish_reason
       ) VALUES (
         $1, $2, $3, $4, $5, $6,
         $7, $8, $9, $10,
-        $11, $12,
-        $13, $14, $15
+        $11, $12, $13,
+        $14, $15, $16
       )
       ON CONFLICT (request_id) DO NOTHING
       `,
@@ -212,6 +213,7 @@ export class UsageWriter {
         event.tokensSavedByReduction,
         event.latencyMs,
         event.costUsd,
+        event.pricingSource,
         event.escalated,
         event.toolCallsCount,
         event.finishReason.slice(0, 32)

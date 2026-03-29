@@ -2010,6 +2010,7 @@ export interface YarnSessionRequestRow {
   tokens_saved_by_reduction: number;
   latency_ms: number;
   cost_usd: number;
+  pricing_source: string;
   escalated: boolean;
   tool_calls_count: number;
   finish_reason: string | null;
@@ -2044,6 +2045,7 @@ export interface YarnEventRow {
   tokens_cached: number;
   latency_ms: number;
   cost_usd: number;
+  pricing_source: string;
   escalated: boolean;
   tool_calls_count: number;
   finish_reason: string | null;
