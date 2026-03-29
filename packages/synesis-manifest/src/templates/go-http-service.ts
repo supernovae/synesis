@@ -1,0 +1,67 @@
+import type { ProjectTemplate } from "../schemas.js";
+
+export const goHttpService: ProjectTemplate = {
+  kind: "go_http_service",
+  description: "Go HTTP service with health endpoint, configuration, graceful shutdown, and observable request handling.",
+  classificationSignals: [
+    { keyword: "http", weight: 2 },
+    { keyword: "api", weight: 2 },
+    { keyword: "server", weight: 2 },
+    { keyword: "endpoint", weight: 2 },
+    { keyword: "rest", weight: 2 },
+    { keyword: "healthz", weight: 3 },
+    { keyword: "middleware", weight: 2 },
+    { keyword: "handler", weight: 1 },
+    { keyword: "port", weight: 1 },
+    { keyword: "microservice", weight: 2 },
+  ],
+  manifest: {
+    projectName: "",
+    detectedKind: "go_http_service",
+    confidence: 0.95,
+    languages: ["go", "markdown"],
+    frameworks: ["net/http"],
+    summary: "Go HTTP service with health endpoint, configuration, graceful shutdown, and observable request handling.",
+    expectedFiles: [
+      { path: "go.mod", required: true, purpose: "Go module definition", status: "recommended" },
+      { path: "cmd/{name}/main.go", required: true, purpose: "Service entrypoint", status: "recommended" },
+      { path: "internal/server/server.go", required: true, purpose: "HTTP server construction and lifecycle", status: "recommended" },
+      { path: "internal/http/routes.go", required: true, purpose: "Route registration", status: "recommended" },
+      { path: "internal/http/handlers/health.go", required: true, purpose: "Health endpoint handler", status: "recommended" },
+      { path: "internal/config/config.go", required: true, purpose: "Environment/config loading", status: "recommended" },
+      { path: "README.md", required: true, purpose: "Run and API documentation", status: "recommended" },
+      { path: "Makefile", required: false, purpose: "Build/test/lint commands", status: "recommended" },
+    ],
+    expectedDirectories: [
+      { path: "cmd/", required: true, purpose: "Entrypoint", status: "recommended" },
+      { path: "internal/server/", required: true, purpose: "Service startup and shutdown", status: "recommended" },
+      { path: "internal/http/", required: true, purpose: "HTTP routes and handlers", status: "recommended" },
+      { path: "internal/config/", required: true, purpose: "Configuration", status: "recommended" },
+      { path: "internal/app/", required: false, purpose: "Application/business services", status: "recommended" },
+    ],
+    recommendedTools: [
+      { name: "go test", purpose: "Unit tests", command: "go test ./...", required: true },
+      { name: "go vet", purpose: "Static checks", command: "go vet ./...", required: true },
+      { name: "golangci-lint", purpose: "Linting", command: "golangci-lint run", required: false },
+      { name: "curl", purpose: "Manual endpoint checks", command: "curl localhost:8080/healthz", required: false },
+    ],
+    documentationPatterns: [
+      { name: "README", required: true, sections: ["Overview", "Architecture", "Configuration", "Running Locally", "Endpoints", "Health Checks", "Development"] },
+    ],
+    codingPatterns: [
+      "Keep main.go thin",
+      "Separate route wiring from handlers",
+      "Use context-aware shutdown",
+      "Keep transport logic separate from business logic",
+      "Add health endpoint early",
+    ],
+    styleRules: [
+      "Document environment variables",
+      "Document port and startup behavior",
+      "Handlers should return consistent response patterns",
+    ],
+    observedStrengths: [],
+    observedGaps: [],
+    source: "target",
+  },
+};

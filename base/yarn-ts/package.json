@@ -19,6 +19,7 @@
     "@ai-sdk/openai": "^3.0.48",
     "@openfga/sdk": "^0.9.1",
     "@synesis/context-trust": "*",
+    "@synesis/manifest": "*",
     "@synesis/telemetry": "*",
     "ai": "^6.0.138",
     "fastify": "^5.8.4",

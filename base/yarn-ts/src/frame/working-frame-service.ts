@@ -1,8 +1,16 @@
+import type {
+  Complexity,
+  ProjectManifest,
+  ManifestComparison,
+  WorkingFrame as RichWorkingFrame,
+} from "@synesis/manifest";
+
 export interface FrameMessage {
   role: string;
   content: unknown;
 }
 
+/** Lightweight M3 frame — used for tiny/small tasks. */
 export interface WorkingFrame {
   goal: string;
   constraints: string[];
@@ -15,9 +23,17 @@ export interface WorkingFrame {
 export interface WorkingFrameStats {
   builtCount: number;
   avgActiveFiles: number;
+  richFrameCount: number;
 }
 
-const FILE_RE = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh)\b/g;
+/** Context passed in from the manifest pipeline for medium/large tasks. */
+export interface ManifestContext {
+  complexity: Complexity;
+  manifest?: ProjectManifest;
+  comparison?: ManifestComparison;
+}
+
+const FILE_RE = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
 
 function asText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -35,9 +51,14 @@ function uniq<T>(arr: T[]): T[] {
 export class WorkingFrameService {
   private builtCount = 0;
   private activeFilesTotal = 0;
+  private richFrameCount = 0;
 
   constructor(private readonly maxFiles: number) {}
 
+  /**
+   * Build a lightweight M3 frame (tiny/small fast path).
+   * Also called as an internal step for the rich path.
+   */
   build(messages: FrameMessage[]): WorkingFrame {
     const texts = messages.map((m) => ({ role: m.role, text: asText(m.content) }));
     const latestUser = [...texts].reverse().find((m) => m.role === "user")?.text ?? "";
@@ -84,6 +105,73 @@ export class WorkingFrameService {
     return frame;
   }
 
+  /**
+   * Build a rich manifest-aware frame for medium/large tasks.
+   * Merges the lightweight frame with manifest/comparison context.
+   */
+  buildRich(messages: FrameMessage[], ctx: ManifestContext): RichWorkingFrame {
+    const base = this.build(messages);
+    this.richFrameCount += 1;
+
+    const manifestFacts: string[] = [];
+    const doneCriteria: string[] = [];
+    const validationFocus: string[] = [];
+    const assumptions: string[] = [];
+    const blockers: string[] = [];
+
+    if (ctx.manifest) {
+      for (const pattern of ctx.manifest.codingPatterns.slice(0, 4)) {
+        manifestFacts.push(pattern);
+      }
+      for (const rule of ctx.manifest.styleRules.slice(0, 3)) {
+        manifestFacts.push(rule);
+      }
+      for (const tool of ctx.manifest.recommendedTools) {
+        if (tool.required) validationFocus.push(tool.command || tool.name);
+      }
+    }
+
+    if (ctx.comparison) {
+      const reqMissing = ctx.comparison.missingFiles.filter((f) => f.required);
+      for (const f of reqMissing.slice(0, 4)) {
+        doneCriteria.push(`Create ${f.path} (${f.purpose})`);
+      }
+      if (ctx.comparison.missingDocSections.length > 0) {
+        doneCriteria.push(`Add documentation sections: ${ctx.comparison.missingDocSections.slice(0, 3).join(", ")}`);
+      }
+    }
+
+    if (doneCriteria.length === 0) {
+      doneCriteria.push("Task completed successfully");
+    }
+
+    const phase = base.currentPhase === "planning" ? "plan" as const
+      : base.currentPhase === "validation" ? "validate" as const
+      : "implement" as const;
+
+    return {
+      taskId: "",
+      userIntent: base.goal,
+      taskType: "general",
+      phase,
+      domain: ctx.manifest?.detectedKind ?? "",
+      subdomain: "",
+      currentGoal: base.goal,
+      nextStep: "",
+      relevantFiles: base.activeFiles,
+      relevantDirectories: [],
+      relevantManifestFacts: manifestFacts,
+      constraints: base.constraints,
+      assumptions,
+      blockers,
+      validationFocus,
+      doneCriteria,
+      complexity: ctx.complexity,
+      planRequired: ctx.complexity === "large",
+    };
+  }
+
+  /** Emit a compact system block — adapts density to frame type. */
   toSystemBlock(frame: WorkingFrame): string {
     return [
       "<WORKING_FRAME>",
@@ -97,10 +185,41 @@ export class WorkingFrameService {
     ].join("\n");
   }
 
+  /** Emit a rich system block for medium/large tasks with manifest context. */
+  toRichSystemBlock(frame: RichWorkingFrame): string {
+    const lines = [
+      "<WORKING_FRAME>",
+      `goal=${frame.currentGoal}`,
+      `phase=${frame.phase}`,
+      `complexity=${frame.complexity}`,
+      `plan_required=${frame.planRequired}`,
+      `domain=${frame.domain || "none"}`,
+      `relevant_files=${frame.relevantFiles.join(",") || "none"}`,
+    ];
+    if (frame.relevantManifestFacts.length > 0) {
+      lines.push(`manifest_facts=${frame.relevantManifestFacts.join(" | ")}`);
+    }
+    if (frame.constraints.length > 0) {
+      lines.push(`constraints=${frame.constraints.join(" | ")}`);
+    }
+    if (frame.validationFocus.length > 0) {
+      lines.push(`validation=${frame.validationFocus.join(",")}`);
+    }
+    if (frame.doneCriteria.length > 0) {
+      lines.push(`done_criteria=${frame.doneCriteria.join(" | ")}`);
+    }
+    if (frame.blockers.length > 0) {
+      lines.push(`blockers=${frame.blockers.join(" | ")}`);
+    }
+    lines.push("</WORKING_FRAME>");
+    return lines.join("\n");
+  }
+
   getStats(): WorkingFrameStats {
     return {
       builtCount: this.builtCount,
-      avgActiveFiles: this.builtCount > 0 ? this.activeFilesTotal / this.builtCount : 0
+      avgActiveFiles: this.builtCount > 0 ? this.activeFilesTotal / this.builtCount : 0,
+      richFrameCount: this.richFrameCount,
     };
   }
 }

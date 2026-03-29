@@ -58,6 +58,18 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_FRAME_MAX_FILES: z.coerce.number().default(12),
+  SYNESIS_YARN_MANIFEST_TEMPLATES_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_STRUCTURAL_CRITIC_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_MCP_TOOLS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_PERSIST_USAGE_TO_DB: z
     .string()
     .optional()

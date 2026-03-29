@@ -28,8 +28,14 @@ import { ValidationNormalizationService } from "./validation/service.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
-import { WorkingFrameService } from "./frame/working-frame-service.js";
+import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
+import { getTemplate as manifestGetTemplate } from "@synesis/manifest";
+import { classify as manifestClassify } from "./manifest/classifier.js";
+import { scanForManifest as manifestScan } from "./manifest/repo-scanner.js";
+import { compareManifests as manifestCompare } from "./manifest/comparator.js";
+import { critiquStructure as manifestCritique } from "./manifest/structural-critic.js";
+import { registerMcpRoutes } from "./mcp/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator } from "./orchestration/phase-model-orchestrator.js";
 import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
@@ -150,10 +156,50 @@ function enrichWithFrameAndManifest(
     : "You are an AI coding assistant provided by Synesis.";
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
+
   if (config.SYNESIS_YARN_WORKING_FRAME_ENABLED) {
-    const frame = workingFrameService.build(out);
-    volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
+    if (config.SYNESIS_YARN_MANIFEST_TEMPLATES_ENABLED) {
+      const latestUser = [...out].reverse().find((m) => m.role === "user");
+      const userText = typeof latestUser?.content === "string" ? latestUser.content : "";
+      const allText = out.map((m) => typeof m.content === "string" ? m.content : "").join("\n");
+      const { classification, complexity: complexityResult } = manifestClassify(userText);
+
+      if (complexityResult.complexity === "tiny" || complexityResult.complexity === "small") {
+        const frame = workingFrameService.build(out);
+        volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
+      } else {
+        const template = manifestGetTemplate(classification.projectKind);
+        const filePaths = (allText.match(FILE_RE_GLOBAL) ?? []).map((f: string) => f.trim());
+        const observed = manifestScan({ filePaths, conversationText: allText });
+        const manifestCtx: ManifestContext = { complexity: complexityResult.complexity };
+
+        if (template) {
+          const comparison = manifestCompare(template.manifest, observed);
+          manifestCtx.manifest = template.manifest;
+          manifestCtx.comparison = comparison;
+
+          if (config.SYNESIS_YARN_STRUCTURAL_CRITIC_ENABLED) {
+            const critique = manifestCritique(comparison);
+            if (!critique.passed && critique.requiredMissing > 0) {
+              volatileBlocks.push({
+                role: "system",
+                content: `<STRUCTURAL_CRITIC>\n${critique.summary}\n</STRUCTURAL_CRITIC>`,
+              });
+            }
+          }
+        } else {
+          manifestCtx.manifest = observed;
+        }
+
+        const richFrame = workingFrameService.buildRich(out, manifestCtx);
+        volatileBlocks.push({ role: "system", content: workingFrameService.toRichSystemBlock(richFrame) });
+      }
+    } else {
+      const frame = workingFrameService.build(out);
+      volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
+    }
   }
+
   if (config.SYNESIS_YARN_PROJECT_MANIFEST_ENABLED) {
     const manifest = projectManifestService.build(out);
     volatileBlocks.push({ role: "system", content: projectManifestService.toSystemBlock(manifest) });
@@ -169,6 +215,8 @@ function enrichWithFrameAndManifest(
     ? attentionPositioning.position(enriched).messages
     : enriched;
 }
+
+const FILE_RE_GLOBAL = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
 
 interface SessionIdentity {
   userId: string;
@@ -913,50 +961,10 @@ app.get("/v1/artifacts/:id", async (req, reply) => {
   return reply.send(artifact);
 });
 
-// --- MCP proxy ---
-app.get("/v1/mcp/tools", async (req, reply) => {
-  let user;
-  try {
-    user = await authResolver.resolve(req.headers.authorization);
-    authResolver.requireCoderScope(user);
-  } catch {
-    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
-  }
-  try {
-    const bearer = getBearerToken(req.headers.authorization);
-    const data = await proxyMcpGet("/api/v1/mcp/tools", bearer);
-    return reply.send(data);
-  } catch (err) {
-    app.log.error({ err }, "MCP tools proxy failed");
-    return reply.code(502).send({ error: { type: "upstream_error", message: "MCP service unavailable" } });
-  }
-});
-
-app.post("/v1/mcp/tools/call", async (req, reply) => {
-  let user;
-  try {
-    user = await authResolver.resolve(req.headers.authorization);
-    authResolver.requireCoderScope(user);
-  } catch {
-    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
-  }
-  try {
-    const bearer = getBearerToken(req.headers.authorization);
-    const data = await proxyMcpPost("/api/v1/mcp/tools/call", bearer, req.body);
-    if (config.SYNESIS_YARN_TRUST_PACKET_ENABLED) {
-      reply.header("X-Synesis-Trust-Metadata", JSON.stringify({
-        schema_version: 1,
-        trust_level: "untrusted",
-        source_type: "mcp_response",
-        instruction_execution_allowed: false,
-        content_purpose: "data",
-      }));
-    }
-    return reply.send(data);
-  } catch (err) {
-    app.log.error({ err }, "MCP tools/call proxy failed");
-    return reply.code(502).send({ error: { type: "upstream_error", message: "MCP service unavailable" } });
-  }
+// --- Native MCP tools (replaces Python MCP proxy) ---
+await registerMcpRoutes(app, {
+  authResolver,
+  enabled: config.SYNESIS_YARN_MCP_TOOLS_ENABLED,
 });
 
 // --- OpenAI chat completions ---
