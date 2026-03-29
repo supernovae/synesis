@@ -172,7 +172,11 @@ function buildClarificationQuestion(
     "",
   ];
 
-  const allQuestions = [...questions, ...targeted].slice(0, 4);
+  // Deduplicate: parse-fallback path puts targeted ambiguities into open_questions,
+  // so merging them again would produce duplicates.
+  const seen = new Set(questions);
+  const uniqueTargeted = targeted.filter((q) => !seen.has(q));
+  const allQuestions = [...questions, ...uniqueTargeted].slice(0, 4);
   if (allQuestions.length > 0) {
     for (let i = 0; i < allQuestions.length; i++) {
       parts.push(`${i + 1}. ${allQuestions[i]}`);

@@ -317,6 +317,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
     if (pendingClarification) {
       baseState.user_answer_to_clarification = taskText;
       baseState.assumptions = pendingClarification.assumptions;
+      // The original request was complex enough to trigger clarification.
+      // The follow-up answer is typically short ("on prem, 50 users") so the
+      // entry classifier would downgrade it to trivial. Force the full
+      // pipeline so the planner runs with conversation context + answer.
+      baseState.plan_required = true;
+      baseState.difficulty = Math.max(baseState.difficulty ?? 0, 0.6);
     }
 
     return baseState;
