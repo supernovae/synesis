@@ -818,12 +818,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
       let streamingError: Error | undefined;
 
       try {
+        let writerStreamed = false;
         const writerDeltaHandler = (delta: import("./llm/client.js").StreamDelta) => {
           if (!isSseWritable(reply.raw)) return;
           if (!firstTokenAt && (delta.content || delta.reasoning_content)) {
             firstTokenAt = Date.now();
           }
           if (delta.content) {
+            writerStreamed = true;
             writeContentDelta(reply.raw, {
               id: completionId,
               created,
@@ -863,6 +865,18 @@ export function buildApp(config: AppConfig): FastifyInstance {
         }
 
         const content = finalState.generated_code ?? "";
+
+        // When the graph bypasses the writer (e.g. clarification → respond),
+        // content is set in generated_code but never streamed. Emit it now.
+        if (content && !writerStreamed && isSseWritable(reply.raw)) {
+          if (!firstTokenAt) firstTokenAt = Date.now();
+          writeContentDelta(reply.raw, {
+            id: completionId,
+            created,
+            model: responseModel,
+            content,
+          });
+        }
 
         if (config.SYNESIS_INJECTION_SCAN_ENABLED && content) {
           const outputScan = scanModelOutput(content);
