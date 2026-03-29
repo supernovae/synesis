@@ -61,7 +61,8 @@ describe("SSE conformance", () => {
     const phaseDeltas = payloads
       .map((p) => extractReasoningContent(p))
       .filter((rc): rc is string => rc !== undefined);
-    expect(phaseDeltas.length).toBeGreaterThanOrEqual(2);
+    expect(phaseDeltas.length).toBeGreaterThanOrEqual(3);
+    expect(phaseDeltas[0]).toContain("Synthesizing request");
     expect(phaseDeltas.some((d) => d.includes("Classifying"))).toBe(true);
 
     const chunks = payloads.filter((payload) => payload.object === "chat.completion.chunk");

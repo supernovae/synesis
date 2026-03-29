@@ -15,7 +15,7 @@ import { frameExtractorNode } from "./nodes/frame-extractor.js";
 import type { RetrievalClient } from "./retrieval/client.js";
 import { validatedNode } from "./nodes/validated-node.js";
 import { composeWriterDraft, composeWriterDraftStream } from "./nodes/writer-compose.js";
-import { runLlmPlanner, isClarificationWaiver } from "./nodes/llm-planner.js";
+import { runLlmPlanner, isClarificationWaiver, computeAdaptivePlannerCap } from "./nodes/llm-planner.js";
 import { isLlmAvailable } from "./llm/client.js";
 import type { StreamDelta } from "./llm/client.js";
 import { mergeUsage } from "@synesis/telemetry";
@@ -203,7 +203,6 @@ export async function plannerNode(state: GraphState): Promise<GraphState> {
 
 async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
   const collector = ensureCollector(state);
-  const plannerCfg = loadConfig();
   const task = state.task_description ?? "User request";
   let plannerResult: Awaited<ReturnType<typeof runLlmPlanner>>;
   try {
@@ -211,10 +210,12 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     process.stderr.write(JSON.stringify({ level: 40, msg: "llmDrivenPlanner failed, falling back to deterministic", error: detail, time: Date.now() }) + "\n");
-    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail, ...budgetSpanMetadata(loadConfig().SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, undefined) } });
+    const fallbackCap = computeAdaptivePlannerCap(loadConfig().SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, state);
+    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail, ...budgetSpanMetadata(fallbackCap, undefined) } });
     return deterministicPlanner(state);
   }
   const { result, clarification } = plannerResult;
+  const effectiveCap = result.effectiveMaxTokens;
   const model = state.response_model ?? state.requested_model ?? "unknown";
   const llmCall = usageToLlmCall("planner", model, result.usage, 0);
 
@@ -228,7 +229,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
         open_questions: result.plan.open_questions,
         assumptions: result.plan.assumptions,
         clarification_question: clarification.question,
-        ...budgetSpanMetadata(plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, result.usage),
+        ...budgetSpanMetadata(effectiveCap, result.usage),
       },
     });
     const planned = ensureForwarded({
@@ -265,7 +266,7 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
       steps_count: result.plan.steps.length,
       open_questions: result.plan.open_questions,
       assumptions: result.plan.assumptions,
-      ...budgetSpanMetadata(plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, result.usage),
+      ...budgetSpanMetadata(effectiveCap, result.usage),
     },
   });
   const feedback = state.plan_gate_feedback ? `\nFeedback: ${state.plan_gate_feedback}` : "";

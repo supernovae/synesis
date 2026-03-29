@@ -39,6 +39,28 @@ type PlannerOutput = z.infer<typeof PlannerOutputSchema>;
 export interface LlmPlannerResult {
   plan: PlannerOutput;
   usage: LlmUsage;
+  effectiveMaxTokens: number;
+}
+
+const PLANNER_CAP_HARD_CEILING = 4096;
+
+/**
+ * Adaptive planner output budget.
+ *
+ * Raises the base cap for high-difficulty and complex/chaotic Cynefin tasks
+ * where the LLM needs more room for detailed multi-step plans. The ceiling
+ * prevents runaway latency on outlier prompts.
+ */
+export function computeAdaptivePlannerCap(baseCap: number, state: GraphState): number {
+  let cap = baseCap;
+  const difficulty = state.difficulty ?? 0;
+  const cynefin = state.cynefin_domain;
+
+  if (difficulty >= 0.7) cap += 800;
+  if (cynefin === "complex" || cynefin === "chaotic") cap += 800;
+  if (difficulty >= 0.85) cap += 400;
+
+  return Math.min(cap, PLANNER_CAP_HARD_CEILING);
 }
 
 const WAIVER_PATTERNS = /\b(proceed|go\s*ahead|just\s*(do|answer)\s*it|use\s*(the\s*)?assumptions|skip\s*clarif|continue|let'?s\s*go)\b/i;
@@ -95,6 +117,17 @@ function detectActionableAmbiguities(state: GraphState): string[] {
     );
   }
   return probes.slice(0, 3);
+}
+
+function isStructuredOutputCompatibilityError(detail: string): boolean {
+  const lowered = detail.toLowerCase();
+  if (/^llm http (400|404|415|422)/i.test(detail)) return true;
+  return (
+    lowered.includes("response_format") ||
+    lowered.includes("json_schema") ||
+    lowered.includes("unsupported") ||
+    lowered.includes("not support")
+  );
 }
 
 export function shouldClarify(state: GraphState, plan: PlannerOutput): boolean {
@@ -169,6 +202,12 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   result: LlmPlannerResult;
   clarification?: { question: string; options: string[] };
 }> {
+  const plannerCfg = loadConfig();
+  const effectiveMaxTokens = computeAdaptivePlannerCap(
+    plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
+    state,
+  );
+
   if (!isLlmAvailable()) {
     return {
       result: {
@@ -180,6 +219,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
           reasoning: "LLM unavailable — deterministic plan",
         },
         usage: ZERO_USAGE,
+        effectiveMaxTokens,
       },
     };
   }
@@ -205,8 +245,6 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       prior.map((m) => `[${m.role}]: ${m.content.slice(0, 300)}`).join("\n") + "\n\n";
   }
 
-  const plannerCfg = loadConfig();
-
   // Taxonomy-driven dynamic suffix (appended after static core per prefix-cache rule)
   const taxonomyMeta = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
   const taxonomyAppend = getPlannerSystemPromptAppend(taxonomyMeta);
@@ -224,38 +262,62 @@ export async function runLlmPlanner(state: GraphState): Promise<{
 
   let result: { content: string; usage: LlmUsage };
   try {
-    result = await chatCompletion({
-      model: process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+    const plannerModel = process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL
+      ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+      ?? "Synesis";
+    const plannerMessages = [
+      {
+        role: "system" as const,
+        content: [
+          "You are Synesis Planner. Produce a JSON plan for the user's request.",
+          "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
+          "",
+          TRUST_POLICY_COMPACT,
+          "",
+          "RULES:",
+          "- If the user's latest message is a short follow-up (e.g., an answer choice like 'B)', 'yes', 'expand on that'), interpret it IN CONTEXT of the conversation history.",
+          "- List ALL material assumptions you are making to create this plan.",
+          "- List ALL open questions where the user's intent is genuinely ambiguous.",
+          "- Rate your confidence (0.0-1.0) that this plan addresses the user's actual need.",
+          "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
+          "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
+          `- Target format: ${requestedFormat}.${schemaHint}`,
+          taxonomyAppend,
+          decompositionBlock,
+        ].filter(Boolean).join("\n"),
+      },
+      {
+        role: "user" as const,
+        content: `${contextPreamble}${task}${feedback}${clarificationContext}`,
+      },
+    ];
+
+    const plannerRequest = {
+      model: plannerModel,
       temperature: 0,
-      max_tokens: plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS,
+      max_tokens: effectiveMaxTokens,
       pricingRates: state.pricing_rates_by_role?.router,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "You are Synesis Planner. Produce a JSON plan for the user's request.",
-            "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
-            "",
-            TRUST_POLICY_COMPACT,
-            "",
-            "RULES:",
-            "- If the user's latest message is a short follow-up (e.g., an answer choice like 'B)', 'yes', 'expand on that'), interpret it IN CONTEXT of the conversation history.",
-            "- List ALL material assumptions you are making to create this plan.",
-            "- List ALL open questions where the user's intent is genuinely ambiguous.",
-            "- Rate your confidence (0.0-1.0) that this plan addresses the user's actual need.",
-            "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
-            "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
-            `- Target format: ${requestedFormat}.${schemaHint}`,
-            taxonomyAppend,
-            decompositionBlock,
-          ].filter(Boolean).join("\n"),
-        },
-        {
-          role: "user",
-          content: `${contextPreamble}${task}${feedback}${clarificationContext}`,
-        },
-      ],
-    });
+      messages: plannerMessages,
+    };
+
+    try {
+      result = await chatCompletion({
+        ...plannerRequest,
+        response_format: { type: "json_object" },
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (!isStructuredOutputCompatibilityError(detail)) throw err;
+      process.stderr.write(
+        JSON.stringify({
+          level: 30,
+          msg: "planner structured-output mode unsupported; retrying without response_format",
+          error: detail,
+          time: Date.now(),
+        }) + "\n",
+      );
+      result = await chatCompletion(plannerRequest);
+    }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     process.stderr.write(JSON.stringify({ level: 40, msg: "llm planner call failed, using deterministic fallback", error: detail, time: Date.now() }) + "\n");
@@ -269,6 +331,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
           reasoning: `LLM planner unavailable: ${detail}`,
         },
         usage: ZERO_USAGE,
+        effectiveMaxTokens,
       },
     };
   }
@@ -279,21 +342,32 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     process.stderr.write(JSON.stringify({ level: 40, msg: "planner output parse failed, using deterministic fallback", error: detail, raw_snippet: result.content.slice(0, 300), time: Date.now() }) + "\n");
+    const parseFallbackPlan = {
+      steps: [{ id: 1, action: `Answer: ${task}`, dependencies: [] }],
+      open_questions: detectActionableAmbiguities(state),
+      assumptions: ["LLM returned unparseable plan — using deterministic plan"],
+      confidence: 0.45,
+      reasoning: `Parse failed: ${detail}`,
+    };
+
+    if (shouldClarify(state, parseFallbackPlan)) {
+      const clarification = buildClarificationQuestion(state, parseFallbackPlan);
+      return {
+        result: { plan: parseFallbackPlan, usage: result.usage, effectiveMaxTokens },
+        clarification,
+      };
+    }
+
     return {
       result: {
-        plan: {
-          steps: [{ id: 1, action: `Answer: ${task}`, dependencies: [] }],
-          open_questions: [],
-          assumptions: ["LLM returned unparseable plan — using deterministic plan"],
-          confidence: 0.5,
-          reasoning: `Parse failed: ${detail}`,
-        },
+        plan: { ...parseFallbackPlan, open_questions: [] },
         usage: result.usage,
+        effectiveMaxTokens,
       },
     };
   }
 
-  const planResult: LlmPlannerResult = { plan: parsed, usage: result.usage };
+  const planResult: LlmPlannerResult = { plan: parsed, usage: result.usage, effectiveMaxTokens };
 
   if (shouldClarify(state, parsed)) {
     const clarification = buildClarificationQuestion(state, parsed);

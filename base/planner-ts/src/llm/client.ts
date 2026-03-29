@@ -18,6 +18,8 @@ export interface ChatRequest {
   temperature?: number;
   max_tokens?: number;
   pricingRates?: PricingRates;
+  response_format?: Record<string, unknown>;
+  extra_body?: Record<string, unknown>;
 }
 
 export interface ChatResult {
@@ -99,8 +101,19 @@ function buildRequestBody(request: ChatRequest, prefixCacheMode: string): Record
     temperature: request.temperature ?? 0,
     max_tokens: request.max_tokens,
   };
+  if (request.response_format && typeof request.response_format === "object") {
+    body.response_format = request.response_format;
+  }
+
+  const extraBody: Record<string, unknown> = {};
   if (prefixCacheMode === "strict") {
-    body.extra_body = { enable_prefix_caching: true };
+    extraBody.enable_prefix_caching = true;
+  }
+  if (request.extra_body && typeof request.extra_body === "object") {
+    Object.assign(extraBody, request.extra_body);
+  }
+  if (Object.keys(extraBody).length > 0) {
+    body.extra_body = extraBody;
   }
   return body;
 }

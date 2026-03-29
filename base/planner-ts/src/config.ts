@@ -27,8 +27,8 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_CRITIC_BUDGET_MAX: z.coerce.number().default(4000),
   /** Hard ceiling on critic `max_tokens` (tokens). */
   SYNESIS_PLANNER_TS_CRITIC_MAX_TOKENS: z.coerce.number().default(4096),
-  /** LLM planner JSON plan output cap. */
-  SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS: z.coerce.number().default(1200),
+  /** LLM planner JSON plan output cap (base; adaptive scaling may raise this). */
+  SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS: z.coerce.number().default(2000),
   SYNESIS_PLANNER_TS_CRITIC_BACKGROUND: z
     .string()
     .optional()

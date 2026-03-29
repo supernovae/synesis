@@ -72,6 +72,19 @@ function sanitizeErrorMessage(raw: string): string {
   return "Internal server error";
 }
 
+type ParsedChatRequest = ReturnType<typeof ChatCompletionRequestSchema.parse>;
+
+export function resolvePlannerSessionKey(
+  requestBody: ParsedChatRequest,
+  requestId: string,
+): { sessionKey: string; source: "conversation_id" | "ephemeral_request" } {
+  const conversationId = (requestBody.conversation_id ?? "").trim();
+  if (conversationId.length > 0) {
+    return { sessionKey: `conversation:${conversationId}`, source: "conversation_id" };
+  }
+  return { sessionKey: `ephemeral:${requestId}`, source: "ephemeral_request" };
+}
+
 export function buildApp(config: AppConfig): FastifyInstance {
   initFgaClient(config);
 
@@ -214,13 +227,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
   }
 
   async function toState(
-    requestBody: ReturnType<typeof ChatCompletionRequestSchema.parse>,
+    requestBody: ParsedChatRequest,
     auth: Awaited<ReturnType<typeof resolveAuthContext>>,
     authzTraceId: string,
-    policyDecision: PolicyDecision
+    policyDecision: PolicyDecision,
+    sessionKey: string,
   ): Promise<GraphState> {
     const incomingWithSession = await sessionManager.enrichIncomingMessages(
-      requestBody.conversation_id || requestBody.user || "anon",
+      sessionKey,
       requestBody.messages.map((m) => ({ role: m.role, content: m.content ?? "" }))
     );
     const optimized = optimizeContext(incomingWithSession, {
@@ -260,7 +274,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }
 
     const domainProfile = buildDomainProfile(taskText);
-    const sessionKey = requestBody.conversation_id || requestBody.user || "anon";
     const pendingClarification = await sessionManager.consumePendingClarification(sessionKey);
 
     const baseState: GraphState = {
@@ -412,17 +425,22 @@ export function buildApp(config: AppConfig): FastifyInstance {
           error: { message: "conversation_id is required", type: "invalid_request_error", code: "400" }
         });
       }
-      const deleted = await sessionManager.purge(conversationId.trim());
+      const normalizedConversationId = conversationId.trim();
+      // Fix-forward keying: current sessions are conversation-scoped with prefix,
+      // but we also attempt a legacy raw key purge for existing in-memory sessions.
+      const deletedConversationScoped = await sessionManager.purge(`conversation:${normalizedConversationId}`);
+      const deletedLegacy = await sessionManager.purge(normalizedConversationId);
+      const deleted = deletedConversationScoped || deletedLegacy;
       request.log.info(
         {
           authzTraceId,
-          conversationId: conversationId.trim(),
+          conversationId: normalizedConversationId,
           userId: auth.userId,
           deleted
         },
         "memory purge"
       );
-      return { deleted, conversation_id: conversationId.trim(), authz_trace_id: authzTraceId };
+      return { deleted, conversation_id: normalizedConversationId, authz_trace_id: authzTraceId };
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Unknown server error";
       const err = error as ErrorWithMeta;
@@ -709,12 +727,23 @@ export function buildApp(config: AppConfig): FastifyInstance {
         "authz allow"
       );
       const body = ChatCompletionRequestSchema.parse(request.body);
+      const resolvedSession = resolvePlannerSessionKey(body, authzTraceId);
+      if (resolvedSession.source === "ephemeral_request") {
+        request.log.warn(
+          {
+            authzTraceId,
+            userId: auth.userId,
+            model: body.model,
+          },
+          "conversation_id missing; using ephemeral planner session key (cross-turn memory/clarification continuity disabled)",
+        );
+      }
       const created = Math.floor(Date.now() / 1000);
       const completionId = `chatcmpl-${crypto.randomUUID()}`;
-      const initialState = await toState(body, auth, authzTraceId, policyDecision);
+      const initialState = await toState(body, auth, authzTraceId, policyDecision, resolvedSession.sessionKey);
       const responseModel = initialState.response_model ?? body.model;
 
-      const sessionKey = body.conversation_id || body.user || "anon";
+      const sessionKey = resolvedSession.sessionKey;
 
       if (!body.stream) {
         const reqStart = Date.now();
@@ -775,6 +804,15 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const streamReqStart = Date.now();
       let firstTokenAt: number | undefined;
       initSse(reply.raw);
+
+      // Immediate pulse so Open WebUI shows "Thinking" right away,
+      // before entry_pipeline (classification + taxonomy) completes.
+      writeReasoningDelta(reply.raw, {
+        id: completionId,
+        created,
+        model: responseModel,
+        reasoning_content: "[Synthesizing request]\n",
+      });
 
       let finalState: GraphState = initialState;
       let streamingError: Error | undefined;
