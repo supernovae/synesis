@@ -556,17 +556,65 @@ export const criticNode = validatedNode(
   }
 );
 
+/**
+ * Domain-aware closing follow-up prompts. Keyed by taxonomy domain prefix;
+ * falls back to a generic prompt when no domain matches.
+ */
+const DOMAIN_FOLLOWUPS: Record<string, string> = {
+  software: "Would you like me to dive deeper into any of these sections, explore a specific implementation detail, or generate starter code for any component?",
+  code: "Want me to extend this further, add tests, refactor any section, or explain a specific part in more detail?",
+  data: "Would you like me to elaborate on any data aspect, generate sample queries, or explore alternative approaches?",
+  security: "Should I expand on any security control, generate policy templates, or walk through a specific threat scenario?",
+  devops: "Want me to generate manifests, write pipeline configs, or drill into any deployment detail?",
+  ml_ai: "Would you like me to go deeper on model selection, training strategy, evaluation metrics, or generate implementation code?",
+  cloud: "Should I detail a specific service, generate IaC templates, or compare alternative architectures?",
+};
+const GENERIC_FOLLOWUP = "Would you like me to expand on any section, explore a related topic, or go deeper on a specific detail?";
+
+function buildClosingFollowup(state: GraphState): string | undefined {
+  const cfg = loadConfig();
+  if (!cfg.SYNESIS_PLANNER_TS_CLOSING_FOLLOWUP_ENABLED) return undefined;
+
+  // Skip for: clarification turns, trivial tasks, error states, very short responses
+  if (state.clarification_question) return undefined;
+  if (state.user_answer_to_clarification) return undefined;
+  if (state.task_is_trivial) return undefined;
+  if (state.error) return undefined;
+  const content = state.generated_code ?? "";
+  if (content.length < 200) return undefined;
+
+  const taxonomy = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
+  const taxonomyKey = String(taxonomy.taxonomy_key ?? "");
+  const domains = (state.domain_profile?.domains ?? []).map((d) => d.key);
+
+  // Find the first matching domain follow-up
+  const allKeys = [taxonomyKey, ...domains];
+  for (const key of allKeys) {
+    for (const [prefix, prompt] of Object.entries(DOMAIN_FOLLOWUPS)) {
+      if (key.startsWith(prefix)) return prompt;
+    }
+  }
+  return GENERIC_FOLLOWUP;
+}
+
 export async function finalScrubberNode(state: GraphState): Promise<GraphState> {
   const collector = ensureCollector(state);
   collector.startSpan("final_scrubber");
   const original = (state.generated_code ?? "").trim();
-  const scrubbed = scrubInternalScaffolding(original);
+  let scrubbed = scrubInternalScaffolding(original);
+
+  const followup = buildClosingFollowup(state);
+  if (followup) {
+    scrubbed = `${scrubbed}\n\n---\n\n${followup}`;
+  }
+
   collector.endSpan("final_scrubber", {
-    outcome: scrubbed.length < original.length ? "scrubbed" : "pass_through",
+    outcome: scrubbed.length < original.length ? "scrubbed" : followup ? "followup_appended" : "pass_through",
     metadata: {
       original_length: original.length,
       scrubbed_length: scrubbed.length,
       chars_removed: original.length - scrubbed.length,
+      followup_appended: Boolean(followup),
     },
   });
   return ensureForwarded({

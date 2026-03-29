@@ -83,6 +83,12 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
+  // --- Closing follow-up ---
+  SYNESIS_PLANNER_TS_CLOSING_FOLLOWUP_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
   // --- Injection scanning ---
   SYNESIS_INJECTION_SCAN_ENABLED: z
     .string()
