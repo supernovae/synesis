@@ -94,6 +94,46 @@ This document tracks the research foundations that inform Synesis design decisio
 | Woods & Hollnagel (2006) JCS | `llm-planner.ts` clarify-first gate | `planner_node.py` clarify-first gate | Human-AI shared understanding |
 | Hearst (2009) Facets | `taxonomy-prompt-factory.ts` multi-domain propagation; `scoring-engine.ts` pairings | `entry_classifier_engine.py` pairings | Active domains as retrieval facets, not exclusive filters |
 
+## Clarification Subsystem (planner-ts)
+
+The clarification pipeline in `llm-planner.ts` has several safeguards to
+ensure the Cynefin probe (design principle 5) fires reliably:
+
+### Parse-fallback clarification
+
+When the planner LLM returns unparseable JSON (e.g. due to budget truncation
+or provider quirks), the catch path now calls `detectActionableAmbiguities()`
+instead of silently falling back to a deterministic plan. If targeted
+ambiguities are found, the result triggers `shouldClarify()` and the user
+receives a clarification question rather than a low-quality assumed plan.
+
+### Structured output (`response_format`)
+
+The planner LLM call uses `response_format: { type: "json_object" }` when
+available. Providers that reject this (OpenRouter passthrough, older vLLM) get
+a graceful retry without the flag. Combined with the adaptive budget increase,
+this nearly eliminates truncated-JSON failures.
+
+### Deduplication
+
+`buildClarificationQuestion()` deduplicates questions before merging
+`plan.open_questions` with `detectActionableAmbiguities()`. The parse-fallback
+path puts targeted ambiguities directly into `open_questions`, so a naive
+merge would repeat them. A `Set` filter prevents duplicates.
+
+### Post-clarification session preservation
+
+When the user answers a clarification, the follow-up message is typically
+short ("on prem, open weights, 50 users"). Without intervention, the entry
+classifier downgrades it to trivial and skips the planner. Two flags are set
+when consuming `pendingClarification`:
+
+- `plan_required = true` — forces the full pipeline
+- `difficulty = max(current, 0.6)` — prevents trivial classification
+
+This ensures the planner runs with the accumulated conversation context plus
+the user's answer, producing a full substantive response.
+
 ## Design Principles (Derived from Research)
 
 1. **Sensemaking before action** — Build a holistic frame (DomainProfile) before retrieving evidence or generating content. Never lock on the first keyword signal.

@@ -4,7 +4,7 @@ Single-source reference for all token budgets, context limits, and temperature
 settings across the Synesis pipeline. Use this when tuning throughput, diagnosing
 truncation, or auditing model behavior.
 
-Last updated: 2026-03-27
+Last updated: 2026-03-28
 
 ---
 
@@ -39,8 +39,30 @@ Pure scaling lives in [`base/planner-ts/src/budgets.ts`](../base/planner-ts/src/
 | `SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE` | 800 | Critic linear scale |
 | `SYNESIS_PLANNER_TS_CRITIC_BUDGET_MAX` | 4,000 | Critic scale endpoint before global clamp |
 | `SYNESIS_PLANNER_TS_CRITIC_MAX_TOKENS` | 4,096 | Hard ceiling on critic `max_tokens` |
-| `SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS` | 1,200 | LLM JSON plan output |
+| `SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS` | 2,000 | LLM JSON plan output (base; adaptive scaling may raise) |
 | `SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS` | 300,000 | LLM HTTP timeout (ms) |
+
+### Adaptive planner budget
+
+The planner's `max_tokens` scales adaptively based on task signals to prevent
+JSON truncation on complex prompts while keeping simple tasks efficient.
+
+| Condition | Budget boost | Cumulative example |
+|---|---|---|
+| Base | 2,000 | 2,000 |
+| `difficulty >= 0.7` | +800 | 2,800 |
+| `cynefin_domain` ∈ {complex, chaotic} | +800 | 3,600 |
+| `difficulty >= 0.85` | +400 | 4,000 |
+| **Hard ceiling** | **4,096** | — |
+
+Implemented in `computeAdaptivePlannerCap()` in
+[`llm-planner.ts`](../base/planner-ts/src/nodes/llm-planner.ts). The effective
+cap (not the static env default) is reported in planner span `budgetSpanMetadata`
+so traces accurately reflect what was sent to the LLM.
+
+**Why:** A complex architecture prompt classified as `chaotic` with difficulty
+0.92 previously hit 98.9% budget utilization at 1,200 tokens, truncating JSON
+mid-object. The adaptive cap gives it 4,000 tokens — same model, valid output.
 
 **Trace metadata** (see [`pipeline.ts`](../base/planner-ts/src/pipeline.ts), [`budgets.ts`](../base/planner-ts/src/budgets.ts) `budgetSpanMetadata`):
 

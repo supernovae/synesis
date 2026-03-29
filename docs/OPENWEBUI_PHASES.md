@@ -69,6 +69,74 @@ data: {"event": {"type": "status", "data": {"description": "› Gathering eviden
 
 ---
 
+## planner-ts Streaming (TypeScript runtime)
+
+planner-ts uses `LangGraph` `.stream({ streamMode: "updates" })` and emits
+`reasoning_content` deltas for phase descriptions, plus `content` deltas for
+the writer output. Key differences from the Python planner:
+
+### Early SSE pulse
+
+An immediate `[Synthesizing request]` reasoning delta is emitted right after
+SSE headers are flushed, **before** the entry pipeline starts. This triggers
+Open WebUI's "Thinking" indicator instantly, eliminating the perceived dead air
+while classification, taxonomy resolution, and frame extraction run.
+
+### Phase labels (planner-ts)
+
+```typescript
+const PHASE_DESCRIPTION = {
+  entry_pipeline: "Classifying and framing request",
+  planner:        "Building execution plan",
+  plan_gate:      "Validating plan deterministically",
+  router:         "Gathering and structuring evidence",
+  writer:         "Composing grounded response",
+  critic:         "Evaluating quality and grounding",
+  final_scrubber: "Applying final response cleanup",
+  respond:        "Preparing final response",
+};
+```
+
+Phases are emitted as `reasoning_content` in `chat.completion.chunk` objects
+(not as `event:` SSE lines), matching what Open WebUI expects.
+
+### Non-writer content streaming
+
+When the graph bypasses the writer node (e.g. clarification → plan_gate →
+respond), content is set in `generated_code` but never streamed by the writer
+delta handler. A post-loop guard detects this and emits the content as a
+standard content delta before the final chunk. This ensures clarification
+questions and direct responses always reach the client.
+
+### Domain-aware closing follow-up
+
+After substantive (non-clarification, non-trivial) responses, the final
+scrubber appends a contextual follow-up prompt separated by `---`. This
+replaces Open WebUI's indiscriminate auto-follow-ups which fire on every turn,
+including during clarification exchanges.
+
+**When it appends:**
+- Response is 200+ chars
+- Not a clarification turn or answer
+- Not trivial/error
+
+**When it skips:**
+- Clarification questions
+- Clarification answer processing
+- Trivial/pulse-tier tasks
+- Error states
+- Short responses
+
+**Domain matching:** Uses taxonomy key and domain profile to select a relevant
+prompt (software, code, data, security, devops, ml_ai, cloud) with a generic
+fallback.
+
+**Config:** `SYNESIS_PLANNER_TS_CLOSING_FOLLOWUP_ENABLED` (default `true`).
+Disable Open WebUI's `ENABLE_AUTOCOMPLETE_GENERATION` to avoid double
+follow-ups.
+
+---
+
 ## Critic Modes
 
 **Config:** `SYNESIS_CRITIC_BACKGROUND` (default: `false`)
@@ -185,8 +253,13 @@ chunk regardless.
 
 ## References
 
-- Planner streaming: `base/planner/app/main.py` — `sse_generator()`, `_NODE_TO_PHASE`
-- Fallback streaming: `base/planner/app/streaming_events.py` — `StatusQueueCallback`
+- **planner-ts streaming:** `base/planner-ts/src/app.ts` — SSE init, early pulse, post-loop content guard
+- **planner-ts phases:** `base/planner-ts/src/streaming/phases.ts` — `describePhase()`
+- **planner-ts SSE helpers:** `base/planner-ts/src/streaming/sse.ts` — `writeContentDelta`, `writeReasoningDelta`
+- **planner-ts graph:** `base/planner-ts/src/graph.ts` — `streamGraph()` yields `NodeTransitionEvent`
+- **planner-ts closing follow-up:** `base/planner-ts/src/pipeline.ts` — `buildClosingFollowup()`, `finalScrubberNode()`
+- **Python planner streaming:** `base/planner/app/main.py` — `sse_generator()`, `_NODE_TO_PHASE`
+- **Python fallback streaming:** `base/planner/app/streaming_events.py` — `StatusQueueCallback`
 - Open WebUI Events: https://docs.openwebui.com/features/plugin/events/
 - LiteLLM config: `base/gateway/litellm-config.yaml`
 - Dev direct-planner: `overlays/dev/openwebui-direct-planner.yaml`
