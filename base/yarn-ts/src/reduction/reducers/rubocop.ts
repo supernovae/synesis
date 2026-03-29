@@ -1,3 +1,4 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
 
 const OFFENSE = /^(.+\.rb):(\d+):(\d+):\s*([CWEF]):\s*([\w/]+):\s*(.+)$/;
@@ -9,6 +10,7 @@ export class RubocopReducer implements Reducer {
   reduce(input: ReducerInput): ReducerOutput | null {
     const lines = input.raw.split("\n");
     const offenses: string[] = [];
+    const items: ParsedItem[] = [];
     let filesInspected: number | null = null;
     let offensesDetected: number | null = null;
 
@@ -23,6 +25,7 @@ export class RubocopReducer implements Reducer {
       const o = OFFENSE.exec(t);
       if (o) {
         offenses.push(`${o[1]}:${o[2]}:${o[3]} [${o[4]}] ${o[5]}: ${o[6]}`);
+        items.push({ message: o[6], file: o[1], ruleId: o[5] });
       }
     }
 
@@ -37,19 +40,26 @@ export class RubocopReducer implements Reducer {
     const files = filesInspected ?? new Set(offenses.map((o) => o.split(":")[0])).size;
     const offCount = offensesDetected ?? offenses.length;
     const limit = input.context.profile === "ultra" ? 6 : 12;
+    const top = items.slice(0, limit);
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems(this.family, top);
+
     const parts: string[] = [
       `<TOOL_REDUCED family="rubocop" offenses="${offCount}" files="${files}">`
     ];
     if (filesInspected !== null && offensesDetected !== null) {
       parts.push(`totals: ${filesInspected} files inspected, ${offensesDetected} offenses detected`);
     }
-    offenses.slice(0, limit).forEach((o, i) => parts.push(`  ${i + 1}. ${o}`));
-    if (offenses.length > limit) parts.push(`  ... ${offenses.length - limit} more`);
+    if (enrichedLines.length > 0) {
+      parts.push(...enrichedLines);
+      if (offenses.length > limit) parts.push(`  ... ${offenses.length - limit} more`);
+    }
     parts.push("</TOOL_REDUCED>");
     return {
       family: this.family,
       confidence: 0.91,
       actionableCount: Math.max(offenses.length, offCount),
+      enrichedItems: enriched,
+      bypassEligible,
       summary: parts.join("\n")
     };
   }

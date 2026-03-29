@@ -81,4 +81,22 @@ describe("ToolResultReductionService", () => {
     const stats = svc.getStats();
     expect(stats.fallbackToArtifactCount).toBeGreaterThan(0);
   });
+
+  it("tracks enrichedCount and bypassEligibleCount in stats", () => {
+    const svc = new ToolResultReductionService(makeConfig(10), new ArtifactStore());
+    svc.reduceStandaloneToolResult(
+      "_____________________ test_add _____________________\nE       assert 1 == 2",
+      "pytest"
+    );
+    const stats = svc.getStats();
+    expect(stats.enrichedCount).toBeGreaterThanOrEqual(1);
+    expect(typeof stats.bypassEligibleCount).toBe("number");
+  });
+
+  it("enrichment stats start at zero", () => {
+    const svc = new ToolResultReductionService(makeConfig(500), new ArtifactStore());
+    const stats = svc.getStats();
+    expect(stats.enrichedCount).toBe(0);
+    expect(stats.bypassEligibleCount).toBe(0);
+  });
 });

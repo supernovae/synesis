@@ -1,3 +1,4 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
 
 const IN_FILE_LINE = /^In\s+(.+?)\s+line\s+(\d+):/i;
@@ -11,6 +12,7 @@ export class ShellcheckReducer implements Reducer {
   reduce(input: ReducerInput): ReducerOutput | null {
     const lines = input.raw.split("\n");
     const findings: { line: string; severity: string; code?: string }[] = [];
+    const items: ParsedItem[] = [];
     let pendingFile: string | null = null;
     let pendingLine: string | null = null;
 
@@ -31,6 +33,7 @@ export class ShellcheckReducer implements Reducer {
           severity: sev,
           code
         });
+        items.push({ message: gcc[5], file: gcc[1], ruleId: code });
         pendingFile = null;
         pendingLine = null;
         continue;
@@ -47,6 +50,11 @@ export class ShellcheckReducer implements Reducer {
           severity: sev,
           code: caret[1]
         });
+        items.push({
+          message: msg.replace(CARET_SC, "").trim(),
+          file: pendingFile ?? undefined,
+          ruleId: caret[1]
+        });
       }
     }
 
@@ -54,16 +62,23 @@ export class ShellcheckReducer implements Reducer {
 
     const errorCount = findings.filter((f) => f.severity === "error").length;
     const limit = input.context.profile === "ultra" ? 6 : 12;
+    const top = items.slice(0, limit);
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems(this.family, top);
+
     const parts: string[] = [
       `<TOOL_REDUCED family="shellcheck" findings="${findings.length}" errors="${errorCount}">`
     ];
-    findings.slice(0, limit).forEach((f, i) => parts.push(`  ${i + 1}. ${f.line}`));
-    if (findings.length > limit) parts.push(`  ... ${findings.length - limit} more`);
+    if (enrichedLines.length > 0) {
+      parts.push(...enrichedLines);
+      if (findings.length > limit) parts.push(`  ... ${findings.length - limit} more`);
+    }
     parts.push("</TOOL_REDUCED>");
     return {
       family: this.family,
       confidence: 0.88,
       actionableCount: findings.length,
+      enrichedItems: enriched,
+      bypassEligible,
       summary: parts.join("\n")
     };
   }

@@ -1,3 +1,4 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
 
 const BRACKET_LOC = /^\[(.+?):(\d+)\]:\s*\((error|warning|style|performance)\)\s*(.+)$/i;
@@ -11,6 +12,7 @@ export class CppcheckReducer implements Reducer {
   reduce(input: ReducerInput): ReducerOutput | null {
     const lines = input.raw.split("\n");
     const findings: { line: string; isError: boolean }[] = [];
+    const items: ParsedItem[] = [];
 
     for (const line of lines) {
       const t = line.trim();
@@ -25,6 +27,7 @@ export class CppcheckReducer implements Reducer {
           line: `${b[1]}:${b[2]} (${kind}) ${b[4]}${extra ? ` ${extra}` : ""}`,
           isError
         });
+        items.push({ message: b[4], file: b[1], ruleId: id?.[1] });
         continue;
       }
       const c = COLON_LOC.exec(t);
@@ -39,6 +42,7 @@ export class CppcheckReducer implements Reducer {
           line: `${c[1]}:${c[2]}:${c[3]} (${kind}) ${c[5]}${extra ? ` ${extra}` : ""}`,
           isError
         });
+        items.push({ message: c[5], file: c[1], ruleId: id?.[1] });
       }
     }
 
@@ -46,16 +50,23 @@ export class CppcheckReducer implements Reducer {
 
     const errorCount = findings.filter((f) => f.isError).length;
     const limit = input.context.profile === "ultra" ? 6 : 12;
+    const top = items.slice(0, limit);
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems(this.family, top);
+
     const parts: string[] = [
       `<TOOL_REDUCED family="cppcheck" findings="${findings.length}" errors="${errorCount}">`
     ];
-    findings.slice(0, limit).forEach((f, i) => parts.push(`  ${i + 1}. ${f.line}`));
-    if (findings.length > limit) parts.push(`  ... ${findings.length - limit} more`);
+    if (enrichedLines.length > 0) {
+      parts.push(...enrichedLines);
+      if (findings.length > limit) parts.push(`  ... ${findings.length - limit} more`);
+    }
     parts.push("</TOOL_REDUCED>");
     return {
       family: this.family,
       confidence: 0.9,
       actionableCount: findings.length,
+      enrichedItems: enriched,
+      bypassEligible,
       summary: parts.join("\n")
     };
   }

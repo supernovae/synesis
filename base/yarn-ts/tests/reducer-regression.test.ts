@@ -197,3 +197,56 @@ describe("Reducer output quality", () => {
     }
   });
 });
+
+describe("Enrichment integration: validator reducers produce enrichedItems", () => {
+  const ENRICHABLE_FAMILIES: ReducerFamily[] = [
+    "pytest", "tsc", "lint", "mypy", "pylint", "cargo", "clippy",
+    "jest", "go-build", "shellcheck", "rubocop", "cppcheck"
+  ];
+
+  // terraform fixture is plan-only (no errors), so enrichedItems is empty — tested separately
+  for (const family of ENRICHABLE_FAMILIES) {
+    const hint = TOOL_HINTS[family];
+    if (!hint) continue;
+    it(`${family} reducer populates enrichedItems`, () => {
+      const out = registry.reduce({
+        raw: fixture(family),
+        context: { toolName: hint.toolName, command: hint.command, profile: "balanced", maxChars: 12000, minConfidence: 0.6 }
+      });
+      expect(out).not.toBeNull();
+      expect(out!.enrichedItems).toBeDefined();
+      expect(out!.enrichedItems!.length).toBeGreaterThan(0);
+    });
+  }
+
+  it("terraform reducer returns enrichedItems (empty for plan-only fixture)", () => {
+    const hint = TOOL_HINTS["terraform"];
+    const out = registry.reduce({
+      raw: fixture("terraform"),
+      context: { toolName: hint.toolName, command: hint.command, profile: "balanced", maxChars: 12000, minConfidence: 0.6 }
+    });
+    expect(out).not.toBeNull();
+    expect(out!.enrichedItems).toBeDefined();
+    expect(Array.isArray(out!.enrichedItems)).toBe(true);
+  });
+});
+
+describe("Enrichment integration: bypassEligible is boolean", () => {
+  const ENRICHABLE_FAMILIES: ReducerFamily[] = [
+    "pytest", "tsc", "lint", "mypy", "pylint", "cargo", "clippy",
+    "terraform", "jest", "go-build", "shellcheck", "rubocop", "cppcheck"
+  ];
+
+  for (const family of ENRICHABLE_FAMILIES) {
+    const hint = TOOL_HINTS[family];
+    if (!hint) continue;
+    it(`${family} reducer has bypassEligible defined`, () => {
+      const out = registry.reduce({
+        raw: fixture(family),
+        context: { toolName: hint.toolName, command: hint.command, profile: "balanced", maxChars: 12000, minConfidence: 0.6 }
+      });
+      expect(out).not.toBeNull();
+      expect(typeof out!.bypassEligible).toBe("boolean");
+    });
+  }
+});

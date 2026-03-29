@@ -1,3 +1,4 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
 
 const LOC_ARROW = /^-->\s+(.+?):(\d+):(\d+)\s*$/;
@@ -13,19 +14,25 @@ export class ClippyReducer implements Reducer {
 
   reduce(input: ReducerInput): ReducerOutput | null {
     const lines = input.raw.split("\n");
-    const items: { kind: "W" | "E"; text: string }[] = [];
+    const rawItems: { kind: "W" | "E"; text: string }[] = [];
+    const parsed: ParsedItem[] = [];
     let pendingW: string | null = null;
     let pendingE: string | null = null;
+    let pendingRule: string | undefined;
     let summaryWarnings: number | null = null;
 
-    const flushPendingAt = (locStr: string) => {
+    const flushPendingAt = (locStr: string, file: string) => {
       if (pendingW) {
-        items.push({ kind: "W", text: `${locStr} ${pendingW}` });
+        rawItems.push({ kind: "W", text: `${locStr} ${pendingW}` });
+        parsed.push({ message: pendingW.replace(/\s*\[clippy::[^\]]+\]\s*$/, ""), file, ruleId: pendingRule });
         pendingW = null;
+        pendingRule = undefined;
       }
       if (pendingE) {
-        items.push({ kind: "E", text: `${locStr} ${pendingE}` });
+        rawItems.push({ kind: "E", text: `${locStr} ${pendingE}` });
+        parsed.push({ message: pendingE, file, ruleId: pendingRule });
         pendingE = null;
+        pendingRule = undefined;
       }
     };
 
@@ -34,7 +41,7 @@ export class ClippyReducer implements Reducer {
       const loc = LOC_ARROW.exec(t);
       if (loc) {
         const locStr = `${loc[1]}:${loc[2]}:${loc[3]}`;
-        flushPendingAt(locStr);
+        flushPendingAt(locStr, loc[1]);
         continue;
       }
       const wg = WARNINGS_GENERATED.exec(t);
@@ -46,7 +53,8 @@ export class ClippyReducer implements Reducer {
         pendingE = null;
         const lint = CLIPPY_LINT.exec(t);
         const detail = lint ? `${win[1]} [${lint[0]}]` : win[1];
-        items.push({ kind: "W", text: `${win[2]}:${win[3]}:${win[4]} ${detail}` });
+        rawItems.push({ kind: "W", text: `${win[2]}:${win[3]}:${win[4]} ${detail}` });
+        parsed.push({ message: win[1], file: win[2], ruleId: lint?.[1] });
         continue;
       }
       const w = WARNING_START.exec(t);
@@ -59,36 +67,43 @@ export class ClippyReducer implements Reducer {
         pendingE = null;
         const lint = CLIPPY_LINT.exec(t);
         pendingW = lint ? `${w[1]} [${lint[0]}]` : w[1];
+        pendingRule = lint?.[1];
         continue;
       }
       const e = ERROR_START.exec(t);
       if (e && !t.includes("could not compile") && !t.includes("aborting due to")) {
         pendingW = null;
         pendingE = e[1];
+        pendingRule = undefined;
       }
     }
 
     const hasClippy = CLIPPY_LINT.test(input.raw) || /\[warn\(clippy::/i.test(input.raw);
-    if (items.length === 0 && summaryWarnings === null && !hasClippy) return null;
+    if (rawItems.length === 0 && summaryWarnings === null && !hasClippy) return null;
 
-    const errors = items.filter((x) => x.kind === "E").length;
-    let warnings = items.filter((x) => x.kind === "W").length;
+    const errors = rawItems.filter((x) => x.kind === "E").length;
+    let warnings = rawItems.filter((x) => x.kind === "W").length;
     if (summaryWarnings !== null) warnings = Math.max(warnings, summaryWarnings);
 
     const limit = input.context.profile === "ultra" ? 6 : 12;
+    const top = parsed.slice(0, limit);
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems("clippy", top);
+
     const parts: string[] = [
       `<TOOL_REDUCED family="clippy" warnings="${warnings}" errors="${errors}">`
     ];
     if (summaryWarnings !== null) parts.push(`rustc summary: ${summaryWarnings} warnings generated`);
-    items
-      .slice(0, limit)
-      .forEach((it, i) => parts.push(`  ${i + 1}. ${it.kind} ${it.text}`));
-    if (items.length > limit) parts.push(`  ... ${items.length - limit} more`);
+    if (enrichedLines.length > 0) {
+      parts.push(...enrichedLines);
+      if (rawItems.length > limit) parts.push(`  ... ${rawItems.length - limit} more`);
+    }
     parts.push("</TOOL_REDUCED>");
     return {
       family: this.family,
       confidence: 0.89,
-      actionableCount: items.length,
+      actionableCount: rawItems.length,
+      enrichedItems: enriched,
+      bypassEligible,
       summary: parts.join("\n")
     };
   }

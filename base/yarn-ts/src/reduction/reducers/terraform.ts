@@ -1,3 +1,4 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
 
 export class TerraformReducer implements Reducer {
@@ -7,6 +8,7 @@ export class TerraformReducer implements Reducer {
     const raw = input.raw;
     const changes: string[] = [];
     const errors: string[] = [];
+    const errorItems: ParsedItem[] = [];
     let planSummary = "";
     let applySummary = "";
 
@@ -19,24 +21,39 @@ export class TerraformReducer implements Reducer {
       } else if (/^Apply complete!/.test(trimmed)) {
         applySummary = trimmed;
       } else if (/^Error:/.test(trimmed) || /^│\s*Error/.test(trimmed)) {
-        errors.push(trimmed.replace(/^│\s*/, ""));
+        const msg = trimmed.replace(/^│\s*/, "");
+        errors.push(msg);
+        errorItems.push({ message: msg.replace(/^Error:\s*/, "") });
       }
     }
 
     if (changes.length === 0 && errors.length === 0 && !planSummary && !applySummary) return null;
     const limit = input.context.profile === "ultra" ? 8 : 16;
+
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems(
+      this.family,
+      errorItems.slice(0, 5)
+    );
+
     const parts: string[] = [`<TOOL_REDUCED family="terraform" changes="${changes.length}">`];
     if (planSummary) parts.push(planSummary);
     if (applySummary) parts.push(applySummary);
-    if (errors.length > 0) {
+    if (enrichedLines.length > 0) {
       parts.push(`errors (${errors.length}):`);
-      errors.slice(0, 5).forEach((e, i) => parts.push(`  ${i + 1}. ${e}`));
+      parts.push(...enrichedLines);
     }
     if (changes.length > 0) {
       changes.slice(0, limit).forEach((c) => parts.push(`  ${c}`));
       if (changes.length > limit) parts.push(`  ... ${changes.length - limit} more changes`);
     }
     parts.push("</TOOL_REDUCED>");
-    return { family: this.family, confidence: 0.9, actionableCount: errors.length + changes.length, summary: parts.join("\n") };
+    return {
+      family: this.family,
+      confidence: 0.9,
+      actionableCount: errors.length + changes.length,
+      enrichedItems: enriched,
+      bypassEligible,
+      summary: parts.join("\n")
+    };
   }
 }

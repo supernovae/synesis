@@ -1,3 +1,4 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
 
 export class JestReducer implements Reducer {
@@ -5,7 +6,7 @@ export class JestReducer implements Reducer {
 
   reduce(input: ReducerInput): ReducerOutput | null {
     const lines = input.raw.split("\n");
-    const failures: string[] = [];
+    const items: ParsedItem[] = [];
     let testSuites = "";
     let currentSuite = "";
 
@@ -14,23 +15,34 @@ export class JestReducer implements Reducer {
       if (/^FAIL\s+/.test(trimmed)) {
         currentSuite = trimmed.replace(/^FAIL\s+/, "");
       } else if (/^✕|^×|^✗/.test(trimmed) || /^\s+● /.test(line)) {
-        failures.push(`${currentSuite}: ${trimmed.replace(/^[✕×✗●]\s*/, "")}`);
+        const msg = trimmed.replace(/^[✕×✗●]\s*/, "");
+        items.push({ message: `${currentSuite}: ${msg}`, file: currentSuite || undefined });
       } else if (/^(Tests|Test Suites):/.test(trimmed)) {
         testSuites += trimmed + "\n";
       } else if (/expect\(.+\)\.(toBe|toEqual|toMatch|toThrow|toHaveBeenCalled)/.test(trimmed)) {
-        failures.push(`${currentSuite}: ${trimmed}`);
+        items.push({ message: `${currentSuite}: ${trimmed}`, file: currentSuite || undefined });
       }
     }
 
-    if (failures.length === 0 && !testSuites) return null;
+    if (items.length === 0 && !testSuites) return null;
     const limit = input.context.profile === "ultra" ? 6 : 12;
-    const parts: string[] = [`<TOOL_REDUCED family="jest" failures="${failures.length}">`];
+    const top = items.slice(0, limit);
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems(this.family, top);
+
+    const parts: string[] = [`<TOOL_REDUCED family="jest" failures="${items.length}">`];
     if (testSuites.trim()) parts.push(testSuites.trim());
-    if (failures.length > 0) {
-      failures.slice(0, limit).forEach((f, i) => parts.push(`  ${i + 1}. ${f}`));
-      if (failures.length > limit) parts.push(`  ... ${failures.length - limit} more`);
+    if (enrichedLines.length > 0) {
+      parts.push(...enrichedLines);
+      if (items.length > limit) parts.push(`  ... ${items.length - limit} more`);
     }
     parts.push("</TOOL_REDUCED>");
-    return { family: this.family, confidence: 0.92, actionableCount: failures.length, summary: parts.join("\n") };
+    return {
+      family: this.family,
+      confidence: 0.92,
+      actionableCount: items.length,
+      enrichedItems: enriched,
+      bypassEligible,
+      summary: parts.join("\n")
+    };
   }
 }

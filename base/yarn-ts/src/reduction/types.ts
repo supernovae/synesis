@@ -32,11 +32,22 @@ export interface ReducerInput {
   context: ReductionContext;
 }
 
+export interface EnrichedItem {
+  message: string;
+  file?: string;
+  ruleId?: string;
+  errorFamily?: string;
+  rootCause?: string;
+  action?: string;
+}
+
 export interface ReducerOutput {
   family: ReducerFamily;
   confidence: number;
   summary: string;
   actionableCount: number;
+  enrichedItems?: EnrichedItem[];
+  bypassEligible?: boolean;
 }
 
 export interface Reducer {

@@ -7,6 +7,7 @@ describe("applyAdmissionPolicy", () => {
     const store = new ArtifactStore();
     const envelope = {
       family: "generic" as const,
+      outputFormat: "text" as const,
       findings: [{ family: "generic" as const, severity: "error" as const, message: "one" }],
       rawChars: 20,
       normalizedChars: 30,
@@ -22,6 +23,7 @@ describe("applyAdmissionPolicy", () => {
     const store = new ArtifactStore();
     const envelope = {
       family: "generic" as const,
+      outputFormat: "text" as const,
       findings: [{ family: "generic" as const, severity: "error" as const, message: "one" }],
       rawChars: 5000,
       normalizedChars: 60,

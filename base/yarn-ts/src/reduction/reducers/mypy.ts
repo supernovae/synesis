@@ -1,34 +1,52 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
+
+const MYPY_ERROR = /^(.+\.py):(\d+):\s*error:\s*(.+?)(?:\s+\[([^\]]+)\])?\s*$/;
 
 export class MypyReducer implements Reducer {
   readonly family = "mypy" as const;
 
   reduce(input: ReducerInput): ReducerOutput | null {
     const lines = input.raw.split("\n");
-    const errors: string[] = [];
+    const items: ParsedItem[] = [];
     const notes: string[] = [];
-    let summary = "";
+    let summaryLine = "";
 
     for (const line of lines) {
       const trimmed = line.trim();
+      const m = MYPY_ERROR.exec(trimmed);
+      if (m) {
+        items.push({ message: m[3], file: m[1], ruleId: m[4] });
+        continue;
+      }
       if (/\.py:\d+: error:/.test(trimmed)) {
-        errors.push(trimmed);
+        items.push({ message: trimmed });
       } else if (/\.py:\d+: note:/.test(trimmed)) {
         notes.push(trimmed);
       } else if (/^Found \d+ error/.test(trimmed) || /^Success:/.test(trimmed)) {
-        summary = trimmed;
+        summaryLine = trimmed;
       }
     }
 
-    if (errors.length === 0 && !summary) return null;
+    if (items.length === 0 && !summaryLine) return null;
     const limit = input.context.profile === "ultra" ? 6 : 12;
-    const parts: string[] = [`<TOOL_REDUCED family="mypy" errors="${errors.length}">`];
-    if (summary) parts.push(summary);
-    if (errors.length > 0) {
-      errors.slice(0, limit).forEach((e, i) => parts.push(`  ${i + 1}. ${e}`));
-      if (errors.length > limit) parts.push(`  ... ${errors.length - limit} more`);
+    const top = items.slice(0, limit);
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems(this.family, top);
+
+    const parts: string[] = [`<TOOL_REDUCED family="mypy" errors="${items.length}">`];
+    if (summaryLine) parts.push(summaryLine);
+    if (enrichedLines.length > 0) {
+      parts.push(...enrichedLines);
+      if (items.length > limit) parts.push(`  ... ${items.length - limit} more`);
     }
     parts.push("</TOOL_REDUCED>");
-    return { family: this.family, confidence: 0.92, actionableCount: errors.length, summary: parts.join("\n") };
+    return {
+      family: this.family,
+      confidence: 0.92,
+      actionableCount: items.length,
+      enrichedItems: enriched,
+      bypassEligible,
+      summary: parts.join("\n")
+    };
   }
 }

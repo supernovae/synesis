@@ -5,20 +5,43 @@ export type ValidationFamily =
   | "eslint"
   | "ruff"
   | "pytest"
+  | "mypy"
+  | "pylint"
+  | "jest"
+  | "cargo"
+  | "go"
+  | "golangci-lint"
+  | "terraform"
+  | "tfsec"
+  | "trivy"
+  | "semgrep"
+  | "shellcheck"
+  | "rubocop"
+  | "cppcheck"
   | "generic";
+
+export type ValidationOutputFormat = "sarif" | "junit" | "checkstyle" | "json" | "text";
 
 export interface ValidationFinding {
   family: ValidationFamily;
   severity: ValidationSeverity;
   file?: string;
   line?: number;
+  column?: number;
+  ruleId?: string;
+  errorFamily?: string;
   excerpt?: string;
   message: string;
   likelyFix?: string;
+  likelyRootCause?: string;
+  suggestedNextAction?: string;
+  rawFingerprint?: string;
+  isRepeat?: boolean;
 }
 
 export interface ValidationEnvelope {
   family: ValidationFamily;
+  outputFormat: ValidationOutputFormat;
   findings: ValidationFinding[];
   rawChars: number;
   normalizedChars: number;

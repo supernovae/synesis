@@ -22,6 +22,8 @@ export interface ToolResultReductionStats {
   jsonCompactionCount: number;
   contentDispatchCount: number;
   reducerFailures: number;
+  enrichedCount: number;
+  bypassEligibleCount: number;
   byFamily: Record<string, number>;
   lifecycle: Record<string, { lifecycle: string; successes: number; failures: number; lastError?: string }>;
 }
@@ -61,6 +63,8 @@ export class ToolResultReductionService {
     jsonCompactionCount: 0,
     contentDispatchCount: 0,
     reducerFailures: 0,
+    enrichedCount: 0,
+    bypassEligibleCount: 0,
     byFamily: buildByFamilyStats(),
     lifecycle: {}
   };
@@ -117,6 +121,8 @@ export class ToolResultReductionService {
       if (reduced) {
         summary = reduced.summary;
         this.stats.byFamily[reduced.family] += 1;
+        if (reduced.enrichedItems && reduced.enrichedItems.length > 0) this.stats.enrichedCount += 1;
+        if (reduced.bypassEligible) this.stats.bypassEligibleCount += 1;
       } else {
         const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
         if (jsonResult && jsonResult.compressionRatio > 0.2) {
@@ -172,6 +178,8 @@ export class ToolResultReductionService {
     if (reduced) {
       summary = reduced.summary;
       this.stats.byFamily[reduced.family] += 1;
+      if (reduced.enrichedItems && reduced.enrichedItems.length > 0) this.stats.enrichedCount += 1;
+      if (reduced.bypassEligible) this.stats.bypassEligibleCount += 1;
     } else {
       const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
       if (jsonResult && jsonResult.compressionRatio > 0.2) {

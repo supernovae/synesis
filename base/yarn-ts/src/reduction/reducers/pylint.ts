@@ -1,3 +1,4 @@
+import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
 
 const MODULE_HDR = /^\*{10,}\s*Module\s+/;
@@ -10,6 +11,7 @@ export class PylintReducer implements Reducer {
   reduce(input: ReducerInput): ReducerOutput | null {
     const lines = input.raw.split("\n");
     const messages: string[] = [];
+    const items: ParsedItem[] = [];
     const counts = { C: 0, R: 0, W: 0, E: 0, F: 0 };
     let sawModule = false;
     let score: string | null = null;
@@ -22,6 +24,7 @@ export class PylintReducer implements Reducer {
         const kind = m[4] as keyof typeof counts;
         if (counts[kind] !== undefined) counts[kind]++;
         messages.push(t);
+        items.push({ message: m[6], file: m[1], ruleId: `${m[4]}${m[5]}` });
         continue;
       }
       const rs = RATED_SCORE.exec(t);
@@ -33,6 +36,9 @@ export class PylintReducer implements Reducer {
     const errors = counts.E + counts.F;
     const warnings = counts.C + counts.R + counts.W;
     const limit = input.context.profile === "ultra" ? 6 : 12;
+    const top = items.slice(0, limit);
+    const { items: enriched, enrichedLines, bypassEligible } = enrichItems(this.family, top);
+
     const scoreAttr = score ?? "-";
     const parts: string[] = [
       `<TOOL_REDUCED family="pylint" errors="${errors}" warnings="${warnings}" score="${scoreAttr}">`
@@ -41,14 +47,17 @@ export class PylintReducer implements Reducer {
       `by_type: C=${counts.C} R=${counts.R} W=${counts.W} E=${counts.E} F=${counts.F}`
     );
     if (score) parts.push(`rated: ${score}/10`);
-    messages.slice(0, limit).forEach((msg, i) => parts.push(`  ${i + 1}. ${msg}`));
-    if (messages.length > limit) parts.push(`  ... ${messages.length - limit} more`);
+    if (enrichedLines.length > 0) {
+      parts.push(...enrichedLines);
+      if (messages.length > limit) parts.push(`  ... ${messages.length - limit} more`);
+    }
     parts.push("</TOOL_REDUCED>");
-    const actionable = messages.length;
     return {
       family: this.family,
       confidence: 0.9,
-      actionableCount: actionable,
+      actionableCount: messages.length,
+      enrichedItems: enriched,
+      bypassEligible,
       summary: parts.join("\n")
     };
   }
