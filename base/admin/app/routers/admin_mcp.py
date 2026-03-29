@@ -75,7 +75,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "unified_usage_snapshot",
         "description": (
-            "Full usage and cost snapshot: pipeline rollups + trace totals, rollup lag, "
+            "Full usage and cost snapshot: pipeline trace totals, "
             "glossary of cost fields, and Yarn IDE usage for org_admin+. "
             "Prefer this when the user asks about costs, spend, or unified usage."
         ),
@@ -116,17 +116,6 @@ _TOOLS: list[dict[str, Any]] = [
         "description": "RAG corpus knowledge gap statistics.",
         "min_role": Role.org_admin,
         "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "trigger_usage_rollup",
-        "description": "Manually trigger a usage rollup aggregation. Admin only.",
-        "min_role": Role.platform_admin,
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "lookback_minutes": {"type": "integer", "default": 15},
-            },
-        },
     },
     {
         "name": "reconcile_litellm",
@@ -513,10 +502,10 @@ async def _trace_stats(user: UserInfo, args: dict) -> Any:
 
 
 async def _usage_summary(user: UserInfo, args: dict) -> Any:
-    from ..services.usage_rollup import get_usage_summary
+    from ..services.trace_store import aggregate_traces_period
 
     scope = trace_scope_filters(user)
-    return await get_usage_summary(
+    return await aggregate_traces_period(
         since_hours=args.get("since_hours", 24),
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
@@ -567,12 +556,6 @@ async def _knowledge_gap_stats(user: UserInfo, args: dict) -> Any:
             )
         ).scalar() or 0
     return {"total_gaps": total, "open": open_count, "resolved": total - open_count}
-
-
-async def _trigger_usage_rollup(user: UserInfo, args: dict) -> Any:
-    from ..services.usage_rollup import run_rollup
-
-    return await run_rollup(lookback_minutes=args.get("lookback_minutes", 15))
 
 
 async def _reconcile_litellm(user: UserInfo, args: dict) -> Any:
@@ -765,7 +748,6 @@ _HANDLERS: dict[str, Any] = {
     "cache_metrics": _cache_metrics,
     "circuit_breakers": _circuit_breakers,
     "knowledge_gap_stats": _knowledge_gap_stats,
-    "trigger_usage_rollup": _trigger_usage_rollup,
     "reconcile_litellm": _reconcile_litellm,
     "purge_trivial_traces": _purge_trivial_traces,
     "ingestion_list_items": _ingestion_list_items,

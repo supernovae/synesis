@@ -40,17 +40,16 @@ export function useDashboardSummary() {
 export interface UsageUnifiedSummary {
   since_hours: number;
   pipeline: {
-    rollups: Record<string, number | string>;
     traces: {
       period_hours: number;
       trace_count: number;
       total_tokens: number;
       estimated_cost_usd: number;
       actual_cost_usd: number;
+      avg_duration_ms: number;
+      error_count: number;
     };
   };
-  rollup_latest_bucket_utc: string | null;
-  rollup_lag_seconds_approx: number | null;
   yarn: Record<string, number | string> | null;
   total_platform_spend?: {
     planner_estimated_usd: number;
@@ -70,14 +69,6 @@ export function useUsageSummaryUnified(sinceHours: number) {
     queryKey: ["usage", "summary-unified", sinceHours],
     queryFn: () =>
       client.get("/usage/summary-unified", { params: { since_hours: sinceHours } }).then((r) => r.data),
-  });
-}
-
-export function useUsageReconcile(sinceHours: number, enabled: boolean) {
-  return useQuery({
-    queryKey: ["usage", "reconcile", sinceHours],
-    queryFn: () => client.get("/usage/reconcile", { params: { since_hours: sinceHours } }).then((r) => r.data),
-    enabled,
   });
 }
 
@@ -151,21 +142,6 @@ export function useUpdateModelCost() {
   });
 }
 
-export function useHardPurgeLegacyCosts() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => client.post("/models/costs/hard-purge-legacy").then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["models", "costs"] });
-      qc.invalidateQueries({ queryKey: ["models", "active-costs"] });
-      qc.invalidateQueries({ queryKey: ["models", "costs", "by-role"] });
-      qc.invalidateQueries({ queryKey: ["models", "costs", "daily"] });
-      qc.invalidateQueries({ queryKey: ["usage"] });
-      qc.invalidateQueries({ queryKey: ["usage-reconcile"] });
-      qc.invalidateQueries({ queryKey: ["audit"] });
-    },
-  });
-}
 
 interface ModelPerformanceEntry {
   [key: string]: unknown;
@@ -714,23 +690,6 @@ export function useCostsDaily(days: number = 7) {
   });
 }
 
-export interface CostRateSnapshotEntry {
-  model: string;
-  role: string;
-  input_per_million: number;
-  output_per_million: number;
-  source: string;
-  captured_at: string;
-}
-
-export function useCostRateHistory(days: number = 90) {
-  return useQuery<{ snapshots: CostRateSnapshotEntry[]; period_days: number }>({
-    queryKey: ["models", "costs", "rate-history", days],
-    queryFn: () =>
-      client.get("/models/costs/rate-history", { params: { days } }).then((r) => r.data),
-    refetchInterval: 5 * 60_000,
-  });
-}
 
 // --- RAG ---
 
@@ -1867,18 +1826,11 @@ export function useBootstrapIngestion() {
   });
 }
 
-// --- Usage Rollups ---
+// --- Usage (trace-backed) ---
 
-export interface UsageRollupEntry {
+export interface UsageTimeSeriesEntry {
   bucket: string;
-  model: string;
-  role: string;
-  user_id: string;
-  org_id: string;
-  request_count: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  cached_tokens: number;
+  requests: number;
   total_tokens: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;
@@ -1888,10 +1840,7 @@ export interface UsageRollupEntry {
 
 export interface UsageSummary {
   period_hours: number;
-  total_requests: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  cached_tokens: number;
+  trace_count: number;
   total_tokens: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;
@@ -1900,7 +1849,7 @@ export interface UsageSummary {
 }
 
 export function useUsageSeries(sinceHours = 24) {
-  return useQuery<UsageRollupEntry[]>({
+  return useQuery<UsageTimeSeriesEntry[]>({
     queryKey: ["usage", "series", sinceHours],
     queryFn: () => client.get(`/usage?since_hours=${sinceHours}`).then((r) => r.data),
     refetchInterval: 60_000,

@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     from app.routers.provider_governance import seed_provider_configs
     from app.services.infra_pricing import ensure_table as ensure_infra_table
     from app.services.model_reconciler import reconcile
-    from app.services.model_registry import capture_cost_rate_snapshots, seed_model_deployments
+    from app.services.model_registry import seed_model_deployments
 
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
     logger.info("admin_db_ready")
@@ -101,18 +101,7 @@ async def lifespan(app: FastAPI):
                     detail={"error": repr(exc)},
                 )
             _snapshot_counter += 1
-            if _snapshot_counter % 30 == 0:  # every ~30 min
-                try:
-                    await capture_cost_rate_snapshots()
-                except Exception:
-                    logger.debug("cost_snapshot_error", exc_info=True)
             if _snapshot_counter % 5 == 0:  # every ~5 min
-                try:
-                    from app.services.usage_rollup import run_rollup
-
-                    await run_rollup(lookback_minutes=10)
-                except Exception:
-                    logger.debug("usage_rollup_error", exc_info=True)
                 try:
                     from app.services.telemetry_scraper import scrape_all
 

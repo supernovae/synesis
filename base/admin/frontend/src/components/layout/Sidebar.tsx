@@ -50,7 +50,6 @@ const navigation: NavItem[] = [
       { label: "Providers & API keys", path: "/models/providers" },
       { label: "Effective Serving", path: "/models/serving" },
       { label: "Usage & spend", path: "/models/costs" },
-      { label: "Reconciliation", path: "/models/reconcile" },
       { label: "Policies", path: "/models/policies" },
       { label: "Effort Routing", path: "/models/effort-routing" },
       { label: "Performance", path: "/models/performance" },

@@ -189,6 +189,8 @@ async def aggregate_traces_period(
                 func.coalesce(func.sum(Trace.total_tokens), 0).label("total_tokens"),
                 func.coalesce(func.sum(Trace.estimated_cost_usd), 0).label("estimated_cost_usd"),
                 func.coalesce(func.sum(Trace.actual_cost_usd), 0).label("actual_cost_usd"),
+                func.coalesce(func.avg(Trace.total_duration_ms), 0).label("avg_duration_ms"),
+                func.sum(case((Trace.has_error == True, 1), else_=0)).label("error_count"),
             ).where(Trace.timestamp >= cutoff)
             if scope_user_id:
                 q = q.where(Trace.user_id == scope_user_id)
@@ -205,6 +207,8 @@ async def aggregate_traces_period(
                 "total_tokens": int(row.total_tokens or 0),
                 "estimated_cost_usd": round(float(row.estimated_cost_usd or 0), 4),
                 "actual_cost_usd": round(float(row.actual_cost_usd or 0), 4),
+                "avg_duration_ms": round(float(row.avg_duration_ms or 0), 1),
+                "error_count": int(row.error_count or 0),
             }
         except Exception:
             logger.warning("trace_store_aggregate_period_failed", exc_info=True)
@@ -214,7 +218,62 @@ async def aggregate_traces_period(
                 "total_tokens": 0,
                 "estimated_cost_usd": 0.0,
                 "actual_cost_usd": 0.0,
+                "avg_duration_ms": 0.0,
+                "error_count": 0,
             }
+
+
+async def trace_time_series(
+    *,
+    since_hours: int = 24,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+    scope_tenant_id: str = "",
+) -> list[dict[str, Any]]:
+    """Hourly bucketed trace aggregates for time-series charts (RBAC-scoped)."""
+    cutoff = time.time() - since_hours * 3600
+    async with async_session() as session:
+        try:
+            bucket_expr = func.to_timestamp(Trace.timestamp)
+            bucket_col = func.date_trunc(sa.literal_column("'hour'"), bucket_expr).label("bucket")
+
+            q = (
+                select(
+                    bucket_col,
+                    func.count().label("requests"),
+                    func.coalesce(func.sum(Trace.total_tokens), 0).label("total_tokens"),
+                    func.coalesce(func.sum(Trace.estimated_cost_usd), 0).label("estimated_cost_usd"),
+                    func.coalesce(func.sum(Trace.actual_cost_usd), 0).label("actual_cost_usd"),
+                    func.coalesce(func.avg(Trace.total_duration_ms), 0).label("avg_duration_ms"),
+                    func.sum(case((Trace.has_error == True, 1), else_=0)).label("error_count"),
+                )
+                .where(Trace.timestamp >= cutoff)
+                .group_by(bucket_col)
+                .order_by(bucket_col.desc())
+            )
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            if scope_tenant_id:
+                q = q.where(Trace.tenant_id == scope_tenant_id)
+
+            rows = (await session.execute(q)).all()
+            return [
+                {
+                    "bucket": r.bucket.isoformat() if r.bucket else "",
+                    "requests": int(r.requests or 0),
+                    "total_tokens": int(r.total_tokens or 0),
+                    "estimated_cost_usd": round(float(r.estimated_cost_usd or 0), 6),
+                    "actual_cost_usd": round(float(r.actual_cost_usd or 0), 6),
+                    "avg_duration_ms": round(float(r.avg_duration_ms or 0), 1),
+                    "error_count": int(r.error_count or 0),
+                }
+                for r in rows
+            ]
+        except Exception:
+            logger.warning("trace_time_series_failed", exc_info=True)
+            return []
 
 
 async def insert_trace(record: dict[str, Any]) -> None:

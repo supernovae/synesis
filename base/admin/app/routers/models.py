@@ -3,17 +3,16 @@
 import logging
 import os
 import time
-from datetime import UTC, datetime
 from datetime import date as date_type
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import func, select, text
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
-from ..db.models import CostRateSnapshot, ModelPolicy, Trace, UsageRollup
+from ..db.models import ModelPolicy, Trace
 from ..deps import PLANNER_URL
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
@@ -679,30 +678,6 @@ async def update_model_cost(
     return result
 
 
-@router.post("/costs/hard-purge-legacy")
-async def hard_purge_legacy_cost_aggregates(
-    _user: UserInfo = Depends(require_platform_admin),
-):
-    """Hard-purge derived legacy cost aggregates so dashboards rebuild from canonical traces."""
-    async with async_session() as session:
-        rollup_deleted = await session.execute(delete(UsageRollup))
-        snapshots_deleted = await session.execute(delete(CostRateSnapshot))
-        await session.commit()
-
-    detail = {
-        "usage_rollups_deleted": int(rollup_deleted.rowcount or 0),
-        "cost_rate_snapshots_deleted": int(snapshots_deleted.rowcount or 0),
-    }
-    await record_admin_audit(
-        user=_user,
-        action="models.costs_hard_purge_legacy",
-        status="success",
-        summary="Purged legacy derived cost aggregates",
-        detail=detail,
-    )
-    return {"status": "ok", **detail}
-
-
 @router.get("/costs/by-model")
 async def costs_by_model(
     _user: UserInfo = Depends(require_org_admin),
@@ -929,47 +904,6 @@ async def costs_daily(
     except Exception:
         logger.warning("costs_daily_failed", exc_info=True)
         return {"daily": [], "period_days": days}
-
-
-@router.get("/costs/rate-history")
-async def cost_rate_history(
-    _user: UserInfo = Depends(get_current_user),
-    days: int = Query(90, ge=1, le=365),
-):
-    """Cost rate change history from cost_rate_snapshots."""
-    cutoff = datetime.now(UTC).timestamp() - days * 86400
-    try:
-        async with async_session() as session:
-            result = await session.execute(
-                text(
-                    """
-                    SELECT model, role, input_per_million, output_per_million, source,
-                           captured_at
-                    FROM cost_rate_snapshots
-                    WHERE EXTRACT(EPOCH FROM captured_at) >= :cutoff
-                    ORDER BY captured_at
-                    """
-                ),
-                {"cutoff": cutoff},
-            )
-            rows = result.all()
-            return {
-                "snapshots": [
-                    {
-                        "model": r.model,
-                        "role": r.role,
-                        "input_per_million": r.input_per_million,
-                        "output_per_million": r.output_per_million,
-                        "source": r.source,
-                        "captured_at": r.captured_at.isoformat() if r.captured_at else None,
-                    }
-                    for r in rows
-                ],
-                "period_days": days,
-            }
-    except Exception:
-        logger.warning("cost_rate_history_failed", exc_info=True)
-        return {"snapshots": [], "period_days": days}
 
 
 # ---------------------------------------------------------------------------

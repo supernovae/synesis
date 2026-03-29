@@ -19,8 +19,8 @@ def test_openai_tools_respects_role_hierarchy():
     assert "list_traces" in names_user
     assert "unified_usage_snapshot" in names_user
     assert "list_traces" not in names_readonly
-    assert "trigger_usage_rollup" in names_platform
-    assert "trigger_usage_rollup" not in names_user
+    assert "reconcile_litellm" in names_platform
+    assert "reconcile_litellm" not in names_user
 
 
 @pytest.mark.asyncio

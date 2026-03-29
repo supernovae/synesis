@@ -1024,7 +1024,7 @@ Each trace stores `full_record` JSON with spans and `llm_calls`. Each `LLMCallRe
 includes `cached_prompt_tokens` when the provider returns it (e.g. OpenAI
 `prompt_tokens_details.cached_tokens`, Anthropic `cache_read_input_tokens`, LangChain
 `usage_metadata.input_token_details`). The trace root also has
-`total_cached_prompt_tokens` (rollup). Fields are **0 or omitted** when the provider
+`total_cached_prompt_tokens` (aggregate). Fields are **0 or omitted** when the provider
 does not report cache usage. Planner-side estimated cost uses uncached vs cached prompt
 tokens when pricing allows (`SYNESIS_MODEL_PRICING_PATH` optional `input_cached`, or
 `SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER` default `0.1` × input rate). Admin **Cost

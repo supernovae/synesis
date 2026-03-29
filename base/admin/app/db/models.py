@@ -82,54 +82,6 @@ class TaxonomyDomain(Base):
     )
 
 
-class CostSnapshot(Base):
-    __tablename__ = "cost_snapshots"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    model: Mapped[str] = mapped_column(String(256), nullable=False)
-    role: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-
-    __table_args__ = (Index("ix_cost_snapshots_model_date", "model", "date"),)
-
-
-class UsageRollup(Base):
-    """Pre-aggregated usage buckets for fast dashboard charts.
-
-    Populated by a periodic rollup task; one row per (bucket, model,
-    user_id, org_id, tenant_id) tuple.  Bucket is truncated to 5 minutes by default.
-    """
-
-    __tablename__ = "usage_rollups"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    bucket: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    model: Mapped[str] = mapped_column(String(256), nullable=False, default="")
-    role: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
-    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    actual_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    avg_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
-    __table_args__ = (
-        Index("ix_usage_rollups_bucket", "bucket"),
-        Index("ix_usage_rollups_user_org", "user_id", "org_id"),
-        Index("ix_usage_rollups_model_bucket", "model", "bucket"),
-    )
-
-
 class Failure(Base):
     __tablename__ = "failures"
 
@@ -271,20 +223,6 @@ class ModelRoleHistory(Base):
     output_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
-class CostRateSnapshot(Base):
-    __tablename__ = "cost_rate_snapshots"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    model: Mapped[str] = mapped_column(String(256), nullable=False)
-    role: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    input_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    output_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    __table_args__ = (Index("ix_cost_rate_snapshots_model_captured", "model", "captured_at"),)
 
 
 class QualitySnapshot(Base):

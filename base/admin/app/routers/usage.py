@@ -1,13 +1,13 @@
-"""Usage rollups — pre-aggregated token/cost accounting with RBAC scoping."""
+"""Usage endpoints — trace-backed token/cost accounting with RBAC scoping."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import UserInfo, get_current_user
-from ..rbac import RouteGroup, can_access_route_group, require_platform_admin, trace_scope_filters
-from ..services.usage_rollup import get_usage, get_usage_summary, run_rollup
-from ..services.usage_unified import get_reconcile, get_summary_unified
+from ..rbac import RouteGroup, can_access_route_group, trace_scope_filters
+from ..services.trace_store import aggregate_traces_period, trace_time_series
+from ..services.usage_unified import get_summary_unified
 
 router = APIRouter(prefix="/api/v1/usage", tags=["usage"])
 
@@ -22,10 +22,10 @@ async def usage_series(
     since_hours: int = Query(24, ge=1, le=720),
     _user: UserInfo = Depends(get_current_user),
 ):
-    """Time-series usage data (5-min buckets), scoped to the caller's role."""
+    """Time-series usage data (hourly buckets from traces), scoped to the caller's role."""
     _ensure_org_observability(_user)
     scope = trace_scope_filters(_user)
-    return await get_usage(
+    return await trace_time_series(
         since_hours=since_hours,
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
@@ -41,7 +41,7 @@ async def usage_summary(
     """Aggregated usage totals over a period, scoped to the caller's role."""
     _ensure_org_observability(_user)
     scope = trace_scope_filters(_user)
-    return await get_usage_summary(
+    return await aggregate_traces_period(
         since_hours=since_hours,
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
@@ -49,29 +49,11 @@ async def usage_summary(
     )
 
 
-@router.post("/rollup")
-async def trigger_rollup(
-    lookback_minutes: int = Query(15, ge=5, le=1440),
-    _user: UserInfo = Depends(require_platform_admin),
-):
-    """Manually trigger a usage rollup (admin only)."""
-    return await run_rollup(lookback_minutes=lookback_minutes)
-
-
 @router.get("/summary-unified")
 async def usage_summary_unified(
     since_hours: int = Query(24, ge=1, le=720),
     user: UserInfo = Depends(get_current_user),
 ):
-    """Pipeline rollups + trace totals + optional Yarn (org_admin+); glossary for UI."""
+    """Pipeline traces + optional Yarn totals (org_admin+); glossary for UI."""
     _ensure_org_observability(user)
     return await get_summary_unified(user=user, since_hours=since_hours)
-
-
-@router.get("/reconcile")
-async def usage_reconcile(
-    since_hours: int = Query(24, ge=1, le=720),
-    _user: UserInfo = Depends(require_platform_admin),
-):
-    """Compare rollups, trace rows, llm_calls walk (sample), and Yarn — platform admin only."""
-    return await get_reconcile(since_hours=since_hours)

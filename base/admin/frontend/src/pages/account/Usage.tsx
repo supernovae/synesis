@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useUsageSummary, useUsageSeries, useYarnUserUsage } from "../../api/hooks";
-import type { UsageRollupEntry } from "../../api/hooks";
+import type { UsageTimeSeriesEntry } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
 import { Coins, Clock, Zap, AlertTriangle, Hash, Sparkles } from "lucide-react";
@@ -12,51 +12,6 @@ const PERIOD_OPTIONS = [
   { label: "7d", hours: 168 },
   { label: "30d", hours: 720 },
 ];
-
-function groupByBucket(rows: UsageRollupEntry[]): Record<string, UsageRollupEntry[]> {
-  const grouped: Record<string, UsageRollupEntry[]> = {};
-  for (const r of rows) {
-    (grouped[r.bucket] ??= []).push(r);
-  }
-  return grouped;
-}
-
-interface BucketRow {
-  bucket: string;
-  requests: number;
-  prompt: number;
-  completion: number;
-  cached: number;
-  total: number;
-  estimated: number;
-  actual: number;
-  avgMs: number;
-  errors: number;
-}
-
-function aggregateBuckets(rows: UsageRollupEntry[]): BucketRow[] {
-  const groups = groupByBucket(rows);
-  return Object.entries(groups)
-    .map(([bucket, entries]) => {
-      const requests = entries.reduce((s, e) => s + e.request_count, 0);
-      return {
-        bucket,
-        requests,
-        prompt: entries.reduce((s, e) => s + e.prompt_tokens, 0),
-        completion: entries.reduce((s, e) => s + e.completion_tokens, 0),
-        cached: entries.reduce((s, e) => s + e.cached_tokens, 0),
-        total: entries.reduce((s, e) => s + e.total_tokens, 0),
-        estimated: entries.reduce((s, e) => s + e.estimated_cost_usd, 0),
-        actual: entries.reduce((s, e) => s + e.actual_cost_usd, 0),
-        avgMs:
-          requests > 0
-            ? entries.reduce((s, e) => s + e.avg_duration_ms * e.request_count, 0) / requests
-            : 0,
-        errors: entries.reduce((s, e) => s + e.error_count, 0),
-      };
-    })
-    .sort((a, b) => b.bucket.localeCompare(a.bucket));
-}
 
 function fmtBucket(iso: string): string {
   try {
@@ -81,7 +36,7 @@ export default function Usage() {
   );
 
   const loading = summaryLoading || seriesLoading;
-  const bucketRows = series ? aggregateBuckets(series) : [];
+  const bucketRows: UsageTimeSeriesEntry[] = series ?? [];
   const hasCostVariance =
     summary && summary.actual_cost_usd > 0 && summary.estimated_cost_usd > 0;
 
@@ -93,7 +48,7 @@ export default function Usage() {
             Usage
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Pipeline usage from 5-minute rollups (traces). Yarn / IDE spend is separate — see{" "}
+            Pipeline usage from traces. Yarn / IDE spend is separate — see{" "}
             <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Models &amp; Costs overview
             </Link>
@@ -119,17 +74,17 @@ export default function Usage() {
 
       {loading && !summary ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading usage data…</p>
-      ) : !summary || summary.total_requests === 0 ? (
+      ) : !summary || summary.trace_count === 0 ? (
         <EmptyState
           title="No usage data for this period"
-          description="Usage is aggregated from trace records in 5-minute buckets. Run some requests to see data here."
+          description="Usage is aggregated from trace records. Run some requests to see data here."
         />
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
               label="Total Requests"
-              value={summary.total_requests.toLocaleString()}
+              value={summary.trace_count.toLocaleString()}
               icon={Hash}
               subtitle={`past ${period}h`}
             />
@@ -137,7 +92,6 @@ export default function Usage() {
               label="Total Tokens"
               value={fmtTokens(summary.total_tokens)}
               icon={Zap}
-              subtitle={`${fmtTokens(summary.prompt_tokens)} prompt · ${fmtTokens(summary.completion_tokens)} completion`}
             />
             <MetricCard
               label="Estimated Cost"
@@ -160,18 +114,6 @@ export default function Usage() {
               }
             />
           </div>
-
-          {summary.cached_tokens > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-              <p className="text-sm text-gray-700 dark:text-gray-300">
-                <span className="font-medium text-green-600 dark:text-green-400">
-                  {fmtTokens(summary.cached_tokens)}
-                </span>{" "}
-                cached prompt tokens ({((summary.cached_tokens / summary.prompt_tokens) * 100).toFixed(1)}%
-                of prompt tokens served from KV-cache)
-              </p>
-            </div>
-          )}
 
           {hasCostVariance && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
@@ -208,13 +150,7 @@ export default function Usage() {
                         Requests
                       </th>
                       <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Prompt
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Completion
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Total
+                        Tokens
                       </th>
                       <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
                         Est. Cost
@@ -236,20 +172,14 @@ export default function Usage() {
                         <td className="px-4 py-2 text-right tabular-nums text-gray-900 dark:text-gray-100">
                           {row.requests}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                          {fmtTokens(row.prompt)}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                          {fmtTokens(row.completion)}
-                        </td>
                         <td className="px-4 py-2 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">
-                          {fmtTokens(row.total)}
+                          {fmtTokens(row.total_tokens)}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                          {fmtCost(row.estimated)}
+                          {fmtCost(row.estimated_cost_usd)}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                          {fmtDurationMs(row.avgMs)}
+                          {fmtDurationMs(row.avg_duration_ms)}
                         </td>
                       </tr>
                     ))}

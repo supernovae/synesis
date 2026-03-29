@@ -32,7 +32,7 @@ usage/cost summaries, unified cost snapshots, service health, model roles, and
 When the user asks about current costs, usage, health, or live data, call the
 appropriate tools instead of guessing. Prefer ``unified_usage_snapshot`` for
 cost/spend questions when a broad picture is needed, and ``usage_summary`` for
-lighter rollup-only data."""
+lighter trace-only data."""
 
 
 def _trace_context_text(trace: dict, span_index: int | None = None) -> str:

@@ -19,8 +19,8 @@ import yaml
 from sqlalchemy import delete, func, select
 
 from ..db.engine import async_session
-from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory, ProviderConfig
 from ..db.models import ModelCost as ModelCostRow
+from ..db.models import ModelDeployment, ModelRoleHistory, ProviderConfig
 from ..deps import MODELS_YAML_PATH
 from .provider_catalog import (
     KNOWN_ROLES,
@@ -888,59 +888,3 @@ async def get_cost_by_model() -> list[dict]:
             logger.warning("cost_by_model_failed", exc_info=True)
             return []
 
-
-# ---------------------------------------------------------------------------
-# Cost rate snapshots — detect and record pricing changes
-# ---------------------------------------------------------------------------
-
-
-async def capture_cost_rate_snapshots() -> int:
-    """Compare current model_costs rates with the most recent snapshot.
-
-    If rates have changed (or no snapshot exists for a model), write a new row.
-    Returns the number of new snapshots created.
-    """
-    costs = await get_cost_estimates()
-    if not costs:
-        return 0
-
-    async with async_session() as session:
-        # Fetch the latest snapshot per model
-        result = await session.execute(select(CostRateSnapshot).order_by(CostRateSnapshot.captured_at.desc()))
-        all_snaps = result.scalars().all()
-        latest_by_role_model: dict[tuple[str, str], CostRateSnapshot] = {}
-        for s in all_snaps:
-            key = (s.role or "", s.model)
-            if key not in latest_by_role_model:
-                latest_by_role_model[key] = s
-
-        created = 0
-        for cost in costs:
-            model = cost.get("model", "")
-            role = cost.get("role", "")
-            if not model:
-                continue
-            inp = cost.get("input_per_million", 0.0)
-            out = cost.get("output_per_million", 0.0)
-            if inp == 0 and out == 0:
-                continue
-
-            key = (role, model)
-            prev = latest_by_role_model.get(key)
-            if prev and prev.input_per_million == inp and prev.output_per_million == out:
-                continue
-
-            snap = CostRateSnapshot(
-                model=model,
-                role=role,
-                input_per_million=inp,
-                output_per_million=out,
-                source=cost.get("source", "manual"),
-            )
-            session.add(snap)
-            created += 1
-
-        if created:
-            await session.commit()
-            logger.info("cost_rate_snapshots_created count=%d", created)
-        return created

@@ -9,14 +9,11 @@ export function UsageGlossaryBanner({ className = "" }: { className?: string }) 
       <p className="font-medium">How we count usage</p>
       <ul className="mt-2 list-inside list-disc space-y-1 text-blue-900/90 dark:text-blue-200/90">
         <li>
-          <strong>Estimated</strong> — configured $/M rates × tokens (traces / rollups), not a provider
+          <strong>Estimated</strong> — configured $/M rates × tokens from traces, not a provider
           invoice.
         </li>
         <li>
           <strong>Actual</strong> — sum of provider-reported per-call costs when present on LLM calls.
-        </li>
-        <li>
-          <strong>Rollups</strong> — 5-minute buckets built from traces; may lag until the rollup job runs.
         </li>
         <li>
           <strong>Yarn / IDE</strong> — separate path (<code className="rounded bg-blue-100 px-1 dark:bg-blue-900">yarn_usage_log</code>

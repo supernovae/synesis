@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -7,33 +7,23 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  LineChart,
-  Line,
   CartesianGrid,
 } from "recharts";
 import {
-  useModelCosts,
   useUpdateModelCost,
   useActiveCosts,
   useCostsByRole,
   useCostsDaily,
-  useCostRateHistory,
-  useHardPurgeLegacyCosts,
 } from "../../api/hooks";
 import type { CostByRoleEntry, DailyCostEntry } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import ChartCard from "../../components/common/ChartCard";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
-import { DollarSign, Cloud, Server, PenLine, TrendingUp, TrendingDown, Eye, EyeOff } from "lucide-react";
+import { DollarSign, Cloud, Server, PenLine, TrendingUp, TrendingDown } from "lucide-react";
 import type { ModelCost, ActiveCostEntry } from "../../types";
 import { UsageGlossaryBanner } from "../../components/models/UsageGlossary";
 import { Link } from "react-router-dom";
-
-const COLORS = [
-  "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-  "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
-];
 
 const SOURCE_BADGE_STYLES: Record<string, string> = {
   manual: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
@@ -167,26 +157,15 @@ function shortModel(name: string): string {
 
 export default function CostTracker() {
   const [days, setDays] = useState(7);
-  const [showAll, setShowAll] = useState(false);
-  const { data: activeData, isLoading: activeLoading } = useActiveCosts();
-  const { data: allData, isLoading: allLoading } = useModelCosts();
+  const { data: activeData, isLoading } = useActiveCosts();
   const { data: roleData } = useCostsByRole(days);
   const { data: dailyData } = useCostsDaily(days);
-  const { data: rateHistoryData } = useCostRateHistory(90);
-  const hardPurgeMutation = useHardPurgeLegacyCosts();
   const [editing, setEditing] = useState<ModelCost | null>(null);
 
   const activeRoles: ActiveCostEntry[] = activeData?.roles ?? [];
-  const allRoles = allData?.roles ?? [];
-  const displayRoles = showAll ? allRoles : activeRoles;
-  const isLoading = showAll ? allLoading : activeLoading;
 
   const byRole: CostByRoleEntry[] = roleData?.roles ?? [];
   const daily: DailyCostEntry[] = dailyData?.daily ?? [];
-  const rateHistory = useMemo(
-    () => rateHistoryData?.snapshots ?? [],
-    [rateHistoryData],
-  );
 
   const totalEstimated = byRole.reduce((s, r) => s + r.estimated_cost_usd, 0);
   const totalActual = byRole.reduce((s, r) => s + r.actual_cost_usd, 0);
@@ -194,25 +173,6 @@ export default function CostTracker() {
   const costDiff = totalActual > 0 && totalEstimated > 0
     ? ((totalActual - totalEstimated) / totalEstimated) * 100
     : 0;
-
-  const rateHistoryModels = useMemo(() => {
-    const set = new Set<string>();
-    rateHistory.forEach((s) => set.add(s.role || s.model));
-    return Array.from(set);
-  }, [rateHistory]);
-
-  const pivotedHistory = useMemo(() => {
-    const byDate: Record<string, Record<string, number>> = {};
-    for (const s of rateHistory) {
-      const d = s.captured_at.split("T")[0];
-      if (!byDate[d]) byDate[d] = {} as never;
-      (byDate[d] as Record<string, number>)["date"] = d as never;
-      const label = s.role || shortModel(s.model);
-      (byDate[d] as Record<string, number>)[`${label}_in`] = s.input_per_million;
-      (byDate[d] as Record<string, number>)[`${label}_out`] = s.output_per_million;
-    }
-    return Object.values(byDate).sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  }, [rateHistory]);
 
   return (
     <div className="space-y-6">
@@ -238,27 +198,12 @@ export default function CostTracker() {
           <option value={30}>Last 30d</option>
         </select>
       </div>
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            const ok = window.confirm(
-              "Hard purge legacy derived cost aggregates? This deletes historical rollups/snapshots and rebuilds forward from traces.",
-            );
-            if (ok) hardPurgeMutation.mutate();
-          }}
-          disabled={hardPurgeMutation.isPending}
-          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
-        >
-          {hardPurgeMutation.isPending ? "Purging..." : "Hard Purge Legacy Aggregates"}
-        </button>
-      </div>
 
       <UsageGlossaryBanner />
 
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
-      ) : displayRoles.length === 0 && byRole.length === 0 ? (
+      ) : activeRoles.length === 0 && byRole.length === 0 ? (
         <EmptyState title="No cost data" description="Cost data populates after requests flow through the pipeline" />
       ) : (
         <>
@@ -323,18 +268,9 @@ export default function CostTracker() {
           )}
 
           {/* Rate config table */}
-          {displayRoles.length > 0 && (
+          {activeRoles.length > 0 && (
             <>
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Rate Configuration</h2>
-                <button
-                  onClick={() => setShowAll(!showAll)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-                >
-                  {showAll ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                  {showAll ? "Active Only" : "Show All"}
-                </button>
-              </div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Rate Configuration</h2>
               <DataTable
                 columns={[
                   { key: "role", label: "Role", sortable: true },
@@ -349,9 +285,9 @@ export default function CostTracker() {
                       r.input_cached_per_million != null ? `$${Number(r.input_cached_per_million).toFixed(2)}` : "—",
                   },
                   { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${r.output_per_million.toFixed(2)}` },
-                  ...(!showAll ? [{
+                  {
                     key: "pricing_source", label: "Source", render: (r: ModelCost) => <PricingSourceBadge source={r.pricing_source ?? "unknown"} />,
-                  }] : []),
+                  },
                   { key: "cost_formula", label: "Formula", render: (r) => <span className="text-xs text-gray-500">{r.cost_formula || "---"}</span> },
                   { key: "actions", label: "", render: (r) => (
                     <button onClick={() => setEditing(r as ModelCost)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800" title="Edit cost">
@@ -359,37 +295,10 @@ export default function CostTracker() {
                     </button>
                   )},
                 ]}
-                data={displayRoles}
+                data={activeRoles}
                 keyField="role"
               />
             </>
-          )}
-
-          {/* Price history by role */}
-          {pivotedHistory.length > 1 && (
-            <ChartCard title="Price History (90d)" subtitle="Input rate changes over time by role">
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={pivotedHistory}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 11 }} label={{ value: "$/M", angle: -90, position: "insideLeft" }} />
-                  <Tooltip />
-                  <Legend />
-                  {rateHistoryModels.map((m, i) => (
-                    <Line
-                      key={m}
-                      type="stepAfter"
-                      dataKey={`${m}_in`}
-                      name={`${m} input`}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                      connectNulls
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </ChartCard>
           )}
         </>
       )}
