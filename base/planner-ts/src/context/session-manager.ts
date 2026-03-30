@@ -216,21 +216,27 @@ export class SessionManager {
 
   async recordTurn(key: string, userContent: string, assistantContent: string): Promise<void> {
     if (!this.opts.enabled) return;
-    const session = await this.ensureSession(key);
-    if (userContent.trim()) session.history.push({ role: "user", content: userContent });
-    const cleanedAssistant = sanitizeAssistantContent(assistantContent);
-    if (cleanedAssistant.trim()) session.history.push({ role: "assistant", content: cleanedAssistant });
-    if (session.history.length > this.opts.maxHistory) {
-      session.history = session.history.slice(-this.opts.maxHistory);
-    }
+    await this.store.mutate(key, this.opts.ttlMs, (current) => {
+      const session: SessionData = current ?? {
+        key,
+        lastSeenAt: this.now(),
+        history: [],
+      };
+      if (userContent.trim()) session.history.push({ role: "user", content: userContent });
+      const cleanedAssistant = sanitizeAssistantContent(assistantContent);
+      if (cleanedAssistant.trim()) session.history.push({ role: "assistant", content: cleanedAssistant });
+      if (session.history.length > this.opts.maxHistory) {
+        session.history = session.history.slice(-this.opts.maxHistory);
+      }
 
-    if (session.history.length >= this.opts.checkpointEveryMessages) {
-      const recentTail = session.history.slice(-Math.floor(this.opts.checkpointEveryMessages / 2));
-      session.checkpointBlock = this.summarize(session.history, recentTail);
-      session.history = recentTail;
-    }
-    session.lastSeenAt = this.now();
-    await this.store.set(key, session, this.opts.ttlMs);
+      if (session.history.length >= this.opts.checkpointEveryMessages) {
+        const recentTail = session.history.slice(-Math.floor(this.opts.checkpointEveryMessages / 2));
+        session.checkpointBlock = this.summarize(session.history, recentTail);
+        session.history = recentTail;
+      }
+      session.lastSeenAt = this.now();
+      return session;
+    });
   }
 
   async setPendingClarification(
@@ -238,23 +244,36 @@ export class SessionManager {
     clarification: { question: string; options: string[]; assumptions: string[] },
   ): Promise<void> {
     if (!this.opts.enabled) return;
-    const session = await this.ensureSession(key);
-    session.pendingClarification = clarification;
-    session.lastSeenAt = this.now();
-    await this.store.set(key, session, this.opts.ttlMs);
+    await this.store.mutate(key, this.opts.ttlMs, (current) => {
+      const session: SessionData = current ?? {
+        key,
+        lastSeenAt: this.now(),
+        history: [],
+      };
+      session.pendingClarification = clarification;
+      session.lastSeenAt = this.now();
+      return session;
+    });
   }
 
   async consumePendingClarification(
     key: string,
   ): Promise<{ question: string; options: string[]; assumptions: string[] } | undefined> {
     if (!this.opts.enabled) return undefined;
-    const session = await this.ensureSession(key);
-    const pending = session.pendingClarification;
-    if (pending) {
-      session.pendingClarification = undefined;
-      session.lastSeenAt = this.now();
-      await this.store.set(key, session, this.opts.ttlMs);
-    }
+    let pending: { question: string; options: string[]; assumptions: string[] } | undefined;
+    await this.store.mutate(key, this.opts.ttlMs, (current) => {
+      const session: SessionData = current ?? {
+        key,
+        lastSeenAt: this.now(),
+        history: [],
+      };
+      pending = session.pendingClarification;
+      if (pending) {
+        session.pendingClarification = undefined;
+        session.lastSeenAt = this.now();
+      }
+      return session;
+    });
     return pending;
   }
 

@@ -51,11 +51,15 @@ Completed in planner-ts:
 - Validation tests expanded in `base/planner-ts/tests/api-contract.test.ts`.
 
 Outstanding:
-- Multi-pod session write correctness under concurrent updates (CAS/transaction semantics).
-- Memory-session hard cap when Redis is unavailable.
-- HPA/PDB manifests for planner-ts.
+- Retrieval cache remains intentionally deferred (won't do for this effort).
 - OTEL unification and context propagation across planner/yarn/mcp.
 - Final 25/35/50 concurrency load testing and cutover gate.
+
+Implemented as part of early Phase B:
+- Redis session CAS-style mutation path (`WATCH`/`MULTI` retry loop) in `session-store`.
+- Memory-session cap with oldest-session eviction fallback mode.
+- `RedisSessionStore.keys()` moved from `KEYS` to `SCAN`.
+- HPA/PDB manifests added and wired in planner-ts kustomization.
 
 ## Phased execution plan
 

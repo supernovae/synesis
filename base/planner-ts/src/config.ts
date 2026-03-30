@@ -55,6 +55,8 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY: z.coerce.number().default(60),
   SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES: z.coerce.number().default(12),
   SYNESIS_PLANNER_TS_SESSION_TTL_MS: z.coerce.number().default(14400000),
+  SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS: z.coerce.number().default(5000),
+  SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES: z.coerce.number().default(5),
   SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: z.string().default(""),
   SYNESIS_OPENFGA_API_URL: z.string().default(""),
   SYNESIS_OPENFGA_STORE_ID: z.string().default(""),

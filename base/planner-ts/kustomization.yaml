@@ -12,3 +12,5 @@ resources:
   - deployment.yaml
   - service.yaml
   - network-policy.yaml
+  - hpa.yaml
+  - pdb.yaml

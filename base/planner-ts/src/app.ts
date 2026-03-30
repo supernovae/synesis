@@ -131,7 +131,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   const sessionStore = createSessionStore({
     redisUrl: config.SYNESIS_PLANNER_TS_REDIS_URL,
-    redisKeyPrefix: config.SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX
+    redisKeyPrefix: config.SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX,
+    memoryMaxSessions: config.SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS,
+    redisCasMaxRetries: config.SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES,
   });
   const sessionManager = new SessionManager({
     enabled: config.SYNESIS_PLANNER_TS_SESSION_ENABLED,

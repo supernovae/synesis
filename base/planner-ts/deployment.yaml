@@ -108,6 +108,10 @@ spec:
               value: "synesis:planner:session:"
             - name: SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S
               value: "14400"
+            - name: SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS
+              value: "5000"
+            - name: SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES
+              value: "5"
             - name: SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:

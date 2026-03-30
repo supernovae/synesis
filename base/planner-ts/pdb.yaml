@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: synesis-planner-ts
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-planner-ts
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: planner
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-planner-ts
