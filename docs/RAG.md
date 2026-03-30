@@ -1,6 +1,6 @@
 # Hybrid RAG Pipeline
 
-Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus collection with `authority` as partition key for all domain knowledge. The unified indexer (`base/rag/indexer/`) writes to this catalog with enrichment fields (`context_prefix`, `heading_path`, `chunk_summary`, `keywords`, `tags`, `document_name`) and provenance metadata (`authority`, `origin_type`, `source_url`). **Ingestion topology** (queue, Milvus v9, optional preprocess/spam/gatekeeper, dependent services) is documented in [INDEXERS.md](INDEXERS.md) and [INGESTION_ENRICHMENT.md](INGESTION_ENRICHMENT.md).
+Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus collection with `authority` as partition key for all domain knowledge. The unified indexer (`base/rag/indexer/`) writes to this catalog with enrichment fields (`context_prefix`, `heading_path`, `chunk_summary`, `keywords`, `tags`, `document_name`) and provenance metadata (`authority`, `origin_type`, `source_url`). **Ingestion topology** (queue, Milvus v13, optional preprocess/spam/gatekeeper, trust attribution, dependent services) is documented in [INDEXERS.md](INDEXERS.md) and [INGESTION_ENRICHMENT.md](INGESTION_ENRICHMENT.md).
 
 ## How It Works (planner-ts)
 
