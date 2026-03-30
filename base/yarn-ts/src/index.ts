@@ -748,9 +748,17 @@ function getBearerToken(authHeader: string | undefined): string {
   return raw.slice(7).trim();
 }
 
-async function proxyMcpGet(path: string, bearer: string): Promise<unknown> {
+async function proxyMcpGet(
+  path: string,
+  bearer: string,
+  headers?: { requestId?: string; traceparent?: string },
+): Promise<unknown> {
   const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${bearer}` }
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
+      ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
+    }
   });
   if (!response.ok) {
     throw new Error(`MCP upstream error ${response.status}`);
@@ -758,12 +766,19 @@ async function proxyMcpGet(path: string, bearer: string): Promise<unknown> {
   return response.json();
 }
 
-async function proxyMcpPost(path: string, bearer: string, body: unknown): Promise<unknown> {
+async function proxyMcpPost(
+  path: string,
+  bearer: string,
+  body: unknown,
+  headers?: { requestId?: string; traceparent?: string },
+): Promise<unknown> {
   const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${bearer}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
+      ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
     },
     body: JSON.stringify(body)
   });

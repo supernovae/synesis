@@ -303,6 +303,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       pricingRates: state.pricing_rates_by_role?.router,
       request_id: state.run_id,
       authz_trace_id: state.authz_trace_id,
+      traceparent: state.traceparent,
       messages: plannerMessages,
     };
 

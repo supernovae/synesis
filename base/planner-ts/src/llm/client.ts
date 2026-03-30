@@ -23,6 +23,7 @@ export interface ChatRequest {
   extra_body?: Record<string, unknown>;
   request_id?: string;
   authz_trace_id?: string;
+  traceparent?: string;
 }
 
 export interface ChatResult {
@@ -288,6 +289,7 @@ function buildHeaders(apiKey: string, request?: ChatRequest): Record<string, str
     ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     ...(request?.request_id ? { "x-request-id": request.request_id } : {}),
     ...(request?.authz_trace_id ? { "x-synesis-authz-trace-id": request.authz_trace_id } : {}),
+    ...(request?.traceparent ? { traceparent: request.traceparent } : {}),
   };
 }
 

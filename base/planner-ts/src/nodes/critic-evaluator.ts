@@ -230,6 +230,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
     pricingRates: state.pricing_rates_by_role?.critic,
     request_id: state.run_id,
     authz_trace_id: state.authz_trace_id,
+    traceparent: state.traceparent,
     messages: [
       {
         role: "system",

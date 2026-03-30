@@ -82,6 +82,7 @@ export interface GraphState {
   };
   error?: string;
   run_id?: string;
+  traceparent?: string;
 
   cynefin_domain?: CynefinDomain;
   domain_profile?: {

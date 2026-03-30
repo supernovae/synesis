@@ -198,6 +198,7 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
       pricingRates: state.pricing_rates_by_role?.general,
       request_id: state.run_id,
       authz_trace_id: state.authz_trace_id,
+      traceparent: state.traceparent,
       messages: buildWriterMessages(state),
     });
     return {
@@ -235,6 +236,7 @@ export async function composeWriterDraftStream(
         pricingRates: state.pricing_rates_by_role?.general,
         request_id: state.run_id,
         authz_trace_id: state.authz_trace_id,
+        traceparent: state.traceparent,
         messages: buildWriterMessages(state),
       },
       onDelta,

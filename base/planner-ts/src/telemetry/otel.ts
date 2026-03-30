@@ -9,12 +9,14 @@ export interface OtelTracer {
 export interface OtelSpan {
   setAttribute(key: string, value: string | number | boolean): void;
   setStatus(code: "ok" | "error", message?: string): void;
+  traceparent(): string | undefined;
   end(): void;
 }
 
 const noopSpan: OtelSpan = {
   setAttribute() {},
   setStatus() {},
+  traceparent() { return undefined; },
   end() {},
 };
 
@@ -70,6 +72,12 @@ export async function initOtel(config: AppConfig): Promise<void> {
               code: code === "ok" ? otelApi.SpanStatusCode.OK : otelApi.SpanStatusCode.ERROR,
               message,
             });
+          },
+          traceparent() {
+            const ctx = span.spanContext();
+            if (!ctx?.traceId || !ctx?.spanId) return undefined;
+            const flags = Number(ctx.traceFlags ?? 0).toString(16).padStart(2, "0");
+            return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
           },
           end() {
             span.end();

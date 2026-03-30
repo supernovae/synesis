@@ -262,6 +262,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     authzTraceId: string,
     policyDecision: PolicyDecision,
     sessionKey: string,
+    traceparent?: string,
   ): Promise<GraphState> {
     const incomingWithSession = await sessionManager.enrichIncomingMessages(
       sessionKey,
@@ -339,6 +340,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         critic_background: config.SYNESIS_PLANNER_TS_CRITIC_BACKGROUND,
       },
       run_id: requestBody.conversation_id ?? undefined,
+      traceparent,
       domain_profile: domainProfile,
       injection_detected: injectionDetected,
       injection_scan_result: injectionScanResult,
@@ -838,11 +840,19 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.post("/v1/chat/completions", async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
+    const inboundTraceparentHeader = request.headers["traceparent"];
+    const inboundTraceparent = typeof inboundTraceparentHeader === "string" && inboundTraceparentHeader.trim().length > 0
+      ? inboundTraceparentHeader.trim()
+      : undefined;
     const requestSpan = getTracer().startSpan("planner.chat.completions", {
       "http.method": request.method,
       "http.route": "/v1/chat/completions",
     });
     requestSpan.setAttribute("planner.authz_trace_id", authzTraceId);
+    if (inboundTraceparent) {
+      requestSpan.setAttribute("planner.inbound_traceparent", inboundTraceparent);
+    }
+    const outboundTraceparent = inboundTraceparent ?? requestSpan.traceparent();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
     let streamRelease: (() => void) | undefined;
@@ -897,7 +907,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
         streamRelease = admission.release;
       }
 
-      const initialState = await toState(body, auth, authzTraceId, policyDecision, resolvedSession.sessionKey);
+      const initialState = await toState(
+        body,
+        auth,
+        authzTraceId,
+        policyDecision,
+        resolvedSession.sessionKey,
+        outboundTraceparent,
+      );
       const responseModel = initialState.response_model ?? body.model;
 
       const sessionKey = resolvedSession.sessionKey;
