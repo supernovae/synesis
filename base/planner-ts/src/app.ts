@@ -46,6 +46,7 @@ import {
 import { describePhase } from "./streaming/phases.js";
 import type { GraphState } from "./state/types.js";
 import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scanner.js";
+import { FailureStore } from "./diagnostics/failure-store.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
@@ -143,6 +144,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     store: sessionStore
   });
   const authzPolicyEngine = createAuthorizationPolicyEngine(config);
+  const failureStore = new FailureStore();
   const userRateLimiter = new UserRateLimiter({
     windowMs: config.SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS,
     maxRequests: config.SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS,
@@ -412,6 +414,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       userRateLimit: userRateLimiter.getStats(),
       streamAdmission: streamAdmission.getStats(),
     },
+    failures: failureStore.stats(),
     auth: {
       engine: authzPolicyEngine.engineName,
       policyStats: authzPolicyEngine.getStats(),
@@ -460,6 +463,18 @@ export function buildApp(config: AppConfig): FastifyInstance {
         engine: authzPolicyEngine.engineName,
         recentEvents: authzPolicyEngine.getStats().recentEvents
       }
+    };
+  });
+
+  app.get("/health/failures", async (request, reply) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    return {
+      status: "ok",
+      service: "planner-ts",
+      failures: failureStore.top(50),
     };
   });
 
@@ -1018,6 +1033,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         spawnBackgroundCritic(finalState, request.log);
       } catch (err) {
         streamingError = err instanceof Error ? err : new Error(String(err));
+        failureStore.record("streaming_graph", "execution_error", streamingError.message);
         request.log.error(
           { authzTraceId, error: streamingError.message },
           "streaming graph execution failed",
@@ -1059,6 +1075,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       return reply;
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Unknown server error";
+      failureStore.record("request", error instanceof Error ? error.name : "UnknownError", rawMessage);
       const err = error as ErrorWithMeta;
       if (err.policyDecision?.matchedRules?.length) {
         reply.header("x-synesis-authz-rules", err.policyDecision.matchedRules.join(","));

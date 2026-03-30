@@ -117,6 +117,27 @@ describe("API contract", () => {
     }
   });
 
+  it("returns failure diagnostics on dedicated health endpoint", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "false",
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "debug-token"
+      })
+    );
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/health/failures",
+        headers: { authorization: "Bearer debug-token" }
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(Array.isArray(body.failures)).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns OpenAI-like non-stream response", async () => {
     const app = buildApp(makeConfig());
     const response = await app.inject({
