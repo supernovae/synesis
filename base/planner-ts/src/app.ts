@@ -424,6 +424,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       streamAdmission: streamAdmission.getStats(),
     },
     failures: failureStore.stats(),
+    deps: dependencyHealthMonitor.snapshot(),
     auth: {
       engine: authzPolicyEngine.engineName,
       policyStats: authzPolicyEngine.getStats(),
