@@ -11,7 +11,7 @@ set -euo pipefail
 #
 # Usage:
 #   ./scripts/lock-deps.sh               # recompile all lockfiles
-#   ./scripts/lock-deps.sh planner       # recompile one service
+#   ./scripts/lock-deps.sh admin         # recompile one service
 #   ./scripts/lock-deps.sh --check       # exit non-zero if any lockfile is stale
 #
 # Prerequisites: uv >= 0.5 (https://docs.astral.sh/uv/)
@@ -58,7 +58,6 @@ SERVICES=(
     "base-ml|base/images/base-ml|base-api"
 
     # Tier 2: services on base-api
-    "planner|base/planner|base-api"
     "admin|base/admin|base-api"
     "preprocess-service|base/rag/preprocess-service|base-api"
     "mcp|base/mcp|base-api"

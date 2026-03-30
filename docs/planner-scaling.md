@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the canonical implementation and operations guide for scaling `planner-ts` toward beta production with a target of **25-50+ concurrent users** and eventual deprecation of the Python planner runtime.
+This document is the canonical implementation and operations guide for scaling `planner-ts` toward beta production with a target of **25-50+ concurrent users**.
 
 Design intent:
 - Fix-forward only (no backward-compatibility shims).
@@ -22,7 +22,7 @@ In scope:
 
 Out of scope:
 - Redis/Postgres cluster provisioning and HA topology.
-- Python planner prompt/retrieval cache migration.
+- Prompt/retrieval cache migration hardening.
 
 Explicit decision:
 - **Won't do (for this effort): prompt-level and retrieval response caching in planner-ts.**
@@ -103,7 +103,7 @@ Work items:
 - Align `trace_id`/`request_id` semantics in `packages/synesis-telemetry/src/types.ts`.
 - Ensure MCP routes/proxies in yarn propagate correlation headers.
 
-### Phase D: Verification and Python planner deprecation gate
+### Phase D: Verification and release gate
 
 Planner-ts is deprecation-ready when all are true:
 - Functional parity checks pass for required planner flows.
@@ -163,7 +163,7 @@ OTEL consistency updates should be merged into that doc (or a dedicated companio
 ## Historical source document
 
 The discovery/research source remains:
-- `docs/wip/PLANNER_TS_SCALABILITY_RESEARCH.md`
+- `docs/deprecated/PLANNER_TS_SCALABILITY_RESEARCH.md`
 
 It should be maintained as historical evidence and marked for eventual removal after:
 - all required phases are verified,

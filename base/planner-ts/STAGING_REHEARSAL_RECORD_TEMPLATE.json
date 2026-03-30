@@ -3,8 +3,7 @@
     "date": "",
     "environment": "",
     "operator": "",
-    "planner_ts_image_tag": "",
-    "python_fallback_image_tag": ""
+    "planner_ts_image_tag": ""
   },
   "checks": [
     {
@@ -12,14 +11,6 @@
       "title": "Run consolidated gates",
       "command": "npm run verify:gates",
       "expected": "exit_code_0",
-      "status": "pending",
-      "evidence": ""
-    },
-    {
-      "id": "gate_verify_py_compare",
-      "title": "Optional Python baseline comparator gate",
-      "command": "SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates",
-      "expected": "exit_code_0_or_documented_exception",
       "status": "pending",
       "evidence": ""
     },

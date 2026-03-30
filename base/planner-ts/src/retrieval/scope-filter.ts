@@ -1,6 +1,6 @@
 /**
  * Milvus boolean expression builder — full parity with Python
- * build_scope_filter() in base/planner/app/rag_client.py.
+ * historical build_scope_filter() behavior from the retired planner runtime.
  *
  * Access tiers (OR-combined):
  *   1. visibility_scope == "global"           — always allowed

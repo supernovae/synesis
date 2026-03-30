@@ -10,10 +10,6 @@ import {
 } from "../src/nodes/contract-validator.js";
 import { runCanonicalPipeline } from "../src/pipeline.js";
 import type { GraphState } from "../src/state/types.js";
-import {
-  evaluateWithPythonBaseline,
-  isPythonBaselineCompareEnabled
-} from "./python-baseline-adapter.js";
 
 interface GoldenFixture {
   name: string;
@@ -90,23 +86,14 @@ describe("golden replay", () => {
         const spans = out._span_collector?.getSpans() ?? [];
         expect(spans.length).toBeGreaterThan(0);
       }
-
-      if (isPythonBaselineCompareEnabled()) {
-        const py = evaluateWithPythonBaseline(out);
-        const tsStyle = validateStyleCompliance(out);
-        const tsDecision = validateDecisionDrift(out);
-        const tsCitation = validateCitationPreservation(out);
-        const tsOsc = detectOscillation(out);
-
-        expect(py.style_passed).toBe(tsStyle.passed);
-        expect(py.decision_passed).toBe(tsDecision.passed);
-        expect(py.citation_passed).toBe(tsCitation.passed);
-        expect(py.style_violations_count).toBe(tsStyle.violations.length);
-        expect(py.decision_violations_count).toBe(tsDecision.violations.length);
-        expect(py.citation_violations_count).toBe(tsCitation.violations.length);
-        expect(Math.abs(py.oscillation_total_score - tsOsc.total_score)).toBeLessThanOrEqual(0.05);
-        expect(Math.abs(py.oscillation_decision_score - tsOsc.decision_score)).toBeLessThanOrEqual(0.05);
-      }
+      const tsStyle = validateStyleCompliance(out);
+      const tsDecision = validateDecisionDrift(out);
+      const tsCitation = validateCitationPreservation(out);
+      const tsOsc = detectOscillation(out);
+      expect(typeof tsStyle.passed).toBe("boolean");
+      expect(typeof tsDecision.passed).toBe("boolean");
+      expect(typeof tsCitation.passed).toBe("boolean");
+      expect(tsOsc.total_score).toBeGreaterThanOrEqual(0);
     });
   }
 });

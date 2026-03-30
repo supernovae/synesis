@@ -1,8 +1,4 @@
-"""Shared Milvus client utilities for the admin service.
-
-Mirrors base/planner/app/milvus_utils.py — provides ResilientMilvusClient
-with automatic reconnect on dead gRPC channels.
-"""
+"""Shared Milvus client utilities for the admin service."""
 
 from __future__ import annotations
 

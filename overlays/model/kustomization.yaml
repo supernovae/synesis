@@ -44,9 +44,6 @@ patches:
           app: synesis-router
 
 images:
-  - name: synesis-planner
-    newName: ghcr.io/supernovae/synesis/planner
-    newTag: latest
   - name: synesis-admin
     newName: ghcr.io/supernovae/synesis/admin
     newTag: latest

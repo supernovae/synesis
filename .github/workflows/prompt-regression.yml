@@ -4,14 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "base/planner/app/nodes/**"
-      - "base/planner/app/graph/**"
-      - "base/planner/app/prompts/**"
-      - "base/planner/app/taxonomy_prompt_config.yaml"
-      - "base/planner/app/state.py"
-      - "base/planner/app/reducers.py"
-      - "base/planner/app/config.py"
-      - "base/planner/app/oscillation_detector.py"
+      - "base/planner-ts/src/**"
       - "tests/prompts/**"
 
   workflow_dispatch:
@@ -36,38 +29,6 @@ env:
   SYNESIS_API_KEY: ""
 
 jobs:
-  router-governance:
-    name: Router Governance Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "base/planner/requirements*.txt"
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        working-directory: base/planner
-        run: |
-          uv pip install --system ../security
-          uv pip install --system -r requirements-test.txt
-
-      - name: Run router governance tests
-        working-directory: base/planner
-        run: python -m pytest tests/test_router_governance.py -v --tb=short --junitxml=../../governance-results.xml
-
-      - name: Upload governance results
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: governance-test-results
-          path: governance-results.xml
-
   prompt-suite-offline:
     name: Prompt Suite Validation (Offline)
     runs-on: ubuntu-latest
@@ -118,7 +79,7 @@ jobs:
 
   prompt-suite-live:
     name: Prompt Regression (Live)
-    needs: [router-governance, prompt-suite-offline]
+    needs: [prompt-suite-offline]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'release' ||

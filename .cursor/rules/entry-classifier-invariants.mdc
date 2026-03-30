@@ -1,6 +1,6 @@
 ---
 description: EntryClassifier invariants — complexity/risk/domain split, explainability, escalation reasons
-globs: base/planner/app/entry_classifier_engine.py,base/planner/app/nodes/entry_classifier.py,base/planner/app/plugin_weight_loader.py,base/planner/**/entry_classifier_weights.yaml,base/planner/**/intent_weights.yaml,base/planner/plugins/weights/*.yaml
+globs: base/planner-ts/src/nodes/entry-*.ts,base/planner-ts/src/ontology/*.ts,base/planner/**/entry_classifier_weights.yaml,base/planner/**/intent_weights.yaml,base/planner/plugins/weights/*.yaml
 alwaysApply: false
 ---
 

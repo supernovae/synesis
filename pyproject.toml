@@ -79,14 +79,13 @@ dev = [
     "vulture>=2.15",
 ]
 
-# Vulture: use explicit paths in scripts/check-dead-code.sh (planner main.py excluded:
-# false positives on async SSE streaming control flow). Run: ./scripts/check-dead-code.sh
+# Vulture: use explicit paths in scripts/check-dead-code.sh.
 [tool.vulture]
 min_confidence = 100
 
 # Coverage: used by pytest --cov=… and `coverage report`. Example (telemetry package):
 #   PYTHONPATH=base/images/base-api/synesis-telemetry \
-#     uv run --group dev pytest base/planner/tests/test_telemetry.py \
+#     uv run --group dev pytest \
 #     --cov=synesis_telemetry --cov-report=term --cov-config=pyproject.toml
 [tool.coverage.run]
 branch = true

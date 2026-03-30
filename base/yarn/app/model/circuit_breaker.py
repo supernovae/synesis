@@ -1,6 +1,6 @@
 """Per-endpoint circuit breaker for model providers.
 
-Ported from base/planner/app/model_client.py with the same state machine:
+Ported from the retired planner runtime with the same state machine:
 closed (normal) -> open (all calls rejected) -> half-open (probe).
 """
 

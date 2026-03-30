@@ -1,8 +1,8 @@
 ---
 description: SSE status event format for Open WebUI compatibility
 globs:
-  - base/planner/app/main.py
-  - base/planner/app/streaming_events.py
+  - base/planner-ts/src/app.ts
+  - base/planner-ts/src/streaming/*.ts
 alwaysApply: false
 ---
 

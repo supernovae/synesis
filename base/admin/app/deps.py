@@ -18,7 +18,7 @@ PLANNER_URL = os.getenv(
 )
 PLANNER_TS_URL = os.getenv(
     "SYNESIS_PLANNER_TS_URL",
-    "http://synesis-planner.synesis-planner.svc.cluster.local:8080",
+    "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",
 )
 YARN_TS_URL = os.getenv(
     "SYNESIS_YARN_TS_URL",

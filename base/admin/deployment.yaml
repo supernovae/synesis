@@ -95,7 +95,7 @@ spec:
                   optional: true
             # ── Planner-TS / Yarn-TS telemetry scraping URLs ──
             - name: SYNESIS_PLANNER_TS_URL
-              value: "http://synesis-planner.synesis-planner.svc.cluster.local:8080"
+              value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
             - name: SYNESIS_YARN_TS_URL
               value: "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000"
             # ── OpenFGA authorization (required) ──

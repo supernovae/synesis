@@ -12,8 +12,6 @@ WORKDIR /opt/app-root/src
 # RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache --require-hashes -r requirements.lock
 
 COPY base/mcp/app/ app/
-# Shared with planner gate (single source in base/planner/app/integrity_core.py).
-COPY base/planner/app/integrity_core.py app/integrity_core.py
 
 USER 1001
 

@@ -1,6 +1,6 @@
 # Synesis Makefile
 # Run from project root.
-# Prerequisites: uv pip install --system -r base/planner/requirements-test.txt (from base/planner)
+# Prerequisites: npm ci (for planner-ts workspace tests)
 
 .PHONY: mock-tests online-tests tests help
 .PHONY: bench-retrieval bench-llm-judge bench-corpus-audit bench-chunking
@@ -8,14 +8,14 @@
 
 # ── Unit / Integration Tests ─────────────────────────────────────────────────
 
-# Offline tests: routing, API contract, E2E with mocked LLMs. No network or real services.
+# Offline tests: planner-ts unit tests.
 mock-tests:
-	cd base/planner && python -m pytest tests/test_graph_routing.py tests/test_routing_parity.py tests/test_api.py tests/test_e2e_graph.py -v
+	cd base/planner-ts && npm test
 
-# Online tests: hit live planner via oc port-forward. Requires:
-#   oc port-forward svc/synesis-planner 8000:8000 -n synesis-planner
+# Online tests: hit live planner-ts via oc port-forward. Requires:
+#   oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
 online-tests:
-	python scripts/validate-intent-live.py --url http://localhost:8000
+	python scripts/validate-intent-live.py --url http://localhost:8080
 
 # All unit/mock tests (alias)
 tests: mock-tests

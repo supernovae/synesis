@@ -1,6 +1,6 @@
 """Classify IDE / agent clients for Synesis Coder (Yarn) observability and policy.
 
-Signature needles are kept aligned with ``base/planner/app/coder_client_detect.py``.
+Signature needles are kept aligned with planner-ts client-identification behavior.
 Extend both files together when adding a new client fingerprint.
 """
 

@@ -9,11 +9,7 @@ labels:
     includeSelectors: false
 
 resources:
-  - namespace.yaml
-  - deployment.yaml
-  - service.yaml
-  - route.yaml
-  - network-policy.yaml
+  - bge-reranker
 
 configMapGenerator:
   - name: synesis-search-sources

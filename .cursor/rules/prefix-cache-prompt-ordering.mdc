@@ -1,7 +1,7 @@
 ---
 description: Prompt ordering convention for vLLM prefix cache efficiency
 globs:
-  - base/planner/app/nodes/*.py
+  - base/planner-ts/src/nodes/*.ts
 alwaysApply: false
 ---
 

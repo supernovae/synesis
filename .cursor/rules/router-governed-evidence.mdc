@@ -1,6 +1,6 @@
 ---
 description: Router-governed evidence architecture — retrieval discipline, evidence packets, node boundaries, hybrid cache
-globs: base/planner/app/nodes/*.py,base/planner/app/graph.py,base/planner/app/retrieval_cache.py,base/planner/app/semantic_index.py,base/planner/app/state.py
+globs: base/planner-ts/src/nodes/*.ts,base/planner-ts/src/graph.ts,base/planner-ts/src/retrieval/*.ts,base/planner-ts/src/state/**/*.ts
 alwaysApply: false
 ---
 

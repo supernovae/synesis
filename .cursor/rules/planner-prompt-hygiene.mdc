@@ -1,6 +1,6 @@
 ---
 description: Protect planner node prompt roles — no domain-specific bias in generic prompts, difficulty-driven depth, taxonomy-only domain rules
-globs: base/planner/app/nodes/*.py,base/planner/app/graph.py,base/planner/app/format_exemplars.yaml
+globs: base/planner-ts/src/nodes/*.ts,base/planner-ts/src/graph.ts,base/planner/taxonomy_prompt_config.yaml
 alwaysApply: false
 ---
 

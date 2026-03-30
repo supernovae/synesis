@@ -6,13 +6,13 @@ Use after push+deploy to regression-test behavior against the release you want.
 
 Usage:
   # 1. Deploy your release to cluster
-  # 2. Tunnel to planner:
-  oc port-forward svc/synesis-planner 8000:8000 -n synesis-planner
+  # 2. Tunnel to planner-ts:
+  oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
 
   # 3. Run validation (in another terminal):
   python scripts/validate-intent-live.py
-  python scripts/validate-intent-live.py --url http://localhost:8000
-  python scripts/validate-intent-live.py --url https://synesis-planner.apps.your-cluster.example.com
+  python scripts/validate-intent-live.py --url http://localhost:8080
+  python scripts/validate-intent-live.py --url https://synesis-planner-ts.apps.your-cluster.example.com
 
 Requires: httpx (pip install httpx) or requests. PyYAML for integration_prompts.yaml.
 """
@@ -40,14 +40,19 @@ INLINE_PROMPTS = [
 
 
 def load_prompts() -> list[dict]:
-    path = Path(__file__).parent.parent / "base/planner/tests/integration_prompts.yaml"
+    path = Path(__file__).parent.parent / "tests/prompts/test_prompts.yaml"
     if path.exists():
         try:
             import yaml
 
             with open(path) as f:
                 data = yaml.safe_load(f)
-            return data.get("prompts", INLINE_PROMPTS)
+            prompts = []
+            for item in data:
+                text = item.get("prompt")
+                if isinstance(text, str) and text.strip():
+                    prompts.append({"prompt": text, "response_must_contain": [], "response_must_not_contain": []})
+            return prompts or INLINE_PROMPTS
         except Exception:
             pass
     return INLINE_PROMPTS
@@ -97,12 +102,12 @@ def post_chat(url: str, prompt: str) -> tuple[str, int]:
 def main():
     parser = argparse.ArgumentParser(
         description="Validate intent flow against live planner API.",
-        epilog="Prerequisite: oc port-forward svc/synesis-planner 8000:8000 -n synesis-planner",
+        epilog="Prerequisite: oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner",
     )
     parser.add_argument(
         "--url",
-        default="http://localhost:8000",
-        help="Planner base URL (default: http://localhost:8000)",
+        default="http://localhost:8080",
+        help="Planner base URL (default: http://localhost:8080)",
     )
     parser.add_argument(
         "--verbose",

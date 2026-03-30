@@ -140,10 +140,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: planner
-            dockerfile: base/planner/Dockerfile
-            context: base/planner
-            base_arg: synesis-base-api
           - name: admin
             dockerfile: base/admin/Dockerfile
             context: base/admin
@@ -241,7 +237,6 @@ jobs:
           | synesis-base-api | \`${REGISTRY}/synesis-base-api:${VERSION}\` |
           | synesis-base-ml | \`${REGISTRY}/synesis-base-ml:${VERSION}\` |
           | synesis-base-devtools | \`${REGISTRY}/synesis-base-devtools:${VERSION}\` |
-          | planner | \`${REGISTRY}/planner:${VERSION}\` |
           | admin | \`${REGISTRY}/admin:${VERSION}\` |
           | lsp-gateway | \`${REGISTRY}/lsp-gateway:${VERSION}\` |
           | sandbox | \`${REGISTRY}/sandbox:${VERSION}\` |

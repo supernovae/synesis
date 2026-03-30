@@ -1,6 +1,6 @@
 # Planner TS Cutover Rollback Runbook
 
-This runbook stages the big-bang switch from Python planner to `planner-ts` while keeping rollback immediate.
+This runbook stages production cutover onto `planner-ts` while keeping rollback immediate.
 
 Companion checklist: `STAGING_REHEARSAL_CHECKLIST.md`
 Machine-readable template: `STAGING_REHEARSAL_RECORD_TEMPLATE.json`
@@ -10,29 +10,25 @@ Record generator: `npm run rehearsal:new`
 
 - `planner-ts` gates pass locally:
   - `npm run verify:gates`
-- Optional Python deterministic comparator check:
-  - `SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates`
-- Deployment artifacts for both planners are available (TS primary candidate + Python fallback).
-- Operator can route traffic between planner services without rebuilding images.
+- Deployment artifacts for `planner-ts` are available.
+- Operator can route traffic between planner service revisions without rebuilding images.
 
 ## Cutover Steps
 
-1. **Freeze Python planner feature changes**
-   - Keep only stabilization fixes during switch window.
-2. **Deploy `planner-ts` as standby**
+1. **Deploy `planner-ts` as standby**
    - Verify readiness/health endpoints:
      - `GET /health`
      - `GET /health/authz-events`
-3. **Shadow/limited traffic validation**
+2. **Shadow/limited traffic validation**
    - Confirm SSE contract:
      - status events contain JSON `event` payload and `authz_trace_id`
      - completion stream ends with `[DONE]`
    - Confirm authz telemetry:
      - `/health` `auth.policyStats` increments
      - `/health/authz-events` receives recent allow/deny decisions
-4. **Promote `planner-ts` to primary**
+3. **Promote `planner-ts` to primary**
    - Route production `/v1/chat/completions` traffic to TS service.
-5. **Observe stabilization window**
+4. **Observe stabilization window**
    - Track p50/p95 latency, non-200 rates, timeout rates, and critic loop health.
    - Validate sampled responses for citation/grounding quality.
 
@@ -48,7 +44,7 @@ Rollback immediately if any of the following occur:
 
 ## Rollback Steps
 
-1. Route traffic back to Python planner immediately.
+1. Route traffic back to the previous stable `planner-ts` revision immediately.
 2. Keep `planner-ts` running for forensic logs/telemetry collection.
 3. Capture:
    - failing request IDs

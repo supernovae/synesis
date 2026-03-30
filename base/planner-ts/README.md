@@ -40,11 +40,7 @@ This service is the TypeScript migration target for the planner runtime.
   - JSON fixtures under `tests/fixtures/golden/`
   - replay tests asserting contract-level outcomes for representative scenarios
   - includes baseline scenarios for happy path, citation gaps, decision drift, and oscillation pressure
-  - baseline for Python-vs-TS parity expansion
-- Optional Python comparator mode:
-  - enable with `SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true`
-  - uses `base/planner/tests/tools/ts_migration_baseline.py` to evaluate deterministic Python validators on TS state
-  - asserts parity on pass/fail outcomes and near-parity on oscillation scores
+  - baseline corpus for ongoing TS-only regression expansion
 - LangGraph.js execution path:
   - `invokeGraph()` now runs a compiled `StateGraph` (entry -> planner -> plan_gate -> router -> writer -> critic -> scrubber/respond)
   - conditional routing mirrors current TS pipeline decisions
@@ -70,7 +66,7 @@ This service is the TypeScript migration target for the planner runtime.
   - `tests/sse-conformance.test.ts` validates SSE status/event/chunk semantics
   - `tests/latency-budget.test.ts` validates local p50/p95 latency budgets for stream + non-stream
   - `npm run bun:smoke` runs Bun compatibility smoke checks (`typecheck`, `test`) and skips cleanly when Bun is not installed
-  - `npm run verify:gates` runs consolidated cutover gates (typecheck, tests, Bun smoke, optional Python comparator mode)
+  - `npm run verify:gates` runs consolidated cutover gates (typecheck, tests, Bun smoke)
 - Cutover/rollback artifacts:
   - `CUTOVER_ROLLBACK_RUNBOOK.md` defines staged promotion + immediate fallback procedure
   - `STAGING_REHEARSAL_CHECKLIST.md` provides a sign-off checklist for staging promotion/rollback rehearsal

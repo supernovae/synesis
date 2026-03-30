@@ -1,7 +1,7 @@
 """Trace store backed by Postgres.
 
-Reads trace records from the admin Postgres database.  The planner writes
-traces via a direct Postgres insert (see base/planner/app/synesis_tracer.py).
+Reads trace records from the admin Postgres database. The planner runtime
+writes traces via direct Postgres inserts.
 """
 
 from __future__ import annotations

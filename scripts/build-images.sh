@@ -10,7 +10,7 @@ set -euo pipefail
 #   ./scripts/build-images.sh                            # build all
 #   ./scripts/build-images.sh --push                     # build + push
 #   ./scripts/build-images.sh --push --tag v0.1.0        # build + push with version tag
-#   ./scripts/build-images.sh --only planner,admin       # build subset
+#   ./scripts/build-images.sh --only planner-ts,admin    # build subset
 #   ./scripts/build-images.sh --bases-only               # build only base images
 #   ./scripts/build-images.sh --list                     # list images and exit
 #
@@ -87,7 +87,7 @@ BASE_IMAGES=(
 )
 
 SERVICE_IMAGES=(
-    "planner|base/planner/Dockerfile|base/planner"
+    "planner-ts|base/planner-ts/Containerfile|."
     "admin|base/admin/Dockerfile|base/admin"
     "lsp-gateway|base/lsp/gateway/Dockerfile|base/lsp/gateway"
     "sandbox|base/sandbox/image/Dockerfile|base/sandbox/image"
@@ -183,7 +183,7 @@ for entry in "${IMAGES[@]}"; do
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        planner|admin|keyword-service|preprocess-service|quality-runner|mcp)
+        admin|keyword-service|preprocess-service|quality-runner|mcp)
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

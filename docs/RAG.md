@@ -6,7 +6,7 @@ Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus colle
 
 The active planner runtime (`base/planner-ts/`) retrieves evidence through the unified retrieval path (`base/planner-ts/src/retrieval/unified.ts`). The router dispatches parallel RAG and web searches, merging results via Reciprocal Rank Fusion (RRF).
 
-1. **Milvus Hybrid Search**: The RAG client (`base/planner-ts/src/retrieval/rag-client.ts`) queries Milvus using its native `hybrid_search` (dense vectors + sparse BM25 vectors in a single request). This replaces the Python planner's in-process BM25 corpus with server-side sparse retrieval.
+1. **Milvus Hybrid Search**: The RAG client (`base/planner-ts/src/retrieval/rag-client.ts`) queries Milvus using its native `hybrid_search` (dense vectors + sparse BM25 vectors in a single request).
 
 2. **Cross-Encoder Reranking**: The merged candidates are re-scored by the configured reranker (BGE cross-encoder by default, FlashRank as a faster alternative). The reranker computes query-passage relevance scores that are more accurate than the initial retrieval scores.
 
@@ -16,11 +16,11 @@ The active planner runtime (`base/planner-ts/`) retrieves evidence through the u
 
 ### Planned parity items (from Python reference)
 
-The Python planner (`base/planner/`) included additional retrieval features that are tracked in [PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md):
+Archived retrieval parity history is tracked in [deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md):
 
 - **Keyword query distillation** — distilling the user query into focused keyphrases via the keyword-service before retrieval. Prevents keyword pollution that causes irrelevant matches.
 - **Multi-query expansion** — generating 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via RRF.
-- **In-process BM25** — the Python planner maintained an in-memory BM25Okapi index built from Milvus chunks at startup. In planner-ts, this is replaced by Milvus server-side sparse retrieval.
+- **In-process BM25** — replaced by Milvus server-side sparse retrieval.
 
 ## Re-ranker Options
 

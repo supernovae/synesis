@@ -80,48 +80,6 @@ jobs:
       - name: Validate kustomize build (${{ matrix.overlay }})
         run: kustomize build overlays/${{ matrix.overlay }} > /dev/null
 
-  planner-tests:
-    name: Planner Unit Tests (${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.13"]
-        include:
-          - python-version: "3.11"
-            required: true
-          - python-version: "3.13"
-            required: false
-    continue-on-error: ${{ !matrix.required }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "base/planner/requirements*.txt"
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        working-directory: base/planner
-        run: |
-          uv pip install --system ../security
-          uv pip install --system -r requirements-test.txt
-
-      - name: Run tests
-        working-directory: base/planner
-        run: python -m pytest tests/ -v --tb=short --junitxml=../../test-results-${{ matrix.python-version }}.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: planner-test-results-${{ matrix.python-version }}
-          path: test-results-${{ matrix.python-version }}.xml
-
   admin-tests:
     name: Admin tests
     runs-on: ubuntu-latest

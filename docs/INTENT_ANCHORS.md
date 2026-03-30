@@ -5,7 +5,7 @@
 
 ## Where ambiguity is handled now
 
-Synesis resolves "what kind of task is this?" **through frame extraction and sensemaking**, not through a standalone anchor resolver. This behavior is implemented in **planner-ts** (the active runtime); the **Python planner** (`base/planner`) is retained as a behavioral reference only.
+Synesis resolves "what kind of task is this?" **through frame extraction and sensemaking**, not through a standalone anchor resolver. This behavior is implemented in **planner-ts**.
 
 ### planner-ts (current runtime)
 
@@ -21,8 +21,6 @@ Synesis resolves "what kind of task is this?" **through frame extraction and sen
 | 8. Cohesion lock | `src/retrieval/cohesion.ts` | `detectCohesionLock()`, `cohesionFilter()`, `compressToCohesion()` — conflict groups from `cohesion_groups.yaml` |
 | 9. Router (evidence) | `src/nodes/router.ts` | `runRouter()` — parallel evidence dispatch, preseeded cohesion lock for focused frames, `topic_frame` + `domainHints` injection |
 | 10. Clarification | `src/nodes/llm-planner.ts` | `shouldClarify()` — diffuse-frame or low-confidence probe |
-
-### Python planner (legacy reference, not deployed)
 
 | Step | Module | Key function / type |
 |------|--------|-------------------|
@@ -57,7 +55,7 @@ Synesis resolves "what kind of task is this?" **through frame extraction and sen
 | Research ↔ code mapping (Klein, Cynefin, JCS, LDA) | [SENSEMAKING_REFERENCES.md](SENSEMAKING_REFERENCES.md) |
 | Design narrative (complexity, sensemaking, Safety-II) | [DESIGN_THEORY.md](DESIGN_THEORY.md) |
 | End-to-end pipeline, cohesion lock, query normalization | [WORKFLOW.md](WORKFLOW.md) |
-| Python vs TS parity tracker | [PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md) |
+| Archived parity tracker | [deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md) |
 
 ## Historical note
 

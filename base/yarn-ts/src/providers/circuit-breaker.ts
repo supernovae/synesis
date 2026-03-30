@@ -2,7 +2,7 @@
  * Per-endpoint circuit breaker for model providers.
  *
  * State machine: closed (normal) → open (reject fast) → half-open (probe).
- * Ported from base/planner/app/model_client.py with identical semantics.
+ * Ported from the retired planner runtime with identical semantics.
  * Keyed by `${modelId}:${orgId}` so one tenant's failures cannot deny
  * service to others.
  */

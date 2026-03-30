@@ -9,7 +9,7 @@ alwaysApply: true
 
 - **Default base:** Red Hat **UBI 9** Python 3.11 (`registry.access.redhat.com/ubi9/python-311:latest`).
 - **Why:** OpenShift/RHEL alignment, supported CVE cadence, consistent Python minor across fleet.
-- **`base-api`** (`base/images/base-api/Dockerfile`) builds on UBI 9 Python 3.11 and creates a venv at `/opt/app-root/venv`. All downstream app images (`planner`, `admin`, `keyword-service`, `preprocess-service`, `quality-runner`, `base-ml` chain) inherit this venv. Install additional deps with `uv pip install --python /opt/app-root/venv/bin/python`.
+- **`base-api`** (`base/images/base-api/Dockerfile`) builds on UBI 9 Python 3.11 and creates a venv at `/opt/app-root/venv`. Downstream Python app images (`admin`, `keyword-service`, `preprocess-service`, `quality-runner`, `base-ml` chain) inherit this venv. Install additional deps with `uv pip install --python /opt/app-root/venv/bin/python`.
 - **`base-ml`** (`base/images/base-ml/Dockerfile`) extends base-api (same UBI base, same venv).
 - **`base-devtools`** (`base/images/base-devtools/Dockerfile`) extends **UBI 9 Python 3.11** with **Node.js 22** (AppStream module), **Go** and **JDK 21** (AppStream), and **shellcheck** / **cppcheck** via **EPEL 9** (not in UBI repos). Sets **`ENV UV_PYTHON=/opt/app-root/bin/python`** so child layers running as **root** still install with **uv** into the app-root 3.11 environment (avoids picking `/usr/bin/python3` from RPM deps). LSP gateway and sandbox build on this image.
 - **Minimal variants:** Use `ubi9/ubi-minimal` only for non-Python workers or static binaries.
@@ -54,7 +54,7 @@ Every service has two dependency files:
 - **Containers locally:** Prefer **Podman** over Docker for rootless, OpenShift-like workflows. The repo ships [`podman-compose.yaml`](podman-compose.yaml) for stack bring-up where applicable.
 - **Python envs locally:** Prefer **`uv venv`** + **`uv pip install`** (or **`uv sync`** if the component uses a `uv`-managed project) rather than ad-hoc `python3 -m venv` + pip.
 - **Running tests:** Use **`uv run pytest …`** / **`uv run ruff check …`** from the repo root or service directory.
-- **Dead code:** After **`uv sync --group dev`**, run **`./scripts/check-dead-code.sh`** (vulture at 100% confidence on each service `app/` tree; `base/planner/app/main.py` is excluded because vulture mis-parses the async SSE generator). Optional coverage for **`synesis_telemetry`**: set `PYTHONPATH=base/images/base-api/synesis-telemetry` and run pytest on `base/planner/tests/test_telemetry.py` with **`--cov=synesis_telemetry --cov-config=pyproject.toml`** (see script header comment).
+- **Dead code:** After **`uv sync --group dev`**, run **`./scripts/check-dead-code.sh`** (vulture at 100% confidence on each service `app/` tree). Optional coverage for **`synesis_telemetry`**: set `PYTHONPATH=base/images/base-api/synesis-telemetry` and run pytest with **`--cov=synesis_telemetry --cov-config=pyproject.toml`**.
 
 ## When to diverge
 

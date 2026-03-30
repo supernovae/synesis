@@ -1,6 +1,6 @@
 ---
 description: LangGraph state safety — nodes must forward keys downstream needs
-globs: base/planner/app/graph.py,base/planner/app/nodes/*.py,base/planner/app/state.py
+globs: base/planner-ts/src/graph.ts,base/planner-ts/src/nodes/*.ts,base/planner-ts/src/state/**/*.ts
 alwaysApply: false
 ---
 

@@ -63,7 +63,7 @@ POST /v1/embeddings
 ## Client patterns to reuse
 
 - Indexer: `base/rag/indexer/app/embed_client.py` — synchronous httpx client for TEI
-- Planner: `base/planner/app/embed_client.py` — synchronous httpx client for TEI with singleton via `get_embed_client()`
+- Planner: `base/planner-ts/src/retrieval/` TEI client path
 - Keyword-service: `base/rag/keyword-service/app/embed_client.py` — TEI client with numpy L2 normalisation
 
 ## Adding new ML capabilities
@@ -76,7 +76,7 @@ If a new feature needs ML inference (NER, classification, summarization, etc.):
 
 ## Config references
 
-- Planner config: `base/planner/app/config.py` — `embedder_url`, `keyword_service_url`
-- Planner deployment: `base/planner/deployment.yaml` — `SYNESIS_EMBEDDER_URL`, `SYNESIS_KEYWORD_SERVICE_URL`
+- Planner config: `base/planner-ts/src/config.ts`
+- Planner deployment: `base/planner-ts/deployment.yaml`
 - Indexer enrichment: `base/rag/indexer/app/enrichment.py` — template + optional LLM full enrich (no `KEYWORD_SERVICE_URL` on indexer)
 - Keyword-service deployment: `base/rag/keyword-service/deployment.yaml` — `EMBEDDER_URL` env var

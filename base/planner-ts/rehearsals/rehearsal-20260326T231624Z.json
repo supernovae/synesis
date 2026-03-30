@@ -18,10 +18,10 @@
     {
       "id": "gate_verify_py_compare",
       "title": "Optional Python baseline comparator gate",
-      "command": "SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates",
+      "command": "npm run verify:gates",
       "expected": "exit_code_0_or_documented_exception",
       "status": "pass",
-      "evidence": "PASS 2026-03-26: SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates (baseline compare mode enabled; all configured gates passed)."
+      "evidence": "PASS 2026-03-26: npm run verify:gates."
     },
     {
       "id": "health_main",

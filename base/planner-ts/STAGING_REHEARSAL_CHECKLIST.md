@@ -11,17 +11,11 @@ Helper command to create a timestamped record: `npm run rehearsal:new`
 - Environment:
 - Operator:
 - Planner TS image/tag:
-- Python planner fallback image/tag:
 
 ## 1) Gate Verification
 
 - [ ] Run: `npm run verify:gates`
   - Expected: command exits `0`
-  - Evidence:
-
-- [ ] Optional parity compare run:
-  - Command: `SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates`
-  - Expected: command exits `0` (or documented exceptions)
   - Evidence:
 
 ## 2) Service Health

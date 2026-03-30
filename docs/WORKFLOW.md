@@ -1,6 +1,6 @@
 # Synesis Workflow
 
-This document describes the planner-ts pipeline flow, routing logic, and key design invariants. The active runtime is **planner-ts** (`base/planner-ts/`); the Python planner (`base/planner/`) is retained as a behavioral reference only and will be removed.
+This document describes the planner-ts pipeline flow, routing logic, and key design invariants. The active runtime is **planner-ts** (`base/planner-ts/`).
 
 ## Overview
 

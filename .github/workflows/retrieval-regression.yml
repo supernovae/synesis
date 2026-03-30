@@ -4,9 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "base/planner/app/nodes/router.py"
-      - "base/planner/app/nodes/unified_retrieval.py"
-      - "base/planner/app/rag_client.py"
+      - "base/planner-ts/src/**"
       - "benchmarks/retrieval/**"
       - "benchmarks/bm25/queries.yaml"
   workflow_dispatch:

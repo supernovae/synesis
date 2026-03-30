@@ -17,7 +17,7 @@ Three-tier visibility model enforced at every retrieval path.
 
 ## Key code paths
 
-- **Scope filter builder:** `base/planner/app/rag_client.py` → `build_scope_filter()`
+- **Scope filter builder:** `base/planner-ts/src/retrieval/scope-filter.ts`
 - **Metadata filter (includes scope):** `build_metadata_filter(caller_org_id=, caller_tenant_ids=)`
 - **Planner state:** `initial_state["org_id"]`, `initial_state["tenant_ids"]` set in `main.py`
 - **Router retrieval:** `consolidated_retrieve()` passes `caller_org_id`/`caller_tenant_ids` to filter builder

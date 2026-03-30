@@ -63,7 +63,6 @@ jobs:
       base-api: ${{ steps.filter.outputs.base-api }}
       base-ml: ${{ steps.filter.outputs.base-ml }}
       base-devtools: ${{ steps.filter.outputs.base-devtools }}
-      planner: ${{ steps.filter.outputs.planner }}
       admin: ${{ steps.filter.outputs.admin }}
       lsp-gateway: ${{ steps.filter.outputs.lsp-gateway }}
       sandbox: ${{ steps.filter.outputs.sandbox }}
@@ -96,14 +95,6 @@ jobs:
             base-devtools:
               - 'base/images/base-devtools/**'
               - 'base/images/base-api/synesis-telemetry/**'
-            planner:
-              - 'base/planner/Dockerfile'
-              - 'base/planner/requirements.txt'
-              - 'base/planner/requirements.lock'
-              - 'base/planner/app/**'
-              - 'base/planner/*.yaml'
-              - 'base/planner/plugins/**'
-              - 'base/security/**'
             admin:
               - 'base/admin/**'
             lsp-gateway:
@@ -132,7 +123,7 @@ jobs:
               - 'base/webui/synesis-theme.css'
             mcp:
               - 'base/mcp/**'
-              - 'base/planner/app/integrity_core.py'
+              - 'base/mcp/app/integrity_core.py'
             yarn:
               - 'base/yarn/**'
               - 'base/security/**'
@@ -382,12 +373,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: planner
-            dockerfile: base/planner/Dockerfile
-            context: base
-            base_arg: synesis-base-api
-            change_key: planner
-            base_change_key: base-api
           - name: admin
             dockerfile: base/admin/Dockerfile
             context: base/admin
