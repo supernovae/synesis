@@ -169,6 +169,11 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
 
+  // Stream admission (global per-pod concurrency + overflow queue)
+  SYNESIS_YARN_MAX_CONCURRENT_STREAMS: z.coerce.number().default(50),
+  SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH: z.coerce.number().default(100),
+  SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS: z.coerce.number().default(30_000),
+
   // Debug / trace
   SYNESIS_YARN_DEBUG_PROTOCOL: z
     .string()

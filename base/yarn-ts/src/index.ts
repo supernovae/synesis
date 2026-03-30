@@ -59,6 +59,8 @@ import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer } from "./telemetry/otel.js";
+import { DistributedCounterService } from "./state/distributed-counters.js";
+import { StreamAdmissionController } from "./middleware/stream-admission.js";
 
 type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
@@ -152,6 +154,12 @@ const circuitBreakers = new CircuitBreakerRegistry({
 const userRateLimiter = new UserRateLimiter({
   windowMs: config.SYNESIS_YARN_RATE_LIMIT_WINDOW_MS,
   maxRequests: config.SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS,
+});
+const distributedCounters = new DistributedCounterService(config);
+const streamAdmission = new StreamAdmissionController({
+  maxConcurrentStreams: config.SYNESIS_YARN_MAX_CONCURRENT_STREAMS,
+  maxQueueDepth: config.SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH,
+  queueWaitTimeoutMs: config.SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS,
 });
 DIAGNOSTIC_RING_MAX = config.SYNESIS_YARN_DIAGNOSTIC_RING_MAX;
 await initOtel(config);
@@ -532,6 +540,11 @@ function persistSessionAndUsage(
     state.consecutiveToolCalls = 0;
   }
 
+  void distributedCounters.setConsecutiveToolCalls(
+    state.record.sessionKey,
+    state.consecutiveToolCalls
+  );
+
   void casSessionSave(state);
   usageWriter.enqueueSessionUpsert(state.record);
   usageWriter.enqueueUsageInsert({
@@ -848,11 +861,12 @@ const sessionEvictionTimer = setInterval(() => {
 async function shutdown(): Promise<void> {
   clearInterval(sessionEvictionTimer);
   clearInterval(tierPollTimer);
+  streamAdmission.close();
   userRateLimiter.close();
   policyEngine.close();
   artifactStore.close();
   await app.close();
-  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close()]);
+  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close()]);
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown());
@@ -925,6 +939,8 @@ app.get("/health/telemetry", async (req, reply) => {
     artifactStore: artifactStore.getStats(),
     circuitBreakers: circuitBreakers.getStats(),
     userRateLimiter: userRateLimiter.getStats(),
+    distributedCounters: distributedCounters.getStats(),
+    streamAdmission: streamAdmission.getStats(),
     attentionPositioning: attentionPositioning.getStats(),
     compressionEfficiencyIndex: computeEfficiencyIndex(),
     sessionContinuity: sessionContinuity.getStats(),
@@ -947,7 +963,10 @@ app.get("/health/telemetry", async (req, reply) => {
       hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
       sessionMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
       consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
-      consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT
+      consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
+      maxConcurrentStreams: config.SYNESIS_YARN_MAX_CONCURRENT_STREAMS,
+      streamQueueMaxDepth: config.SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH,
+      streamQueueWaitTimeoutMs: config.SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS,
     }
   };
 });
@@ -1081,6 +1100,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiMsgCount = (request.messages as unknown[]).length;
   const oaiLastToolId = [...(request.messages as Array<{ role: string; tool_call_id?: string }>)]
     .reverse().find((m) => m.role === "tool")?.tool_call_id ?? "";
+  const distToolCalls = await distributedCounters.getConsecutiveToolCalls(sessionKey);
+  if (distToolCalls !== null && distToolCalls !== session.consecutiveToolCalls) {
+    session.consecutiveToolCalls = distToolCalls;
+  }
   const policyPrecheck = policyEngine.evaluate({
     tools: request.tools as unknown[],
     repeatAttempt: {
@@ -1269,7 +1292,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
   }
 
+  const oaiAdmission = await streamAdmission.acquire();
+  if (!oaiAdmission.admitted) {
+    app.log.warn({ reason: oaiAdmission.reason, queueStats: streamAdmission.getStats() }, "stream_admission_rejected");
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "stream_admission_reject", "stream-admission",
+      oaiAdmission.reason ?? "stream admission rejected", reqId);
+    reply.header("Retry-After", String(oaiAdmission.retryAfterSeconds ?? 5));
+    return reply.code(503).send({ error: { type: "service_unavailable", message: "Server at capacity. Try again shortly." } });
+  }
+
   if (!circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId)) {
+    oaiAdmission.release!();
     app.log.warn({ model: resolved.resolvedModelId, orgId: identity.orgId }, "circuit_breaker_open_stream");
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "breaker_open_reject", "circuit-breaker",
       `Circuit breaker open for ${resolved.resolvedModelId} (stream)`, reqId, { model: resolved.resolvedModelId });
@@ -1359,6 +1392,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       choices: [{ index: 0, delta: { content: "\n\n[Upstream provider error — retrying may help]" }, finish_reason: null }]
     })}\n\n`);
   }
+
+  oaiAdmission.release!();
 
   if (finishReason !== "error") {
     circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
@@ -1510,6 +1545,10 @@ app.post("/v1/messages", async (req, reply) => {
     .flatMap((m) => Array.isArray(m.content) ? m.content : [])
     .find((b: Record<string, unknown>) => b.type === "tool_result")
     ?.tool_use_id as string ?? "";
+  const claudeDistToolCalls = await distributedCounters.getConsecutiveToolCalls(claudeSessionKey);
+  if (claudeDistToolCalls !== null && claudeDistToolCalls !== session.consecutiveToolCalls) {
+    session.consecutiveToolCalls = claudeDistToolCalls;
+  }
   const claudePolicyPrecheck = policyEngine.evaluate({
     tools: (body.tools as unknown[]) ?? [],
     repeatAttempt: {
@@ -1604,7 +1643,17 @@ app.post("/v1/messages", async (req, reply) => {
     : adapterClaudeProviderOptions;
 
   if (body.stream) {
+    const claudeAdmission = await streamAdmission.acquire();
+    if (!claudeAdmission.admitted) {
+      app.log.warn({ reason: claudeAdmission.reason, queueStats: streamAdmission.getStats() }, "stream_admission_rejected_claude");
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "stream_admission_reject", "stream-admission",
+        claudeAdmission.reason ?? "stream admission rejected", traceReqId);
+      reply.header("Retry-After", String(claudeAdmission.retryAfterSeconds ?? 5));
+      return reply.code(503).send({ type: "error", error: { type: "overloaded_error", message: "Server at capacity. Try again shortly." } });
+    }
+
     if (!circuitBreakers.allowRequest(resolved.resolvedModelId, claudeIdentity.orgId)) {
+      claudeAdmission.release!();
       app.log.warn({ model: resolved.resolvedModelId, orgId: claudeIdentity.orgId }, "circuit_breaker_open_claude_stream");
       recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "breaker_open_reject", "circuit-breaker",
         `Circuit breaker open for ${resolved.resolvedModelId} (claude stream)`, traceReqId, { model: resolved.resolvedModelId });
@@ -1767,6 +1816,8 @@ app.post("/v1/messages", async (req, reply) => {
       safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: `\n\n[Upstream provider error — retrying may help]` } });
       stopReason = "end_turn";
     }
+
+    claudeAdmission.release!();
 
     if (stopReason !== "end_turn" || !inTextBlock) {
       circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);

@@ -1052,6 +1052,22 @@ patch_yarn_reducer_envs() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REDUCER_PROFILE" "$reducer_profile" "$container"
 }
 
+# Enable debug protocol and stream admission env vars on each deploy.
+patch_yarn_debug_and_streams() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+    local container="yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_DEBUG_PROTOCOL" "${SYNESIS_YARN_DEBUG_PROTOCOL:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_MAX_CONCURRENT_STREAMS" "${SYNESIS_YARN_MAX_CONCURRENT_STREAMS:-50}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH" "${SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH:-100}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS" "${SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS:-30000}" "$container"
+}
+
 # Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
 # Deployments reference this Secret via secretKeyRef — no more inline-env race.
 patch_admin_db_urls() {
@@ -1917,6 +1933,10 @@ ensure_yarn_secrets_from_gateway
 log ""
 log "Patching Yarn reducer runtime envs (post-apply)..."
 patch_yarn_reducer_envs
+
+log ""
+log "Patching Yarn debug protocol and stream admission (post-apply)..."
+patch_yarn_debug_and_streams
 
 log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."

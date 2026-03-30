@@ -77,6 +77,16 @@ spec:
             # ── Diagnostics ──
             - name: SYNESIS_YARN_DIAGNOSTIC_RING_MAX
               value: "100"
+            # ── Stream admission ──
+            - name: SYNESIS_YARN_MAX_CONCURRENT_STREAMS
+              value: "50"
+            - name: SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH
+              value: "100"
+            - name: SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS
+              value: "30000"
+            # ── Debug protocol ──
+            - name: SYNESIS_YARN_DEBUG_PROTOCOL
+              value: "true"
             # ── OTEL (optional — no-op until endpoint is set) ──
             - name: SYNESIS_YARN_OTEL_ENABLED
               value: "false"
