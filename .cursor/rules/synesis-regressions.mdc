@@ -15,5 +15,3 @@ When changing planner, indexer, gateway, or images, **do not** bring back:
 | **Direct RAG/web imports** in Planner, Executor, Writer, Critic | Only **Router** retrieves; see `router-governed-evidence` + `test_router_governance.py` |
 | SSE **`event: status`** lines for Open WebUI | JSON **`event`** key inside `data:`; see `sse-status-format` |
 | **`transformers` / `torch` in planner, indexer, admin, yarn** images | TEI embedder, keyword-service, dedicated `base/rag/*` inference services only |
-
-**Yarn image:** Run app with **`/opt/app-root/venv/bin/python -m uvicorn …`** (venv on PATH can break under some runtimes). See `base/yarn/Containerfile`.

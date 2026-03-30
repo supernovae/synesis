@@ -23,7 +23,6 @@ APP_ROOTS=(
   base/rag/keyword-service/app
   base/rag/preprocess-service/app
   base/rag/spam-service/app
-  base/yarn/app
   base/images/base-api/synesis-telemetry/synesis_telemetry
 )
 

@@ -100,7 +100,6 @@ SERVICE_IMAGES=(
     "quality-runner|base/quality-runner/Dockerfile|."
     "open-webui|base/webui/Dockerfile|base/webui"
     "mcp|base/mcp/Containerfile|."
-    "yarn|base/yarn/Containerfile|base/yarn"
     "yarn-ts|base/yarn-ts/Containerfile|base"
 )
 

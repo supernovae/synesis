@@ -2,7 +2,7 @@
 
 This document describes the trust pipeline for **yarn-ts** (`base/yarn-ts/`), the TypeScript runtime that serves OpenAI and Claude-compatible completion APIs to IDE agents (Cursor, Claude Code, Windsurf, etc.).
 
-For the shared planner/RAG defense architecture, see [`SECURITY.md`](./SECURITY.md). For legacy Python Yarn context trust (deprecated), see [`YARN_CONTEXT_TRUST.md`](./YARN_CONTEXT_TRUST.md).
+For the shared planner/RAG defense architecture, see [`SECURITY.md`](./SECURITY.md). For legacy Python Yarn context trust (retired), see [`docs/deprecated/YARN_CONTEXT_TRUST.md`](./deprecated/YARN_CONTEXT_TRUST.md).
 
 ## Trust tiers
 

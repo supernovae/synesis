@@ -1,8 +1,0 @@
-{
-  "model": "claude-sonnet-4-6",
-  "max_tokens": 2048,
-  "stream": true,
-  "messages": [
-    {"role": "user", "content": "Explain quicksort in Python."}
-  ]
-}

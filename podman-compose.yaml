@@ -34,8 +34,8 @@ services:
 
   yarn:
     build:
-      context: ./base/yarn
-      dockerfile: Containerfile
+      context: .
+      dockerfile: base/yarn-ts/Containerfile
     ports:
       - "8000:8000"
     env_file:

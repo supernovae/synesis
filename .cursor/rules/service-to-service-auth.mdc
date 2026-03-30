@@ -16,7 +16,8 @@ Network policies are defense-in-depth, not the sole security boundary.
 
 **`base/security/synesis_service_auth.py`** — stdlib-only, zero dependencies.
 
-- For app images (planner, admin, yarn): import from venv or PYTHONPATH
+- For Python app images (admin): import from venv or PYTHONPATH
+- For TS services (planner-ts, yarn-ts): use `@synesis/context-trust` package or equivalent
 - For minimal images (sandbox, warm pool): COPY into the image at build time
 - Never reimplement token checking or HMAC signing ad-hoc — use this module
 

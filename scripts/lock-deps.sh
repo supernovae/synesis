@@ -66,7 +66,6 @@ SERVICES=(
     "gliner-service|base/rag/gliner-service|base-ml"
 
     # Standalone (own venv or non-UBI base)
-    "yarn|base/yarn|"
     "indexer|base/rag/indexer|"
     "lsp-gateway|base/lsp/gateway|"
 )

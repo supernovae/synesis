@@ -145,8 +145,6 @@ jobs:
             dir: base/rag/gliner-service
           - name: lsp-gateway
             dir: base/lsp/gateway
-          - name: yarn
-            dir: base/yarn
           - name: mcp
             dir: base/mcp
     steps:
@@ -182,7 +180,7 @@ jobs:
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
             --json --json-output=semgrep-results.json \
-            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/ base/yarn/app/ || true
+            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/ || true
 
       - name: Run Semgrep (gate)
         run: |
@@ -190,7 +188,7 @@ jobs:
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
-            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/ base/yarn/app/
+            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/
 
       - name: Upload Semgrep results
         uses: actions/upload-artifact@v6

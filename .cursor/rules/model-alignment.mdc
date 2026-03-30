@@ -28,4 +28,4 @@ When router/general/critic/coder fail to start or OOM: check [vLLM Recipes](http
 
 ## Yarn runtime (separate from vLLM roles)
 
-**Synesis Yarn** (`base/yarn/`) is the OpenAI-compatible IDE/agent runtime; it is **not** a vLLM InferenceService. Model/provider for Yarn come from Yarn env (e.g. `SYNESIS_YARN_PROVIDER`, `SYNESIS_YARN_MODEL`), not from `models.yaml` pipeline roles. Deployed via `base/yarn` + overlays (`overlays/api`, `overlays/model`), namespace **`synesis-yarn`**.
+**Synesis Yarn** (`base/yarn-ts/`) is the OpenAI-compatible IDE/agent runtime; it is **not** a vLLM InferenceService. Model/provider for Yarn come from Yarn env (e.g. `SYNESIS_YARN_PROVIDER`, `SYNESIS_YARN_MODEL`), not from `models.yaml` pipeline roles. Deployed via `base/yarn-ts` + overlays (`overlays/api`, `overlays/model`), namespace **`synesis-yarn`**.
