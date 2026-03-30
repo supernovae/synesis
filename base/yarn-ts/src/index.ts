@@ -580,6 +580,7 @@ function persistSessionAndUsage(
     service: "yarn",
     trace_id: requestId,
     request_id: requestId,
+    conversation_id: state.record.sessionKey,
     timestamp: Date.now() / 1000,
     user_id: state.record.userId,
     org_id: state.record.orgId,

@@ -26,6 +26,12 @@ export function emitTrace(
     headers["x-synesis-service-name"] = trace.service;
     headers["authorization"] = `Bearer ${config.adminToken}`;
   }
+  if (trace.request_id) {
+    headers["x-request-id"] = trace.request_id;
+  }
+  if (trace.authz_trace_id) {
+    headers["x-synesis-authz-trace-id"] = trace.authz_trace_id;
+  }
 
   void fetch(url, {
     method: "POST",

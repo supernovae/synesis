@@ -133,8 +133,22 @@ export interface TraceSpanRecord {
 
 export interface TraceRecord {
   service: "planner" | "yarn";
+  /**
+   * Trace/correlation ID for this request path.
+   */
   trace_id: string;
+  /**
+   * Request ID for this emitted record (request-scoped).
+   */
   request_id: string;
+  /**
+   * Optional authz lineage/correlation ID (planner authz trace).
+   */
+  authz_trace_id?: string;
+  /**
+   * Optional conversation/session correlation key.
+   */
+  conversation_id?: string;
   timestamp: number;
   user_id: string;
   org_id: string;
