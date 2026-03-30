@@ -52,7 +52,7 @@ Synesis resolves "what kind of task is this?" **through frame extraction and sen
 
 | Topic | Document |
 |-------|----------|
-| Research ↔ code mapping (Klein, Cynefin, JCS, LDA) | [SENSEMAKING_REFERENCES.md](SENSEMAKING_REFERENCES.md) |
+| Research ↔ code mapping (Klein, Cynefin, JCS, LDA) | [SYSTEMS_THEORY.md](SYSTEMS_THEORY.md) |
 | Design narrative (complexity, sensemaking, Safety-II) | [DESIGN_THEORY.md](DESIGN_THEORY.md) |
 | End-to-end pipeline, cohesion lock, query normalization | [WORKFLOW.md](WORKFLOW.md) |
 | Archived parity tracker | [deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md) |

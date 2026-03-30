@@ -557,7 +557,7 @@ Ambiguity and “what stack are we talking about?” are handled **after frame e
 4. **Composite** — multiple domains are genuinely in play; **broad, diversified retrieval**; **no** early vendor lock.
 5. **Diffuse** — the frame is unclear (**Cynefin complex**); the planner can run a **guided clarification / probe** (Phase 2a in `planner_node.py`) so the system **asks** instead of assuming.
 
-**Topic frame** (what to search for) is built separately from raw technology keywords so evidence follows **user intent**, not only tool names — see [SENSEMAKING_REFERENCES.md](SENSEMAKING_REFERENCES.md).
+**Topic frame** (what to search for) is built separately from raw technology keywords so evidence follows **user intent**, not only tool names — see [SYSTEMS_THEORY.md](SYSTEMS_THEORY.md).
 
 **Historical / naming:** Older docs referred to “intent anchors” as a separate tiered resolver. That implementation was removed; the **goals** (avoid silent wrong assumptions, reduce mixed-evidence thrash) live in the sensemaking path above. [INTENT_ANCHORS.md](INTENT_ANCHORS.md) is a short **redirect and “what not to configure”** note, not a live config guide.
 
@@ -585,7 +585,7 @@ Reduces mixed-topic answers (e.g., blending unrelated cloud platforms in one foc
 
 ### Impact
 
-For a **clear, single-domain** question, evidence stays on one coherent topic. For **composite** prompts, multiple domains remain in play. For **diffuse** prompts, **clarification** is preferred over guessing — see [DESIGN_THEORY.md](DESIGN_THEORY.md) and [SENSEMAKING_REFERENCES.md](SENSEMAKING_REFERENCES.md).
+For a **clear, single-domain** question, evidence stays on one coherent topic. For **composite** prompts, multiple domains remain in play. For **diffuse** prompts, **clarification** is preferred over guessing — see [DESIGN_THEORY.md](DESIGN_THEORY.md) and [SYSTEMS_THEORY.md](SYSTEMS_THEORY.md).
 
 ## Query Normalization Pipeline
 
