@@ -46,8 +46,6 @@ export interface GraphState {
   decision_ledger?: DecisionEntry[];
   critique_register?: Record<string, CritiqueItem>;
   draft_fingerprints?: string[];
-  rag_source_urls?: string[];
-  rag_document_names?: string[];
   repair_instructions?: Array<Record<string, unknown>>;
   style_contract_locked?: Record<string, unknown>;
   plan_gate_passed?: boolean;

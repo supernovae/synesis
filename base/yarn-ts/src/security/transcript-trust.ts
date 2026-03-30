@@ -24,7 +24,8 @@ import type { AppConfig } from "../config.js";
 export interface TrustPipelineResult {
   messages: Array<{ role: string; content: unknown }>;
   blocked: boolean;
-  blockReason?: string;
+  /** Internal-only detail for logs/telemetry; never expose to clients. */
+  blockDetail?: string;
   scanResults: ScanResult[];
 }
 
@@ -67,7 +68,7 @@ export function applyTrustPackets(
   const scanResults: ScanResult[] = [];
   const out: Array<{ role: string; content: unknown }> = [];
   let blocked = false;
-  let blockReason: string | undefined;
+  let blockDetail: string | undefined;
 
   let trustPolicyInjected = false;
 
@@ -110,7 +111,7 @@ export function applyTrustPackets(
 
           if (scanAction === "block") {
             blocked = true;
-            blockReason = `Injection detected: ${result.event_type} (confidence=${result.confidence.toFixed(2)})`;
+            blockDetail = `Injection detected: ${result.event_type} (confidence=${result.confidence.toFixed(2)})`;
             break;
           }
         }
@@ -142,5 +143,5 @@ export function applyTrustPackets(
     out.push(msg);
   }
 
-  return { messages: out, blocked, blockReason, scanResults };
+  return { messages: out, blocked, blockDetail, scanResults };
 }

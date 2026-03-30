@@ -157,6 +157,9 @@ const EnvSchema = z.object({
   SYNESIS_WEB_BUDGET_BASE: z.coerce.number().default(1),
   SYNESIS_WEB_BUDGET_MAX: z.coerce.number().default(8),
 
+  // --- Freshness ---
+  SYNESIS_FRESHNESS_WEIGHT: z.coerce.number().default(0.1),
+
   // --- Cohesion ---
   SYNESIS_COHESION_LOCK_ENABLED: z
     .string()

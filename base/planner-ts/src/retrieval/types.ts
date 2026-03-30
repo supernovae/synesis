@@ -13,6 +13,13 @@ export interface UnifiedResult {
   chunk_summary?: string;
   domain?: string;
   is_trusted?: boolean;
+  scan_status?: string;
+  scan_signals?: string;
+  approval_status?: string;
+  review_trace_id?: string;
+  content_hash?: string;
+  crawl_timestamp?: number;
+  effective_at_epoch?: number;
 }
 
 export interface CohesionLockData {
@@ -90,6 +97,13 @@ export interface RagResult {
   context_prefix: string;
   chunk_summary: string;
   document_name: string;
+  scan_status?: string;
+  scan_signals?: string;
+  approval_status?: string;
+  review_trace_id?: string;
+  content_hash?: string;
+  crawl_timestamp?: number;
+  effective_at_epoch?: number;
 }
 
 /** Authority multipliers applied after reranking (same as Python). */

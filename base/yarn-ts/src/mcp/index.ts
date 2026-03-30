@@ -93,7 +93,7 @@ export async function registerMcpRoutes(
       return reply.code(422).send({
         error: {
           type: "tool_error",
-          message: err instanceof Error ? err.message : "Tool execution failed",
+          message: "Tool execution failed",
         },
       });
     }

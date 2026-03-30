@@ -41,6 +41,40 @@ function parseEvidencePacket(query: string, llmOutput: string, rawResults: Unifi
   }
 }
 
+function mapApprovalToReview(approval: string | undefined): "unreviewed" | "vetted" | "rejected" {
+  switch (approval) {
+    case "approved": return "vetted";
+    case "rejected": return "rejected";
+    default: return "unreviewed";
+  }
+}
+
+function buildSourceAttribution(result: UnifiedResult): import("@synesis/context-trust").AttributionV1 {
+  const authority = (result.authority ?? "external").toLowerCase();
+  const validAuthorities = ["canonical", "vetted", "community", "external", "web"] as const;
+  const tier = validAuthorities.includes(authority as typeof validAuthorities[number])
+    ? (authority as typeof validAuthorities[number])
+    : "external";
+  const scanStatus = result.scan_status ?? "unscanned";
+  const validScanStatuses = ["clean", "flagged", "unscanned"] as const;
+  return {
+    source_uri: result.source_url || "",
+    source_name: result.document_name ?? "",
+    authority_tier: tier,
+    retrieval_channel: result.retrieval_source === "web" ? "web" : "rag",
+    ingest_scan_status: validScanStatuses.includes(scanStatus as typeof validScanStatuses[number])
+      ? (scanStatus as typeof validScanStatuses[number]) : "unscanned",
+    ingest_scan_signals: result.scan_signals ? result.scan_signals.split(",").filter(Boolean) : [],
+    review_status: mapApprovalToReview(result.approval_status),
+    review_trace_id: result.review_trace_id || undefined,
+    content_hash: result.content_hash ?? "",
+    retrieved_at: new Date().toISOString(),
+    policy_decision: "allow",
+    ingested_at: result.crawl_timestamp ? new Date(result.crawl_timestamp * 1000).toISOString() : undefined,
+    effective_at: result.effective_at_epoch ? new Date(result.effective_at_epoch * 1000).toISOString() : undefined,
+  };
+}
+
 function fallbackPacket(query: string, rawResults: UnifiedResult[]): EvidencePacket {
   const sources = rawResults.slice(0, MAX_DOCS_PER_QUERY).map((result) => ({
     type: (result.retrieval_source === "web" ? "web" : "doc") as "web" | "doc",
@@ -51,7 +85,8 @@ function fallbackPacket(query: string, rawResults: UnifiedResult[]): EvidencePac
       heading_path: result.heading_path ?? "",
       document_name: result.document_name ?? "",
       source_id: result.source_id ?? ""
-    }
+    },
+    attribution: buildSourceAttribution(result),
   }));
   const snippets = rawResults.slice(0, MAX_SNIPPETS_PER_PACKET).map((result) => ({
     text: result.text.slice(0, 500),
@@ -174,24 +209,13 @@ export async function runRouter(
 
   await Promise.all(evidenceRequests.map(dispatchOne));
 
-  const ragSourceUrls = [
-    ...(state.rag_source_urls ?? []),
-    ...packets.flatMap((packet) => packet.sources.map((source) => source.uri)).filter(Boolean)
-  ];
-  const ragDocumentNames = [
-    ...(state.rag_document_names ?? []),
-    ...packets
-      .flatMap((packet) => packet.sources.map((source) => String(source.metadata.document_name ?? "")))
-      .filter(Boolean)
-  ];
-
   const activeLock = allCohesionLocks.find(Boolean) ?? null;
+
+  const mergedPackets = [...(state.evidence_packets ?? []), ...packets];
 
   return {
     ...state,
-    evidence_packets: packets,
-    rag_source_urls: [...new Set(ragSourceUrls)],
-    rag_document_names: [...new Set(ragDocumentNames)],
+    evidence_packets: mergedPackets,
     need_more_evidence: packets.some((packet) => packet.confidence < LOW_CONFIDENCE_THRESHOLD),
     next_node: "writer",
     ...(activeLock ? { cohesion_lock: activeLock } : {}),

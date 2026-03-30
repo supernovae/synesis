@@ -12,7 +12,9 @@ import {
   TRUST_POLICY,
   SANDWICH_REMINDER,
   authorityDatamark,
-  wrapUntrusted,
+  makeUntrustedEvidence,
+  serializeStableJson,
+  type AttributionV1,
 } from "../security/trust-prompts.js";
 import { sanitizeStepAction } from "../security/step-sanitizer.js";
 import { loadConfig } from "../config.js";
@@ -47,6 +49,25 @@ function renderEvidenceContext(state: GraphState): string {
     }
   }
   return lines.join("\n");
+}
+
+function buildEvidenceAttribution(state: GraphState): AttributionV1 {
+  const packets = state.evidence_packets ?? [];
+  const firstSource = packets[0]?.sources?.[0];
+  const authority = String(firstSource?.metadata?.authority ?? "external");
+  const sourceType = firstSource?.type === "web" ? "web" : "rag";
+  return {
+    source_uri: firstSource?.uri ?? "",
+    source_name: String(firstSource?.metadata?.document_name ?? ""),
+    authority_tier: (["canonical", "vetted", "community", "external", "web"].includes(authority) ? authority : "external") as AttributionV1["authority_tier"],
+    retrieval_channel: sourceType === "web" ? "web" : "rag",
+    ingest_scan_status: String(firstSource?.metadata?.scan_status ?? "unscanned") as AttributionV1["ingest_scan_status"],
+    ingest_scan_signals: [],
+    review_status: String(firstSource?.metadata?.review_status ?? "unreviewed") as AttributionV1["review_status"],
+    content_hash: "",
+    retrieved_at: new Date().toISOString(),
+    policy_decision: "allow",
+  };
 }
 
 function renderPlanContext(state: GraphState): string {
@@ -96,7 +117,7 @@ function buildAssumptionInstructions(state: GraphState): string {
   return rules.join("\n");
 }
 
-function buildWriterMessages(state: GraphState): ChatMessage[] {
+export function buildWriterMessages(state: GraphState): ChatMessage[] {
   const task = state.task_description ?? "No task provided";
   const planBlock = renderPlanContext(state);
   const evidenceBlock = renderEvidenceContext(state);
@@ -177,7 +198,7 @@ function buildWriterMessages(state: GraphState): ChatMessage[] {
 
   const hasEvidence = Boolean(evidenceBlock);
   const wrappedEvidence = hasEvidence
-    ? `## Evidence\n${wrapUntrusted(evidenceBlock)}\n${SANDWICH_REMINDER}`
+    ? `## Evidence\n${serializeStableJson(makeUntrustedEvidence(evidenceBlock, buildEvidenceAttribution(state)))}\n${SANDWICH_REMINDER}`
     : "";
   const scaffoldParts = [planBlock, wrappedEvidence].filter(Boolean).join("\n\n");
   const userContent = scaffoldParts ? `${task}\n\n${scaffoldParts}` : task;

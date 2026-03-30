@@ -33,6 +33,8 @@ const OUTPUT_FIELDS = [
   "source_url", "heading_path", "context_prefix", "chunk_summary",
   "document_name", "visibility_scope", "org_id", "tenant_id",
   "acl_mode", "acl_groups",
+  "scan_status", "scan_signals", "approval_status", "review_trace_id",
+  "raw_content_hash", "crawl_timestamp", "effective_at_epoch",
 ];
 
 interface MilvusSearchResponse {
@@ -163,6 +165,13 @@ function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagRe
     context_prefix: String(row.context_prefix ?? ""),
     chunk_summary: String(row.chunk_summary ?? ""),
     document_name: String(row.document_name ?? row.source ?? ""),
+    scan_status: String(row.scan_status ?? "unscanned"),
+    scan_signals: String(row.scan_signals ?? ""),
+    approval_status: String(row.approval_status ?? "auto_approved"),
+    review_trace_id: String(row.review_trace_id ?? ""),
+    content_hash: String(row.raw_content_hash ?? ""),
+    crawl_timestamp: Number(row.crawl_timestamp ?? 0),
+    effective_at_epoch: Number(row.effective_at_epoch ?? 0),
   };
 }
 

@@ -27,6 +27,38 @@ export const ContentPurpose = z.enum([
 ]);
 export type ContentPurpose = z.infer<typeof ContentPurpose>;
 
+export const AuthorityTier = z.enum(["canonical", "vetted", "community", "external", "web"]);
+export type AuthorityTier = z.infer<typeof AuthorityTier>;
+
+export const ReviewStatus = z.enum(["unreviewed", "vetted", "rejected"]);
+export type ReviewStatus = z.infer<typeof ReviewStatus>;
+
+export const IngestScanStatus = z.enum(["clean", "flagged", "unscanned"]);
+export type IngestScanStatus = z.infer<typeof IngestScanStatus>;
+
+export const PolicyDecision = z.enum(["allow", "reduce", "block"]);
+export type PolicyDecision = z.infer<typeof PolicyDecision>;
+
+export const RetrievalChannel = z.enum(["rag", "web", "mcp", "tool"]);
+export type RetrievalChannel = z.infer<typeof RetrievalChannel>;
+
+export const AttributionV1 = z.object({
+  source_uri: z.string().default(""),
+  source_name: z.string().default(""),
+  authority_tier: AuthorityTier.default("external"),
+  retrieval_channel: RetrievalChannel.default("rag"),
+  ingest_scan_status: IngestScanStatus.default("unscanned"),
+  ingest_scan_signals: z.array(z.string()).default([]),
+  review_status: ReviewStatus.default("unreviewed"),
+  review_trace_id: z.string().optional(),
+  content_hash: z.string().default(""),
+  retrieved_at: z.string().default(""),
+  policy_decision: PolicyDecision.default("allow"),
+  ingested_at: z.string().optional(),
+  effective_at: z.string().optional(),
+});
+export type AttributionV1 = z.infer<typeof AttributionV1>;
+
 export const TrustPacketV1 = z.object({
   schema_version: z.literal(1),
   trust_level: TrustLevel,
@@ -38,6 +70,7 @@ export const TrustPacketV1 = z.object({
   sanitization_applied: z.array(z.string()).default([]),
   imperative_likelihood: z.number().min(0).max(1).default(0),
   artifact_handle: z.string().optional(),
+  attribution: AttributionV1.optional(),
   content: z.string(),
 });
 export type TrustPacketV1 = z.infer<typeof TrustPacketV1>;
@@ -66,6 +99,9 @@ export function serializeStableJson(packet: TrustPacketV1): string {
   };
   if (packet.artifact_handle) {
     ordered.artifact_handle = packet.artifact_handle;
+  }
+  if (packet.attribution) {
+    ordered.attribution = packet.attribution;
   }
   return JSON.stringify(ordered);
 }
@@ -98,6 +134,7 @@ export function makeUntrusted(
     sanitization?: string[];
     imperativeLikelihood?: number;
     artifactHandle?: string;
+    attribution?: AttributionV1;
   } = {},
 ): TrustPacketV1 {
   return {
@@ -111,6 +148,41 @@ export function makeUntrusted(
     sanitization_applied: opts.sanitization ?? [],
     imperative_likelihood: opts.imperativeLikelihood ?? 0,
     artifact_handle: opts.artifactHandle,
+    attribution: opts.attribution,
+    content,
+  };
+}
+
+/**
+ * Build an untrusted evidence packet with required attribution metadata.
+ * Derives source_type and source_id from the attribution fields.
+ */
+export function makeUntrustedEvidence(
+  content: string,
+  attribution: AttributionV1,
+  opts: {
+    sanitization?: string[];
+    imperativeLikelihood?: number;
+    artifactHandle?: string;
+  } = {},
+): TrustPacketV1 {
+  const sourceType: SourceType =
+    attribution.retrieval_channel === "web" ? "web_retrieval"
+    : attribution.retrieval_channel === "mcp" ? "mcp_response"
+    : attribution.retrieval_channel === "tool" ? "tool_result"
+    : "rag_retrieval";
+  return {
+    schema_version: 1,
+    trust_level: "untrusted",
+    source_type: sourceType,
+    source_id: attribution.source_uri || attribution.source_name,
+    instruction_execution_allowed: false,
+    content_purpose: "reference",
+    excerpt_only: false,
+    sanitization_applied: opts.sanitization ?? [],
+    imperative_likelihood: opts.imperativeLikelihood ?? 0,
+    artifact_handle: opts.artifactHandle,
+    attribution,
     content,
   };
 }
@@ -122,6 +194,7 @@ export function makeSemiTrusted(
     sourceId?: string;
     contentPurpose?: ContentPurpose;
     sanitization?: string[];
+    attribution?: AttributionV1;
   } = {},
 ): TrustPacketV1 {
   return {
@@ -134,6 +207,7 @@ export function makeSemiTrusted(
     excerpt_only: false,
     sanitization_applied: opts.sanitization ?? [],
     imperative_likelihood: 0,
+    attribution: opts.attribution,
     content,
   };
 }

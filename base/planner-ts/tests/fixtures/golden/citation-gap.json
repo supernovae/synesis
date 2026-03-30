@@ -19,8 +19,33 @@
       "prior-a",
       "prior-b"
     ],
-    "rag_source_urls": [
-      "https://docs.example.com/arch"
+    "evidence_packets": [
+      {
+        "query": "architecture guidance",
+        "summary": "Architecture patterns for microservices",
+        "confidence": 0.8,
+        "retrieval_notes": "",
+        "sources": [
+          {
+            "uri": "https://docs.example.com/arch",
+            "type": "doc",
+            "metadata": { "document_name": "Architecture Guide" },
+            "attribution": {
+              "source_uri": "https://docs.example.com/arch",
+              "source_name": "Architecture Guide",
+              "authority_tier": "community",
+              "retrieval_channel": "rag",
+              "ingest_scan_status": "clean",
+              "ingest_scan_signals": [],
+              "review_status": "unreviewed",
+              "content_hash": "",
+              "retrieved_at": "",
+              "policy_decision": "allow"
+            }
+          }
+        ],
+        "snippets": []
+      }
     ]
   },
   "expect": {

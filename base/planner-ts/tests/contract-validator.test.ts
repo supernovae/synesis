@@ -59,8 +59,16 @@ describe("contract validators", () => {
   it("flags dropped citations on revision", () => {
     const result = validateCitationPreservation({
       draft_fingerprints: ["a", "b"],
-      rag_source_urls: ["https://docs.example.com/guide"],
-      rag_document_names: [],
+      evidence_packets: [
+        {
+          query: "guide",
+          summary: "",
+          confidence: 0.8,
+          retrieval_notes: "",
+          sources: [{ uri: "https://docs.example.com/guide", type: "doc", metadata: {} }],
+          snippets: []
+        }
+      ],
       generated_code: "Recommendation without citation."
     });
     expect(result.passed).toBe(false);

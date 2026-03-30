@@ -70,6 +70,7 @@ export class UnifiedRetrievalClient implements RetrievalClient {
       domainPolicyBoost: config.SYNESIS_DOMAIN_POLICY_BOOST,
       webBudgetBase: config.SYNESIS_WEB_BUDGET_BASE,
       webBudgetMax: config.SYNESIS_WEB_BUDGET_MAX,
+      freshnessWeight: config.SYNESIS_FRESHNESS_WEIGHT,
     };
   }
 

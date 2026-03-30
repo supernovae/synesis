@@ -25,7 +25,7 @@ from .enrichment import enrich_chunks_bulk
 from .gatekeeper import entities_to_json, labels_for_document, section_outline_to_json
 from .handlers import get_handler
 from .handlers.base import Chunk, RawDocument
-from .injection_scan import scan_chunk_text
+from .injection_scan import scan_chunk_text_detailed
 from .milvus_writer import MilvusWriter, ProgressTracker, chunk_id_hash
 from .preprocess_client import (
     clean_html_document,
@@ -380,10 +380,12 @@ def index_parsed_chunk_pairs(
     embeddings = embedder.embed_texts(embed_inputs)
 
     scan_statuses: list[str] = []
+    scan_signals_list: list[str] = []
     flagged_count = 0
     for doc, chunk, cid in new_chunks:
-        status = scan_chunk_text(chunk.text)
+        status, signals = scan_chunk_text_detailed(chunk.text)
         scan_statuses.append(status)
+        scan_signals_list.append(",".join(signals))
         if status == "flagged":
             flagged_count += 1
     if flagged_count:
@@ -393,8 +395,8 @@ def index_parsed_chunk_pairs(
         )
 
     entities = []
-    for (doc, chunk, cid), enrichment, emb, chunk_scan, simh, spam_s in zip(
-        new_chunks, enrichments, embeddings, scan_statuses, simhash_list, spam_list
+    for (doc, chunk, cid), enrichment, emb, chunk_scan, chunk_scan_signals, simh, spam_s in zip(
+        new_chunks, enrichments, embeddings, scan_statuses, scan_signals_list, simhash_list, spam_list
     ):
         chunk_tags = chunk.metadata.get("tags") or doc.metadata.get("tags") or tags_str
         chunk_source_url = chunk.metadata.get("source_url") or doc.source_url
@@ -471,6 +473,7 @@ def index_parsed_chunk_pairs(
                 authority=chunk_authority,
                 source_url=chunk_source_url,
                 scan_status=chunk_scan,
+                scan_signals=chunk_scan_signals,
                 content_format=content_format,
                 symbol_type=symbol_type,
                 approval_status=approval,

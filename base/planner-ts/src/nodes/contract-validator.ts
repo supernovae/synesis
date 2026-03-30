@@ -56,16 +56,20 @@ export function validateDecisionDrift(state: GraphState): ValidationResult {
 export function validateCitationPreservation(state: GraphState): ValidationResult {
   const fingerprints = state.draft_fingerprints ?? [];
   if (fingerprints.length < 2) return { passed: true, violations: [] };
-  const urls = state.rag_source_urls ?? [];
-  const names = state.rag_document_names ?? [];
-  if (urls.length === 0 && names.length === 0) return { passed: true, violations: [] };
+
+  const packets = state.evidence_packets ?? [];
+  const citations = new Set<string>();
+  for (const packet of packets) {
+    for (const source of packet.sources) {
+      if (source.uri?.trim()) citations.add(source.uri.trim().toLowerCase());
+      const docName = String(source.attribution?.source_name ?? source.metadata?.document_name ?? "");
+      if (docName.trim()) citations.add(docName.trim().toLowerCase());
+    }
+  }
+  if (citations.size === 0) return { passed: true, violations: [] };
 
   const draft = (state.generated_code ?? "").toLowerCase();
   if (!draft) return { passed: true, violations: [] };
-
-  const citations = new Set<string>();
-  for (const url of urls) if (url.trim()) citations.add(url.trim().toLowerCase());
-  for (const name of names) if (name.trim()) citations.add(name.trim().toLowerCase());
 
   const violations: string[] = [];
   for (const citation of citations) {

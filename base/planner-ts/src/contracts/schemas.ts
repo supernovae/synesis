@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { AttributionV1 } from "@synesis/context-trust";
 
 export const EvidenceSourceSchema = z.object({
   uri: z.string().min(1),
   type: z.enum(["doc", "code", "wiki", "web", "repo", "api"]),
-  metadata: z.record(z.string(), z.unknown()).default({})
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  attribution: AttributionV1.optional(),
 });
 
 export const EvidenceSnippetSchema = z.object({

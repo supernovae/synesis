@@ -2,12 +2,19 @@ export {
   TrustLevel,
   SourceType,
   ContentPurpose,
+  AuthorityTier,
+  ReviewStatus,
+  IngestScanStatus,
+  PolicyDecision,
+  RetrievalChannel,
+  AttributionV1,
   TrustPacketV1,
   SemiTrustedPacketV1,
   serializeStableJson,
   parseTrustPacket,
   makeTrustedControl,
   makeUntrusted,
+  makeUntrustedEvidence,
   makeSemiTrusted,
 } from "./trust-packet.js";
 
@@ -49,3 +56,10 @@ export {
   type SecurityIngestPayload,
   type SecurityIngestConfig,
 } from "./security-ingest.js";
+
+export {
+  freshnessScore,
+  freshnessBoost,
+  FRESHNESS_HALF_LIFE_DAYS,
+  type FreshnessBoostable,
+} from "./freshness-scoring.js";

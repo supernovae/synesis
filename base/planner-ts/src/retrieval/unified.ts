@@ -8,6 +8,7 @@
  *   Phase 3b: Domain policy (prefer/restrict)
  *   Phase 4: RRF merge
  *   Phase 4b: Taxonomy domain hint boost
+ *   Phase 4c: Freshness boost (soft preference, trust-gated)
  *   Phase 5: Adaptive top-k (cliff detection)
  *   Phase 5b-5d: Cohesion lock pipeline
  */
@@ -22,6 +23,10 @@ import type {
 } from "./types.js";
 import { AUTHORITY_BOOST } from "./types.js";
 import { retrieveContext, type RagClientConfig } from "./rag-client.js";
+import {
+  freshnessScore as _freshnessScore,
+  freshnessBoost as _freshnessBoost,
+} from "@synesis/context-trust";
 import { searchAndProcess, type WebSearchConfig } from "./web-search.js";
 import { detectCohesionLock, cohesionFilter, compressToCohesion, type CohesionConfig } from "./cohesion.js";
 
@@ -37,6 +42,7 @@ export interface RetrievalSettings {
   domainPolicyBoost: number;
   webBudgetBase: number;
   webBudgetMax: number;
+  freshnessWeight: number;
 }
 
 const MIN_RAG_FOR_GATING = 3;
@@ -62,6 +68,13 @@ function ragToUnified(results: RagResult[]): UnifiedResult[] {
     chunk_summary: r.chunk_summary,
     domain: r.domain,
     is_trusted: Boolean(r.authority && r.authority !== "external"),
+    scan_status: r.scan_status,
+    scan_signals: r.scan_signals,
+    approval_status: r.approval_status,
+    review_trace_id: r.review_trace_id,
+    content_hash: r.content_hash,
+    crawl_timestamp: r.crawl_timestamp,
+    effective_at_epoch: r.effective_at_epoch,
   }));
 }
 
@@ -114,6 +127,14 @@ function taxonomyBoost(results: UnifiedResult[], domainHints: string[], boost = 
     return matches ? { ...r, score: r.score * boost } : r;
   });
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4c: Freshness scoring — delegated to @synesis/context-trust
+// ---------------------------------------------------------------------------
+
+export const freshnessScore = _freshnessScore;
+export const freshnessBoost: (results: UnifiedResult[], effectiveWeight?: number) => UnifiedResult[] =
+  _freshnessBoost;
 
 // ---------------------------------------------------------------------------
 // Phase 5: Adaptive top-k with cliff detection
@@ -272,6 +293,9 @@ export async function retrieveUnified(
 
   // Phase 4b: Taxonomy domain hint boost
   merged = taxonomyBoost(merged, domainHints);
+
+  // Phase 4c: Freshness boost (soft preference)
+  merged = freshnessBoost(merged, settings.freshnessWeight);
 
   // Phase 5: Adaptive top-k
   let final = adaptiveTopK(merged, topK, settings.adaptiveGapMultiplier);

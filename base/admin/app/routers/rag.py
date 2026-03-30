@@ -74,12 +74,12 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
         stats = collection_stats(CATALOG_COLLECTION)
         meta_rows = safe_query(
             CATALOG_COLLECTION,
-            output_fields=["domain", "doc_id", "source_name"],
+            output_fields=["domain", "doc_id", "document_name"],
             limit=16384,
         )
         unique_domains = len({r.get("domain", "") for r in meta_rows if r.get("domain")})
         unique_docs = len({r.get("doc_id", "") for r in meta_rows if r.get("doc_id")})
-        unique_sources = len({r.get("source_name", "") for r in meta_rows if r.get("source_name")})
+        unique_sources = len({r.get("document_name", "") for r in meta_rows if r.get("document_name")})
         return {
             "collection": CATALOG_COLLECTION,
             "total_chunks": stats.get("row_count", 0),
@@ -203,14 +203,20 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
         doc_count = len(sources)
 
         authority_mix: dict[str, int] = {}
-        for row in safe_query(
+        fresh_count = 0
+        domain_rows = safe_query(
             CATALOG_COLLECTION,
             filter_expr=f'domain == "{domain}"',
-            output_fields=["authority"],
+            output_fields=["authority", "effective_at_epoch", "crawl_timestamp"],
             limit=16384,
-        ):
+        )
+        for row in domain_rows:
             auth = row.get("authority", "unknown") or "unknown"
             authority_mix[auth] = authority_mix.get(auth, 0) + 1
+            if _compute_freshness(row) >= 0.5:
+                fresh_count += 1
+
+        freshness_pct = round(fresh_count / max(len(domain_rows), 1) * 100, 1)
 
         if chunk_count == 0:
             health = "empty"
@@ -227,7 +233,7 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
                 health=health,
                 chunk_count=chunk_count,
                 doc_count=doc_count,
-                freshness_pct=0.0,
+                freshness_pct=freshness_pct,
                 authority_mix=authority_mix,
                 dead_weight_count=0,
                 scored_at=now,
@@ -644,6 +650,11 @@ _REVIEW_FIELDS = [
     "content_format",
     "symbol_type",
     "approval_status",
+    # v13 trust attribution
+    "scan_signals",
+    "review_trace_id",
+    "effective_at_epoch",
+    "crawl_timestamp",
 ]
 
 # Lightweight copy of the indexer's named patterns for on-the-fly reason extraction.
@@ -700,6 +711,22 @@ _FLAG_PATTERNS: list[tuple[str, str, _re.Pattern[str]]] = [
 ]
 
 
+import math as _math
+import time as _time
+
+_FRESHNESS_HALF_LIFE_DAYS = 90
+_ONE_DAY_S = 86400
+
+
+def _compute_freshness(row: dict) -> float:
+    """Compute a 0.0–1.0 freshness score from epoch-second timestamps."""
+    ts = row.get("effective_at_epoch") or row.get("crawl_timestamp") or 0
+    if not ts or ts <= 0:
+        return 0.0
+    age_days = max(0, (_time.time() - ts) / _ONE_DAY_S)
+    return _math.exp((-0.693 * age_days) / _FRESHNESS_HALF_LIFE_DAYS)
+
+
 def _detect_flag_reasons(text: str) -> list[dict[str, str]]:
     """Return list of {id, label} for each injection pattern matched in text."""
     sample = text[:32_000].lower()
@@ -732,13 +759,18 @@ async def review_queue(
     status: str = Query("flagged", description="Filter: flagged | unscanned | all"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    sort: str = Query("", description="Sort pivot: freshness | authority | scan_status"),
+    domain: str = Query("", description="Filter by domain"),
 ):
-    """List chunks needing review, grouped by scan_status."""
+    """List chunks needing review with optional sort pivots and domain filter."""
     _ensure_org_observability(_user)
     if status == "all":
         expr = 'scan_status in ["flagged", "unscanned"]'
     else:
         expr = f'scan_status == "{status}"'
+    if domain:
+        safe_domain = domain.replace('"', '\\"')
+        expr = f'({expr}) and domain == "{safe_domain}"'
     rows = safe_query(CATALOG_COLLECTION, filter_expr=expr, output_fields=_REVIEW_FIELDS, limit=limit, offset=offset)
     for r in rows:
         full_text = r.pop("text", "")
@@ -747,6 +779,17 @@ async def review_queue(
             r["flag_reasons"] = _detect_flag_reasons(full_text)
         else:
             r["flag_reasons"] = []
+        r["freshness_score"] = _compute_freshness(r)
+
+    if sort == "freshness":
+        rows.sort(key=lambda r: r.get("freshness_score", 0), reverse=True)
+    elif sort == "authority":
+        tier_order = {"canonical": 0, "vetted": 1, "community": 2, "external": 3}
+        rows.sort(key=lambda r: tier_order.get(r.get("authority", ""), 99))
+    elif sort == "scan_status":
+        status_order = {"flagged": 0, "unscanned": 1, "clean": 2, "vetted": 3}
+        rows.sort(key=lambda r: status_order.get(r.get("scan_status", ""), 99))
+
     return {"chunks": rows, "offset": offset, "limit": limit}
 
 
@@ -754,6 +797,8 @@ async def review_queue(
 async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     """Mark a chunk as vetted: set scan_status to 'vetted', approval_status to 'approved'."""
     _ensure_org_content_admin(_user)
+    import uuid
+
     from ..services.milvus_service import safe_query as sq
 
     rows = sq(
@@ -761,37 +806,58 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     )
     if not rows:
         return {"ok": False, "error": "chunk not found"}
+
+    trace_id = f"review-{uuid.uuid4().hex[:12]}"
     try:
         client = get_milvus()
         client.upsert(
             collection_name=CATALOG_COLLECTION,
             data=[
-                {"chunk_id": chunk_id, "scan_status": "vetted", "authority": "vetted", "approval_status": "approved"}
+                {
+                    "chunk_id": chunk_id,
+                    "scan_status": "vetted",
+                    "authority": "vetted",
+                    "approval_status": "approved",
+                    "review_trace_id": trace_id,
+                }
             ],
         )
     except Exception:
         logger.warning("review_vet_milvus_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
         return {"ok": False, "error": "milvus update failed"}
-    logger.info("review_vet_chunk", extra={"chunk_id": chunk_id, "user": _user.username})
-    return {"ok": True, "chunk_id": chunk_id, "action": "vetted"}
+    logger.info("review_vet_chunk", extra={"chunk_id": chunk_id, "user": _user.username, "review_trace_id": trace_id})
+    return {"ok": True, "chunk_id": chunk_id, "action": "vetted", "review_trace_id": trace_id}
 
 
 @router.post("/review/{chunk_id}/reject")
 async def reject_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     """Mark a chunk as rejected: set approval_status to 'rejected' (excluded from RAG retrieval)."""
     _ensure_org_content_admin(_user)
+    import uuid
+
+    trace_id = f"review-{uuid.uuid4().hex[:12]}"
     try:
         client = get_milvus()
         client.upsert(
             collection_name=CATALOG_COLLECTION,
-            data=[{"chunk_id": chunk_id, "scan_status": "rejected", "approval_status": "rejected"}],
+            data=[
+                {
+                    "chunk_id": chunk_id,
+                    "scan_status": "rejected",
+                    "approval_status": "rejected",
+                    "review_trace_id": trace_id,
+                }
+            ],
         )
         ok = True
     except Exception:
         logger.warning("review_reject_milvus_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
         ok = False
-    logger.info("review_reject_chunk", extra={"chunk_id": chunk_id, "user": _user.username, "ok": ok})
-    return {"ok": ok, "chunk_id": chunk_id, "action": "rejected"}
+    logger.info(
+        "review_reject_chunk",
+        extra={"chunk_id": chunk_id, "user": _user.username, "ok": ok, "review_trace_id": trace_id},
+    )
+    return {"ok": ok, "chunk_id": chunk_id, "action": "rejected", "review_trace_id": trace_id}
 
 
 @router.post("/review/bulk/{action}")
@@ -806,13 +872,16 @@ async def bulk_review_action(
     POST /review/bulk/reject {"chunk_ids": ["id1", "id2"]}
     """
     _ensure_org_content_admin(_user)
+    import uuid
+
     chunk_ids = request.get("chunk_ids", [])
     if not chunk_ids:
         return {"ok": False, "error": "no chunk_ids provided"}
     if action not in ("vet", "reject"):
         return {"ok": False, "error": "action must be 'vet' or 'reject'"}
 
-    results = {"ok": True, "processed": 0, "errors": 0}
+    batch_trace_id = f"review-batch-{uuid.uuid4().hex[:12]}"
+    results: dict[str, Any] = {"ok": True, "processed": 0, "errors": 0, "review_trace_id": batch_trace_id}
     client = get_milvus()
 
     for chunk_id in chunk_ids:
@@ -826,13 +895,21 @@ async def bulk_review_action(
                             "scan_status": "vetted",
                             "authority": "vetted",
                             "approval_status": "approved",
+                            "review_trace_id": batch_trace_id,
                         }
                     ],
                 )
             else:
                 client.upsert(
                     collection_name=CATALOG_COLLECTION,
-                    data=[{"chunk_id": chunk_id, "scan_status": "rejected", "approval_status": "rejected"}],
+                    data=[
+                        {
+                            "chunk_id": chunk_id,
+                            "scan_status": "rejected",
+                            "approval_status": "rejected",
+                            "review_trace_id": batch_trace_id,
+                        }
+                    ],
                 )
             results["processed"] += 1
         except Exception:
@@ -841,7 +918,13 @@ async def bulk_review_action(
 
     logger.info(
         "review_bulk_action",
-        extra={"action": action, "count": len(chunk_ids), "processed": results["processed"], "user": _user.username},
+        extra={
+            "action": action,
+            "count": len(chunk_ids),
+            "processed": results["processed"],
+            "user": _user.username,
+            "review_trace_id": batch_trace_id,
+        },
     )
     return results
 

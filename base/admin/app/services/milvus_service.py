@@ -12,11 +12,15 @@ from ..milvus_utils import with_retry
 
 logger = logging.getLogger("synesis.admin.milvus")
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[str, Any]:
-    """Drop and recreate synesis_catalog with schema v12 immediately."""
+    """Drop and recreate synesis_catalog with schema v13 immediately.
+
+    Function name kept as ``_v12`` for backward compatibility with callers;
+    the schema produced is v13 (adds trust attribution fields).
+    """
     embedding_dim = 384
     fields = [
         FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
@@ -62,6 +66,10 @@ def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[st
         FieldSchema(name="upload_mode", dtype=DataType.VARCHAR, max_length=24),
         FieldSchema(name="is_ephemeral", dtype=DataType.BOOL),
         FieldSchema(name="expires_at_epoch", dtype=DataType.INT64),
+        # v13 — trust attribution
+        FieldSchema(name="scan_signals", dtype=DataType.VARCHAR, max_length=1024),
+        FieldSchema(name="review_trace_id", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="effective_at_epoch", dtype=DataType.INT64),
         FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="quality_score", dtype=DataType.FLOAT),
         FieldSchema(name="technical_depth", dtype=DataType.FLOAT),
@@ -293,7 +301,7 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
 
 
 def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
-    """Return domain -> source_name -> chunk count hierarchy."""
+    """Return domain -> document_name -> chunk count hierarchy."""
     try:
         rows = with_retry(
             get_resilient_milvus(),
@@ -303,7 +311,7 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
                 else c.query(
                     collection_name=collection,
                     filter="",
-                    output_fields=["domain", "source_name"],
+                    output_fields=["domain", "document_name"],
                     limit=16384,
                 )
             ),
@@ -315,7 +323,7 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
         pair_counts: Counter[tuple[str, str]] = Counter()
         for r in rows:
             d = r.get("domain", "") or "unknown"
-            s = r.get("source_name", "") or "unknown"
+            s = r.get("document_name", "") or "unknown"
             pair_counts[(d, s)] += 1
 
         domain_map: dict[str, list[dict]] = {}

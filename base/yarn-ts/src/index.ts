@@ -1384,8 +1384,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orgId: identity.orgId,
   }, securityIngestConfig, app.log as never);
   if (trustResult.blocked) {
-    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "trust_block", "transcript-trust", trustResult.blockReason ?? "Content blocked", oaiTraceReqId);
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: trustResult.blockReason ?? "Content blocked by trust scanner." } });
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "trust_block", "transcript-trust", trustResult.blockDetail ?? "Content blocked", oaiTraceReqId);
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: "Request could not be processed." } });
   }
   oaiEnrichedMsgs = trustResult.messages as typeof oaiEnrichedMsgs;
 
@@ -1880,10 +1880,10 @@ app.post("/v1/messages", async (req, reply) => {
     orgId: claudeIdentity.orgId,
   }, securityIngestConfig, app.log as never);
   if (claudeTrustResult.blocked) {
-    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "trust_block", "transcript-trust", claudeTrustResult.blockReason ?? "Content blocked", traceReqId);
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "trust_block", "transcript-trust", claudeTrustResult.blockDetail ?? "Content blocked", traceReqId);
     return reply.code(400).send({
       type: "error",
-      error: { type: "invalid_request_error", message: claudeTrustResult.blockReason ?? "Content blocked by trust scanner." }
+      error: { type: "invalid_request_error", message: "Request could not be processed." }
     });
   }
   enrichedClaudeMsgs = claudeTrustResult.messages as typeof enrichedClaudeMsgs;

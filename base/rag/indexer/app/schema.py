@@ -47,6 +47,11 @@ Version history:
             conversation_id, upload_batch_id, upload_mode, is_ephemeral,
             expires_at_epoch. Enables scoped per-user collections and
             conversation-bound temporary corpora with TTL enforcement.
+  v12 → v13: Trust attribution metadata — scan_signals (persisted injection
+            pattern names from index-time scan), review_trace_id (links to
+            HITL review event in admin), effective_at_epoch (content date
+            for freshness pivots). Completes the ingestion→retrieval→planner
+            attribution pipeline for TrustPacketV1/AttributionV1.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -75,7 +80,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -121,6 +126,10 @@ EXPECTED_FIELDS = frozenset(
         "upload_mode",
         "is_ephemeral",
         "expires_at_epoch",
+        # v13 — trust attribution
+        "scan_signals",
+        "review_trace_id",
+        "effective_at_epoch",
         # v9 — semantic ingestion / MCP filters
         "content_type",
         "quality_score",
@@ -196,6 +205,10 @@ CATALOG_FIELDS = [
     FieldSchema(name="upload_mode", dtype=DataType.VARCHAR, max_length=24),
     FieldSchema(name="is_ephemeral", dtype=DataType.BOOL),
     FieldSchema(name="expires_at_epoch", dtype=DataType.INT64),
+    # v13 — trust attribution (ingestion→retrieval→planner pipeline)
+    FieldSchema(name="scan_signals", dtype=DataType.VARCHAR, max_length=1024),
+    FieldSchema(name="review_trace_id", dtype=DataType.VARCHAR, max_length=128),
+    FieldSchema(name="effective_at_epoch", dtype=DataType.INT64),
     # v9 — semantic ingestion (gatekeeper + future preprocess/batch jobs)
     FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
     FieldSchema(name="quality_score", dtype=DataType.FLOAT),
@@ -384,6 +397,10 @@ def catalog_entity(
     upload_mode: str = "",
     is_ephemeral: bool = False,
     expires_at_epoch: int = 0,
+    # v13 — trust attribution
+    scan_signals: str = "",
+    review_trace_id: str = "",
+    effective_at_epoch: int = 0,
     # v9
     content_type: str = "",
     quality_score: float = -1.0,
@@ -441,6 +458,9 @@ def catalog_entity(
         "upload_mode": _trunc_bytes(upload_mode or "", 24),
         "is_ephemeral": bool(is_ephemeral),
         "expires_at_epoch": int(expires_at_epoch),
+        "scan_signals": _trunc_bytes(scan_signals or "", 1024),
+        "review_trace_id": _trunc_bytes(review_trace_id or "", 128),
+        "effective_at_epoch": int(effective_at_epoch),
         "content_type": _trunc_bytes(content_type or "", 64),
         "quality_score": float(quality_score),
         "technical_depth": float(technical_depth),
