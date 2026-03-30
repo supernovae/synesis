@@ -89,6 +89,48 @@ Admin API note:
 
 **Trace redaction:** optional `SYNESIS_TRACE_REDACT_PATTERNS` (pipe-separated regexes) augments default redaction for persisted trace JSON.
 
+## OTEL Tracing Guide (planner/yarn/mcp)
+
+This section defines the target operating pattern for end-to-end OpenTelemetry
+across planner, yarn, and MCP request paths.
+
+### Current state
+
+- `yarn-ts` has optional OTEL bootstrap in `base/yarn-ts/src/telemetry/otel.ts`.
+- `planner-ts` currently emits structured traces via `@synesis/telemetry` + `emitTrace` and does not yet bootstrap OTEL spans.
+- MCP activity in TypeScript is routed through `yarn-ts` (`base/yarn-ts/src/mcp/`) and should be correlated with yarn request IDs.
+
+### End-to-end trace contract
+
+- Ingress correlation:
+  - preserve/accept `traceparent` when present,
+  - always attach/propagate `x-request-id`,
+  - preserve `x-synesis-authz-trace-id` for policy lineage.
+- Egress propagation:
+  - planner -> LiteLLM / downstream HTTP calls include W3C trace headers,
+  - yarn -> model provider and MCP proxy calls include W3C trace headers,
+  - yarn MCP routes include request correlation fields in logs/events.
+- Service identity:
+  - set `service.name` and deployment environment resource attrs consistently.
+
+### Collector/exporter baseline
+
+- Enable OTLP HTTP exporter in each TS service with env-driven endpoint.
+- Export to cluster collector (Jaeger/Tempo/OTel Collector) using:
+  - `OTEL_EXPORTER_OTLP_ENDPOINT`
+  - `OTEL_SERVICE_NAME`
+
+### Verification checklist
+
+- A single user request can be followed across:
+  - yarn ingress span,
+  - optional planner escalation span,
+  - model/provider call span,
+  - MCP tool call span (when tools are used),
+  - admin ingest/log correlation (`request_id`, `trace_id`, authz trace).
+- Correlation IDs are queryable in logs and trace backend.
+- No sensitive prompt/token payload is emitted in span attributes by default.
+
 ### Model Serving (vLLM)
 
 These panels auto-discover models by `model_name` label. Small profile shows 2 models,

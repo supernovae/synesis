@@ -67,6 +67,20 @@ describe("API contract", () => {
     await app.close();
   });
 
+  it("exposes readiness endpoint", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "GET",
+      url: "/health/readiness"
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.status).toBe("ready");
+    expect(body.checks?.llm).toBeTruthy();
+    expect(body.checks?.redis).toBeTruthy();
+    await app.close();
+  });
+
   it("returns authz recent events on dedicated health endpoint", async () => {
     const app = buildApp(
       makeConfig({
@@ -475,6 +489,44 @@ describe("API contract", () => {
     expect(payload).toContain('"reasoning_content"');
     expect(payload).toContain('"chat.completion.chunk"');
     expect(payload).toContain("[DONE]");
+    await app.close();
+  });
+
+  it("returns 429 when user request rate exceeds configured window", async () => {
+    const app = buildApp(makeConfig({
+      SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS: "1",
+      SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS: "60000",
+    }));
+    const payload = {
+      model: "Synesis",
+      messages: [{ role: "user", content: "hello planner" }],
+      stream: false,
+    };
+    const first = await app.inject({ method: "POST", url: "/v1/chat/completions", payload });
+    expect(first.statusCode).toBe(200);
+    const second = await app.inject({ method: "POST", url: "/v1/chat/completions", payload });
+    expect(second.statusCode).toBe(429);
+    expect(second.headers["retry-after"]).toBeTruthy();
+    await app.close();
+  });
+
+  it("returns 503 when streaming admission is saturated", async () => {
+    const app = buildApp(makeConfig({
+      SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT: "0",
+      SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX: "0",
+      SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS: "1",
+    }));
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "hello planner" }],
+        stream: true
+      }
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBeTruthy();
     await app.close();
   });
 });

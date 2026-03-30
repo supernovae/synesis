@@ -26,13 +26,15 @@ import type { AppConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
 import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph, streamGraph } from "./graph.js";
-import { setPricingContext } from "./llm/client.js";
+import { getLlmResilienceStats, setPricingContext } from "./llm/client.js";
 import { setRetrievalClient, directStreamPipeline } from "./pipeline.js";
 import { UnifiedRetrievalClient } from "./retrieval/client.js";
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { buildDomainProfile } from "./nodes/domain-profile.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
 import { optimizeContext } from "./optimization/context-optimizer.js";
+import { UserRateLimiter } from "./middleware/user-rate-limit.js";
+import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import {
   endSse,
   initSse,
@@ -47,6 +49,7 @@ import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scann
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
+  retryAfterSeconds?: number;
   policyDecision?: { matchedRules?: string[] };
 };
 
@@ -60,6 +63,8 @@ const SAFE_ERROR_PATTERNS = [
   /is not configured yet/,
   /^Rate limit exceeded/,
   /^Request too large/,
+  /^Too many requests/,
+  /^Circuit breaker open/,
   /^LLM is not enabled$/,
 ];
 
@@ -136,6 +141,20 @@ export function buildApp(config: AppConfig): FastifyInstance {
     store: sessionStore
   });
   const authzPolicyEngine = createAuthorizationPolicyEngine(config);
+  const userRateLimiter = new UserRateLimiter({
+    windowMs: config.SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS,
+    maxRequests: config.SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS,
+  });
+  const streamAdmission = new StreamAdmissionController({
+    maxConcurrentStreams: config.SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT,
+    maxQueueDepth: config.SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX,
+    queueWaitTimeoutMs: config.SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS,
+  });
+
+  app.addHook("onClose", async () => {
+    userRateLimiter.close();
+    streamAdmission.close();
+  });
 
   function spawnBackgroundCritic(state: GraphState, requestLog: FastifyInstance["log"]): void {
     const executionPolicy = state.execution_policy ?? {};
@@ -328,6 +347,51 @@ export function buildApp(config: AppConfig): FastifyInstance {
     return baseState;
   }
 
+  async function readinessSnapshot(): Promise<{
+    ready: boolean;
+    checks: {
+      llm: { configured: boolean; ok: boolean; detail?: string };
+      redis: { configured: boolean; ok: boolean; detail?: string };
+    };
+  }> {
+    const llmConfigured = Boolean(config.SYNESIS_PLANNER_TS_LLM_ENABLED && config.SYNESIS_PLANNER_TS_LLM_BASE_URL);
+    let llmOk = true;
+    let llmDetail = "disabled_or_not_configured";
+    if (llmConfigured) {
+      try {
+        const base = config.SYNESIS_PLANNER_TS_LLM_BASE_URL.replace(/\/$/, "");
+        const resp = await fetch(`${base}/health`, {
+          method: "GET",
+          signal: AbortSignal.timeout(2_000),
+          headers: config.SYNESIS_PLANNER_TS_LLM_API_KEY
+            ? { Authorization: `Bearer ${config.SYNESIS_PLANNER_TS_LLM_API_KEY}` }
+            : undefined,
+        });
+        llmOk = resp.ok;
+        llmDetail = `status_${resp.status}`;
+      } catch (error) {
+        llmOk = false;
+        llmDetail = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    const redisConfigured = Boolean(config.SYNESIS_PLANNER_TS_REDIS_URL);
+    let redisOk = true;
+    let redisDetail = "disabled_or_not_configured";
+    if (redisConfigured) {
+      redisOk = await sessionStore.ping();
+      redisDetail = redisOk ? "pong" : "ping_failed";
+    }
+
+    return {
+      ready: llmOk && redisOk,
+      checks: {
+        llm: { configured: llmConfigured, ok: llmOk, detail: llmDetail },
+        redis: { configured: redisConfigured, ok: redisOk, detail: redisDetail },
+      },
+    };
+  }
+
   app.get("/health", async () => ({
     status: "ok",
     service: "planner-ts",
@@ -340,6 +404,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
     },
     redis: {
       configured: Boolean(config.SYNESIS_PLANNER_TS_REDIS_URL)
+    },
+    llmResilience: getLlmResilienceStats(),
+    admissionControl: {
+      userRateLimit: userRateLimiter.getStats(),
+      streamAdmission: streamAdmission.getStats(),
     },
     auth: {
       engine: authzPolicyEngine.engineName,
@@ -355,6 +424,22 @@ export function buildApp(config: AppConfig): FastifyInstance {
       strictForwardedIdentityMode: config.SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE
     }
   }));
+
+  app.get("/health/readiness", async (_request, reply) => {
+    const readiness = await readinessSnapshot();
+    if (!readiness.ready) {
+      return reply.code(503).send({
+        status: "degraded",
+        service: "planner-ts",
+        ...readiness,
+      });
+    }
+    return {
+      status: "ready",
+      service: "planner-ts",
+      ...readiness,
+    };
+  });
 
   app.get("/metrics", async (_request, reply) => {
     reply.header("Content-Type", promRegistry.contentType);
@@ -716,9 +801,18 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const authzTraceId = crypto.randomUUID();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
+    let streamRelease: (() => void) | undefined;
     try {
       assertCapabilityLock();
       const auth = await resolveAuthContext(request, config);
+      const rateSubject = (auth.userId || auth.userEmail || "anonymous").trim() || "anonymous";
+      const rateLimit = userRateLimiter.check(rateSubject);
+      if (!rateLimit.allowed) {
+        const err = new Error("Too many requests for this user in the current window") as ErrorWithMeta;
+        err.statusCode = 429;
+        err.retryAfterSeconds = rateLimit.retryAfterSeconds ?? 1;
+        throw err;
+      }
       const policyDecision = await authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
         traceId: authzTraceId
       });
@@ -746,6 +840,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
       const created = Math.floor(Date.now() / 1000);
       const completionId = `chatcmpl-${crypto.randomUUID()}`;
+      if (body.stream) {
+        const admission = await streamAdmission.acquire();
+        if (!admission.admitted || !admission.release) {
+          const err = new Error(`Stream admission denied: ${admission.reason ?? "capacity"}`) as ErrorWithMeta;
+          err.statusCode = 503;
+          err.retryAfterSeconds = admission.retryAfterSeconds ?? 5;
+          throw err;
+        }
+        streamRelease = admission.release;
+      }
+
       const initialState = await toState(body, auth, authzTraceId, policyDecision, resolvedSession.sessionKey);
       const responseModel = initialState.response_model ?? body.model;
 
@@ -810,6 +915,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const streamReqStart = Date.now();
       let firstTokenAt: number | undefined;
       initSse(reply.raw);
+      reply.raw.once("close", () => {
+        streamRelease?.();
+      });
 
       // Immediate pulse so Open WebUI shows "Thinking" right away,
       // before entry_pipeline (classification + taxonomy) completes.
@@ -945,6 +1053,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         });
         endSse(reply.raw);
       }
+      streamRelease?.();
       return reply;
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Unknown server error";
@@ -963,6 +1072,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
       );
       const statusCode = err.statusCode
         ?? (rawMessage === "Missing Bearer token" ? 401 : 400);
+      if (err.retryAfterSeconds) {
+        reply.header("Retry-After", String(err.retryAfterSeconds));
+      }
       const errorTrace: TraceRecord = {
         service: "planner",
         trace_id: authzTraceId,
@@ -979,14 +1091,22 @@ export function buildApp(config: AppConfig): FastifyInstance {
       };
       emitTrace(errorTrace, traceEmitterConfig, app.log);
       if (reply.raw.headersSent) {
+        streamRelease?.();
         endSse(reply.raw);
         return reply;
       }
+      streamRelease?.();
       const clientMessage = sanitizeErrorMessage(rawMessage);
       return reply.code(statusCode).send({
         error: {
           message: clientMessage,
-          type: statusCode === 401 ? "authentication_error" : "invalid_request_error",
+          type: statusCode === 401
+            ? "authentication_error"
+            : statusCode === 429
+              ? "rate_limit_error"
+              : statusCode >= 500
+                ? "server_error"
+                : "invalid_request_error",
           code: String(statusCode)
         }
       });

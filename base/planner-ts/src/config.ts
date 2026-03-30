@@ -15,6 +15,17 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_WRITER_MODEL: z.string().default("Synesis"),
   SYNESIS_PLANNER_TS_CRITIC_MODEL: z.string().default("Synesis"),
   SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS: z.coerce.number().default(300000),
+  SYNESIS_PLANNER_TS_LLM_RETRY_MAX_ATTEMPTS: z.coerce.number().default(3),
+  SYNESIS_PLANNER_TS_LLM_RETRY_BASE_DELAY_MS: z.coerce.number().default(1000),
+  SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().default(5),
+  SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_MS: z.coerce.number().default(60000),
+  SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_HALF_OPEN_MAX: z.coerce.number().default(1),
+  SYNESIS_PLANNER_TS_NODE_TIMEOUT_MS: z.coerce.number().default(60000),
+  SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
+  SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(30),
+  SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT: z.coerce.number().default(50),
+  SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX: z.coerce.number().default(100),
+  SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS: z.coerce.number().default(30000),
   /** Writer: trivial fast-path cap (tokens). */
   SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET: z.coerce.number().default(768),
   /** Writer: scaled budget at difficulty 0 (tokens). */

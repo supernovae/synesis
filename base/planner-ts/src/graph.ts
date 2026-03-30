@@ -27,16 +27,84 @@ const EnvelopeAnnotation = Annotation.Root({
   })
 });
 
+function nodeTimeoutMs(): number {
+  const raw = Number(process.env.SYNESIS_PLANNER_TS_NODE_TIMEOUT_MS ?? 60000);
+  if (!Number.isFinite(raw) || raw <= 0) return 60000;
+  return raw;
+}
+
+async function runNodeWithTimeout(
+  nodeName: string,
+  envelope: GraphEnvelope,
+  fn: () => Promise<GraphEnvelope>,
+): Promise<GraphEnvelope> {
+  const timeoutMs = nodeTimeoutMs();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutPromise = new Promise<GraphEnvelope>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({
+          data: {
+            ...envelope.data,
+            error: `Node '${nodeName}' timed out after ${timeoutMs}ms`,
+            next_node: "respond",
+          },
+        });
+      }, timeoutMs);
+    });
+    return await Promise.race([fn(), timeoutPromise]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      data: {
+        ...envelope.data,
+        error: `Node '${nodeName}' failed: ${message}`,
+        next_node: "respond",
+      },
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function buildGraph(writerFn: (state: GraphEnvelope) => Promise<GraphEnvelope>) {
   return new StateGraph(EnvelopeAnnotation)
-    .addNode("entry_pipeline", async (state: GraphEnvelope) => ({ data: await entryPipelineNode(state.data) }))
-    .addNode("planner", async (state: GraphEnvelope) => ({ data: await plannerNode(state.data) }))
-    .addNode("plan_gate", async (state: GraphEnvelope) => ({ data: planGate(state.data) }))
-    .addNode("router", async (state: GraphEnvelope) => ({ data: await routerNode(state.data) }))
-    .addNode("writer", writerFn)
-    .addNode("critic", async (state: GraphEnvelope) => ({ data: await criticNode(state.data) }))
-    .addNode("final_scrubber", async (state: GraphEnvelope) => ({ data: await finalScrubberNode(state.data) }))
-    .addNode("respond", async (state: GraphEnvelope) => ({ data: await respondNode(state.data) }))
+    .addNode("entry_pipeline", async (state: GraphEnvelope) => runNodeWithTimeout(
+      "entry_pipeline",
+      state,
+      async () => ({ data: await entryPipelineNode(state.data) }),
+    ))
+    .addNode("planner", async (state: GraphEnvelope) => runNodeWithTimeout(
+      "planner",
+      state,
+      async () => ({ data: await plannerNode(state.data) }),
+    ))
+    .addNode("plan_gate", async (state: GraphEnvelope) => runNodeWithTimeout(
+      "plan_gate",
+      state,
+      async () => ({ data: planGate(state.data) }),
+    ))
+    .addNode("router", async (state: GraphEnvelope) => runNodeWithTimeout(
+      "router",
+      state,
+      async () => ({ data: await routerNode(state.data) }),
+    ))
+    .addNode("writer", async (state: GraphEnvelope) => runNodeWithTimeout("writer", state, async () => writerFn(state)))
+    .addNode("critic", async (state: GraphEnvelope) => runNodeWithTimeout(
+      "critic",
+      state,
+      async () => ({ data: await criticNode(state.data) }),
+    ))
+    .addNode("final_scrubber", async (state: GraphEnvelope) => runNodeWithTimeout(
+      "final_scrubber",
+      state,
+      async () => ({ data: await finalScrubberNode(state.data) }),
+    ))
+    .addNode("respond", async (state: GraphEnvelope) => runNodeWithTimeout(
+      "respond",
+      state,
+      async () => ({ data: await respondNode(state.data) }),
+    ))
     .addEdge(START, "entry_pipeline")
     .addConditionalEdges(
       "entry_pipeline",

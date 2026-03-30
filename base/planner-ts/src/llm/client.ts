@@ -6,6 +6,7 @@ import {
   extractUsage as sharedExtractUsage,
   computeCost,
 } from "@synesis/telemetry";
+import { CircuitBreakerRegistry } from "./circuit-breaker.js";
 
 export type { LlmUsage };
 export { ZERO_USAGE, mergeUsage };
@@ -35,6 +36,11 @@ export interface StreamDelta {
 export interface StreamResult {
   content: string;
   usage: LlmUsage;
+}
+
+interface LlmClientError extends Error {
+  statusCode?: number;
+  retryAfterSeconds?: number;
 }
 
 interface ProviderUsage {
@@ -77,7 +83,22 @@ function llmEnabled(): boolean {
   return (process.env.SYNESIS_PLANNER_TS_LLM_ENABLED ?? "false").toLowerCase() === "true";
 }
 
-function llmConfig() {
+interface LlmConfig {
+  baseUrl: string;
+  apiKey: string;
+  timeoutMs: number;
+  prefixCacheMode: "auto" | "strict" | "disabled";
+  retryMaxAttempts: number;
+  retryBaseDelayMs: number;
+  circuitBreakerFailureThreshold: number;
+  circuitBreakerRecoveryTimeoutMs: number;
+  circuitBreakerHalfOpenMax: number;
+}
+
+let _breakerConfigKey = "";
+let _breakerRegistry = new CircuitBreakerRegistry();
+
+function llmConfig(): LlmConfig {
   return {
     baseUrl: (process.env.SYNESIS_PLANNER_TS_LLM_BASE_URL ?? "").trim(),
     apiKey: (process.env.SYNESIS_PLANNER_TS_LLM_API_KEY ?? "").trim(),
@@ -85,7 +106,148 @@ function llmConfig() {
     prefixCacheMode: (process.env.SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE ?? "auto") as
       | "auto"
       | "strict"
-      | "disabled"
+      | "disabled",
+    retryMaxAttempts: Math.max(1, Number(process.env.SYNESIS_PLANNER_TS_LLM_RETRY_MAX_ATTEMPTS ?? 3)),
+    retryBaseDelayMs: Math.max(50, Number(process.env.SYNESIS_PLANNER_TS_LLM_RETRY_BASE_DELAY_MS ?? 1000)),
+    circuitBreakerFailureThreshold: Math.max(1, Number(process.env.SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD ?? 5)),
+    circuitBreakerRecoveryTimeoutMs: Math.max(1000, Number(process.env.SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_MS ?? 60000)),
+    circuitBreakerHalfOpenMax: Math.max(1, Number(process.env.SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_HALF_OPEN_MAX ?? 1)),
+  };
+}
+
+function getBreakerRegistry(config: LlmConfig): CircuitBreakerRegistry {
+  const key = [
+    config.circuitBreakerFailureThreshold,
+    config.circuitBreakerRecoveryTimeoutMs,
+    config.circuitBreakerHalfOpenMax,
+  ].join(":");
+  if (key !== _breakerConfigKey) {
+    _breakerConfigKey = key;
+    _breakerRegistry = new CircuitBreakerRegistry({
+      failureThreshold: config.circuitBreakerFailureThreshold,
+      recoveryTimeoutMs: config.circuitBreakerRecoveryTimeoutMs,
+      halfOpenMax: config.circuitBreakerHalfOpenMax,
+    });
+  }
+  return _breakerRegistry;
+}
+
+class CircuitBreakerOpenError extends Error implements LlmClientError {
+  statusCode = 503;
+  retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super("Circuit breaker open for upstream model service");
+    this.name = "CircuitBreakerOpenError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+function isRetriableStatus(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status <= 504);
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.name === "AbortError" || error.name === "TimeoutError";
+}
+
+function isRetriableError(error: unknown): boolean {
+  if (isAbortError(error)) return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("fetch failed")
+    || message.includes("network")
+    || message.includes("socket")
+    || message.includes("econn")
+  );
+}
+
+function backoffDelayMs(baseMs: number, attemptIndex: number): number {
+  const exp = Math.min(4, attemptIndex);
+  return Math.min(10_000, baseMs * (2 ** exp));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resilientFetch(
+  url: string,
+  init: RequestInit,
+  opts: {
+    modelId: string;
+    orgId?: string;
+    timeoutMs: number;
+    retryMaxAttempts: number;
+    retryBaseDelayMs: number;
+    circuitBreakerRecoveryTimeoutMs: number;
+    externalSignal?: AbortSignal;
+  },
+): Promise<Response> {
+  const breaker = getBreakerRegistry(llmConfig());
+  const orgId = opts.orgId ?? "";
+  const breakerAllowed = breaker.allowRequest(opts.modelId, orgId);
+  if (!breakerAllowed) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(opts.circuitBreakerRecoveryTimeoutMs / 1000));
+    throw new CircuitBreakerOpenError(retryAfterSeconds);
+  }
+
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt < opts.retryMaxAttempts; attempt++) {
+    try {
+      const timeoutSignal = AbortSignal.timeout(opts.timeoutMs);
+      const signal = opts.externalSignal
+        ? AbortSignal.any([opts.externalSignal, timeoutSignal])
+        : timeoutSignal;
+      const resp = await fetch(url, { ...init, signal });
+      if (resp.ok) {
+        breaker.recordSuccess(opts.modelId, orgId);
+        return resp;
+      }
+
+      if (!isRetriableStatus(resp.status)) {
+        const text = await resp.text();
+        const err = new Error(`LLM HTTP ${resp.status}: ${text.slice(0, 200)}`);
+        (err as LlmClientError).statusCode = resp.status;
+        throw err;
+      }
+
+      const text = await resp.text();
+      lastError = new Error(`LLM HTTP ${resp.status}: ${text.slice(0, 200)}`);
+      breaker.recordFailure(opts.modelId, orgId);
+      if (attempt < opts.retryMaxAttempts - 1) {
+        await sleep(backoffDelayMs(opts.retryBaseDelayMs, attempt));
+        continue;
+      }
+      throw lastError;
+    } catch (error) {
+      if (error instanceof CircuitBreakerOpenError) throw error;
+      if (error instanceof Error && (error as LlmClientError).statusCode && !isRetriableStatus((error as LlmClientError).statusCode ?? 0)) {
+        throw error;
+      }
+      if (!isRetriableError(error)) {
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+      breaker.recordFailure(opts.modelId, orgId);
+      if (attempt < opts.retryMaxAttempts - 1) {
+        await sleep(backoffDelayMs(opts.retryBaseDelayMs, attempt));
+        continue;
+      }
+      throw lastError;
+    }
+  }
+  throw lastError ?? new Error("LLM request failed");
+}
+
+export function getLlmResilienceStats(): {
+  breaker: ReturnType<CircuitBreakerRegistry["getStats"]>;
+} {
+  const config = llmConfig();
+  return {
+    breaker: getBreakerRegistry(config).getStats(),
   };
 }
 
@@ -148,36 +310,39 @@ function estimateUsage(request: ChatRequest, content: string): LlmUsage {
 }
 
 export async function chatCompletion(request: ChatRequest): Promise<ChatResult> {
-  const { baseUrl, apiKey, timeoutMs, prefixCacheMode } = llmConfig();
+  const {
+    baseUrl,
+    apiKey,
+    timeoutMs,
+    prefixCacheMode,
+    retryMaxAttempts,
+    retryBaseDelayMs,
+    circuitBreakerRecoveryTimeoutMs,
+  } = llmConfig();
   if (!isLlmAvailable()) {
     throw new Error("LLM is not enabled");
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const body = buildRequestBody(request, prefixCacheMode);
-    const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: buildHeaders(apiKey),
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`LLM HTTP ${resp.status}: ${text.slice(0, 200)}`);
-    }
-    const data = (await resp.json()) as ChatResponse;
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("LLM returned empty content");
-    const usage = extractUsage(data.usage, request.pricingRates);
-    return {
-      content,
-      usage: usage.total_tokens > 0 ? usage : estimateUsage(request, content),
-    };
-  } finally {
-    clearTimeout(timer);
-  }
+  const body = buildRequestBody(request, prefixCacheMode);
+  const resp = await resilientFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: buildHeaders(apiKey),
+    body: JSON.stringify(body),
+  }, {
+    modelId: request.model,
+    timeoutMs,
+    retryMaxAttempts,
+    retryBaseDelayMs,
+    circuitBreakerRecoveryTimeoutMs,
+  });
+  const data = (await resp.json()) as ChatResponse;
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("LLM returned empty content");
+  const usage = extractUsage(data.usage, request.pricingRates);
+  return {
+    content,
+    usage: usage.total_tokens > 0 ? usage : estimateUsage(request, content),
+  };
 }
 
 /**
@@ -191,7 +356,15 @@ export async function chatCompletionStream(
   request: ChatRequest,
   onDelta: (delta: StreamDelta) => void,
 ): Promise<StreamResult> {
-  const { baseUrl, apiKey, timeoutMs, prefixCacheMode } = llmConfig();
+  const {
+    baseUrl,
+    apiKey,
+    timeoutMs,
+    prefixCacheMode,
+    retryMaxAttempts,
+    retryBaseDelayMs,
+    circuitBreakerRecoveryTimeoutMs,
+  } = llmConfig();
   if (!isLlmAvailable()) {
     throw new Error("LLM is not enabled");
   }
@@ -203,16 +376,18 @@ export async function chatCompletionStream(
     body.stream = true;
     body.stream_options = { include_usage: true };
 
-    const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    const resp = await resilientFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: buildHeaders(apiKey),
       body: JSON.stringify(body),
-      signal: controller.signal,
+    }, {
+      modelId: request.model,
+      timeoutMs,
+      retryMaxAttempts,
+      retryBaseDelayMs,
+      circuitBreakerRecoveryTimeoutMs,
+      externalSignal: controller.signal,
     });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`LLM HTTP ${resp.status}: ${text.slice(0, 200)}`);
-    }
 
     const contentParts: string[] = [];
     let finalUsage: LlmUsage = { ...ZERO_USAGE };

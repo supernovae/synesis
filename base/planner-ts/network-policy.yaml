@@ -39,6 +39,51 @@ spec:
       ports:
         - port: 4000
           protocol: TCP
+    # Admin API + internal trace/security ingestion
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+      ports:
+        - port: 8080
+          protocol: TCP
+    # OpenFGA authz checks
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-authz
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Redis session store (service may run in planner/admin namespaces by overlay)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-planner
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+      ports:
+        - port: 6379
+          protocol: TCP
+    # Retrieval dependencies
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-rag
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 19530
+          protocol: TCP
+    # Web search dependency
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-search
+      ports:
+        - port: 8080
+          protocol: TCP
     # DNS egress
     - to:
         - ipBlock:
@@ -48,5 +93,3 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Fail-safe for startup/service discovery edge-cases.
-    - {}

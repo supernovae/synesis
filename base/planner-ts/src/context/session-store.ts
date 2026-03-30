@@ -20,6 +20,7 @@ export interface SessionStore {
   get(key: string): Promise<SessionData | undefined>;
   set(key: string, data: SessionData, ttlMs: number): Promise<void>;
   delete(key: string): Promise<boolean>;
+  ping(): Promise<boolean>;
   keys(): Promise<string[]>;
   pruneExpired(maxAgeMs: number): Promise<number>;
 }
@@ -38,6 +39,10 @@ export class MemorySessionStore implements SessionStore {
 
   async delete(key: string): Promise<boolean> {
     return this.sessions.delete(key);
+  }
+
+  async ping(): Promise<boolean> {
+    return true;
   }
 
   async keys(): Promise<string[]> {
@@ -98,6 +103,16 @@ export class RedisSessionStore implements SessionStore {
   async delete(key: string): Promise<boolean> {
     const removed = await this.client.del(this.fullKey(key));
     return removed > 0;
+  }
+
+  async ping(): Promise<boolean> {
+    try {
+      await this.connect();
+      const out = await this.client.ping();
+      return out === "PONG";
+    } catch {
+      return false;
+    }
   }
 
   async keys(): Promise<string[]> {
