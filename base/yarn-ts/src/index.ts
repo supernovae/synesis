@@ -56,6 +56,9 @@ import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
+import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
+import { UserRateLimiter } from "./middleware/user-rate-limit.js";
+import { initOtel, getTracer } from "./telemetry/otel.js";
 
 type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
@@ -83,7 +86,7 @@ interface RequestDiagnostic {
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
-const DIAGNOSTIC_RING_MAX = 20;
+let DIAGNOSTIC_RING_MAX = 20;
 
 function pushDiagnostic(d: RequestDiagnostic): void {
   diagnosticRing.push(d);
@@ -127,13 +130,31 @@ if (!usagePersistenceEnabled) {
   app.log.info("yarn_usage_persistence_enabled");
 }
 const authResolver = new AuthResolver(config);
-const artifactStore = new ArtifactStore();
+const artifactStore = new ArtifactStore({
+  maxCount: config.SYNESIS_YARN_ARTIFACT_MAX_COUNT,
+  ttlMs: config.SYNESIS_YARN_ARTIFACT_TTL_MS,
+  maxPayloadBytes: config.SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES,
+});
 const artifactRetrieval = new ArtifactRetrievalService(artifactStore);
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
 const workingFrameService = new WorkingFrameService(config.SYNESIS_YARN_FRAME_MAX_FILES);
 const projectManifestService = new ProjectManifestService();
-const policyEngine = new DeterministicPolicyEngine();
+const policyEngine = new DeterministicPolicyEngine({
+  maxRepeatEntries: config.SYNESIS_YARN_POLICY_REPEAT_MAP_MAX,
+  repeatEntryTtlMs: config.SYNESIS_YARN_POLICY_REPEAT_ENTRY_TTL_MS,
+});
+const circuitBreakers = new CircuitBreakerRegistry({
+  failureThreshold: config.SYNESIS_YARN_BREAKER_FAILURE_THRESHOLD,
+  recoveryTimeoutMs: config.SYNESIS_YARN_BREAKER_RECOVERY_TIMEOUT_MS,
+  halfOpenMax: config.SYNESIS_YARN_BREAKER_HALF_OPEN_MAX,
+});
+const userRateLimiter = new UserRateLimiter({
+  windowMs: config.SYNESIS_YARN_RATE_LIMIT_WINDOW_MS,
+  maxRequests: config.SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS,
+});
+DIAGNOSTIC_RING_MAX = config.SYNESIS_YARN_DIAGNOSTIC_RING_MAX;
+await initOtel(config);
 const phaseOrchestrator = new PhaseModelOrchestrator();
 const clientAdapterPacks = new ClientAdapterPacks();
 const stablePrefixService = new StablePrefixService();
@@ -827,6 +848,9 @@ const sessionEvictionTimer = setInterval(() => {
 async function shutdown(): Promise<void> {
   clearInterval(sessionEvictionTimer);
   clearInterval(tierPollTimer);
+  userRateLimiter.close();
+  policyEngine.close();
+  artifactStore.close();
   await app.close();
   await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close()]);
   process.exit(0);
@@ -898,9 +922,14 @@ app.get("/health/telemetry", async (req, reply) => {
     },
     stablePrefix: stablePrefixService.getStats(),
     artifactRetrieval: artifactRetrieval.getStats(),
+    artifactStore: artifactStore.getStats(),
+    circuitBreakers: circuitBreakers.getStats(),
+    userRateLimiter: userRateLimiter.getStats(),
     attentionPositioning: attentionPositioning.getStats(),
     compressionEfficiencyIndex: computeEfficiencyIndex(),
     sessionContinuity: sessionContinuity.getStats(),
+    diagnosticRingMax: DIAGNOSTIC_RING_MAX,
+    diagnosticRingCurrent: diagnosticRing.length,
     featureFlags: {
       stablePrefix: config.SYNESIS_YARN_STABLE_PREFIX_ENABLED,
       jsonCompaction: config.SYNESIS_YARN_JSON_COMPACTION_ENABLED,
@@ -912,6 +941,7 @@ app.get("/health/telemetry", async (req, reply) => {
       jitterBuffer: config.SYNESIS_YARN_JITTER_BUFFER_ENABLED,
       sortedTools: config.SYNESIS_YARN_SORTED_TOOLS_ENABLED,
       debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+      otelEnabled: config.SYNESIS_YARN_OTEL_ENABLED,
     },
     safetyLimits: {
       hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
@@ -992,6 +1022,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const fgaResult = await fgaCheck(`user:${authUser.userId}`, "can_invoke", "yarn_endpoint", "completions");
   if (!fgaResult.allowed) {
     return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
+  }
+
+  const oaiRateResult = userRateLimiter.check(authUser.userId);
+  if (!oaiRateResult.allowed) {
+    app.log.warn({ userId: authUser.userId, count: oaiRateResult.currentCount, limit: oaiRateResult.limit }, "rate_limit_rejected");
+    recordSessionEvent("", authUser.userId, authUser.orgId, "rate_limit_reject", "user-rate-limiter",
+      `${oaiRateResult.currentCount}/${oaiRateResult.limit} in window — retry after ${oaiRateResult.retryAfterSeconds}s`);
+    reply.header("Retry-After", String(oaiRateResult.retryAfterSeconds));
+    return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${oaiRateResult.retryAfterSeconds} seconds.` } });
   }
 
   const request = parsed.data;
@@ -1122,6 +1161,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
 
   if (!normalizedRequest.stream) {
+    if (!circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId)) {
+      app.log.warn({ model: resolved.resolvedModelId, orgId: identity.orgId }, "circuit_breaker_open");
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "breaker_open_reject", "circuit-breaker",
+        `Circuit breaker open for ${resolved.resolvedModelId}`, reqId, { model: resolved.resolvedModelId });
+      reply.header("Retry-After", "30");
+      return reply.code(503).send({ error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } });
+    }
+    const otelSpan = getTracer().startSpan("yarn.openai.generate", { model: resolved.resolvedModelId, sessionKey });
     const started = Date.now();
     let finalResult;
     try {
@@ -1177,10 +1224,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
         });
       }
     } catch (err) {
+      circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
+      otelSpan.setStatus("error", sanitizeUpstreamError(err));
+      otelSpan.end();
       app.log.error({ err, reqId, model: resolved.resolvedModelId }, "OpenAI non-stream generateText failed");
       recordSessionEvent(sessionKey, identity.userId, identity.orgId, "upstream_error", "generateText", sanitizeUpstreamError(err), reqId, { model: resolved.resolvedModelId });
       return reply.code(502).send({ error: { type: "upstream_error", message: sanitizeUpstreamError(err) } });
     }
+    circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
+    otelSpan.setStatus("ok");
+    otelSpan.end();
 
     const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
     const externalToolCalls = toolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
@@ -1216,6 +1269,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
   }
 
+  if (!circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId)) {
+    app.log.warn({ model: resolved.resolvedModelId, orgId: identity.orgId }, "circuit_breaker_open_stream");
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "breaker_open_reject", "circuit-breaker",
+      `Circuit breaker open for ${resolved.resolvedModelId} (stream)`, reqId, { model: resolved.resolvedModelId });
+    reply.header("Retry-After", "30");
+    return reply.code(503).send({ error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } });
+  }
+  const otelStreamSpan = getTracer().startSpan("yarn.openai.stream", { model: resolved.resolvedModelId, sessionKey });
   const started = Date.now();
   const streamed = streamText({
     model: resolved.model as never,
@@ -1287,6 +1348,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
     }
   } catch (streamErr) {
+    circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
+    otelStreamSpan.setStatus("error", sanitizeUpstreamError(streamErr));
     const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
     app.log.error({ err: streamErr, reqId, model: resolved.resolvedModelId }, `OpenAI stream error: ${detail}`);
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "stream_error", "streamText", detail.slice(0, 500), reqId, { model: resolved.resolvedModelId });
@@ -1296,6 +1359,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
       choices: [{ index: 0, delta: { content: "\n\n[Upstream provider error — retrying may help]" }, finish_reason: null }]
     })}\n\n`);
   }
+
+  if (finishReason !== "error") {
+    circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
+    otelStreamSpan.setStatus("ok");
+  }
+  otelStreamSpan.end();
 
   safeWrite(reply.raw, `data: ${JSON.stringify({
     id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
@@ -1348,6 +1417,16 @@ app.post("/v1/messages", async (req, reply) => {
   if (!claudeFgaResult.allowed) {
     return reply.code(403).send({ type: "error", error: { type: "permission_error", message: "Authorization denied by policy" } });
   }
+
+  const claudeRateResult = userRateLimiter.check(claudeAuthUser.userId);
+  if (!claudeRateResult.allowed) {
+    app.log.warn({ userId: claudeAuthUser.userId, count: claudeRateResult.currentCount, limit: claudeRateResult.limit }, "rate_limit_rejected_claude");
+    recordSessionEvent("", claudeAuthUser.userId, claudeAuthUser.orgId, "rate_limit_reject", "user-rate-limiter",
+      `${claudeRateResult.currentCount}/${claudeRateResult.limit} in window — retry after ${claudeRateResult.retryAfterSeconds}s`);
+    reply.header("Retry-After", String(claudeRateResult.retryAfterSeconds));
+    return reply.code(429).send({ type: "error", error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${claudeRateResult.retryAfterSeconds} seconds.` } });
+  }
+
   const anthropicVersion = req.headers["anthropic-version"];
   if (!anthropicVersion || typeof anthropicVersion !== "string") {
     return reply.code(400).send({
@@ -1525,6 +1604,14 @@ app.post("/v1/messages", async (req, reply) => {
     : adapterClaudeProviderOptions;
 
   if (body.stream) {
+    if (!circuitBreakers.allowRequest(resolved.resolvedModelId, claudeIdentity.orgId)) {
+      app.log.warn({ model: resolved.resolvedModelId, orgId: claudeIdentity.orgId }, "circuit_breaker_open_claude_stream");
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "breaker_open_reject", "circuit-breaker",
+        `Circuit breaker open for ${resolved.resolvedModelId} (claude stream)`, traceReqId, { model: resolved.resolvedModelId });
+      reply.header("Retry-After", "30");
+      return reply.code(503).send({ type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } });
+    }
+    const claudeStreamSpan = getTracer().startSpan("yarn.claude.stream", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
     const started = Date.now();
     const streamed = streamText({
       model: resolved.model as never,
@@ -1669,6 +1756,8 @@ app.post("/v1/messages", async (req, reply) => {
       }
     } catch (streamErr) {
       const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
+      circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
+      claudeStreamSpan.setStatus("error", sanitizeUpstreamError(streamErr));
       app.log.error({ err: streamErr, reqId: traceReqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
       recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "stream_error", "streamText", detail.slice(0, 500), traceReqId, { model: resolved.resolvedModelId });
       if (!inTextBlock) {
@@ -1678,6 +1767,12 @@ app.post("/v1/messages", async (req, reply) => {
       safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: `\n\n[Upstream provider error — retrying may help]` } });
       stopReason = "end_turn";
     }
+
+    if (stopReason !== "end_turn" || !inTextBlock) {
+      circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
+      claudeStreamSpan.setStatus("ok");
+    }
+    claudeStreamSpan.end();
 
     if (inTextBlock) {
       safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
@@ -1716,6 +1811,14 @@ app.post("/v1/messages", async (req, reply) => {
   }
 
   // Non-streaming
+  if (!circuitBreakers.allowRequest(resolved.resolvedModelId, claudeIdentity.orgId)) {
+    app.log.warn({ model: resolved.resolvedModelId, orgId: claudeIdentity.orgId }, "circuit_breaker_open_claude");
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "breaker_open_reject", "circuit-breaker",
+      `Circuit breaker open for ${resolved.resolvedModelId} (claude)`, reqId, { model: resolved.resolvedModelId });
+    reply.header("Retry-After", "30");
+    return reply.code(503).send({ type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } });
+  }
+  const claudeNonStreamSpan = getTracer().startSpan("yarn.claude.generate", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
   const started = Date.now();
   let result;
   try {
@@ -1730,6 +1833,9 @@ app.post("/v1/messages", async (req, reply) => {
       ...(providerOptions ? { providerOptions: providerOptions as never } : {})
     });
   } catch (err) {
+    circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
+    claudeNonStreamSpan.setStatus("error", sanitizeUpstreamError(err));
+    claudeNonStreamSpan.end();
     app.log.error({ err, reqId, model: resolved.resolvedModelId }, "Claude non-stream generateText failed");
     recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "upstream_error", "generateText", sanitizeUpstreamError(err), reqId, { model: resolved.resolvedModelId });
     return reply.code(502).send({
@@ -1737,6 +1843,9 @@ app.post("/v1/messages", async (req, reply) => {
       error: { type: "upstream_error", message: sanitizeUpstreamError(err) }
     });
   }
+  circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
+  claudeNonStreamSpan.setStatus("ok");
+  claudeNonStreamSpan.end();
   const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
   const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;

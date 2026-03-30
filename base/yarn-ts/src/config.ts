@@ -81,6 +81,27 @@ const EnvSchema = z.object({
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(15),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT: z.coerce.number().default(10),
 
+  // Per-user rate limiting (sliding window)
+  SYNESIS_YARN_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
+  SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(30),
+
+  // Circuit breaker for model providers
+  SYNESIS_YARN_BREAKER_FAILURE_THRESHOLD: z.coerce.number().default(5),
+  SYNESIS_YARN_BREAKER_RECOVERY_TIMEOUT_MS: z.coerce.number().default(60_000),
+  SYNESIS_YARN_BREAKER_HALF_OPEN_MAX: z.coerce.number().default(1),
+
+  // Diagnostics ring buffer
+  SYNESIS_YARN_DIAGNOSTIC_RING_MAX: z.coerce.number().default(100),
+
+  // Artifact store bounds (memory safety when feature is enabled)
+  SYNESIS_YARN_ARTIFACT_MAX_COUNT: z.coerce.number().default(500),
+  SYNESIS_YARN_ARTIFACT_TTL_MS: z.coerce.number().default(3_600_000),
+  SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES: z.coerce.number().default(1_048_576),
+
+  // Policy engine repeat-map bounds (memory safety)
+  SYNESIS_YARN_POLICY_REPEAT_MAP_MAX: z.coerce.number().default(5000),
+  SYNESIS_YARN_POLICY_REPEAT_ENTRY_TTL_MS: z.coerce.number().default(1_800_000),
+
   // Session lifecycle — auto-rotate when no conversation_id and idle > threshold
   SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS: z.coerce.number().default(30 * 60 * 1000),
 
@@ -139,6 +160,14 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // OTEL tracing
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default(""),
+  OTEL_SERVICE_NAME: z.string().default("synesis-yarn-ts"),
+  SYNESIS_YARN_OTEL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
 
   // Debug / trace
   SYNESIS_YARN_DEBUG_PROTOCOL: z

@@ -28,7 +28,9 @@ export type PolicyEventKind =
   | "hard_reject_repeats"
   | "hard_reject_budget"
   | "hard_reject_tool_loop"
-  | "patch_first_reject";
+  | "patch_first_reject"
+  | "rate_limit_reject"
+  | "breaker_open_reject";
 
 export interface PolicyEvent {
   kind: PolicyEventKind;
@@ -47,6 +49,8 @@ export interface PolicyEngineStats {
   hardRejectRepeatCount: number;
   hardRejectBudgetCount: number;
   hardRejectToolLoopCount: number;
+  repeatMapSize: number;
+  repeatMapEvictions: number;
   recentEvents: PolicyEvent[];
 }
 
@@ -67,25 +71,39 @@ function hashAttempt(action: string, args: unknown, fsFingerprint: string): stri
 
 const MAX_RECENT_EVENTS = 50;
 
+interface RepeatEntry {
+  count: number;
+  lastSeen: number;
+}
+
 export class DeterministicPolicyEngine {
-  private readonly repeatCounts = new Map<string, number>();
+  private readonly repeatCounts = new Map<string, RepeatEntry>();
   private readonly recentEvents: PolicyEvent[] = [];
-  private stats: PolicyEngineStats = {
+  private repeatMapEvictions = 0;
+  private readonly maxRepeatEntries: number;
+  private readonly repeatEntryTtlMs: number;
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+  private stats = {
     evaluations: 0,
     rejectedCount: 0,
     pivotCount: 0,
     hardRejectRepeatCount: 0,
     hardRejectBudgetCount: 0,
     hardRejectToolLoopCount: 0,
-    recentEvents: []
   };
+
+  constructor(opts?: { maxRepeatEntries?: number; repeatEntryTtlMs?: number }) {
+    this.maxRepeatEntries = opts?.maxRepeatEntries ?? 5000;
+    this.repeatEntryTtlMs = opts?.repeatEntryTtlMs ?? 1_800_000;
+    this.sweepTimer = setInterval(() => this.sweepRepeatMap(), 60_000);
+  }
 
   evaluate(ctx: PolicyContext): PolicyDecision {
     this.stats.evaluations += 1;
     const matchedRules: string[] = [];
     const sessionKey = ctx.sessionKey ?? "unknown";
 
-    // Rule 1: patch-first enforcement
     for (const rawTool of ctx.tools ?? []) {
       const name = extractToolName((rawTool ?? {}) as ToolLike);
       if (name === "write_file") {
@@ -105,7 +123,6 @@ export class DeterministicPolicyEngine {
       }
     }
 
-    // Rule 2: session token budget
     const maxTokens = ctx.maxInputTokens ?? 500_000;
     if (ctx.sessionTokensIn && ctx.sessionTokensIn > maxTokens) {
       matchedRules.push("session_budget_exceeded");
@@ -125,7 +142,6 @@ export class DeterministicPolicyEngine {
       };
     }
 
-    // Rule 3: consecutive tool_calls — soft pivot then hard reject
     const toolCallsLimit = ctx.consecutiveToolCallsLimit ?? 15;
     const toolCallsPivot = ctx.consecutiveToolCallsPivot ?? 10;
     if (ctx.consecutiveToolCalls && ctx.consecutiveToolCalls >= toolCallsLimit) {
@@ -163,11 +179,12 @@ export class DeterministicPolicyEngine {
       };
     }
 
-    // Rule 4: repeat-loop pivot + hard reject
     if (ctx.repeatAttempt) {
       const key = hashAttempt(ctx.repeatAttempt.action, ctx.repeatAttempt.args, ctx.repeatAttempt.fsFingerprint);
-      const next = (this.repeatCounts.get(key) ?? 0) + 1;
-      this.repeatCounts.set(key, next);
+      const existing = this.repeatCounts.get(key);
+      const next = (existing?.count ?? 0) + 1;
+      this.repeatCounts.set(key, { count: next, lastSeen: Date.now() });
+      this.evictIfOverBound();
 
       const hardLimit = ctx.hardRejectAfter ?? 6;
       if (next >= hardLimit) {
@@ -216,13 +233,51 @@ export class DeterministicPolicyEngine {
   }
 
   getStats(): PolicyEngineStats {
-    return { ...this.stats, recentEvents: [...this.recentEvents] };
+    return {
+      ...this.stats,
+      repeatMapSize: this.repeatCounts.size,
+      repeatMapEvictions: this.repeatMapEvictions,
+      recentEvents: [...this.recentEvents],
+    };
+  }
+
+  close(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
   }
 
   private recordEvent(event: PolicyEvent): void {
     this.recentEvents.push(event);
     if (this.recentEvents.length > MAX_RECENT_EVENTS) {
       this.recentEvents.shift();
+    }
+  }
+
+  private evictIfOverBound(): void {
+    if (this.repeatCounts.size <= this.maxRepeatEntries) return;
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+    for (const [key, entry] of this.repeatCounts) {
+      if (entry.lastSeen < oldestTime) {
+        oldestTime = entry.lastSeen;
+        oldestKey = key;
+      }
+    }
+    if (oldestKey) {
+      this.repeatCounts.delete(oldestKey);
+      this.repeatMapEvictions += 1;
+    }
+  }
+
+  private sweepRepeatMap(): void {
+    const cutoff = Date.now() - this.repeatEntryTtlMs;
+    for (const [key, entry] of this.repeatCounts) {
+      if (entry.lastSeen < cutoff) {
+        this.repeatCounts.delete(key);
+        this.repeatMapEvictions += 1;
+      }
     }
   }
 }

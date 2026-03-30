@@ -64,6 +64,26 @@ spec:
               value: "15"
             - name: SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
               value: "false"
+            # ── Rate limiting ──
+            - name: SYNESIS_YARN_RATE_LIMIT_WINDOW_MS
+              value: "60000"
+            - name: SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS
+              value: "30"
+            # ── Circuit breaker ──
+            - name: SYNESIS_YARN_BREAKER_FAILURE_THRESHOLD
+              value: "5"
+            - name: SYNESIS_YARN_BREAKER_RECOVERY_TIMEOUT_MS
+              value: "60000"
+            # ── Diagnostics ──
+            - name: SYNESIS_YARN_DIAGNOSTIC_RING_MAX
+              value: "100"
+            # ── OTEL (optional — no-op until endpoint is set) ──
+            - name: SYNESIS_YARN_OTEL_ENABLED
+              value: "false"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: ""
+            - name: OTEL_SERVICE_NAME
+              value: "synesis-yarn-ts"
             # ── OpenFGA authorization (required) ──
             - name: SYNESIS_OPENFGA_API_URL
               value: "http://openfga.synesis-authz.svc.cluster.local:8080"
