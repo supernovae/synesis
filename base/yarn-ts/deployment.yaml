@@ -62,6 +62,12 @@ spec:
               value: "2000000"
             - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
               value: "15"
+            - name: SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT
+              value: "4"
+            - name: SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT
+              value: "2"
+            - name: SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED
+              value: "true"
             - name: SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
               value: "false"
             # ── Rate limiting ──

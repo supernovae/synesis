@@ -66,6 +66,11 @@ type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
   toolCallsSinceCheckpoint: number;
   consecutiveToolCalls: number;
+  stagnantToolCycles: number;
+  lastToolSignalHash: string;
+  awaitingToolLoopUserAck: boolean;
+  toolLoopAckAnchorUserHash: string;
+  toolLoopNoUserAckCount: number;
   record: SessionRecord;
 };
 
@@ -338,6 +343,12 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
   if (identity.displayName && !record.displayName) {
     record.displayName = identity.displayName;
   }
+  const metaConsecutive = Number(record.metadata?.consecutive_tool_calls ?? 0);
+  const metaStagnant = Number(record.metadata?.stagnant_tool_cycles ?? 0);
+  const metaToolSignalHash = String(record.metadata?.last_tool_signal_hash ?? "");
+  const metaAwaitingAck = record.metadata?.awaiting_tool_loop_user_ack === true;
+  const metaAckAnchorHash = String(record.metadata?.tool_loop_ack_anchor_user_hash ?? "");
+  const metaNoAckCount = Number(record.metadata?.tool_loop_no_user_ack_count ?? 0);
   const history: SessionState["history"] = [];
 
   if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED) {
@@ -350,7 +361,17 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     }
   }
 
-  const state: SessionState = { history, toolCallsSinceCheckpoint: 0, consecutiveToolCalls: 0, record };
+  const state: SessionState = {
+    history,
+    toolCallsSinceCheckpoint: 0,
+    consecutiveToolCalls: Number.isFinite(metaConsecutive) ? metaConsecutive : 0,
+    stagnantToolCycles: Number.isFinite(metaStagnant) ? metaStagnant : 0,
+    lastToolSignalHash: metaToolSignalHash,
+    awaitingToolLoopUserAck: metaAwaitingAck,
+    toolLoopAckAnchorUserHash: metaAckAnchorHash,
+    toolLoopNoUserAckCount: Number.isFinite(metaNoAckCount) ? metaNoAckCount : 0,
+    record
+  };
   sessions.set(key, state);
   return state;
 }
@@ -538,7 +559,15 @@ function persistSessionAndUsage(
     state.consecutiveToolCalls += 1;
   } else {
     state.consecutiveToolCalls = 0;
+    state.stagnantToolCycles = 0;
+    state.lastToolSignalHash = "";
   }
+  state.record.metadata.consecutive_tool_calls = state.consecutiveToolCalls;
+  state.record.metadata.stagnant_tool_cycles = state.stagnantToolCycles;
+  state.record.metadata.last_tool_signal_hash = state.lastToolSignalHash;
+  state.record.metadata.awaiting_tool_loop_user_ack = state.awaitingToolLoopUserAck;
+  state.record.metadata.tool_loop_ack_anchor_user_hash = state.toolLoopAckAnchorUserHash;
+  state.record.metadata.tool_loop_no_user_ack_count = state.toolLoopNoUserAckCount;
 
   void distributedCounters.setConsecutiveToolCalls(
     state.record.sessionKey,
@@ -690,6 +719,158 @@ function countMessageRoles(messages: Array<{ role: string; content: unknown }>):
     else if (m.role === "tool") toolMessageCount++;
   }
   return { systemMessageCount, userMessageCount, toolMessageCount, totalInputChars };
+}
+
+type ToolProgressState = "stagnant" | "progress" | "unknown";
+
+function normalizeForSignal(value: unknown): unknown {
+  if (value === null || value === undefined) return value ?? "";
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => normalizeForSignal(v));
+  const out: Record<string, unknown> = {};
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  for (const key of keys) out[key] = normalizeForSignal((value as Record<string, unknown>)[key]);
+  return out;
+}
+
+function stableSignalString(value: unknown): string {
+  if (typeof value === "string") {
+    return value.replace(/\s+/g, " ").trim();
+  }
+  return JSON.stringify(normalizeForSignal(value));
+}
+
+function hashTextSignal(value: unknown): string {
+  const text = typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim()
+    : stableSignalString(value).replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return crypto.createHash("sha256").update(text.slice(0, 4000)).digest("hex");
+}
+
+function detectToolProgress(
+  session: SessionState,
+  messages: Array<{ role: string; content: unknown }>
+): { state: ToolProgressState; signalHash: string | null } {
+  const toolMessages = [...messages].reverse().filter((m) => m.role === "tool");
+  if (toolMessages.length === 0) {
+    return { state: "unknown", signalHash: null };
+  }
+  const latest = toolMessages[0];
+  const signal = stableSignalString(latest.content).slice(0, 4000);
+  const hash = crypto.createHash("sha256").update(signal).digest("hex");
+  if (!session.lastToolSignalHash) {
+    session.lastToolSignalHash = hash;
+    session.stagnantToolCycles = 0;
+    return { state: "progress", signalHash: hash };
+  }
+  if (session.lastToolSignalHash === hash) {
+    session.stagnantToolCycles += 1;
+    return { state: "stagnant", signalHash: hash };
+  }
+  session.lastToolSignalHash = hash;
+  session.stagnantToolCycles = 0;
+  return { state: "progress", signalHash: hash };
+}
+
+function toolLoopSoftFailMessage(decision: PolicyDecision): string {
+  const reason = decision.rejectReason ?? "Tool loop policy triggered before another automated action.";
+  return [
+    "I paused automated tool execution to avoid getting stuck in a repair loop.",
+    reason,
+    "If you want me to continue, share one adjustment (for example: install missing local tools, choose a different command, or confirm a narrower fix strategy) and I will resume from here."
+  ].join(" ");
+}
+
+function sendOpenAISoftFail(
+  reply: import("fastify").FastifyReply,
+  requestId: string,
+  model: string,
+  content: string,
+  stream: boolean
+): import("fastify").FastifyReply {
+  if (!stream) {
+    return reply.send({
+      id: requestId,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }]
+    });
+  }
+
+  const ts = Math.floor(Date.now() / 1000);
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive"
+  });
+  safeWrite(reply.raw, `data: ${JSON.stringify({
+    id: requestId,
+    object: "chat.completion.chunk",
+    created: ts,
+    model,
+    choices: [{ index: 0, delta: { content }, finish_reason: null }]
+  })}\n\n`);
+  safeWrite(reply.raw, `data: ${JSON.stringify({
+    id: requestId,
+    object: "chat.completion.chunk",
+    created: ts,
+    model,
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+  })}\n\n`);
+  safeWrite(reply.raw, "data: [DONE]\n\n");
+  safeEnd(reply.raw);
+  return reply;
+}
+
+function sendClaudeSoftFail(
+  reply: import("fastify").FastifyReply,
+  model: string,
+  content: string,
+  stream: boolean
+): import("fastify").FastifyReply {
+  if (!stream) {
+    return reply.send({
+      id: `msg_${crypto.randomUUID()}`,
+      type: "message",
+      role: "assistant",
+      model,
+      content: [{ type: "text", text: content }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0, output_tokens: 0 }
+    });
+  }
+
+  const msgId = `msg_${crypto.randomUUID()}`;
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive"
+  });
+  safeSse(reply, "message_start", {
+    type: "message_start",
+    message: { id: msgId, type: "message", role: "assistant", model, content: [] }
+  });
+  safeSse(reply, "content_block_start", {
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "text", text: "" }
+  });
+  safeSse(reply, "content_block_delta", {
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "text_delta", text: content }
+  });
+  safeSse(reply, "content_block_stop", { type: "content_block_stop", index: 0 });
+  safeSse(reply, "message_delta", {
+    type: "message_delta",
+    delta: { stop_reason: "end_turn" },
+    usage: { input_tokens: 0, output_tokens: 0 }
+  });
+  safeSse(reply, "message_stop", { type: "message_stop" });
+  safeEnd(reply.raw);
+  return reply;
 }
 
 function logAndPersistSafetyEvent(
@@ -980,6 +1161,9 @@ app.get("/health/telemetry", async (req, reply) => {
       sessionMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
       consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
       consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
+      stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
+      toolLoopNoUserAckLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
+      toolLoopSoftFailEnabled: config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED,
       maxConcurrentStreams: config.SYNESIS_YARN_MAX_CONCURRENT_STREAMS,
       streamQueueMaxDepth: config.SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH,
       streamQueueWaitTimeoutMs: config.SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS,
@@ -1113,9 +1297,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const session = await getSessionState(sessionKey, identity);
 
-  const oaiMsgCount = (request.messages as unknown[]).length;
   const oaiLastToolId = [...(request.messages as Array<{ role: string; tool_call_id?: string }>)]
     .reverse().find((m) => m.role === "tool")?.tool_call_id ?? "";
+  const latestOpenAIUserHash = hashTextSignal(latestUserText?.content ?? "");
+  if (session.awaitingToolLoopUserAck) {
+    if (latestOpenAIUserHash && latestOpenAIUserHash !== session.toolLoopAckAnchorUserHash) {
+      session.awaitingToolLoopUserAck = false;
+      session.toolLoopNoUserAckCount = 0;
+      session.toolLoopAckAnchorUserHash = "";
+    } else {
+      session.toolLoopNoUserAckCount += 1;
+    }
+  }
+  const oaiToolProgress = detectToolProgress(
+    session,
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown }>
+  );
   const distToolCalls = await distributedCounters.getConsecutiveToolCalls(sessionKey);
   if (distToolCalls !== null && distToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = distToolCalls;
@@ -1124,8 +1321,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     tools: request.tools as unknown[],
     repeatAttempt: {
       action: "chat_completion",
-      args: { model: request.model, msgCount: oaiMsgCount, lastToolId: oaiLastToolId },
-      fsFingerprint: String(oaiMsgCount)
+      args: { model: request.model, lastToolId: oaiLastToolId },
+      fsFingerprint: oaiLastToolId || "none"
     },
     sessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -1133,10 +1330,44 @@ app.post("/v1/chat/completions", async (req, reply) => {
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
+    toolProgressState: oaiToolProgress.state,
+    stagnantToolCycles: session.stagnantToolCycles,
+    stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
+    toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
+    toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
     hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
   });
   if (!policyPrecheck.allow) {
     logAndPersistSafetyEvent(policyPrecheck, sessionKey, session.record.totalTokensIn);
+    if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && policyPrecheck.softFailClass === "tool_loop") {
+      const started = Date.now();
+      const content = toolLoopSoftFailMessage(policyPrecheck);
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      session.awaitingToolLoopUserAck = true;
+      session.toolLoopAckAnchorUserHash = latestOpenAIUserHash;
+      session.toolLoopNoUserAckCount = 0;
+      session.history.push({ role: "assistant", content });
+      persistSessionAndUsage(
+        session,
+        oaiTraceReqId,
+        orchestration.selectedModel,
+        usage,
+        Date.now() - started,
+        "stop",
+        0
+      );
+      maybeCheckpoint(session);
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "tool_loop_soft_fail",
+        "deterministic-policy",
+        policyPrecheck.rejectReason ?? "Tool loop soft fail",
+        oaiTraceReqId
+      );
+      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
+    }
     return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
   }
   let oaiEnrichedMsgs = enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as Array<{ role: string; content: unknown }>;
@@ -1555,12 +1786,25 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
 
-  const claudeMsgCount = (body.messages as unknown[]).length;
   const claudeLastToolUseId = [...(body.messages as Array<{ role: string; content: unknown }>)]
     .reverse()
     .flatMap((m) => Array.isArray(m.content) ? m.content : [])
     .find((b: Record<string, unknown>) => b.type === "tool_result")
     ?.tool_use_id as string ?? "";
+  const latestClaudeUserHash = hashTextSignal(latestClaudeUser?.content ?? "");
+  if (session.awaitingToolLoopUserAck) {
+    if (latestClaudeUserHash && latestClaudeUserHash !== session.toolLoopAckAnchorUserHash) {
+      session.awaitingToolLoopUserAck = false;
+      session.toolLoopNoUserAckCount = 0;
+      session.toolLoopAckAnchorUserHash = "";
+    } else {
+      session.toolLoopNoUserAckCount += 1;
+    }
+  }
+  const claudeToolProgress = detectToolProgress(
+    session,
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown }>
+  );
   const claudeDistToolCalls = await distributedCounters.getConsecutiveToolCalls(claudeSessionKey);
   if (claudeDistToolCalls !== null && claudeDistToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = claudeDistToolCalls;
@@ -1569,8 +1813,8 @@ app.post("/v1/messages", async (req, reply) => {
     tools: (body.tools as unknown[]) ?? [],
     repeatAttempt: {
       action: "claude_messages",
-      args: { model: body.model, msgCount: claudeMsgCount, lastToolUseId: claudeLastToolUseId },
-      fsFingerprint: String(claudeMsgCount)
+      args: { model: body.model, lastToolUseId: claudeLastToolUseId },
+      fsFingerprint: claudeLastToolUseId || "none"
     },
     sessionKey: claudeSessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -1578,10 +1822,44 @@ app.post("/v1/messages", async (req, reply) => {
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
+    toolProgressState: claudeToolProgress.state,
+    stagnantToolCycles: session.stagnantToolCycles,
+    stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
+    toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
+    toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
     hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
   });
   if (!claudePolicyPrecheck.allow) {
     logAndPersistSafetyEvent(claudePolicyPrecheck, claudeSessionKey, session.record.totalTokensIn);
+    if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && claudePolicyPrecheck.softFailClass === "tool_loop") {
+      const started = Date.now();
+      const content = toolLoopSoftFailMessage(claudePolicyPrecheck);
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      session.awaitingToolLoopUserAck = true;
+      session.toolLoopAckAnchorUserHash = latestClaudeUserHash;
+      session.toolLoopNoUserAckCount = 0;
+      session.history.push({ role: "assistant", content });
+      persistSessionAndUsage(
+        session,
+        traceReqId,
+        claudeOrchestration.selectedModel,
+        usage,
+        Date.now() - started,
+        "end_turn",
+        0
+      );
+      maybeCheckpoint(session);
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "tool_loop_soft_fail",
+        "deterministic-policy",
+        claudePolicyPrecheck.rejectReason ?? "Tool loop soft fail",
+        traceReqId
+      );
+      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
+    }
     return reply.code(400).send({
       type: "error",
       error: { type: "invalid_request_error", message: claudePolicyPrecheck.rejectReason ?? "Policy rejected request." }

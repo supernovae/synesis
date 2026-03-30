@@ -13,6 +13,11 @@ export interface PolicyContext {
   consecutiveToolCalls?: number;
   consecutiveToolCallsLimit?: number;
   consecutiveToolCallsPivot?: number;
+  toolProgressState?: "stagnant" | "progress" | "unknown";
+  stagnantToolCycles?: number;
+  stagnantToolCyclesLimit?: number;
+  toolLoopNoUserAckCount?: number;
+  toolLoopNoUserAckHardLimit?: number;
   hardRejectAfter?: number;
 }
 
@@ -20,6 +25,7 @@ export interface PolicyDecision {
   allow: boolean;
   rejectReason?: string;
   pivotPrompt?: string;
+  softFailClass?: "tool_loop";
   matchedRules: string[];
 }
 
@@ -144,24 +150,37 @@ export class DeterministicPolicyEngine {
 
     const toolCallsLimit = ctx.consecutiveToolCallsLimit ?? 15;
     const toolCallsPivot = ctx.consecutiveToolCallsPivot ?? 10;
-    if (ctx.consecutiveToolCalls && ctx.consecutiveToolCalls >= toolCallsLimit) {
+    const stagnationLimit = Math.max(1, ctx.stagnantToolCyclesLimit ?? 4);
+    const noUserAckLimit = Math.max(1, ctx.toolLoopNoUserAckHardLimit ?? 2);
+    const progressState = ctx.toolProgressState ?? "unknown";
+    const stagnantCycles = Math.max(0, ctx.stagnantToolCycles ?? 0);
+    const noUserAckCount = Math.max(0, ctx.toolLoopNoUserAckCount ?? 0);
+    const stagnationHardLimited = progressState === "stagnant" && stagnantCycles >= stagnationLimit;
+    const noUserAckHardLimited = noUserAckCount >= noUserAckLimit;
+    if (ctx.consecutiveToolCalls && ctx.consecutiveToolCalls >= toolCallsLimit && (stagnationHardLimited || noUserAckHardLimited)) {
       matchedRules.push("consecutive_tool_calls_limit");
       this.stats.rejectedCount += 1;
       this.stats.hardRejectToolLoopCount += 1;
+      const detailSuffix = noUserAckHardLimited
+        ? ` (soft-fail prompts ignored: ${noUserAckCount}, limit: ${noUserAckLimit})`
+        : ` (stagnant cycles: ${stagnantCycles}, stagnation limit: ${stagnationLimit})`;
       this.recordEvent({
         kind: "hard_reject_tool_loop",
         sessionKey,
-        detail: `${ctx.consecutiveToolCalls} consecutive tool_call responses without user interaction (limit: ${toolCallsLimit})`,
+        detail: `${ctx.consecutiveToolCalls} consecutive tool_call responses without user interaction (limit: ${toolCallsLimit})${detailSuffix}`,
         consecutiveToolCalls: ctx.consecutiveToolCalls,
         timestamp: Date.now()
       });
       return {
         allow: false,
-        rejectReason: `Tool call loop detected: ${ctx.consecutiveToolCalls} consecutive tool_call responses without progress. The model may be stuck. Start a new session or provide guidance.`,
+        rejectReason: noUserAckHardLimited
+          ? `Tool call loop detected: ${ctx.consecutiveToolCalls} consecutive tool_call responses and ${noUserAckCount} soft-fail prompts were ignored. Hard stop to prevent runaway token burn.`
+          : `Tool call loop detected: ${ctx.consecutiveToolCalls} consecutive tool_call responses with ${stagnantCycles} stagnant tool-result cycles. Ask for user guidance before continuing.`,
+        softFailClass: "tool_loop",
         matchedRules
       };
     }
-    if (ctx.consecutiveToolCalls && ctx.consecutiveToolCalls >= toolCallsPivot) {
+    if (ctx.consecutiveToolCalls && ctx.consecutiveToolCalls >= toolCallsPivot && progressState !== "progress") {
       matchedRules.push("consecutive_tool_calls_pivot");
       this.stats.pivotCount += 1;
       this.recordEvent({

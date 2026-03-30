@@ -80,6 +80,12 @@ const EnvSchema = z.object({
   SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS: z.coerce.number().default(2_000_000),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(15),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT: z.coerce.number().default(10),
+  SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT: z.coerce.number().default(4),
+  SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT: z.coerce.number().default(2),
+  SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
   // Per-user rate limiting (sliding window)
   SYNESIS_YARN_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),

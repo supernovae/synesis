@@ -133,6 +133,16 @@ describe("Classifier: raw-content-only fallback (toolName=bash, no command)", ()
       expect(result).toBe(family);
     });
   }
+
+  it("classifies go vet unused-import output as go-build", () => {
+    const raw = [
+      "# rosa-hcp-cost-calculator",
+      "vet: ./calculator.go:7:2: \"log\" imported and not used",
+      "./calculator.go:8:2: \"math\" imported and not used"
+    ].join("\n");
+    const result = classifyReducerFamily("bash", undefined, raw);
+    expect(result).toBe("go-build");
+  });
 });
 
 describe("Reducer output quality", () => {

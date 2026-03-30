@@ -156,7 +156,8 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
   if (hasAny(r, ["caused by:", "exception in thread"])) return "stack-trace";
 
   // Go / pip
-  if (/\.go:\d+:\d+:/.test(r) && hasAny(r, ["cannot ", "undefined:", "declared"])) return "go-build";
+  if (/\.go:\d+:\d+:/.test(r) && hasAny(r, ["cannot ", "undefined:", "declared", "imported and not used"])) return "go-build";
+  if (/^vet:\s+\.\/.+\.go:\d+:\d+:/m.test(r) || /^#.*\nvet:\s+\.\/.+\.go:\d+:\d+:/m.test(r)) return "go-build";
   if (hasAny(r, ["--- fail:", "fail\t"])) return "go-build";
   if (hasAny(r, ["successfully installed", "requirement already satisfied", "collecting "])) return "pip-install";
 

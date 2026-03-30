@@ -87,10 +87,76 @@ describe("DeterministicPolicyEngine", () => {
     const out = engine.evaluate({
       sessionKey: "test-session",
       consecutiveToolCalls: 10,
-      consecutiveToolCallsLimit: 8
+      consecutiveToolCallsLimit: 8,
+      toolProgressState: "stagnant",
+      stagnantToolCycles: 4,
+      stagnantToolCyclesLimit: 3
     });
     expect(out.allow).toBe(false);
     expect(out.rejectReason).toContain("Tool call loop detected");
+    expect(out.softFailClass).toBe("tool_loop");
+    expect(out.matchedRules).toContain("consecutive_tool_calls_limit");
+  });
+
+  it("does not hard reject when tool progress is still changing", () => {
+    const engine = new DeterministicPolicyEngine();
+    const out = engine.evaluate({
+      sessionKey: "progress-session",
+      consecutiveToolCalls: 20,
+      consecutiveToolCallsLimit: 8,
+      consecutiveToolCallsPivot: 5,
+      toolProgressState: "progress",
+      stagnantToolCycles: 0,
+      stagnantToolCyclesLimit: 3
+    });
+    expect(out.allow).toBe(true);
+    expect(out.matchedRules).toContain("allow");
+  });
+
+  it("hard rejects when stagnant tool cycles cross limit", () => {
+    const engine = new DeterministicPolicyEngine();
+    const out = engine.evaluate({
+      sessionKey: "stagnant-session",
+      consecutiveToolCalls: 10,
+      consecutiveToolCallsLimit: 8,
+      toolProgressState: "stagnant",
+      stagnantToolCycles: 4,
+      stagnantToolCyclesLimit: 3
+    });
+    expect(out.allow).toBe(false);
+    expect(out.rejectReason).toContain("stagnant tool-result cycles");
+    expect(out.softFailClass).toBe("tool_loop");
+    expect(out.matchedRules).toContain("consecutive_tool_calls_limit");
+  });
+
+  it("does not hard reject on unknown progress signal alone", () => {
+    const engine = new DeterministicPolicyEngine();
+    const out = engine.evaluate({
+      sessionKey: "unknown-progress",
+      consecutiveToolCalls: 20,
+      consecutiveToolCallsLimit: 8,
+      consecutiveToolCallsPivot: 5,
+      toolProgressState: "unknown",
+      stagnantToolCycles: 0,
+      stagnantToolCyclesLimit: 3
+    });
+    expect(out.allow).toBe(true);
+    expect(out.matchedRules).toContain("consecutive_tool_calls_pivot");
+  });
+
+  it("hard rejects when soft-fail prompts are ignored repeatedly", () => {
+    const engine = new DeterministicPolicyEngine();
+    const out = engine.evaluate({
+      sessionKey: "ignored-soft-fail",
+      consecutiveToolCalls: 12,
+      consecutiveToolCallsLimit: 8,
+      toolProgressState: "progress",
+      toolLoopNoUserAckCount: 3,
+      toolLoopNoUserAckHardLimit: 2
+    });
+    expect(out.allow).toBe(false);
+    expect(out.rejectReason).toContain("soft-fail prompts were ignored");
+    expect(out.softFailClass).toBe("tool_loop");
     expect(out.matchedRules).toContain("consecutive_tool_calls_limit");
   });
 
@@ -128,7 +194,10 @@ describe("DeterministicPolicyEngine", () => {
     engine.evaluate({
       sessionKey: "s2",
       consecutiveToolCalls: 10,
-      consecutiveToolCallsLimit: 8
+      consecutiveToolCallsLimit: 8,
+      toolProgressState: "stagnant",
+      stagnantToolCycles: 4,
+      stagnantToolCyclesLimit: 3
     });
     const repeat = {
       repeatAttempt: { action: "x", args: {}, fsFingerprint: "f" },
