@@ -118,7 +118,7 @@ synesis:{userId}:{clientKind}:{conversationId}
 `claude-code` for Anthropic). `conversationId` is resolved from `body.conversation_id`
 (OpenAI) or `body.metadata.synesis_conversation_id` / `conversation_id` /
 `session_id` / `x-synesis-conversation-id` header (Claude). See
-[CLAUDECODE.md](../CLAUDECODE.md) and
+[docs/clients/CLAUDECODE.md](clients/CLAUDECODE.md) and
 [docs/claude_code_compat.md](claude_code_compat.md) for the full resolution
 policy.
 
@@ -416,7 +416,7 @@ client preset:
   single-source reference for planner token scaling. Yarn budgets follow the
   same philosophy (scale with context, enforce via ledger) but substitute
   mode+preset for difficulty.
-- **Session scoping:** [CLAUDECODE.md](../CLAUDECODE.md) and
+- **Session scoping:** [docs/clients/CLAUDECODE.md](clients/CLAUDECODE.md) and
   [docs/claude_code_compat.md](claude_code_compat.md) document conversation ID
   resolution per client.
 - **Safety and policy:** [docs/SECURITY.md](SECURITY.md) and
