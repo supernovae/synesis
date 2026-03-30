@@ -112,6 +112,28 @@ Planner-ts is deprecation-ready when all are true:
 - Multi-pod session behavior is conflict-safe.
 - OTEL trace stitching works across planner/yarn/mcp/admin path.
 
+## Load verification harness
+
+Use the built-in planner-ts load probe for 25/35/50 concurrent-user checks:
+
+```bash
+cd base/planner-ts
+
+# 25 concurrent users (non-stream)
+PLANNER_URL=http://localhost:8080 \
+PLANNER_MODEL="Synesis Auto" \
+PLANNER_BEARER_TOKEN="<token>" \
+npm run load:verify -- --concurrency 25 --requests 250 --stream false
+
+# 50 concurrent users (streaming)
+PLANNER_URL=http://localhost:8080 \
+PLANNER_MODEL="Synesis Auto" \
+PLANNER_BEARER_TOKEN="<token>" \
+npm run load:verify -- --concurrency 50 --requests 500 --stream true
+```
+
+The command outputs JSON with status counts and p50/p95/p99 latency. Treat non-zero error rate as a rollout blocker.
+
 ## Production defaults (planner-ts)
 
 Current recommended baseline for new resilience knobs:

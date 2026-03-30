@@ -73,11 +73,15 @@ export async function registerMcpRoutes(
     }
 
     const start = performance.now();
+    const requestIdHeader = req.headers["x-request-id"];
+    const requestId = typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
+      ? requestIdHeader.trim()
+      : req.id;
     try {
       const result = await registry.call(body.name, body.arguments ?? {});
       const elapsed = Math.round(performance.now() - start);
-      app.log.info({ tool: body.name, userId: user.userId, elapsed_ms: elapsed }, "mcp_tool_call");
-      return reply.send({ result, meta: { tool: body.name, elapsed_ms: elapsed } });
+      app.log.info({ tool: body.name, userId: user.userId, requestId, elapsed_ms: elapsed }, "mcp_tool_call");
+      return reply.send({ result, meta: { tool: body.name, request_id: requestId, elapsed_ms: elapsed } });
     } catch (err) {
       if (err instanceof McpToolNotFoundError) {
         return reply.code(404).send({
@@ -85,7 +89,7 @@ export async function registerMcpRoutes(
         });
       }
       const elapsed = Math.round(performance.now() - start);
-      app.log.error({ err, tool: body.name, elapsed_ms: elapsed }, "mcp_tool_error");
+      app.log.error({ err, tool: body.name, requestId, elapsed_ms: elapsed }, "mcp_tool_error");
       return reply.code(422).send({
         error: {
           type: "tool_error",
