@@ -138,6 +138,28 @@ describe("API contract", () => {
     }
   });
 
+  it("returns dependency diagnostics endpoint with service token", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "false",
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "debug-token"
+      })
+    );
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/health/deps",
+        headers: { authorization: "Bearer debug-token" }
+      });
+      expect([200, 503]).toContain(response.statusCode);
+      const body = response.json();
+      expect(body.service).toBe("planner-ts");
+      expect(Array.isArray(body.checks)).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns OpenAI-like non-stream response", async () => {
     const app = buildApp(makeConfig());
     const response = await app.inject({

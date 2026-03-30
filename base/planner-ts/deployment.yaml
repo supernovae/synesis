@@ -48,6 +48,10 @@ spec:
               value: "0.0.0.0"
             - name: LOG_LEVEL
               value: "info"
+            - name: SYNESIS_PLANNER_TS_OTEL_ENABLED
+              value: "false"
+            - name: OTEL_SERVICE_NAME
+              value: "synesis-planner-ts"
             - name: SYNESIS_PLANNER_TS_MODEL_ID
               value: "Synesis Auto"
             - name: SYNESIS_PLANNER_TS_MODEL_IDS
@@ -112,6 +116,12 @@ spec:
               value: "5000"
             - name: SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES
               value: "5"
+            - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_ENABLED
+              value: "true"
+            - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_INTERVAL_MS
+              value: "15000"
+            - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_TIMEOUT_MS
+              value: "2000"
             - name: SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:

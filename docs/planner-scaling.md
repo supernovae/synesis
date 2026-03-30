@@ -52,7 +52,7 @@ Completed in planner-ts:
 
 Outstanding:
 - Retrieval cache remains intentionally deferred (won't do for this effort).
-- OTEL unification and context propagation across planner/yarn/mcp.
+- OTEL context propagation and schema unification across planner/yarn/mcp.
 - Final 25/35/50 concurrency load testing and cutover gate.
 
 Implemented as part of early Phase B:
@@ -60,6 +60,9 @@ Implemented as part of early Phase B:
 - Memory-session cap with oldest-session eviction fallback mode.
 - `RedisSessionStore.keys()` moved from `KEYS` to `SCAN`.
 - HPA/PDB manifests added and wired in planner-ts kustomization.
+- Dependency health monitor + `/health/deps` endpoint.
+- Failure diagnostics store + `/health/failures` endpoint.
+- Planner OTEL bootstrap and request span instrumentation (baseline).
 
 ## Phased execution plan
 

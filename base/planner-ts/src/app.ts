@@ -47,6 +47,8 @@ import { describePhase } from "./streaming/phases.js";
 import type { GraphState } from "./state/types.js";
 import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scanner.js";
 import { FailureStore } from "./diagnostics/failure-store.js";
+import { DependencyHealthMonitor } from "./diagnostics/health-monitor.js";
+import { getTracer } from "./telemetry/otel.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
@@ -145,6 +147,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
   });
   const authzPolicyEngine = createAuthorizationPolicyEngine(config);
   const failureStore = new FailureStore();
+  const dependencyHealthMonitor = new DependencyHealthMonitor(config, sessionStore);
   const userRateLimiter = new UserRateLimiter({
     windowMs: config.SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS,
     maxRequests: config.SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS,
@@ -158,7 +161,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
   app.addHook("onClose", async () => {
     userRateLimiter.close();
     streamAdmission.close();
+    dependencyHealthMonitor.stop();
   });
+  dependencyHealthMonitor.start();
 
   function spawnBackgroundCritic(state: GraphState, requestLog: FastifyInstance["log"]): void {
     const executionPolicy = state.execution_policy ?? {};
@@ -444,6 +449,19 @@ export function buildApp(config: AppConfig): FastifyInstance {
       service: "planner-ts",
       ...readiness,
     };
+  });
+
+  app.get("/health/deps", async (request, reply) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const snapshot = dependencyHealthMonitor.snapshot();
+    const code = snapshot.status === "ok" ? 200 : 503;
+    return reply.code(code).send({
+      service: "planner-ts",
+      ...snapshot,
+    });
   });
 
   app.get("/metrics", async (_request, reply) => {
@@ -816,6 +834,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.post("/v1/chat/completions", async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
+    const requestSpan = getTracer().startSpan("planner.chat.completions", {
+      "http.method": request.method,
+      "http.route": "/v1/chat/completions",
+    });
+    requestSpan.setAttribute("planner.authz_trace_id", authzTraceId);
     reply.header("x-synesis-authz-trace-id", authzTraceId);
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
     let streamRelease: (() => void) | undefined;
@@ -844,6 +867,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
         "authz allow"
       );
       const body = ChatCompletionRequestSchema.parse(request.body);
+      requestSpan.setAttribute("planner.request.stream", Boolean(body.stream));
+      requestSpan.setAttribute("planner.request.model", body.model);
       const resolvedSession = resolvePlannerSessionKey(body, authzTraceId);
       if (resolvedSession.source === "ephemeral_request") {
         request.log.warn(
@@ -904,6 +929,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         const latencyS = (Date.now() - reqStart) / 1000;
         recordUsageMetrics(metrics, responseModel, initialState.model_tier ?? "auto", usage, latencyS);
         emitPlannerTrace(state, usage, Date.now() - reqStart, auth, { mode: "non-streaming" });
+        requestSpan.setStatus("ok");
         return {
           id: completionId,
           object: "chat.completion",
@@ -1072,6 +1098,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         endSse(reply.raw);
       }
       streamRelease?.();
+      requestSpan.setStatus("ok");
       return reply;
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Unknown server error";
@@ -1112,10 +1139,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
       if (reply.raw.headersSent) {
         streamRelease?.();
         endSse(reply.raw);
+        requestSpan.setStatus("error", rawMessage);
         return reply;
       }
       streamRelease?.();
       const clientMessage = sanitizeErrorMessage(rawMessage);
+      requestSpan.setStatus("error", clientMessage);
       return reply.code(statusCode).send({
         error: {
           message: clientMessage,
@@ -1129,6 +1158,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
           code: String(statusCode)
         }
       });
+    } finally {
+      requestSpan.end();
     }
   });
 

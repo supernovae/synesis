@@ -301,6 +301,8 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       temperature: 0,
       max_tokens: effectiveMaxTokens,
       pricingRates: state.pricing_rates_by_role?.router,
+      request_id: state.run_id,
+      authz_trace_id: state.authz_trace_id,
       messages: plannerMessages,
     };
 

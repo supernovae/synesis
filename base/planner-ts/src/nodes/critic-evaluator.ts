@@ -228,6 +228,8 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
     temperature: 0,
     max_tokens: state.critic_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE,
     pricingRates: state.pricing_rates_by_role?.critic,
+    request_id: state.run_id,
+    authz_trace_id: state.authz_trace_id,
     messages: [
       {
         role: "system",

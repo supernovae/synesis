@@ -4,6 +4,12 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().default(8080),
   HOST: z.string().default("0.0.0.0"),
   LOG_LEVEL: z.string().default("info"),
+  SYNESIS_PLANNER_TS_OTEL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default(""),
+  OTEL_SERVICE_NAME: z.string().default("synesis-planner-ts"),
   SYNESIS_PLANNER_TS_MODEL_ID: z.string().default("Synesis Auto"),
   SYNESIS_PLANNER_TS_MODEL_IDS: z.string().default("Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon"),
   SYNESIS_PLANNER_TS_LLM_ENABLED: z
@@ -58,6 +64,12 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS: z.coerce.number().default(5000),
   SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES: z.coerce.number().default(5),
   SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: z.string().default(""),
+  SYNESIS_PLANNER_TS_HEALTH_MONITOR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_PLANNER_TS_HEALTH_MONITOR_INTERVAL_MS: z.coerce.number().default(15000),
+  SYNESIS_PLANNER_TS_HEALTH_MONITOR_TIMEOUT_MS: z.coerce.number().default(2000),
   SYNESIS_OPENFGA_API_URL: z.string().default(""),
   SYNESIS_OPENFGA_STORE_ID: z.string().default(""),
   SYNESIS_OPENFGA_MODEL_ID: z.string().default(""),

@@ -97,7 +97,8 @@ across planner, yarn, and MCP request paths.
 ### Current state
 
 - `yarn-ts` has optional OTEL bootstrap in `base/yarn-ts/src/telemetry/otel.ts`.
-- `planner-ts` currently emits structured traces via `@synesis/telemetry` + `emitTrace` and does not yet bootstrap OTEL spans.
+- `planner-ts` now has optional OTEL bootstrap in `base/planner-ts/src/telemetry/otel.ts` and request span coverage on `/v1/chat/completions`.
+- `planner-ts` also continues to emit structured traces via `@synesis/telemetry` + `emitTrace` for admin ingestion.
 - MCP activity in TypeScript is routed through `yarn-ts` (`base/yarn-ts/src/mcp/`) and should be correlated with yarn request IDs.
 
 ### End-to-end trace contract

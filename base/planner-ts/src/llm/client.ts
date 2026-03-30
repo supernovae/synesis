@@ -21,6 +21,8 @@ export interface ChatRequest {
   pricingRates?: PricingRates;
   response_format?: Record<string, unknown>;
   extra_body?: Record<string, unknown>;
+  request_id?: string;
+  authz_trace_id?: string;
 }
 
 export interface ChatResult {
@@ -280,10 +282,12 @@ function buildRequestBody(request: ChatRequest, prefixCacheMode: string): Record
   return body;
 }
 
-function buildHeaders(apiKey: string): Record<string, string> {
+function buildHeaders(apiKey: string, request?: ChatRequest): Record<string, string> {
   return {
     "Content-Type": "application/json",
     ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    ...(request?.request_id ? { "x-request-id": request.request_id } : {}),
+    ...(request?.authz_trace_id ? { "x-synesis-authz-trace-id": request.authz_trace_id } : {}),
   };
 }
 
@@ -326,7 +330,7 @@ export async function chatCompletion(request: ChatRequest): Promise<ChatResult> 
   const body = buildRequestBody(request, prefixCacheMode);
   const resp = await resilientFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
-    headers: buildHeaders(apiKey),
+    headers: buildHeaders(apiKey, request),
     body: JSON.stringify(body),
   }, {
     modelId: request.model,
@@ -378,7 +382,7 @@ export async function chatCompletionStream(
 
     const resp = await resilientFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
-      headers: buildHeaders(apiKey),
+      headers: buildHeaders(apiKey, request),
       body: JSON.stringify(body),
     }, {
       modelId: request.model,
