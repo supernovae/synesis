@@ -41,6 +41,9 @@ async def list_traces(
     min_hallucinated_urls: int | None = Query(
         None, ge=1, description="Filter traces with at least N hallucinated URLs"
     ),
+    decision_path: str = Query(
+        "", description="Filter by decision routing path (deterministic, constrained, inference_first, abstain)"
+    ),
     tenant_id: str = Query("", description="Filter by tenant"),
     _user: UserInfo = Depends(get_current_user),
 ):
@@ -63,6 +66,7 @@ async def list_traces(
         until=until,
         max_tokens=max_tokens,
         min_hallucinated_urls=min_hallucinated_urls,
+        decision_path=decision_path,
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
         scope_tenant_id=effective_tenant,
@@ -299,4 +303,18 @@ async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Trace not found")
     if not can_access_trace(_user, record):
         raise HTTPException(status_code=403, detail="Not authorized to view this trace")
+    _enrich_detail(record)
     return record
+
+
+def _enrich_detail(record: dict) -> None:
+    """Promote enriched decision fields from full_record to top level for the detail view."""
+    for key in ("evidence_summary", "decision_ledger", "trace_context", "streaming", "taxonomy"):
+        if key not in record and key in record.get("full_record", {}):
+            record[key] = record["full_record"][key]
+    ledger = record.get("decision_ledger")
+    if isinstance(ledger, list) and ledger:
+        entry = ledger[0]
+        if isinstance(entry, dict):
+            record.setdefault("decision_path", entry.get("path"))
+            record.setdefault("decision_escalated", entry.get("escalated"))

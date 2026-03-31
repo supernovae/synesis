@@ -36,6 +36,7 @@ async def list_traces(
     until: float = 0,
     max_tokens: int | None = None,
     min_hallucinated_urls: int | None = None,
+    decision_path: str = "",
     scope_user_id: str = "",
     scope_org_id: str = "",
     scope_tenant_id: str = "",
@@ -92,6 +93,10 @@ async def list_traces(
                         SAInt,
                     )
                     >= min_hallucinated_urls
+                )
+            if decision_path:
+                q = q.where(
+                    Trace.full_record["decision_ledger"][0]["path"].astext == decision_path
                 )
 
             count_q = select(func.count()).select_from(q.subquery())
@@ -387,6 +392,10 @@ def _row_to_dict(row: Trace) -> dict[str, Any]:
             "difficulty": row.difficulty,
         }
     )
+    ledger = rec.get("decision_ledger")
+    if isinstance(ledger, list) and ledger and isinstance(ledger[0], dict):
+        rec.setdefault("decision_path", ledger[0].get("path"))
+        rec.setdefault("decision_escalated", ledger[0].get("escalated"))
     return rec
 
 

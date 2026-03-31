@@ -63,6 +63,7 @@ import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer } from "./telemetry/otel.js";
+import { buildDecisionSnapshot, snapshotToTraceFields, type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 
@@ -569,6 +570,7 @@ function persistSessionAndUsage(
   finishReason: string,
   tokensSavedByReduction = 0,
   escalated = false,
+  snapshot?: DecisionSnapshot,
 ): void {
   const tier = tierRegistry.getTierConfig(resolvedModelId);
   const tierRates = {
@@ -687,6 +689,8 @@ function persistSessionAndUsage(
       },
     },
     latency_ms: latencyMs,
+    ...(snapshot ? snapshotToTraceFields(snapshot) : {}),
+    has_error: finishReason === "error" || undefined,
   };
   emitTrace(trace, traceEmitterConfig, app.log);
 }
@@ -982,6 +986,35 @@ function recordSessionEvent(
     detail,
     metadataJson: meta,
   });
+}
+
+function emitDecisionEvents(
+  sessionKey: string,
+  userId: string,
+  orgId: string,
+  requestId: string,
+  snapshot: DecisionSnapshot | undefined,
+): void {
+  if (!snapshot || !config.SYNESIS_YARN_DECISION_MATRIX_ENABLED) return;
+  recordSessionEvent(sessionKey, userId, orgId, "decision_routing", "phase-model-orchestrator",
+    `${snapshot.decisionPath} → ${snapshot.tier} (${snapshot.phase})`, requestId, {
+      decisionPath: snapshot.decisionPath,
+      tier: snapshot.tier,
+      phase: snapshot.phase,
+      escalated: snapshot.escalated,
+      recallRouting: snapshot.recallRouting,
+      recallConfidence: snapshot.recallConfidence,
+    });
+  if (snapshot.escalated) {
+    recordSessionEvent(sessionKey, userId, orgId, "escalation", "phase-model-orchestrator",
+      snapshot.escalationReason ?? "escalated", requestId, {
+        tier: snapshot.tier,
+        phase: snapshot.phase,
+        recallRouting: snapshot.recallRouting,
+        verificationRound: snapshot.verificationRound,
+        verificationStalled: snapshot.verificationStalled,
+      });
+  }
 }
 
 function getBearerToken(authHeader: string | undefined): string {
@@ -1661,12 +1694,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     const oaiLatency = Date.now() - started;
     const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason, oaiSaved, orchestration.escalated);
-    maybeCheckpoint(session);
-
-    const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
     const lastRecallOai = toolResultReduction.getLastRecallDecision();
     const vStateOai = toolResultReduction.getVerificationTracker().getState();
+    const oaiSnapshot = buildDecisionSnapshot({
+      orchestration,
+      recallDecision: lastRecallOai,
+      verificationState: vStateOai,
+      policyMatchedRules: policyPrecheck.matchedRules,
+      reducedToolResults: reducedOpenAI.reducedCount,
+      tokensSavedByReduction: oaiSaved,
+      isStreaming: false,
+    });
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason, oaiSaved, orchestration.escalated, oaiSnapshot);
+    maybeCheckpoint(session);
+    emitDecisionEvents(sessionKey, identity.userId, identity.orgId, reqId, oaiSnapshot);
+
+    const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
       timestamp: Date.now(), sessionKey, path: "/v1/chat/completions",
       ...msgCounts,
@@ -1822,11 +1865,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const oaiStreamLatency = Date.now() - started;
   const oaiStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved, orchestration.escalated);
-  maybeCheckpoint(session);
-  const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   const lastRecallOaiStream = toolResultReduction.getLastRecallDecision();
   const vStateOaiStream = toolResultReduction.getVerificationTracker().getState();
+  const oaiStreamSnapshot = buildDecisionSnapshot({
+    orchestration,
+    recallDecision: lastRecallOaiStream,
+    verificationState: vStateOaiStream,
+    policyMatchedRules: policyPrecheck.matchedRules,
+    reducedToolResults: reducedOpenAI.reducedCount,
+    tokensSavedByReduction: oaiStreamSaved,
+    isStreaming: true,
+  });
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved, orchestration.escalated, oaiStreamSnapshot);
+  maybeCheckpoint(session);
+  emitDecisionEvents(sessionKey, identity.userId, identity.orgId, reqId, oaiStreamSnapshot);
+  const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
     timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)",
     ...oaiStreamMsgCounts,
@@ -2332,11 +2385,21 @@ app.post("/v1/messages", async (req, reply) => {
     }
     const claudeStreamLatency = Date.now() - started;
     const claudeStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved, claudeOrchestration.escalated);
-    maybeCheckpoint(session);
-    const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     const lastRecallClaudeStream = toolResultReduction.getLastRecallDecision();
     const vStateClaudeStream = toolResultReduction.getVerificationTracker().getState();
+    const claudeStreamSnapshot = buildDecisionSnapshot({
+      orchestration: claudeOrchestration,
+      recallDecision: lastRecallClaudeStream,
+      verificationState: vStateClaudeStream,
+      policyMatchedRules: claudePolicyPrecheck.matchedRules,
+      reducedToolResults: claudeToolResultCount,
+      tokensSavedByReduction: claudeStreamSaved,
+      isStreaming: true,
+    });
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved, claudeOrchestration.escalated, claudeStreamSnapshot);
+    maybeCheckpoint(session);
+    emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeStreamSnapshot);
+    const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
       timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)",
       ...claudeStreamMsgCounts,
@@ -2402,11 +2465,21 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeNonStreamLatency = Date.now() - started;
   const claudeNonStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved, claudeOrchestration.escalated);
-  maybeCheckpoint(session);
-  const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   const lastRecallClaudeNonStream = toolResultReduction.getLastRecallDecision();
   const vStateClaudeNonStream = toolResultReduction.getVerificationTracker().getState();
+  const claudeNonStreamSnapshot = buildDecisionSnapshot({
+    orchestration: claudeOrchestration,
+    recallDecision: lastRecallClaudeNonStream,
+    verificationState: vStateClaudeNonStream,
+    policyMatchedRules: claudePolicyPrecheck.matchedRules,
+    reducedToolResults: claudeToolResultCount,
+    tokensSavedByReduction: claudeNonStreamSaved,
+    isStreaming: false,
+  });
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved, claudeOrchestration.escalated, claudeNonStreamSnapshot);
+  maybeCheckpoint(session);
+  emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeNonStreamSnapshot);
+  const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
     timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages",
     ...claudeNonStreamMsgCounts,
