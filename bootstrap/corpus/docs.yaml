@@ -13,6 +13,16 @@ items:
     repo: openshift/runbooks
     branch: master
     path: alerts
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ocp
+  - runbooks
+  - alerts
+  constraint_kind: advisory
 - uri: https://github.com/red-hat-storage/ocs-sop
   handler: github_markdown
   title: OCS/ODF Storage SOPs
@@ -28,6 +38,17 @@ items:
     repo: red-hat-storage/ocs-sop
     branch: main
     path: sop
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ods
+  - ocs
+  - storage
+  - odf
+  constraint_kind: advisory
 - uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf
   handler: pdf_document
   title: AWS Well-Architected Framework
@@ -45,6 +66,23 @@ items:
   - performance
   - cost
   - sustainability
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - cloud
+  - architecture
+  - architecture-review
+  - quality-attributes
+  - tradeoffs
+  - reliability
+  - security
+  - performance
+  - cost
+  - sustainability
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/reliability-pillar/wellarchitected-reliability-pillar.pdf
   handler: pdf_document
   title: AWS Reliability Pillar
@@ -56,6 +94,17 @@ items:
   - fault-tolerance
   - resilience
   - disaster-recovery
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reliability
+  - fault-tolerance
+  - resilience
+  - disaster-recovery
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/security-pillar/wellarchitected-security-pillar.pdf
   handler: pdf_document
   title: AWS Security Pillar
@@ -67,6 +116,17 @@ items:
   - identity
   - encryption
   - detection
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - security
+  - identity
+  - encryption
+  - detection
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/operational-excellence-pillar/wellarchitected-operational-excellence-pillar.pdf
   handler: pdf_document
   title: AWS Operational Excellence Pillar
@@ -78,6 +138,17 @@ items:
   - monitoring
   - incident-response
   - automation
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - operations
+  - monitoring
+  - incident-response
+  - automation
+  constraint_kind: guiding
 - uri: https://12factor.net/
   handler: web_page
   title: Twelve-Factor App
@@ -99,6 +170,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://12factor.net/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - twelve-factor
+  - saas
+  - cloud-native
+  - best-practices
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://github.com/MicrosoftDocs/architecture-center
   handler: github_markdown
   title: Cloud Design Patterns (Microsoft)
@@ -114,6 +197,17 @@ items:
     repo: MicrosoftDocs/architecture-center
     branch: main
     path: docs/patterns
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - patterns
+  - microservices
+  - resilience
+  - scalability
+  constraint_kind: guiding
 - uri: https://aws.amazon.com/architecture/
   handler: web_page
   title: AWS Architecture Center
@@ -125,6 +219,17 @@ items:
   - cloud
   - architecture
   - reference-architectures
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - aws
+  - cloud
+  - architecture
+  - reference-architectures
+  constraint_kind: guiding
 - uri: https://wellarchitectedlabs.com/
   handler: web_page
   title: AWS Well-Architected Labs
@@ -138,6 +243,17 @@ items:
   - hands-on
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aws
+  - well-architected
+  - labs
+  - hands-on
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/azure/well-architected/
   handler: web_page
   title: Azure Well-Architected Framework
@@ -155,6 +271,21 @@ items:
   - quality-attributes
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - well-architected
+  - architecture-review
+  - reliability
+  - security
+  - cost
+  - performance
+  - quality-attributes
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/azure/architecture/
   handler: web_page
   title: Azure Architecture Center
@@ -168,6 +299,17 @@ items:
   - reference-architectures
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - architecture
+  - patterns
+  - reference-architectures
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/assessments/azure-architecture-review/
   handler: web_page
   title: Azure Well-Architected Review
@@ -179,6 +321,17 @@ items:
   - well-architected
   - assessment
   - governance
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - well-architected
+  - assessment
+  - governance
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/architecture/framework
   handler: web_page
   title: Google Cloud Architecture Framework
@@ -194,6 +347,19 @@ items:
   - quality-attributes
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - architecture
+  - architecture-review
+  - framework
+  - best-practices
+  - quality-attributes
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/architecture
   handler: web_page
   title: Google Cloud Architecture Center
@@ -204,6 +370,16 @@ items:
   - gcp
   - architecture
   - reference-architectures
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - architecture
+  - reference-architectures
+  constraint_kind: guiding
 - uri: https://cloud.google.com/whitepapers
   handler: web_page
   title: Google Cloud Whitepapers
@@ -214,6 +390,16 @@ items:
   - gcp
   - whitepapers
   - cloud
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - whitepapers
+  - cloud
+  constraint_kind: guiding
 - uri: https://cloud.google.com/blog/products/application-modernization/well-architected-framework-to-accelerate-your-cloud-journey
   handler: web_page
   title: Google Cloud Well-Architected Framework Overview
@@ -224,6 +410,16 @@ items:
   - gcp
   - well-architected
   - overview
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - well-architected
+  - overview
+  constraint_kind: guiding
 - uri: https://martinfowler.com/microservices/
   handler: web_page
   title: 'Martin Fowler: Microservices Guide'
@@ -236,6 +432,16 @@ items:
   - distributed-systems
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - microservices
+  - patterns
+  - distributed-systems
+  constraint_kind: guiding
 - uri: https://martinfowler.com/articles/microservices.html
   handler: web_page
   title: 'Martin Fowler: Microservices'
@@ -246,6 +452,16 @@ items:
   - microservices
   - definition
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - microservices
+  - definition
+  - architecture
+  constraint_kind: guiding
 - uri: https://martinfowler.com/architecture/
   handler: web_page
   title: 'Martin Fowler: Software Architecture Guide'
@@ -258,6 +474,16 @@ items:
   - design
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - architecture
+  - patterns
+  - design
+  constraint_kind: guiding
 - uri: https://12factor.net/config
   handler: web_page
   title: 'Twelve-Factor App: Config'
@@ -277,6 +503,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://12factor.net/config/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - twelve-factor
+  - config
+  - environment
+  constraint_kind: guiding
 - uri: https://12factor.net/logs
   handler: web_page
   title: 'Twelve-Factor App: Logs'
@@ -296,6 +532,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://12factor.net/logs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - twelve-factor
+  - logs
+  - observability
+  constraint_kind: guiding
 - uri: https://12factor.net/dev-prod-parity
   handler: web_page
   title: 'Twelve-Factor App: Dev/Prod Parity'
@@ -315,6 +561,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://12factor.net/dev-prod-parity/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - twelve-factor
+  - dev-prod-parity
+  - environments
+  constraint_kind: guiding
 - uri: https://c4model.com/
   handler: web_page
   title: C4 Model
@@ -330,6 +586,19 @@ items:
   - design-goals
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - c4
+  - diagramming
+  - architecture-documentation
+  - visualization
+  - architecture-review
+  - design-goals
+  constraint_kind: advisory
 - uri: https://arc42.org/
   handler: web_page
   title: arc42 Architecture Documentation
@@ -345,6 +614,19 @@ items:
   - adr
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - arc42
+  - documentation
+  - templates
+  - architecture
+  - architecture-review
+  - adr
+  constraint_kind: advisory
 - uri: https://quality.arc42.org/articles/quality-models
   handler: web_page
   title: arc42 Quality Model
@@ -357,6 +639,18 @@ items:
   - quality-attributes
   - nfr
   - tradeoffs
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - arc42
+  - quality
+  - quality-attributes
+  - nfr
+  - tradeoffs
+  constraint_kind: advisory
 - uri: https://sre.google/
   handler: web_page
   title: Google SRE
@@ -372,6 +666,19 @@ items:
   - systems-engineering
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sre
+  - reliability
+  - google
+  - toil
+  - slo
+  - systems-engineering
+  constraint_kind: guiding
 - uri: https://cloud.google.com/sre
   handler: web_page
   title: Google Cloud SRE Overview
@@ -382,6 +689,16 @@ items:
   - sre
   - gcp
   - reliability
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sre
+  - gcp
+  - reliability
+  constraint_kind: guiding
 - uri: https://sre.google/workbook/table-of-contents/
   handler: web_page
   title: The Site Reliability Workbook
@@ -397,6 +714,19 @@ items:
   - monitoring
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sre
+  - reliability
+  - workbook
+  - practices
+  - on-call
+  - monitoring
+  constraint_kind: guiding
 - uri: https://dora.dev/research/
   handler: web_page
   title: DORA Research & Metrics
@@ -412,6 +742,19 @@ items:
   - mttr
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dora
+  - metrics
+  - devops
+  - deployment-frequency
+  - lead-time
+  - mttr
+  constraint_kind: guiding
 - uri: https://dora.dev/guides/dora-metrics/
   handler: web_page
   title: DORA Metrics Guide
@@ -423,6 +766,17 @@ items:
   - metrics
   - measurement
   - engineering-excellence
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dora
+  - metrics
+  - measurement
+  - engineering-excellence
+  constraint_kind: guiding
 - uri: https://dora.dev/capabilities/continuous-delivery/
   handler: web_page
   title: DORA Continuous Delivery Capability
@@ -433,58 +787,120 @@ items:
   - dora
   - continuous-delivery
   - capabilities
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dora
+  - continuous-delivery
+  - capabilities
+  constraint_kind: guiding
 - uri: https://humanitec.com/whitepapers/state-of-platform-engineering-report-volume-3
   handler: web_page
   title: State of Platform Engineering Report Vol. 3
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - platform-engineering
   - report
   - idp
   - humanitec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - report
+  - idp
+  - humanitec
+  constraint_kind: guiding
 - uri: https://humanitec.com/whitepapers/state-of-platform-engineering-report-volume-2
   handler: web_page
   title: State of Platform Engineering Report Vol. 2
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - platform-engineering
   - report
   - idp
   - humanitec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - report
+  - idp
+  - humanitec
+  constraint_kind: guiding
 - uri: https://humanitec.com/blog/platform-as-a-product-the-evolution-of-devops-and-platform-engineering
   handler: web_page
   title: 'Platform as a Product: Evolution of DevOps'
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - platform-engineering
   - devops
   - platform-as-product
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - devops
+  - platform-as-product
+  constraint_kind: guiding
 - uri: https://humanitec.com/blog/devops-maturity
   handler: web_page
   title: Evaluating DevOps Maturity
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - devops
   - maturity-model
   - assessment
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - devops
+  - maturity-model
+  - assessment
+  constraint_kind: guiding
 - uri: https://humanitec.com/blog/build-your-internal-developer-platform-with-humanitec-cortex
   handler: web_page
   title: Build Your IDP with Humanitec & Cortex
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - idp
   - platform-engineering
   - developer-experience
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - idp
+  - platform-engineering
+  - developer-experience
+  constraint_kind: guiding
 - uri: https://cheatsheetseries.owasp.org/index.html
   handler: web_page
   title: OWASP Cheat Sheet Series
@@ -499,6 +915,18 @@ items:
   - best-practices
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - owasp
+  - security
+  - security-architecture
+  - cheat-sheets
+  - best-practices
+  constraint_kind: guiding
 - uri: https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html
   handler: web_page
   title: OWASP Threat Modeling Cheat Sheet
@@ -509,6 +937,16 @@ items:
   - owasp
   - threat-modeling
   - security
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - owasp
+  - threat-modeling
+  - security
+  constraint_kind: guiding
 - uri: https://owasp.org/www-community/Threat_Modeling_Process
   handler: web_page
   title: OWASP Threat Modeling Process
@@ -519,6 +957,16 @@ items:
   - owasp
   - threat-modeling
   - process
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - owasp
+  - threat-modeling
+  - process
+  constraint_kind: guiding
 - uri: https://devguide.owasp.org/en/04-design/01-threat-modeling/07-practical-threat-modeling/
   handler: web_page
   title: OWASP Practical Threat Modeling
@@ -529,6 +977,16 @@ items:
   - owasp
   - threat-modeling
   - practical
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - owasp
+  - threat-modeling
+  - practical
+  constraint_kind: guiding
 - uri: https://owasp.org/www-project-threat-dragon/
   handler: web_page
   title: OWASP Threat Dragon
@@ -540,6 +998,17 @@ items:
   - threat-dragon
   - tooling
   - threat-modeling
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - owasp
+  - threat-dragon
+  - tooling
+  - threat-modeling
+  constraint_kind: guiding
 - uri: https://cloud.google.com/resources/delivering-software-securely
   handler: web_page
   title: Delivering Software Securely (Google)
@@ -551,6 +1020,17 @@ items:
   - security
   - slsa
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - supply-chain
+  - security
+  - slsa
+  - google
+  constraint_kind: guiding
 - uri: https://research.google/pubs/borg-omega-and-kubernetes/
   handler: web_page
   title: Borg, Omega, and Kubernetes (Google Research)
@@ -563,6 +1043,18 @@ items:
   - kubernetes
   - cluster-management
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - borg
+  - omega
+  - kubernetes
+  - cluster-management
+  - google
+  constraint_kind: guiding
 - uri: https://research.google/pubs/large-scale-cluster-management-at-google-with-borg/
   handler: web_page
   title: Large-scale Cluster Management at Google with Borg
@@ -574,6 +1066,17 @@ items:
   - cluster-management
   - scheduling
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - borg
+  - cluster-management
+  - scheduling
+  - google
+  constraint_kind: guiding
 - uri: https://research.google/pubs/omega-flexible-scalable-schedulers-for-large-compute-clusters/
   handler: web_page
   title: 'Omega: Flexible Scalable Schedulers for Large Compute Clusters'
@@ -585,6 +1088,17 @@ items:
   - scheduling
   - cluster-management
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - omega
+  - scheduling
+  - cluster-management
+  - google
+  constraint_kind: guiding
 - uri: https://kubernetes.io/docs/
   handler: web_page
   title: Kubernetes Documentation
@@ -596,6 +1110,17 @@ items:
   - k8s
   - orchestration
   - containers
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - k8s
+  - orchestration
+  - containers
+  constraint_kind: guiding
 - uri: https://kubernetes.io/docs/concepts/
   handler: web_page
   title: Kubernetes Concepts
@@ -610,6 +1135,18 @@ items:
   - deployments
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - concepts
+  - pods
+  - services
+  - deployments
+  constraint_kind: guiding
 - uri: https://cloud.google.com/blog/products/containers-kubernetes/kubernetes-best-practices-organizing-with-namespaces
   handler: web_page
   title: 'Kubernetes Best Practices: Organizing with Namespaces'
@@ -621,6 +1158,17 @@ items:
   - namespaces
   - best-practices
   - multi-tenancy
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - namespaces
+  - best-practices
+  - multi-tenancy
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/architecture/best-practices-vpc-design
   handler: web_page
   title: Best Practices for VPC Design (Google Cloud)
@@ -632,6 +1180,17 @@ items:
   - networking
   - gcp
   - best-practices
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vpc
+  - networking
+  - gcp
+  - best-practices
+  constraint_kind: guiding
 - uri: https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/
   handler: web_page
   title: 'MapReduce: Simplified Data Processing on Large Clusters'
@@ -643,6 +1202,17 @@ items:
   - distributed-systems
   - batch-processing
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mapreduce
+  - distributed-systems
+  - batch-processing
+  - google
+  constraint_kind: guiding
 - uri: https://research.google/pubs/the-google-file-system/
   handler: web_page
   title: The Google File System
@@ -653,6 +1223,16 @@ items:
   - gfs
   - distributed-storage
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gfs
+  - distributed-storage
+  - google
+  constraint_kind: guiding
 - uri: https://research.google/pubs/bigtable-a-distributed-storage-system-for-structured-data/
   handler: web_page
   title: 'Bigtable: A Distributed Storage System for Structured Data'
@@ -664,6 +1244,17 @@ items:
   - distributed-storage
   - nosql
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - bigtable
+  - distributed-storage
+  - nosql
+  - google
+  constraint_kind: guiding
 - uri: https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf
   handler: pdf_document
   title: 'Dynamo: Amazon''s Highly Available Key-value Store'
@@ -675,6 +1266,17 @@ items:
   - eventual-consistency
   - partitioning
   - amazon
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - dynamo
+  - eventual-consistency
+  - partitioning
+  - amazon
+  constraint_kind: guiding
 - uri: https://research.google/pubs/spanner-googles-globally-distributed-database-2/
   handler: web_page
   title: 'Spanner: Google''s Globally-Distributed Database'
@@ -686,6 +1288,17 @@ items:
   - distributed-database
   - consistency
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - spanner
+  - distributed-database
+  - consistency
+  - google
+  constraint_kind: guiding
 - uri: https://research.google/pubs/spanner-becoming-a-sql-system/
   handler: web_page
   title: 'Spanner: Becoming a SQL System'
@@ -697,6 +1310,18 @@ items:
   - sql
   - distributed-database
   - google
+  corpus_class: hybrid
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - spanner
+  - sql
+  - distributed-database
+  - google
+  constraint_kind: guiding
 - uri: https://www.usenix.org/system/files/atc22-elhemali.pdf
   handler: pdf_document
   title: 'Amazon DynamoDB: A Scalable NoSQL Database Service'
@@ -708,6 +1333,17 @@ items:
   - nosql
   - serverless
   - amazon
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - dynamodb
+  - nosql
+  - serverless
+  - amazon
+  constraint_kind: guiding
 - uri: https://raft.github.io/raft.pdf
   handler: pdf_document
   title: In Search of an Understandable Consensus Algorithm (Raft)
@@ -718,6 +1354,16 @@ items:
   - raft
   - consensus
   - distributed-systems
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - raft
+  - consensus
+  - distributed-systems
+  constraint_kind: guiding
 - uri: https://raft.github.io/
   handler: web_page
   title: Raft Consensus Algorithm
@@ -728,6 +1374,16 @@ items:
   - raft
   - consensus
   - visualization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - raft
+  - consensus
+  - visualization
+  constraint_kind: advisory
 - uri: https://www.usenix.org/legacy/event/atc10/tech/full_papers/Hunt.pdf
   handler: pdf_document
   title: 'ZooKeeper: Wait-free Coordination for Internet-scale Systems'
@@ -739,6 +1395,17 @@ items:
   - coordination
   - consensus
   - distributed-systems
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - zookeeper
+  - coordination
+  - consensus
+  - distributed-systems
+  constraint_kind: guiding
 - uri: https://lamport.azurewebsites.net/pubs/paxos-simple.pdf
   handler: pdf_document
   title: Paxos Made Simple
@@ -749,6 +1416,16 @@ items:
   - paxos
   - consensus
   - lamport
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - paxos
+  - consensus
+  - lamport
+  constraint_kind: guiding
 - uri: https://lamport.azurewebsites.net/pubs/time-clocks.pdf
   handler: pdf_document
   title: Time, Clocks, and the Ordering of Events in a Distributed System
@@ -760,6 +1437,17 @@ items:
   - ordering
   - causality
   - distributed-systems
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - lamport-clocks
+  - ordering
+  - causality
+  - distributed-systems
+  constraint_kind: guiding
 - uri: https://research.google/pubs/dapper-a-large-scale-distributed-systems-tracing-infrastructure/
   handler: web_page
   title: 'Dapper: Large-Scale Distributed Systems Tracing Infrastructure'
@@ -771,6 +1459,17 @@ items:
   - tracing
   - observability
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dapper
+  - tracing
+  - observability
+  - google
+  constraint_kind: guiding
 - uri: https://www.confluent.io/blog/log-what-every-software-engineer-should-know-about-real-time-data/
   handler: web_page
   title: 'The Log: What Every Software Engineer Should Know'
@@ -783,6 +1482,18 @@ items:
   - kafka
   - event-sourcing
   - confluent
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - log
+  - streaming
+  - kafka
+  - event-sourcing
+  - confluent
+  constraint_kind: advisory
 - uri: https://dataintensive.net/
   handler: web_page
   title: Designing Data-Intensive Applications
@@ -794,6 +1505,17 @@ items:
   - distributed-systems
   - data-systems
   - kleppmann
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ddia
+  - distributed-systems
+  - data-systems
+  - kleppmann
+  constraint_kind: advisory
 - uri: https://grpc.io/docs/
   handler: web_page
   title: gRPC Documentation
@@ -807,6 +1529,17 @@ items:
   - api
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - grpc
+  - rpc
+  - protobuf
+  - api
+  constraint_kind: advisory
 - uri: https://spec.openapis.org/oas/latest.html
   handler: web_page
   title: OpenAPI Specification
@@ -818,6 +1551,17 @@ items:
   - rest
   - api-spec
   - swagger
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openapi
+  - rest
+  - api-spec
+  - swagger
+  constraint_kind: advisory
 - uri: https://www.asyncapi.com/docs/reference/specification/latest
   handler: web_page
   title: AsyncAPI Specification
@@ -829,6 +1573,17 @@ items:
   - event-driven
   - messaging
   - api-spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - asyncapi
+  - event-driven
+  - messaging
+  - api-spec
+  constraint_kind: advisory
 - uri: https://cloudevents.io/
   handler: web_page
   title: CloudEvents Specification
@@ -840,6 +1595,17 @@ items:
   - cncf
   - event-driven
   - messaging
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - cloudevents
+  - cncf
+  - event-driven
+  - messaging
+  constraint_kind: advisory
 - uri: https://opentelemetry.io/docs/
   handler: web_page
   title: OpenTelemetry Documentation
@@ -856,6 +1622,20 @@ items:
   - observability
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - opentelemetry
+  - otel
+  - tracing
+  - metrics
+  - logging
+  - cncf
+  - observability
+  constraint_kind: advisory
 - uri: https://prometheus.io/docs/introduction/overview/
   handler: web_page
   title: Prometheus Documentation
@@ -869,6 +1649,19 @@ items:
   - alerting
   - cncf
   - observability
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prometheus
+  - metrics
+  - monitoring
+  - alerting
+  - cncf
+  - observability
+  constraint_kind: advisory
 - uri: https://openmetrics.io/
   handler: web_page
   title: OpenMetrics
@@ -879,6 +1672,16 @@ items:
   - openmetrics
   - metrics
   - exposition-format
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openmetrics
+  - metrics
+  - exposition-format
+  constraint_kind: advisory
 - uri: https://www.oreilly.com/library/view/distributed-systems-observability/9781492033431/
   handler: web_page
   title: Distributed Systems Observability (O'Reilly)
@@ -890,6 +1693,17 @@ items:
   - distributed-systems
   - monitoring
   - book
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - observability
+  - distributed-systems
+  - monitoring
+  - book
+  constraint_kind: advisory
 - uri: https://martinfowler.com/books/continuousDelivery.html
   handler: web_page
   title: 'Martin Fowler: Continuous Delivery'
@@ -900,6 +1714,16 @@ items:
   - continuous-delivery
   - deployment
   - release
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - continuous-delivery
+  - deployment
+  - release
+  constraint_kind: guiding
 - uri: https://martinfowler.com/articles/continuousIntegration.html
   handler: web_page
   title: 'Martin Fowler: Continuous Integration'
@@ -911,6 +1735,17 @@ items:
   - ci
   - build
   - testing
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - continuous-integration
+  - ci
+  - build
+  - testing
+  constraint_kind: guiding
 - uri: https://trunkbaseddevelopment.com/
   handler: web_page
   title: Trunk Based Development
@@ -924,6 +1759,17 @@ items:
   - ci
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - trunk-based
+  - branching
+  - version-control
+  - ci
+  constraint_kind: advisory
 - uri: https://opengitops.dev/
   handler: web_page
   title: GitOps Principles (OpenGitOps)
@@ -935,6 +1781,17 @@ items:
   - declarative
   - reconciliation
   - cncf
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gitops
+  - declarative
+  - reconciliation
+  - cncf
+  constraint_kind: advisory
 - uri: https://argo-cd.readthedocs.io/en/stable/
   handler: web_page
   title: Argo CD Documentation
@@ -948,6 +1805,17 @@ items:
   - cncf
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - argocd
+  - gitops
+  - kubernetes
+  - cncf
+  constraint_kind: advisory
 - uri: https://fluxcd.io/flux/
   handler: web_page
   title: Flux CD Documentation
@@ -961,6 +1829,17 @@ items:
   - cncf
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - flux
+  - gitops
+  - kubernetes
+  - cncf
+  constraint_kind: advisory
 - uri: https://pragprog.com/titles/mnee2/release-it-second-edition/
   handler: web_page
   title: Release It! (Second Edition)
@@ -972,6 +1851,17 @@ items:
   - stability
   - circuit-breaker
   - release
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - resilience
+  - stability
+  - circuit-breaker
+  - release
+  constraint_kind: advisory
 - uri: https://principlesofchaos.org/
   handler: web_page
   title: Principles of Chaos Engineering
@@ -982,6 +1872,16 @@ items:
   - chaos-engineering
   - resilience
   - fault-injection
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - chaos-engineering
+  - resilience
+  - fault-injection
+  constraint_kind: advisory
 - uri: https://chaos-mesh.org/docs/
   handler: web_page
   title: Chaos Mesh Documentation
@@ -995,17 +1895,39 @@ items:
   - cncf
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - chaos-mesh
+  - chaos-engineering
+  - kubernetes
+  - cncf
+  constraint_kind: advisory
 - uri: https://www.gremlin.com/community/tutorials
   handler: web_page
   title: Gremlin Reliability & Chaos Engineering Tutorials
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - gremlin
   - chaos-engineering
   - reliability
   - tutorials
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gremlin
+  - chaos-engineering
+  - reliability
+  - tutorials
+  constraint_kind: guiding
 - uri: https://martinfowler.com/articles/serverless.html
   handler: web_page
   title: 'Martin Fowler: Serverless Architectures'
@@ -1017,6 +1939,17 @@ items:
   - faas
   - lambda
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - serverless
+  - faas
+  - lambda
+  - architecture
+  constraint_kind: guiding
 - uri: https://aws.amazon.com/event-driven-architecture/
   handler: web_page
   title: AWS Event-Driven Architecture
@@ -1029,6 +1962,18 @@ items:
   - eventbridge
   - sqs
   - sns
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aws
+  - event-driven
+  - eventbridge
+  - sqs
+  - sns
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/azure/architecture/guide/architecture-styles/event-driven
   handler: web_page
   title: Azure Event-Driven Architecture Guide
@@ -1039,6 +1984,16 @@ items:
   - azure
   - event-driven
   - architecture-styles
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - event-driven
+  - architecture-styles
+  constraint_kind: guiding
 - uri: https://cloud.google.com/eventarc/docs/event-driven-architectures
   handler: web_page
   title: Google Cloud Event-Driven Architectures
@@ -1050,6 +2005,17 @@ items:
   - eventarc
   - event-driven
   - pub-sub
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - eventarc
+  - event-driven
+  - pub-sub
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/welcome.html
   handler: web_page
   title: AWS ADR Guide
@@ -1063,6 +2029,17 @@ items:
   - decision-records
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - architecture
+  - aws
+  - decision-records
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/pdfs/prescriptive-guidance/latest/architectural-decision-records/architectural-decision-records.pdf
   handler: pdf_document
   title: AWS ADR Guide (PDF)
@@ -1074,6 +2051,17 @@ items:
   - architecture
   - aws
   - decision-records
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - adr
+  - architecture
+  - aws
+  - decision-records
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html
   handler: web_page
   title: AWS ADR Process
@@ -1085,6 +2073,17 @@ items:
   - architecture
   - aws
   - governance
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - architecture
+  - aws
+  - governance
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/best-practices.html
   handler: web_page
   title: AWS ADR Best Practices
@@ -1096,6 +2095,17 @@ items:
   - architecture
   - aws
   - best-practices
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - architecture
+  - aws
+  - best-practices
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/architecture/architecture-decision-records
   handler: web_page
   title: Google Cloud ADR Overview
@@ -1107,6 +2117,17 @@ items:
   - architecture
   - gcp
   - decision-records
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - architecture
+  - gcp
+  - decision-records
+  constraint_kind: guiding
 - uri: https://github.com/joelparkerhenderson/architecture-decision-record
   handler: github_markdown
   title: Joel Parker Henderson – ADR Repository
@@ -1122,6 +2143,17 @@ items:
     repo: joelparkerhenderson/architecture-decision-record
     branch: main
     path: ''
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - architecture
+  - templates
+  - examples
+  constraint_kind: advisory
 - uri: https://www.thoughtworks.com/en-us/radar/techniques/lightweight-architecture-decision-records
   handler: web_page
   title: Thoughtworks – Lightweight ADRs
@@ -1132,6 +2164,16 @@ items:
   - adr
   - architecture
   - thoughtworks
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - architecture
+  - thoughtworks
+  constraint_kind: advisory
 - uri: https://www.thoughtworks.com/en-us/radar/techniques/lightweight-approach-to-rfcs
   handler: web_page
   title: Thoughtworks – Lightweight RFCs
@@ -1143,6 +2185,17 @@ items:
   - architecture
   - rfc
   - thoughtworks
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - architecture
+  - rfc
+  - thoughtworks
+  constraint_kind: advisory
 - uri: https://www.sei.cmu.edu/library/atam-method-for-architecture-evaluation/
   handler: web_page
   title: SEI ATAM Method for Architecture Evaluation
@@ -1155,6 +2208,18 @@ items:
   - tradeoffs
   - quality-attributes
   - sei
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - atam
+  - architecture-review
+  - tradeoffs
+  - quality-attributes
+  - sei
+  constraint_kind: guiding
 - uri: https://www.sei.cmu.edu/documents/629/2000_005_001_13706.pdf
   handler: pdf_document
   title: SEI ATAM Report (PDF)
@@ -1167,6 +2232,18 @@ items:
   - tradeoffs
   - quality-attributes
   - sei
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - atam
+  - architecture-review
+  - tradeoffs
+  - quality-attributes
+  - sei
+  constraint_kind: guiding
 - uri: https://www.sei.cmu.edu/library/file_redirect/1998_005_001_16646.pdf/
   handler: pdf_document
   title: SEI Architecture Tradeoff Analysis Method (PDF)
@@ -1178,6 +2255,17 @@ items:
   - architecture-review
   - tradeoffs
   - sei
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - atam
+  - architecture-review
+  - tradeoffs
+  - sei
+  constraint_kind: guiding
 - uri: https://www.sei.cmu.edu/library/file_redirect/2011_015_001_28266.pdf/
   handler: pdf_document
   title: SEI ATAM Overview (PDF)
@@ -1188,6 +2276,16 @@ items:
   - atam
   - architecture-review
   - sei
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - atam
+  - architecture-review
+  - sei
+  constraint_kind: guiding
 - uri: https://www.sei.cmu.edu/documents/1971/2001_004_001_13808.pdf
   handler: pdf_document
   title: SEI ATAM in Acquisition (PDF)
@@ -1199,6 +2297,17 @@ items:
   - architecture-review
   - acquisition
   - sei
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - atam
+  - architecture-review
+  - acquisition
+  - sei
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/wellarchitected/latest/framework/the-review-process.html
   handler: web_page
   title: AWS Well-Architected Review Process
@@ -1209,6 +2318,16 @@ items:
   - aws
   - well-architected
   - architecture-review
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aws
+  - well-architected
+  - architecture-review
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/azure/well-architected/pillars
   handler: web_page
   title: Azure Well-Architected Pillars
@@ -1220,6 +2339,17 @@ items:
   - well-architected
   - quality-attributes
   - pillars
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - well-architected
+  - quality-attributes
+  - pillars
+  constraint_kind: guiding
 - uri: https://docs.arc42.org/
   handler: web_page
   title: arc42 Documentation (docs)
@@ -1233,6 +2363,17 @@ items:
   - architecture-review
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - arc42
+  - documentation
+  - architecture
+  - architecture-review
+  constraint_kind: advisory
 - uri: https://docs.arc42.org/section-1/
   handler: web_page
   title: 'arc42 Section 1: Introduction and Goals'
@@ -1244,6 +2385,17 @@ items:
   - design-goals
   - constraints
   - stakeholders
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - arc42
+  - design-goals
+  - constraints
+  - stakeholders
+  constraint_kind: advisory
 - uri: https://docs.arc42.org/tips/9-9/
   handler: web_page
   title: 'arc42 Tips: Architecture Decisions / ADRs'
@@ -1255,6 +2407,17 @@ items:
   - adr
   - architecture
   - decision-records
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - arc42
+  - adr
+  - architecture
+  - decision-records
+  constraint_kind: advisory
 - uri: https://c4model.com/diagrams/checklist
   handler: web_page
   title: C4 Model Diagram Review Checklist
@@ -1266,6 +2429,17 @@ items:
   - architecture-review
   - diagramming
   - checklist
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - c4
+  - architecture-review
+  - diagramming
+  - checklist
+  constraint_kind: advisory
 - uri: https://c4model.com/example/
   handler: web_page
   title: C4 Model Example Diagrams
@@ -1277,6 +2451,17 @@ items:
   - architecture
   - examples
   - diagramming
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - c4
+  - architecture
+  - examples
+  - diagramming
+  constraint_kind: advisory
 - uri: https://owasp.org/www-project-secure-by-design-framework/
   handler: web_page
   title: OWASP Secure by Design Framework
@@ -1287,6 +2472,16 @@ items:
   - owasp
   - security-architecture
   - secure-by-design
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - owasp
+  - security-architecture
+  - secure-by-design
+  constraint_kind: guiding
 - uri: https://cheatsheetseries.owasp.org/cheatsheets/Secure_Product_Design_Cheat_Sheet.html
   handler: web_page
   title: OWASP Secure Product Design Cheat Sheet
@@ -1298,6 +2493,17 @@ items:
   - security-architecture
   - secure-by-design
   - cheat-sheet
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - owasp
+  - security-architecture
+  - secure-by-design
+  - cheat-sheet
+  constraint_kind: guiding
 - uri: https://www.cisa.gov/resources-tools/resources/secure-by-design
   handler: web_page
   title: CISA Secure by Design
@@ -1308,6 +2514,16 @@ items:
   - cisa
   - security-architecture
   - secure-by-design
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - cisa
+  - security-architecture
+  - secure-by-design
+  constraint_kind: guiding
 - uri: https://www.cisa.gov/sites/default/files/2023-10/SecureByDesign_1025_508c.pdf
   handler: pdf_document
   title: CISA Secure by Design (PDF)
@@ -1318,6 +2534,16 @@ items:
   - cisa
   - security-architecture
   - secure-by-design
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - cisa
+  - security-architecture
+  - secure-by-design
+  constraint_kind: guiding
 - uri: https://soadecisions.org/download/ComplianceByDesign-AAM.pdf
   handler: pdf_document
   title: Compliance by Design (PDF)
@@ -1329,6 +2555,17 @@ items:
   - security-architecture
   - risk-management
   - compliance
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - architecture
+  - security-architecture
+  - risk-management
+  - compliance
+  constraint_kind: advisory
 - uri: https://arxiv.org/pdf/1706.03762
   handler: pdf_document
   title: Attention Is All You Need (PDF)
@@ -1340,6 +2577,17 @@ items:
   - transformer
   - architecture
   - foundational
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - llm
+  - transformer
+  - architecture
+  - foundational
+  constraint_kind: guiding
 - uri: https://arxiv.org/pdf/2005.14165
   handler: pdf_document
   title: Language Models are Few-Shot Learners (PDF)
@@ -1350,6 +2598,16 @@ items:
   - llm
   - in-context-learning
   - foundational
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - llm
+  - in-context-learning
+  - foundational
+  constraint_kind: guiding
 - uri: https://arxiv.org/pdf/2005.11401
   handler: pdf_document
   title: RAG for Knowledge-Intensive NLP Tasks (PDF)
@@ -1361,6 +2619,17 @@ items:
   - retrieval
   - llm
   - foundational
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - llm
+  - foundational
+  constraint_kind: guiding
 - uri: https://arxiv.org/pdf/2405.07437
   handler: pdf_document
   title: 'Evaluation of RAG: A Survey (PDF)'
@@ -1372,6 +2641,17 @@ items:
   - eval
   - survey
   - benchmarks
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - eval
+  - survey
+  - benchmarks
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2404.10981
   handler: web_page
   title: Survey on RAG Text Generation for LLMs
@@ -1383,6 +2663,17 @@ items:
   - survey
   - llm
   - retrieval
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - survey
+  - llm
+  - retrieval
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2409.14924
   handler: web_page
   title: 'RAG and Beyond: Comprehensive Survey'
@@ -1394,6 +2685,17 @@ items:
   - survey
   - llm
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - survey
+  - llm
+  - architecture
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2410.12837
   handler: web_page
   title: 'Comprehensive Survey of RAG: Evolution and Future'
@@ -1404,6 +2706,16 @@ items:
   - rag
   - survey
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - survey
+  - llm
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2307.03172
   handler: web_page
   title: 'Lost in the Middle: Long Contexts'
@@ -1415,6 +2727,17 @@ items:
   - long-context
   - position-bias
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - long-context
+  - position-bias
+  - llm
+  constraint_kind: guiding
 - uri: https://arxiv.org/pdf/2403.04797
   handler: pdf_document
   title: Long Contexts via Plug-and-Play Positional Encoding (PDF)
@@ -1425,6 +2748,16 @@ items:
   - llm
   - long-context
   - positional-encoding
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - llm
+  - long-context
+  - positional-encoding
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2406.02536
   handler: web_page
   title: Mitigate Position Bias via Reinforcement Learning
@@ -1435,6 +2768,16 @@ items:
   - llm
   - position-bias
   - reinforcement-learning
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llm
+  - position-bias
+  - reinforcement-learning
+  constraint_kind: advisory
 - uri: https://arxiv.org/pdf/2201.11903
   handler: pdf_document
   title: Chain-of-Thought Prompting (PDF)
@@ -1446,6 +2789,17 @@ items:
   - reasoning
   - chain-of-thought
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - prompt-engineering
+  - reasoning
+  - chain-of-thought
+  - llm
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2205.11916
   handler: web_page
   title: Large Language Models are Zero-Shot Reasoners
@@ -1457,6 +2811,17 @@ items:
   - reasoning
   - zero-shot
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - reasoning
+  - zero-shot
+  - llm
+  constraint_kind: guiding
 - uri: https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf
   handler: pdf_document
   title: OpenAI Practical Guide to Building Agents (PDF)
@@ -1469,6 +2834,18 @@ items:
   - tool-use
   - eval
   - guardrails
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - agents
+  - openai
+  - tool-use
+  - eval
+  - guardrails
+  constraint_kind: guiding
 - uri: https://developers.openai.com/tracks/building-agents/
   handler: web_page
   title: OpenAI Building Agents Track
@@ -1479,6 +2856,16 @@ items:
   - agents
   - openai
   - orchestration
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - openai
+  - orchestration
+  constraint_kind: guiding
 - uri: https://developers.openai.com/api/docs/guides/agents/
   handler: web_page
   title: OpenAI Agents Guide
@@ -1489,6 +2876,16 @@ items:
   - agents
   - openai
   - implementation
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - openai
+  - implementation
+  constraint_kind: guiding
 - uri: https://developers.openai.com/api/docs/guides/agent-builder/
   handler: web_page
   title: OpenAI Agent Builder Guide
@@ -1499,6 +2896,16 @@ items:
   - agents
   - openai
   - workflow-composition
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - openai
+  - workflow-composition
+  constraint_kind: guiding
 - uri: https://services.google.com/fh/files/misc/operationalizing_generative_ai_on_vertex_ai.pdf
   handler: pdf_document
   title: Google Cloud Operationalizing GenAI (PDF)
@@ -1511,6 +2918,18 @@ items:
   - gcp
   - prompt-engineering
   - rag
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - llm
+  - eval
+  - gcp
+  - prompt-engineering
+  - rag
+  constraint_kind: guiding
 - uri: https://services.google.com/fh/files/misc/evaluation_framework.pdf
   handler: pdf_document
   title: Google Cloud Evaluation Framework (PDF)
@@ -1522,6 +2941,17 @@ items:
   - llm
   - gcp
   - rubric
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - eval
+  - llm
+  - gcp
+  - rubric
+  constraint_kind: guiding
 - uri: https://services.google.com/fh/files/blogs/neurips_evaluation.pdf
   handler: pdf_document
   title: Google Cloud Evaluating LLMs (NeurIPS PDF)
@@ -1533,6 +2963,17 @@ items:
   - llm
   - gcp
   - benchmarks
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - eval
+  - llm
+  - gcp
+  - benchmarks
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/architecture/rag-capable-gen-ai-app-using-vertex-ai
   handler: web_page
   title: Google Cloud RAG Infrastructure Architecture
@@ -1544,6 +2985,17 @@ items:
   - architecture
   - gcp
   - reference-architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - architecture
+  - gcp
+  - reference-architecture
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/evaluation-overview
   handler: web_page
   title: Google Cloud Gen AI Evaluation Service
@@ -1554,6 +3006,16 @@ items:
   - eval
   - llm
   - gcp
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - eval
+  - llm
+  - gcp
+  constraint_kind: guiding
 - uri: https://nvlpubs.nist.gov/nistpubs/ai/nist.ai.100-1.pdf
   handler: pdf_document
   title: NIST AI Risk Management Framework (PDF)
@@ -1565,6 +3027,17 @@ items:
   - llm
   - governance
   - nist
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - risk-management
+  - llm
+  - governance
+  - nist
+  constraint_kind: guiding
 - uri: https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf
   handler: pdf_document
   title: NIST AI RMF Generative AI Profile (PDF)
@@ -1576,6 +3049,17 @@ items:
   - llm
   - generative-ai
   - nist
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - risk-management
+  - llm
+  - generative-ai
+  - nist
+  constraint_kind: guiding
 - uri: https://airc.nist.gov/airmf-resources/playbook/
   handler: web_page
   title: NIST AI RMF Playbook
@@ -1587,6 +3071,17 @@ items:
   - llm
   - nist
   - playbook
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - risk-management
+  - llm
+  - nist
+  - playbook
+  constraint_kind: guiding
 - uri: https://developers.openai.com/api/docs/guides/prompt-engineering/
   handler: web_page
   title: OpenAI Prompt Engineering Guide
@@ -1596,6 +3091,15 @@ items:
   tags:
   - prompt-engineering
   - openai
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - openai
+  constraint_kind: guiding
 - uri: https://developers.openai.com/api/docs/guides/prompt-guidance/
   handler: web_page
   title: OpenAI Prompt Guidance
@@ -1605,6 +3109,15 @@ items:
   tags:
   - prompt-engineering
   - openai
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - openai
+  constraint_kind: guiding
 - uri: https://help.openai.com/en/articles/10032626-prompt-engineering-best-practices-for-chatgpt
   handler: web_page
   title: OpenAI Prompt Best Practices for ChatGPT
@@ -1615,6 +3128,16 @@ items:
   - prompt-engineering
   - openai
   - best-practices
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - openai
+  - best-practices
+  constraint_kind: advisory
 - uri: https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview
   handler: web_page
   title: Anthropic Prompt Engineering Overview
@@ -1624,6 +3147,15 @@ items:
   tags:
   - prompt-engineering
   - anthropic
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - anthropic
+  constraint_kind: guiding
 - uri: https://docs.anthropic.com/en/prompt-library/library
   handler: web_page
   title: Anthropic Prompt Library
@@ -1634,6 +3166,16 @@ items:
   - prompt-engineering
   - anthropic
   - examples
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - anthropic
+  - examples
+  constraint_kind: guiding
 - uri: https://services.google.com/fh/files/misc/1_vertex_ai_gemini_prompting_strategies.pdf
   handler: pdf_document
   title: Google Vertex AI Gemini Prompting Strategies (PDF)
@@ -1644,6 +3186,16 @@ items:
   - prompt-engineering
   - gcp
   - gemini
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - prompt-engineering
+  - gcp
+  - gemini
+  constraint_kind: guiding
 - uri: https://services.google.com/fh/files/misc/improve_llm_performance_reliability.pdf
   handler: pdf_document
   title: Google Improve LLM Performance & Reliability (PDF)
@@ -1655,6 +3207,17 @@ items:
   - rag
   - fine-tuning
   - gcp
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - prompt-engineering
+  - rag
+  - fine-tuning
+  - gcp
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies
   handler: web_page
   title: Google Prompt Design Strategies
@@ -1664,6 +3227,15 @@ items:
   tags:
   - prompt-engineering
   - gcp
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - gcp
+  constraint_kind: guiding
 - uri: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
   handler: web_page
   title: Anthropic Extended Thinking
@@ -1675,6 +3247,17 @@ items:
   - anthropic
   - reasoning
   - tool-use
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - anthropic
+  - reasoning
+  - tool-use
+  constraint_kind: guiding
 - uri: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use
   handler: web_page
   title: Anthropic Tool Use Implementation
@@ -1685,6 +3268,16 @@ items:
   - agents
   - tool-use
   - anthropic
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - tool-use
+  - anthropic
+  constraint_kind: guiding
 - uri: https://docs.langchain.com/oss/python/langchain/retrieval
   handler: web_page
   title: LangChain Retrieval
@@ -1695,6 +3288,16 @@ items:
   - rag
   - langchain
   - retrieval
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - langchain
+  - retrieval
+  constraint_kind: advisory
 - uri: https://docs.langchain.com/oss/python/langgraph/agentic-rag
   handler: web_page
   title: LangGraph Agentic RAG
@@ -1705,6 +3308,16 @@ items:
   - rag
   - agents
   - langgraph
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - agents
+  - langgraph
+  constraint_kind: advisory
 - uri: https://docs.langchain.com/oss/python/langchain/rag
   handler: web_page
   title: LangChain Build a RAG Agent
@@ -1715,16 +3328,36 @@ items:
   - rag
   - langchain
   - tutorial
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - langchain
+  - tutorial
+  constraint_kind: advisory
 - uri: https://docs.langchain.com/oss/python/langchain/multi-agent
   handler: web_page
   title: LangChain Multi-Agent
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - agents
   - multi-agent
   - langchain
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - multi-agent
+  - langchain
+  constraint_kind: advisory
 - uri: https://tag-app-delivery.cncf.io/whitepapers/platforms/
   handler: web_page
   title: CNCF Platforms White Paper
@@ -1735,6 +3368,16 @@ items:
   - platform-engineering
   - cncf
   - internal-developer-platform
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - cncf
+  - internal-developer-platform
+  constraint_kind: guiding
 - uri: https://tag-app-delivery.cncf.io/whitepapers/platform-eng-maturity-model/
   handler: web_page
   title: CNCF Platform Engineering Maturity Model
@@ -1745,6 +3388,16 @@ items:
   - platform-engineering
   - cncf
   - maturity-model
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - cncf
+  - maturity-model
+  constraint_kind: guiding
 - uri: https://tag-app-delivery.cncf.io/blog/paap-personas/
   handler: web_page
   title: CNCF Platform as a Product Personas
@@ -1755,6 +3408,16 @@ items:
   - platform-engineering
   - cncf
   - product-thinking
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - cncf
+  - product-thinking
+  constraint_kind: advisory
 - uri: https://tag-app-delivery.cncf.io/whitepapers/operator/
   handler: web_page
   title: CNCF Operator White Paper
@@ -1766,6 +3429,17 @@ items:
   - cncf
   - kubernetes
   - operators
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - cncf
+  - kubernetes
+  - operators
+  constraint_kind: guiding
 - uri: https://backstage.io/docs/overview/what-is-backstage/
   handler: web_page
   title: Backstage Overview
@@ -1776,6 +3450,16 @@ items:
   - backstage
   - internal-developer-platform
   - portal
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - backstage
+  - internal-developer-platform
+  - portal
+  constraint_kind: guiding
 - uri: https://backstage.io/docs/features/software-catalog/
   handler: web_page
   title: Backstage Software Catalog
@@ -1787,6 +3471,17 @@ items:
   - catalog
   - ownership
   - internal-developer-platform
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - backstage
+  - catalog
+  - ownership
+  - internal-developer-platform
+  constraint_kind: guiding
 - uri: https://backstage.io/docs/features/software-catalog/descriptor-format/
   handler: web_page
   title: Backstage Descriptor Format
@@ -1798,6 +3493,17 @@ items:
   - catalog
   - schema
   - metadata
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - backstage
+  - catalog
+  - schema
+  - metadata
+  constraint_kind: guiding
 - uri: https://backstage.io/docs/features/software-templates/
   handler: web_page
   title: Backstage Software Templates
@@ -1808,6 +3514,16 @@ items:
   - backstage
   - templates
   - self-service
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - backstage
+  - templates
+  - self-service
+  constraint_kind: guiding
 - uri: https://backstage.io/docs/features/software-templates/writing-templates/
   handler: web_page
   title: Backstage Writing Templates
@@ -1818,6 +3534,16 @@ items:
   - backstage
   - templates
   - scaffolding
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - backstage
+  - templates
+  - scaffolding
+  constraint_kind: guiding
 - uri: https://backstage.io/docs/features/techdocs/
   handler: web_page
   title: Backstage TechDocs
@@ -1828,6 +3554,16 @@ items:
   - backstage
   - docs-as-code
   - internal-developer-platform
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - backstage
+  - docs-as-code
+  - internal-developer-platform
+  constraint_kind: guiding
 - uri: https://teamtopologies.com/
   handler: web_page
   title: Team Topologies
@@ -1838,6 +3574,16 @@ items:
   - platform-engineering
   - team-boundaries
   - cognitive-load
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - team-boundaries
+  - cognitive-load
+  constraint_kind: advisory
 - uri: https://www.nasa.gov/wp-content/uploads/2018/09/nasa_systems_engineering_handbook_0.pdf
   handler: pdf_document
   title: NASA Systems Engineering Handbook (PDF)
@@ -1848,6 +3594,16 @@ items:
   - systems-engineering
   - nasa
   - handbook
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - systems-engineering
+  - nasa
+  - handbook
+  constraint_kind: guiding
 - uri: https://www.nasa.gov/reference/systems-engineering-handbook/
   handler: web_page
   title: NASA Systems Engineering Handbook
@@ -1857,6 +3613,15 @@ items:
   tags:
   - systems-engineering
   - nasa
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - systems-engineering
+  - nasa
+  constraint_kind: guiding
 - uri: https://standards.nasa.gov/sites/default/files/standards/NASA/Baseline/0/2022-10-14-NASA-HDBK-1009.pdf
   handler: pdf_document
   title: NASA Systems Modeling Handbook (PDF)
@@ -1868,6 +3633,17 @@ items:
   - nasa
   - mbse
   - modeling
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - systems-engineering
+  - nasa
+  - mbse
+  - modeling
+  constraint_kind: guiding
 - uri: https://www.incose.org/resources-publications/technical-publications/se-handbook/
   handler: web_page
   title: INCOSE Systems Engineering Handbook
@@ -1877,6 +3653,15 @@ items:
   tags:
   - systems-engineering
   - incose
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - systems-engineering
+  - incose
+  constraint_kind: guiding
 - uri: https://sre.google/workbook/implementing-slos/
   handler: web_page
   title: Google SRE Implementing SLOs
@@ -1888,6 +3673,17 @@ items:
   - reliability
   - slo
   - error-budget
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sre
+  - reliability
+  - slo
+  - error-budget
+  constraint_kind: guiding
 - uri: https://sre.google/static/pdf/IncidentManagementGuide.pdf
   handler: pdf_document
   title: Google Incident Management Guide (PDF)
@@ -1898,44 +3694,92 @@ items:
   - sre
   - reliability
   - incident-response
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - sre
+  - reliability
+  - incident-response
+  constraint_kind: guiding
 - uri: https://platformengineering.org/blog/platform-engineering-maturity-in-2026
   handler: web_page
   title: PlatformEngineering.org Maturity 2026
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - platform-engineering
   - maturity-model
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - maturity-model
+  constraint_kind: guiding
 - uri: https://platformengineering.org/blog/metrics-that-matter-measuring-platform-success-and-maturity
   handler: web_page
   title: PlatformEngineering.org Metrics
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - platform-engineering
   - metrics
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - platform-engineering
+  - metrics
+  constraint_kind: guiding
 - uri: https://www.thoughtworks.com/en-us/radar/techniques/architecture-advice-process
   handler: web_page
   title: Thoughtworks Architecture Advice Process
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - architecture
   - decision-records
   - thoughtworks
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - architecture
+  - decision-records
+  - thoughtworks
+  constraint_kind: guiding
 - uri: https://www.thoughtworks.com/content/dam/thoughtworks/documents/report/thoughtworks-enterprise-architecture-playbook.pdf
   handler: pdf_document
   title: Thoughtworks Enterprise Architecture Playbook (PDF)
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - architecture
   - enterprise
   - thoughtworks
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - architecture
+  - enterprise
+  - thoughtworks
+  constraint_kind: guiding
 - uri: https://www.computer.org/education/bodies-of-knowledge/software-engineering
   handler: web_page
   title: SWEBOK Guide
@@ -1946,6 +3790,16 @@ items:
   - software-engineering
   - body-of-knowledge
   - foundations
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - software-engineering
+  - body-of-knowledge
+  - foundations
+  constraint_kind: guiding
 - uri: https://refactoring.com/catalog/
   handler: web_page
   title: Martin Fowler Refactoring Catalog
@@ -1957,6 +3811,17 @@ items:
   - refactoring
   - code-review
   - design
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - software-engineering
+  - refactoring
+  - code-review
+  - design
+  constraint_kind: guiding
 - uri: https://google.github.io/eng-practices/
   handler: web_page
   title: Google Engineering Practices
@@ -1970,6 +3835,17 @@ items:
   - google
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - software-engineering
+  - code-review
+  - readability
+  - google
+  constraint_kind: guiding
 - uri: https://testing.googleblog.com/
   handler: web_page
   title: Google Testing Blog
@@ -1980,6 +3856,16 @@ items:
   - testing
   - software-engineering
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - testing
+  - software-engineering
+  - google
+  constraint_kind: guiding
 - uri: https://testing.googleblog.com/search/label/Testing%20on%20the%20Toilet
   handler: web_page
   title: Google Testing on the Toilet
@@ -1991,6 +3877,17 @@ items:
   - software-engineering
   - google
   - best-practices
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - testing
+  - software-engineering
+  - google
+  - best-practices
+  constraint_kind: advisory
 - uri: https://semver.org/
   handler: web_page
   title: Semantic Versioning 2.0.0
@@ -2002,6 +3899,17 @@ items:
   - versioning
   - release
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - software-engineering
+  - versioning
+  - release
+  - spec
+  constraint_kind: guiding
 - uri: https://www.conventionalcommits.org/en/v1.0.0/
   handler: web_page
   title: Conventional Commits
@@ -2013,16 +3921,37 @@ items:
   - version-control
   - commits
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - software-engineering
+  - version-control
+  - commits
+  - spec
+  constraint_kind: advisory
 - uri: https://www.opengroup.org/togaf
   handler: web_page
   title: TOGAF Overview
   domain: architecture
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - architecture
   - enterprise
   - togaf
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - architecture
+  - enterprise
+  - togaf
+  constraint_kind: guiding
 - uri: https://git-scm.com/doc
   handler: web_page
   title: Git Documentation
@@ -2033,6 +3962,16 @@ items:
   - version-control
   - git
   - reference
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - version-control
+  - git
+  - reference
+  constraint_kind: guiding
 - uri: https://git-scm.com/book/en/v2
   handler: web_page
   title: Pro Git Book
@@ -2045,6 +3984,16 @@ items:
   - book
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - version-control
+  - git
+  - book
+  constraint_kind: guiding
 - uri: https://docs.github.com/
   handler: web_page
   title: GitHub Documentation
@@ -2056,6 +4005,17 @@ items:
   - github
   - ci-cd
   - collaboration
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - version-control
+  - github
+  - ci-cd
+  - collaboration
+  constraint_kind: guiding
 - uri: https://docs.github.com/actions
   handler: web_page
   title: GitHub Actions Documentation
@@ -2067,6 +4027,17 @@ items:
   - github
   - automation
   - build
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ci-cd
+  - github
+  - automation
+  - build
+  constraint_kind: guiding
 - uri: https://docs.gitlab.com/ee/ci/
   handler: web_page
   title: GitLab CI/CD Documentation
@@ -2078,6 +4049,17 @@ items:
   - gitlab
   - pipelines
   - build
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ci-cd
+  - gitlab
+  - pipelines
+  - build
+  constraint_kind: guiding
 - uri: https://www.jenkins.io/doc/
   handler: web_page
   title: Jenkins Documentation
@@ -2088,6 +4070,16 @@ items:
   - ci-cd
   - jenkins
   - build
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ci-cd
+  - jenkins
+  - build
+  constraint_kind: advisory
 - uri: https://bazel.build/docs
   handler: web_page
   title: Bazel Documentation
@@ -2099,6 +4091,17 @@ items:
   - bazel
   - monorepo
   - google
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - build
+  - bazel
+  - monorepo
+  - google
+  constraint_kind: guiding
 - uri: https://cmake.org/documentation/
   handler: web_page
   title: CMake Documentation
@@ -2110,6 +4113,18 @@ items:
   - cmake
   - cpp
   - c
+  corpus_class: hybrid
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - build
+  - cmake
+  - cpp
+  - c
+  constraint_kind: guiding
 - uri: https://www.rfc-editor.org/rfc/rfc9110
   handler: web_page
   title: HTTP Semantics (RFC 9110)
@@ -2121,6 +4136,17 @@ items:
   - http
   - rfc
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - api
+  - http
+  - rfc
+  - spec
+  constraint_kind: guiding
 - uri: https://www.rfc-editor.org/rfc/rfc9111
   handler: web_page
   title: HTTP Caching (RFC 9111)
@@ -2133,6 +4159,18 @@ items:
   - caching
   - rfc
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - api
+  - http
+  - caching
+  - rfc
+  - spec
+  constraint_kind: guiding
 - uri: https://www.rfc-editor.org/rfc/rfc3986
   handler: web_page
   title: URI Syntax (RFC 3986)
@@ -2145,6 +4183,18 @@ items:
   - uri
   - rfc
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - api
+  - http
+  - uri
+  - rfc
+  - spec
+  constraint_kind: guiding
 - uri: https://www.rfc-editor.org/rfc/rfc8259
   handler: web_page
   title: JSON (RFC 8259)
@@ -2156,6 +4206,17 @@ items:
   - json
   - rfc
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - api
+  - json
+  - rfc
+  - spec
+  constraint_kind: guiding
 - uri: https://json-schema.org/
   handler: web_page
   title: JSON Schema
@@ -2168,6 +4229,18 @@ items:
   - schema
   - validation
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - api
+  - json
+  - schema
+  - validation
+  - spec
+  constraint_kind: guiding
 - uri: https://spec.graphql.org/
   handler: web_page
   title: GraphQL Specification
@@ -2178,6 +4251,16 @@ items:
   - api
   - graphql
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - api
+  - graphql
+  - spec
+  constraint_kind: guiding
 - uri: https://html.spec.whatwg.org/
   handler: web_page
   title: WHATWG HTML Living Standard
@@ -2189,6 +4272,17 @@ items:
   - html
   - spec
   - standard
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - html
+  - spec
+  - standard
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/
   handler: web_page
   title: MDN Web Docs
@@ -2201,6 +4295,19 @@ items:
   - css
   - html
   - reference
+  corpus_class: hybrid
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - javascript
+  - css
+  - html
+  - reference
+  constraint_kind: guiding
 - uri: https://www.postgresql.org/docs/
   handler: web_page
   title: PostgreSQL Documentation
@@ -2212,6 +4319,18 @@ items:
   - sql
   - postgresql
   - reference
+  corpus_class: hybrid
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - database
+  - sql
+  - postgresql
+  - reference
+  constraint_kind: guiding
 - uri: https://dev.mysql.com/doc/
   handler: web_page
   title: MySQL Documentation
@@ -2223,6 +4342,18 @@ items:
   - sql
   - mysql
   - reference
+  corpus_class: hybrid
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - database
+  - sql
+  - mysql
+  - reference
+  constraint_kind: guiding
 - uri: https://www.sqlite.org/docs.html
   handler: web_page
   title: SQLite Documentation
@@ -2234,6 +4365,18 @@ items:
   - sql
   - sqlite
   - reference
+  corpus_class: hybrid
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - database
+  - sql
+  - sqlite
+  - reference
+  constraint_kind: guiding
 - uri: https://redis.io/docs/
   handler: web_page
   title: Redis Documentation
@@ -2245,6 +4388,17 @@ items:
   - redis
   - caching
   - data-structures
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - database
+  - redis
+  - caching
+  - data-structures
+  constraint_kind: guiding
 - uri: https://kafka.apache.org/documentation/
   handler: web_page
   title: Apache Kafka Documentation
@@ -2255,6 +4409,16 @@ items:
   - messaging
   - kafka
   - event-streaming
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - messaging
+  - kafka
+  - event-streaming
+  constraint_kind: guiding
 - uri: https://www.rabbitmq.com/docs
   handler: web_page
   title: RabbitMQ Documentation
@@ -2265,6 +4429,16 @@ items:
   - messaging
   - rabbitmq
   - queue
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - messaging
+  - rabbitmq
+  - queue
+  constraint_kind: guiding
 - uri: https://owasp.org/www-project-application-security-verification-standard/
   handler: web_page
   title: OWASP Application Security Verification Standard
@@ -2276,6 +4450,17 @@ items:
   - owasp
   - asvs
   - verification
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - owasp
+  - asvs
+  - verification
+  constraint_kind: guiding
 - uri: https://csrc.nist.gov/pubs/sp/800/218/final
   handler: web_page
   title: NIST Secure Software Development Framework (SP 800-218)
@@ -2287,6 +4472,17 @@ items:
   - nist
   - sdlc
   - supply-chain
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - nist
+  - sdlc
+  - supply-chain
+  constraint_kind: guiding
 - uri: https://slsa.dev/
   handler: web_page
   title: SLSA Supply Chain Integrity
@@ -2298,6 +4494,17 @@ items:
   - supply-chain
   - provenance
   - slsa
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - supply-chain
+  - provenance
+  - slsa
+  constraint_kind: guiding
 - uri: https://scorecard.dev/
   handler: web_page
   title: OpenSSF Scorecard
@@ -2308,6 +4515,16 @@ items:
   - security
   - supply-chain
   - openssf
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - supply-chain
+  - openssf
+  constraint_kind: advisory
 - uri: https://grafana.com/docs/
   handler: web_page
   title: Grafana Documentation
@@ -2319,6 +4536,17 @@ items:
   - grafana
   - dashboards
   - monitoring
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - observability
+  - grafana
+  - dashboards
+  - monitoring
+  constraint_kind: guiding
 - uri: https://packaging.python.org/
   handler: web_page
   title: Python Packaging User Guide
@@ -2330,6 +4558,18 @@ items:
   - packaging
   - build
   - pip
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - packaging
+  - build
+  - pip
+  constraint_kind: guiding
 - uri: https://pip.pypa.io/en/stable/
   handler: web_page
   title: pip Documentation
@@ -2340,6 +4580,17 @@ items:
   - python
   - pip
   - packaging
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - pip
+  - packaging
+  constraint_kind: guiding
 - uri: https://docs.pytest.org/
   handler: web_page
   title: pytest Documentation
@@ -2350,6 +4601,17 @@ items:
   - python
   - testing
   - pytest
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - testing
+  - pytest
+  constraint_kind: guiding
 - uri: https://docs.astral.sh/ruff/
   handler: web_page
   title: Ruff Documentation
@@ -2361,6 +4623,18 @@ items:
   - linting
   - formatting
   - ruff
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - linting
+  - formatting
+  - ruff
+  constraint_kind: advisory
 - uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
   handler: web_page
   title: MDN JavaScript Guide
@@ -2371,6 +4645,17 @@ items:
   - javascript
   - reference
   - mdn
+  corpus_class: hybrid
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - reference
+  - mdn
+  constraint_kind: guiding
 - uri: https://tc39.es/ecma262/
   handler: web_page
   title: ECMAScript Specification
@@ -2381,6 +4666,17 @@ items:
   - javascript
   - spec
   - ecmascript
+  corpus_class: hybrid
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - spec
+  - ecmascript
+  constraint_kind: guiding
 - uri: https://nodejs.org/docs/latest/api/
   handler: web_page
   title: Node.js Documentation
@@ -2392,6 +4688,18 @@ items:
   - nodejs
   - runtime
   - api
+  corpus_class: hybrid
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - nodejs
+  - runtime
+  - api
+  constraint_kind: guiding
 - uri: https://docs.npmjs.com/
   handler: web_page
   title: npm Documentation
@@ -2402,6 +4710,17 @@ items:
   - javascript
   - npm
   - packaging
+  corpus_class: hybrid
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - npm
+  - packaging
+  constraint_kind: guiding
 - uri: https://jestjs.io/docs/getting-started
   handler: web_page
   title: Jest Documentation
@@ -2412,6 +4731,17 @@ items:
   - javascript
   - testing
   - jest
+  corpus_class: hybrid
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - testing
+  - jest
+  constraint_kind: guiding
 - uri: https://www.typescriptlang.org/docs/
   handler: web_page
   title: TypeScript Documentation
@@ -2421,6 +4751,16 @@ items:
   tags:
   - typescript
   - reference
+  corpus_class: hybrid
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - reference
+  constraint_kind: guiding
 - uri: https://www.typescriptlang.org/docs/handbook/intro.html
   handler: web_page
   title: TypeScript Handbook
@@ -2431,6 +4771,17 @@ items:
   - typescript
   - handbook
   - guide
+  corpus_class: hybrid
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - handbook
+  - guide
+  constraint_kind: guiding
 - uri: https://www.typescriptlang.org/tsconfig/
   handler: web_page
   title: tsconfig Reference
@@ -2441,6 +4792,17 @@ items:
   - typescript
   - config
   - reference
+  corpus_class: hybrid
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - config
+  - reference
+  constraint_kind: guiding
 - uri: https://typescript-eslint.io/
   handler: web_page
   title: TypeScript ESLint
@@ -2451,6 +4813,17 @@ items:
   - typescript
   - linting
   - eslint
+  corpus_class: hybrid
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - linting
+  - eslint
+  constraint_kind: advisory
 - uri: https://docs.oracle.com/en/java/
   handler: web_page
   title: Java Documentation
@@ -2461,6 +4834,17 @@ items:
   - java
   - reference
   - oracle
+  corpus_class: hybrid
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - reference
+  - oracle
+  constraint_kind: guiding
 - uri: https://dev.java/learn/
   handler: web_page
   title: dev.java Learn
@@ -2471,6 +4855,17 @@ items:
   - java
   - guide
   - tutorials
+  corpus_class: hybrid
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - guide
+  - tutorials
+  constraint_kind: guiding
 - uri: https://maven.apache.org/guides/
   handler: web_page
   title: Maven Documentation
@@ -2482,6 +4877,18 @@ items:
   - maven
   - build
   - dependencies
+  corpus_class: hybrid
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - maven
+  - build
+  - dependencies
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/userguide.html
   handler: web_page
   title: Gradle User Manual
@@ -2493,6 +4900,19 @@ items:
   - kotlin
   - gradle
   - build
+  corpus_class: hybrid
+  languages:
+  - java
+  - kotlin
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - kotlin
+  - gradle
+  - build
+  constraint_kind: guiding
 - uri: https://junit.org/junit5/docs/current/user-guide/
   handler: web_page
   title: JUnit 5 User Guide
@@ -2503,6 +4923,17 @@ items:
   - java
   - testing
   - junit
+  corpus_class: hybrid
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - testing
+  - junit
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/csharp/
   handler: web_page
   title: Microsoft C# Documentation
@@ -2513,6 +4944,17 @@ items:
   - csharp
   - reference
   - microsoft
+  corpus_class: hybrid
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - reference
+  - microsoft
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/
   handler: web_page
   title: .NET Documentation
@@ -2524,6 +4966,18 @@ items:
   - dotnet
   - runtime
   - microsoft
+  corpus_class: hybrid
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - runtime
+  - microsoft
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/nuget/
   handler: web_page
   title: NuGet Documentation
@@ -2534,6 +4988,17 @@ items:
   - csharp
   - nuget
   - packaging
+  corpus_class: hybrid
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - nuget
+  - packaging
+  constraint_kind: guiding
 - uri: https://xunit.net/docs/getting-started/v2/getting-started
   handler: web_page
   title: xUnit Documentation
@@ -2544,6 +5009,17 @@ items:
   - csharp
   - testing
   - xunit
+  corpus_class: hybrid
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - testing
+  - xunit
+  constraint_kind: advisory
 - uri: https://learn.microsoft.com/en-us/aspnet/core/
   handler: web_page
   title: ASP.NET Core Documentation
@@ -2555,6 +5031,18 @@ items:
   - aspnet
   - web
   - microsoft
+  corpus_class: hybrid
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - aspnet
+  - web
+  - microsoft
+  constraint_kind: guiding
 - uri: https://en.cppreference.com/w/
   handler: web_page
   title: cppreference (C++)
@@ -2564,6 +5052,16 @@ items:
   tags:
   - cpp
   - reference
+  corpus_class: hybrid
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - cpp
+  - reference
+  constraint_kind: guiding
 - uri: https://isocpp.org/get-started
   handler: web_page
   title: ISO C++ Getting Started
@@ -2574,6 +5072,17 @@ items:
   - cpp
   - guide
   - iso
+  corpus_class: hybrid
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - cpp
+  - guide
+  - iso
+  constraint_kind: guiding
 - uri: https://google.github.io/googletest/
   handler: web_page
   title: GoogleTest Documentation
@@ -2585,6 +5094,18 @@ items:
   - testing
   - googletest
   - google
+  corpus_class: hybrid
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - cpp
+  - testing
+  - googletest
+  - google
+  constraint_kind: guiding
 - uri: https://en.cppreference.com/w/c
   handler: web_page
   title: cppreference (C)
@@ -2594,6 +5115,15 @@ items:
   tags:
   - c
   - reference
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - c
+  - reference
+  constraint_kind: guiding
 - uri: https://www.gnu.org/software/gnu-c-manual/gnu-c-manual.html
   handler: web_page
   title: GNU C Manual
@@ -2604,6 +5134,16 @@ items:
   - c
   - gnu
   - manual
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - c
+  - gnu
+  - manual
+  constraint_kind: guiding
 - uri: https://clang.llvm.org/docs/
   handler: web_page
   title: Clang Documentation
@@ -2616,6 +5156,19 @@ items:
   - clang
   - llvm
   - compiler
+  corpus_class: hybrid
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - c
+  - cpp
+  - clang
+  - llvm
+  - compiler
+  constraint_kind: guiding
 - uri: https://go.dev/doc/
   handler: web_page
   title: Go Documentation
@@ -2625,6 +5178,16 @@ items:
   tags:
   - go
   - reference
+  corpus_class: hybrid
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - reference
+  constraint_kind: guiding
 - uri: https://go.dev/doc/effective_go
   handler: web_page
   title: Effective Go
@@ -2636,6 +5199,18 @@ items:
   - idioms
   - style
   - guide
+  corpus_class: hybrid
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - idioms
+  - style
+  - guide
+  constraint_kind: guiding
 - uri: https://go.dev/ref/spec
   handler: web_page
   title: Go Language Specification
@@ -2646,6 +5221,17 @@ items:
   - go
   - spec
   - reference
+  corpus_class: hybrid
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - spec
+  - reference
+  constraint_kind: guiding
 - uri: https://go.dev/ref/mod
   handler: web_page
   title: Go Modules Reference
@@ -2656,6 +5242,17 @@ items:
   - go
   - modules
   - dependencies
+  corpus_class: hybrid
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - modules
+  - dependencies
+  constraint_kind: guiding
 - uri: https://gobyexample.com/
   handler: web_page
   title: Go by Example
@@ -2666,6 +5263,17 @@ items:
   - go
   - examples
   - tutorial
+  corpus_class: hybrid
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - examples
+  - tutorial
+  constraint_kind: advisory
 - uri: https://doc.rust-lang.org/
   handler: web_page
   title: Rust Documentation
@@ -2675,6 +5283,16 @@ items:
   tags:
   - rust
   - reference
+  corpus_class: hybrid
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - reference
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/book/
   handler: web_page
   title: The Rust Programming Language
@@ -2685,6 +5303,17 @@ items:
   - rust
   - book
   - guide
+  corpus_class: hybrid
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - book
+  - guide
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/reference/
   handler: web_page
   title: Rust Reference
@@ -2695,6 +5324,17 @@ items:
   - rust
   - spec
   - reference
+  corpus_class: hybrid
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - spec
+  - reference
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/cargo/
   handler: web_page
   title: Cargo Book
@@ -2706,6 +5346,18 @@ items:
   - cargo
   - build
   - packaging
+  corpus_class: hybrid
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - cargo
+  - build
+  - packaging
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/rust-by-example/
   handler: web_page
   title: Rust by Example
@@ -2716,6 +5368,17 @@ items:
   - rust
   - examples
   - tutorial
+  corpus_class: hybrid
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - examples
+  - tutorial
+  constraint_kind: advisory
 - uri: https://www.gnu.org/software/bash/manual/
   handler: web_page
   title: GNU Bash Manual
@@ -2727,6 +5390,18 @@ items:
   - shell
   - gnu
   - reference
+  corpus_class: hybrid
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - bash
+  - shell
+  - gnu
+  - reference
+  constraint_kind: guiding
 - uri: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html
   handler: web_page
   title: POSIX Shell Command Language
@@ -2738,6 +5413,18 @@ items:
   - shell
   - posix
   - spec
+  corpus_class: hybrid
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - bash
+  - shell
+  - posix
+  - spec
+  constraint_kind: guiding
 - uri: https://www.shellcheck.net/wiki/
   handler: web_page
   title: ShellCheck Wiki
@@ -2749,6 +5436,18 @@ items:
   - shell
   - linting
   - shellcheck
+  corpus_class: hybrid
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - bash
+  - shell
+  - linting
+  - shellcheck
+  constraint_kind: advisory
 - uri: https://learn.microsoft.com/en-us/powershell/
   handler: web_page
   title: PowerShell Documentation
@@ -2759,6 +5458,16 @@ items:
   - powershell
   - microsoft
   - reference
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - powershell
+  - microsoft
+  - reference
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/
   handler: web_page
   title: PowerShell about_* Topics
@@ -2769,6 +5478,16 @@ items:
   - powershell
   - concepts
   - microsoft
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - powershell
+  - concepts
+  - microsoft
+  constraint_kind: guiding
 - uri: https://pester.dev/
   handler: web_page
   title: Pester Documentation
@@ -2779,6 +5498,16 @@ items:
   - powershell
   - testing
   - pester
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - powershell
+  - testing
+  - pester
+  constraint_kind: advisory
 - uri: https://www.php.net/docs.php
   handler: web_page
   title: PHP Manual
@@ -2788,6 +5517,16 @@ items:
   tags:
   - php
   - reference
+  corpus_class: hybrid
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - reference
+  constraint_kind: guiding
 - uri: https://getcomposer.org/doc/
   handler: web_page
   title: Composer Documentation
@@ -2798,6 +5537,17 @@ items:
   - php
   - composer
   - packaging
+  corpus_class: hybrid
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - composer
+  - packaging
+  constraint_kind: guiding
 - uri: https://docs.phpunit.de/
   handler: web_page
   title: PHPUnit Documentation
@@ -2808,6 +5558,17 @@ items:
   - php
   - testing
   - phpunit
+  corpus_class: hybrid
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - testing
+  - phpunit
+  constraint_kind: guiding
 - uri: https://kotlinlang.org/docs/home.html
   handler: web_page
   title: Kotlin Documentation
@@ -2817,6 +5578,16 @@ items:
   tags:
   - kotlin
   - reference
+  corpus_class: hybrid
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - kotlin
+  - reference
+  constraint_kind: guiding
 - uri: https://kotlinlang.org/spec/introduction.html
   handler: web_page
   title: Kotlin Language Specification
@@ -2827,6 +5598,17 @@ items:
   - kotlin
   - spec
   - reference
+  corpus_class: hybrid
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - kotlin
+  - spec
+  - reference
+  constraint_kind: guiding
 - uri: https://kotlinlang.org/docs/coroutines-guide.html
   handler: web_page
   title: Kotlin Coroutines Guide
@@ -2837,6 +5619,17 @@ items:
   - kotlin
   - coroutines
   - concurrency
+  corpus_class: hybrid
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kotlin
+  - coroutines
+  - concurrency
+  constraint_kind: guiding
 - uri: https://www.ruby-lang.org/en/documentation/
   handler: web_page
   title: Ruby Documentation
@@ -2846,6 +5639,16 @@ items:
   tags:
   - ruby
   - reference
+  corpus_class: hybrid
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.ruby-lang.org/en/
   handler: web_page
   title: Ruby Core / Stdlib Docs
@@ -2856,6 +5659,17 @@ items:
   - ruby
   - stdlib
   - reference
+  corpus_class: hybrid
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - stdlib
+  - reference
+  constraint_kind: guiding
 - uri: https://guides.rubygems.org/
   handler: web_page
   title: RubyGems Guides
@@ -2866,6 +5680,17 @@ items:
   - ruby
   - rubygems
   - packaging
+  corpus_class: hybrid
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - rubygems
+  - packaging
+  constraint_kind: guiding
 - uri: https://rspec.info/documentation/
   handler: web_page
   title: RSpec Documentation
@@ -2876,6 +5701,17 @@ items:
   - ruby
   - testing
   - rspec
+  corpus_class: hybrid
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - testing
+  - rspec
+  constraint_kind: advisory
 - uri: https://dart.dev/guides
   handler: web_page
   title: Dart Documentation
@@ -2885,6 +5721,15 @@ items:
   tags:
   - dart
   - reference
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - dart
+  - reference
+  constraint_kind: guiding
 - uri: https://dart.dev/language
   handler: web_page
   title: Dart Language Tour
@@ -2895,6 +5740,16 @@ items:
   - dart
   - guide
   - language
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dart
+  - guide
+  - language
+  constraint_kind: guiding
 - uri: https://dart.dev/tools/pub
   handler: web_page
   title: Dart pub Documentation
@@ -2905,6 +5760,16 @@ items:
   - dart
   - pub
   - packaging
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dart
+  - pub
+  - packaging
+  constraint_kind: guiding
 - uri: https://docs.flutter.dev/
   handler: web_page
   title: Flutter Documentation
@@ -2916,6 +5781,17 @@ items:
   - flutter
   - mobile
   - ui
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dart
+  - flutter
+  - mobile
+  - ui
+  constraint_kind: guiding
 - uri: https://www.swift.org/documentation/
   handler: web_page
   title: Swift Documentation
@@ -2925,6 +5801,16 @@ items:
   tags:
   - swift
   - reference
+  corpus_class: hybrid
+  languages:
+  - swift
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - swift
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.swift.org/swift-book/documentation/the-swift-programming-language/
   handler: web_page
   title: The Swift Programming Language
@@ -2935,6 +5821,17 @@ items:
   - swift
   - book
   - guide
+  corpus_class: hybrid
+  languages:
+  - swift
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - swift
+  - book
+  - guide
+  constraint_kind: guiding
 - uri: https://www.swift.org/documentation/package-manager/
   handler: web_page
   title: Swift Package Manager
@@ -2945,6 +5842,17 @@ items:
   - swift
   - spm
   - packaging
+  corpus_class: hybrid
+  languages:
+  - swift
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - swift
+  - spm
+  - packaging
+  constraint_kind: guiding
 - uri: https://developer.apple.com/documentation/xctest
   handler: web_page
   title: XCTest Documentation
@@ -2956,6 +5864,18 @@ items:
   - testing
   - xctest
   - apple
+  corpus_class: hybrid
+  languages:
+  - swift
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - swift
+  - testing
+  - xctest
+  - apple
+  constraint_kind: guiding
 - uri: https://cran.r-project.org/manuals.html
   handler: web_page
   title: R Manuals
@@ -2966,6 +5886,16 @@ items:
   - r
   - reference
   - cran
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - r
+  - reference
+  - cran
+  constraint_kind: guiding
 - uri: https://cran.r-project.org/web/views/
   handler: web_page
   title: CRAN Task Views
@@ -2977,6 +5907,17 @@ items:
   - cran
   - ecosystem
   - packages
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - r
+  - cran
+  - ecosystem
+  - packages
+  constraint_kind: guiding
 - uri: https://testthat.r-lib.org/
   handler: web_page
   title: testthat Documentation
@@ -2987,6 +5928,16 @@ items:
   - r
   - testing
   - testthat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - r
+  - testing
+  - testthat
+  constraint_kind: advisory
 - uri: https://www.lua.org/pil/
   handler: web_page
   title: Programming in Lua
@@ -2997,6 +5948,16 @@ items:
   - lua
   - book
   - guide
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - lua
+  - book
+  - guide
+  constraint_kind: guiding
 - uri: https://www.lua.org/manual/5.4/
   handler: web_page
   title: Lua 5.4 Reference Manual
@@ -3007,6 +5968,16 @@ items:
   - lua
   - reference
   - spec
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - lua
+  - reference
+  - spec
+  constraint_kind: guiding
 - uri: https://github.com/luarocks/luarocks/wiki
   handler: web_page
   title: LuaRocks Documentation
@@ -3017,6 +5988,16 @@ items:
   - lua
   - luarocks
   - packaging
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - lua
+  - luarocks
+  - packaging
+  constraint_kind: advisory
 - uri: https://www.nasm.us/docs.php
   handler: web_page
   title: NASM Documentation
@@ -3027,6 +6008,16 @@ items:
   - assembly
   - nasm
   - x86
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - assembly
+  - nasm
+  - x86
+  constraint_kind: advisory
 - uri: https://sourceware.org/binutils/docs/as/
   handler: web_page
   title: GNU Assembler Manual
@@ -3037,6 +6028,16 @@ items:
   - assembly
   - gas
   - gnu
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - assembly
+  - gas
+  - gnu
+  constraint_kind: guiding
 - uri: https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
   handler: web_page
   title: Intel 64 and IA-32 Developer Manuals
@@ -3049,6 +6050,18 @@ items:
   - x86
   - isa
   - reference
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - assembly
+  - intel
+  - x86
+  - isa
+  - reference
+  constraint_kind: guiding
 - uri: https://www.fratepietro.com/2025/building-ai-coding-assistants/
   handler: web_page
   title: Building AI Coding Assistants — Technical Deep Dive
@@ -3061,6 +6074,18 @@ items:
   - llm
   - rag
   - production
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - coding-assistant
+  - architecture
+  - llm
+  - rag
+  - production
+  constraint_kind: advisory
 - uri: https://reintech.io/blog/llm-application-architecture-patterns-enterprise-systems
   handler: web_page
   title: LLM Application Architecture Patterns for Enterprise Systems
@@ -3073,6 +6098,18 @@ items:
   - architecture
   - design-patterns
   - production
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - llm
+  - enterprise
+  - architecture
+  - design-patterns
+  - production
+  constraint_kind: advisory
 - uri: https://explore.n1n.ai/blog/designing-llm-applications-for-production-system-design-guide-2026-02-09
   handler: web_page
   title: Designing LLM Applications for Production — System Design Guide
@@ -3085,6 +6122,18 @@ items:
   - system-design
   - architecture
   - enterprise
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - llm
+  - production
+  - system-design
+  - architecture
+  - enterprise
+  constraint_kind: advisory
 - uri: https://pub.towardsai.net/building-enterprise-ready-ai-assistants-a-practical-guide-to-scalable-llm-applications-3570c9590482
   handler: web_page
   title: Building Enterprise-Ready AI Assistants — Practical Guide
@@ -3097,6 +6146,18 @@ items:
   - llm
   - scalable
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - ai-assistant
+  - enterprise
+  - llm
+  - scalable
+  - architecture
+  constraint_kind: advisory
 - uri: https://sealos.io/blog/the-architecture-of-a-modern-ai-application-a-2025-blueprint
   handler: web_page
   title: Architecture of a Modern AI Application — 2025 Blueprint
@@ -3109,6 +6170,18 @@ items:
   - modern
   - blueprint
   - production
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - ai-application
+  - architecture
+  - modern
+  - blueprint
+  - production
+  constraint_kind: advisory
 - uri: https://medium.com/@guruprasadhj/designing-a-fully-local-rag-assistant-to-improve-internal-knowledge-retrieval-5e4e1ba699ce
   handler: web_page
   title: Designing a Fully Local RAG Assistant for Internal Knowledge
@@ -3121,6 +6194,18 @@ items:
   - internal
   - knowledge-retrieval
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - local
+  - internal
+  - knowledge-retrieval
+  - architecture
+  constraint_kind: advisory
 - uri: https://medium.com/@shubhodaya.hampiholi/building-production-grade-rag-systems-architecture-evaluation-and-advanced-design-patterns-1d9d649aebfa
   handler: web_page
   title: Building Production-Grade RAG Systems — Advanced Design Patterns
@@ -3133,6 +6218,18 @@ items:
   - design-patterns
   - evaluation
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - production
+  - design-patterns
+  - evaluation
+  - architecture
+  constraint_kind: advisory
 - uri: https://medium.com/@richardhightower/agent-brain-a-code-first-rag-system-for-ai-coding-assistants-83e95c972255
   handler: web_page
   title: Agent Brain — Code-First RAG System for AI Coding Assistants
@@ -3145,24 +6242,48 @@ items:
   - agent
   - code-first
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - coding-assistant
+  - rag
+  - agent
+  - code-first
+  - architecture
+  constraint_kind: advisory
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/architecture/OpenShift_Container_Platform-4.17-Architecture-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Architecture'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
   - architecture
   - platform
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - architecture
+  - platform
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/networking/OpenShift_Container_Platform-4.17-Networking-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Networking'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
@@ -3171,12 +6292,26 @@ items:
   - ovn
   - ingress
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - networking
+  - sdn
+  - ovn
+  - ingress
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/security_and_compliance/OpenShift_Container_Platform-4.17-Security_and_compliance-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Security and Compliance'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
@@ -3185,12 +6320,26 @@ items:
   - rbac
   - scc
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - security
+  - compliance
+  - rbac
+  - scc
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/operators/OpenShift_Container_Platform-4.17-Operators-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Operators'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
@@ -3198,12 +6347,25 @@ items:
   - olm
   - operator-sdk
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - operators
+  - olm
+  - operator-sdk
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/nodes/OpenShift_Container_Platform-4.17-Nodes-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Nodes'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
@@ -3212,12 +6374,26 @@ items:
   - scheduling
   - autoscaling
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - nodes
+  - pods
+  - scheduling
+  - autoscaling
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/storage/OpenShift_Container_Platform-4.17-Storage-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Storage'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
@@ -3226,12 +6402,26 @@ items:
   - csi
   - ocs
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - storage
+  - pv
+  - csi
+  - ocs
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/installation_configuration/OpenShift_Container_Platform-4.17-Installation_configuration-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Installation Configuration'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
@@ -3240,12 +6430,26 @@ items:
   - ipi
   - upi
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - installation
+  - configuration
+  - ipi
+  - upi
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/monitoring/OpenShift_Container_Platform-4.17-Monitoring-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Monitoring'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - ocp
@@ -3254,12 +6458,26 @@ items:
   - alertmanager
   - metrics
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - ocp
+  - monitoring
+  - prometheus
+  - alertmanager
+  - metrics
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/introduction_to_rosa/Red_Hat_OpenShift_Service_on_AWS-4-Introduction_to_ROSA-en-US.pdf
   handler: pdf_document
   title: 'ROSA: Introduction to ROSA'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rosa
   - openshift
@@ -3267,12 +6485,25 @@ items:
   - managed-service
   - architecture
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - rosa
+  - openshift
+  - aws
+  - managed-service
+  - architecture
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/getting_started/Red_Hat_OpenShift_Service_on_AWS-4-Getting_started-en-US.pdf
   handler: pdf_document
   title: 'ROSA: Getting Started'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rosa
   - openshift
@@ -3280,12 +6511,25 @@ items:
   - getting-started
   - sts
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rosa
+  - openshift
+  - aws
+  - getting-started
+  - sts
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/networking/Red_Hat_OpenShift_Service_on_AWS-4-Networking-en-US.pdf
   handler: pdf_document
   title: 'ROSA: Networking'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rosa
   - openshift
@@ -3294,12 +6538,26 @@ items:
   - vpc
   - privatelink
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rosa
+  - openshift
+  - aws
+  - networking
+  - vpc
+  - privatelink
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/cluster_administration/Red_Hat_OpenShift_Service_on_AWS-4-Cluster_administration-en-US.pdf
   handler: pdf_document
   title: 'ROSA: Cluster Administration'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rosa
   - openshift
@@ -3308,12 +6566,26 @@ items:
   - upgrade
   - maintenance
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rosa
+  - openshift
+  - aws
+  - cluster-admin
+  - upgrade
+  - maintenance
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/rosa_cli/Red_Hat_OpenShift_Service_on_AWS-4-ROSA_CLI-en-US.pdf
   handler: pdf_document
   title: 'ROSA: CLI Tools (rosa + oc)'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rosa
   - openshift
@@ -3322,12 +6594,26 @@ items:
   - rosa-cli
   - oc-cli
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rosa
+  - openshift
+  - aws
+  - cli
+  - rosa-cli
+  - oc-cli
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/prepare_your_environment/Red_Hat_OpenShift_Service_on_AWS-4-Prepare_your_environment-en-US.pdf
   handler: pdf_document
   title: 'ROSA: Security and Compliance'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rosa
   - openshift
@@ -3337,12 +6623,27 @@ items:
   - sts
   - prerequisites
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rosa
+  - openshift
+  - aws
+  - security
+  - iam
+  - sts
+  - prerequisites
+  - red-hat
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/azure/openshift/
   handler: web_page
   title: 'ARO: Azure Red Hat OpenShift Documentation'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - aro
   - openshift
@@ -3355,36 +6656,73 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/azure/openshift/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aro
+  - openshift
+  - azure
+  - managed-service
+  - microsoft
+  - red-hat
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/azure/openshift/create-cluster
   handler: web_page
   title: 'ARO: Create a Cluster'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - aro
   - openshift
   - azure
   - cluster-creation
   - installation
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aro
+  - openshift
+  - azure
+  - cluster-creation
+  - installation
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/cli/azure/aro?view=azure-cli-latest
   handler: web_page
   title: 'ARO: az aro CLI Reference'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - aro
   - openshift
   - azure
   - cli
   - az-aro
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aro
+  - openshift
+  - azure
+  - cli
+  - az-aro
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/azure/openshift/concepts-networking
   handler: web_page
   title: 'ARO: Networking'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - aro
   - openshift
@@ -3392,12 +6730,25 @@ items:
   - networking
   - vnet
   - private-cluster
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aro
+  - openshift
+  - azure
+  - networking
+  - vnet
+  - private-cluster
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/introduction_to_openshift_dedicated/OpenShift_Dedicated-4-Introduction_to_OpenShift_Dedicated-en-US.pdf
   handler: pdf_document
   title: 'OSD: Introduction to OpenShift Dedicated'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - osd
   - openshift
@@ -3406,12 +6757,26 @@ items:
   - managed-service
   - architecture
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - osd
+  - openshift
+  - gcp
+  - aws
+  - managed-service
+  - architecture
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/installing_accessing_and_deleting_openshift_dedicated_clusters/OpenShift_Dedicated-4-Installing_accessing_and_deleting_OpenShift_Dedicated_clusters-en-US.pdf
   handler: pdf_document
   title: 'OSD: Clusters on GCP'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - osd
   - openshift
@@ -3420,12 +6785,26 @@ items:
   - cluster-creation
   - wif
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - osd
+  - openshift
+  - gcp
+  - installation
+  - cluster-creation
+  - wif
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/planning_your_environment/OpenShift_Dedicated-4-Planning_your_environment-en-US.pdf
   handler: pdf_document
   title: 'OSD: Planning Your Environment'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - osd
   - openshift
@@ -3434,12 +6813,26 @@ items:
   - ccs
   - prerequisites
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - osd
+  - openshift
+  - gcp
+  - planning
+  - ccs
+  - prerequisites
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/cluster_administration/OpenShift_Dedicated-4-Cluster_administration-en-US.pdf
   handler: pdf_document
   title: 'OSD: Cluster Administration'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - osd
   - openshift
@@ -3448,12 +6841,26 @@ items:
   - upgrade
   - maintenance
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - osd
+  - openshift
+  - gcp
+  - cluster-admin
+  - upgrade
+  - maintenance
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/networking/OpenShift_Dedicated-4-Networking-en-US.pdf
   handler: pdf_document
   title: 'OSD: Networking'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - osd
   - openshift
@@ -3461,12 +6868,25 @@ items:
   - networking
   - ingress
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - osd
+  - openshift
+  - gcp
+  - networking
+  - ingress
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/install/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Install-en-US.pdf
   handler: pdf_document
   title: 'ACM 2.12: Install'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acm
   - openshift
@@ -3474,12 +6894,25 @@ items:
   - installation
   - hub
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acm
+  - openshift
+  - multicluster
+  - installation
+  - hub
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/clusters/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Clusters-en-US.pdf
   handler: pdf_document
   title: 'ACM 2.12: Cluster Lifecycle'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acm
   - openshift
@@ -3487,12 +6920,25 @@ items:
   - cluster-lifecycle
   - provisioning
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acm
+  - openshift
+  - multicluster
+  - cluster-lifecycle
+  - provisioning
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/governance/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Governance-en-US.pdf
   handler: pdf_document
   title: 'ACM 2.12: Governance'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acm
   - openshift
@@ -3501,12 +6947,26 @@ items:
   - policy
   - compliance
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acm
+  - openshift
+  - multicluster
+  - governance
+  - policy
+  - compliance
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/observability/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Observability-en-US.pdf
   handler: pdf_document
   title: 'ACM 2.12: Observability'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acm
   - openshift
@@ -3515,12 +6975,26 @@ items:
   - monitoring
   - thanos
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acm
+  - openshift
+  - multicluster
+  - observability
+  - monitoring
+  - thanos
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/applications/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Applications-en-US.pdf
   handler: pdf_document
   title: 'ACM 2.12: Applications'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acm
   - openshift
@@ -3529,12 +7003,26 @@ items:
   - gitops
   - subscriptions
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acm
+  - openshift
+  - multicluster
+  - applications
+  - gitops
+  - subscriptions
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/access_control/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Access_control-en-US.pdf
   handler: pdf_document
   title: 'ACM 2.12: Access Control'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acm
   - openshift
@@ -3542,12 +7030,25 @@ items:
   - rbac
   - access-control
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acm
+  - openshift
+  - multicluster
+  - rbac
+  - access-control
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/installing/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Installing-en-US.pdf
   handler: pdf_document
   title: 'ACS 4.7: Installing'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acs
   - stackrox
@@ -3555,12 +7056,25 @@ items:
   - security
   - installation
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - installation
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/operating/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Operating-en-US.pdf
   handler: pdf_document
   title: 'ACS 4.7: Operating'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acs
   - stackrox
@@ -3569,12 +7083,26 @@ items:
   - vulnerability
   - compliance
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - vulnerability
+  - compliance
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/integrating/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Integrating-en-US.pdf
   handler: pdf_document
   title: 'ACS 4.7: Integrating'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acs
   - stackrox
@@ -3583,12 +7111,26 @@ items:
   - integration
   - ci-cd
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - integration
+  - ci-cd
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/configuring/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Configuring-en-US.pdf
   handler: pdf_document
   title: 'ACS 4.7: Configuration'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - acs
   - stackrox
@@ -3597,12 +7139,26 @@ items:
   - configuration
   - policies
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - configuration
+  - policies
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/configuring_argo_cd/Red_Hat_OpenShift_GitOps-1.15-Configuring_Argo_CD-en-US.pdf
   handler: pdf_document
   title: 'OpenShift GitOps 1.15: Configuring Argo CD'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - gitops
   - argocd
@@ -3610,12 +7166,25 @@ items:
   - configuration
   - declarative
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - gitops
+  - argocd
+  - openshift
+  - configuration
+  - declarative
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/argo_rollouts/Red_Hat_OpenShift_GitOps-1.15-Argo_Rollouts-en-US.pdf
   handler: pdf_document
   title: 'OpenShift GitOps 1.15: Argo Rollouts'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - gitops
   - argocd
@@ -3624,12 +7193,26 @@ items:
   - canary
   - blue-green
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - gitops
+  - argocd
+  - openshift
+  - argo-rollouts
+  - canary
+  - blue-green
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/installing_gitops/Red_Hat_OpenShift_GitOps-1.15-Installing_GitOps-en-US.pdf
   handler: pdf_document
   title: 'OpenShift GitOps 1.15: Installing'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - gitops
   - argocd
@@ -3637,12 +7220,25 @@ items:
   - installation
   - operator
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - gitops
+  - argocd
+  - openshift
+  - installation
+  - operator
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/about_openshift_pipelines/Red_Hat_OpenShift_Pipelines-1.17-About_OpenShift_Pipelines-en-US.pdf
   handler: pdf_document
   title: 'OpenShift Pipelines 1.17: About OpenShift Pipelines'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - tekton
   - pipelines
@@ -3650,12 +7246,25 @@ items:
   - ci-cd
   - tasks
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - tekton
+  - pipelines
+  - openshift
+  - ci-cd
+  - tasks
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/creating_cicd_pipelines/Red_Hat_OpenShift_Pipelines-1.17-Creating_CICD_pipelines-en-US.pdf
   handler: pdf_document
   title: 'OpenShift Pipelines 1.17: Creating CI/CD Pipelines'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - tekton
   - pipelines
@@ -3664,12 +7273,26 @@ items:
   - pipeline-creation
   - triggers
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - tekton
+  - pipelines
+  - openshift
+  - ci-cd
+  - pipeline-creation
+  - triggers
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/installing_and_configuring/Red_Hat_OpenShift_Pipelines-1.17-Installing_and_configuring-en-US.pdf
   handler: pdf_document
   title: 'OpenShift Pipelines 1.17: Installing and Configuring'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - tekton
   - pipelines
@@ -3677,12 +7300,25 @@ items:
   - installation
   - tektonconfig
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - tekton
+  - pipelines
+  - openshift
+  - installation
+  - tektonconfig
+  - red-hat
+  constraint_kind: guiding
 - uri: https://tekton.dev/docs/
   handler: web_page
   title: Tekton Documentation (tekton.dev)
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - tekton
   - ci-cd
@@ -3695,12 +7331,25 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://tekton.dev/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - tekton
+  - ci-cd
+  - pipelines
+  - tasks
+  - kubernetes
+  - cncf
+  constraint_kind: advisory
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/logging/OpenShift_Container_Platform-4.17-Logging-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: Logging'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - logging
@@ -3709,12 +7358,26 @@ items:
   - loki
   - vector
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - logging
+  - elasticsearch
+  - fluentd
+  - loki
+  - vector
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html/cluster_observability_operator/index
   handler: web_page
   title: 'Cluster Observability Operator: About'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - observability
@@ -3728,12 +7391,26 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html/cluster_observability_operator/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openshift
+  - observability
+  - coo
+  - prometheus
+  - thanos
+  - alertmanager
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html-single/cluster_observability_operator/index
   handler: web_page
   title: 'Cluster Observability Operator: Installing'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - observability
@@ -3741,12 +7418,25 @@ items:
   - installation
   - operator
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openshift
+  - observability
+  - coo
+  - installation
+  - operator
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/cli_tools/OpenShift_Container_Platform-4.17-CLI_tools-en-US.pdf
   handler: pdf_document
   title: 'OCP 4.17: CLI Tools (oc, odo, kubectl plugins)'
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift
   - oc-cli
@@ -3755,12 +7445,26 @@ items:
   - cli
   - reference
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - openshift
+  - oc-cli
+  - odo
+  - kubectl
+  - cli
+  - reference
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/html/rosa_cli/rosa-get-started-cli
   handler: web_page
   title: ROSA CLI Reference
   domain: openshift
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rosa
   - rosa-cli
@@ -3773,12 +7477,25 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/html/rosa_cli/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rosa
+  - rosa-cli
+  - aws
+  - openshift
+  - cli
+  - red-hat
+  constraint_kind: guiding
 - uri: https://tekton.dev/docs/cli/
   handler: web_page
   title: Tekton CLI (tkn) Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - tekton
   - tkn-cli
@@ -3790,12 +7507,24 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://tekton.dev/docs/cli/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - tekton
+  - tkn-cli
+  - ci-cd
+  - pipelines
+  - cli
+  constraint_kind: advisory
 - uri: https://registry.terraform.io/providers/terraform-redhat/rhcs/latest/docs
   handler: web_page
   title: RHCS Terraform Provider Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - terraform
   - rhcs
@@ -3809,12 +7538,27 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://registry.terraform.io/providers/terraform-redhat/rhcs/
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - rhcs
+  - rosa
+  - openshift
+  - iac
+  - aws
+  - red-hat
+  constraint_kind: advisory
 - uri: https://registry.terraform.io/modules/terraform-redhat/rosa-hcp/rhcs/latest
   handler: web_page
   title: RHCS ROSA HCP Terraform Module
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - terraform
   - rhcs
@@ -3828,12 +7572,27 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://registry.terraform.io/modules/terraform-redhat/rosa-hcp/
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - rhcs
+  - rosa
+  - hcp
+  - openshift
+  - iac
+  - aws
+  constraint_kind: advisory
 - uri: https://registry.terraform.io/modules/terraform-redhat/rosa-classic/rhcs/latest
   handler: web_page
   title: RHCS ROSA Classic Terraform Module
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - terraform
   - rhcs
@@ -3847,12 +7606,27 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://registry.terraform.io/modules/terraform-redhat/rosa-classic/
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - rhcs
+  - rosa
+  - classic
+  - openshift
+  - iac
+  - aws
+  constraint_kind: advisory
 - uri: https://github.com/terraform-redhat/terraform-provider-rhcs
   handler: web_page
   title: terraform-provider-rhcs (GitHub)
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - terraform
   - rhcs
@@ -3860,12 +7634,26 @@ items:
   - openshift
   - iac
   - source-code
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - rhcs
+  - rosa
+  - openshift
+  - iac
+  - source-code
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/scheduling-eviction/
   handler: web_page
   title: 'Kubernetes: Scheduling, Preemption, and Eviction'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - scheduling
@@ -3877,12 +7665,24 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/scheduling-eviction/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - scheduling
+  - preemption
+  - eviction
+  - pod-priority
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/cluster-administration/
   handler: web_page
   title: 'Kubernetes: Cluster Administration'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - cluster-admin
@@ -3894,12 +7694,24 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/cluster-administration/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - cluster-admin
+  - networking
+  - logging
+  - addons
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/configuration/
   handler: web_page
   title: 'Kubernetes: Configuration Best Practices'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - configuration
@@ -3911,12 +7723,24 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/configuration/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - configuration
+  - configmaps
+  - secrets
+  - resource-management
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/workloads/
   handler: web_page
   title: 'Kubernetes: Workloads'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - workloads
@@ -3929,12 +7753,25 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/workloads/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - workloads
+  - deployments
+  - statefulsets
+  - daemonsets
+  - jobs
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/services-networking/
   handler: web_page
   title: 'Kubernetes: Services, Load Balancing, and Networking'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - services
@@ -3947,12 +7784,25 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/services-networking/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - services
+  - networking
+  - ingress
+  - load-balancing
+  - dns
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/storage/
   handler: web_page
   title: 'Kubernetes: Storage'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - storage
@@ -3964,12 +7814,24 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/storage/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - storage
+  - persistent-volumes
+  - csi
+  - storageclasses
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/security/
   handler: web_page
   title: 'Kubernetes: Security'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - security
@@ -3981,12 +7843,24 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/security/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - security
+  - rbac
+  - network-policies
+  - pod-security
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/concepts/extend-kubernetes/
   handler: web_page
   title: 'Kubernetes: Extending Kubernetes'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - extensions
@@ -3998,12 +7872,24 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/extend-kubernetes/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - extensions
+  - crd
+  - operators
+  - api-aggregation
+  constraint_kind: advisory
 - uri: https://etcd.io/docs/v3.5/
   handler: web_page
   title: etcd Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - etcd
   - distributed-systems
@@ -4015,3 +7901,15 @@ items:
     max_depth: 2
     allowed_prefixes:
     - https://etcd.io/docs/v3.5/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - etcd
+  - distributed-systems
+  - consensus
+  - kubernetes
+  - storage
+  constraint_kind: advisory

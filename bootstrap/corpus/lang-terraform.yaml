@@ -1,0 +1,311 @@
+# Bootstrap corpus — Terraform/HCL language evidence pack
+items:
+- uri: https://developer.hashicorp.com/terraform/language
+  handler: web_page
+  title: Terraform language reference
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - hcl
+  - language
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - terraform
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.hashicorp.com/terraform/cli
+  handler: web_page
+  title: Terraform CLI reference
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - cli
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - terraform
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://registry.terraform.io/providers/hashicorp
+  handler: web_page
+  title: HashiCorp Terraform provider registry documentation
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - providers
+  - registry
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - stdlib-reference
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.hashicorp.com/terraform/tutorials
+  handler: web_page
+  title: Terraform tutorials
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - tutorial
+  - learning
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: tutorial
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://github.com/terraform-linters/tflint
+  handler: web_page
+  title: TFLint — Terraform linter
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - tflint
+  - linter
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 120
+  scope_tags:
+  - linter-rules
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.hashicorp.com/terraform/cli/commands/test
+  handler: web_page
+  title: Terraform CLI test command
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - testing
+  - cli
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - testing-framework
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://terraform-best-practices.com
+  handler: web_page
+  title: Terraform best practices
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - best-practices
+  - patterns
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 180
+  scope_tags:
+  - common-patterns
+  - terraform
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.hashicorp.com/terraform/language/modules
+  handler: web_page
+  title: Terraform modules
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - modules
+  - composition
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.hashicorp.com/terraform/language/resources
+  handler: web_page
+  title: Terraform resources
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - resources
+  - configuration
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.hashicorp.com/terraform/language/functions
+  handler: web_page
+  title: Terraform built-in functions
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - functions
+  - reference
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - stdlib-reference
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.hashicorp.com/terraform/language/state
+  handler: web_page
+  title: Terraform state
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - state
+  - operations
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - terraform
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4

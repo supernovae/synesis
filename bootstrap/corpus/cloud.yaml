@@ -1,6 +1,3 @@
-# Bootstrap corpus — Cloud & platform (Well-Architected, Kubernetes, DevOps)
-# Imported via scripts/load-bootstrap.sh (all *.yaml here).
-#
 items:
 - uri: https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html
   handler: web_page
@@ -25,6 +22,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.aws.amazon.com/wellarchitected/latest/framework/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - architecture
+  - tradeoffs
+  - reliability
+  - security
+  - cost
+  - performance
+  constraint_kind: guiding
 - uri: https://c4model.com/diagrams
   handler: web_page
   title: C4 Model Diagrams
@@ -45,6 +55,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://c4model.com/diagrams/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - architecture
+  - diagramming
+  - system-views
+  constraint_kind: guiding
 - uri: https://sre.google/resources/
   handler: web_page
   title: Google SRE Resource Library
@@ -67,6 +87,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://sre.google/resources/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sre
+  - reliability
+  - operations
+  - monitoring
+  - incident-response
+  constraint_kind: guiding
 - uri: https://sre.google/books/
   handler: web_page
   title: Google SRE Books
@@ -88,6 +120,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://sre.google/books/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sre
+  - reliability
+  - operations
+  - secure-systems
+  constraint_kind: guiding
 - uri: https://sre.google/sre-book/table-of-contents/
   handler: web_page
   title: Google SRE Book TOC
@@ -110,6 +153,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://sre.google/sre-book/table-of-contents/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sre
+  - slos
+  - toil
+  - release-engineering
+  - monitoring
+  constraint_kind: guiding
 - uri: https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning
   handler: web_page
   title: 'Google Cloud: MLOps Best Practices'
@@ -132,6 +187,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mlops
+  - deployment
+  - ci-cd
+  - monitoring
+  - google-cloud
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/mlops-planning-framework/welcome.html
   handler: web_page
   title: 'AWS: MLOps Foundation Roadmap'
@@ -154,6 +221,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.aws.amazon.com/prescriptive-guidance/latest/mlops-planning-framework/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mlops
+  - deployment
+  - aws
+  - roadmap
+  - production
+  constraint_kind: guiding
 - uri: https://huyenchip.com/ml-systems-design.html
   handler: web_page
   title: 'Chip Huyen: Designing Machine Learning Systems (Monitoring Chapter)'
@@ -176,6 +255,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huyenchip.com/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mlops
+  - monitoring
+  - evaluation
+  - production
+  - system-design
+  constraint_kind: guiding
 - uri: https://launchdarkly.com/solutions/ai/
   handler: web_page
   title: 'Feature Flagging for ML: LaunchDarkly AI Config'
@@ -198,6 +289,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://launchdarkly.com/solutions/ai/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - feature-flags
+  - a-b-testing
+  - rollout
+  - launchdarkly
+  - ml
+  constraint_kind: guiding
 - uri: https://mlflow.org/docs/latest/model-registry.html
   handler: web_page
   title: 'MLflow: Model Registry and Deployment'
@@ -220,6 +323,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://mlflow.org/docs/latest/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mlflow
+  - model-registry
+  - deployment
+  - versioning
+  - production
+  constraint_kind: guiding
 - uri: https://wandb.ai/site/solutions/llm-monitoring
   handler: web_page
   title: 'Weights & Biases: LLM Monitoring in Production'
@@ -242,6 +357,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://wandb.ai/site/solutions/llm-monitoring/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - monitoring
+  - llm
+  - production
+  - wandb
+  - observability
+  constraint_kind: guiding
 - uri: https://kserve.github.io/kserve/
   handler: web_page
   title: 'KServe: Kubernetes InferenceService'
@@ -264,6 +391,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kserve.github.io/kserve/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kserve
+  - kubernetes
+  - inference
+  - model-serving
+  - autoscaling
+  constraint_kind: guiding
 - uri: https://kserve.github.io/kserve/master/reference/architecture/
   handler: web_page
   title: 'KServe: Architecture Overview'
@@ -286,6 +425,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kserve.github.io/kserve/master/reference/architecture/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - kserve
+  - architecture
+  - kubernetes
+  - inference-graph
+  - serving
+  constraint_kind: guiding
 - uri: https://kubernetes.io/docs/concepts/workloads/best-practices/
   handler: web_page
   title: 'Kubernetes: AI/ML Workload Best Practices'
@@ -308,6 +459,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kubernetes.io/docs/concepts/workloads/best-practices/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - ai-workloads
+  - gpu
+  - scheduling
+  - best-practices
+  constraint_kind: guiding
 - uri: https://docs.ray.io/en/latest/serve/index.html
   handler: web_page
   title: 'Ray Serve: Scalable Model Serving'
@@ -330,6 +493,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.ray.io/en/latest/serve/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ray-serve
+  - model-serving
+  - scalable
+  - batching
+  - kubernetes
+  constraint_kind: guiding
 - uri: https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/index.html
   handler: web_page
   title: NVIDIA Triton Inference Server
@@ -352,6 +527,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - triton
+  - nvidia
+  - inference
+  - model-serving
+  - gpu
+  constraint_kind: guiding
 - uri: https://vllm.ai/blog/stack-release
   handler: html_document
   title: 'vLLM Production Stack: High Performance Deployment in Kubernetes'
@@ -367,6 +554,20 @@ items:
   - kv-cache
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - kubernetes
+  - production
+  - helm
+  - autoscaling
+  - kv-cache
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://developers.redhat.com/articles/2025/12/24/how-deploy-and-benchmark-vllm-guidellm-kubernetes
   handler: html_document
   title: 'Red Hat: Deploy and Benchmark vLLM with GuideLLM on Kubernetes'
@@ -382,6 +583,20 @@ items:
   - guidellm
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - kubernetes
+  - benchmark
+  - red-hat
+  - openshift
+  - guidellm
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://docs.docker.com/reference/dockerfile/
   handler: web_page
   title: Dockerfile Reference
@@ -403,6 +618,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/reference/dockerfile/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - dockerfile
+  - build
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.docker.com/build/concepts/dockerfile/
   handler: web_page
   title: Dockerfile Overview
@@ -424,6 +650,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/build/concepts/dockerfile/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - dockerfile
+  - overview
+  - images
+  constraint_kind: guiding
 - uri: https://docs.docker.com/build/building/best-practices/
   handler: web_page
   title: Building Best Practices
@@ -445,6 +682,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/build/building/best-practices/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - best-practices
+  - images
+  - security
+  constraint_kind: guiding
 - uri: https://docs.docker.com/reference/compose-file/
   handler: web_page
   title: Compose File Reference
@@ -466,6 +714,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/reference/compose-file/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - compose
+  - yaml
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.docker.com/reference/compose-file/build/
   handler: web_page
   title: Compose Build Specification
@@ -487,6 +746,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/reference/compose-file/build/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - compose
+  - build
+  - spec
+  constraint_kind: guiding
 - uri: https://docs.docker.com/compose/gettingstarted/
   handler: web_page
   title: Docker Compose Quickstart
@@ -508,6 +778,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/compose/gettingstarted/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - compose
+  - quickstart
+  - dev-workflow
+  constraint_kind: guiding
 - uri: https://docs.docker.com/compose/intro/compose-application-model/
   handler: web_page
   title: How Compose Works
@@ -529,6 +810,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/compose/intro/compose-application-model/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - compose
+  - application-model
+  - merge-rules
+  constraint_kind: guiding
 - uri: https://docs.docker.com/compose/how-tos/environment-variables/best-practices/
   handler: web_page
   title: Compose Env Var Best Practices
@@ -551,6 +843,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.docker.com/compose/how-tos/environment-variables/best-practices/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - docker
+  - compose
+  - env
+  - secrets
+  - best-practices
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/cli/
   handler: web_page
   title: AWS CLI Documentation
@@ -572,6 +876,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.aws.amazon.com/cli/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aws
+  - cli
+  - cloud
+  - tooling
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/cli/latest/reference/
   handler: web_page
   title: AWS CLI Command Reference
@@ -593,6 +908,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.aws.amazon.com/cli/latest/reference/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - aws
+  - cli
+  - reference
+  - automation
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html
   handler: web_page
   title: AWS CLI Getting Started
@@ -614,6 +940,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.aws.amazon.com/cli/latest/userguide/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aws
+  - cli
+  - getting-started
+  - automation
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/cli/azure/?view=azure-cli-latest
   handler: web_page
   title: Azure CLI Documentation
@@ -635,6 +972,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/cli/azure/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - cli
+  - cloud
+  - tooling
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli?view=azure-cli-latest
   handler: web_page
   title: Get Started with Azure CLI
@@ -655,6 +1003,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - cli
+  - getting-started
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/sdk/docs
   handler: web_page
   title: Google Cloud SDK Documentation
@@ -676,6 +1034,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cloud.google.com/sdk/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - gcloud
+  - sdk
+  - cloud
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/sdk/gcloud
   handler: web_page
   title: gcloud CLI Overview
@@ -697,6 +1066,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cloud.google.com/sdk/gcloud/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - gcloud
+  - cli
+  - overview
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/sdk/gcloud/reference
   handler: web_page
   title: gcloud Reference
@@ -718,6 +1098,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cloud.google.com/sdk/gcloud/reference/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - gcloud
+  - reference
+  - automation
+  constraint_kind: guiding
 - uri: https://docs.cloud.google.com/sdk/docs/cheatsheet
   handler: web_page
   title: gcloud CLI Cheat Sheet
@@ -739,3 +1130,14 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cloud.google.com/sdk/docs/cheatsheet/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gcp
+  - gcloud
+  - cheatsheet
+  - commands
+  constraint_kind: guiding

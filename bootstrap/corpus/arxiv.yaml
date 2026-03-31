@@ -1,13 +1,10 @@
-# Bootstrap corpus — arXiv papers (RAG, agents, systems)
-# Imported via scripts/load-bootstrap.sh (all *.yaml here).
-#
 items:
 - uri: https://arxiv.org/abs/2005.11401
   handler: arxiv_paper
   title: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2005.11401'
   tags: &id001
@@ -15,156 +12,343 @@ items:
   - retrieval
   - dense-retrieval
   - search
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2002.08909
   handler: arxiv_paper
   title: 'REALM: Retrieval-Augmented Language Model Pre-Training'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2002.08909'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2004.04906
   handler: arxiv_paper
   title: Dense Passage Retrieval for Open-Domain Question Answering
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2004.04906'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2004.12832
   handler: arxiv_paper
   title: 'ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2004.12832'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2112.09118
   handler: arxiv_paper
   title: 'Contriever: Unsupervised Dense Information Retrieval with Contrastive Learning'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2112.09118'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2212.10496
   handler: arxiv_paper
   title: Precise Zero-Shot Dense Retrieval without Relevance Labels
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2212.10496'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.11511
   handler: arxiv_paper
   title: 'Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2310.11511'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2401.15884
   handler: arxiv_paper
   title: Corrective Retrieval Augmented Generation
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2401.15884'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2403.14403
   handler: arxiv_paper
   title: 'Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models through Question Complexity'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2403.14403'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2401.18059
   handler: arxiv_paper
   title: 'RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2401.18059'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2404.16130
   handler: arxiv_paper
   title: 'From Local to Global: A GraphRAG Approach to Query-Focused Summarization'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2404.16130'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2407.01219
   handler: arxiv_paper
   title: Searching for Best Practices in Retrieval-Augmented Generation
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2407.01219'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.09136
   handler: arxiv_paper
   title: 'Agentic Retrieval-Augmented Generation: A Survey on Agentic RAG'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2501.09136'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2502.14802
   handler: arxiv_paper
   title: 'Lost in the Middle, and In-Between: How Language Models Use Long Contexts for Key Information Retrieval'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2502.14802'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2309.11447
   handler: arxiv_paper
   title: 'LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2309.11447'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.06839
   handler: arxiv_paper
   title: 'LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via Prompt Compression'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2310.06839'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2309.15217
   handler: arxiv_paper
   title: 'RAGAS: Automated Evaluation of Retrieval Augmented Generation'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2309.15217'
   tags: *id001
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - retrieval
+  - dense-retrieval
+  - search
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2201.11903
   handler: arxiv_paper
   title: Chain-of-Thought Prompting Elicits Reasoning in Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2201.11903'
   tags: &id002
@@ -173,147 +357,339 @@ items:
   - chain-of-thought
   - tool-use
   - planning
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2203.11171
   handler: arxiv_paper
   title: Self-Consistency Improves Chain of Thought Reasoning in Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2203.11171'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2205.10625
   handler: arxiv_paper
   title: Least-to-Most Prompting Enables Complex Reasoning in Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2205.10625'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.04091
   handler: arxiv_paper
   title: 'Plan-and-Solve Prompting: Improving Zero-Shot Chain-of-Thought Reasoning by Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.04091'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.10601
   handler: arxiv_paper
   title: 'Tree of Thoughts: Deliberate Problem Solving with Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.10601'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2308.09687
   handler: arxiv_paper
   title: 'Graph of Thoughts: Solving Elaborate Problems with Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2308.09687'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2210.03629
   handler: arxiv_paper
   title: 'ReAct: Synergizing Reasoning and Acting in Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2210.03629'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2302.04761
   handler: arxiv_paper
   title: 'Toolformer: Language Models Can Teach Themselves to Use Tools'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2302.04761'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2211.10435
   handler: arxiv_paper
   title: Program-Aided Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2211.10435'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2211.12588
   handler: arxiv_paper
   title: 'Program of Thoughts Prompting: Disentangling Computation from Reasoning for Numerical Reasoning Tasks'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2211.12588'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2303.17651
   handler: arxiv_paper
   title: 'Self-Refine: Iterative Refinement with Self-Feedback'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2303.17651'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2303.11366
   handler: arxiv_paper
   title: 'Reflexion: Language Agents with Verbal Reinforcement Learning'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2303.11366'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.04406
   handler: arxiv_paper
   title: Language Agent Tree Search Unifies Reasoning, Acting, and Planning in Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2310.04406'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.03714
   handler: arxiv_paper
   title: 'DSPy: Compiling Declarative Language Model Calls into Self-Improving Pipelines'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2310.03714'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2407.03238
   handler: arxiv_paper
   title: 'LLMCompiler: An Optimizing Compiler for Parallel Function Calling in Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2407.03238'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2308.08155
   handler: arxiv_paper
   title: 'AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2308.08155'
   tags: *id002
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - agents
+  - chain-of-thought
+  - tool-use
+  - planning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2503.16416
   handler: arxiv_paper
   title: Survey on Evaluation of LLM-based Agents
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2503.16416'
   tags: &id003
@@ -322,111 +698,255 @@ items:
   - calibration
   - reliability
   - safety
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2311.05232
   handler: arxiv_paper
   title: 'A Survey on Hallucination in Large Language Models: Principles, Taxonomy, Challenges, and Open Questions'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2311.05232'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2309.01219
   handler: arxiv_paper
   title: 'Siren''s Song in the AI Ocean: A Survey on Hallucination in Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2309.01219'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2412.05563
   handler: arxiv_paper
   title: A Survey of Confidence Estimation and Calibration in Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2412.05563'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2502.08235
   handler: arxiv_paper
   title: 'Uncertainty Quantification and Confidence Calibration in Large Language Models: A Survey'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2502.08235'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2312.09300
   handler: arxiv_paper
   title: Self-Evaluation Improves Selective Generation in Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2312.09300'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2402.00274
   handler: arxiv_paper
   title: Benchmarking Uncertainty Calibration in Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2402.00274'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2504.12068
   handler: arxiv_paper
   title: Can LLMs Be Trusted for Evaluating RAG Systems? A Study and Survey
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2504.12068'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2212.08073
   handler: arxiv_paper
   title: 'Constitutional AI: Harmlessness from AI Feedback'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2212.08073'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2403.20042
   handler: arxiv_paper
   title: 'Asking LLMs to Verify First Before Answering: A Simple Way to Improve Reliability'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2403.20042'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.18153
   handler: arxiv_paper
   title: 'R-Tuning: Teaching Large Language Models to Refuse When They Don''t Know'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.18153'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2404.10136
   handler: arxiv_paper
   title: Calibration and Correctness of Language Models for Code
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2404.10136'
   tags: *id003
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - evaluation
+  - hallucination
+  - calibration
+  - reliability
+  - safety
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2107.03374
   handler: arxiv_paper
   title: Evaluating Large Language Models Trained on Code
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2107.03374'
   tags: &id004
@@ -434,111 +954,243 @@ items:
   - swe-bench
   - software-agents
   - programming
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2108.07732
   handler: arxiv_paper
   title: Program Synthesis with Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2108.07732'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2211.11501
   handler: arxiv_paper
   title: 'DS-1000: A Natural and Reliable Benchmark for Data Science Code Generation'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2211.11501'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2303.12570
   handler: arxiv_paper
   title: 'RepoCoder: Repository-Level Code Completion Through Iterative Retrieval and Generation'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2303.12570'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2306.03091
   handler: arxiv_paper
   title: 'RepoBench: Benchmarking Repository-Level Code Auto-Completion Systems'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2306.03091'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.06770
   handler: arxiv_paper
   title: 'SWE-bench: Can Language Models Resolve Real-World GitHub Issues?'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2310.06770'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2410.03859
   handler: arxiv_paper
   title: SWE-bench Multimodal
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2410.03859'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2410.20777
   handler: arxiv_paper
   title: 'SetupBench: Assessing Software Engineering Agents'' Ability to Bootstrap Development Environments'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2410.20777'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2503.15223
   handler: arxiv_paper
   title: Are Solved Issues in SWE-bench Really Solved Correctly?
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2503.15223'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2503.16427
   handler: arxiv_paper
   title: Challenges and Paths Towards AI for Software Engineering
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2503.16427'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.05040
   handler: arxiv_paper
   title: 'SWE-Fixer: Training LLMs for Real World Github Issue Resolution'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2501.05040'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.18438
   handler: arxiv_paper
   title: Verbal Process Supervision Elicits Better Coding Agents
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2501.18438'
   tags: *id004
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - code-generation
+  - swe-bench
+  - software-agents
+  - programming
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2504.01183
   handler: arxiv_paper
   title: Automated Cloud Infrastructure-as-Code Reconciliation with LLM Agents
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2504.01183'
   tags: &id005
@@ -547,30 +1199,69 @@ items:
   - terraform
   - kubernetes
   - config-drift
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - iac
+  - infrastructure
+  - terraform
+  - kubernetes
+  - config-drift
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2406.10098
   handler: arxiv_paper
   title: 'IaC Generation with Large Language Models: An Error Taxonomy and A Study of Injection and Knowledge-Guided Improvement'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2406.10098'
   tags: *id005
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - iac
+  - infrastructure
+  - terraform
+  - kubernetes
+  - config-drift
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2502.12137
   handler: arxiv_paper
   title: Leveraging LLM Agents for Reliable Configuration Drift Detection
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2502.12137'
   tags: *id005
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - iac
+  - infrastructure
+  - terraform
+  - kubernetes
+  - config-drift
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/1706.03762
   handler: arxiv_paper
   title: Attention Is All You Need
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '1706.03762'
   tags: &id006
@@ -579,165 +1270,381 @@ items:
   - architecture
   - scaling
   - pre-training
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/1810.04805
   handler: arxiv_paper
   title: 'BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '1810.04805'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2005.14165
   handler: arxiv_paper
   title: Language Models are Few-Shot Learners
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2005.14165'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2001.08361
   handler: arxiv_paper
   title: Scaling Laws for Neural Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2001.08361'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2203.15556
   handler: arxiv_paper
   title: Training Compute-Optimal Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2203.15556'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2204.02311
   handler: arxiv_paper
   title: 'PaLM: Scaling Language Modeling with Pathways'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2204.02311'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2205.01068
   handler: arxiv_paper
   title: 'OPT: Open Pre-trained Transformer Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2205.01068'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2211.05100
   handler: arxiv_paper
   title: 'BLOOM: A 176B-Parameter Open-Access Multilingual Language Model'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2211.05100'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2210.02414
   handler: arxiv_paper
   title: 'GLM-130B: An Open Bilingual Pre-trained Model'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2210.02414'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2302.13971
   handler: arxiv_paper
   title: 'LLaMA: Open and Efficient Foundation Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2302.13971'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2307.09288
   handler: arxiv_paper
   title: 'Llama 2: Open Foundation and Fine-Tuned Chat Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2307.09288'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.06825
   handler: arxiv_paper
   title: Mistral 7B
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2310.06825'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2401.04088
   handler: arxiv_paper
   title: Mixtral of Experts
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2401.04088'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2402.00838
   handler: arxiv_paper
   title: 'OLMo: Accelerating the Science of Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2402.00838'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2404.14219
   handler: arxiv_paper
   title: Phi-3 Technical Report
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2404.14219'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2407.10671
   handler: arxiv_paper
   title: Qwen2 Technical Report
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2407.10671'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2101.03961
   handler: arxiv_paper
   title: 'Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2101.03961'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2006.16668
   handler: arxiv_paper
   title: 'GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2006.16668'
   tags: *id006
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - transformers
+  - llm
+  - architecture
+  - scaling
+  - pre-training
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2104.09864
   handler: arxiv_paper
   title: 'RoFormer: Enhanced Transformer with Rotary Position Embedding'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2104.09864'
   tags: &id007
@@ -746,87 +1653,207 @@ items:
   - efficiency
   - mamba
   - flash-attention
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2108.12409
   handler: arxiv_paper
   title: 'Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2108.12409'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/1911.02150
   handler: arxiv_paper
   title: 'Fast Transformer Decoding: One Write-Head is All You Need'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '1911.02150'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.13245
   handler: arxiv_paper
   title: 'GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.13245'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2205.14135
   handler: arxiv_paper
   title: 'FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2205.14135'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2307.08691
   handler: arxiv_paper
   title: 'FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2307.08691'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2312.00752
   handler: arxiv_paper
   title: 'Mamba: Linear-Time Sequence Modeling with Selective State Spaces'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2312.00752'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2405.21060
   handler: arxiv_paper
   title: 'Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2405.21060'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.06425
   handler: arxiv_paper
   title: Tensor Product Attention Is All You Need
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2501.06425'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2405.06018
   handler: arxiv_paper
   title: 'QCQA: Quality and Capacity-aware Grouped Query Attention'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2405.06018'
   tags: *id007
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - attention
+  - efficiency
+  - mamba
+  - flash-attention
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2602.23374
   handler: arxiv_paper
   title: 'Higress-RAG: Enterprise RAG with Adaptive Routing and CRAG'
@@ -839,6 +1866,18 @@ items:
   - crag
   - enterprise
   - retrieval
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - adaptive-routing
+  - crag
+  - enterprise
+  - retrieval
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2502.15734
   handler: arxiv_paper
   title: 'Cache-Craft: Chunk-Cache Management for Efficient RAG'
@@ -851,6 +1890,18 @@ items:
   - kv-cache
   - efficiency
   - retrieval
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - caching
+  - kv-cache
+  - efficiency
+  - retrieval
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2505.23052
   handler: arxiv_paper
   title: 'RAGRouter: Learning to Route Queries Across Retrieval-Augmented LLMs'
@@ -863,6 +1914,18 @@ items:
   - retrieval
   - multi-model
   - efficiency
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - query-routing
+  - retrieval
+  - multi-model
+  - efficiency
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2603.01783
   handler: arxiv_paper
   title: 'GAM-RAG: Gain-Adaptive Memory for Evolving Retrieval'
@@ -875,6 +1938,18 @@ items:
   - feedback-loop
   - retrieval
   - kalman-filter
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - adaptive-memory
+  - feedback-loop
+  - retrieval
+  - kalman-filter
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2511.04880
   handler: arxiv_paper
   title: 'DMA: Online RAG Alignment with Human Feedback'
@@ -887,6 +1962,18 @@ items:
   - online-learning
   - reranking
   - alignment
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - human-feedback
+  - online-learning
+  - reranking
+  - alignment
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2601.21912
   handler: arxiv_paper
   title: 'ProRAG: Process-Supervised Reinforcement Learning for RAG'
@@ -898,12 +1985,23 @@ items:
   - reinforcement-learning
   - process-supervision
   - reasoning
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - rag
+  - reinforcement-learning
+  - process-supervision
+  - reasoning
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2503.07137
   handler: arxiv_paper
   title: 'A Comprehensive Survey of Mixture-of-Experts: Algorithms, Theory, and Applications'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2503.07137'
   tags: &id008
@@ -912,57 +2010,129 @@ items:
   - architecture
   - model-selection
   - efficiency
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - sparse-models
+  - architecture
+  - model-selection
+  - efficiency
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2407.06204
   handler: arxiv_paper
   title: A Survey on Mixture of Experts in Large Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2407.06204'
   tags: *id008
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - sparse-models
+  - architecture
+  - model-selection
+  - efficiency
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2412.14219
   handler: arxiv_paper
   title: 'Efficient Inference for Mixture-of-Experts Models: A Survey'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2412.14219'
   tags: *id008
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - sparse-models
+  - architecture
+  - model-selection
+  - efficiency
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2209.01667
   handler: arxiv_paper
   title: 'ST-MoE: Designing Stable and Transferable Sparse Expert Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2209.01667'
   tags: *id008
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - sparse-models
+  - architecture
+  - model-selection
+  - efficiency
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2405.04434
   handler: arxiv_paper
   title: 'DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2405.04434'
   tags: *id008
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - sparse-models
+  - architecture
+  - model-selection
+  - efficiency
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2412.19437
   handler: arxiv_paper
   title: DeepSeek-V3 Technical Report
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2412.19437'
   tags: *id008
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - sparse-models
+  - architecture
+  - model-selection
+  - efficiency
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2407.21783
   handler: arxiv_paper
   title: The Llama 3 Herd of Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2407.21783'
   tags: &id009
@@ -970,57 +2140,123 @@ items:
   - technical-report
   - llm
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - model-selection
+  - technical-report
+  - llm
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2409.12186
   handler: arxiv_paper
   title: Qwen2.5 Technical Report
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2409.12186'
   tags: *id009
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - model-selection
+  - technical-report
+  - llm
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2411.15124
   handler: arxiv_paper
   title: 'Falcon-H1: Hybrid-Head Models for Efficient Inference'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2411.15124'
   tags: *id009
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - model-selection
+  - technical-report
+  - llm
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2309.16609
   handler: arxiv_paper
   title: Mistral 7B and Mixtral Model Cards
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2309.16609'
   tags: *id009
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - model-selection
+  - technical-report
+  - llm
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2402.16840
   handler: arxiv_paper
   title: 'Gemma: Open Models Based on Gemini Research and Technology'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2402.16840'
   tags: *id009
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - model-selection
+  - technical-report
+  - llm
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2503.14499
   handler: arxiv_paper
   title: Gemma 3 Technical Report
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2503.14499'
   tags: *id009
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - model-selection
+  - technical-report
+  - llm
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2309.06180
   handler: arxiv_paper
   title: Efficient Memory Management for Large Language Model Serving with PagedAttention
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2309.06180'
   tags: &id010
@@ -1030,66 +2266,157 @@ items:
   - quantization
   - speculative-decoding
   - optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - vllm
+  - serving
+  - quantization
+  - speculative-decoding
+  - optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2401.17032
   handler: arxiv_paper
   title: 'SGLang: Efficient Execution of Structured Language Model Programs'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2401.17032'
   tags: *id010
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - vllm
+  - serving
+  - quantization
+  - speculative-decoding
+  - optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2211.17192
   handler: arxiv_paper
   title: 'SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2211.17192'
   tags: *id010
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - vllm
+  - serving
+  - quantization
+  - speculative-decoding
+  - optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2306.00978
   handler: arxiv_paper
   title: 'AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2306.00978'
   tags: *id010
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - vllm
+  - serving
+  - quantization
+  - speculative-decoding
+  - optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2210.17323
   handler: arxiv_paper
   title: 'GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2210.17323'
   tags: *id010
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - vllm
+  - serving
+  - quantization
+  - speculative-decoding
+  - optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2302.01318
   handler: arxiv_paper
   title: Speculative Decoding with Big Little Decoder
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2302.01318'
   tags: *id010
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - vllm
+  - serving
+  - quantization
+  - speculative-decoding
+  - optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.09781
   handler: arxiv_paper
   title: Fast Inference from Transformers via Speculative Decoding
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.09781'
   tags: *id010
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - inference
+  - vllm
+  - serving
+  - quantization
+  - speculative-decoding
+  - optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2203.02155
   handler: arxiv_paper
   title: Training language models to follow instructions with human feedback
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2203.02155'
   tags: &id011
@@ -1100,75 +2427,187 @@ items:
   - fine-tuning
   - alignment
   - preference-optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.18290
   handler: arxiv_paper
   title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.18290'
   tags: *id011
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2106.09685
   handler: arxiv_paper
   title: 'LoRA: Low-Rank Adaptation of Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2106.09685'
   tags: *id011
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.14314
   handler: arxiv_paper
   title: 'QLoRA: Efficient Finetuning of Quantized Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.14314'
   tags: *id011
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2402.14905
   handler: arxiv_paper
   title: 'LoRA+: Efficient Low Rank Adaptation of Large Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2402.14905'
   tags: *id011
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2405.09673
   handler: arxiv_paper
   title: 'ORPO: Monolithic Preference Optimization without Reference Model'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2405.09673'
   tags: *id011
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2401.10020
   handler: arxiv_paper
   title: Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2401.10020'
   tags: *id011
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.12036
   handler: arxiv_paper
   title: 'OpenHermes 2.5: An Open-Source Alignment Study'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2310.12036'
   tags: *id011
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - training
+  - rlhf
+  - dpo
+  - lora
+  - fine-tuning
+  - alignment
+  - preference-optimization
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2510.25445
   handler: arxiv_paper
   title: 'Agentic AI: A Comprehensive Survey of Architectures, Applications, and Future Directions'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2510.25445'
   tags: &id012
@@ -1178,39 +2617,91 @@ items:
   - mcp
   - agents
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - agentic
+  - tool-use
+  - function-calling
+  - mcp
+  - agents
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2510.03847
   handler: arxiv_paper
   title: Small Language Models for Agentic Systems
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2510.03847'
   tags: *id012
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - agentic
+  - tool-use
+  - function-calling
+  - mcp
+  - agents
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2504.00325
   handler: arxiv_paper
   title: Model Context Protocol Specification
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2504.00325'
   tags: *id012
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - agentic
+  - tool-use
+  - function-calling
+  - mcp
+  - agents
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2411.10440
   handler: arxiv_paper
   title: 'Agents-as-a-Service: Serverless AI Agent Deployment'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2411.10440'
   tags: *id012
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - agentic
+  - tool-use
+  - function-calling
+  - mcp
+  - agents
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2504.20434
   handler: arxiv_paper
   title: 'ARCS: Agentic Retrieval-Augmented Code Synthesis with Iterative Refinement'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2504.20434'
   tags: &id013
@@ -1219,66 +2710,150 @@ items:
   - code-generation
   - code-review
   - software-engineering
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-agent
+  - agentic
+  - code-generation
+  - code-review
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2603.01327
   handler: arxiv_paper
   title: 'SWE-Adept: An LLM-Based Agentic Framework for Deep Codebase Analysis'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2603.01327'
   tags: *id013
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-agent
+  - agentic
+  - code-generation
+  - code-review
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.06625
   handler: arxiv_paper
   title: Guided Code Generation with LLM Multi-Agent Framework
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2501.06625'
   tags: *id013
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-agent
+  - agentic
+  - code-generation
+  - code-review
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2405.15793
   handler: arxiv_paper
   title: 'SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2405.15793'
   tags: *id013
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-agent
+  - agentic
+  - code-generation
+  - code-review
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2411.01747
   handler: arxiv_paper
   title: 'OpenHands: An Open Platform for AI Software Developers'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2411.01747'
   tags: *id013
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-agent
+  - agentic
+  - code-generation
+  - code-review
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2402.01030
   handler: arxiv_paper
   title: 'IterativeRefinement: Code Generation with Self-Repair'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2402.01030'
   tags: *id013
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-agent
+  - agentic
+  - code-generation
+  - code-review
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2410.06992
   handler: arxiv_paper
   title: 'AgentCoder: Multi-Agent-based Code Generation with Iterative Testing and Optimisation'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2410.06992'
   tags: *id013
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-agent
+  - agentic
+  - code-generation
+  - code-review
+  - software-engineering
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2603.00729
   handler: arxiv_paper
   title: Qwen3-Coder-Next Technical Report
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2603.00729'
   tags: &id014
@@ -1286,48 +2861,103 @@ items:
   - technical-report
   - code-generation
   - benchmark
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-model
+  - technical-report
+  - code-generation
+  - benchmark
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2406.11931
   handler: arxiv_paper
   title: 'DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source Models in Code Intelligence'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2406.11931'
   tags: *id014
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-model
+  - technical-report
+  - code-generation
+  - benchmark
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2512.02556
   handler: arxiv_paper
   title: DeepSeek-V3.2 Technical Report
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2512.02556'
   tags: *id014
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-model
+  - technical-report
+  - code-generation
+  - benchmark
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.06161
   handler: arxiv_paper
   title: 'StarCoder: May the Source Be with You'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.06161'
   tags: *id014
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-model
+  - technical-report
+  - code-generation
+  - benchmark
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2402.19173
   handler: arxiv_paper
   title: 'StarCoder 2 and The Stack v2: The Next Generation'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2402.19173'
   tags: *id014
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - coding-model
+  - technical-report
+  - code-generation
+  - benchmark
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2603.04445
   handler: arxiv_paper
   title: 'Dynamic Model Routing and Cascading for Efficient LLM Inference: A Survey'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2603.04445'
   tags: &id015
@@ -1336,48 +2966,108 @@ items:
   - cost-optimization
   - small-vs-large
   - model-selection
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - model-routing
+  - cascade
+  - cost-optimization
+  - small-vs-large
+  - model-selection
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2406.18665
   handler: arxiv_paper
   title: 'RouteLLM: Learning to Route LLMs with Preference Data'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2406.18665'
   tags: *id015
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - model-routing
+  - cascade
+  - cost-optimization
+  - small-vs-large
+  - model-selection
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2410.10347
   handler: arxiv_paper
   title: 'Cascade Routing: A Unified Approach to Routing and Cascading for LLMs'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2410.10347'
   tags: *id015
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - model-routing
+  - cascade
+  - cost-optimization
+  - small-vs-large
+  - model-selection
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2311.07911
   handler: arxiv_paper
   title: 'IFEval: Instruction-Following Evaluation for Large Language Models'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2311.07911'
   tags: *id015
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - model-routing
+  - cascade
+  - cost-optimization
+  - small-vs-large
+  - model-selection
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2305.05176
   handler: arxiv_paper
   title: 'FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2305.05176'
   tags: *id015
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - model-routing
+  - cascade
+  - cost-optimization
+  - small-vs-large
+  - model-selection
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2412.14711
   handler: arxiv_paper
   title: 'ReMoE: Fully Differentiable Mixture-of-Experts with ReLU Routing'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2412.14711'
   tags: &id016
@@ -1386,30 +3076,78 @@ items:
   - expert-selection
   - load-balance
   - sparse-models
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - routing
+  - expert-selection
+  - load-balance
+  - sparse-models
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2602.17798
   handler: arxiv_paper
   title: 'Grassmannian MoE: Concentration-Controlled Routing on Subspace Manifolds'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2602.17798'
   tags: *id016
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - routing
+  - expert-selection
+  - load-balance
+  - sparse-models
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2601.12137
   handler: arxiv_paper
   title: 'EMoE: Eigenbasis-Guided Routing for Mixture-of-Experts'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2601.12137'
   tags: *id016
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - routing
+  - expert-selection
+  - load-balance
+  - sparse-models
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2601.21349
   handler: arxiv_paper
   title: 'L2R: Low-Rank and Lipschitz-Controlled Routing for MoE'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   config:
     id: '2601.21349'
   tags: *id016
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - moe
+  - routing
+  - expert-selection
+  - load-balance
+  - sparse-models
+  constraint_kind: guiding

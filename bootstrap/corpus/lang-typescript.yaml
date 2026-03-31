@@ -1,0 +1,467 @@
+# Bootstrap corpus — TypeScript language evidence pack
+items:
+- uri: https://www.typescriptlang.org/docs/handbook/
+  handler: web_page
+  title: TypeScript Handbook
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - handbook
+  - language
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - language-spec
+  - typescript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.typescriptlang.org/docs/handbook/
+- uri: https://www.typescriptlang.org/tsconfig/
+  handler: web_page
+  title: TSConfig Reference
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - tsconfig
+  - compiler
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - language-spec
+  - typescript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.typescriptlang.org/tsconfig/
+- uri: https://github.com/microsoft/TypeScript/wiki
+  handler: web_page
+  title: TypeScript Wiki (Diagnostics & Notes)
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - diagnostics
+  - wiki
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: troubleshooting
+  freshness_sla_days: 30
+  scope_tags:
+  - error-catalog
+  - typescript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://github.com/microsoft/TypeScript/wiki/
+- uri: https://typescript-eslint.io/rules/
+  handler: web_page
+  title: typescript-eslint Rules
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - eslint
+  - linting
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - linter-rules
+  - typescript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://typescript-eslint.io/rules/
+- uri: https://eslint.org/docs/latest/rules/
+  handler: web_page
+  title: ESLint Rules
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - eslint
+  - javascript
+  - linting
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - linter-rules
+  - typescript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://eslint.org/docs/latest/rules/
+- uri: https://prettier.io/docs/en/
+  handler: web_page
+  title: Prettier Documentation
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prettier
+  - formatting
+  - javascript
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - style-guide
+  - typescript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://prettier.io/docs/en/
+- uri: https://vitest.dev/guide/
+  handler: web_page
+  title: Vitest Guide
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vitest
+  - testing
+  - vite
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 30
+  scope_tags:
+  - testing-framework
+  - typescript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://vitest.dev/guide/
+- uri: https://jestjs.io/docs/getting-started
+  handler: web_page
+  title: Jest Documentation
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - jest
+  - testing
+  - javascript
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - testing-framework
+  - typescript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://jestjs.io/docs/
+- uri: https://docs.npmjs.com/
+  handler: web_page
+  title: npm Documentation
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - npm
+  - node
+  - packages
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - package-manager
+  - typescript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.npmjs.com/
+- uri: https://pnpm.io/motivation
+  handler: web_page
+  title: pnpm Motivation & Docs
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - pnpm
+  - node
+  - packages
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 60
+  scope_tags:
+  - package-manager
+  - typescript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://pnpm.io/
+- uri: https://nodejs.org/docs/latest/api/
+  handler: web_page
+  title: Node.js API Reference
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - nodejs
+  - runtime
+  - api
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - typescript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://nodejs.org/docs/latest/api/
+- uri: https://nodejs.org/docs/latest/api/errors.html
+  handler: web_page
+  title: Node.js Errors Reference
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - nodejs
+  - errors
+  - runtime
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - error-catalog
+  - typescript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://nodejs.org/docs/latest/api/
+- uri: https://tc39.es/ecma262/
+  handler: web_page
+  title: ECMA-262 Language Specification
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ecmascript
+  - javascript
+  - specification
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - typescript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://tc39.es/ecma262/
+- uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference
+  handler: web_page
+  title: MDN JavaScript Reference
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - mdn
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - typescript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference
+- uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
+  handler: web_page
+  title: MDN JavaScript Guide
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - mdn
+  - guide
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - typescript
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide

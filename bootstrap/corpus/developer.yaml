@@ -1,11 +1,3 @@
-# Bootstrap corpus — Language runtimes, web standards, package ecosystems
-# Imported via scripts/load-bootstrap.sh (all *.yaml here).
-#
-# Tags are chosen for retrieval + future MCP filters (e.g. domain=golang, tags include
-# style-guide, cli, testing, formatter, linter, framework, package-manager, iac, database).
-# Other corpus files (docs.yaml, cloud.yaml, llm.yaml) overlap by topic; ingestion dedupes
-# by uri, so add depth with different paths (e.g. Jest configuration vs getting-started in docs.yaml).
-#
 items:
 - uri: https://docs.python.org/3/tutorial/index.html
   handler: web_page
@@ -28,6 +20,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/tutorial/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - tutorial
+  - language
+  - stdlib
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/library/index.html
   handler: web_page
   title: Python Standard Library
@@ -48,6 +52,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/library/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - stdlib
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/library/pdb.html
   handler: web_page
   title: pdb — The Python Debugger
@@ -69,6 +84,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/library/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - debugger
+  - pdb
+  - troubleshooting
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/library/logging.html
   handler: web_page
   title: logging — Logging facility for Python
@@ -90,6 +117,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/library/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - logging
+  - observability
+  - debugging
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript
   handler: web_page
   title: JavaScript Reference Overview
@@ -110,6 +149,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Web/JavaScript/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - reference
+  - language
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules
   handler: web_page
   title: JavaScript Modules
@@ -131,6 +181,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - modules
+  - esm
+  - imports
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting/Debugging_JavaScript
   handler: web_page
   title: JavaScript Debugging and Error Handling
@@ -152,6 +214,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting/Debugging_JavaScript/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - debugging
+  - errors
+  - tooling
+  constraint_kind: guiding
 - uri: https://www.typescriptlang.org/docs/handbook/tsconfig-json.html
   handler: web_page
   title: What is a tsconfig.json
@@ -172,6 +246,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.typescriptlang.org/docs/handbook/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - tsconfig
+  - project-config
+  constraint_kind: guiding
 - uri: https://www.typescriptlang.org/docs/handbook/compiler-options.html
   handler: web_page
   title: tsc CLI Options
@@ -193,6 +278,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.typescriptlang.org/docs/handbook/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - tsc
+  - cli
+  - compiler
+  constraint_kind: guiding
 - uri: https://www.typescriptlang.org/docs/handbook/project-references.html
   handler: web_page
   title: Project References
@@ -214,6 +311,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.typescriptlang.org/docs/handbook/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - monorepo
+  - project-references
+  - build
+  constraint_kind: guiding
 - uri: https://www.typescriptlang.org/tsconfig/moduleResolution.html
   handler: web_page
   title: moduleResolution
@@ -235,6 +344,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.typescriptlang.org/tsconfig/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - typescript
+  - module-resolution
+  - esm
+  - build
+  constraint_kind: guiding
 - uri: https://docs.oracle.com/javase/tutorial/index.html
   handler: web_page
   title: The Java Tutorials
@@ -256,6 +377,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.oracle.com/javase/tutorial/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - tutorial
+  - language
+  - core
+  constraint_kind: guiding
 - uri: https://docs.oracle.com/javase/tutorial/java/index.html
   handler: web_page
   title: Learning the Java Language
@@ -277,6 +410,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.oracle.com/javase/tutorial/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - language
+  - oop
+  - basics
+  constraint_kind: guiding
 - uri: https://docs.oracle.com/javase/tutorial/java/nutsandbolts/index.html
   handler: web_page
   title: Language Basics
@@ -298,6 +443,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.oracle.com/javase/tutorial/java/nutsandbolts/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - basics
+  - syntax
+  - control-flow
+  constraint_kind: guiding
 - uri: https://docs.oracle.com/javase/tutorial/jdbc/index.html
   handler: web_page
   title: JDBC Database Access
@@ -319,6 +476,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.oracle.com/javase/tutorial/jdbc/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  - sql
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - jdbc
+  - database
+  - sql
+  constraint_kind: guiding
 - uri: https://go.dev/doc/tutorial/create-module
   handler: web_page
   title: Create a Go Module
@@ -340,6 +510,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://go.dev/doc/tutorial/create-module/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - modules
+  - tutorial
+  - packaging
+  constraint_kind: guiding
 - uri: https://go.dev/doc/tutorial/add-a-test
   handler: web_page
   title: Add a Test
@@ -361,6 +543,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://go.dev/doc/tutorial/add-a-test/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - testing
+  - go-test
+  - tutorial
+  constraint_kind: guiding
 - uri: https://go.dev/doc/gdb
   handler: web_page
   title: Debugging Go Code with GDB
@@ -382,6 +576,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://go.dev/doc/gdb/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - debugging
+  - gdb
+  - delve
+  constraint_kind: guiding
 - uri: https://github.com/go-delve/delve
   handler: html_document
   title: Delve Debugger
@@ -394,6 +600,18 @@ items:
   - delve
   - dap
   priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - go
+  - debugger
+  - delve
+  - dap
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/book/appendix-04-useful-development-tools.html
   handler: web_page
   title: Useful Development Tools
@@ -415,6 +633,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://doc.rust-lang.org/book/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - clippy
+  - rustfmt
+  - development-tools
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/cargo/commands/cargo-fmt.html
   handler: web_page
   title: cargo fmt
@@ -436,6 +666,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://doc.rust-lang.org/cargo/commands/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - cargo
+  - formatting
+  - rustfmt
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/cargo/reference/environment-variables.html
   handler: web_page
   title: Cargo Environment Variables
@@ -457,6 +699,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://doc.rust-lang.org/cargo/reference/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - cargo
+  - env
+  - build
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/reference/attributes.html
   handler: web_page
   title: 'Rust Reference: Attributes'
@@ -478,6 +732,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://doc.rust-lang.org/reference/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - attributes
+  - reference
+  - syntax
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging/?view=aspnetcore-10.0
   handler: web_page
   title: Logging in .NET and ASP.NET Core
@@ -500,6 +766,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - logging
+  - aspnet
+  - observability
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/nuget/create-packages/creating-a-package-dotnet-cli
   handler: web_page
   title: Create a NuGet package with the dotnet CLI
@@ -521,6 +800,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/nuget/create-packages/creating-a-package-dotnet-cli/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - nuget
+  - packaging
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dump
   handler: web_page
   title: dotnet-dump
@@ -542,6 +833,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dump/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - dump
+  - debugging
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-counters
   handler: web_page
   title: dotnet-counters
@@ -564,6 +867,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-counters/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - performance
+  - counters
+  - diagnostics
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-debugger-extensions
   handler: web_page
   title: dotnet-debugger-extensions
@@ -586,6 +902,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-debugger-extensions/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - debugger
+  - lldb
+  - windbg
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-publish
   handler: web_page
   title: dotnet publish
@@ -607,6 +936,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-publish/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - publish
+  - build
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-restore
   handler: web_page
   title: dotnet restore
@@ -628,6 +969,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-restore/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - restore
+  - dependencies
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-package-add
   handler: web_page
   title: dotnet package add
@@ -649,6 +1002,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-package-add/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - package
+  - nuget
+  constraint_kind: guiding
 - uri: https://en.cppreference.com/w/cpp/language
   handler: web_page
   title: cppreference C++ Language
@@ -670,6 +1035,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://en.cppreference.com/w/cpp/language/
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - cpp
+  - c++
+  - reference
+  - language
+  constraint_kind: guiding
 - uri: https://en.cppreference.com/w/c/language
   handler: web_page
   title: cppreference C Language
@@ -690,6 +1067,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://en.cppreference.com/w/c/language/
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - c
+  - reference
+  - language
+  constraint_kind: guiding
 - uri: https://www.gnu.org/software/gdb/documentation/
   handler: web_page
   title: GDB Documentation
@@ -711,6 +1099,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.gnu.org/software/gdb/documentation/
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - c
+  - cpp
+  - gdb
+  - debugging
+  constraint_kind: guiding
 - uri: https://lldb.llvm.org/
   handler: web_page
   title: LLDB Documentation
@@ -732,6 +1132,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://lldb.llvm.org/
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - c
+  - cpp
+  - lldb
+  - debugging
+  constraint_kind: guiding
 - uri: https://www.php.net/manual/en/index.php
   handler: web_page
   title: PHP Manual
@@ -753,6 +1165,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.php.net/manual/en/
+  corpus_class: coder_enriched
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - manual
+  - language
+  - reference
+  constraint_kind: guiding
 - uri: https://www.php.net/manual/en/language.oop5.autoload.php
   handler: web_page
   title: Autoloading Classes
@@ -774,6 +1198,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.php.net/manual/en/
+  corpus_class: coder_enriched
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - autoload
+  - composer
+  - oop
+  constraint_kind: guiding
 - uri: https://www.php.net/manual/en/features.commandline.webserver.php
   handler: web_page
   title: Built-in Web Server
@@ -795,6 +1231,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.php.net/manual/en/
+  corpus_class: coder_enriched
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - cli
+  - webserver
+  - dev-server
+  constraint_kind: guiding
 - uri: https://bundler.io/docs.html
   handler: web_page
   title: Bundler Documentation
@@ -816,6 +1264,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://bundler.io/
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - bundler
+  - dependencies
+  - tooling
+  constraint_kind: guiding
 - uri: https://bundler.io/guides/rubygems.html
   handler: web_page
   title: Bundler in Gems
@@ -837,6 +1297,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://bundler.io/guides/
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - bundler
+  - gems
+  - packaging
+  constraint_kind: guiding
 - uri: https://guides.rubygems.org/make-your-own-gem/
   handler: web_page
   title: Make Your Own Gem
@@ -858,6 +1330,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://guides.rubygems.org/make-your-own-gem/
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - rubygems
+  - packaging
+  - tutorial
+  constraint_kind: guiding
 - uri: https://rspec.info/
   handler: web_page
   title: RSpec
@@ -879,6 +1363,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://rspec.info/
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - rspec
+  - testing
+  - bdd
+  constraint_kind: guiding
 - uri: https://maven.apache.org/guides/getting-started/
   handler: web_page
   title: Maven Getting Started Guide
@@ -900,6 +1396,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://maven.apache.org/guides/getting-started/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - maven
+  - build
+  - dependencies
+  constraint_kind: guiding
 - uri: https://maven.apache.org/guides/getting-started/maven-in-five-minutes.html
   handler: web_page
   title: Maven in 5 Minutes
@@ -920,6 +1428,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://maven.apache.org/guides/getting-started/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - maven
+  - quickstart
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/
   handler: web_page
   title: Gradle User Manual
@@ -941,6 +1460,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - build
+  - plugins
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/getting_started_eng.html
   handler: web_page
   title: Gradle Getting Started
@@ -961,6 +1492,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - tutorial
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/gradle_basics.html
   handler: web_page
   title: Gradle Core Concepts
@@ -982,6 +1524,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - core-concepts
+  - build
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/plugins.html
   handler: web_page
   title: Introduction to Plugins
@@ -1003,6 +1557,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - plugins
+  - extension-model
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Web/HTML
   handler: web_page
   title: HTML on MDN
@@ -1024,6 +1590,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Web/HTML/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - html
+  - mdn
+  - reference
+  constraint_kind: guiding
 - uri: https://datatracker.ietf.org/doc/html/rfc9110
   handler: web_page
   title: HTTP Semantics (RFC 9110)
@@ -1045,6 +1622,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://datatracker.ietf.org/doc/html/rfc9110/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - http
+  - rfc
+  - semantics
+  constraint_kind: guiding
 - uri: https://fetch.spec.whatwg.org/
   handler: web_page
   title: Fetch Standard
@@ -1066,6 +1654,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://fetch.spec.whatwg.org/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - fetch
+  - standard
+  - cors
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS
   handler: web_page
   title: CORS Guide
@@ -1087,6 +1686,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - cors
+  - http
+  - security
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Resources_and_specifications
   handler: web_page
   title: HTTP Resources and Specifications
@@ -1108,6 +1718,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Resources_and_specifications/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - http
+  - spec-index
+  - reference
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Learn_web_development/Getting_started/Web_standards/The_web_standards_model
   handler: web_page
   title: Web Standards Model
@@ -1130,6 +1751,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Learn_web_development/Getting_started/Web_standards/The_web_standards_model/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - standards
+  - html
+  - css
+  - js
+  constraint_kind: guiding
 - uri: https://www.w3.org/TR/fetch-metadata/
   handler: web_page
   title: Fetch Metadata Request Headers
@@ -1151,6 +1784,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.w3.org/TR/fetch-metadata/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - web
+  - security
+  - fetch-metadata
+  - headers
+  constraint_kind: guiding
 - uri: https://spec.openapis.org/arazzo/latest.html
   handler: web_page
   title: Arazzo Specification
@@ -1172,6 +1816,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://spec.openapis.org/arazzo/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - api
+  - workflow
+  - openapi
+  - orchestration
+  constraint_kind: guiding
 - uri: https://opentofu.org/docs/
   handler: web_page
   title: OpenTofu Documentation
@@ -1193,6 +1848,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://opentofu.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - opentofu
+  - iac
+  - terraform-compatible
+  - docs
+  constraint_kind: guiding
 - uri: https://opentofu.org/docs/language/
   handler: web_page
   title: OpenTofu Language Documentation
@@ -1214,6 +1881,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://opentofu.org/docs/language/
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - opentofu
+  - language
+  - iac
+  - reference
+  constraint_kind: guiding
 - uri: https://peps.python.org/pep-0008/
   handler: web_page
   title: PEP 8 — Style Guide for Python Code
@@ -1235,6 +1914,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://peps.python.org/pep-0008/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - style-guide
+  - formatting
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/howto/typing.html
   handler: web_page
   title: Python typing support (how-to)
@@ -1256,6 +1947,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/howto/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - typing
+  - types
+  - guide
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/library/venv.html
   handler: web_page
   title: venv — Creation of virtual environments
@@ -1277,6 +1980,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/library/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - venv
+  - tooling
+  - package-manager
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/library/pathlib.html
   handler: web_page
   title: pathlib — Object-oriented filesystem paths
@@ -1298,6 +2013,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/library/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - stdlib
+  - filesystem
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/library/asyncio.html
   handler: web_page
   title: asyncio — Asynchronous I/O
@@ -1319,6 +2046,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/library/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - async
+  - concurrency
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.python.org/3/library/unittest.html
   handler: web_page
   title: unittest — Unit testing framework
@@ -1340,6 +2079,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.python.org/3/library/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - testing
+  - stdlib
+  - reference
+  constraint_kind: guiding
 - uri: https://packaging.python.org/en/latest/tutorials/packaging-projects/
   handler: web_page
   title: Packaging Python projects (tutorial)
@@ -1361,6 +2112,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://packaging.python.org/en/latest/tutorials/packaging-projects/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - packaging
+  - distribution
+  - tutorial
+  constraint_kind: guiding
 - uri: https://setuptools.pypa.io/en/latest/
   handler: web_page
   title: setuptools documentation
@@ -1382,6 +2145,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://setuptools.pypa.io/en/latest/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - packaging
+  - build
+  - reference
+  constraint_kind: guiding
 - uri: https://python-poetry.org/docs/
   handler: web_page
   title: Poetry documentation
@@ -1403,6 +2178,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python-poetry.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - poetry
+  - package-manager
+  - tooling
+  constraint_kind: guiding
 - uri: https://docs.astral.sh/uv/
   handler: web_page
   title: uv package manager and installer
@@ -1424,6 +2211,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.astral.sh/uv/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - uv
+  - package-manager
+  - tooling
+  constraint_kind: guiding
 - uri: https://black.readthedocs.io/en/stable/
   handler: web_page
   title: Black code formatter
@@ -1445,6 +2244,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://black.readthedocs.io/en/stable/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - black
+  - formatter
+  - tooling
+  constraint_kind: guiding
 - uri: https://mypy.readthedocs.io/en/stable/
   handler: web_page
   title: mypy static type checker
@@ -1466,6 +2277,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://mypy.readthedocs.io/en/stable/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - mypy
+  - typing
+  - linter
+  constraint_kind: guiding
 - uri: https://docs.pydantic.dev/latest/
   handler: web_page
   title: Pydantic documentation
@@ -1487,6 +2310,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.pydantic.dev/latest/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - pydantic
+  - validation
+  - framework
+  constraint_kind: guiding
 - uri: https://docs.djangoproject.com/en/stable/
   handler: web_page
   title: Django documentation
@@ -1508,6 +2343,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.djangoproject.com/en/stable/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - django
+  - web
+  - framework
+  constraint_kind: guiding
 - uri: https://flask.palletsprojects.com/en/stable/
   handler: web_page
   title: Flask documentation
@@ -1529,6 +2376,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://flask.palletsprojects.com/en/stable/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - flask
+  - web
+  - framework
+  constraint_kind: guiding
 - uri: https://docs.pytest.org/en/stable/
   handler: web_page
   title: pytest documentation
@@ -1550,6 +2409,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.pytest.org/en/stable/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - pytest
+  - testing
+  - tooling
+  constraint_kind: guiding
 - uri: https://numpy.org/doc/stable/
   handler: web_page
   title: NumPy reference documentation
@@ -1571,6 +2442,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://numpy.org/doc/stable/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - numpy
+  - data-science
+  - reference
+  constraint_kind: guiding
 - uri: https://pandas.pydata.org/docs/
   handler: web_page
   title: pandas documentation
@@ -1592,6 +2475,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://pandas.pydata.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - pandas
+  - data-science
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.sqlalchemy.org/en/20/
   handler: web_page
   title: SQLAlchemy 2.0 documentation
@@ -1613,6 +2508,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.sqlalchemy.org/en/20/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - sqlalchemy
+  - orm
+  - database
+  constraint_kind: guiding
 - uri: https://google.github.io/styleguide/jsguide.html
   handler: web_page
   title: Google JavaScript Style Guide
@@ -1633,6 +2540,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://google.github.io/styleguide/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - style-guide
+  - conventions
+  constraint_kind: guiding
 - uri: https://eslint.org/docs/latest/
   handler: web_page
   title: ESLint documentation
@@ -1654,6 +2572,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://eslint.org/docs/latest/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - eslint
+  - linter
+  - tooling
+  constraint_kind: guiding
 - uri: https://prettier.io/docs/en/
   handler: web_page
   title: Prettier documentation
@@ -1675,6 +2605,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://prettier.io/docs/en/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - prettier
+  - formatter
+  - tooling
+  constraint_kind: guiding
 - uri: https://vitest.dev/guide/
   handler: web_page
   title: Vitest guide
@@ -1696,6 +2638,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://vitest.dev/guide/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - vitest
+  - testing
+  - tooling
+  constraint_kind: guiding
 - uri: https://pnpm.io/motivation
   handler: web_page
   title: pnpm — fast, disk space efficient package manager
@@ -1717,6 +2671,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://pnpm.io/motivation/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - pnpm
+  - package-manager
+  - tooling
+  constraint_kind: guiding
 - uri: https://yarnpkg.com/getting-started
   handler: web_page
   title: Yarn getting started
@@ -1738,6 +2704,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://yarnpkg.com/getting-started/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - yarn
+  - package-manager
+  - tooling
+  constraint_kind: guiding
 - uri: https://nodejs.org/en/learn/getting-started/introduction-to-nodejs
   handler: web_page
   title: Introduction to Node.js
@@ -1759,6 +2737,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://nodejs.org/en/learn/getting-started/introduction-to-nodejs/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - nodejs
+  - runtime
+  - guide
+  constraint_kind: guiding
 - uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions
   handler: web_page
   title: JavaScript regular expressions (MDN)
@@ -1780,6 +2770,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - regex
+  - reference
+  - guide
+  constraint_kind: guiding
 - uri: https://react.dev/learn
   handler: web_page
   title: React — Learn
@@ -1801,6 +2803,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://react.dev/learn/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - react
+  - ui
+  - framework
+  constraint_kind: guiding
 - uri: https://vuejs.org/guide/introduction.html
   handler: web_page
   title: Vue.js — Introduction
@@ -1822,6 +2836,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://vuejs.org/guide/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - vue
+  - ui
+  - framework
+  constraint_kind: guiding
 - uri: https://angular.dev/overview
   handler: web_page
   title: Angular documentation overview
@@ -1843,6 +2869,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://angular.dev/overview/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - angular
+  - ui
+  - framework
+  constraint_kind: guiding
 - uri: https://svelte.dev/docs/svelte/overview
   handler: web_page
   title: Svelte overview
@@ -1864,6 +2902,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://svelte.dev/docs/svelte/overview/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - svelte
+  - ui
+  - framework
+  constraint_kind: guiding
 - uri: https://go.dev/doc/modules/
   handler: web_page
   title: Go modules reference
@@ -1885,6 +2935,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://go.dev/doc/modules/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - golang
+  - modules
+  - dependencies
+  - reference
+  constraint_kind: guiding
 - uri: https://go.dev/doc/comment
   handler: web_page
   title: Go doc comments
@@ -1906,6 +2968,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://go.dev/doc/comment/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - golang
+  - documentation
+  - conventions
+  - reference
+  constraint_kind: guiding
 - uri: https://golangci-lint.run/welcome/install/
   handler: web_page
   title: golangci-lint
@@ -1927,6 +3001,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://golangci-lint.run/welcome/install/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - golang
+  - golangci-lint
+  - linter
+  - tooling
+  constraint_kind: guiding
 - uri: https://pkg.go.dev/std
   handler: web_page
   title: Go standard library (pkg.go.dev)
@@ -1947,6 +3033,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://pkg.go.dev/std/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - golang
+  - stdlib
+  - reference
+  constraint_kind: guiding
 - uri: https://doc.rust-lang.org/clippy/
   handler: web_page
   title: Clippy lint collection
@@ -1968,6 +3065,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://doc.rust-lang.org/clippy/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - clippy
+  - linter
+  - tooling
+  constraint_kind: guiding
 - uri: https://rust-lang.github.io/rustfmt/
   handler: web_page
   title: rustfmt — code formatter
@@ -1989,6 +3098,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://rust-lang.github.io/rustfmt/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rust
+  - rustfmt
+  - formatter
+  - tooling
+  constraint_kind: guiding
 - uri: https://google.github.io/styleguide/javaguide.html
   handler: web_page
   title: Google Java Style Guide
@@ -2009,6 +3130,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://google.github.io/styleguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - style-guide
+  - conventions
+  constraint_kind: guiding
 - uri: https://maven.apache.org/guides/introduction/introduction-to-the-pom.html
   handler: web_page
   title: Maven — Introduction to the POM
@@ -2030,6 +3162,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://maven.apache.org/guides/introduction/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - maven
+  - build
+  - reference
+  constraint_kind: guiding
 - uri: https://maven.apache.org/guides/introduction/introduction-to-the-lifecycle.html
   handler: web_page
   title: Maven — Build Lifecycle
@@ -2051,6 +3195,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://maven.apache.org/guides/introduction/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - maven
+  - build
+  - reference
+  constraint_kind: guiding
 - uri: https://spring.io/guides/gs/spring-boot
   handler: web_page
   title: Spring Boot getting started
@@ -2072,6 +3228,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://spring.io/guides/gs/spring-boot/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - spring-boot
+  - framework
+  - guide
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions
   handler: web_page
   title: C# coding conventions
@@ -2093,6 +3261,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - style-guide
+  - conventions
+  - dotnet
+  constraint_kind: guiding
 - uri: https://xunit.net/docs/getting-started/netcore/cmdline
   handler: web_page
   title: xUnit.net — getting started (.NET CLI)
@@ -2114,6 +3294,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://xunit.net/docs/getting-started/netcore/cmdline/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - xunit
+  - testing
+  - dotnet
+  constraint_kind: guiding
 - uri: https://google.github.io/styleguide/cppguide.html
   handler: web_page
   title: Google C++ Style Guide
@@ -2134,6 +3326,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://google.github.io/styleguide/
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - cpp
+  - style-guide
+  - conventions
+  constraint_kind: guiding
 - uri: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
   handler: web_page
   title: ClangFormat style options
@@ -2155,6 +3358,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://clang.llvm.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - cpp
+  - clang-format
+  - formatter
+  - tooling
+  constraint_kind: guiding
 - uri: https://www.php-fig.org/psr/psr-12/
   handler: web_page
   title: PSR-12 — Extended Coding Style
@@ -2176,6 +3391,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.php-fig.org/psr/psr-12/
+  corpus_class: coder_enriched
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - psr-12
+  - style-guide
+  - conventions
+  constraint_kind: guiding
 - uri: https://www.php.net/manual/en/language.oop5.php
   handler: web_page
   title: PHP classes and objects
@@ -2197,6 +3424,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.php.net/manual/en/
+  corpus_class: coder_enriched
+  languages:
+  - php
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - php
+  - oop
+  - language
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.rubocop.org/rubocop/
   handler: web_page
   title: RuboCop documentation
@@ -2218,6 +3457,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.rubocop.org/rubocop/
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - rubocop
+  - linter
+  - style-guide
+  constraint_kind: guiding
 - uri: https://bundler.io/guides/getting_started.html
   handler: web_page
   title: Bundler getting started
@@ -2239,6 +3490,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://bundler.io/guides/
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - bundler
+  - package-manager
+  - tooling
+  constraint_kind: guiding
 - uri: https://guides.rubyonrails.org/
   handler: web_page
   title: Ruby on Rails Guides
@@ -2260,6 +3523,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://guides.rubyonrails.org/
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ruby
+  - rails
+  - web
+  - framework
+  constraint_kind: guiding
 - uri: https://jqlang.github.io/jq/manual/
   handler: web_page
   title: jq manual
@@ -2282,6 +3557,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://jqlang.github.io/jq/manual/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - jq
+  - cli
+  - json
+  - tooling
+  - reference
+  constraint_kind: guiding
 - uri: https://cli.github.com/manual/
   handler: web_page
   title: GitHub CLI manual
@@ -2304,6 +3591,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://cli.github.com/manual/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - github
+  - gh
+  - cli
+  - tooling
+  - reference
+  constraint_kind: guiding
 - uri: https://curl.se/docs/manual.html
   handler: web_page
   title: curl manual
@@ -2326,6 +3625,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://curl.se/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - curl
+  - cli
+  - http
+  - tooling
+  - reference
+  constraint_kind: guiding
 - uri: https://git-scm.com/docs/git
   handler: web_page
   title: git command reference (overview)
@@ -2347,6 +3658,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://git-scm.com/docs/git/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - git
+  - cli
+  - vcs
+  - reference
+  constraint_kind: guiding
 - uri: https://git-scm.com/docs/git-rebase
   handler: web_page
   title: git-rebase
@@ -2369,6 +3691,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://git-scm.com/docs/git-rebase/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - git
+  - rebase
+  - cli
+  - vcs
+  - reference
+  constraint_kind: guiding
 - uri: https://semver.org/lang/en/
   handler: web_page
   title: Semantic Versioning specification (English)
@@ -2390,6 +3724,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://semver.org/lang/en/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - semver
+  - versioning
+  - reference
+  - conventions
+  constraint_kind: guiding
 - uri: https://pre-commit.com/
   handler: web_page
   title: pre-commit framework
@@ -2411,6 +3756,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://pre-commit.com/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pre-commit
+  - hooks
+  - tooling
+  - quality
+  constraint_kind: guiding
 - uri: https://editorconfig.org/
   handler: web_page
   title: EditorConfig
@@ -2432,6 +3788,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://editorconfig.org/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - editorconfig
+  - formatting
+  - tooling
+  - conventions
+  constraint_kind: guiding
 - uri: https://www.gnu.org/software/make/manual/make.html
   handler: web_page
   title: GNU Make manual
@@ -2453,6 +3820,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.gnu.org/software/make/manual/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - make
+  - build
+  - cli
+  - reference
+  constraint_kind: guiding
 - uri: https://www.gnu.org/software/sed/manual/sed.html
   handler: web_page
   title: GNU sed manual
@@ -2474,6 +3852,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.gnu.org/software/sed/manual/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - sed
+  - cli
+  - unix
+  - reference
+  constraint_kind: guiding
 - uri: https://www.gnu.org/software/gawk/manual/gawk.html
   handler: web_page
   title: GNU awk manual
@@ -2496,6 +3885,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.gnu.org/software/gawk/manual/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - awk
+  - gawk
+  - cli
+  - unix
+  - reference
+  constraint_kind: guiding
 - uri: https://protobuf.dev/programming-guides/proto3/
   handler: web_page
   title: Protocol Buffers — proto3 language guide
@@ -2517,6 +3918,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://protobuf.dev/programming-guides/proto3/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - protobuf
+  - serialization
+  - api
+  - reference
+  constraint_kind: guiding
 - uri: https://kubernetes.io/docs/reference/kubectl/quick-reference/
   handler: web_page
   title: kubectl quick reference
@@ -2538,6 +3950,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kubernetes.io/docs/reference/kubectl/quick-reference/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - kubectl
+  - kubernetes
+  - cli
+  - reference
+  constraint_kind: guiding
 - uri: https://helm.sh/docs/intro/using_helm/
   handler: web_page
   title: Using Helm
@@ -2559,6 +3982,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://helm.sh/docs/intro/using_helm/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - helm
+  - kubernetes
+  - cli
+  - package-manager
+  constraint_kind: guiding
 - uri: https://docs.github.com/en/actions/learn-github-actions/understanding-github-actions
   handler: web_page
   title: Understanding GitHub Actions
@@ -2580,6 +4014,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.github.com/en/actions/learn-github-actions/understanding-github-actions/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - github
+  - github-actions
+  - ci
+  - guide
+  constraint_kind: guiding
 - uri: https://docs.github.com/en/rest
   handler: web_page
   title: GitHub REST API documentation
@@ -2601,6 +4046,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.github.com/en/rest/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - github
+  - rest
+  - api
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.github.com/en/search-github/searching-on-github
   handler: web_page
   title: Searching on GitHub
@@ -2622,6 +4078,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.github.com/en/search-github/searching-on-github/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - github
+  - search
+  - cli
+  - reference
+  constraint_kind: guiding
 - uri: https://www.postgresql.org/docs/current/tutorial.html
   handler: web_page
   title: PostgreSQL tutorial
@@ -2643,6 +4110,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.postgresql.org/docs/current/
+  corpus_class: hybrid
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - postgresql
+  - sql
+  - database
+  - tutorial
+  constraint_kind: guiding
 - uri: https://sqlite.org/lang.html
   handler: web_page
   title: SQLite SQL language reference
@@ -2664,6 +4143,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://sqlite.org/
+  corpus_class: hybrid
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - sqlite
+  - sql
+  - database
+  - reference
+  constraint_kind: guiding
 - uri: https://redis.io/docs/latest/develop/connect/cli/
   handler: web_page
   title: Redis CLI guide
@@ -2685,6 +4176,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://redis.io/docs/latest/develop/connect/cli/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - redis
+  - cli
+  - database
+  - reference
+  constraint_kind: guiding
 - uri: https://nginx.org/en/docs/beginners_guide.html
   handler: web_page
   title: nginx beginners guide
@@ -2706,6 +4208,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://nginx.org/en/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - nginx
+  - web-server
+  - proxy
+  - guide
+  constraint_kind: guiding
 - uri: https://developer.hashicorp.com/terraform/cli
   handler: web_page
   title: Terraform CLI documentation
@@ -2727,6 +4240,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.hashicorp.com/terraform/cli/
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - cli
+  - iac
+  - reference
+  constraint_kind: guiding
 - uri: https://developer.hashicorp.com/terraform/language/tests
   handler: web_page
   title: Terraform tests
@@ -2748,6 +4273,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.hashicorp.com/terraform/language/tests/
+  corpus_class: coder_enriched
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - testing
+  - iac
+  - reference
+  constraint_kind: guiding
 - uri: https://www.markdownguide.org/basic-syntax/
   handler: web_page
   title: Markdown basic syntax
@@ -2768,6 +4305,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.markdownguide.org/basic-syntax/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - markdown
+  - documentation
+  - reference
+  constraint_kind: guiding
 - uri: https://spec.commonmark.org/0.31.2/
   handler: web_page
   title: CommonMark specification 0.31.2
@@ -2789,6 +4336,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://spec.commonmark.org/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - markdown
+  - commonmark
+  - spec
+  - reference
+  constraint_kind: guiding
 - uri: https://yaml.org/spec/1.2.2/
   handler: web_page
   title: YAML 1.2.2 specification
@@ -2810,6 +4368,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://yaml.org/spec/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - yaml
+  - config
+  - spec
+  - reference
+  constraint_kind: guiding
 - uri: https://playwright.dev/docs/intro
   handler: web_page
   title: Playwright — Getting started
@@ -2832,6 +4401,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://playwright.dev/docs/intro/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - playwright
+  - e2e
+  - testing
+  - tooling
+  constraint_kind: guiding
 - uri: https://playwright.dev/docs/writing-tests
   handler: web_page
   title: Playwright — Writing tests
@@ -2853,6 +4435,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://playwright.dev/docs/writing-tests/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - playwright
+  - e2e
+  - testing
+  constraint_kind: guiding
 - uri: https://playwright.dev/docs/best-practices
   handler: web_page
   title: Playwright — Best practices
@@ -2875,6 +4469,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://playwright.dev/docs/best-practices/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - playwright
+  - e2e
+  - testing
+  - guide
+  constraint_kind: guiding
 - uri: https://playwright.dev/docs/test-fixtures
   handler: web_page
   title: Playwright — Test fixtures
@@ -2896,6 +4503,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://playwright.dev/docs/test-fixtures/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - playwright
+  - testing
+  - patterns
+  constraint_kind: guiding
 - uri: https://playwright.dev/docs/ci
   handler: web_page
   title: Playwright — CI
@@ -2917,6 +4536,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://playwright.dev/docs/ci/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - playwright
+  - ci
+  - testing
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/core-concepts/writing-and-organizing-tests
   handler: web_page
   title: Cypress — Writing and organizing tests
@@ -2938,6 +4569,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/core-concepts/writing-and-organizing-tests/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - e2e
+  - testing
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/end-to-end-testing/writing-your-first-end-to-end-test
   handler: web_page
   title: Cypress — First end-to-end test
@@ -2960,6 +4603,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/end-to-end-testing/writing-your-first-end-to-end-test/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - e2e
+  - testing
+  - tutorial
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/core-concepts/interacting-with-elements
   handler: web_page
   title: Cypress — Interacting with elements
@@ -2982,6 +4638,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/core-concepts/interacting-with-elements/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - e2e
+  - testing
+  - reference
+  constraint_kind: guiding
 - uri: https://jestjs.io/docs/configuration
   handler: web_page
   title: Jest — Configuration
@@ -3003,6 +4672,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://jestjs.io/docs/configuration/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - jest
+  - testing
+  - configuration
+  constraint_kind: guiding
 - uri: https://jestjs.io/docs/mock-functions
   handler: web_page
   title: Jest — Mock functions
@@ -3024,6 +4705,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://jestjs.io/docs/mock-functions/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - jest
+  - testing
+  - mocking
+  constraint_kind: guiding
 - uri: https://jestjs.io/docs/expect
   handler: web_page
   title: Jest — Expect
@@ -3045,6 +4738,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://jestjs.io/docs/expect/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - jest
+  - testing
+  - assertions
+  constraint_kind: guiding
 - uri: https://jestjs.io/docs/jest-object
   handler: web_page
   title: Jest — The Jest object
@@ -3066,6 +4771,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://jestjs.io/docs/jest-object/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - jest
+  - testing
+  - reference
+  constraint_kind: guiding
 - uri: https://jestjs.io/docs/snapshot-testing
   handler: web_page
   title: Jest — Snapshot testing
@@ -3087,6 +4804,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://jestjs.io/docs/snapshot-testing/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - jest
+  - testing
+  - snapshots
+  constraint_kind: guiding
 - uri: https://testing-library.com/docs/guiding-principles/
   handler: web_page
   title: Testing Library — Guiding principles
@@ -3108,6 +4837,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://testing-library.com/docs/guiding-principles/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - testing-library
+  - testing
+  - guide
+  constraint_kind: guiding
 - uri: https://testing-library.com/docs/react-testing-library/intro/
   handler: web_page
   title: React Testing Library — Introduction
@@ -3129,6 +4870,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://testing-library.com/docs/react-testing-library/intro/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - testing-library
+  - react
+  - testing
+  constraint_kind: guiding
 - uri: https://testing-library.com/docs/dom-testing-library/intro/
   handler: web_page
   title: DOM Testing Library — Introduction
@@ -3150,6 +4903,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://testing-library.com/docs/dom-testing-library/intro/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - testing-library
+  - dom
+  - testing
+  constraint_kind: guiding
 - uri: https://mswjs.io/docs/
   handler: web_page
   title: Mock Service Worker (MSW) documentation
@@ -3172,6 +4937,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://mswjs.io/docs/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - msw
+  - mocking
+  - api
+  - testing
+  constraint_kind: guiding
 - uri: https://vitest.dev/guide/mocking.html
   handler: web_page
   title: Vitest — Mocking
@@ -3193,6 +4971,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://vitest.dev/guide/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - vitest
+  - testing
+  - mocking
+  constraint_kind: guiding
 - uri: https://nodejs.org/api/test.html
   handler: web_page
   title: Node.js — test runner
@@ -3214,6 +5004,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://nodejs.org/api/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - nodejs
+  - testing
+  - tooling
+  constraint_kind: guiding
 - uri: https://nextjs.org/docs
   handler: web_page
   title: Next.js documentation
@@ -3236,6 +5038,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://nextjs.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - nextjs
+  - react
+  - framework
+  - web
+  constraint_kind: guiding
 - uri: https://tailwindcss.com/docs/installation
   handler: web_page
   title: Tailwind CSS — Installation
@@ -3258,6 +5073,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://tailwindcss.com/docs/installation/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - tailwindcss
+  - css
+  - styling
+  - tooling
+  constraint_kind: guiding
 - uri: https://storybook.js.org/docs
   handler: web_page
   title: Storybook documentation
@@ -3280,6 +5108,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://storybook.js.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - storybook
+  - components
+  - ui
+  - tooling
+  constraint_kind: guiding
 - uri: https://graphql.org/learn/
   handler: web_page
   title: GraphQL — Learn
@@ -3301,6 +5142,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://graphql.org/learn/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - graphql
+  - api
+  - query
+  - tutorial
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/ef/core/
   handler: web_page
   title: Entity Framework Core documentation
@@ -3323,6 +5175,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/ef/core/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - ef-core
+  - orm
+  - database
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis
   handler: web_page
   title: ASP.NET Core — Minimal APIs
@@ -3345,6 +5210,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspnet
+  - web
+  - api
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection
   handler: web_page
   title: .NET — Dependency injection
@@ -3366,6 +5244,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - di
+  - patterns
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration
   handler: web_page
   title: .NET — Configuration
@@ -3387,6 +5277,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - configuration
+  - patterns
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/csharp/asynchronous-programming/
   handler: web_page
   title: C# — Asynchronous programming
@@ -3409,6 +5311,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/csharp/asynchronous-programming/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - async
+  - concurrency
+  - guide
+  constraint_kind: guiding
 - uri: https://docs.nunit.org/articles/nunit/intro.html
   handler: html_document
   title: NUnit — Introduction
@@ -3422,6 +5337,19 @@ items:
   - testing
   - corpus_blog
   priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - nunit
+  - testing
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://kotlinlang.org/docs/coding-conventions.html
   handler: web_page
   title: Kotlin coding conventions
@@ -3442,6 +5370,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kotlinlang.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - kotlin
+  - style-guide
+  - conventions
+  constraint_kind: guiding
 - uri: https://kotlinlang.org/docs/null-safety.html
   handler: web_page
   title: Kotlin null safety
@@ -3463,6 +5402,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kotlinlang.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - kotlin
+  - language
+  - types
+  - reference
+  constraint_kind: guiding
 - uri: https://kotlinlang.org/docs/serialization.html
   handler: web_page
   title: Kotlin serialization
@@ -3484,6 +5435,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kotlinlang.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - kotlin
+  - serialization
+  - data
+  - reference
+  constraint_kind: guiding
 - uri: https://kotlinlang.org/docs/multiplatform.html
   handler: web_page
   title: Kotlin Multiplatform
@@ -3505,6 +5468,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://kotlinlang.org/docs/
+  corpus_class: coder_enriched
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kotlin
+  - multiplatform
+  - mobile
+  - guide
+  constraint_kind: guiding
 - uri: https://webdriver.io/docs/gettingstarted
   handler: web_page
   title: WebdriverIO — Getting started
@@ -3527,6 +5502,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://webdriver.io/docs/gettingstarted/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - browser-automation
+  constraint_kind: guiding
 - uri: https://webdriver.io/docs/configuration
   handler: web_page
   title: WebdriverIO — Configuration
@@ -3549,6 +5537,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://webdriver.io/docs/configuration/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - configuration
+  constraint_kind: guiding
 - uri: https://webdriver.io/docs/selectors
   handler: web_page
   title: WebdriverIO — Selectors
@@ -3571,6 +5572,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://webdriver.io/docs/selectors/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - reference
+  constraint_kind: guiding
 - uri: https://webdriver.io/docs/api/browser
   handler: web_page
   title: WebdriverIO — Browser API
@@ -3593,6 +5607,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://webdriver.io/docs/api/browser/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - api
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/component-testing/get-started
   handler: web_page
   title: Cypress — Component testing get started
@@ -3614,6 +5641,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/component-testing/get-started/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - component-testing
+  - testing
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/component-testing/react/overview
   handler: web_page
   title: Cypress — Component testing for React
@@ -3636,6 +5675,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/component-testing/react/overview/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - component-testing
+  - react
+  - testing
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/component-testing/angular/overview
   handler: web_page
   title: Cypress — Component testing for Angular
@@ -3658,6 +5710,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/component-testing/angular/overview/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - component-testing
+  - angular
+  - testing
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/component-testing/styling-components
   handler: web_page
   title: Cypress — Styling components (component testing)
@@ -3680,6 +5745,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/component-testing/styling-components/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - component-testing
+  - styling
+  - testing
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview
   handler: web_page
   title: .NET Aspire — Overview
@@ -3702,6 +5780,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspire
+  - cloud-native
+  - guide
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/app-host-overview
   handler: web_page
   title: .NET Aspire — App host
@@ -3724,6 +5815,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/app-host-overview/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspire
+  - app-host
+  - orchestration
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/networking-overview
   handler: web_page
   title: .NET Aspire — Networking
@@ -3746,6 +5850,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/networking-overview/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspire
+  - networking
+  - service-discovery
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/aspire/deployment/overview
   handler: web_page
   title: .NET Aspire — Deployment overview
@@ -3768,6 +5885,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/aspire/deployment/overview/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspire
+  - deployment
+  - kubernetes
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/kotlin_dsl.html
   handler: web_page
   title: Gradle Kotlin DSL primer
@@ -3789,6 +5919,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - kotlin-dsl
+  - build
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/migrating_from_groovy_to_kotlin_dsl.html
   handler: web_page
   title: Gradle — Migrating from Groovy to Kotlin DSL
@@ -3811,6 +5953,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - kotlin-dsl
+  - migration
+  - build
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/writing_build_scripts.html
   handler: web_page
   title: Gradle — Writing build scripts
@@ -3832,6 +5987,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - build
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/component-testing/vue/overview
   handler: web_page
   title: Cypress — Component testing for Vue
@@ -3854,6 +6021,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/component-testing/vue/overview/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - component-testing
+  - vue
+  - testing
+  constraint_kind: guiding
 - uri: https://docs.cypress.io/app/component-testing/vue/examples
   handler: web_page
   title: Cypress — Vue component testing examples
@@ -3877,6 +6057,20 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cypress.io/app/component-testing/vue/examples/
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - javascript
+  - cypress
+  - component-testing
+  - vue
+  - testing
+  - examples
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/telemetry
   handler: web_page
   title: .NET Aspire — Telemetry
@@ -3900,6 +6094,20 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/telemetry/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspire
+  - telemetry
+  - opentelemetry
+  - observability
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/dashboard
   handler: web_page
   title: .NET Aspire — Dashboard
@@ -3922,6 +6130,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/dashboard/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspire
+  - dashboard
+  - observability
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/health-checks
   handler: web_page
   title: .NET Aspire — Health checks
@@ -3944,6 +6165,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/health-checks/
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - csharp
+  - dotnet
+  - aspire
+  - health-checks
+  - observability
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/dependency_management_for_java_projects.html
   handler: web_page
   title: Gradle — Dependency management for Java projects
@@ -3965,6 +6199,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - dependencies
+  - build
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/declaring_dependencies.html
   handler: web_page
   title: Gradle — Declaring dependencies
@@ -3986,6 +6232,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - dependencies
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/dependency_constraints.html
   handler: web_page
   title: Gradle — Dependency constraints
@@ -4007,6 +6265,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - dependencies
+  - constraints
+  constraint_kind: guiding
 - uri: https://docs.gradle.org/current/userguide/version_catalogs.html
   handler: web_page
   title: Gradle — Version catalogs
@@ -4028,3 +6298,15 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.gradle.org/current/userguide/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - java
+  - gradle
+  - dependencies
+  - version-catalog
+  constraint_kind: guiding

@@ -1,0 +1,453 @@
+# Bootstrap corpus — Python language evidence pack
+items:
+- uri: https://docs.python.org/3/reference/
+  handler: web_page
+  title: Python Language Reference
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - language-reference
+  - specification
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - python
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.python.org/3/reference/
+- uri: https://docs.python.org/3/library/
+  handler: web_page
+  title: Python Standard Library
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - stdlib
+  - library
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - stdlib-reference
+  - python
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.python.org/3/library/
+- uri: https://docs.python.org/3/library/exceptions.html
+  handler: web_page
+  title: Built-in Exceptions
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - exceptions
+  - errors
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - error-catalog
+  - python
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.python.org/3/library/
+- uri: https://docs.astral.sh/ruff/rules/
+  handler: web_page
+  title: Ruff Rules
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - ruff
+  - linting
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - linter-rules
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.astral.sh/ruff/rules/
+- uri: https://peps.python.org/
+  handler: web_page
+  title: Python Enhancement Proposals (PEPs)
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - pep
+  - style
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: specification
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - style-guide
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://peps.python.org/
+- uri: https://docs.pytest.org/
+  handler: web_page
+  title: pytest Documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - pytest
+  - testing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - testing-framework
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.pytest.org/
+- uri: https://docs.astral.sh/uv/
+  handler: web_page
+  title: uv Documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - uv
+  - packaging
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 30
+  scope_tags:
+  - package-manager
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.astral.sh/uv/
+- uri: https://pip.pypa.io/
+  handler: web_page
+  title: pip User Guide
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - pip
+  - packaging
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - package-manager
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://pip.pypa.io/
+- uri: https://mypy.readthedocs.io/
+  handler: web_page
+  title: mypy Documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - mypy
+  - typing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - linter-rules
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://mypy.readthedocs.io/
+- uri: https://docs.python.org/3/howto/
+  handler: web_page
+  title: Python HOWTOs
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - howto
+  - patterns
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - python
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.python.org/3/howto/
+- uri: https://realpython.com/
+  handler: web_page
+  title: Real Python
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - tutorial
+  - patterns
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - python
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://realpython.com/
+- uri: https://bandit.readthedocs.io/
+  handler: web_page
+  title: Bandit Security Linter
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - bandit
+  - security
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - security
+  - linter-rules
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://bandit.readthedocs.io/
+- uri: https://typing.readthedocs.io/
+  handler: web_page
+  title: Python typing Documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - typing
+  - type-hints
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - style-guide
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://typing.readthedocs.io/
+- uri: https://packaging.python.org/
+  handler: web_page
+  title: Python Packaging User Guide
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - packaging
+  - pypa
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - package-manager
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://packaging.python.org/
+- uri: https://setuptools.pypa.io/
+  handler: web_page
+  title: setuptools Documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - setuptools
+  - build-backend
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - package-manager
+  - python
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://setuptools.pypa.io/

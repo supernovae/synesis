@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   useIngestionStats,
   useIngestionItems,
@@ -13,7 +13,11 @@ import {
   useRecoverStaleIngestionLeases,
   useStagedItemDocuments,
   useEditStagedDocument,
+  useDiscoverPreview,
+  useBootstrapValidate,
+  useBootstrapIngestion,
 } from "../../api/hooks";
+import type { DiscoveryResult, BootstrapValidationResult } from "../../api/hooks";
 import { useAuth } from "../../components/auth/useAuth";
 import { apiErrorMessage } from "../../api/errorMessage";
 import type { IngestionItem, IngestionRun, IndexerIngestionStats, StagedIngestionDocument } from "../../types";
@@ -186,14 +190,328 @@ function StatsBar() {
   );
 }
 
-function QueueIntakeGuide() {
+const CORPUS_CLASS_COLORS: Record<string, string> = {
+  coder_enriched: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300",
+  general: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300",
+  hybrid: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+};
+
+function DiscoverPreviewResult({ result }: { result: DiscoveryResult }) {
   return (
-    <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-700 dark:bg-indigo-900/20">
-      <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Inputs live in Sources</h3>
-      <p className="mt-1 text-sm text-indigo-800 dark:text-indigo-300">
-        Configure and enqueue ingestion inputs in <code>/rag/ingestion/sources</code>. This Queue page is focused on
-        execution state, retries, staging phases, and outcomes.
+    <div className="mt-3 space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Handler</span>
+          <div className="font-medium text-gray-900 dark:text-white">{result.handler}</div>
+        </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Domain</span>
+          <div className="font-medium text-gray-900 dark:text-white">{result.domain || "—"}</div>
+        </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Mode</span>
+          <div className="font-medium text-gray-900 dark:text-white">{result.recommended_mode}</div>
+        </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Corpus class</span>
+          <div>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${CORPUS_CLASS_COLORS[result.suggested_corpus_class || "general"] || "bg-gray-100 text-gray-800"}`}>
+              {result.suggested_corpus_class || "general"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {result.title && (
+        <div className="text-xs">
+          <span className="text-gray-500 dark:text-gray-400">Title: </span>
+          <span className="text-gray-900 dark:text-white">{result.title}</span>
+        </div>
+      )}
+
+      {(result.tags?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {result.tags.map((t) => (
+            <span key={t} className="inline-flex rounded bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 text-[10px] text-gray-700 dark:text-gray-300">{t}</span>
+          ))}
+        </div>
+      )}
+
+      {(result.risk_flags?.length ?? 0) > 0 && (
+        <div className="rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2">
+          <span className="text-xs font-medium text-amber-800 dark:text-amber-300">Risk flags: </span>
+          <span className="text-xs text-amber-700 dark:text-amber-400">{result.risk_flags.join(", ")}</span>
+        </div>
+      )}
+
+      {(result.required_missing_fields?.length ?? 0) > 0 && (
+        <div className="rounded border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-2">
+          <span className="text-xs font-medium text-orange-800 dark:text-orange-300">Missing fields: </span>
+          <span className="text-xs text-orange-700 dark:text-orange-400">{result.required_missing_fields!.join(", ")}</span>
+        </div>
+      )}
+
+      {(result.recommendation_reasons?.length ?? 0) > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+            Recommendation reasons ({result.recommendation_reasons!.length})
+          </summary>
+          <ul className="mt-1 ml-4 list-disc text-gray-600 dark:text-gray-400">
+            {result.recommendation_reasons!.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </details>
+      )}
+
+      {result.notes && (
+        <div className="text-[10px] text-gray-500 dark:text-gray-400">{result.notes}</div>
+      )}
+
+      <div className="text-[10px] text-gray-400 dark:text-gray-500 italic">
+        {result.suggested_corpus_class === "coder_enriched"
+          ? "This source will be available to Yarn/Coder via RAG MCP."
+          : result.suggested_corpus_class === "hybrid"
+            ? "This source will be available to both Planner/OpenWebUI and Yarn/Coder."
+            : "This source will be available to Planner/OpenWebUI for general knowledge."}
+      </div>
+    </div>
+  );
+}
+
+function IntakePreviewPanel() {
+  const discoverPreview = useDiscoverPreview();
+  const [url, setUrl] = useState("");
+  const [hints, setHints] = useState("");
+  const [useLlm, setUseLlm] = useState(false);
+
+  const handlePreview = () => {
+    if (!url.trim()) return;
+    discoverPreview.mutate({ url: url.trim(), hints: hints.trim() });
+  };
+
+  return (
+    <div className="rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-800 p-4">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">URL intake preview</h3>
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        Analyse a URL to get handler, corpus class, and config recommendations before adding it to the queue.
       </p>
+
+      <div className="mt-3 flex flex-col sm:flex-row gap-2">
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://docs.example.com/..."
+          className="flex-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm"
+          onKeyDown={(e) => { if (e.key === "Enter") handlePreview(); }}
+        />
+        <input
+          type="text"
+          value={hints}
+          onChange={(e) => setHints(e.target.value)}
+          placeholder="Hints (e.g. docs, api)"
+          className="w-full sm:w-40 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm"
+        />
+        <button
+          onClick={handlePreview}
+          disabled={discoverPreview.isPending || !url.trim()}
+          className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs font-medium disabled:opacity-50 whitespace-nowrap"
+        >
+          {discoverPreview.isPending ? "Analysing…" : "Preview"}
+        </button>
+      </div>
+
+      <div className="mt-2">
+        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          <input
+            type="checkbox"
+            checked={useLlm}
+            onChange={(e) => setUseLlm(e.target.checked)}
+            className="rounded"
+            disabled
+          />
+          <span className="select-none">
+            LLM refine
+            <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">(off by default — use only when quality gain justifies cost; prefer local model for bulk ingestion)</span>
+          </span>
+        </label>
+      </div>
+
+      {discoverPreview.isError && (
+        <div className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(discoverPreview.error)}</div>
+      )}
+
+      {discoverPreview.data && (
+        <DiscoverPreviewResult result={discoverPreview.data} />
+      )}
+    </div>
+  );
+}
+
+function BootstrapPreflightPanel() {
+  const validateMutation = useBootstrapValidate();
+  const bootstrapMutation = useBootstrapIngestion();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [validation, setValidation] = useState<BootstrapValidationResult | null>(null);
+  const [statusOverride, setStatusOverride] = useState("pending");
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setSelectedFile(f);
+    setValidation(null);
+    setSubmitted(false);
+  };
+
+  const handleValidate = () => {
+    if (!selectedFile) return;
+    validateMutation.mutate({ file: selectedFile }, {
+      onSuccess: (data) => setValidation(data),
+    });
+  };
+
+  const handleSubmit = () => {
+    if (!selectedFile) return;
+    bootstrapMutation.mutate({ file: selectedFile, status_override: statusOverride }, {
+      onSuccess: () => setSubmitted(true),
+    });
+  };
+
+  const hasErrors = (validation?.total_errors ?? 0) > 0;
+
+  return (
+    <div className="rounded-lg border border-teal-200 dark:border-teal-700 bg-white dark:bg-slate-800 p-4">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Bootstrap file preflight</h3>
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        Validate a bootstrap YAML file before importing. Checks metadata, corpus annotations, and constraint fields.
+      </p>
+
+      <div className="mt-3 flex flex-col sm:flex-row gap-2 items-start">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".yaml,.yml"
+          onChange={handleFileSelect}
+          className="text-xs text-gray-600 dark:text-gray-400 file:mr-2 file:rounded file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs file:font-medium file:text-gray-700 dark:file:bg-slate-700 dark:file:text-gray-200"
+        />
+        <button
+          onClick={handleValidate}
+          disabled={!selectedFile || validateMutation.isPending}
+          className="px-3 py-1.5 rounded bg-teal-600 text-white text-xs font-medium disabled:opacity-50 whitespace-nowrap"
+        >
+          {validateMutation.isPending ? "Validating…" : "Validate"}
+        </button>
+      </div>
+
+      {validateMutation.isError && (
+        <div className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(validateMutation.error)}</div>
+      )}
+
+      {validation && (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center gap-3 text-xs">
+            <span className={`font-semibold ${validation.ok ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+              {validation.ok ? "Valid" : "Has errors"}
+            </span>
+            <span className="text-gray-500 dark:text-gray-400">{validation.total_items} items</span>
+            {validation.total_errors > 0 && (
+              <span className="text-red-600 dark:text-red-400">{validation.total_errors} errors</span>
+            )}
+            {validation.total_warnings > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">{validation.total_warnings} warnings</span>
+            )}
+          </div>
+
+          {(validation.total_errors > 0 || validation.total_warnings > 0) && (
+            <details className="text-xs" open={validation.total_errors > 0}>
+              <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
+                Item diagnostics
+              </summary>
+              <div className="mt-1 max-h-48 overflow-y-auto space-y-1">
+                {validation.items
+                  .filter((it) => it.errors.length > 0 || it.warnings.length > 0)
+                  .slice(0, 50)
+                  .map((it) => (
+                    <div key={it.index} className="rounded bg-gray-50 dark:bg-slate-900/40 p-1.5">
+                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate block" title={it.uri}>
+                        [{it.index}] {it.uri || "(empty URI)"}
+                      </span>
+                      {it.errors.map((e, i) => (
+                        <div key={`e${i}`} className="ml-3 text-red-600 dark:text-red-400">error: {e}</div>
+                      ))}
+                      {it.warnings.map((w, i) => (
+                        <div key={`w${i}`} className="ml-3 text-amber-600 dark:text-amber-400">warn: {w}</div>
+                      ))}
+                    </div>
+                  ))}
+              </div>
+            </details>
+          )}
+
+          {validation.ok && !submitted && (
+            <div className="flex items-center gap-2 pt-1">
+              <select
+                value={statusOverride}
+                onChange={(e) => setStatusOverride(e.target.value)}
+                className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-xs"
+              >
+                <option value="pending">pending</option>
+                <option value="indexed">indexed (mark only)</option>
+              </select>
+              <button
+                onClick={handleSubmit}
+                disabled={bootstrapMutation.isPending || hasErrors}
+                className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs font-medium disabled:opacity-50"
+              >
+                {bootstrapMutation.isPending ? "Importing…" : "Import to queue"}
+              </button>
+            </div>
+          )}
+
+          {bootstrapMutation.isError && (
+            <div className="text-xs text-red-600 dark:text-red-400">{apiErrorMessage(bootstrapMutation.error)}</div>
+          )}
+
+          {submitted && bootstrapMutation.data && (
+            <div className="text-xs text-green-700 dark:text-green-400">
+              Import complete — added: {String((bootstrapMutation.data as Record<string, unknown>).added ?? 0)},
+              skipped: {String((bootstrapMutation.data as Record<string, unknown>).skipped ?? 0)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QueueIntakeGuide() {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mb-6 space-y-4">
+      <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-700 dark:bg-indigo-900/20">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Intake &amp; Preview</h3>
+            <p className="mt-1 text-xs text-indigo-800 dark:text-indigo-300">
+              Analyse URLs or validate bootstrap YAML before adding content to the queue.
+            </p>
+          </div>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="px-2 py-1 rounded text-xs font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-800/30"
+          >
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <IntakePreviewPanel />
+          <BootstrapPreflightPanel />
+        </div>
+      )}
     </div>
   );
 }

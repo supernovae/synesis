@@ -1,9 +1,3 @@
-# Bootstrap corpus — OpenAPI / Swagger specs for RAG (REST shapes operators & integrations use daily).
-# Imported with other bootstrap YAML; dedupe by uri. Complements developer/docs corpora (tutorials) with
-# machine-readable endpoint reference (verbs, paths, parameters).
-# Includes extended Kubernetes groups, Docker Engine, Argo CD, Backstage, Grafana, Harbor, Kong,
-# Jaeger, Argo Workflows/Rollouts, Cilium, and Elasticsearch Serverless OpenAPI (larger file).
-#
 items:
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/api__v1_openapi.json
   handler: openapi_spec
@@ -17,6 +11,18 @@ items:
   - core
   - pods
   - services
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - core
+  - pods
+  - services
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apps__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Apps v1 API
@@ -30,6 +36,19 @@ items:
   - deployments
   - statefulsets
   - daemonsets
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - apps
+  - deployments
+  - statefulsets
+  - daemonsets
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__batch__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Batch v1 API
@@ -42,6 +61,18 @@ items:
   - batch
   - jobs
   - cronjobs
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - batch
+  - jobs
+  - cronjobs
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__networking.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Networking v1 API
@@ -54,6 +85,18 @@ items:
   - networking
   - ingress
   - network-policies
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - networking
+  - ingress
+  - network-policies
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__rbac.authorization.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes RBAC v1 API
@@ -66,6 +109,18 @@ items:
   - rbac
   - roles
   - security
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - rbac
+  - roles
+  - security
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__storage.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Storage v1 API
@@ -79,6 +134,19 @@ items:
   - pvc
   - storageclass
   - csi
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - storage
+  - pvc
+  - storageclass
+  - csi
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__autoscaling__v2_openapi.json
   handler: openapi_spec
   title: Kubernetes Autoscaling v2 API
@@ -90,6 +158,17 @@ items:
   - api
   - autoscaling
   - hpa
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - autoscaling
+  - hpa
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__policy__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Policy v1 API
@@ -101,6 +180,17 @@ items:
   - api
   - policy
   - pdb
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - policy
+  - pdb
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__admissionregistration.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Admission Registration v1 API
@@ -114,6 +204,19 @@ items:
   - webhooks
   - validating
   - mutating
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - admission
+  - webhooks
+  - validating
+  - mutating
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apiextensions.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes API Extensions v1 API (CRDs)
@@ -126,6 +229,18 @@ items:
   - crd
   - operators
   - apiextensions
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - crd
+  - operators
+  - apiextensions
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__scheduling.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Scheduling v1 API
@@ -137,6 +252,17 @@ items:
   - api
   - scheduling
   - priorityclass
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - scheduling
+  - priorityclass
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__certificates.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Certificates v1 API
@@ -149,6 +275,18 @@ items:
   - certificates
   - csr
   - tls
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - certificates
+  - csr
+  - tls
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__coordination.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Coordination v1 API
@@ -161,6 +299,18 @@ items:
   - coordination
   - lease
   - leader-election
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - coordination
+  - lease
+  - leader-election
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__authorization.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Authorization v1 API
@@ -173,6 +323,18 @@ items:
   - authorization
   - subjectaccessreview
   - selfsubjectrulesreview
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - authorization
+  - subjectaccessreview
+  - selfsubjectrulesreview
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__authentication.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Authentication v1 API
@@ -184,6 +346,17 @@ items:
   - api
   - authentication
   - tokenreview
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - authentication
+  - tokenreview
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__discovery.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Discovery v1 API (EndpointSlices)
@@ -196,6 +369,18 @@ items:
   - discovery
   - endpointslices
   - services
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - discovery
+  - endpointslices
+  - services
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__events.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Events v1 API
@@ -207,6 +392,17 @@ items:
   - api
   - events
   - observability
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - events
+  - observability
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/moby/moby/master/api/swagger.yaml
   handler: openapi_spec
   title: Docker Engine API (Swagger 2.0)
@@ -218,6 +414,17 @@ items:
   - containers
   - engine-api
   - devops
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - docker
+  - containers
+  - engine-api
+  - devops
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/argoproj/argo-cd/master/assets/swagger.json
   handler: openapi_spec
   title: Argo CD API
@@ -230,6 +437,18 @@ items:
   - kubernetes
   - continuous-deployment
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - argocd
+  - gitops
+  - kubernetes
+  - continuous-deployment
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__node.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Node v1 API (RuntimeClass)
@@ -241,6 +460,17 @@ items:
   - api
   - node
   - runtimeclass
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - node
+  - runtimeclass
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__flowcontrol.apiserver.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes FlowControl v1 API (API Priority and Fairness)
@@ -253,6 +483,18 @@ items:
   - flowcontrol
   - apf
   - apiserver
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - flowcontrol
+  - apf
+  - apiserver
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apiregistration.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes API Registration v1 API (APIService)
@@ -265,6 +507,18 @@ items:
   - apiregistration
   - apiservice
   - aggregation
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - apiregistration
+  - apiservice
+  - aggregation
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__resource.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Resource v1 API (resource claims / device classes)
@@ -277,6 +531,18 @@ items:
   - resource
   - dra
   - devices
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - resource
+  - dra
+  - devices
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__storagemigration.k8s.io__v1beta1_openapi.json
   handler: openapi_spec
   title: Kubernetes Storage Migration v1beta1 API
@@ -288,6 +554,17 @@ items:
   - api
   - storage
   - migration
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - storage
+  - migration
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__networking.k8s.io__v1beta1_openapi.json
   handler: openapi_spec
   title: Kubernetes Networking v1beta1 API
@@ -300,6 +577,18 @@ items:
   - networking
   - ingress
   - beta
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - networking
+  - ingress
+  - beta
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/backstage/backstage/master/plugins/catalog-backend/src/schema/openapi.yaml
   handler: openapi_spec
   title: Backstage Catalog backend API
@@ -312,6 +601,18 @@ items:
   - catalog
   - service-catalog
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - backstage
+  - developer-portal
+  - catalog
+  - service-catalog
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/backstage/backstage/master/plugins/scaffolder-backend/src/schema/openapi.yaml
   handler: openapi_spec
   title: Backstage Scaffolder backend API
@@ -324,6 +625,18 @@ items:
   - scaffolder
   - software-templates
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - backstage
+  - developer-portal
+  - scaffolder
+  - software-templates
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/grafana/grafana/main/packages/grafana-openapi/src/api/openapi3.json
   handler: openapi_spec
   title: Grafana HTTP API (OpenAPI 3)
@@ -336,6 +649,18 @@ items:
   - dashboards
   - metrics
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - grafana
+  - observability
+  - dashboards
+  - metrics
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__certificates.k8s.io__v1alpha1_openapi.json
   handler: openapi_spec
   title: Kubernetes Certificates v1alpha1 API
@@ -347,6 +672,17 @@ items:
   - api
   - certificates
   - alpha
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - certificates
+  - alpha
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__coordination.k8s.io__v1beta1_openapi.json
   handler: openapi_spec
   title: Kubernetes Coordination v1beta1 API
@@ -359,6 +695,18 @@ items:
   - coordination
   - lease
   - beta
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - coordination
+  - lease
+  - beta
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__scheduling.k8s.io__v1alpha2_openapi.json
   handler: openapi_spec
   title: Kubernetes Scheduling v1alpha2 API
@@ -370,6 +718,17 @@ items:
   - api
   - scheduling
   - alpha
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - scheduling
+  - alpha
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__resource.k8s.io__v1beta2_openapi.json
   handler: openapi_spec
   title: Kubernetes Resource v1beta2 API
@@ -382,6 +741,18 @@ items:
   - resource
   - dra
   - beta
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - resource
+  - dra
+  - beta
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__autoscaling__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Autoscaling v1 API (legacy Scale)
@@ -393,6 +764,17 @@ items:
   - api
   - autoscaling
   - scale
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kubernetes
+  - api
+  - autoscaling
+  - scale
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/goharbor/harbor/main/api/v2.0/swagger.yaml
   handler: openapi_spec
   title: Harbor Registry HTTP API v2.0
@@ -405,6 +787,18 @@ items:
   - registry
   - container
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - harbor
+  - oci
+  - registry
+  - container
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/Kong/kong/master/kong-admin-api.yml
   handler: openapi_spec
   title: Kong Gateway Admin API
@@ -416,6 +810,17 @@ items:
   - api-gateway
   - ingress
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - kong
+  - api-gateway
+  - ingress
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/jaegertracing/jaeger-idl/main/swagger/api_v3/query_service.swagger.json
   handler: openapi_spec
   title: Jaeger Query gRPC-gateway API (v3)
@@ -428,6 +833,18 @@ items:
   - opentelemetry
   - observability
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - jaeger
+  - tracing
+  - opentelemetry
+  - observability
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/argoproj/argo-workflows/master/api/openapi-spec/swagger.json
   handler: openapi_spec
   title: Argo Workflows API
@@ -440,6 +857,18 @@ items:
   - ci-cd
   - pipelines
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - argo-workflows
+  - kubernetes
+  - ci-cd
+  - pipelines
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/argoproj/argo-rollouts/master/pkg/apiclient/rollout/rollout.swagger.json
   handler: openapi_spec
   title: Argo Rollouts API
@@ -453,6 +882,19 @@ items:
   - canary
   - gitops
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - argo-rollouts
+  - kubernetes
+  - deployments
+  - canary
+  - gitops
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/cilium/cilium/main/api/v1/openapi.yaml
   handler: openapi_spec
   title: Cilium Hubble / agent API (v1)
@@ -466,6 +908,19 @@ items:
   - hubble
   - networking
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - cilium
+  - kubernetes
+  - cni
+  - hubble
+  - networking
+  - api
+  constraint_kind: advisory
 - uri: https://raw.githubusercontent.com/elastic/elasticsearch-specification/main/output/openapi/elasticsearch-serverless-openapi.json
   handler: openapi_spec
   title: Elasticsearch Serverless OpenAPI
@@ -478,3 +933,15 @@ items:
   - rest-api
   - serverless
   - api
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: api_spec
+  content_profile: api_spec
+  freshness_sla_days: 90
+  scope_tags:
+  - elasticsearch
+  - search
+  - rest-api
+  - serverless
+  - api
+  constraint_kind: advisory

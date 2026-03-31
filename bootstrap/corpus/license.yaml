@@ -64,3 +64,13 @@ items:
       branch: gh-pages
       licenses_path: _licenses
     compat_path: /data/compatibility.yaml
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - license
+  - spdx
+  - compliance
+  constraint_kind: hard

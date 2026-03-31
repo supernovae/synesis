@@ -1716,13 +1716,49 @@ export interface DiscoveryResult {
   risk_flags: string[];
   recommended_mode: "active" | "batch";
   notes: string;
+  deterministic?: boolean;
+  recommendation_reasons?: string[];
+  suggested_corpus_class?: string;
+  required_missing_fields?: string[];
+}
+
+export interface BootstrapValidationItem {
+  index: number;
+  uri: string;
+  handler: string | null;
+  title: string;
+  domain: string;
+  tags: string[] | null;
+  synesis_meta: Record<string, unknown>;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface BootstrapValidationResult {
+  ok: boolean;
+  error?: string;
+  total_items: number;
+  total_errors: number;
+  total_warnings: number;
+  items: BootstrapValidationItem[];
+}
+
+export interface MetadataGuide {
+  corpus_class: string[];
+  constraint_kind: string[];
+  authority: string[];
+  origin_type: string[];
+  visibility_scope: string[];
+  acl_mode: string[];
+  artifact_kind_examples: string[];
+  content_profile_examples: string[];
 }
 
 export function useBatchPreflight() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { status_filter?: string; limit?: number; use_llm?: boolean }) =>
-      client.post("/ingestion/discover/batch", data).then((r) => r.data as { processed: number; flagged: number; errors: number }),
+    mutationFn: (data: { status_filter?: string; limit?: number; use_llm?: boolean; dry_run?: boolean }) =>
+      client.post("/ingestion/discover/batch", data).then((r) => r.data as { processed: number; flagged: number; errors: number; previews?: DiscoveryResult[] }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -1733,6 +1769,33 @@ export function useDiscoverUrl() {
   return useMutation({
     mutationFn: (data: { url: string; hints?: string; use_llm?: boolean; model_id?: string }) =>
       client.post("/ingestion/discover", data).then((r) => r.data as DiscoveryResult),
+  });
+}
+
+export function useDiscoverPreview() {
+  return useMutation({
+    mutationFn: (data: { url: string; hints?: string }) =>
+      client.post("/ingestion/discover/preview", data).then((r) => r.data as DiscoveryResult),
+  });
+}
+
+export function useBootstrapValidate() {
+  return useMutation({
+    mutationFn: (data: { file: File }) => {
+      const form = new FormData();
+      form.append("file", data.file);
+      return client.post("/ingestion/bootstrap/validate", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      }).then((r) => r.data as BootstrapValidationResult);
+    },
+  });
+}
+
+export function useMetadataGuide() {
+  return useQuery<MetadataGuide>({
+    queryKey: ["ingestion", "metadata-guide"],
+    queryFn: () => client.get("/ingestion/bootstrap/metadata-guide").then((r) => r.data),
+    staleTime: 10 * 60_000,
   });
 }
 

@@ -1,0 +1,362 @@
+# Bootstrap corpus — Go language evidence pack
+items:
+- uri: https://go.dev/ref/spec
+  handler: web_page
+  title: The Go Programming Language Specification
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - specification
+  - language
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - go
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://go.dev/ref/spec
+- uri: https://go.dev/doc/effective_go
+  handler: web_page
+  title: Effective Go
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - style
+  - idioms
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - style-guide
+  - go
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://go.dev/doc/effective_go
+- uri: https://pkg.go.dev/std
+  handler: web_page
+  title: Go Standard Library (root)
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - stdlib
+  - packages
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - go
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://pkg.go.dev/std
+- uri: https://golangci-lint.run/
+  handler: web_page
+  title: golangci-lint Documentation
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - linting
+  - golangci-lint
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - linter-rules
+  - go
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://golangci-lint.run/
+- uri: https://go.dev/ref/mod
+  handler: web_page
+  title: Go Modules Reference
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - modules
+  - dependencies
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - package-manager
+  - go
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://go.dev/ref/mod
+- uri: https://go.dev/doc/tutorial/
+  handler: web_page
+  title: Go Tutorials
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - tutorial
+  - getting-started
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: tutorial
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - go
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://go.dev/doc/tutorial/
+- uri: https://pkg.go.dev/testing
+  handler: web_page
+  title: Go testing package
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - testing
+  - stdlib
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - testing-framework
+  - go
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://pkg.go.dev/testing
+- uri: https://go.dev/blog/
+  handler: web_page
+  title: The Go Blog
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - blog
+  - patterns
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: blog
+  content_profile: conceptual
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - go
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://go.dev/blog/
+- uri: https://gobyexample.com/
+  handler: web_page
+  title: Go by Example
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - examples
+  - tutorial
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - go
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://gobyexample.com/
+- uri: https://github.com/golang/go/wiki/CodeReviewComments
+  handler: web_page
+  title: Go Code Review Comments
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - code-review
+  - style
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - style-guide
+  - go
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://github.com/golang/go/wiki/
+- uri: https://pkg.go.dev/cmd/go
+  handler: web_page
+  title: go command documentation
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - toolchain
+  - modules
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - package-manager
+  - go
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://pkg.go.dev/cmd/go
+- uri: https://go.dev/doc/comment
+  handler: web_page
+  title: Go Doc Comments
+  domain: go
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - documentation
+  - comments
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - style-guide
+  - go
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://go.dev/doc/comment

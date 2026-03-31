@@ -132,6 +132,20 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     if isinstance(tags, list) and "tags" not in config:
         config["tags"] = tags
 
+    synesis_meta = config.get("synesis_meta")
+    if not isinstance(synesis_meta, dict):
+        synesis_meta = {}
+    meta_languages = synesis_meta.get("languages")
+    languages = [str(x).strip().lower() for x in (meta_languages if isinstance(meta_languages, list) else []) if str(x).strip()]
+    preferred_language = str(synesis_meta.get("language") or "").strip().lower()
+    if not preferred_language and languages:
+        preferred_language = languages[0]
+    artifact_kind = str(synesis_meta.get("artifact_kind") or "").strip().lower()
+    corpus_class = str(synesis_meta.get("corpus_class") or "").strip().lower()
+    content_profile = str(synesis_meta.get("content_profile") or "").strip().lower()
+    if preferred_language and "language" not in config:
+        config["language"] = preferred_language
+
     return {
         "name": item.get("title") or uri,
         "handler": handler,
@@ -139,6 +153,11 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
         "origin_type": item.get("origin_type", "curated"),
         "domain": domain,
         "config": config,
+        "language": preferred_language,
+        "languages": languages,
+        "artifact_kind": artifact_kind,
+        "corpus_class": corpus_class,
+        "content_profile": content_profile,
         "visibility_scope": visibility_scope,
         "org_id": org_id,
         "tenant_id": tenant_id,

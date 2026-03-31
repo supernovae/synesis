@@ -1,0 +1,364 @@
+# Bootstrap corpus — Java language evidence pack
+items:
+- uri: https://docs.oracle.com/javase/specs/jls/se21/html/index.html
+  handler: web_page
+  title: Java Language Specification (SE 21)
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - jls
+  - specification
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - language-spec
+  - java
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.oracle.com/javase/specs/jls/se21/html/
+- uri: https://docs.oracle.com/en/java/javase/21/docs/api/
+  handler: web_page
+  title: Java SE 21 API Documentation
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - api
+  - jdk
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - stdlib-reference
+  - java
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.oracle.com/en/java/javase/21/docs/api/
+- uri: https://checkstyle.org/
+  handler: web_page
+  title: Checkstyle
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - checkstyle
+  - linting
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - linter-rules
+  - style-guide
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://checkstyle.org/
+- uri: https://pmd.github.io/
+  handler: web_page
+  title: PMD
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - pmd
+  - static-analysis
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - linter-rules
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://pmd.github.io/
+- uri: https://google.github.io/styleguide/javaguide.html
+  handler: web_page
+  title: Google Java Style Guide
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - style
+  - google
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 180
+  scope_tags:
+  - style-guide
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://google.github.io/styleguide/javaguide.html
+- uri: https://junit.org/junit5/docs/current/user-guide/
+  handler: web_page
+  title: JUnit 5 User Guide
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - junit
+  - testing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - testing-framework
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://junit.org/junit5/docs/current/user-guide/
+- uri: https://maven.apache.org/guides/
+  handler: web_page
+  title: Apache Maven Guides
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - maven
+  - build
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - package-manager
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://maven.apache.org/guides/
+- uri: https://docs.gradle.org/current/userguide/userguide.html
+  handler: web_page
+  title: Gradle User Manual
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - build
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - build-tool
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.gradle.org/current/userguide/
+- uri: https://www.baeldung.com/java-tutorial
+  handler: web_page
+  title: Baeldung Java Tutorial Hub
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - tutorial
+  - patterns
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - java
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.baeldung.com/
+- uri: https://owasp.org/www-project-java-security/
+  handler: web_page
+  title: OWASP Java Security
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - security
+  - owasp
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - security
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://owasp.org/www-project-java-security/
+- uri: https://docs.oracle.com/javase/tutorial/
+  handler: web_page
+  title: The Java Tutorials
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - oracle
+  - tutorial
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: tutorial
+  content_profile: procedural
+  freshness_sla_days: 180
+  scope_tags:
+  - common-patterns
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.oracle.com/javase/tutorial/
+- uri: https://errorprone.info/
+  handler: web_page
+  title: Error Prone
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - error-prone
+  - static-analysis
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - linter-rules
+  - java
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://errorprone.info/

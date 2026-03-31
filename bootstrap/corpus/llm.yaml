@@ -1,11 +1,3 @@
-# Bootstrap corpus — LLM industry research (blogs, papers) + llm_* vertical docs
-# Imported via scripts/load-bootstrap.sh (all *.yaml here).
-#
-# Complements arxiv.yaml: prefer non-arXiv primaries here (official docs, books, playbooks)
-# while arxiv.yaml holds survey/model papers. Ingestion dedupes by uri across all corpus files.
-# Tags support scoped RAG / MCP (training, rag, agents, security, sandbox, mcp, evaluation,
-# inference/serving, benchmark harnesses, governance, multimodal).
-#
 items:
 - uri: https://arxiv.org/abs/2310.17631
   handler: web_page
@@ -28,6 +20,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://arxiv.org/abs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - judge-model
+  - evaluation
+  - critic
+  - rubric
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2310.08491
   handler: web_page
   title: Prometheus
@@ -49,6 +52,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://arxiv.org/abs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - judge-model
+  - evaluation
+  - rubric
+  - critic
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2405.01535
   handler: web_page
   title: Prometheus 2
@@ -70,6 +84,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://arxiv.org/abs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - judge-model
+  - evaluation
+  - pairwise-ranking
+  - critic
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2504.00050
   handler: web_page
   title: JudgeLRM
@@ -90,6 +115,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://arxiv.org/abs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - judge-model
+  - reasoning
+  - critic
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2312.10997
   handler: web_page
   title: 'Retrieval-Augmented Generation for Large Language Models: A Survey'
@@ -111,6 +146,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://arxiv.org/abs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - retrieval
+  - generation
+  - survey
+  constraint_kind: guiding
 - uri: https://developers.openai.com/api/docs/guides/structured-outputs/
   handler: web_page
   title: OpenAI Structured Outputs Guide
@@ -131,6 +177,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developers.openai.com/api/docs/guides/structured-outputs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - structured-outputs
+  - json-schema
+  - validation
+  constraint_kind: guiding
 - uri: https://developers.openai.com/cookbook/examples/structured_outputs_intro/
   handler: web_page
   title: Structured Outputs Intro
@@ -151,6 +207,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developers.openai.com/cookbook/examples/structured_outputs_intro/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - structured-outputs
+  - examples
+  - schemas
+  constraint_kind: guiding
 - uri: https://docs.anthropic.com/en/docs/about-claude/use-case-guides/summarization
   handler: web_page
   title: 'Anthropic: Claude''s Uncertainty and Limitations'
@@ -173,6 +239,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.anthropic.com/en/docs/about-claude/use-case-guides/summarization/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - confidence
+  - uncertainty
+  - anthropic
+  - limitations
+  - guardrails
+  constraint_kind: guiding
 - uri: https://platform.openai.com/docs/guides/safety-best-practices
   handler: web_page
   title: 'OpenAI: Safety Best Practices'
@@ -195,6 +273,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://platform.openai.com/docs/guides/safety-best-practices/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - confidence
+  - safety
+  - openai
+  - refusal
+  - escalation
+  constraint_kind: guiding
 - uri: https://ai.google/responsibility/responsible-ai-practices/
   handler: web_page
   title: 'Google: Responsible AI Practices'
@@ -217,6 +307,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://ai.google/responsibility/responsible-ai-practices/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - confidence
+  - responsible-ai
+  - google
+  - fairness
+  - transparency
+  constraint_kind: guiding
 - uri: https://lilianweng.github.io/posts/2023-06-23-agent/
   handler: html_document
   title: 'Lilian Weng: LLM Powered Autonomous Agents'
@@ -232,6 +334,20 @@ items:
   - survey
   - corpus_blog
   priority: 2
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - planning
+  - memory
+  - tool-use
+  - confidence
+  - survey
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://lilianweng.github.io/posts/2024-07-07-hallucination/
   handler: html_document
   title: 'Lilian Weng: Extrinsic Hallucinations in LLMs'
@@ -246,60 +362,121 @@ items:
   - confidence
   - corpus_blog
   priority: 2
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - hallucination
+  - factuality
+  - detection
+  - mitigation
+  - confidence
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://www.anthropic.com/news/contextual-retrieval
   handler: web_page
   title: 'Anthropic: Contextual Retrieval'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rag
   - contextual-retrieval
   - anthropic
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - contextual-retrieval
+  - anthropic
+  constraint_kind: guiding
 - uri: https://www.anthropic.com/research/building-effective-agents
   handler: web_page
   title: 'Anthropic: Building Effective AI Agents'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - agents
   - anthropic
   - multi-agent
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - anthropic
+  - multi-agent
+  constraint_kind: guiding
 - uri: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
   handler: web_page
   title: 'Anthropic: Effective Context Engineering for AI Agents'
   domain: generalist
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - context-engineering
   - agents
   - anthropic
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - context-engineering
+  - agents
+  - anthropic
+  constraint_kind: guiding
 - uri: https://help.openai.com/en/articles/6654000-how-to-use-advanced-prompting-techniques
   handler: web_page
   title: OpenAI Prompt Engineering Guide
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - prompt-engineering
   - openai
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - openai
+  constraint_kind: advisory
 - uri: https://help.openai.com/en/articles/4936848-how-do-i-create-a-good-prompt-for-an-ai-model
   handler: web_page
   title: OpenAI Prompt Tips
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - prompt-engineering
   - openai
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - prompt-engineering
+  - openai
+  constraint_kind: advisory
 - uri: https://langchain-ai.github.io/langgraph/
   handler: web_page
   title: LangGraph Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - langgraph
   - langchain
@@ -307,167 +484,342 @@ items:
   - graph
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - langchain
+  - agents
+  - graph
+  constraint_kind: advisory
 - uri: https://python.langchain.com/docs/concepts/retrieval/
   handler: web_page
   title: LangChain Retrieval Concepts
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - langchain
   - retrieval
   - rag
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - retrieval
+  - rag
+  constraint_kind: advisory
 - uri: https://docs.pinecone.io/guides/index-data/data-modeling
   handler: web_page
   title: Pinecone Data Modeling
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pinecone
   - vector-db
   - data-modeling
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pinecone
+  - vector-db
+  - data-modeling
+  constraint_kind: advisory
 - uri: https://docs.pinecone.io/guides/optimize/increase-relevance
   handler: web_page
   title: Pinecone Increase Relevance
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pinecone
   - relevance
   - optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pinecone
+  - relevance
+  - optimization
+  constraint_kind: advisory
 - uri: https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation
   handler: web_page
   title: Azure Advanced RAG
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - azure
   - rag
   - microsoft
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - rag
+  - microsoft
+  constraint_kind: advisory
 - uri: https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-chunking-phase
   handler: web_page
   title: Azure RAG Chunking Phase
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - azure
   - rag
   - chunking
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - rag
+  - chunking
+  constraint_kind: advisory
 - uri: https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase
   handler: web_page
   title: Azure RAG Enrichment Phase
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - azure
   - rag
   - enrichment
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - rag
+  - enrichment
+  constraint_kind: advisory
 - uri: https://learn.microsoft.com/en-us/azure/developer/ai/augment-llm-rag-fine-tuning
   handler: web_page
   title: Azure RAG vs Fine-Tuning
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - azure
   - rag
   - fine-tuning
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - azure
+  - rag
+  - fine-tuning
+  constraint_kind: advisory
 - uri: https://developer.hashicorp.com/terraform/docs
   handler: web_page
   title: Terraform Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - terraform
   - iac
   - hashicorp
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - iac
+  - hashicorp
+  constraint_kind: advisory
 - uri: https://developer.hashicorp.com/terraform/language
   handler: web_page
   title: Terraform Language Docs
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - terraform
   - hcl
   - iac
+  corpus_class: hybrid
+  languages:
+  - terraform
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - terraform
+  - hcl
+  - iac
+  constraint_kind: advisory
 - uri: https://kubernetes.io/docs/reference/kubectl/
   handler: web_page
   title: kubectl Reference
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - kubectl
   - cli
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - kubectl
+  - cli
+  constraint_kind: advisory
 - uri: https://docs.python.org/3/
   handler: web_page
   title: Python Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - python
   - stdlib
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - python
+  - stdlib
+  constraint_kind: advisory
 - uri: https://docs.pydantic.dev/
   handler: web_page
   title: Pydantic Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pydantic
   - validation
   - python
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pydantic
+  - validation
+  - python
+  constraint_kind: advisory
 - uri: https://fastapi.tiangolo.com/
   handler: web_page
   title: FastAPI Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - fastapi
   - api
   - python
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - fastapi
+  - api
+  - python
+  constraint_kind: advisory
 - uri: https://github.com/All-Hands-AI/OpenHands
   handler: web_page
   title: OpenHands (All-Hands-AI)
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - openhands
   - coding-agent
   - open-source
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openhands
+  - coding-agent
+  - open-source
+  constraint_kind: advisory
 - uri: https://github.com/Aider-AI/aider
   handler: web_page
   title: Aider
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - aider
   - coding-agent
   - open-source
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aider
+  - coding-agent
+  - open-source
+  constraint_kind: advisory
 - uri: https://docs.cursor.com/
   handler: web_page
   title: Cursor Documentation
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - cursor
   - ide
   - coding-agent
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - cursor
+  - ide
+  - coding-agent
+  constraint_kind: advisory
 - uri: https://arxiv.org/pdf/2501.09223
   handler: pdf_document
   title: Foundations of Large Language Models
@@ -479,6 +831,17 @@ items:
   - llm
   - foundational
   - survey
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - reasoning
+  - llm
+  - foundational
+  - survey
+  constraint_kind: guiding
 - uri: https://arxiv.org/pdf/2601.03624
   handler: pdf_document
   title: Architecting Agentic Communities using Design Patterns
@@ -490,6 +853,17 @@ items:
   - design-patterns
   - multi-agent
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 365
+  scope_tags:
+  - agents
+  - design-patterns
+  - multi-agent
+  - architecture
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2501.04682
   handler: web_page
   title: Meta Chain-of-Thought (System 2 Reasoning)
@@ -500,6 +874,16 @@ items:
   - reasoning
   - chain-of-thought
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - chain-of-thought
+  - llm
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.07301
   handler: web_page
   title: Process Reward Models in Mathematical Reasoning
@@ -511,6 +895,17 @@ items:
   - reward-models
   - reinforcement-learning
   - math
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reward-models
+  - reinforcement-learning
+  - math
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.11223
   handler: web_page
   title: 'Reasoning Language Models: A Blueprint'
@@ -522,6 +917,17 @@ items:
   - llm
   - blueprint
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - blueprint
+  - architecture
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2501.12599
   handler: web_page
   title: 'Kimi k1.5: Scaling RL with LLMs'
@@ -533,6 +939,17 @@ items:
   - reinforcement-learning
   - llm
   - scaling
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - llm
+  - scaling
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2501.12948
   handler: web_page
   title: 'DeepSeek-R1: Incentivizing Reasoning via RL'
@@ -544,6 +961,17 @@ items:
   - reinforcement-learning
   - llm
   - deepseek
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - llm
+  - deepseek
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2502.06807
   handler: web_page
   title: Competitive Programming with Large Reasoning Models
@@ -554,6 +982,16 @@ items:
   - reasoning
   - code-generation
   - competitive-programming
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - code-generation
+  - competitive-programming
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2502.03387
   handler: web_page
   title: 'LIMO: Less is More for Reasoning'
@@ -564,6 +1002,16 @@ items:
   - reasoning
   - llm
   - efficiency
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - efficiency
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2502.03492
   handler: web_page
   title: Teaching Language Models to Critique via RL
@@ -575,6 +1023,17 @@ items:
   - reinforcement-learning
   - critique
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - critique
+  - llm
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2502.04463
   handler: web_page
   title: Training Language Models to Reason Efficiently
@@ -586,6 +1045,17 @@ items:
   - efficiency
   - llm
   - training
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - efficiency
+  - llm
+  - training
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2502.06773
   handler: web_page
   title: On the Emergence of Thinking in LLMs
@@ -596,6 +1066,16 @@ items:
   - reasoning
   - llm
   - emergence
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - emergence
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2502.07374
   handler: web_page
   title: LLMs Learn to Reason from Demonstrations
@@ -606,6 +1086,16 @@ items:
   - reasoning
   - llm
   - in-context-learning
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - in-context-learning
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2502.09056
   handler: web_page
   title: Adapting LLMs to Reasoning Model via Merging
@@ -616,6 +1106,16 @@ items:
   - reasoning
   - llm
   - model-merging
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - model-merging
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2502.14768
   handler: web_page
   title: 'Logic-RL: Rule-Based RL for Reasoning'
@@ -627,6 +1127,17 @@ items:
   - reinforcement-learning
   - logic
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - logic
+  - llm
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2503.02875
   handler: web_page
   title: 'First Few Tokens: Unsupervised Prefix Fine-Tuning'
@@ -637,6 +1148,16 @@ items:
   - reasoning
   - llm
   - fine-tuning
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - fine-tuning
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2503.05592
   handler: web_page
   title: 'R1-Searcher: Incentivizing Search via RL'
@@ -648,6 +1169,17 @@ items:
   - reinforcement-learning
   - search
   - rag
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - search
+  - rag
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2503.07536
   handler: web_page
   title: 'LMM-R1: 3B LMMs with Strong Reasoning'
@@ -659,6 +1191,17 @@ items:
   - multimodal
   - llm
   - small-models
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - multimodal
+  - llm
+  - small-models
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2503.16219
   handler: web_page
   title: RL for Reasoning in Small LLMs
@@ -670,6 +1213,17 @@ items:
   - reinforcement-learning
   - small-models
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - small-models
+  - llm
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2503.20783
   handler: web_page
   title: Understanding R1-Zero-Like Training
@@ -681,6 +1235,17 @@ items:
   - reinforcement-learning
   - training
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - training
+  - llm
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2503.24290
   handler: web_page
   title: Open-Reasoner-Zero
@@ -692,6 +1257,17 @@ items:
   - reinforcement-learning
   - open-source
   - llm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - reinforcement-learning
+  - open-source
+  - llm
+  constraint_kind: advisory
 - uri: https://arxiv.org/abs/2504.21233
   handler: web_page
   title: Phi-4-Mini-Reasoning
@@ -703,6 +1279,17 @@ items:
   - small-models
   - llm
   - microsoft
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - small-models
+  - llm
+  - microsoft
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2505.09388
   handler: web_page
   title: Qwen3 Technical Report
@@ -714,6 +1301,17 @@ items:
   - llm
   - qwen
   - technical-report
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - qwen
+  - technical-report
+  constraint_kind: guiding
 - uri: https://arxiv.org/abs/2505.14652
   handler: web_page
   title: 'General-Reasoner: Advancing LLM Reasoning'
@@ -724,78 +1322,154 @@ items:
   - reasoning
   - llm
   - generalization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - reasoning
+  - llm
+  - generalization
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/latest/serving/distributed_serving.html
   handler: web_page
   title: 'vLLM: Distributed Inference and Serving'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - inference
   - distributed
   - serving
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - inference
+  - distributed
+  - serving
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/latest/performance/optimization.html
   handler: web_page
   title: 'vLLM: Optimization and Tuning'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - optimization
   - inference
   - tuning
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - optimization
+  - inference
+  - tuning
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/stable/serving/engine_args.html
   handler: web_page
   title: 'vLLM: Engine Arguments Reference'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - configuration
   - engine
   - reference
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - configuration
+  - engine
+  - reference
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/stable/serving/parallelism_scaling.html
   handler: web_page
   title: 'vLLM: Parallelism and Scaling'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - parallelism
   - scaling
   - tensor-parallel
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - parallelism
+  - scaling
+  - tensor-parallel
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/stable/features/quantization/
   handler: web_page
   title: 'vLLM: Quantization Methods'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - quantization
   - inference
   - optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - quantization
+  - inference
+  - optimization
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/stable/features/spec_decode.html
   handler: web_page
   title: 'vLLM: Speculative Decoding'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - speculative-decoding
   - inference
   - optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - speculative-decoding
+  - inference
+  - optimization
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/projects/recipes/en/latest/
   handler: web_page
   title: 'vLLM: Model-Specific Deployment Recipes'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - recipes
@@ -803,83 +1477,165 @@ items:
   - model-serving
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - recipes
+  - deployment
+  - model-serving
+  constraint_kind: advisory
 - uri: https://developers.redhat.com/articles/2025/09/10/how-deploy-language-models-red-hat-openshift-ai
   handler: web_page
   title: 'Red Hat: Deploy Language Models with OpenShift AI'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift-ai
   - vllm
   - model-serving
   - red-hat
   - deployment
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openshift-ai
+  - vllm
+  - model-serving
+  - red-hat
+  - deployment
+  constraint_kind: guiding
 - uri: https://developers.redhat.com/articles/2025/10/02/autoscaling-vllm-openshift-ai
   handler: web_page
   title: 'Red Hat: Autoscaling vLLM with OpenShift AI'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift-ai
   - vllm
   - autoscaling
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openshift-ai
+  - vllm
+  - autoscaling
+  - red-hat
+  constraint_kind: guiding
 - uri: https://developers.redhat.com/articles/2025/10/06/optimize-and-deploy-llms-production-openshift-ai
   handler: web_page
   title: 'Red Hat: Optimize and Deploy LLMs for Production'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift-ai
   - vllm
   - optimization
   - production
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openshift-ai
+  - vllm
+  - optimization
+  - production
+  - red-hat
+  constraint_kind: guiding
 - uri: https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving
   handler: web_page
   title: 'Red Hat: Autoscaling vLLM Performance Validation'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift-ai
   - vllm
   - autoscaling
   - benchmarks
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openshift-ai
+  - vllm
+  - autoscaling
+  - benchmarks
+  - red-hat
+  constraint_kind: guiding
 - uri: https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.2/html/configuring_your_model-serving_platform/configuring_model_servers
   handler: web_page
   title: 'Red Hat: Configuring Model Servers (OpenShift AI 3.2)'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - openshift-ai
   - model-serving
   - kserve
   - configuration
   - red-hat
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openshift-ai
+  - model-serving
+  - kserve
+  - configuration
+  - red-hat
+  constraint_kind: guiding
 - uri: https://www.redhat.com/en/blog/planning-design-your-production-grade-rag-system
   handler: web_page
   title: 'Red Hat: Planning a Production-Grade RAG System'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - rag
   - production
   - red-hat
   - architecture
   - design
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - production
+  - red-hat
+  - architecture
+  - design
+  constraint_kind: guiding
 - uri: https://modelcontextprotocol.io/introduction
   handler: web_page
   title: Model Context Protocol (MCP) Specification
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - mcp
   - tool-use
@@ -888,34 +1644,68 @@ items:
   - architecture
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - mcp
+  - tool-use
+  - agents
+  - protocol
+  - architecture
+  constraint_kind: advisory
 - uri: https://docs.anthropic.com/en/docs/build-with-claude/tool-use
   handler: web_page
   title: 'Anthropic: Tool Use Guide'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - tool-use
   - function-calling
   - anthropic
   - agents
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - tool-use
+  - function-calling
+  - anthropic
+  - agents
+  constraint_kind: advisory
 - uri: https://platform.openai.com/docs/guides/function-calling
   handler: web_page
   title: 'OpenAI: Function Calling Guide'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - function-calling
   - tool-use
   - openai
   - agents
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - function-calling
+  - tool-use
+  - openai
+  - agents
+  constraint_kind: advisory
 - uri: https://pytorch.org/tutorials/distributed/home.html
   handler: web_page
   title: 'PyTorch: Distributed Training Tutorials'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pytorch
   - distributed
@@ -923,112 +1713,223 @@ items:
   - gpu
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pytorch
+  - distributed
+  - training
+  - gpu
+  constraint_kind: advisory
 - uri: https://pytorch.org/tutorials/beginner/basics/intro.html
   handler: web_page
   title: 'PyTorch: Fundamentals'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pytorch
   - fundamentals
   - training
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pytorch
+  - fundamentals
+  - training
+  constraint_kind: advisory
 - uri: https://pytorch.org/docs/stable/notes/cuda.html
   handler: web_page
   title: 'PyTorch: CUDA Semantics'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pytorch
   - cuda
   - gpu
   - optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pytorch
+  - cuda
+  - gpu
+  - optimization
+  constraint_kind: advisory
 - uri: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
   handler: web_page
   title: 'PyTorch: Performance Tuning Guide'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pytorch
   - performance
   - tuning
   - optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pytorch
+  - performance
+  - tuning
+  - optimization
+  constraint_kind: advisory
 - uri: https://pytorch.org/torchao/stable/
   handler: web_page
   title: 'TorchAO: Quantization Toolkit'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - pytorch
   - torchao
   - quantization
   - optimization
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pytorch
+  - torchao
+  - quantization
+  - optimization
+  constraint_kind: advisory
 - uri: https://www.anthropic.com/research/measuring-model-persuasion
   handler: web_page
   title: 'Anthropic: Measuring Model Persuasion'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - evaluation
   - safety
   - anthropic
   - production
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - evaluation
+  - safety
+  - anthropic
+  - production
+  constraint_kind: guiding
 - uri: https://simonwillison.net/tags/llms/
   handler: web_page
   title: 'Simon Willison: LLM Notes'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - llm
   - production
   - patterns
   - practitioner
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llm
+  - production
+  - patterns
+  - practitioner
+  constraint_kind: guiding
 - uri: https://applied-llms.org/
   handler: web_page
   title: Applied LLMs (Chip Huyen et al.)
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - llm
   - production
   - system-design
   - architecture
   - best-practices
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - llm
+  - production
+  - system-design
+  - architecture
+  - best-practices
+  constraint_kind: guiding
 - uri: https://hamel.dev/blog/posts/llm-judge/
   handler: web_page
   title: 'Hamel Husain: LLM-as-Judge Evaluation'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - evaluation
   - llm-as-judge
   - production
   - quality
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - evaluation
+  - llm-as-judge
+  - production
+  - quality
+  constraint_kind: guiding
 - uri: https://eugeneyan.com/writing/llm-patterns/
   handler: web_page
   title: 'Eugene Yan: LLM Patterns for Production'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - llm
   - patterns
   - production
   - system-design
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - llm
+  - patterns
+  - production
+  - system-design
+  - architecture
+  constraint_kind: guiding
 - uri: https://docs.continue.dev/
   handler: web_page
   title: 'Continue.dev: Open Source AI Code Assistant'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - continue
   - coding-agent
@@ -1037,34 +1938,68 @@ items:
   - developer-tools
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - continue
+  - coding-agent
+  - ide
+  - open-source
+  - developer-tools
+  constraint_kind: advisory
 - uri: https://docs.continue.dev/customize/models
   handler: web_page
   title: 'Continue.dev: Model Configuration'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - continue
   - model-selection
   - coding-agent
   - configuration
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - continue
+  - model-selection
+  - coding-agent
+  - configuration
+  constraint_kind: advisory
 - uri: https://github.com/SWE-agent/SWE-agent
   handler: web_page
   title: 'SWE-agent: Automated Software Engineering'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - swe-agent
   - coding-agent
   - open-source
   - github-issues
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - swe-agent
+  - coding-agent
+  - open-source
+  - github-issues
+  constraint_kind: advisory
 - uri: https://aider.chat/
   handler: web_page
   title: 'Aider: AI Pair Programming Documentation'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - aider
   - coding-agent
@@ -1072,201 +2007,401 @@ items:
   - open-source
   config:
     follow_links: true
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - aider
+  - coding-agent
+  - pair-programming
+  - open-source
+  constraint_kind: advisory
 - uri: https://www.all-hands.dev/blog/sota-on-swe-bench-verified-with-inference-time-scaling-and-critic-model
   handler: web_page
   title: 'OpenHands: SOTA on SWE-Bench with Critic Model'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - openhands
   - swe-bench
   - critic-model
   - inference-scaling
   - coding-agent
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - openhands
+  - swe-bench
+  - critic-model
+  - inference-scaling
+  - coding-agent
+  constraint_kind: advisory
 - uri: https://openhands.dev/blog/building-a-provably-versatile-agent
   handler: web_page
   title: 'OpenHands: Building a Provably Versatile Agent'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - openhands
   - coding-agent
   - versatile-agent
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - openhands
+  - coding-agent
+  - versatile-agent
+  - architecture
+  constraint_kind: advisory
 - uri: https://bigcode-bench.github.io/
   handler: web_page
   title: 'BigCodeBench: Programming Task Evaluation'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - benchmark
   - code-generation
   - evaluation
   - leaderboard
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - benchmark
+  - code-generation
+  - evaluation
+  - leaderboard
+  constraint_kind: advisory
 - uri: https://livecodebench.github.io/
   handler: web_page
   title: 'LiveCodeBench: Contamination-Free Code Evaluation'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - benchmark
   - code-generation
   - evaluation
   - leaderboard
   - contamination-free
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - benchmark
+  - code-generation
+  - evaluation
+  - leaderboard
+  - contamination-free
+  constraint_kind: advisory
 - uri: https://evalplus.github.io/leaderboard.html
   handler: web_page
   title: 'EvalPlus: HumanEval and MBPP Enhanced Evaluation'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - benchmark
   - humaneval
   - mbpp
   - code-generation
   - evaluation
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - benchmark
+  - humaneval
+  - mbpp
+  - code-generation
+  - evaluation
+  constraint_kind: advisory
 - uri: https://www.swebench.com/
   handler: web_page
   title: SWE-bench Verified Leaderboard
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - benchmark
   - swe-bench
   - coding-agent
   - leaderboard
   - software-engineering
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - benchmark
+  - swe-bench
+  - coding-agent
+  - leaderboard
+  - software-engineering
+  constraint_kind: advisory
 - uri: https://cloud.google.com/architecture/choose-design-pattern-agentic-ai-system
   handler: web_page
   title: 'Google Cloud: Choose a Design Pattern for Agentic AI'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - agentic
   - design-patterns
   - architecture
   - google-cloud
   - agents
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - agentic
+  - design-patterns
+  - architecture
+  - google-cloud
+  - agents
+  constraint_kind: guiding
 - uri: https://www.vellum.ai/blog/agentic-workflows-emerging-architectures-and-design-patterns
   handler: web_page
   title: 'Vellum: Agentic Workflows — Architectures and Design Patterns'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - agentic
   - design-patterns
   - workflows
   - architecture
   - agents
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - agentic
+  - design-patterns
+  - workflows
+  - architecture
+  - agents
+  constraint_kind: advisory
 - uri: https://myengineeringpath.dev/genai-engineer/tool-calling/
   handler: web_page
   title: Tool Calling — How AI Agents Use Functions
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - tool-calling
   - function-calling
   - agents
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - tool-calling
+  - function-calling
+  - agents
+  - architecture
+  constraint_kind: advisory
 - uri: https://pub.towardsai.net/agents-arent-magic-the-real-architecture-behind-tool-calling-ai-systems-a21a91470c8b
   handler: web_page
   title: 'Agents Aren''t Magic: Architecture Behind Tool-Calling AI'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - agents
   - tool-calling
   - architecture
   - production
   - design-patterns
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - agents
+  - tool-calling
+  - architecture
+  - production
+  - design-patterns
+  constraint_kind: advisory
 - uri: https://dev.to/shanmukhi_kairuppala/stop-treating-ai-agents-as-web-servers-a-kubernetes-survival-guide-part-1-cal
   handler: web_page
   title: AI Agent Development on Kubernetes — Survival Guide
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - agents
   - production
   - stateful
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - agents
+  - production
+  - stateful
+  - architecture
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/v0.12.0/features/tool_calling/
   handler: web_page
   title: 'vLLM: Tool Calling for Agentic Workloads'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - tool-calling
   - agents
   - function-calling
   - serving
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - tool-calling
+  - agents
+  - function-calling
+  - serving
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/stable/deployment/integrations/production-stack/
   handler: web_page
   title: 'vLLM: Production Stack (Kubernetes)'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - kubernetes
   - production
   - deployment
   - helm
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - kubernetes
+  - production
+  - deployment
+  - helm
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/stable/serving/integrations/claude_code/
   handler: web_page
   title: 'vLLM: Claude Code Integration'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - claude-code
   - coding-agent
   - anthropic
   - integration
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - claude-code
+  - coding-agent
+  - anthropic
+  - integration
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/projects/production-stack/en/latest/use_cases/tool-enabled-installation.html
   handler: web_page
   title: 'vLLM: Tool-Enabled Installation Guide'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - tool-calling
   - kubernetes
   - deployment
   - tutorial
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - tool-calling
+  - kubernetes
+  - deployment
+  - tutorial
+  constraint_kind: advisory
 - uri: https://docs.vllm.ai/en/latest/getting_started/examples/openai_chat_completion_tool_calls_with_reasoning.html
   handler: web_page
   title: 'vLLM: Reasoning Models with Tool Calls'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - vllm
   - reasoning
   - tool-calling
   - deepseek-r1
   - agents
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - reasoning
+  - tool-calling
+  - deepseek-r1
+  - agents
+  constraint_kind: advisory
 - uri: https://docs.nvidia.com/dynamo/latest/kubernetes/grove.html
   handler: web_page
   title: 'NVIDIA Grove: Kubernetes API for AI Inference'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - nvidia
   - grove
@@ -1274,35 +2409,71 @@ items:
   - inference
   - gpu-scheduling
   - disaggregated
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - nvidia
+  - grove
+  - kubernetes
+  - inference
+  - gpu-scheduling
+  - disaggregated
+  constraint_kind: advisory
 - uri: https://github.com/NVIDIA/KAI-Scheduler
   handler: web_page
   title: 'NVIDIA KAI-Scheduler: Kubernetes Native AI Scheduler'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - nvidia
   - kubernetes
   - scheduler
   - gpu
   - ai-workloads
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - nvidia
+  - kubernetes
+  - scheduler
+  - gpu
+  - ai-workloads
+  constraint_kind: advisory
 - uri: https://github.com/GoogleCloudPlatform/kubectl-ai
   handler: web_page
   title: 'kubectl-ai: AI-Powered Kubernetes Assistant'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - kubernetes
   - kubectl
   - ai-assistant
   - google-cloud
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - kubernetes
+  - kubectl
+  - ai-assistant
+  - google-cloud
+  constraint_kind: advisory
 - uri: https://developer.nvidia.com/blog/introducing-nemotron-3-super-an-open-hybrid-mamba-transformer-moe-for-agentic-reasoning/
   handler: web_page
   title: 'NVIDIA Nemotron 3 Super: Hybrid Mamba-Transformer MoE'
   domain: generalist
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - nvidia
   - nemotron
@@ -1310,36 +2481,73 @@ items:
   - mamba
   - agentic
   - model-architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - nvidia
+  - nemotron
+  - moe
+  - mamba
+  - agentic
+  - model-architecture
+  constraint_kind: guiding
 - uri: https://huggingface.co/Qwen/Qwen3-Coder-Next
   handler: web_page
   title: 'Qwen3-Coder-Next: 80B MoE Coding Model'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - qwen
   - coding-model
   - moe
   - huggingface
   - model-card
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - qwen
+  - coding-model
+  - moe
+  - huggingface
+  - model-card
+  constraint_kind: advisory
 - uri: https://huggingface.co/bigcode/starcoder2-15b
   handler: web_page
   title: StarCoder2-15B Model Card
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - starcoder
   - coding-model
   - huggingface
   - bigcode
   - model-card
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - starcoder
+  - coding-model
+  - huggingface
+  - bigcode
+  - model-card
+  constraint_kind: advisory
 - uri: https://docs.nvidia.com/nemo-framework/user-guide/25.09/llms/starcoder2.html
   handler: web_page
   title: 'NVIDIA NeMo: StarCoder2 Training & Serving'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - nvidia
   - nemo
@@ -1347,12 +2555,25 @@ items:
   - training
   - serving
   - model-serving
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - nvidia
+  - nemo
+  - starcoder
+  - training
+  - serving
+  - model-serving
+  constraint_kind: advisory
 - uri: https://deepseeksr1.com/deepseek-models/
   handler: web_page
   title: DeepSeek Models Overview
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - deepseek
   - model-overview
@@ -1360,24 +2581,49 @@ items:
   - r1
   - coder
   - architecture
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - deepseek
+  - model-overview
+  - v3
+  - r1
+  - coder
+  - architecture
+  constraint_kind: advisory
 - uri: https://awesomeagents.ai/leaderboards/open-source-llm-leaderboard/
   handler: web_page
   title: Open Source LLM Leaderboard (Feb 2026)
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - leaderboard
   - open-source
   - llm
   - benchmark
   - comparison
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - leaderboard
+  - open-source
+  - llm
+  - benchmark
+  - comparison
+  constraint_kind: advisory
 - uri: https://tolearn.blog/blog/llm-coding-benchmark-comparison-2026
   handler: web_page
   title: LLM Coding Benchmark Comparison 2026
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - benchmark
   - coding
@@ -1385,12 +2631,25 @@ items:
   - swe-bench
   - humaneval
   - model-selection
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - benchmark
+  - coding
+  - comparison
+  - swe-bench
+  - humaneval
+  - model-selection
+  constraint_kind: advisory
 - uri: https://vpn07.com/en/blog/2026-best-open-source-coding-ai-qwen35-phi4-deepseek.html
   handler: web_page
   title: 'Best Open Source Coding AI 2026: Qwen vs Phi-4 vs DeepSeek'
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - comparison
   - open-source
@@ -1399,6 +2658,20 @@ items:
   - phi-4
   - deepseek
   - benchmark
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - comparison
+  - open-source
+  - coding-model
+  - qwen
+  - phi-4
+  - deepseek
+  - benchmark
+  constraint_kind: advisory
 - uri: https://huggingface.co/docs/transformers/training
   handler: web_page
   title: Hugging Face Transformers — Training
@@ -1421,6 +2694,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/transformers/training/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - huggingface
+  - transformers
+  - training
+  - fine-tuning
+  - llm
+  constraint_kind: guiding
 - uri: https://huggingface.co/docs/transformers/run_scripts
   handler: web_page
   title: Hugging Face Transformers — Training scripts
@@ -1443,6 +2728,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/transformers/run_scripts/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - huggingface
+  - transformers
+  - training
+  - cli
+  - llm
+  constraint_kind: guiding
 - uri: https://huggingface.co/docs/trl/index
   handler: web_page
   title: TRL — Transformer Reinforcement Learning
@@ -1466,6 +2763,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/trl/index/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - huggingface
+  - trl
+  - rlhf
+  - dpo
+  - sft
+  - llm
+  constraint_kind: guiding
 - uri: https://huggingface.co/docs/peft/index
   handler: web_page
   title: PEFT — Parameter-Efficient Fine-Tuning
@@ -1489,6 +2799,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/peft/index/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - huggingface
+  - peft
+  - lora
+  - qlora
+  - fine-tuning
+  - llm
+  constraint_kind: guiding
 - uri: https://huggingface.co/docs/datasets/index
   handler: web_page
   title: Hugging Face Datasets
@@ -1511,6 +2834,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/datasets/index/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - huggingface
+  - datasets
+  - data
+  - preprocessing
+  - llm
+  constraint_kind: guiding
 - uri: https://huggingface.co/docs/accelerate/index
   handler: web_page
   title: Hugging Face Accelerate
@@ -1533,6 +2868,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/accelerate/index/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - huggingface
+  - accelerate
+  - distributed-training
+  - gpu
+  - llm
+  constraint_kind: guiding
 - uri: https://docs.ray.io/en/latest/train/train.html
   handler: web_page
   title: Ray Train — distributed training
@@ -1555,6 +2902,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.ray.io/en/latest/train/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ray
+  - distributed-training
+  - gpu
+  - scaling
+  - llm
+  constraint_kind: guiding
 - uri: https://www.deepspeed.ai/getting-started/
   handler: web_page
   title: DeepSpeed — Getting started
@@ -1577,6 +2936,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.deepspeed.ai/getting-started/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - deepspeed
+  - distributed-training
+  - optimization
+  - gpu
+  - llm
+  constraint_kind: guiding
 - uri: https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html
   handler: web_page
   title: PyTorch FSDP tutorial
@@ -1598,6 +2969,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.pytorch.org/tutorials/intermediate/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - pytorch
+  - fsdp
+  - distributed-training
+  - llm
+  constraint_kind: guiding
 - uri: https://huggingface.co/blog/rlhf
   handler: html_document
   title: Hugging Face — RLHF explained (blog)
@@ -1612,6 +2994,19 @@ items:
   - llm
   - corpus_blog
   priority: 2
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rlhf
+  - huggingface
+  - alignment
+  - reward-model
+  - llm
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://unsloth.ai/docs
   handler: web_page
   title: Unsloth — faster fine-tuning docs
@@ -1634,6 +3029,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://unsloth.ai/docs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - unsloth
+  - fine-tuning
+  - lora
+  - gpu
+  - llm
+  constraint_kind: advisory
 - uri: https://docs.axolotl.ai/docs/getting-started.html
   handler: web_page
   title: Axolotl — getting started
@@ -1655,6 +3062,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.axolotl.ai/docs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - axolotl
+  - fine-tuning
+  - llm
+  - open-source
+  constraint_kind: advisory
 - uri: https://www.sbert.net/docs/sentence_transformer/training_overview.html
   handler: web_page
   title: Sentence-Transformers — training overview
@@ -1677,6 +3095,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.sbert.net/docs/sentence_transformer/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sentence-transformers
+  - embeddings
+  - training
+  - rag
+  - retrieval
+  constraint_kind: guiding
 - uri: https://docs.trychroma.com/docs/overview/getting-started
   handler: web_page
   title: Chroma — getting started
@@ -1699,6 +3129,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.trychroma.com/docs/overview/getting-started/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - chroma
+  - vector-database
+  - embeddings
+  - rag
+  - retrieval
+  constraint_kind: guiding
 - uri: https://docs.llamaindex.ai/en/stable/module_guides/deploying/agents/
   handler: web_page
   title: LlamaIndex — deploying agents
@@ -1720,6 +3162,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.llamaindex.ai/en/stable/module_guides/deploying/agents/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llamaindex
+  - agents
+  - rag
+  - deployment
+  constraint_kind: guiding
 - uri: https://docs.llamaindex.ai/en/stable/use_cases/agents/
   handler: web_page
   title: LlamaIndex — agents use cases
@@ -1741,6 +3194,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.llamaindex.ai/en/stable/use_cases/agents/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llamaindex
+  - agents
+  - rag
+  - patterns
+  constraint_kind: guiding
 - uri: https://docs.langchain.com/oss/python/langchain/agents
   handler: web_page
   title: LangChain — Agents
@@ -1762,6 +3226,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.langchain.com/oss/python/langchain/agents/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - agents
+  - tool-use
+  - orchestration
+  constraint_kind: guiding
 - uri: https://docs.langchain.com/oss/python/langgraph/quickstart
   handler: web_page
   title: LangGraph — Quickstart
@@ -1783,6 +3258,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.langchain.com/oss/python/langgraph/quickstart/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - langchain
+  - agents
+  - workflows
+  constraint_kind: guiding
 - uri: https://docs.langchain.com/oss/python/langgraph/use-subgraphs
   handler: web_page
   title: LangGraph — Subgraphs
@@ -1804,6 +3290,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.langchain.com/oss/python/langgraph/use-subgraphs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - agents
+  - composition
+  - patterns
+  constraint_kind: guiding
 - uri: https://docs.langchain.com/oss/python/langgraph/persistence
   handler: web_page
   title: LangGraph — Persistence
@@ -1825,6 +3322,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.langchain.com/oss/python/langgraph/persistence/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - agents
+  - memory
+  - checkpoints
+  constraint_kind: guiding
 - uri: https://langchain-ai.github.io/langgraph/tutorials/introduction/
   handler: web_page
   title: LangGraph — Introduction tutorial
@@ -1845,6 +3353,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://langchain-ai.github.io/langgraph/tutorials/introduction/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - tutorial
+  - agents
+  constraint_kind: guiding
 - uri: https://dspy.ai/learn/
   handler: web_page
   title: DSPy — Learn
@@ -1867,6 +3385,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://dspy.ai/learn/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - dspy
+  - prompting
+  - programs
+  - optimization
+  - llm
+  constraint_kind: advisory
 - uri: https://microsoft.github.io/autogen/stable/
   handler: web_page
   title: Microsoft AutoGen documentation
@@ -1888,6 +3418,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://microsoft.github.io/autogen/stable/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - autogen
+  - multi-agent
+  - microsoft
+  - agents
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/semantic-kernel/overview/
   handler: web_page
   title: Semantic Kernel overview
@@ -1910,6 +3451,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/semantic-kernel/overview/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - semantic-kernel
+  - microsoft
+  - agents
+  - plugins
+  - llm
+  constraint_kind: guiding
 - uri: https://docs.crewai.com/en/introduction
   handler: web_page
   title: CrewAI — Introduction
@@ -1931,6 +3484,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.crewai.com/en/introduction/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - crewai
+  - multi-agent
+  - orchestration
+  - agents
+  constraint_kind: advisory
 - uri: https://modelcontextprotocol.io/specification/2025-11-25
   handler: web_page
   title: Model Context Protocol specification (2025-11-25)
@@ -1953,6 +3517,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://modelcontextprotocol.io/specification/2025-11-25/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mcp
+  - tools
+  - agents
+  - integration
+  - spec
+  constraint_kind: guiding
 - uri: https://e2b.dev/docs
   handler: web_page
   title: E2B — documentation (code sandboxes for AI)
@@ -1975,6 +3551,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://e2b.dev/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - e2b
+  - sandbox
+  - agents
+  - code-execution
+  - security
+  constraint_kind: advisory
 - uri: https://www.daytona.io/docs/
   handler: web_page
   title: Daytona — documentation (dev environments / sandboxes)
@@ -1997,6 +3585,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.daytona.io/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - daytona
+  - sandbox
+  - agents
+  - development
+  - security
+  constraint_kind: advisory
 - uri: https://atlas.mitre.org/
   handler: web_page
   title: MITRE ATLAS — AI threat matrix
@@ -2019,6 +3619,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://atlas.mitre.org/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mitre-atlas
+  - threat-model
+  - security
+  - mlsec
+  - agents
+  constraint_kind: guiding
 - uri: https://protectai.github.io/llm-guard/
   handler: web_page
   title: LLM Guard documentation
@@ -2041,6 +3653,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://protectai.github.io/llm-guard/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llm-guard
+  - security
+  - guardrails
+  - red-team
+  - llm
+  constraint_kind: advisory
 - uri: https://guardrailsai.com/guardrails/docs
   handler: web_page
   title: Guardrails AI documentation
@@ -2062,6 +3686,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://guardrailsai.com/guardrails/docs/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - guardrails
+  - validation
+  - security
+  - llm
+  constraint_kind: advisory
 - uri: https://ai.google.dev/gemini-api/docs/safety-settings
   handler: web_page
   title: Gemini API — safety settings
@@ -2084,6 +3719,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://ai.google.dev/gemini-api/docs/safety-settings/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - google
+  - gemini
+  - safety
+  - api
+  - guardrails
+  constraint_kind: guiding
 - uri: https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool
   handler: web_page
   title: Claude — Computer use tool
@@ -2106,6 +3753,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - anthropic
+  - claude
+  - computer-use
+  - agents
+  - tool-use
+  constraint_kind: guiding
 - uri: https://platform.claude.com/docs/en/build-with-claude/prompt-caching
   handler: web_page
   title: Claude — Prompt caching
@@ -2129,6 +3788,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://platform.claude.com/docs/en/build-with-claude/prompt-caching/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - anthropic
+  - claude
+  - caching
+  - cost
+  - latency
+  - llm
+  constraint_kind: guiding
 - uri: https://docs.ragas.io/en/stable/
   handler: web_page
   title: RAGAS — RAG evaluation framework
@@ -2151,6 +3823,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.ragas.io/en/stable/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - ragas
+  - evaluation
+  - rag
+  - metrics
+  - llm
+  constraint_kind: guiding
 - uri: https://docs.litellm.ai/docs/proxy/quick_start
   handler: web_page
   title: LiteLLM Proxy — quick start
@@ -2173,6 +3857,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.litellm.ai/docs/proxy/quick_start/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - litellm
+  - proxy
+  - routing
+  - gateway
+  - llm
+  constraint_kind: advisory
 - uri: https://mlflow.org/docs/latest/genai/index.html
   handler: web_page
   title: MLflow — GenAI / LLM tracking
@@ -2195,6 +3891,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://mlflow.org/docs/latest/genai/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mlflow
+  - observability
+  - evaluation
+  - llm
+  - tracing
+  constraint_kind: guiding
 - uri: https://arize.com/docs/phoenix
   handler: web_page
   title: Arize Phoenix — LLM observability
@@ -2218,6 +3926,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://arize.com/docs/phoenix/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - phoenix
+  - arize
+  - observability
+  - tracing
+  - evaluation
+  - llm
+  constraint_kind: advisory
 - uri: https://docs.wandb.ai/weave
   handler: web_page
   title: Weights & Biases Weave
@@ -2240,6 +3961,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.wandb.ai/weave/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - wandb
+  - weave
+  - observability
+  - tracing
+  - llm
+  constraint_kind: guiding
 - uri: https://python.useinstructor.com/
   handler: web_page
   title: Instructor — structured outputs for LLMs
@@ -2261,6 +3994,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.useinstructor.com/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - instructor
+  - structured-outputs
+  - pydantic
+  - llm
+  constraint_kind: advisory
 - uri: https://dottxt-ai.github.io/outlines/latest/
   handler: web_page
   title: Outlines — structured generation
@@ -2282,6 +4026,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://dottxt-ai.github.io/outlines/latest/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - outlines
+  - structured-generation
+  - sampling
+  - llm
+  constraint_kind: advisory
 - uri: https://web.stanford.edu/~jurafsky/slp3/
   handler: web_page
   title: Speech and Language Processing (Jurafsky & Martin, 3rd ed. draft)
@@ -2304,6 +4059,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://web.stanford.edu/~jurafsky/slp3/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - nlp
+  - textbook
+  - language-model
+  - speech
+  - reference
+  constraint_kind: guiding
 - uri: https://d2l.ai/chapter_introduction/index.html
   handler: web_page
   title: Dive into Deep Learning — introduction
@@ -2326,6 +4093,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://d2l.ai/chapter_introduction/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - d2l
+  - deep-learning
+  - textbook
+  - tutorial
+  - reference
+  constraint_kind: guiding
 - uri: https://www.deeplearningbook.org/contents/intro.html
   handler: web_page
   title: Deep Learning (Goodfellow et al.) — introduction
@@ -2347,6 +4126,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.deeplearningbook.org/contents/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - deep-learning
+  - textbook
+  - foundations
+  - reference
+  constraint_kind: guiding
 - uri: https://docs.sglang.io/
   handler: web_page
   title: SGLang documentation
@@ -2370,6 +4160,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.sglang.io/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sglang
+  - inference
+  - serving
+  - gpu
+  - llm
+  - throughput
+  constraint_kind: guiding
 - uri: https://docs.sglang.io/get_started/install.html
   handler: web_page
   title: SGLang — installation
@@ -2392,6 +4195,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.sglang.io/get_started/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - sglang
+  - inference
+  - serving
+  - install
+  - llm
+  constraint_kind: guiding
 - uri: https://nvidia.github.io/TensorRT-LLM/
   handler: web_page
   title: TensorRT-LLM documentation
@@ -2415,6 +4230,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://nvidia.github.io/TensorRT-LLM/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - tensorrt-llm
+  - nvidia
+  - inference
+  - serving
+  - gpu
+  - llm
+  constraint_kind: guiding
 - uri: https://nvidia.github.io/TensorRT-LLM/quick-start-guide.html
   handler: web_page
   title: TensorRT-LLM — quick start
@@ -2437,12 +4265,24 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://nvidia.github.io/TensorRT-LLM/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - tensorrt-llm
+  - nvidia
+  - inference
+  - quickstart
+  - llm
+  constraint_kind: guiding
 - uri: https://github.com/ggml-org/llama.cpp/wiki
   handler: web_page
   title: llama.cpp wiki
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - llama.cpp
   - ggml
@@ -2451,6 +4291,19 @@ items:
   - quantization
   - local-llm
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llama.cpp
+  - ggml
+  - cpu
+  - inference
+  - quantization
+  - local-llm
+  constraint_kind: advisory
 - uri: https://llama-cpp-python.readthedocs.io/en/latest/
   handler: web_page
   title: llama-cpp-python documentation
@@ -2474,6 +4327,20 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://llama-cpp-python.readthedocs.io/en/latest/
+  corpus_class: hybrid
+  languages:
+  - python
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llama-cpp-python
+  - llama.cpp
+  - python
+  - bindings
+  - inference
+  - local-llm
+  constraint_kind: guiding
 - uri: https://ml-explore.github.io/mlx/build/html/
   handler: web_page
   title: MLX documentation (Apple Silicon)
@@ -2496,12 +4363,24 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://ml-explore.github.io/mlx/build/html/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - mlx
+  - apple-silicon
+  - inference
+  - training
+  - llm
+  constraint_kind: guiding
 - uri: https://github.com/EleutherAI/lm-evaluation-harness
   handler: web_page
   title: EleutherAI LM Evaluation Harness
   domain: llm_evaluation
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - lm-eval
   - eleuther
@@ -2510,6 +4389,19 @@ items:
   - harness
   - llm
   priority: 2
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - lm-eval
+  - eleuther
+  - benchmark
+  - evaluation
+  - harness
+  - llm
+  constraint_kind: guiding
 - uri: https://opencompass.readthedocs.io/en/latest/index.html
   handler: web_page
   title: OpenCompass documentation
@@ -2531,6 +4423,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://opencompass.readthedocs.io/en/latest/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - opencompass
+  - benchmark
+  - evaluation
+  - llm
+  constraint_kind: guiding
 - uri: https://opencompass.readthedocs.io/en/latest/get_started/installation.html
   handler: web_page
   title: OpenCompass — installation
@@ -2552,12 +4455,23 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://opencompass.readthedocs.io/en/latest/get_started/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - opencompass
+  - benchmark
+  - evaluation
+  - install
+  constraint_kind: guiding
 - uri: https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard
   handler: web_page
   title: Hugging Face Open LLM Leaderboard
   domain: llm_evaluation
   authority: vetted
-  origin_type: external
+  origin_type: curated
   tags:
   - leaderboard
   - huggingface
@@ -2565,6 +4479,18 @@ items:
   - open-source
   - llm
   priority: 2
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - leaderboard
+  - huggingface
+  - benchmark
+  - open-source
+  - llm
+  constraint_kind: guiding
 - uri: https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai
   handler: web_page
   title: EU regulatory framework for artificial intelligence
@@ -2587,6 +4513,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - eu-ai-act
+  - governance
+  - compliance
+  - regulation
+  - policy
+  constraint_kind: guiding
 - uri: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689
   handler: web_page
   title: EU Artificial Intelligence Act — consolidated legal text (EUR-Lex)
@@ -2609,18 +4547,41 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://eur-lex.europa.eu/legal-content/EN/TXT/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - eu-ai-act
+  - legal
+  - governance
+  - compliance
+  - regulation
+  constraint_kind: guiding
 - uri: https://artificialintelligenceact.eu/the-act/
   handler: web_page
   title: Artificial Intelligence Act — plain-language overview
   domain: generalist
   authority: community
-  origin_type: external
+  origin_type: curated
   tags:
   - eu-ai-act
   - governance
   - summary
   - compliance
   priority: 3
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - eu-ai-act
+  - governance
+  - summary
+  - compliance
+  constraint_kind: advisory
 - uri: https://huggingface.co/docs/transformers/en/model_doc/clip
   handler: web_page
   title: Transformers — CLIP model documentation
@@ -2644,6 +4605,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/transformers/en/model_doc/clip/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - clip
+  - multimodal
+  - vision
+  - embeddings
+  - transformers
+  - vlm
+  constraint_kind: guiding
 - uri: https://huggingface.co/docs/transformers/en/model_doc/llava_next
   handler: web_page
   title: Transformers — LLaVA-NeXT documentation
@@ -2666,6 +4640,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huggingface.co/docs/transformers/en/model_doc/llava_next/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llava
+  - multimodal
+  - vision-language
+  - vlm
+  - transformers
+  constraint_kind: guiding
 - uri: https://llava-vl.github.io/
   handler: web_page
   title: LLaVA — large language-and-vision assistant
@@ -2688,6 +4674,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://llava-vl.github.io/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - llava
+  - multimodal
+  - vision-language
+  - vlm
+  - research
+  constraint_kind: guiding
 - uri: https://ai.google.dev/gemini-api/docs/image-understanding
   handler: web_page
   title: Gemini API — image understanding
@@ -2710,3 +4708,15 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://ai.google.dev/gemini-api/docs/image-understanding/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - gemini
+  - multimodal
+  - vision
+  - api
+  - google
+  constraint_kind: guiding

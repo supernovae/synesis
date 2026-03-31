@@ -1,0 +1,367 @@
+# Bootstrap corpus — SQL language evidence pack
+items:
+- uri: https://www.postgresql.org/docs/current/
+  handler: web_page
+  title: PostgreSQL documentation
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - postgresql
+  - database
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - stdlib-reference
+  - sql
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://www.postgresql.org/docs/current/errcodes-appendix.html
+  handler: web_page
+  title: PostgreSQL error codes appendix
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - postgresql
+  - errors
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - error-catalog
+  - sql
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://dev.mysql.com/doc/refman/8.0/en/
+  handler: web_page
+  title: MySQL 8.0 reference manual
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - mysql
+  - database
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - sql
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://dev.mysql.com/doc/mysql-errors/8.0/en/
+  handler: web_page
+  title: MySQL 8.0 error reference
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - mysql
+  - errors
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: troubleshooting
+  freshness_sla_days: 90
+  scope_tags:
+  - error-catalog
+  - sql
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://sqlfluff.com/
+  handler: web_page
+  title: SQLFluff — SQL linter
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - sqlfluff
+  - linter
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 120
+  scope_tags:
+  - linter-rules
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://sqlstyle.guide/
+  handler: web_page
+  title: SQL style guide
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - style
+  - conventions
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - style-guide
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://use-the-index-luke.com/
+  handler: web_page
+  title: Use The Index, Luke — SQL indexing guide
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - indexing
+  - performance
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 180
+  scope_tags:
+  - common-patterns
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://www.liquibase.org/get-started
+  handler: web_page
+  title: Liquibase getting started
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - liquibase
+  - migrations
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://flywaydb.org/documentation
+  handler: web_page
+  title: Flyway documentation
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - flyway
+  - migrations
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://pgtap.org/
+  handler: web_page
+  title: pgTAP — PostgreSQL unit testing
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - postgresql
+  - testing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 180
+  scope_tags:
+  - testing-framework
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://www.sqlite.org/docs.html
+  handler: web_page
+  title: SQLite documentation
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - sqlite
+  - embedded
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 120
+  scope_tags:
+  - language-spec
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/sql/t-sql/language-reference/
+  handler: web_page
+  title: Transact-SQL language reference
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - t-sql
+  - sql-server
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - stdlib-reference
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://www.postgresql.org/docs/current/sql.html
+  handler: web_page
+  title: PostgreSQL SQL commands
+  domain: sql
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sql
+  - postgresql
+  - commands
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - sql
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - sql
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4

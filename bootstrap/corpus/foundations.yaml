@@ -1,6 +1,3 @@
-# Bootstrap corpus — Cross-domain foundations (architecture, security, data, …)
-# Imported via scripts/load-bootstrap.sh (all *.yaml here).
-#
 items:
 - uri: https://adr.github.io/
   handler: web_page
@@ -24,6 +21,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://adr.github.io/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - context
+  - decision
+  - consequences
+  - tradeoffs
+  constraint_kind: guiding
 - uri: https://adr.github.io/madr/
   handler: web_page
   title: MADR
@@ -44,6 +53,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://adr.github.io/madr/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - adr
+  - template
+  - structured-decisions
+  constraint_kind: guiding
 - uri: https://diataxis.fr/
   handler: web_page
   title: Diátaxis
@@ -66,6 +85,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://diataxis.fr/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - documentation
+  - tutorial
+  - how-to
+  - reference
+  - explanation
+  constraint_kind: guiding
 - uri: https://diataxis.fr/start-here/
   handler: web_page
   title: Diátaxis Start Here
@@ -86,6 +117,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://diataxis.fr/start-here/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - documentation
+  - framing
+  - content-types
+  constraint_kind: guiding
 - uri: https://diataxis.fr/reference/
   handler: web_page
   title: Diátaxis Reference
@@ -106,6 +147,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://diataxis.fr/reference/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - documentation
+  - reference-writing
+  - facts
+  constraint_kind: guiding
 - uri: https://diataxis.fr/explanation/
   handler: web_page
   title: Diátaxis Explanation
@@ -127,6 +178,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://diataxis.fr/explanation/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - documentation
+  - explanation
+  - theory
+  - why
+  constraint_kind: guiding
 - uri: https://diataxis.fr/tutorials-how-to/
   handler: web_page
   title: Diátaxis Tutorials vs How-To
@@ -148,6 +210,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://diataxis.fr/tutorials-how-to/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - documentation
+  - tutorial
+  - how-to
+  - task-vs-learning
+  constraint_kind: guiding
 - uri: https://owl.purdue.edu/owl/subject_specific_writing/professional_technical_writing/index.html
   handler: web_page
   title: Purdue OWL Professional, Technical Writing
@@ -169,6 +242,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://owl.purdue.edu/owl/subject_specific_writing/professional_technical_writing/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - technical-writing
+  - clarity
+  - workplace-writing
+  - reports
+  constraint_kind: guiding
 - uri: https://www.equator-network.org/
   handler: web_page
   title: EQUATOR Network
@@ -190,6 +274,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.equator-network.org/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - science
+  - reporting-guidelines
+  - research-quality
+  - evidence
+  constraint_kind: guiding
 - uri: https://www.nature.com/articles/s41591-025-03635-5
   handler: html_document
   title: CONSORT 2025 Statement
@@ -203,6 +298,18 @@ items:
   - checklists
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - science
+  - clinical-trials
+  - reporting
+  - checklists
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://www.law.cornell.edu/wex/legal_writing
   handler: web_page
   title: 'Cornell LII: Legal Writing'
@@ -224,6 +331,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.law.cornell.edu/wex/legal_writing/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - legal-writing
+  - clarity
+  - precision
+  - argumentation
+  constraint_kind: guiding
 - uri: https://www.law.cornell.edu/citation/1-100
   handler: web_page
   title: 'Cornell LII: Introduction to Basic Legal Citation'
@@ -245,6 +363,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.law.cornell.edu/citation/1-100/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - legal-citation
+  - authority
+  - precision
+  - supporting-claims
+  constraint_kind: guiding
 - uri: https://www.law.cornell.edu/wex/legalese
   handler: web_page
   title: 'Cornell LII: Legalese'
@@ -266,6 +395,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.law.cornell.edu/wex/legalese/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - plain-language
+  - legal-writing
+  - clarity
+  - anti-jargon
+  constraint_kind: guiding
 - uri: https://viva.pressbooks.pub/openmusictheory/
   handler: web_page
   title: Open Music Theory
@@ -287,6 +427,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://viva.pressbooks.pub/openmusictheory/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - music-theory
+  - notation
+  - harmony
+  - analysis
+  constraint_kind: guiding
 - uri: https://viva.pressbooks.pub/openmusictheory/part/fundamentals/
   handler: web_page
   title: 'Open Music Theory: Fundamentals'
@@ -308,6 +459,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://viva.pressbooks.pub/openmusictheory/part/fundamentals/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - music-theory
+  - notation
+  - rhythm
+  - pitch
+  constraint_kind: guiding
 - uri: https://viva.pressbooks.pub/openmusictheory/chapter/chord-symbols/
   handler: web_page
   title: 'Open Music Theory: Chord Symbols'
@@ -329,6 +491,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://viva.pressbooks.pub/openmusictheory/chapter/chord-symbols/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - music-theory
+  - chord-symbols
+  - lead-sheet
+  - harmony
+  constraint_kind: guiding
 - uri: https://lilypond.org/doc/v2.24/Documentation/web-big-page
   handler: web_page
   title: LilyPond Documentation
@@ -350,6 +523,17 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://lilypond.org/doc/v2.24/Documentation/web-big-page/
+  corpus_class: general
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - music-notation
+  - engraving
+  - lilypond
+  - formal-notation
+  constraint_kind: guiding
 - uri: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-160v1.pdf
   handler: pdf_document
   title: NIST SP 800-160 Volume 1
@@ -362,6 +546,17 @@ items:
   - resilience
   - engineering-principles
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - systems-engineering
+  - security
+  - resilience
+  - engineering-principles
+  constraint_kind: guiding
 - uri: https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-100.pdf
   handler: pdf_document
   title: NIST SP 800-100 Information Security Handbook
@@ -374,6 +569,17 @@ items:
   - risk
   - operations
   priority: 3
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 365
+  scope_tags:
+  - security
+  - governance
+  - risk
+  - operations
+  constraint_kind: guiding
 - uri: https://martinfowler.com/tags/enterprise%20architecture.html
   handler: web_page
   title: 'Martin Fowler: Enterprise Architecture'
@@ -394,6 +600,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://martinfowler.com/tags/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - architecture
+  - tradeoffs
+  - software-design
+  constraint_kind: guiding
 - uri: https://martinfowler.com/tags/application%20architecture.html
   handler: web_page
   title: 'Martin Fowler: Application Architecture'
@@ -414,6 +630,16 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://martinfowler.com/tags/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - architecture
+  - software-design
+  - application-architecture
+  constraint_kind: guiding
 - uri: https://genai.owasp.org/llm-top-10/
   handler: web_page
   title: OWASP Top 10 for LLM Applications
@@ -437,6 +663,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://genai.owasp.org/llm-top-10/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - llm
+  - owasp
+  - top-10
+  - prompt-injection
+  - data-leakage
+  constraint_kind: guiding
 - uri: https://genai.owasp.org/llm-ai-security-and-governance-checklist/
   handler: web_page
   title: OWASP LLM AI Security & Governance Checklist
@@ -459,6 +698,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://genai.owasp.org/llm-ai-security-and-governance-checklist/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - governance
+  - checklist
+  - llm
+  - owasp
+  constraint_kind: guiding
 - uri: https://www.nist.gov/artificial-intelligence/executive-order-safe-secure-and-trustworthy-artificial-intelligence
   handler: web_page
   title: NIST AI Risk Management Framework
@@ -481,6 +732,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.nist.gov/artificial-intelligence/executive-order-safe-secure-and-trustworthy-artificial-intelligence/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - risk-management
+  - nist
+  - ai-governance
+  - trustworthy-ai
+  constraint_kind: guiding
 - uri: https://www.microsoft.com/en-us/ai/responsible-ai
   handler: web_page
   title: Microsoft Responsible AI Practices
@@ -503,6 +766,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.microsoft.com/en-us/ai/responsible-ai/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - responsible-ai
+  - microsoft
+  - fairness
+  - transparency
+  constraint_kind: guiding
 - uri: https://simonwillison.net/2023/Apr/14/worst-that-can-happen/
   handler: web_page
   title: 'Simon Willison: Prompt Injection Explained'
@@ -525,6 +800,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://simonwillison.net/2023/Apr/14/worst-that-can-happen/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - prompt-injection
+  - attack-vectors
+  - defense
+  - practitioner
+  constraint_kind: guiding
 - uri: https://docs.anthropic.com/en/docs/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks
   handler: web_page
   title: 'Anthropic: Defending Against Prompt Injection'
@@ -547,6 +834,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.anthropic.com/en/docs/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - prompt-injection
+  - guardrails
+  - anthropic
+  - defense
+  constraint_kind: guiding
 - uri: https://learn.microsoft.com/en-us/security/benchmark/azure/baselines/azure-openai-security-baseline
   handler: web_page
   title: 'Azure: Security Baseline for Azure OpenAI'
@@ -570,6 +869,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://learn.microsoft.com/en-us/security/benchmark/azure/baselines/azure-openai-security-baseline/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - azure
+  - openai
+  - baseline
+  - network-isolation
+  - data-protection
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/security/
   handler: web_page
   title: 'LangChain: Security Best Practices'
@@ -592,6 +904,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/security/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - langchain
+  - best-practices
+  - sandboxing
+  - input-validation
+  constraint_kind: guiding
 - uri: https://www.databricks.com/glossary/retrieval-augmented-generation-rag
   handler: web_page
   title: 'Databricks: What Is RAG?'
@@ -614,6 +938,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.databricks.com/glossary/retrieval-augmented-generation-rag/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - architecture
+  - production
+  - databricks
+  - overview
+  constraint_kind: guiding
 - uri: https://docs.llamaindex.ai/en/stable/optimizing/production_rag/
   handler: web_page
   title: 'LlamaIndex: Building Production RAG'
@@ -636,6 +972,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.llamaindex.ai/en/stable/optimizing/production_rag/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - production
+  - llamaindex
+  - optimization
+  - architecture
+  constraint_kind: guiding
 - uri: https://docs.llamaindex.ai/en/stable/optimizing/evaluation/evaluation/
   handler: web_page
   title: 'LlamaIndex: RAG Evaluation Guide'
@@ -658,6 +1006,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.llamaindex.ai/en/stable/optimizing/evaluation/evaluation/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - evaluation
+  - llamaindex
+  - metrics
+  - quality
+  constraint_kind: guiding
 - uri: https://weaviate.io/blog/rag-explained
   handler: html_document
   title: 'Weaviate: RAG Explained'
@@ -672,6 +1032,19 @@ items:
   - generation
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - architecture
+  - weaviate
+  - retrieval
+  - generation
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://qdrant.tech/articles/rag-evaluation-guide/
   handler: html_document
   title: 'Qdrant: RAG Evaluation Guide'
@@ -686,6 +1059,19 @@ items:
   - quality
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - evaluation
+  - qdrant
+  - metrics
+  - quality
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://www.pinecone.io/learn/retrieval-augmented-generation/
   handler: web_page
   title: 'Pinecone: RAG Architecture Guide'
@@ -708,6 +1094,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.pinecone.io/learn/retrieval-augmented-generation/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - architecture
+  - pinecone
+  - production
+  - guide
+  constraint_kind: guiding
 - uri: https://docs.aws.amazon.com/sagemaker/latest/dg/jumpstart-foundation-models-customize-rag.html
   handler: web_page
   title: 'AWS: RAG on AWS'
@@ -730,6 +1128,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.aws.amazon.com/sagemaker/latest/dg/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - aws
+  - sagemaker
+  - production
+  - architecture
+  constraint_kind: guiding
 - uri: https://docs.cohere.com/docs/retrieval-augmented-generation-rag
   handler: web_page
   title: 'Cohere: RAG Best Practices'
@@ -752,6 +1162,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.cohere.com/docs/retrieval-augmented-generation-rag/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - best-practices
+  - cohere
+  - reranking
+  - production
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/tutorials/rag/
   handler: web_page
   title: 'LangChain: RAG Tutorial'
@@ -774,6 +1196,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/tutorials/rag/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - tutorial
+  - langchain
+  - implementation
+  - step-by-step
+  constraint_kind: guiding
 - uri: https://cloud.google.com/architecture/rag-capable-gen-ai-app-using-vertex-ai
   handler: web_page
   title: 'Google Cloud: RAG Architecture Guide'
@@ -796,6 +1230,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://cloud.google.com/architecture/rag-capable-gen-ai-app-using-vertex-ai/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - google-cloud
+  - vertex-ai
+  - architecture
+  - production
+  constraint_kind: guiding
 - uri: https://unstructured.io/blog/chunking-for-rag-best-practices
   handler: html_document
   title: 'Unstructured: Chunking Strategies for RAG'
@@ -810,6 +1256,19 @@ items:
   - preprocessing
   - corpus_blog
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - rag
+  - chunking
+  - strategies
+  - best-practices
+  - preprocessing
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://zilliz.com/learn/choosing-right-vector-database-for-your-use-case
   handler: web_page
   title: 'Zilliz: Choosing the Right Vector Database'
@@ -832,6 +1291,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://zilliz.com/learn/choosing-right-vector-database-for-your-use-case/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - selection
+  - comparison
+  - milvus
+  - zilliz
+  constraint_kind: guiding
 - uri: https://superlinked.com/vector-db-comparison
   handler: web_page
   title: 'Superlinked: Vector Database Comparison'
@@ -856,6 +1327,20 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://superlinked.com/vector-db-comparison/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - comparison
+  - benchmark
+  - faiss
+  - pinecone
+  - milvus
+  - qdrant
+  constraint_kind: guiding
 - uri: https://qdrant.tech/benchmarks/
   handler: web_page
   title: 'Qdrant: Benchmarks'
@@ -878,6 +1363,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://qdrant.tech/benchmarks/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - benchmark
+  - qdrant
+  - performance
+  - comparison
+  constraint_kind: guiding
 - uri: https://github.com/pgvector/pgvector
   handler: html_document
   title: 'pgvector: Getting Started'
@@ -891,6 +1388,18 @@ items:
   - embedding
   - open-source
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - pgvector
+  - postgres
+  - embedding
+  - open-source
+  constraint_kind: guiding
 - uri: https://milvus.io/docs/architecture_overview.md
   handler: web_page
   title: 'Milvus: Architecture Overview'
@@ -913,6 +1422,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://milvus.io/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - milvus
+  - architecture
+  - distributed
+  - hybrid-search
+  constraint_kind: guiding
 - uri: https://github.com/facebookresearch/faiss/wiki/Getting-started
   handler: web_page
   title: 'FAISS: Getting Started Wiki'
@@ -935,6 +1456,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://github.com/facebookresearch/faiss/wiki/Getting-started/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - faiss
+  - facebook
+  - in-memory
+  - similarity-search
+  constraint_kind: guiding
 - uri: https://weaviate.io/blog/what-is-a-vector-database
   handler: html_document
   title: 'Weaviate: Vector Database Use Cases'
@@ -949,6 +1482,19 @@ items:
   - comparison
   - corpus_blog
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - weaviate
+  - use-cases
+  - overview
+  - comparison
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://github.com/aurelio-labs/semantic-router
   handler: html_document
   title: 'Semantic Router: Documentation'
@@ -962,6 +1508,18 @@ items:
   - cost-optimization
   - intent
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - routing
+  - semantic-router
+  - classifier
+  - cost-optimization
+  - intent
+  constraint_kind: guiding
 - uri: https://www.anyscale.com/blog/how-to-build-a-router-for-llm-queries
   handler: html_document
   title: 'Anyscale: How to Build an LLM Router'
@@ -976,6 +1534,19 @@ items:
   - architecture
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - routing
+  - llm
+  - cost-optimization
+  - anyscale
+  - architecture
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://withmartian.com/post/model-router
   handler: html_document
   title: 'Martian: Model Router Architecture'
@@ -990,6 +1561,19 @@ items:
   - martian
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - routing
+  - model-router
+  - cost
+  - quality
+  - martian
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://openrouter.ai/docs/features/model-routing
   handler: web_page
   title: 'OpenRouter: Model Routing and Fallback'
@@ -1012,6 +1596,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://openrouter.ai/docs/features/model-routing/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - routing
+  - openrouter
+  - fallback
+  - cost
+  - api-gateway
+  constraint_kind: guiding
 - uri: https://docs.litellm.ai/docs/routing
   handler: web_page
   title: 'LiteLLM: Router Documentation'
@@ -1034,6 +1630,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.litellm.ai/docs/routing/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - routing
+  - litellm
+  - load-balancing
+  - fallback
+  - cost
+  constraint_kind: guiding
 - uri: https://www.notdiamond.ai/blog/introducing-not-diamond
   handler: html_document
   title: 'Not Diamond: Intelligent Model Routing'
@@ -1047,6 +1655,18 @@ items:
   - quality-prediction
   - corpus_blog
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - routing
+  - model-selection
+  - not-diamond
+  - quality-prediction
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://github.blog/ai-and-ml/github-copilot/how-github-copilot-is-getting-better-at-understanding-your-code/
   handler: web_page
   title: 'GitHub: How GitHub Copilot Works'
@@ -1069,6 +1689,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://github.blog/ai-and-ml/github-copilot/how-github-copilot-is-getting-better-at-understanding-your-code/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - copilot
+  - code-assistant
+  - architecture
+  - github
+  - retrieval
+  constraint_kind: guiding
 - uri: https://sourcegraph.com/blog/cody-is-cheating
   handler: html_document
   title: 'Sourcegraph: Cody Architecture'
@@ -1083,6 +1715,19 @@ items:
   - context-window
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - cody
+  - code-assistant
+  - architecture
+  - sourcegraph
+  - context-window
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://docs.continue.dev/customize/overview
   handler: web_page
   title: 'Continue.dev: How It Works'
@@ -1105,6 +1750,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.continue.dev/customize/overview/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - continue
+  - code-assistant
+  - architecture
+  - open-source
+  - ide
+  constraint_kind: guiding
 - uri: https://www.cursor.com/blog/behind-the-scenes
   handler: html_document
   title: 'Cursor: Behind the Scenes of AI Code Editor'
@@ -1119,6 +1776,19 @@ items:
   - retrieval
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - cursor
+  - code-assistant
+  - architecture
+  - ide
+  - retrieval
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://aws.amazon.com/q/developer/
   handler: web_page
   title: 'AWS: Building a Code Assistant with Amazon Q'
@@ -1141,6 +1811,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://aws.amazon.com/q/developer/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - code-assistant
+  - amazon-q
+  - aws
+  - enterprise
+  - architecture
+  constraint_kind: guiding
 - uri: https://cloud.google.com/products/gemini-code-assist
   handler: web_page
   title: 'Google: Gemini Code Assist Overview'
@@ -1163,6 +1845,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://cloud.google.com/products/gemini-code-assist/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - code-assistant
+  - gemini
+  - google-cloud
+  - enterprise
+  - code-review
+  constraint_kind: guiding
 - uri: https://www.qodo.ai/blog/the-evolution-of-ai-code-quality/
   handler: html_document
   title: 'Qodo (formerly CodiumAI): AI Code Quality'
@@ -1177,6 +1871,19 @@ items:
   - qodo
   - corpus_blog
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - code-quality
+  - testing
+  - code-review
+  - ai-assisted
+  - qodo
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://aider.chat/docs/repomap.html
   handler: web_page
   title: 'Aider: Repository Map and Code Context'
@@ -1199,6 +1906,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://aider.chat/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - code-assistant
+  - aider
+  - repo-map
+  - context
+  - architecture
+  constraint_kind: guiding
 - uri: https://huyenchip.com/2023/04/11/llm-engineering.html
   handler: web_page
   title: 'Chip Huyen: Building LLM Applications for Production'
@@ -1222,6 +1941,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huyenchip.com/2023/04/11/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - llm
+  - production
+  - architecture
+  - cost
+  - latency
+  - evaluation
+  constraint_kind: guiding
 - uri: https://huyenchip.com/2024/01/21/real-time-ml.html
   handler: web_page
   title: 'Chip Huyen: Real-Time Machine Learning'
@@ -1244,6 +1976,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://huyenchip.com/2024/01/21/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - real-time
+  - latency
+  - streaming
+  - production
+  - ml-systems
+  constraint_kind: guiding
 - uri: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
   handler: web_page
   title: 'Anthropic: Guide to Prompt Caching'
@@ -1266,6 +2010,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - caching
+  - prompt-caching
+  - cost-optimization
+  - anthropic
+  - production
+  constraint_kind: guiding
 - uri: https://platform.openai.com/docs/guides/production-best-practices
   handler: web_page
   title: 'OpenAI: Production Best Practices'
@@ -1288,6 +2044,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://platform.openai.com/docs/guides/production-best-practices/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - production
+  - best-practices
+  - openai
+  - api
+  - reliability
+  constraint_kind: guiding
 - uri: https://docs.smith.langchain.com/
   handler: web_page
   title: 'LangSmith: LLM Observability and Tracing'
@@ -1310,6 +2078,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://docs.smith.langchain.com/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - observability
+  - tracing
+  - langsmith
+  - debugging
+  - production
+  constraint_kind: guiding
 - uri: https://www.braintrust.dev/docs
   handler: web_page
   title: 'Braintrust: LLM Evaluation Platform'
@@ -1332,6 +2112,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://www.braintrust.dev/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - evaluation
+  - llm
+  - production
+  - testing
+  - quality
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/versions/v0_3
   handler: web_page
   title: 'LangChain v0.3: What''s New and Migration Guide'
@@ -1354,6 +2146,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/versions/v0_3/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - v0.3
+  - migration
+  - current
+  - breaking-changes
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/concepts/retrievers
   handler: web_page
   title: 'LangChain Concepts: Retrievers'
@@ -1376,6 +2180,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/concepts/retrievers/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - retrievers
+  - concepts
+  - rag
+  - current
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/how_to/ensemble_retriever
   handler: web_page
   title: 'LangChain How-To: Ensemble Retriever (Hybrid Search)'
@@ -1398,6 +2214,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/how_to/ensemble_retriever/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - ensemble-retriever
+  - hybrid-search
+  - bm25
+  - vector
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/integrations/vectorstores/faiss/
   handler: web_page
   title: 'LangChain: FAISS Vector Store Integration'
@@ -1420,6 +2248,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/integrations/vectorstores/faiss/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - faiss
+  - vector-store
+  - integration
+  - limitations
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/integrations/vectorstores
   handler: web_page
   title: 'LangChain: Vector Stores Overview and Comparison'
@@ -1442,6 +2282,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/integrations/vectorstores/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - vector-stores
+  - comparison
+  - integrations
+  - current
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/integrations/retrievers/elasticsearch_retriever
   handler: web_page
   title: 'LangChain: Elasticsearch Retriever (Hybrid Search Example)'
@@ -1464,6 +2316,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/integrations/retrievers/elasticsearch_retriever/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - elasticsearch
+  - hybrid-search
+  - bm25
+  - vector-search
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/versions/v0_2/deprecations
   handler: web_page
   title: LangChain v0.2 Deprecations (What to Avoid)
@@ -1486,6 +2350,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/versions/v0_2/deprecations/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - deprecations
+  - migration
+  - v0.2
+  - legacy
+  constraint_kind: guiding
 - uri: https://python.langchain.com/docs/versions/migrating_chains/map_rerank_docs_chain
   handler: web_page
   title: 'LangChain: Migrating from Legacy Chains'
@@ -1508,6 +2384,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://python.langchain.com/docs/versions/migrating_chains/map_rerank_docs_chain/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langchain
+  - migration
+  - chains
+  - legacy
+  - lcel
+  constraint_kind: guiding
 - uri: https://langchain-ai.github.io/langgraph
   handler: web_page
   title: 'LangGraph: Framework Overview and Architecture'
@@ -1530,6 +2418,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://langchain-ai.github.io/langgraph/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - agents
+  - orchestration
+  - stateful
+  - architecture
+  constraint_kind: guiding
 - uri: https://langchain-ai.github.io/langgraph/concepts/
   handler: web_page
   title: 'LangGraph: Conceptual Guide (State, Nodes, Edges, Persistence)'
@@ -1552,6 +2452,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://langchain-ai.github.io/langgraph/concepts/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - concepts
+  - state-management
+  - persistence
+  - checkpointing
+  constraint_kind: guiding
 - uri: https://sumanta9090.medium.com/langgraph-patterns-best-practices-guide-2025-38cc2abb8763
   handler: html_document
   title: LangGraph Patterns and Best Practices Guide (2025)
@@ -1566,6 +2478,19 @@ items:
   - tool-calling
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - patterns
+  - best-practices
+  - react
+  - tool-calling
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://myengineeringpath.dev/genai-engineer/langgraph-multi-agent/
   handler: web_page
   title: LangGraph Multi-Agent Supervisor Pattern Guide (2026)
@@ -1588,6 +2513,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://myengineeringpath.dev/genai-engineer/langgraph-multi-agent/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - multi-agent
+  - supervisor
+  - orchestration
+  - command-api
+  constraint_kind: guiding
 - uri: https://www.mager.co/blog/2026-03-12-langgraph-deep-dive/
   handler: html_document
   title: 'LangGraph: Build Stateful Multi-Agent Systems (Deep Dive)'
@@ -1602,6 +2539,19 @@ items:
   - deep-dive
   - corpus_blog
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - multi-agent
+  - stateful
+  - production
+  - deep-dive
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://blogs.pavanrangani.com/multi-agent-ai-systems-langgraph-guide/
   handler: web_page
   title: Multi-Agent AI Systems with LangGraph (Comprehensive Guide)
@@ -1624,6 +2574,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://blogs.pavanrangani.com/multi-agent-ai-systems-langgraph-guide/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - langgraph
+  - multi-agent
+  - supervisor
+  - swarm
+  - architecture
+  constraint_kind: guiding
 - uri: https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index
   handler: web_page
   title: 'FAISS Wiki: Guidelines to Choose an Index'
@@ -1647,6 +2609,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - faiss
+  - index-selection
+  - ivf
+  - hnsw
+  - flat
+  - guidelines
+  constraint_kind: guiding
 - uri: https://github.com/facebookresearch/faiss/wiki/Faiss-indexes
   handler: web_page
   title: 'FAISS Wiki: Index Types and Capabilities'
@@ -1671,6 +2646,20 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://github.com/facebookresearch/faiss/wiki/Faiss-indexes/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - faiss
+  - indexes
+  - ivf
+  - pq
+  - hnsw
+  - flat
+  - capabilities
+  constraint_kind: guiding
 - uri: https://github.com/facebookresearch/faiss/wiki/FAQ
   handler: web_page
   title: 'FAISS Wiki: FAQ (Limitations, Accuracy, Operations)'
@@ -1694,6 +2683,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://github.com/facebookresearch/faiss/wiki/FAQ/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - faiss
+  - faq
+  - limitations
+  - accuracy
+  - operations
+  - troubleshooting
+  constraint_kind: guiding
 - uri: https://github.com/facebookresearch/faiss/wiki/The-index-factory
   handler: web_page
   title: 'FAISS Wiki: The Index Factory (Composite Index Strings)'
@@ -1716,6 +2718,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://github.com/facebookresearch/faiss/wiki/The-index-factory/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - faiss
+  - index-factory
+  - composite
+  - configuration
+  - encoding
+  constraint_kind: guiding
 - uri: https://medium.com/@ashutoshkumars1ngh/hybrid-search-done-right-fixing-rag-retrieval-failures-using-bm25-hnsw-reciprocal-rank-fusion-a73596652d22
   handler: html_document
   title: 'Hybrid Search Done Right: BM25 + HNSW + RRF in Elasticsearch'
@@ -1731,6 +2745,20 @@ items:
   - production
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - hybrid-search
+  - bm25
+  - hnsw
+  - rrf
+  - elasticsearch
+  - production
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://fmorenovr.medium.com/building-a-production-ready-rag-system-from-simple-retrieval-to-advanced-hybrid-search-498a50f9a04f
   handler: html_document
   title: 'Building a Production-Ready RAG System: From Simple to Hybrid Search'
@@ -1745,6 +2773,19 @@ items:
   - reranking
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: architecture
+  freshness_sla_days: 180
+  scope_tags:
+  - hybrid-search
+  - rag
+  - production
+  - architecture
+  - reranking
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://optyxstack.com/rag-reliability/hybrid-search-reranking-playbook
   handler: web_page
   title: 'Hybrid Search + Reranking Playbook: When Vectors Fail and BM25 Saves Recall'
@@ -1767,6 +2808,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://optyxstack.com/rag-reliability/hybrid-search-reranking-playbook/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - hybrid-search
+  - reranking
+  - bm25
+  - production
+  - reliability
+  constraint_kind: guiding
 - uri: https://medium.com/@kumaran.isk/building-a-production-rag-pipeline-start-with-hybrid-retrieval-dense-bm25-rrf-e901aba17cae
   handler: html_document
   title: 'Production RAG Pipeline: Start With Hybrid Retrieval (Dense + BM25 + RRF)'
@@ -1782,6 +2835,20 @@ items:
   - production
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - hybrid-search
+  - rag
+  - rrf
+  - dense-retrieval
+  - bm25
+  - production
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://thread-transfer.com/blog/2025-03-22-hybrid-search-production/
   handler: html_document
   title: 'Hybrid Search in 2025: Combining Semantic + BM25 for Production'
@@ -1797,6 +2864,20 @@ items:
   - patterns
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - hybrid-search
+  - semantic
+  - bm25
+  - production
+  - '2025'
+  - patterns
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://medium.com/@sepehrnorouzi7/milvus-vs-faiss-vs-qdrant-vs-chroma-a-deep-take-on-four-vector-databases-c2b8c67e9fad
   handler: html_document
   title: 'Milvus vs FAISS vs Qdrant vs Chroma: A Deep Comparison'
@@ -1812,6 +2893,20 @@ items:
   - comparison
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - milvus
+  - faiss
+  - qdrant
+  - chroma
+  - comparison
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://jishulabs.com/blog/vector-database-comparison-2026
   handler: html_document
   title: 'Vector Database Comparison 2026: Pinecone vs Weaviate vs Qdrant vs Milvus'
@@ -1828,6 +2923,21 @@ items:
   - milvus
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - comparison
+  - '2026'
+  - pinecone
+  - weaviate
+  - qdrant
+  - milvus
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://www.firecrawl.dev/blog/best-vector-databases
   handler: html_document
   title: 'Best Vector Databases in 2026: A Complete Comparison Guide'
@@ -1842,6 +2952,19 @@ items:
   - metadata-filtering
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - comparison
+  - '2026'
+  - production
+  - metadata-filtering
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://viqus.ai/blog/vector-databases-compared
   handler: html_document
   title: 'Vector Databases in 2026: A Practical Comparison for Production Teams'
@@ -1856,6 +2979,19 @@ items:
   - operational
   - corpus_blog
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - comparison
+  - production
+  - '2026'
+  - operational
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://www.f22labs.com/blogs/qdrant-vs-milvus-which-vector-database-should-you-choose/
   handler: html_document
   title: 'Qdrant vs Milvus: Which Vector Database Should You Choose?'
@@ -1871,6 +3007,20 @@ items:
   - hybrid-search
   - corpus_blog
   priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vector-db
+  - qdrant
+  - milvus
+  - comparison
+  - filtering
+  - hybrid-search
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://like2byte.com/ollama-vs-vllm-local-benchmarks-2026/
   handler: web_page
   title: 'Ollama vs vLLM: Which Local LLM Backend Pays Off on Single GPUs?'
@@ -1894,10 +3044,22 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://like2byte.com/ollama-vs-vllm-local-benchmarks-2026/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - ollama
+  - benchmark
+  - gpu
+  - latency
+  - throughput
+  constraint_kind: guiding
 - uri: https://www.youngju.dev/blog/llm/2026-03-07-llm-vllm-serving-optimization-production.en
   handler: html_document
-  title: 'Complete Guide to vLLM Production Serving Optimization: PagedAttention to
-    Kubernetes'
+  title: 'Complete Guide to vLLM Production Serving Optimization: PagedAttention to Kubernetes'
   domain: software_architecture
   authority: vetted
   origin_type: curated
@@ -1910,6 +3072,20 @@ items:
   - latency
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - production
+  - optimization
+  - kubernetes
+  - paged-attention
+  - latency
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://developers.redhat.com/articles/2025/08/08/ollama-vs-vllm-deep-dive-performance-benchmarking
   handler: html_document
   title: 'Red Hat: Ollama vs vLLM Deep Dive Performance Benchmarking'
@@ -1926,6 +3102,21 @@ items:
   - latency
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - vllm
+  - ollama
+  - benchmark
+  - red-hat
+  - a100
+  - throughput
+  - latency
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://medium.com/@shsax/how-i-built-coderag-with-dependency-graph-using-tree-sitter-0a71867059ae
   handler: html_document
   title: CodeRAG with Dependency Graph Using Tree-Sitter
@@ -1940,6 +3131,19 @@ items:
   - import-graph
   - corpus_blog
   priority: 1
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - code-rag
+  - tree-sitter
+  - dependency-graph
+  - ast
+  - import-graph
+  - corpus_blog
+  constraint_kind: guiding
 - uri: https://arxiv.org/html/2602.20048v1
   handler: web_page
   title: 'Navigation Paradox: Graph-Structured Dependency Navigation vs Retrieval'
@@ -1962,6 +3166,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://arxiv.org/html/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - code-navigation
+  - dependency-graph
+  - retrieval
+  - research
+  - architecture-tasks
+  constraint_kind: guiding
 - uri: https://milvus.io/docs/multi-vector-search.md
   handler: web_page
   title: 'Milvus: Hybrid Search (Dense + Sparse Vectors)'
@@ -1985,6 +3201,19 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://milvus.io/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - milvus
+  - hybrid-search
+  - dense
+  - sparse
+  - rrf
+  - weighted
+  constraint_kind: guiding
 - uri: https://milvus.io/docs/full-text-search.md
   handler: web_page
   title: 'Milvus: Full-Text Search (BM25)'
@@ -2007,6 +3236,18 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://milvus.io/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - milvus
+  - full-text-search
+  - bm25
+  - sparse
+  - tokenization
+  constraint_kind: guiding
 - uri: https://milvus.io/docs/boolean.md
   handler: web_page
   title: 'Milvus: Metadata Filtering and Scalar Indexing'
@@ -2029,3 +3270,15 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://milvus.io/docs/
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: docs
+  freshness_sla_days: 180
+  scope_tags:
+  - milvus
+  - metadata-filtering
+  - scalar-index
+  - boolean
+  - expressions
+  constraint_kind: guiding

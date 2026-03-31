@@ -3,8 +3,8 @@ items:
   handler: github_code
   title: FastAPI Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - web
@@ -14,12 +14,23 @@ items:
     language: python
     paths:
     - fastapi/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - web
+  - async
+  constraint_kind: guiding
 - uri: https://github.com/django/django
   handler: github_code
   title: Django Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - web
@@ -29,12 +40,23 @@ items:
     language: python
     paths:
     - django/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - web
+  - orm
+  constraint_kind: guiding
 - uri: https://github.com/psf/requests
   handler: github_code
   title: Requests Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - http
@@ -43,12 +65,22 @@ items:
     language: python
     paths:
     - src/requests/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - http
+  constraint_kind: guiding
 - uri: https://github.com/pytest-dev/pytest
   handler: github_code
   title: Pytest Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - testing
@@ -58,12 +90,22 @@ items:
     paths:
     - src/pytest/
     - src/_pytest/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - testing
+  constraint_kind: guiding
 - uri: https://github.com/sqlalchemy/sqlalchemy
   handler: github_code
   title: SQLAlchemy Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - sql
@@ -73,12 +115,24 @@ items:
     language: python
     paths:
     - lib/sqlalchemy/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  - sql
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - sql
+  - orm
+  constraint_kind: guiding
 - uri: https://github.com/apache/airflow
   handler: github_code
   title: Airflow Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - workflow
@@ -88,12 +142,23 @@ items:
     language: python
     paths:
     - airflow/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - workflow
+  - orchestration
+  constraint_kind: guiding
 - uri: https://github.com/celery/celery
   handler: github_code
   title: Celery Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - task-queue
@@ -103,12 +168,23 @@ items:
     language: python
     paths:
     - celery/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - task-queue
+  - distributed
+  constraint_kind: guiding
 - uri: https://github.com/pydantic/pydantic
   handler: github_code
   title: Pydantic Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - validation
@@ -118,12 +194,23 @@ items:
     language: python
     paths:
     - pydantic/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - validation
+  - typing
+  constraint_kind: guiding
 - uri: https://github.com/psf/black
   handler: github_code
   title: Black Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - formatter
@@ -132,12 +219,22 @@ items:
     language: python
     paths:
     - src/black/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - formatter
+  constraint_kind: guiding
 - uri: https://github.com/home-assistant/core
   handler: github_code
   title: Home Assistant Source
   domain: python
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - python
   - iot
@@ -147,12 +244,23 @@ items:
     language: python
     paths:
     - homeassistant/
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - python
+  - iot
+  - automation
+  constraint_kind: guiding
 - uri: https://github.com/kubernetes/kubernetes
   handler: github_code
   title: Kubernetes Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - kubernetes
@@ -163,12 +271,23 @@ items:
     paths:
     - pkg/
     - staging/src/k8s.io/client-go/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - kubernetes
+  - orchestration
+  constraint_kind: guiding
 - uri: https://github.com/prometheus/prometheus
   handler: github_code
   title: Prometheus Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - monitoring
@@ -179,12 +298,23 @@ items:
     paths:
     - pkg/
     - model/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - monitoring
+  - alerting
+  constraint_kind: guiding
 - uri: https://github.com/etcd-io/etcd
   handler: github_code
   title: Etcd Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - distributed
@@ -195,12 +325,23 @@ items:
     paths:
     - server/
     - client/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - distributed
+  - key-value
+  constraint_kind: guiding
 - uri: https://github.com/traefik/traefik
   handler: github_code
   title: Traefik Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - proxy
@@ -210,12 +351,23 @@ items:
     language: go
     paths:
     - pkg/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - proxy
+  - cloud-native
+  constraint_kind: guiding
 - uri: https://github.com/gohugoio/hugo
   handler: github_code
   title: Hugo Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - static-site
@@ -225,12 +377,22 @@ items:
     paths:
     - hugolib/
     - tpl/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - static-site
+  constraint_kind: guiding
 - uri: https://github.com/hashicorp/terraform
   handler: github_code
   title: Terraform Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - infrastructure
@@ -240,12 +402,23 @@ items:
     language: go
     paths:
     - internal/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - infrastructure
+  - iac
+  constraint_kind: guiding
 - uri: https://github.com/gin-gonic/gin
   handler: github_code
   title: Gin Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - web
@@ -255,12 +428,23 @@ items:
     language: go
     paths:
     - .
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - web
+  - http
+  constraint_kind: guiding
 - uri: https://github.com/go-gorm/gorm
   handler: github_code
   title: GORM Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - orm
@@ -270,12 +454,23 @@ items:
     language: go
     paths:
     - .
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - orm
+  - database
+  constraint_kind: guiding
 - uri: https://github.com/moby/moby
   handler: github_code
   title: Moby Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - containers
@@ -286,12 +481,23 @@ items:
     paths:
     - daemon/
     - client/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - containers
+  - docker
+  constraint_kind: guiding
 - uri: https://github.com/ethereum/go-ethereum
   handler: github_code
   title: Go-Ethereum Source
   domain: go
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - go
   - ethereum
@@ -302,12 +508,23 @@ items:
     paths:
     - core/
     - eth/
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - go
+  - ethereum
+  - blockchain
+  constraint_kind: guiding
 - uri: https://github.com/tokio-rs/tokio
   handler: github_code
   title: Tokio Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - async
@@ -317,12 +534,23 @@ items:
     language: rust
     paths:
     - tokio/src/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - async
+  - runtime
+  constraint_kind: guiding
 - uri: https://github.com/rust-analyzer/rust-analyzer
   handler: github_code
   title: Rust-Analyzer Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - language-server
@@ -331,12 +559,22 @@ items:
     language: rust
     paths:
     - crates/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - language-server
+  constraint_kind: guiding
 - uri: https://github.com/actix/actix-web
   handler: github_code
   title: Actix-Web Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - web
@@ -345,12 +583,22 @@ items:
     language: rust
     paths:
     - actix-web/src/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - web
+  constraint_kind: guiding
 - uri: https://github.com/rwf2/Rocket
   handler: github_code
   title: Rocket Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - web
@@ -359,12 +607,22 @@ items:
     language: rust
     paths:
     - core/lib/src/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - web
+  constraint_kind: guiding
 - uri: https://github.com/diesel-rs/diesel
   handler: github_code
   title: Diesel Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - orm
@@ -374,12 +632,24 @@ items:
     language: rust
     paths:
     - diesel/src/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  - sql
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - orm
+  - sql
+  constraint_kind: guiding
 - uri: https://github.com/BurntSushi/ripgrep
   handler: github_code
   title: Ripgrep Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - search
@@ -389,12 +659,23 @@ items:
     language: rust
     paths:
     - crates/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - search
+  - cli
+  constraint_kind: guiding
 - uri: https://github.com/rust-lang/cargo
   handler: github_code
   title: Cargo Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - package-manager
@@ -403,12 +684,22 @@ items:
     language: rust
     paths:
     - src/cargo/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - package-manager
+  constraint_kind: guiding
 - uri: https://github.com/pola-rs/polars
   handler: github_code
   title: Polars Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - dataframe
@@ -418,12 +709,23 @@ items:
     language: rust
     paths:
     - crates/polars-core/src/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - dataframe
+  - analytics
+  constraint_kind: guiding
 - uri: https://github.com/firecracker-microvm/firecracker
   handler: github_code
   title: Firecracker Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - virtualization
@@ -432,12 +734,22 @@ items:
     language: rust
     paths:
     - src/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - virtualization
+  constraint_kind: guiding
 - uri: https://github.com/tauri-apps/tauri
   handler: github_code
   title: Tauri Source
   domain: rust
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - rust
   - desktop
@@ -447,12 +759,23 @@ items:
     language: rust
     paths:
     - crates/tauri/src/
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - rust
+  - desktop
+  - gui
+  constraint_kind: guiding
 - uri: https://github.com/microsoft/vscode
   handler: github_code
   title: VS Code Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - editor
@@ -462,12 +785,23 @@ items:
     language: typescript
     paths:
     - src/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - editor
+  - ide
+  constraint_kind: guiding
 - uri: https://github.com/vercel/next.js
   handler: github_code
   title: Next.js Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - react
@@ -477,12 +811,23 @@ items:
     language: typescript
     paths:
     - packages/next/src/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - react
+  - framework
+  constraint_kind: guiding
 - uri: https://github.com/nestjs/nest
   handler: github_code
   title: NestJS Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - node
@@ -492,12 +837,23 @@ items:
     language: typescript
     paths:
     - packages/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - node
+  - framework
+  constraint_kind: guiding
 - uri: https://github.com/reduxjs/redux
   handler: github_code
   title: Redux Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - state-management
@@ -506,12 +862,22 @@ items:
     language: typescript
     paths:
     - src/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - state-management
+  constraint_kind: guiding
 - uri: https://github.com/prisma/prisma
   handler: github_code
   title: Prisma Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - orm
@@ -521,12 +887,23 @@ items:
     language: typescript
     paths:
     - packages/client/src/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - orm
+  - database
+  constraint_kind: guiding
 - uri: https://github.com/axios/axios
   handler: github_code
   title: Axios Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - http
@@ -536,12 +913,23 @@ items:
     language: typescript
     paths:
     - lib/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - http
+  - client
+  constraint_kind: guiding
 - uri: https://github.com/tailwindlabs/tailwindcss
   handler: github_code
   title: Tailwind CSS Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - css
@@ -551,12 +939,23 @@ items:
     language: typescript
     paths:
     - src/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - css
+  - utility
+  constraint_kind: guiding
 - uri: https://github.com/d3/d3
   handler: github_code
   title: D3 Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - visualization
@@ -566,12 +965,23 @@ items:
     language: typescript
     paths:
     - src/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - visualization
+  - data
+  constraint_kind: guiding
 - uri: https://github.com/expressjs/express
   handler: github_code
   title: Express Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - node
@@ -581,12 +991,23 @@ items:
     language: typescript
     paths:
     - lib/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - node
+  - web
+  constraint_kind: guiding
 - uri: https://github.com/electron/electron
   handler: github_code
   title: Electron Source
   domain: typescript
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - typescript
   - desktop
@@ -596,12 +1017,23 @@ items:
     language: typescript
     paths:
     - lib/
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - typescript
+  - desktop
+  - cross-platform
+  constraint_kind: guiding
 - uri: https://github.com/spring-projects/spring-boot
   handler: github_code
   title: Spring Boot Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - spring
@@ -611,12 +1043,23 @@ items:
     language: java
     paths:
     - spring-boot-project/spring-boot/src/main/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - spring
+  - web
+  constraint_kind: guiding
 - uri: https://github.com/junit-team/junit5
   handler: github_code
   title: JUnit 5 Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - testing
@@ -625,12 +1068,22 @@ items:
     language: java
     paths:
     - junit-jupiter-api/src/main/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - testing
+  constraint_kind: guiding
 - uri: https://github.com/google/guava
   handler: github_code
   title: Guava Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - collections
@@ -640,12 +1093,23 @@ items:
     language: java
     paths:
     - guava/src/com/google/common/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - collections
+  - utilities
+  constraint_kind: guiding
 - uri: https://github.com/elastic/elasticsearch
   handler: github_code
   title: Elasticsearch Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - search
@@ -655,12 +1119,23 @@ items:
     language: java
     paths:
     - server/src/main/java/org/elasticsearch/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - search
+  - analytics
+  constraint_kind: guiding
 - uri: https://github.com/apache/kafka
   handler: github_code
   title: Kafka Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - streaming
@@ -670,12 +1145,23 @@ items:
     language: java
     paths:
     - clients/src/main/java/org/apache/kafka/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - streaming
+  - messaging
+  constraint_kind: guiding
 - uri: https://github.com/jenkinsci/jenkins
   handler: github_code
   title: Jenkins Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - ci
@@ -685,12 +1171,23 @@ items:
     language: java
     paths:
     - core/src/main/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - ci
+  - automation
+  constraint_kind: guiding
 - uri: https://github.com/apache/maven
   handler: github_code
   title: Maven Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - build
@@ -700,12 +1197,23 @@ items:
     language: java
     paths:
     - maven-core/src/main/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - build
+  - dependencies
+  constraint_kind: guiding
 - uri: https://github.com/mockito/mockito
   handler: github_code
   title: Mockito Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - testing
@@ -715,12 +1223,23 @@ items:
     language: java
     paths:
     - src/main/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - testing
+  - mocking
+  constraint_kind: guiding
 - uri: https://github.com/apache/spark
   handler: github_code
   title: Spark Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - analytics
@@ -731,12 +1250,23 @@ items:
     paths:
     - core/src/main/java/
     - sql/core/src/main/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - analytics
+  - distributed
+  constraint_kind: guiding
 - uri: https://github.com/apache/hadoop
   handler: github_code
   title: Hadoop Source
   domain: java
-  authority: external
-  origin_type: external
+  authority: vetted
+  origin_type: curated
   tags:
   - java
   - distributed
@@ -746,3 +1276,14 @@ items:
     language: java
     paths:
     - hadoop-common-project/hadoop-common/src/main/java/
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 90
+  scope_tags:
+  - java
+  - distributed
+  - computing
+  constraint_kind: guiding

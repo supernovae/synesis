@@ -1,0 +1,363 @@
+# Bootstrap corpus — Rust language evidence pack
+items:
+- uri: https://doc.rust-lang.org/reference/
+  handler: web_page
+  title: The Rust Reference
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - reference
+  - language
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - language-spec
+  - rust
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/reference/
+- uri: https://doc.rust-lang.org/std/
+  handler: web_page
+  title: Rust Standard Library
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - stdlib
+  - api
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - rust
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/std/
+- uri: https://doc.rust-lang.org/error_codes/
+  handler: web_page
+  title: Rust Error Codes Index
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - errors
+  - compiler
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - error-catalog
+  - rust
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/error_codes/
+- uri: https://rust-lang.github.io/rust-clippy/master/index.html
+  handler: web_page
+  title: Clippy Lints
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - clippy
+  - linting
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - linter-rules
+  - rust
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://rust-lang.github.io/rust-clippy/master/
+- uri: https://doc.rust-lang.org/style-guide/
+  handler: web_page
+  title: Rust Style Guide
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - style
+  - formatting
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - style-guide
+  - rust
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/style-guide/
+- uri: https://doc.rust-lang.org/cargo/
+  handler: web_page
+  title: The Cargo Book
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - cargo
+  - build
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - package-manager
+  - build-tool
+  - rust
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/cargo/
+- uri: https://doc.rust-lang.org/book/
+  handler: web_page
+  title: The Rust Programming Language
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - book
+  - learning
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 60
+  scope_tags:
+  - common-patterns
+  - rust
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/book/
+- uri: https://doc.rust-lang.org/rust-by-example/
+  handler: web_page
+  title: Rust by Example
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - examples
+  - tutorial
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 60
+  scope_tags:
+  - common-patterns
+  - rust
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/rust-by-example/
+- uri: https://rustsec.org/advisories/
+  handler: web_page
+  title: RustSec Advisory Database
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - security
+  - advisories
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 14
+  scope_tags:
+  - security
+  - rust
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://rustsec.org/advisories/
+- uri: https://doc.rust-lang.org/edition-guide/
+  handler: web_page
+  title: The Rust Edition Guide
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - edition
+  - migration
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - rust
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/edition-guide/
+- uri: https://doc.rust-lang.org/nomicon/
+  handler: web_page
+  title: The Rustonomicon
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - unsafe
+  - internals
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 60
+  scope_tags:
+  - common-patterns
+  - rust
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://doc.rust-lang.org/nomicon/
+- uri: https://rust-lang.github.io/rustfmt/
+  handler: web_page
+  title: rustfmt Guide
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - rustfmt
+  - formatting
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - style-guide
+  - rust
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://rust-lang.github.io/rustfmt/

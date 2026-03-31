@@ -309,7 +309,202 @@ async def create_source(
 
 
 # ---------------------------------------------------------------------------
-# Discovery — URL preflight (heuristic, no LLM)
+# Discovery — shared heuristic engine (no LLM, no DB)
+# ---------------------------------------------------------------------------
+
+_TAG_SIGNALS: dict[str, str] = {
+    "/docs": "documentation",
+    "/documentation": "documentation",
+    "/api": "api-reference",
+    "/reference": "reference",
+    "/guide": "guide",
+    "/tutorial": "tutorial",
+    "/blog": "blog",
+    "/changelog": "changelog",
+}
+
+_CORPUS_HEURISTICS: dict[str, str] = {
+    "github.com": "coder_enriched",
+    "docs.python.org": "coder_enriched",
+    "go.dev": "coder_enriched",
+    "kubernetes.io": "coder_enriched",
+    "developer.mozilla.org": "coder_enriched",
+    "rust-lang.org": "coder_enriched",
+    "typescriptlang.org": "coder_enriched",
+    "registry.terraform.io": "coder_enriched",
+    "docs.oracle.com": "coder_enriched",
+    "learn.microsoft.com": "coder_enriched",
+    "docs.aws.amazon.com": "coder_enriched",
+    "cloud.google.com": "coder_enriched",
+}
+
+
+async def _run_heuristic_discovery(
+    raw_url: str,
+    *,
+    hints: str = "",
+) -> dict[str, Any]:
+    """Pure-heuristic URL analysis. No LLM, no DB writes.
+
+    Returns the full discovery payload including ``recommendation_reasons``,
+    ``suggested_corpus_class``, and ``required_missing_fields``.
+    """
+    from urllib.parse import urlparse
+
+    import httpx
+
+    parsed = urlparse(raw_url)
+    host = parsed.hostname or ""
+    path = parsed.path.rstrip("/").lower()
+
+    risk_flags: list[str] = []
+    notes_parts: list[str] = []
+    recommendation_reasons: list[str] = []
+
+    handler = "web_page"
+    if any(raw_url.endswith(ext) for ext in (".pdf",)):
+        handler = "pdf_document"
+        recommendation_reasons.append("File extension indicates PDF document")
+    elif any(raw_url.endswith(ext) for ext in (".md", ".rst", ".txt")):
+        handler = "html_document"
+        recommendation_reasons.append("File extension indicates plain-text document")
+    elif ("github.com" in host and "/tree/" in raw_url) or "github.com" in host:
+        handler = "github_repo"
+        recommendation_reasons.append("GitHub host detected — using repo handler")
+    else:
+        recommendation_reasons.append("Default web_page handler for HTTP URL")
+
+    domain = ""
+    domain_parts = host.replace("www.", "").split(".")
+    if len(domain_parts) >= 2:
+        domain = domain_parts[-2]
+
+    title = ""
+    path_segments = [s for s in parsed.path.strip("/").split("/") if s]
+    if path_segments:
+        title = path_segments[-1].replace("-", " ").replace("_", " ").title()
+
+    tags: list[str] = []
+    for signal, tag in _TAG_SIGNALS.items():
+        if signal in path:
+            tags.append(tag)
+
+    content_type = ""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
+            resp = await client.head(raw_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
+            content_type = resp.headers.get("content-type", "")
+            if resp.status_code in (401, 403):
+                risk_flags.append("likely_login_gated")
+                recommendation_reasons.append(f"HTTP {resp.status_code} — content may be login-gated")
+            if resp.status_code >= 400:
+                risk_flags.append(f"http_{resp.status_code}")
+            if "text/html" not in content_type and "application/pdf" not in content_type:
+                if content_type:
+                    risk_flags.append("non_html")
+                    notes_parts.append(f"Content-Type: {content_type}")
+    except Exception as exc:
+        notes_parts.append(f"HEAD probe failed: {type(exc).__name__}")
+
+    sitemap_url_count = 0
+    if handler == "web_page":
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
+                robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+                robots_resp = await client.get(robots_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
+                if robots_resp.status_code == 200:
+                    for line in robots_resp.text.splitlines():
+                        if line.lower().startswith("sitemap:"):
+                            sitemap_url_count += 1
+                    disallow_count = sum(
+                        1 for ln in robots_resp.text.splitlines() if ln.strip().lower().startswith("disallow")
+                    )
+                    if disallow_count > 50:
+                        notes_parts.append(f"robots.txt has {disallow_count} Disallow rules — heavily restricted")
+
+                sm_resp = await client.get(
+                    f"{parsed.scheme}://{parsed.netloc}/sitemap.xml",
+                    headers={"User-Agent": "SynesisDiscovery/1.0"},
+                )
+                if sm_resp.status_code == 200:
+                    loc_count = sm_resp.text.count("<loc>")
+                    if loc_count > 0:
+                        sitemap_url_count = max(sitemap_url_count, loc_count)
+                        notes_parts.append(f"Sitemap lists ~{loc_count} URLs")
+        except Exception:
+            pass
+
+    config: dict[str, Any] = {}
+    if handler == "web_page":
+        config["url"] = raw_url
+        config["discovery"] = "sitemap_first"
+        if sitemap_url_count > 500:
+            config["max_pages"] = 200
+            config["max_depth"] = 2
+            risk_flags.append("high_page_count_estimate")
+            notes_parts.append(f"Estimated {sitemap_url_count}+ pages — capped to 200 for active mode")
+        elif sitemap_url_count > 100:
+            config["max_pages"] = 100
+            config["max_depth"] = 3
+        else:
+            config["max_pages"] = 80
+            config["max_depth"] = 4
+
+    recommended_mode = "active"
+    if sitemap_url_count > 200 or "high_page_count_estimate" in risk_flags:
+        recommended_mode = "batch"
+        recommendation_reasons.append("High page count suggests batch mode")
+    config["execution_mode"] = recommended_mode
+
+    if hints:
+        hints_lower = hints.lower()
+        if "docs" in hints_lower or "documentation" in hints_lower:
+            if "documentation" not in tags:
+                tags.append("documentation")
+            config["discovery"] = "sitemap_first"
+        if "api" in hints_lower:
+            if "api-reference" not in tags:
+                tags.append("api-reference")
+
+    suggested_corpus_class = "general"
+    host_lower = host.lower()
+    for pattern, cc in _CORPUS_HEURISTICS.items():
+        if pattern in host_lower:
+            suggested_corpus_class = cc
+            recommendation_reasons.append(f"Host matches known coder domain ({pattern})")
+            break
+    if suggested_corpus_class == "general":
+        if any(t in tags for t in ("api-reference", "documentation", "reference")):
+            suggested_corpus_class = "coder_enriched"
+            recommendation_reasons.append("Tag signals suggest coder-enriched content")
+
+    required_missing: list[str] = []
+    if not title:
+        required_missing.append("title")
+    if not domain:
+        required_missing.append("domain")
+    if not tags:
+        required_missing.append("tags")
+
+    return {
+        "url": raw_url,
+        "handler": handler,
+        "title": title,
+        "domain": domain,
+        "tags": tags,
+        "config": config,
+        "risk_flags": risk_flags,
+        "recommended_mode": recommended_mode,
+        "notes": "; ".join(notes_parts) if notes_parts else "",
+        "deterministic": True,
+        "recommendation_reasons": recommendation_reasons,
+        "suggested_corpus_class": suggested_corpus_class,
+        "required_missing_fields": required_missing,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Discovery — URL preflight (heuristic + optional LLM)
 # ---------------------------------------------------------------------------
 
 
@@ -327,149 +522,23 @@ async def discover_url(
 ):
     """Analyse a URL and return a suggested ingestion config draft.
 
-    Pure heuristic: URL parsing, optional HEAD probe, robots.txt / sitemap
-    estimation. No heavy deps — runs entirely in the admin pod.
+    Pure heuristic by default. Optional LLM enrichment with ``use_llm=true``.
     """
-    from urllib.parse import urlparse
-
-    import httpx
-
     raw_url = body.url.strip()
     if not raw_url:
         raise HTTPException(status_code=400, detail="url is required")
+
+    from urllib.parse import urlparse
 
     parsed = urlparse(raw_url)
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
 
-    host = parsed.hostname or ""
-    path = parsed.path.rstrip("/").lower()
+    result = await _run_heuristic_discovery(raw_url, hints=body.hints)
 
-    risk_flags: list[str] = []
-    notes_parts: list[str] = []
-
-    # --- Handler detection ---
-    handler = "web_page"
-    if any(raw_url.endswith(ext) for ext in (".pdf",)):
-        handler = "pdf_document"
-    elif any(raw_url.endswith(ext) for ext in (".md", ".rst", ".txt")):
-        handler = "html_document"
-    elif ("github.com" in host and "/tree/" in raw_url) or "github.com" in host:
-        handler = "github_repo"
-
-    # --- Domain guess from host ---
-    domain = ""
-    domain_parts = host.replace("www.", "").split(".")
-    if len(domain_parts) >= 2:
-        domain = domain_parts[-2]
-
-    # --- Title guess from path ---
-    title = ""
-    path_segments = [s for s in parsed.path.strip("/").split("/") if s]
-    if path_segments:
-        title = path_segments[-1].replace("-", " ").replace("_", " ").title()
-
-    # --- Tag inference from URL ---
-    tags: list[str] = []
-    tag_signals = {
-        "/docs": "documentation",
-        "/documentation": "documentation",
-        "/api": "api-reference",
-        "/reference": "reference",
-        "/guide": "guide",
-        "/tutorial": "tutorial",
-        "/blog": "blog",
-        "/changelog": "changelog",
-    }
-    for signal, tag in tag_signals.items():
-        if signal in path:
-            tags.append(tag)
-
-    # --- HEAD probe for content type and redirects ---
-    content_type = ""
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
-            resp = await client.head(raw_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
-            content_type = resp.headers.get("content-type", "")
-            if resp.status_code == 401 or resp.status_code == 403:
-                risk_flags.append("likely_login_gated")
-            if resp.status_code >= 400:
-                risk_flags.append(f"http_{resp.status_code}")
-            if "text/html" not in content_type and "application/pdf" not in content_type:
-                if content_type:
-                    risk_flags.append("non_html")
-                    notes_parts.append(f"Content-Type: {content_type}")
-    except Exception as exc:
-        notes_parts.append(f"HEAD probe failed: {type(exc).__name__}")
-
-    # --- Sitemap / page-count estimation ---
-    sitemap_url_count = 0
-    if handler == "web_page":
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
-                robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-                robots_resp = await client.get(robots_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
-                if robots_resp.status_code == 200:
-                    for line in robots_resp.text.splitlines():
-                        if line.lower().startswith("sitemap:"):
-                            sitemap_url_count += 1
-                    disallow_count = sum(
-                        1 for l in robots_resp.text.splitlines() if l.strip().lower().startswith("disallow")
-                    )
-                    if disallow_count > 50:
-                        notes_parts.append(f"robots.txt has {disallow_count} Disallow rules — heavily restricted")
-
-                sm_resp = await client.get(
-                    f"{parsed.scheme}://{parsed.netloc}/sitemap.xml",
-                    headers={"User-Agent": "SynesisDiscovery/1.0"},
-                )
-                if sm_resp.status_code == 200:
-                    loc_count = sm_resp.text.count("<loc>")
-                    if loc_count > 0:
-                        sitemap_url_count = max(sitemap_url_count, loc_count)
-                        notes_parts.append(f"Sitemap lists ~{loc_count} URLs")
-        except Exception:
-            pass
-
-    # --- Config draft ---
-    config: dict[str, Any] = {}
-    if handler == "web_page":
-        config["url"] = raw_url
-        config["discovery"] = "sitemap_first"
-        if sitemap_url_count > 500:
-            config["max_pages"] = 200
-            config["max_depth"] = 2
-            risk_flags.append("high_page_count_estimate")
-            notes_parts.append(f"Estimated {sitemap_url_count}+ pages — capped to 200 for active mode")
-        elif sitemap_url_count > 100:
-            config["max_pages"] = 100
-            config["max_depth"] = 3
-        else:
-            config["max_pages"] = 80
-            config["max_depth"] = 4
-
-    # --- Batch vs active recommendation ---
-    recommended_mode = "active"
-    if sitemap_url_count > 200:
-        recommended_mode = "batch"
-    if "high_page_count_estimate" in risk_flags:
-        recommended_mode = "batch"
-
-    config["execution_mode"] = recommended_mode
-
-    # --- Hints integration ---
-    if body.hints:
-        hints_lower = body.hints.lower()
-        if "docs" in hints_lower or "documentation" in hints_lower:
-            if "documentation" not in tags:
-                tags.append("documentation")
-            config["discovery"] = "sitemap_first"
-        if "api" in hints_lower:
-            if "api-reference" not in tags:
-                tags.append("api-reference")
-
-    # --- Optional LLM enrichment (Phase 3) ---
     if body.use_llm:
+        import httpx
+
         from ..deps import LITELLM_URL
 
         llm_model = body.model_id or os.getenv("SYNESIS_DISCOVER_MODEL", "synesis-general")
@@ -484,15 +553,16 @@ async def discover_url(
             '  "risk_notes": any concerns about content quality or RAG suitability.\n'
             "Return ONLY valid JSON, no markdown fences.\n\n"
             f"URL: {raw_url}\n"
-            f"Heuristic handler: {handler}\n"
-            f"Heuristic domain: {domain}\n"
-            f"Heuristic tags: {tags}\n"
-            f"Content-Type: {content_type}\n"
-            f"Sitemap URL count: {sitemap_url_count}\n"
+            f"Heuristic handler: {result['handler']}\n"
+            f"Heuristic domain: {result['domain']}\n"
+            f"Heuristic tags: {result['tags']}\n"
+            f"Content-Type: {result.get('_content_type', '')}\n"
+            f"Suggested corpus class: {result['suggested_corpus_class']}\n"
         )
         if body.hints:
             llm_prompt += f"User hints: {body.hints}\n"
 
+        notes_parts = [result["notes"]] if result["notes"] else []
         try:
             async with httpx.AsyncClient(timeout=30.0) as llm_client:
                 llm_resp = await llm_client.post(
@@ -508,21 +578,24 @@ async def discover_url(
                 llm_text = llm_resp.json()["choices"][0]["message"]["content"]
                 llm_data = json.loads(llm_text)
                 if isinstance(llm_data.get("title"), str) and llm_data["title"]:
-                    title = llm_data["title"]
+                    result["title"] = llm_data["title"]
                 if isinstance(llm_data.get("domain"), str) and llm_data["domain"]:
-                    domain = llm_data["domain"]
+                    result["domain"] = llm_data["domain"]
                 if isinstance(llm_data.get("tags"), list):
-                    extra_tags = [t for t in llm_data["tags"] if t not in tags]
-                    tags.extend(extra_tags)
+                    extra_tags = [t for t in llm_data["tags"] if t not in result["tags"]]
+                    result["tags"].extend(extra_tags)
                 if isinstance(llm_data.get("handler"), str) and llm_data["handler"]:
-                    handler = llm_data["handler"]
+                    result["handler"] = llm_data["handler"]
                 if isinstance(llm_data.get("config_overrides"), dict):
-                    config.update(llm_data["config_overrides"])
+                    result["config"].update(llm_data["config_overrides"])
                 if isinstance(llm_data.get("risk_notes"), str) and llm_data["risk_notes"]:
                     notes_parts.append(f"LLM: {llm_data['risk_notes']}")
+                result["deterministic"] = False
+                result["recommendation_reasons"].append("LLM enrichment applied")
         except Exception as exc:
             notes_parts.append(f"LLM enrichment failed: {type(exc).__name__}: {str(exc)[:200]}")
-            risk_flags.append("llm_enrichment_failed")
+            result["risk_flags"].append("llm_enrichment_failed")
+        result["notes"] = "; ".join(notes_parts) if notes_parts else result["notes"]
 
     await record_admin_audit(
         action="ingestion.discover",
@@ -530,26 +603,50 @@ async def discover_url(
         summary=f"URL discovery: {raw_url}",
         detail={
             "url": raw_url,
-            "handler": handler,
-            "risk_flags": risk_flags,
-            "recommended_mode": recommended_mode,
+            "handler": result["handler"],
+            "risk_flags": result["risk_flags"],
+            "recommended_mode": result["recommended_mode"],
             "use_llm": body.use_llm,
         },
         user=_user,
         source="admin_api",
     )
 
-    return {
-        "url": raw_url,
-        "handler": handler,
-        "title": title,
-        "domain": domain,
-        "tags": tags,
-        "config": config,
-        "risk_flags": risk_flags,
-        "recommended_mode": recommended_mode,
-        "notes": "; ".join(notes_parts) if notes_parts else "",
-    }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Discovery — deterministic preview (no LLM, no DB, no auth side-effects)
+# ---------------------------------------------------------------------------
+
+
+class DiscoverPreviewRequest(BaseModel):
+    url: str
+    hints: str = ""
+
+
+@router.post("/discover/preview")
+async def discover_preview(
+    body: DiscoverPreviewRequest,
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Return a deterministic heuristic preview for a URL.
+
+    No LLM calls, no DB writes. Returns the heuristic analysis plus
+    ``suggested_corpus_class``, ``recommendation_reasons``, and
+    ``required_missing_fields`` for the intake wizard.
+    """
+    raw_url = body.url.strip()
+    if not raw_url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    from urllib.parse import urlparse
+
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+
+    return await _run_heuristic_discovery(raw_url, hints=body.hints)
 
 
 # ---------------------------------------------------------------------------
@@ -562,6 +659,7 @@ class BatchPreflightRequest(BaseModel):
     limit: int = Field(50, ge=1, le=200)
     use_llm: bool = False
     model_id: str = ""
+    dry_run: bool = False
 
 
 @router.post("/discover/batch")
@@ -571,8 +669,8 @@ async def batch_preflight(
 ):
     """Run heuristic (or LLM) discovery on a batch of pending items.
 
-    Writes ``discovery_report`` into each item's config and optionally
-    tags items with risk flags for review.
+    With ``dry_run=true`` returns previews only — no DB writes.
+    Default behaviour writes ``discovery_report`` into each item's config.
     """
 
     async with async_session() as session:
@@ -587,6 +685,7 @@ async def batch_preflight(
     processed = 0
     flagged = 0
     errors = 0
+    previews: list[dict[str, Any]] = []
 
     for item in items:
         try:
@@ -597,6 +696,13 @@ async def batch_preflight(
                 model_id=body.model_id,
             )
             result = await discover_url(req, _user)
+
+            if body.dry_run:
+                previews.append({"item_id": item.id, "uri": item.uri, **result})
+                processed += 1
+                if result.get("risk_flags"):
+                    flagged += 1
+                continue
 
             async with async_session() as session:
                 db_item = await session.get(IngestionItem, item.id)
@@ -611,6 +717,7 @@ async def batch_preflight(
                     "risk_flags": result["risk_flags"],
                     "recommended_mode": result["recommended_mode"],
                     "notes": result["notes"],
+                    "suggested_corpus_class": result.get("suggested_corpus_class", ""),
                 }
                 cfg["preflight_at"] = datetime.now(UTC).isoformat()
                 db_item.config = cfg
@@ -626,12 +733,21 @@ async def batch_preflight(
         action="ingestion.discover.batch",
         status="success",
         summary=f"Batch preflight on {processed} items ({flagged} flagged, {errors} errors)",
-        detail={"status_filter": body.status_filter, "processed": processed, "flagged": flagged, "errors": errors},
+        detail={
+            "status_filter": body.status_filter,
+            "processed": processed,
+            "flagged": flagged,
+            "errors": errors,
+            "dry_run": body.dry_run,
+        },
         user=_user,
         source="admin_api",
     )
 
-    return {"processed": processed, "flagged": flagged, "errors": errors}
+    payload: dict[str, Any] = {"processed": processed, "flagged": flagged, "errors": errors}
+    if body.dry_run:
+        payload["previews"] = previews
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1727,6 +1843,200 @@ def _tags_equal(a: list[str] | None, b: list[str] | None) -> bool:
     return list(a or []) == list(b or [])
 
 
+_VALID_CORPUS_CLASSES = {"coder_enriched", "general", "hybrid"}
+_VALID_CONSTRAINT_KINDS = {"hard", "guiding", "advisory"}
+
+
+def _string_or_empty(v: Any, *, limit: int = 256) -> str:
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return s[:limit]
+
+
+def _string_list(v: Any, *, item_limit: int = 64, max_items: int = 20) -> list[str]:
+    if not isinstance(v, list):
+        return []
+    out: list[str] = []
+    for raw in v:
+        s = _string_or_empty(raw, limit=item_limit)
+        if s:
+            out.append(s)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _normalize_bootstrap_meta(entry: dict[str, Any], config: dict[str, Any] | None) -> tuple[dict[str, Any] | None, list[str]]:
+    """Normalize optional corpus metadata into config.synesis_meta.
+
+    This keeps ingestion backward compatible while allowing richer corpus
+    annotations for downstream queue/indexer processing.
+    """
+    warnings: list[str] = []
+    cfg: dict[str, Any] = dict(config or {})
+    existing_meta = cfg.get("synesis_meta")
+    meta: dict[str, Any] = dict(existing_meta) if isinstance(existing_meta, dict) else {}
+
+    corpus_class = _string_or_empty(entry.get("corpus_class"), limit=32).lower()
+    if corpus_class:
+        if corpus_class not in _VALID_CORPUS_CLASSES:
+            warnings.append(f"invalid corpus_class={corpus_class}")
+        else:
+            meta["corpus_class"] = corpus_class
+
+    content_profile = _string_or_empty(entry.get("content_profile"), limit=32).lower()
+    if content_profile:
+        meta["content_profile"] = content_profile
+
+    languages = _string_list(entry.get("languages"), item_limit=32, max_items=20)
+    if languages:
+        meta["languages"] = languages
+
+    artifact_kind = _string_or_empty(entry.get("artifact_kind"), limit=32).lower()
+    if artifact_kind:
+        meta["artifact_kind"] = artifact_kind
+
+    freshness_sla_days = entry.get("freshness_sla_days")
+    if freshness_sla_days is not None:
+        try:
+            meta["freshness_sla_days"] = max(1, int(freshness_sla_days))
+        except Exception:
+            warnings.append(f"invalid freshness_sla_days={freshness_sla_days}")
+
+    scope_tags = _string_list(entry.get("scope_tags"), item_limit=64, max_items=20)
+    if scope_tags:
+        meta["scope_tags"] = scope_tags
+
+    for key in ("golden_path_id", "validation_recipe_id", "source_owner", "review_status", "backstage_entity_ref"):
+        val = _string_or_empty(entry.get(key), limit=128 if key != "backstage_entity_ref" else 256)
+        if val:
+            meta[key] = val
+
+    constraint_domain = _string_or_empty(entry.get("constraint_domain"), limit=64).lower()
+    if constraint_domain:
+        meta["constraint_domain"] = constraint_domain
+    constraint_kind = _string_or_empty(entry.get("constraint_kind"), limit=16).lower()
+    if constraint_kind:
+        if constraint_kind not in _VALID_CONSTRAINT_KINDS:
+            warnings.append(f"invalid constraint_kind={constraint_kind}")
+        else:
+            meta["constraint_kind"] = constraint_kind
+    constraint_source = _string_or_empty(entry.get("constraint_source"), limit=64).lower()
+    if constraint_source:
+        meta["constraint_source"] = constraint_source
+
+    if meta:
+        cfg["synesis_meta"] = meta
+        return cfg, warnings
+    return (config if isinstance(config, dict) else None), warnings
+
+
+@router.get("/bootstrap/metadata-guide")
+async def bootstrap_metadata_guide(
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Enumerate accepted annotation values for the intake wizard."""
+    return {
+        "corpus_class": sorted(_VALID_CORPUS_CLASSES),
+        "constraint_kind": sorted(_VALID_CONSTRAINT_KINDS),
+        "authority": ["canonical", "vetted", "community", "untrusted"],
+        "origin_type": ["curated", "official", "community", "generated"],
+        "visibility_scope": ["global", "org", "tenant", "user", "session"],
+        "acl_mode": ["open", "restricted", "private"],
+        "artifact_kind_examples": [
+            "docs", "api-reference", "tutorial", "blog", "source-code",
+            "specification", "runbook", "changelog",
+        ],
+        "content_profile_examples": [
+            "reference", "conceptual", "procedural", "troubleshooting",
+        ],
+    }
+
+
+@router.post("/bootstrap/validate")
+async def bootstrap_validate(
+    file: UploadFile = File(...),
+    _user: UserInfo = Depends(require_tenant_content_operator),
+):
+    """Validate a bootstrap YAML file without inserting anything.
+
+    Returns per-item diagnostics (errors + warnings) and a normalized
+    preview payload for the admin intake wizard.
+    """
+    content = await file.read()
+    try:
+        data = yaml.safe_load(content)
+    except yaml.YAMLError as e:
+        return {"ok": False, "error": f"YAML parse error: {e}", "items": []}
+
+    items_list = data.get("items", [])
+    if not items_list:
+        return {"ok": False, "error": "No 'items' key found in YAML", "items": []}
+
+    item_reports: list[dict[str, Any]] = []
+    total_errors = 0
+    total_warnings = 0
+
+    for idx, entry in enumerate(items_list):
+        item_errors: list[str] = []
+        item_warnings: list[str] = []
+
+        uri = (entry.get("uri") or "").strip()
+        if not uri:
+            item_errors.append("missing required field: uri")
+
+        handler = entry.get("handler")
+        title = entry.get("title", "") or ""
+        domain = entry.get("domain", "") or ""
+
+        if not title:
+            item_warnings.append("title is empty — will be inferred from URL")
+        if not domain:
+            item_warnings.append("domain is empty — discovery may need to guess")
+
+        config_raw = entry.get("config")
+        config = config_raw if isinstance(config_raw, dict) else None
+        config, meta_warnings = _normalize_bootstrap_meta(entry, config)
+        item_warnings.extend(meta_warnings)
+
+        corpus_class = _string_or_empty(entry.get("corpus_class"), limit=32).lower()
+        if corpus_class and corpus_class not in _VALID_CORPUS_CLASSES:
+            item_errors.append(f"invalid corpus_class: {corpus_class}")
+
+        constraint_kind = _string_or_empty(entry.get("constraint_kind"), limit=16).lower()
+        if constraint_kind and constraint_kind not in _VALID_CONSTRAINT_KINDS:
+            item_errors.append(f"invalid constraint_kind: {constraint_kind}")
+
+        raw_tags = entry.get("tags")
+        tags = raw_tags if isinstance(raw_tags, list) else None
+
+        total_errors += len(item_errors)
+        total_warnings += len(item_warnings)
+
+        meta = (config or {}).get("synesis_meta", {}) if isinstance(config, dict) else {}
+
+        item_reports.append({
+            "index": idx,
+            "uri": uri,
+            "handler": handler,
+            "title": title,
+            "domain": domain,
+            "tags": tags,
+            "synesis_meta": meta,
+            "errors": item_errors,
+            "warnings": item_warnings,
+        })
+
+    return {
+        "ok": total_errors == 0,
+        "total_items": len(items_list),
+        "total_errors": total_errors,
+        "total_warnings": total_warnings,
+        "items": item_reports,
+    }
+
+
 @router.post("/bootstrap")
 async def bootstrap_from_yaml(
     file: UploadFile = File(...),
@@ -1763,6 +2073,7 @@ async def bootstrap_from_yaml(
     unchanged = 0
     updated_meta = 0
     requeued = 0
+    metadata_warnings = 0
 
     async with async_session() as session:
         for entry in items_list:
@@ -1794,7 +2105,15 @@ async def bootstrap_from_yaml(
                 )
             )
             priority = int(entry.get("priority") or 0)
-            config = entry.get("config")
+            config_raw = entry.get("config")
+            config = config_raw if isinstance(config_raw, dict) else None
+            config, entry_warnings = _normalize_bootstrap_meta(entry, config)
+            metadata_warnings += len(entry_warnings)
+            if entry_warnings:
+                logger.info(
+                    "bootstrap_entry_metadata_warnings",
+                    extra={"uri": uri, "warnings": entry_warnings[:5]},
+                )
 
             if not upsert:
                 stmt_ins = (
@@ -1911,6 +2230,7 @@ async def bootstrap_from_yaml(
         extra={
             "added": added,
             "skipped": skipped_total,
+            "metadata_warnings": metadata_warnings,
             "upsert": upsert,
             "unchanged": unchanged if upsert else None,
             "updated_meta": updated_meta if upsert else None,
@@ -1922,6 +2242,7 @@ async def bootstrap_from_yaml(
         "ok": True,
         "added": added,
         "skipped": skipped_total,
+        "metadata_warnings": metadata_warnings,
         "total_in_file": len(items_list),
     }
     if upsert:

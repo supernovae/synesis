@@ -154,6 +154,14 @@ def index_parsed_chunk_pairs(
     src_upload_mode = source_config.get("upload_mode", "")
     src_is_ephemeral = bool(source_config.get("is_ephemeral", False))
     src_expires_at_epoch = int(source_config.get("expires_at_epoch", 0) or 0)
+    src_language = str(source_config.get("language", "") or "").strip().lower()
+    src_languages = source_config.get("languages", [])
+    if not isinstance(src_languages, list):
+        src_languages = []
+    src_languages = [str(x).strip().lower() for x in src_languages if str(x).strip()]
+    src_artifact_kind = str(source_config.get("artifact_kind", "") or "").strip().lower()
+    src_corpus_class = str(source_config.get("corpus_class", "") or "").strip().lower()
+    src_content_profile = str(source_config.get("content_profile", "") or "").strip().lower()
 
     try:
         handler = get_handler(handler_type or "html_document")
@@ -161,6 +169,35 @@ def index_parsed_chunk_pairs(
         source_type = source_type_override or "docs"
     else:
         source_type = source_type_override or handler.source_type
+
+    if src_corpus_class and src_corpus_class not in {"coder_enriched", "general", "hybrid"}:
+        logger.warning(
+            "indexer_invalid_corpus_class",
+            extra={"source": name, "corpus_class": src_corpus_class},
+        )
+        src_corpus_class = ""
+
+    if src_content_profile and src_content_profile not in {"code", "docs", "api_spec", "policy", "architecture", "mixed"}:
+        logger.warning(
+            "indexer_invalid_content_profile",
+            extra={"source": name, "content_profile": src_content_profile},
+        )
+        src_content_profile = ""
+
+    if not src_language:
+        src_meta = source_config.get("config", {}).get("synesis_meta", {})
+        if isinstance(src_meta, dict):
+            src_language = str(src_meta.get("language", "") or "").strip().lower()
+            if not src_languages:
+                raw_langs = src_meta.get("languages", [])
+                if isinstance(raw_langs, list):
+                    src_languages = [str(x).strip().lower() for x in raw_langs if str(x).strip()]
+            if not src_artifact_kind:
+                src_artifact_kind = str(src_meta.get("artifact_kind", "") or "").strip().lower()
+            if not src_corpus_class:
+                src_corpus_class = str(src_meta.get("corpus_class", "") or "").strip().lower()
+            if not src_content_profile:
+                src_content_profile = str(src_meta.get("content_profile", "") or "").strip().lower()
 
     if src_visibility_scope not in ("global", "org", "tenant", "user", "session"):
         logger.error(
@@ -399,6 +436,16 @@ def index_parsed_chunk_pairs(
         new_chunks, enrichments, embeddings, scan_statuses, scan_signals_list, simhash_list, spam_list
     ):
         chunk_tags = chunk.metadata.get("tags") or doc.metadata.get("tags") or tags_str
+        if isinstance(chunk_tags, list):
+            chunk_tags = ",".join(str(x) for x in chunk_tags if str(x).strip())
+        if not isinstance(chunk_tags, str):
+            chunk_tags = str(chunk_tags)
+        tag_parts = [t.strip() for t in chunk_tags.split(",") if t.strip()]
+        if src_corpus_class and f"corpus_class:{src_corpus_class}" not in tag_parts:
+            tag_parts.append(f"corpus_class:{src_corpus_class}")
+        if src_content_profile and f"content_profile:{src_content_profile}" not in tag_parts:
+            tag_parts.append(f"content_profile:{src_content_profile}")
+        chunk_tags = ",".join(tag_parts)[:512]
         chunk_source_url = chunk.metadata.get("source_url") or doc.source_url
         chunk_domain = chunk.metadata.get("domain") or doc.metadata.get("domain") or domain
         chunk_authority = chunk.metadata.get("authority") or doc.metadata.get("authority") or authority
@@ -417,11 +464,16 @@ def index_parsed_chunk_pairs(
         content_format = chunk.metadata.get("content_format", "")
         symbol_type = chunk.metadata.get("symbol_type", "")
 
-        language = chunk.metadata.get("language", "") or doc.metadata.get("language", "")
+        language = (
+            chunk.metadata.get("language", "")
+            or doc.metadata.get("language", "")
+            or src_language
+            or (src_languages[0] if src_languages else "")
+        )
         repo_path = doc.metadata.get("repo", "") or doc.metadata.get("repo_path", "")
         module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
         symbol_name = chunk.metadata.get("symbol_name", "")
-        artifact_kind = _infer_artifact_kind(handler_type, content_format, language)
+        artifact_kind = src_artifact_kind or _infer_artifact_kind(handler_type, content_format, language)
 
         if chunk_scan == "flagged":
             approval = "pending"

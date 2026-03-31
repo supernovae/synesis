@@ -1,0 +1,297 @@
+"""Tests for ingestion discovery heuristics and bootstrap validation.
+
+Covers:
+- _run_heuristic_discovery shared engine
+- discover/preview endpoint shape
+- bootstrap/validate endpoint
+- bootstrap/metadata-guide endpoint
+- Backward compatibility of existing discover and batch endpoints
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _fake_user():
+    from app.auth import UserInfo
+
+    return UserInfo(
+        user_id="admin-1",
+        username="admin",
+        role="admin",
+        org_id="test-org",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Heuristic engine unit tests
+# ---------------------------------------------------------------------------
+
+class TestHeuristicDiscovery:
+    """Unit tests for the _run_heuristic_discovery function."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_httpx(self):
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            head_resp = AsyncMock()
+            head_resp.status_code = 200
+            head_resp.headers = {"content-type": "text/html; charset=utf-8"}
+            mock_client.head = AsyncMock(return_value=head_resp)
+
+            get_resp = AsyncMock()
+            get_resp.status_code = 404
+            get_resp.text = ""
+            mock_client.get = AsyncMock(return_value=get_resp)
+
+            self.mock_client = mock_client
+            yield
+
+    @pytest.mark.asyncio
+    async def test_github_repo_detection(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery("https://github.com/example/repo")
+        assert result["handler"] == "github_repo"
+        assert result["deterministic"] is True
+        assert result["suggested_corpus_class"] == "coder_enriched"
+        assert "required_missing_fields" in result
+        assert "recommendation_reasons" in result
+        assert len(result["recommendation_reasons"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_pdf_detection(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery("https://example.com/paper.pdf")
+        assert result["handler"] == "pdf_document"
+
+    @pytest.mark.asyncio
+    async def test_docs_tag_inference(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery("https://kubernetes.io/docs/concepts/overview")
+        assert "documentation" in result["tags"]
+        assert result["suggested_corpus_class"] == "coder_enriched"
+
+    @pytest.mark.asyncio
+    async def test_general_corpus_default(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery("https://en.wikipedia.org/wiki/Music")
+        assert result["suggested_corpus_class"] == "general"
+
+    @pytest.mark.asyncio
+    async def test_hints_add_tags(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery(
+            "https://example.com/something",
+            hints="documentation api",
+        )
+        assert "documentation" in result["tags"]
+        assert "api-reference" in result["tags"]
+
+    @pytest.mark.asyncio
+    async def test_required_missing_fields(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery("https://a.b/")
+        assert isinstance(result["required_missing_fields"], list)
+
+    @pytest.mark.asyncio
+    async def test_result_shape_complete(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery("https://docs.python.org/3/library/json.html")
+        expected_keys = {
+            "url", "handler", "title", "domain", "tags", "config",
+            "risk_flags", "recommended_mode", "notes", "deterministic",
+            "recommendation_reasons", "suggested_corpus_class",
+            "required_missing_fields",
+        }
+        assert expected_keys.issubset(result.keys())
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap validation tests
+# ---------------------------------------------------------------------------
+
+class TestBootstrapValidation:
+    """Unit tests for _normalize_bootstrap_meta and the validate logic."""
+
+    def test_valid_corpus_classes(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        for cc in ("coder_enriched", "general", "hybrid"):
+            cfg, warnings = _normalize_bootstrap_meta({"corpus_class": cc}, None)
+            assert cfg is not None
+            assert cfg["synesis_meta"]["corpus_class"] == cc
+            assert not warnings
+
+    def test_invalid_corpus_class_warns(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        cfg, warnings = _normalize_bootstrap_meta({"corpus_class": "invalid"}, None)
+        assert len(warnings) == 1
+        assert "invalid corpus_class" in warnings[0]
+
+    def test_valid_constraint_kinds(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        for ck in ("hard", "guiding", "advisory"):
+            cfg, warnings = _normalize_bootstrap_meta({"constraint_kind": ck}, None)
+            assert cfg is not None
+            assert cfg["synesis_meta"]["constraint_kind"] == ck
+            assert not any("constraint_kind" in w for w in warnings)
+
+    def test_invalid_constraint_kind_warns(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        cfg, warnings = _normalize_bootstrap_meta({"constraint_kind": "wrong"}, None)
+        assert any("constraint_kind" in w for w in warnings)
+
+    def test_languages_list_preserved(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        cfg, _ = _normalize_bootstrap_meta({"languages": ["python", "go"]}, None)
+        assert cfg is not None
+        assert cfg["synesis_meta"]["languages"] == ["python", "go"]
+
+    def test_existing_config_preserved(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        existing = {"url": "https://example.com", "max_pages": 50}
+        cfg, _ = _normalize_bootstrap_meta({"corpus_class": "general"}, existing)
+        assert cfg is not None
+        assert cfg["url"] == "https://example.com"
+        assert cfg["max_pages"] == 50
+        assert cfg["synesis_meta"]["corpus_class"] == "general"
+
+    def test_empty_entry_returns_original_config(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        original = {"key": "value"}
+        cfg, warnings = _normalize_bootstrap_meta({}, original)
+        assert cfg == original
+        assert not warnings
+
+    def test_empty_entry_none_config(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        cfg, warnings = _normalize_bootstrap_meta({}, None)
+        assert cfg is None
+        assert not warnings
+
+
+# ---------------------------------------------------------------------------
+# Metadata guide tests
+# ---------------------------------------------------------------------------
+
+class TestMetadataGuide:
+    """Verify the metadata guide endpoint returns expected shape."""
+
+    def test_valid_corpus_classes_in_guide(self):
+        from app.routers.ingestion import _VALID_CONSTRAINT_KINDS, _VALID_CORPUS_CLASSES
+
+        assert "coder_enriched" in _VALID_CORPUS_CLASSES
+        assert "general" in _VALID_CORPUS_CLASSES
+        assert "hybrid" in _VALID_CORPUS_CLASSES
+        assert "hard" in _VALID_CONSTRAINT_KINDS
+        assert "guiding" in _VALID_CONSTRAINT_KINDS
+        assert "advisory" in _VALID_CONSTRAINT_KINDS
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility: discover endpoint still works with old shape
+# ---------------------------------------------------------------------------
+
+class TestDiscoverBackwardCompat:
+    """The existing discover endpoint must still return the original fields."""
+
+    @pytest.mark.asyncio
+    async def test_discover_result_has_legacy_fields(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery("https://example.com/page")
+        legacy_keys = {"url", "handler", "title", "domain", "tags", "config", "risk_flags", "recommended_mode", "notes"}
+        assert legacy_keys.issubset(result.keys())
+
+
+# ---------------------------------------------------------------------------
+# Corpus heuristic mapping tests
+# ---------------------------------------------------------------------------
+
+class TestCorpusHeuristics:
+
+    @pytest.mark.asyncio
+    async def test_known_coder_domains(self):
+        from app.routers.ingestion import _CORPUS_HEURISTICS, _run_heuristic_discovery
+
+        for pattern in list(_CORPUS_HEURISTICS.keys())[:3]:
+            url = f"https://{pattern}/some/page"
+            result = await _run_heuristic_discovery(url)
+            assert result["suggested_corpus_class"] == "coder_enriched", f"Expected coder_enriched for {pattern}"
+
+    @pytest.mark.asyncio
+    async def test_tag_based_coder_detection(self):
+        from app.routers.ingestion import _run_heuristic_discovery
+
+        result = await _run_heuristic_discovery(
+            "https://randomsite.com/api/reference/auth",
+        )
+        assert result["suggested_corpus_class"] == "coder_enriched"
+
+
+# ---------------------------------------------------------------------------
+# BatchPreflightRequest dry_run field
+# ---------------------------------------------------------------------------
+
+class TestBatchPreflightDryRun:
+
+    def test_dry_run_field_default(self):
+        from app.routers.ingestion import BatchPreflightRequest
+
+        req = BatchPreflightRequest()
+        assert req.dry_run is False
+
+    def test_dry_run_field_set(self):
+        from app.routers.ingestion import BatchPreflightRequest
+
+        req = BatchPreflightRequest(dry_run=True)
+        assert req.dry_run is True
+
+    def test_backward_compat_no_dry_run(self):
+        from app.routers.ingestion import BatchPreflightRequest
+
+        req = BatchPreflightRequest(status_filter="pending", limit=10, use_llm=False)
+        assert req.dry_run is False
+
+
+# ---------------------------------------------------------------------------
+# DiscoverPreviewRequest shape
+# ---------------------------------------------------------------------------
+
+class TestDiscoverPreviewRequest:
+
+    def test_minimal(self):
+        from app.routers.ingestion import DiscoverPreviewRequest
+
+        req = DiscoverPreviewRequest(url="https://example.com")
+        assert req.url == "https://example.com"
+        assert req.hints == ""
+
+    def test_with_hints(self):
+        from app.routers.ingestion import DiscoverPreviewRequest
+
+        req = DiscoverPreviewRequest(url="https://example.com", hints="docs")
+        assert req.hints == "docs"

@@ -1,0 +1,310 @@
+# Bootstrap corpus — JavaScript language evidence pack (browser + Node.js specific)
+items:
+- uri: https://developer.mozilla.org/en-US/docs/Web/API
+  handler: web_page
+  title: Web APIs (MDN)
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - browser
+  - web-api
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - stdlib-reference
+  - javascript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
+  handler: web_page
+  title: JavaScript guide (MDN)
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - guide
+  - mdn
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 60
+  scope_tags:
+  - common-patterns
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://nodejs.org/en/learn
+  handler: web_page
+  title: Node.js learn
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - nodejs
+  - learning
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: tutorial
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - common-patterns
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://webpack.js.org/concepts/
+  handler: web_page
+  title: webpack concepts
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - webpack
+  - bundler
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://vitejs.dev/guide/
+  handler: web_page
+  title: Vite guide
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - vite
+  - bundler
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - build-tool
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://mochajs.org/
+  handler: web_page
+  title: Mocha test framework
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - mocha
+  - testing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - testing-framework
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://www.cypress.io/docs
+  handler: web_page
+  title: Cypress documentation
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - e2e
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - testing-framework
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://standardjs.com/rules
+  handler: web_page
+  title: StandardJS rules
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - standardjs
+  - style
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 120
+  scope_tags:
+  - style-guide
+  - javascript
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://nodejs.org/api/
+  handler: web_page
+  title: Node.js API reference
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - nodejs
+  - api
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - stdlib-reference
+  - javascript
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://web.dev/learn/javascript/
+  handler: web_page
+  title: Learn JavaScript (web.dev)
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - browser
+  - learning
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: tutorial
+  content_profile: procedural
+  freshness_sla_days: 60
+  scope_tags:
+  - common-patterns
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://rollupjs.org/introduction/
+  handler: web_page
+  title: Rollup introduction
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - rollup
+  - bundler
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - javascript
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4

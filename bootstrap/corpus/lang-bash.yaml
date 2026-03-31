@@ -1,0 +1,283 @@
+# Bootstrap corpus — Bash/Shell language evidence pack
+items:
+- uri: https://www.gnu.org/software/bash/manual/bash.html
+  handler: web_page
+  title: GNU Bash manual
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - shell
+  - gnu
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - language-spec
+  - bash
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/contents.html
+  handler: web_page
+  title: POSIX utilities (Single UNIX Specification)
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - posix
+  - shell
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - language-spec
+  - stdlib-reference
+  - bash
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://www.shellcheck.net/wiki/
+  handler: web_page
+  title: ShellCheck wiki (lint rules and explanations)
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - shellcheck
+  - linter
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 120
+  scope_tags:
+  - linter-rules
+  - bash
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://google.github.io/styleguide/shellguide.html
+  handler: web_page
+  title: Google shell style guide
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - style
+  - google
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - style-guide
+  - bash
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://bats-core.readthedocs.io/
+  handler: web_page
+  title: Bats — Bash automated testing system
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - bats
+  - testing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 120
+  scope_tags:
+  - testing-framework
+  - bash
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://mywiki.wooledge.org/BashPitfalls
+  handler: web_page
+  title: Bash pitfalls (Greg's Wiki)
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - pitfalls
+  - wiki
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: troubleshooting
+  freshness_sla_days: 180
+  scope_tags:
+  - common-patterns
+  - bash
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://mywiki.wooledge.org/BashFAQ
+  handler: web_page
+  title: Bash FAQ (Greg's Wiki)
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - faq
+  - wiki
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 180
+  scope_tags:
+  - common-patterns
+  - bash
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://tldp.org/LDP/abs/html/
+  handler: web_page
+  title: Advanced Bash-Scripting Guide (TLDP)
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - scripting
+  - tldp
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: tutorial
+  content_profile: procedural
+  freshness_sla_days: 365
+  scope_tags:
+  - common-patterns
+  - bash
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://wiki.bash-hackers.org/
+  handler: web_page
+  title: Bash hackers wiki
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - wiki
+  - community
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 180
+  scope_tags:
+  - common-patterns
+  - bash
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://www.gnu.org/software/coreutils/manual/coreutils.html
+  handler: web_page
+  title: GNU Coreutils manual
+  domain: bash
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - coreutils
+  - gnu
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - bash
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - stdlib-reference
+  - bash
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4

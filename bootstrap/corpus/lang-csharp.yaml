@@ -1,0 +1,368 @@
+# Bootstrap corpus — C# language evidence pack
+items:
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/
+  handler: web_page
+  title: C# language reference
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - language
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - csharp
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/api/
+  handler: web_page
+  title: .NET API reference
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - api
+  - bcl
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - stdlib-reference
+  - csharp
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/compiler-messages/
+  handler: web_page
+  title: C# compiler messages (CS errors and warnings)
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - compiler
+  - errors
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: troubleshooting
+  freshness_sla_days: 90
+  scope_tags:
+  - error-catalog
+  - csharp
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/quality-rules/
+  handler: web_page
+  title: .NET code analysis quality rules
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - analyzers
+  - roslyn
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - linter-rules
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions
+  handler: web_page
+  title: C# coding conventions
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - style
+  - conventions
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 120
+  scope_tags:
+  - style-guide
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/core/testing/
+  handler: web_page
+  title: .NET testing overview
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - testing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - testing-framework
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://xunit.net/
+  handler: web_page
+  title: xUnit.net documentation
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - xunit
+  - testing
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 120
+  scope_tags:
+  - testing-framework
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/nuget/
+  handler: web_page
+  title: NuGet documentation
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - nuget
+  - packages
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - package-manager
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/core/tools/
+  handler: web_page
+  title: .NET CLI tools
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - cli
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/
+  handler: web_page
+  title: What's new in C#
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - release-notes
+  - language
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: changelog
+  content_profile: conceptual
+  freshness_sla_days: 60
+  scope_tags:
+  - common-patterns
+  - csharp
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/
+  handler: web_page
+  title: C# programming guide
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - programming-guide
+  - fundamentals
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: conceptual
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/asynchronous-programming/
+  handler: web_page
+  title: Asynchronous programming with async and await
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - async
+  - tasks
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 90
+  scope_tags:
+  - common-patterns
+  - csharp
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+- uri: https://learn.microsoft.com/en-us/dotnet/architecture/
+  handler: web_page
+  title: .NET architecture guides
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - architecture
+  priority: 3
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: architecture
+  content_profile: architecture
+  freshness_sla_days: 120
+  scope_tags:
+  - common-patterns
+  - csharp
+  constraint_kind: advisory
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4

@@ -1,0 +1,455 @@
+# Bootstrap corpus — Cross-cutting toolchain foundations
+# Resources that apply across all languages: version control, containers,
+# CI/CD, security, API conventions, observability, and dependency management.
+#
+items:
+- uri: https://git-scm.com/doc
+  handler: web_page
+  title: Git Documentation
+  domain: devops
+  authority: canonical
+  origin_type: curated
+  tags:
+  - git
+  - version-control
+  - scm
+  priority: 1
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - version-control
+  - common-patterns
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://git-scm.com/doc
+    - https://git-scm.com/book
+
+- uri: https://docs.docker.com/reference/
+  handler: web_page
+  title: Docker Reference Documentation
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - containers
+  - oci
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - build-tool
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/reference/
+
+- uri: https://docs.docker.com/build/building/best-practices/
+  handler: web_page
+  title: Docker Build Best Practices
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - containers
+  - best-practices
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 180
+  scope_tags:
+  - build-tool
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 3
+    max_pages: 40
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/build/
+
+- uri: https://docs.podman.io/en/latest/
+  handler: web_page
+  title: Podman Documentation
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - podman
+  - containers
+  - rootless
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - build-tool
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.podman.io/en/latest/
+
+- uri: https://docs.github.com/en/actions
+  handler: web_page
+  title: GitHub Actions Documentation
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - github-actions
+  - ci-cd
+  - automation
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.github.com/en/actions
+
+- uri: https://docs.gitlab.com/ci/
+  handler: web_page
+  title: GitLab CI/CD Documentation
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gitlab
+  - ci-cd
+  - pipelines
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - build-tool
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.gitlab.com/ci/
+
+- uri: https://semver.org/
+  handler: web_page
+  title: Semantic Versioning Specification
+  domain: devops
+  authority: canonical
+  origin_type: curated
+  tags:
+  - semver
+  - versioning
+  - specification
+  priority: 1
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - common-patterns
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 2
+    max_pages: 10
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://semver.org/
+
+- uri: https://spec.openapis.org/oas/latest.html
+  handler: web_page
+  title: OpenAPI Specification
+  domain: architecture
+  authority: canonical
+  origin_type: curated
+  tags:
+  - openapi
+  - rest
+  - api-design
+  - specification
+  priority: 1
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - common-patterns
+  - style-guide
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 2
+    max_pages: 20
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://spec.openapis.org/
+
+- uri: https://jsonapi.org/
+  handler: web_page
+  title: JSON:API Specification
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - json-api
+  - rest
+  - api-design
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - common-patterns
+  - style-guide
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 3
+    max_pages: 30
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://jsonapi.org/
+
+- uri: https://owasp.org/www-project-top-ten/
+  handler: web_page
+  title: OWASP Top 10
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - security
+  - vulnerabilities
+  - top-10
+  priority: 1
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - security
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 3
+    max_pages: 40
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://owasp.org/www-project-top-ten/
+
+- uri: https://cheatsheetseries.owasp.org/
+  handler: web_page
+  title: OWASP Cheat Sheet Series
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - security
+  - cheat-sheets
+  - best-practices
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 180
+  scope_tags:
+  - security
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 3
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://cheatsheetseries.owasp.org/
+
+- uri: https://opentelemetry.io/docs/
+  handler: web_page
+  title: OpenTelemetry Documentation
+  domain: observability
+  authority: vetted
+  origin_type: curated
+  tags:
+  - opentelemetry
+  - observability
+  - tracing
+  - metrics
+  priority: 2
+  corpus_class: hybrid
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 180
+  scope_tags:
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://opentelemetry.io/docs/
+
+- uri: https://conventionalcommits.org/
+  handler: web_page
+  title: Conventional Commits Specification
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - commits
+  - git
+  - convention
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - style-guide
+  - version-control
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 2
+    max_pages: 10
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://conventionalcommits.org/
+
+- uri: https://editorconfig.org/
+  handler: web_page
+  title: EditorConfig Specification
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - editorconfig
+  - formatting
+  - editor
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 365
+  scope_tags:
+  - style-guide
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 2
+    max_pages: 10
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://editorconfig.org/
+
+- uri: https://docs.renovatebot.com/
+  handler: web_page
+  title: Renovate Dependency Management
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - renovate
+  - dependencies
+  - automation
+  priority: 2
+  corpus_class: coder_enriched
+  languages: []
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - package-manager
+  - common-patterns
+  constraint_kind: guiding
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 4
+    max_pages: 80
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.renovatebot.com/
