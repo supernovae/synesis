@@ -1026,3 +1026,24 @@ class AclPolicy(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_acl_policies_org_id", "org_id"),)
+
+
+class ConformanceRollup(Base):
+    """Periodic conformance snapshot from Yarn telemetry or trace aggregation."""
+
+    __tablename__ = "conformance_rollups"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    rollup_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="yarn_telemetry")
+    language: Mapped[str] = mapped_column(String(64), nullable=False, default="_global")
+    metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_conformance_rollups_ts", "timestamp"),
+        Index("ix_conformance_rollups_lang", "language"),
+        Index("ix_conformance_rollups_source", "source"),
+    )

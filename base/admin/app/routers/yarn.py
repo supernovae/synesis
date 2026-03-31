@@ -190,8 +190,13 @@ async def yarn_runtime_telemetry(
 ):
     """Proxy runtime telemetry from Yarn /health/telemetry."""
     try:
+        headers: dict[str, str] = {}
+        from ..deps import INTERNAL_SERVICE_TOKEN as _IST
+
+        if _IST:
+            headers["Authorization"] = f"Bearer {_IST}"
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{_YARN_URL.rstrip('/')}/health/telemetry")
+            resp = await client.get(f"{_YARN_URL.rstrip('/')}/health/telemetry", headers=headers)
             resp.raise_for_status()
             return resp.json()
     except Exception as exc:
@@ -205,8 +210,13 @@ async def yarn_language_packs(
 ):
     """Proxy language pack conformance matrix from Yarn /health/telemetry."""
     try:
+        headers: dict[str, str] = {}
+        from ..deps import INTERNAL_SERVICE_TOKEN as _IST
+
+        if _IST:
+            headers["Authorization"] = f"Bearer {_IST}"
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{_YARN_URL.rstrip('/')}/health/telemetry")
+            resp = await client.get(f"{_YARN_URL.rstrip('/')}/health/telemetry", headers=headers)
             resp.raise_for_status()
             data = resp.json()
             return {"languagePacks": data.get("languagePacks", [])}

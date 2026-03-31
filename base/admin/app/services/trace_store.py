@@ -416,6 +416,148 @@ async def delete_traces_for_conversation(conversation_id: str) -> int:
             return 0
 
 
+async def get_decision_analytics(
+    *,
+    since: float = 0,
+    until: float = 0,
+    scope_org_id: str = "",
+    scope_tenant_id: str = "",
+) -> dict[str, Any]:
+    """Aggregate decision-path, recall, and verification metrics from trace JSONB."""
+    if since <= 0:
+        since = time.time() - 86400
+    async with async_session() as session:
+        try:
+            base = select(Trace).where(Trace.timestamp >= since)
+            if until > 0:
+                base = base.where(Trace.timestamp <= until)
+            if scope_org_id:
+                base = base.where(Trace.full_record["org_id"].astext == scope_org_id)
+            if scope_tenant_id:
+                base = base.where(Trace.tenant_id == scope_tenant_id)
+
+            has_ledger = base.where(
+                Trace.full_record["decision_ledger"].isnot(None),
+                func.jsonb_array_length(Trace.full_record["decision_ledger"]) > 0,
+            )
+
+            ledger_entry = Trace.full_record["decision_ledger"][0]
+
+            # Decision path counts
+            path_q = (
+                select(
+                    ledger_entry["path"].astext.label("path"),
+                    func.count().label("cnt"),
+                )
+                .where(Trace.timestamp >= since)
+                .group_by(ledger_entry["path"].astext)
+            )
+            if until > 0:
+                path_q = path_q.where(Trace.timestamp <= until)
+            if scope_org_id:
+                path_q = path_q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            if scope_tenant_id:
+                path_q = path_q.where(Trace.tenant_id == scope_tenant_id)
+            path_q = path_q.where(
+                Trace.full_record["decision_ledger"].isnot(None),
+                func.jsonb_array_length(Trace.full_record["decision_ledger"]) > 0,
+            )
+            path_rows = (await session.execute(path_q)).all()
+            decision_paths = {r.path: r.cnt for r in path_rows if r.path}
+
+            # Total traces with ledger
+            total_with_ledger_q = select(func.count()).select_from(has_ledger.subquery())
+            total_with_ledger = (await session.execute(total_with_ledger_q)).scalar_one() or 0
+
+            # Total traces in window
+            total_q = select(func.count()).select_from(base.subquery())
+            total_traces = (await session.execute(total_q)).scalar_one() or 0
+
+            # Escalation count
+            escalation_q = select(func.count()).where(
+                Trace.timestamp >= since,
+                Trace.full_record["decision_ledger"].isnot(None),
+                func.jsonb_array_length(Trace.full_record["decision_ledger"]) > 0,
+                ledger_entry["escalated"].astext == "true",
+            )
+            if until > 0:
+                escalation_q = escalation_q.where(Trace.timestamp <= until)
+            if scope_org_id:
+                escalation_q = escalation_q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            if scope_tenant_id:
+                escalation_q = escalation_q.where(Trace.tenant_id == scope_tenant_id)
+            escalation_count = (await session.execute(escalation_q)).scalar_one() or 0
+
+            # Recall routing counts
+            recall_q = (
+                select(
+                    ledger_entry["recall_routing"].astext.label("routing"),
+                    func.count().label("cnt"),
+                )
+                .where(Trace.timestamp >= since)
+                .where(
+                    Trace.full_record["decision_ledger"].isnot(None),
+                    func.jsonb_array_length(Trace.full_record["decision_ledger"]) > 0,
+                )
+                .group_by(ledger_entry["recall_routing"].astext)
+            )
+            if until > 0:
+                recall_q = recall_q.where(Trace.timestamp <= until)
+            if scope_org_id:
+                recall_q = recall_q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            if scope_tenant_id:
+                recall_q = recall_q.where(Trace.tenant_id == scope_tenant_id)
+            recall_rows = (await session.execute(recall_q)).all()
+            recall_routing = {r.routing: r.cnt for r in recall_rows if r.routing}
+
+            # Evidence prefetch hit rate
+            prefetch_hit_q = select(func.count()).where(
+                Trace.timestamp >= since,
+                Trace.full_record["evidence_prefetch_hit"].astext == "true",
+            )
+            if until > 0:
+                prefetch_hit_q = prefetch_hit_q.where(Trace.timestamp <= until)
+            if scope_org_id:
+                prefetch_hit_q = prefetch_hit_q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            if scope_tenant_id:
+                prefetch_hit_q = prefetch_hit_q.where(Trace.tenant_id == scope_tenant_id)
+            prefetch_hits = (await session.execute(prefetch_hit_q)).scalar_one() or 0
+
+            return {
+                "total_traces": total_traces,
+                "traces_with_decision_ledger": total_with_ledger,
+                "decision_paths": decision_paths,
+                "escalation_count": escalation_count,
+                "escalation_rate": round(escalation_count / max(total_with_ledger, 1), 4),
+                "recall": {
+                    "routing_distribution": recall_routing,
+                    "bypass_rate": round(
+                        recall_routing.get("bypass", 0) / max(total_with_ledger, 1), 4
+                    ),
+                },
+                "evidence": {
+                    "prefetch_hits": prefetch_hits,
+                    "prefetch_hit_rate": round(prefetch_hits / max(total_traces, 1), 4),
+                },
+                "period": {
+                    "since": since,
+                    "until": until if until > 0 else time.time(),
+                },
+            }
+        except Exception:
+            logger.warning("trace_store_decision_analytics_failed", exc_info=True)
+            return {
+                "total_traces": 0,
+                "traces_with_decision_ledger": 0,
+                "decision_paths": {},
+                "escalation_count": 0,
+                "escalation_rate": 0,
+                "recall": {"routing_distribution": {}, "bypass_rate": 0},
+                "evidence": {"prefetch_hits": 0, "prefetch_hit_rate": 0},
+                "period": {"since": since, "until": until if until > 0 else time.time()},
+            }
+
+
 def _empty_stats() -> dict[str, Any]:
     return {
         "total_traces_24h": 0,

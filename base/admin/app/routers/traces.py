@@ -84,6 +84,25 @@ async def trace_stats(_user: UserInfo = Depends(get_current_user)):
     )
 
 
+@router.get("/analytics")
+async def trace_decision_analytics(
+    since: float = Query(0, description="Unix timestamp start (default: 24h ago)"),
+    until: float = Query(0, description="Unix timestamp end (default: now)"),
+    org_id: str = Query("", description="Filter by org"),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Decision-path, recall, and verification analytics aggregated from trace JSONB."""
+    _ensure_org_observability(_user)
+    scope = trace_scope_filters(_user)
+    effective_org = org_id or scope.get("org_id", "")
+    return await trace_store.get_decision_analytics(
+        since=since,
+        until=until,
+        scope_org_id=effective_org,
+        scope_tenant_id=scope.get("scope_tenant_id", ""),
+    )
+
+
 @router.post("/test")
 async def test_trace_pipeline(_user: UserInfo = Depends(require_platform_admin)):
     """Send a test query to the planner and verify a trace appears in Postgres."""

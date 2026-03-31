@@ -1,8 +1,9 @@
-"""Testing Labs: replay runs, quality comparison, and HITL review."""
+"""Testing Labs: replay runs, quality comparison, HITL review, and execution engine."""
 
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -14,6 +15,7 @@ from sqlalchemy import func, select
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import TestingLabsResult, TestingLabsRun
+from ..services import testing_labs_engine
 
 logger = logging.getLogger("synesis.admin.testing_labs")
 
@@ -209,6 +211,37 @@ async def review_result(
         await session.commit()
 
     return {"id": result_id, "review_status": body.review_status}
+
+
+# ── Execution engine ──────────────────────────────────────────────────────────
+
+_YARN_URL = os.getenv(
+    "SYNESIS_YARN_URL",
+    "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000",
+)
+
+
+@router.post("/runs/{run_id}/execute")
+async def execute_run(
+    run_id: str,
+    _user: UserInfo = Depends(require_admin),
+):
+    """Execute a Testing Labs run: replay prompts from traces against Yarn."""
+    result = await testing_labs_engine.execute_run(run_id, _YARN_URL)
+    if result.get("error"):
+        status_code = 404 if "not found" in result["error"].lower() else 409
+        raise HTTPException(status_code=status_code, detail=result["error"])
+    return result
+
+
+@router.get("/runs/{run_id}/regressions")
+async def get_regressions(
+    run_id: str,
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Regression report for a completed Testing Labs run."""
+    report = await testing_labs_engine.detect_regressions(run_id)
+    return report.to_dict()
 
 
 # ── Comparison / metrics ──────────────────────────────────────────────────────

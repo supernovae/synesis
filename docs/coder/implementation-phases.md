@@ -131,10 +131,15 @@
 - Connector health endpoint combining live connectivity probe with sync freshness tracking
 - 34 new tests covering CatalogClient parsing, token resolution, health check; SyncEngine content hashing, URI building, tag/metadata mapping; governance annotation detection; API CRUD, validation, and cache endpoints
 
+### Phase 18: Evaluation and Conformance Framework — COMPLETE
+
+- **Trace Decision Analytics**: new `get_decision_analytics()` service function aggregating decision-path distribution, escalation rate, recall routing, and evidence prefetch hit rate from `full_record` JSONB; new `GET /api/v1/traces/analytics` endpoint with `since`/`until`/`org_id` filters and RBAC
+- **Conformance Rollups**: `ConformanceRollup` DB model with Alembic migration (`024_conformance_rollups`) storing periodic snapshots of Yarn telemetry metrics per language pack; `conformance_tracker` service with `scrape_yarn_telemetry()` (scrapes `/health/telemetry` with auth), `get_conformance_summary()` (latest per-language with delta vs previous), `get_conformance_history()` (time-series); new `/api/v1/conformance` router with `summary`, `history`, and `scrape` endpoints
+- **Admin-to-Yarn auth fix**: telemetry and language-pack proxy endpoints now pass `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>` to Yarn
+- **Golden-Prompt Eval Harness**: `eval_harness` service with `EvalCase`/`EvalSuite`/`EvalResult` dataclasses, 4 built-in suites (`recall_bypass`, `verification_loop`, `decision_quality`, `latency_budget`) with 14 curated prompt cases; `run_eval_suite()` executes cases against Yarn's `/v1/chat/completions` and checks latency/token/choice expectations; new `/api/v1/evals` router with `GET /suites` and `POST /run` endpoints
+- **Testing Labs Execution Engine**: `testing_labs_engine` service with `execute_run()` (extracts prompts from historical traces, replays against Yarn, writes `TestingLabsResult` rows); `detect_regressions()` performs rule-based regression detection (verdict degradation, latency >2x, token >2x, decision path degradation); `RegressionReport` dataclass; new `POST /runs/{run_id}/execute` and `GET /runs/{run_id}/regressions` endpoints wired into existing Testing Labs router
+- 27 new tests covering trace analytics, conformance model/service, eval harness suites and expectations, testing labs engine and regression detection, all API endpoints, and migration verification
+
 ## Upcoming
 
-### Phase 18: Evaluation and Conformance Framework
-
-- Automated evals for recall/verification/decision quality
-- Conformance metrics per language pack
-- Regression detection across model upgrades
+### Phase 19: (Planning next)
