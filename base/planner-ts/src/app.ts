@@ -29,6 +29,8 @@ import { invokeGraph, streamGraph } from "./graph.js";
 import { getLlmResilienceStats, setPricingContext } from "./llm/client.js";
 import { setRetrievalClient, directStreamPipeline } from "./pipeline.js";
 import { UnifiedRetrievalClient } from "./retrieval/client.js";
+import { retrieveContext } from "./retrieval/rag-client.js";
+import { buildMetadataFilter, extractTagMetadata } from "./retrieval/metadata-filter.js";
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { buildDomainProfile } from "./nodes/domain-profile.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
@@ -120,6 +122,22 @@ export function buildApp(config: AppConfig): FastifyInstance {
   if (config.SYNESIS_EMBEDDER_URL) {
     setRetrievalClient(new UnifiedRetrievalClient(config));
   }
+
+  const knowledgeSearchRagConfig: import("./retrieval/rag-client.js").RagClientConfig = {
+    milvusHost: config.SYNESIS_MILVUS_HOST,
+    milvusPort: config.SYNESIS_MILVUS_PORT,
+    embedderUrl: config.SYNESIS_EMBEDDER_URL,
+    embedderModel: config.SYNESIS_EMBEDDER_MODEL,
+    bgeRerankerUrl: config.SYNESIS_BGE_RERANKER_URL,
+    retrievalStrategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
+    rrfK: config.SYNESIS_RAG_RRF_K,
+    scoreThreshold: config.SYNESIS_RAG_SCORE_THRESHOLD,
+    rerankScoreMin: config.SYNESIS_RAG_RERANK_SCORE_MIN,
+  };
+
+  const retrieveContextFn = retrieveContext;
+  const buildMetadataFilterFn = buildMetadataFilter;
+  const extractTagMetadataFn = extractTagMetadata;
 
   const traceEmitterConfig = {
     adminUrl: config.SYNESIS_ADMIN_URL,
@@ -528,6 +546,93 @@ export function buildApp(config: AppConfig): FastifyInstance {
       session_backend: config.SYNESIS_PLANNER_TS_REDIS_URL ? "redis" : "memory",
       session_ttl_s: config.SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S,
     };
+  });
+
+  // -----------------------------------------------------------------------
+  // Knowledge search — structured RAG retrieval for MCP and Yarn
+  // -----------------------------------------------------------------------
+  app.post("/v1/knowledge/search", async (request, reply) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+
+    const body = request.body as Record<string, unknown> | null;
+    const query = String(body?.query ?? "").trim();
+    if (!query) {
+      return reply.code(400).send({ error: "query is required" });
+    }
+
+    const topK = Math.min(Math.max(Number(body?.top_k) || 5, 1), 50);
+
+    const metaParams: import("./retrieval/metadata-filter.js").MetadataFilterParams = {
+      language: body?.language ? String(body.language) : undefined,
+      artifact_kind: body?.artifact_kind ? String(body.artifact_kind) : undefined,
+      domain: body?.domain ? String(body.domain) : undefined,
+      corpus_class: body?.corpus_class ? String(body.corpus_class) : undefined,
+      constraint_kind: body?.constraint_kind ? String(body.constraint_kind) : undefined,
+      scope_tags: Array.isArray(body?.scope_tags) ? (body.scope_tags as string[]) : undefined,
+      tags: body?.tags ? String(body.tags) : undefined,
+      content_format: body?.content_format ? String(body.content_format) : undefined,
+      repo_path: body?.repo_path ? String(body.repo_path) : undefined,
+    };
+
+    const scopeOpts = {
+      callerOrgId: body?.caller_org_id ? String(body.caller_org_id) : undefined,
+      callerTenantIds: Array.isArray(body?.caller_tenant_ids) ? (body.caller_tenant_ids as string[]) : undefined,
+      callerAclGroups: Array.isArray(body?.caller_acl_groups) ? (body.caller_acl_groups as string[]) : undefined,
+      callerUserId: body?.caller_user_id ? String(body.caller_user_id) : undefined,
+    };
+
+    const metaFilter = buildMetadataFilterFn(metaParams);
+
+    const t0 = performance.now();
+    try {
+      const results = await retrieveContextFn(query, knowledgeSearchRagConfig, {
+        topK,
+        scopeFilter: scopeOpts,
+        extraFilter: metaFilter || undefined,
+      });
+      const totalMs = performance.now() - t0;
+
+      const mapped: import("./retrieval/types.js").KnowledgeResult[] = results.map((r) => {
+        const tagMeta = extractTagMetadataFn(r.tags ?? "");
+        return {
+          text: r.text,
+          source_url: r.source_url,
+          document_name: r.document_name,
+          authority: r.authority,
+          origin_type: r.origin_type,
+          domain: r.domain,
+          language: r.language ?? "",
+          artifact_kind: r.artifact_kind ?? "",
+          tags: r.tags ?? "",
+          context_prefix: r.context_prefix,
+          chunk_summary: r.chunk_summary,
+          heading_path: r.heading_path,
+          score: r.rerank_score > 0 ? r.rerank_score : r.rrf_score,
+          constraint_kind: tagMeta.constraint_kind,
+          corpus_class: tagMeta.corpus_class,
+          scope_tags: tagMeta.scope_tags,
+        };
+      });
+
+      return {
+        results: mapped,
+        query,
+        total: mapped.length,
+        timings: {
+          embed_ms: 0,
+          search_ms: Math.round(totalMs * 10) / 10,
+          rerank_ms: 0,
+          total_ms: Math.round(totalMs * 10) / 10,
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      request.log.error({ err: msg }, "knowledge_search_failed");
+      return reply.code(500).send({ error: "Knowledge search failed", detail: msg });
+    }
   });
 
   app.get("/v1/models", async () => ({

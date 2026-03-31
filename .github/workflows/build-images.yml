@@ -20,7 +20,7 @@ on:
       - 'base/rag/preprocess-service/**'
       - 'base/rag/spam-service/**'
       - 'base/rag/knowledge-base/**'
-      - 'base/mcp/**'
+      - 'base/mcp-ts/**'
       - 'base/yarn-ts/**'
       - 'base/planner-ts/**'
       - 'base/security/**'
@@ -73,7 +73,7 @@ jobs:
       spam-service: ${{ steps.filter.outputs.spam-service }}
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
       open-webui: ${{ steps.filter.outputs.open-webui }}
-      mcp: ${{ steps.filter.outputs.mcp }}
+      mcp-ts: ${{ steps.filter.outputs.mcp-ts }}
       yarn-ts: ${{ steps.filter.outputs.yarn-ts }}
       planner-ts: ${{ steps.filter.outputs.planner-ts }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
@@ -119,9 +119,8 @@ jobs:
             open-webui:
               - 'base/webui/Dockerfile'
               - 'base/webui/synesis-theme.css'
-            mcp:
-              - 'base/mcp/**'
-              - 'base/mcp/app/integrity_core.py'
+            mcp-ts:
+              - 'base/mcp-ts/**'
             yarn-ts:
               - 'base/yarn-ts/**'
               - 'packages/synesis-telemetry/**'
@@ -434,12 +433,12 @@ jobs:
             base_arg: ""
             change_key: open-webui
             base_change_key: ""
-          - name: mcp
-            dockerfile: base/mcp/Containerfile
+          - name: mcp-ts
+            dockerfile: base/mcp-ts/Containerfile
             context: .
-            base_arg: synesis-base-api
-            change_key: mcp
-            base_change_key: base-api
+            base_arg: ""
+            change_key: mcp-ts
+            base_change_key: ""
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile
             context: .

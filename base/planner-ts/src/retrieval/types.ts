@@ -104,6 +104,9 @@ export interface RagResult {
   content_hash?: string;
   crawl_timestamp?: number;
   effective_at_epoch?: number;
+  tags?: string;
+  language?: string;
+  artifact_kind?: string;
 }
 
 /** Authority multipliers applied after reranking (same as Python). */
@@ -114,3 +117,56 @@ export const AUTHORITY_BOOST: Record<string, number> = {
   external: 0.7,
   "": 1.0,
 };
+
+// ---------------------------------------------------------------------------
+// Knowledge search endpoint types
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeSearchRequest {
+  query: string;
+  top_k?: number;
+  language?: string;
+  artifact_kind?: string;
+  domain?: string;
+  corpus_class?: string;
+  constraint_kind?: string;
+  scope_tags?: string[];
+  tags?: string;
+  content_format?: string;
+  repo_path?: string;
+  caller_org_id?: string;
+  caller_tenant_ids?: string[];
+  caller_acl_groups?: string[];
+  caller_user_id?: string;
+}
+
+export interface KnowledgeResult {
+  text: string;
+  source_url: string;
+  document_name: string;
+  authority: string;
+  origin_type: string;
+  domain: string;
+  language: string;
+  artifact_kind: string;
+  tags: string;
+  context_prefix: string;
+  chunk_summary: string;
+  heading_path: string;
+  score: number;
+  constraint_kind: string;
+  corpus_class: string;
+  scope_tags: string[];
+}
+
+export interface KnowledgeSearchResponse {
+  results: KnowledgeResult[];
+  query: string;
+  total: number;
+  timings: {
+    embed_ms: number;
+    search_ms: number;
+    rerank_ms: number;
+    total_ms: number;
+  };
+}

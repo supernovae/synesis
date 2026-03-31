@@ -124,6 +124,49 @@ jobs:
         working-directory: base/yarn-ts
         run: npx vitest run
 
+  mcp-ts-tests:
+    name: MCP-TS typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: base/mcp-ts
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: base/mcp-ts
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        working-directory: base/mcp-ts
+        run: npx vitest run
+
+  planner-ts-tests:
+    name: Planner-TS typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install root workspace dependencies
+        run: npm ci
+
+      - name: Install planner-ts dependencies
+        working-directory: base/planner-ts
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: base/planner-ts
+        run: npx vitest run
+
   hadolint:
     name: Dockerfile Lint
     runs-on: ubuntu-latest
@@ -136,10 +179,10 @@ jobs:
           chmod +x hadolint
           sudo mv hadolint /usr/local/bin/
 
-      - name: Lint Dockerfiles
+      - name: Lint Dockerfiles and Containerfiles
         run: |
           status=0
-          for df in $(find base/ -name 'Dockerfile' -type f | sort); do
+          for df in $(find base/ \( -name 'Dockerfile' -o -name 'Containerfile' \) -type f | sort); do
             echo "--- $df ---"
             hadolint \
               --ignore DL3008 --ignore DL3013 --ignore DL3018 \

@@ -128,6 +128,18 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_MCP_SERVICE_URL: z.string().default(
+    "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100",
+  ),
+  SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS: z.coerce.number().default(200),
   SYNESIS_YARN_SESSION_CONTINUITY_ENABLED: z
     .string()
     .optional()

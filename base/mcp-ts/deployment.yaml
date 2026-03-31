@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-mcp-ts
+  namespace: synesis-yarn
+  labels:
+    app: synesis-mcp-ts
+    app.kubernetes.io/part-of: synesis-coder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synesis-mcp-ts
+  template:
+    metadata:
+      labels:
+        app: synesis-mcp-ts
+    spec:
+      containers:
+        - name: mcp-ts
+          image: synesis-mcp-ts:latest
+          ports:
+            - containerPort: 8100
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8100"
+            - name: SYNESIS_PLANNER_URL
+              value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
+            - name: SYNESIS_CRITIC_URL
+              value: "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-service-tokens
+                  key: internal-service-token
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: 8100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 10
+            periodSeconds: 30

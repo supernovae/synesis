@@ -12,8 +12,8 @@ kind: Kustomization
 
 resources:
   - ../../base/core
-  # MCP agent + Yarn IDE path (LiteLLM route synesis-yarn); depend on planner/redis from core.
-  - ../../base/mcp
+  # MCP-TS agent + Yarn IDE path (LiteLLM route synesis-yarn); depend on planner/redis from core.
+  - ../../base/mcp-ts
   - ../../base/yarn-ts
 
 patches:
@@ -76,8 +76,8 @@ images:
   - name: ghcr.io/open-webui/open-webui
     newName: ghcr.io/supernovae/synesis/open-webui
     newTag: latest
-  - name: ghcr.io/supernovae/synesis/mcp
-    newName: ghcr.io/supernovae/synesis/mcp
+  - name: synesis-mcp-ts
+    newName: ghcr.io/supernovae/synesis/mcp-ts
     newTag: latest
   - name: ghcr.io/supernovae/synesis/yarn-ts
     newName: ghcr.io/supernovae/synesis/yarn-ts

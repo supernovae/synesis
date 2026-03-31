@@ -35,6 +35,7 @@ const OUTPUT_FIELDS = [
   "acl_mode", "acl_groups",
   "scan_status", "scan_signals", "approval_status", "review_trace_id",
   "raw_content_hash", "crawl_timestamp", "effective_at_epoch",
+  "tags", "language", "artifact_kind",
 ];
 
 interface MilvusSearchResponse {
@@ -172,6 +173,9 @@ function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagRe
     content_hash: String(row.raw_content_hash ?? ""),
     crawl_timestamp: Number(row.crawl_timestamp ?? 0),
     effective_at_epoch: Number(row.effective_at_epoch ?? 0),
+    tags: String(row.tags ?? ""),
+    language: String(row.language ?? ""),
+    artifact_kind: String(row.artifact_kind ?? ""),
   };
 }
 
@@ -185,11 +189,15 @@ export async function retrieveContext(
     collections?: string[];
     topK?: number;
     scopeFilter?: ScopeFilterOptions;
+    extraFilter?: string;
   } = {},
 ): Promise<RagResult[]> {
   const collections = options.collections ?? ["synesis_catalog"];
   const topK = options.topK ?? 5;
-  const filter = buildScopeFilter(options.scopeFilter);
+  const scopeExpr = buildScopeFilter(options.scopeFilter);
+  const filter = scopeExpr && options.extraFilter
+    ? `${scopeExpr} and ${options.extraFilter}`
+    : scopeExpr || options.extraFilter || "";
 
   const embeddings = await embed([query], { url: config.embedderUrl, model: config.embedderModel });
   const queryVector = embeddings[0];

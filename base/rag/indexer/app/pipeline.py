@@ -162,6 +162,11 @@ def index_parsed_chunk_pairs(
     src_artifact_kind = str(source_config.get("artifact_kind", "") or "").strip().lower()
     src_corpus_class = str(source_config.get("corpus_class", "") or "").strip().lower()
     src_content_profile = str(source_config.get("content_profile", "") or "").strip().lower()
+    src_constraint_kind = str(source_config.get("constraint_kind", "") or "").strip().lower()
+    src_scope_tags: list[str] = []
+    raw_scope_tags = source_config.get("scope_tags", [])
+    if isinstance(raw_scope_tags, list):
+        src_scope_tags = [str(x).strip().lower() for x in raw_scope_tags if str(x).strip()]
 
     try:
         handler = get_handler(handler_type or "html_document")
@@ -176,6 +181,13 @@ def index_parsed_chunk_pairs(
             extra={"source": name, "corpus_class": src_corpus_class},
         )
         src_corpus_class = ""
+
+    if src_constraint_kind and src_constraint_kind not in {"hard", "guiding", "advisory"}:
+        logger.warning(
+            "indexer_invalid_constraint_kind",
+            extra={"source": name, "constraint_kind": src_constraint_kind},
+        )
+        src_constraint_kind = ""
 
     if src_content_profile and src_content_profile not in {"code", "docs", "api_spec", "policy", "architecture", "mixed"}:
         logger.warning(
@@ -198,6 +210,12 @@ def index_parsed_chunk_pairs(
                 src_corpus_class = str(src_meta.get("corpus_class", "") or "").strip().lower()
             if not src_content_profile:
                 src_content_profile = str(src_meta.get("content_profile", "") or "").strip().lower()
+            if not src_constraint_kind:
+                src_constraint_kind = str(src_meta.get("constraint_kind", "") or "").strip().lower()
+            if not src_scope_tags:
+                raw_meta_scope = src_meta.get("scope_tags", [])
+                if isinstance(raw_meta_scope, list):
+                    src_scope_tags = [str(x).strip().lower() for x in raw_meta_scope if str(x).strip()]
 
     if src_visibility_scope not in ("global", "org", "tenant", "user", "session"):
         logger.error(
@@ -445,6 +463,12 @@ def index_parsed_chunk_pairs(
             tag_parts.append(f"corpus_class:{src_corpus_class}")
         if src_content_profile and f"content_profile:{src_content_profile}" not in tag_parts:
             tag_parts.append(f"content_profile:{src_content_profile}")
+        if src_constraint_kind and f"ck:{src_constraint_kind}" not in tag_parts:
+            tag_parts.append(f"ck:{src_constraint_kind}")
+        for _st in src_scope_tags:
+            scope_entry = f"scope:{_st}"
+            if scope_entry not in tag_parts:
+                tag_parts.append(scope_entry)
         chunk_tags = ",".join(tag_parts)[:512]
         chunk_source_url = chunk.metadata.get("source_url") or doc.source_url
         chunk_domain = chunk.metadata.get("domain") or doc.metadata.get("domain") or domain

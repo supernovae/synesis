@@ -145,8 +145,6 @@ jobs:
             dir: base/rag/gliner-service
           - name: lsp-gateway
             dir: base/lsp/gateway
-          - name: mcp
-            dir: base/mcp
     steps:
       - uses: actions/checkout@v6
 
@@ -180,7 +178,7 @@ jobs:
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
             --json --json-output=semgrep-results.json \
-            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/ || true
+            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/lsp/gateway/app/ || true
 
       - name: Run Semgrep (gate)
         run: |
@@ -188,7 +186,7 @@ jobs:
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
-            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/
+            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/lsp/gateway/app/
 
       - name: Upload Semgrep results
         uses: actions/upload-artifact@v6
@@ -201,8 +199,16 @@ jobs:
   # Frontend (JavaScript/TypeScript/React) security
   # ---------------------------------------------------------------------------
   npm-audit:
-    name: npm Audit (Admin Frontend)
+    name: npm Audit
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: admin-frontend
+            dir: base/admin/frontend
+          - name: mcp-ts
+            dir: base/mcp-ts
     steps:
       - uses: actions/checkout@v6
 
@@ -211,23 +217,23 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        working-directory: base/admin/frontend
+        working-directory: ${{ matrix.dir }}
         run: npm ci --ignore-scripts 2>/dev/null || npm install
 
       - name: npm audit (report)
-        working-directory: base/admin/frontend
+        working-directory: ${{ matrix.dir }}
         run: npm audit --json > npm-audit-report.json || true
 
       - name: npm audit (gate — high/critical)
-        working-directory: base/admin/frontend
+        working-directory: ${{ matrix.dir }}
         run: npm audit --audit-level=high
 
       - name: Upload npm audit report
         uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: npm-audit-report
-          path: base/admin/frontend/npm-audit-report.json
+          name: npm-audit-report-${{ matrix.name }}
+          path: ${{ matrix.dir }}/npm-audit-report.json
 
   semgrep-js:
     name: Semgrep (JS/TS/React Security)

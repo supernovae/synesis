@@ -48,7 +48,7 @@ spec:
             - name: SYNESIS_ADMIN_ASSISTANT_MODEL
               value: "synesis-general"
             - name: SYNESIS_MCP_URL
-              value: "http://synesis-mcp.synesis-planner.svc.cluster.local:8100"
+              value: "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100"
             - name: SYNESIS_QUALITY_REPORT_PATH
               value: "/data/quality/corpus_audit_report.json"
             - name: SYNESIS_CURATOR_PROPOSALS_PATH

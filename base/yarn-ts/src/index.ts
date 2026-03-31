@@ -27,6 +27,8 @@ import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
+import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
+import { runEvidencePrefetch, formatEvidenceBlock } from "./evidence/fast-path.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
@@ -143,6 +145,7 @@ const artifactStore = new ArtifactStore({
   maxPayloadBytes: config.SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES,
 });
 const artifactRetrieval = new ArtifactRetrievalService(artifactStore);
+const knowledgeSearch = new KnowledgeSearchService(config.SYNESIS_YARN_MCP_SERVICE_URL);
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
 const workingFrameService = new WorkingFrameService(config.SYNESIS_YARN_FRAME_MAX_FILES);
@@ -1133,6 +1136,7 @@ app.get("/health/telemetry", async (req, reply) => {
     },
     stablePrefix: stablePrefixService.getStats(),
     artifactRetrieval: artifactRetrieval.getStats(),
+    knowledgeSearch: knowledgeSearch.getStats(),
     artifactStore: artifactStore.getStats(),
     circuitBreakers: circuitBreakers.getStats(),
     userRateLimiter: userRateLimiter.getStats(),
@@ -1148,6 +1152,8 @@ app.get("/health/telemetry", async (req, reply) => {
       jsonCompaction: config.SYNESIS_YARN_JSON_COMPACTION_ENABLED,
       attentionPositioning: config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED,
       artifactRetrieval: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+      knowledgeSearch: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
+      evidencePrefetch: config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED,
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
       claudeToolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
@@ -1413,6 +1419,39 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
     normalizedRequest.tools = artifactRetrieval.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
+  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
+    normalizedRequest.tools = knowledgeSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
+  }
+
+  if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestUserText) {
+    const userText = typeof latestUserText.content === "string" ? latestUserText.content : "";
+    if (userText.length > 0) {
+      const prefetchResult = await runEvidencePrefetch(
+        userText,
+        knowledgeSearch,
+        config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
+      );
+      if (prefetchResult.matched) {
+        app.log.info({
+          pattern: prefetchResult.pattern,
+          hasEvidence: Boolean(prefetchResult.evidence),
+          timedOut: prefetchResult.timedOut,
+          latencyMs: Math.round(prefetchResult.latencyMs),
+        }, "evidence_prefetch_result");
+      }
+      const evidenceBlock = formatEvidenceBlock(prefetchResult);
+      if (evidenceBlock) {
+        const msgs = normalizedRequest.messages as Array<{ role: string; content: unknown }>;
+        const sysIdx = msgs.findIndex((m) => m.role === "system");
+        if (sysIdx >= 0 && typeof msgs[sysIdx].content === "string") {
+          msgs[sysIdx] = { ...msgs[sysIdx], content: `${msgs[sysIdx].content}\n\n${evidenceBlock}` };
+        } else {
+          msgs.unshift({ role: "system", content: evidenceBlock });
+        }
+        normalizedRequest.messages = msgs as never;
+      }
+    }
+  }
 
   const resolveResult = runOpenAIRequest(normalizedRequest);
   if (!resolveResult.ok) {
@@ -1452,29 +1491,44 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
       });
 
+      const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME]);
       for (let round = 0; round < 3; round++) {
         const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-        const artifactCalls = allCalls.filter((tc) => tc.toolName === ARTIFACT_TOOL_NAME);
-        if (artifactCalls.length === 0) break;
-        const clientCalls = allCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+        const serverCalls = allCalls.filter((tc) => SERVER_SIDE_TOOLS.has(tc.toolName));
+        if (serverCalls.length === 0) break;
+        const clientCalls = allCalls.filter((tc) => !SERVER_SIDE_TOOLS.has(tc.toolName));
 
         const toolResults: Array<{ type: "tool-result"; toolCallId: string; toolName: string; output: { type: "text"; value: string } }> = [];
-        for (const ac of artifactCalls) {
-          const inp = ac.input as { artifact_handle?: string; query?: string };
-          const result = artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
-          toolResults.push({
-            type: "tool-result",
-            toolCallId: ac.toolCallId,
-            toolName: ARTIFACT_TOOL_NAME,
-            output: { type: "text", value: result.content }
-          });
+        for (const ac of serverCalls) {
+          if (ac.toolName === ARTIFACT_TOOL_NAME) {
+            const inp = ac.input as { artifact_handle?: string; query?: string };
+            const result = artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
+            toolResults.push({
+              type: "tool-result",
+              toolCallId: ac.toolCallId,
+              toolName: ARTIFACT_TOOL_NAME,
+              output: { type: "text", value: result.content }
+            });
+          } else if (ac.toolName === KNOWLEDGE_TOOL_NAME) {
+            const inp = ac.input as Record<string, unknown>;
+            const result = await knowledgeSearch.resolve(inp, {
+              orgId: identity.orgId,
+              userId: identity.userId,
+            });
+            toolResults.push({
+              type: "tool-result",
+              toolCallId: ac.toolCallId,
+              toolName: KNOWLEDGE_TOOL_NAME,
+              output: { type: "text", value: JSON.stringify(result) }
+            });
+          }
         }
 
         if (clientCalls.length > 0) break;
 
         const assistantParts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
         if (finalResult.text) assistantParts.push({ type: "text", text: finalResult.text });
-        for (const ac of artifactCalls) {
+        for (const ac of serverCalls) {
           assistantParts.push({ type: "tool-call", toolCallId: ac.toolCallId, toolName: ac.toolName, input: ac.input });
         }
         if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });

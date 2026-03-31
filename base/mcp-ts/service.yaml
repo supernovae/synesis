@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-mcp-ts
+  namespace: synesis-yarn
+  labels:
+    app: synesis-mcp-ts
+spec:
+  selector:
+    app: synesis-mcp-ts
+  ports:
+    - port: 8100
+      targetPort: 8100
+      protocol: TCP
+  type: ClusterIP
