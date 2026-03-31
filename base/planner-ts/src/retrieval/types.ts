@@ -107,6 +107,15 @@ export interface RagResult {
   tags?: string;
   language?: string;
   artifact_kind?: string;
+  corpus_class?: string;
+  constraint_kind?: string;
+  content_profile?: string;
+  scope_tags?: string;
+  constraint_source?: string;
+  constraint_confidence?: number;
+  golden_path_id?: string;
+  novel_pattern?: boolean;
+  novel_trace_level?: string;
 }
 
 /** Authority multipliers applied after reranking (same as Python). */
@@ -134,6 +143,9 @@ export interface KnowledgeSearchRequest {
   tags?: string;
   content_format?: string;
   repo_path?: string;
+  content_profile?: string;
+  constraint_source?: string;
+  golden_path_id?: string;
   caller_org_id?: string;
   caller_tenant_ids?: string[];
   caller_acl_groups?: string[];
@@ -157,6 +169,11 @@ export interface KnowledgeResult {
   constraint_kind: string;
   corpus_class: string;
   scope_tags: string[];
+  content_profile: string;
+  constraint_source: string;
+  constraint_confidence: number;
+  golden_path_id: string;
+  novel_pattern: boolean;
 }
 
 export interface KnowledgeSearchResponse {

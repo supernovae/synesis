@@ -571,6 +571,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
       domain: body?.domain ? String(body.domain) : undefined,
       corpus_class: body?.corpus_class ? String(body.corpus_class) : undefined,
       constraint_kind: body?.constraint_kind ? String(body.constraint_kind) : undefined,
+      content_profile: body?.content_profile ? String(body.content_profile) : undefined,
+      constraint_source: body?.constraint_source ? String(body.constraint_source) : undefined,
+      golden_path_id: body?.golden_path_id ? String(body.golden_path_id) : undefined,
       scope_tags: Array.isArray(body?.scope_tags) ? (body.scope_tags as string[]) : undefined,
       tags: body?.tags ? String(body.tags) : undefined,
       content_format: body?.content_format ? String(body.content_format) : undefined,
@@ -597,6 +600,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
       const mapped: import("./retrieval/types.js").KnowledgeResult[] = results.map((r) => {
         const tagMeta = extractTagMetadataFn(r.tags ?? "");
+        const scopeTagsStr = r.scope_tags ?? "";
+        const scopeFromCol = scopeTagsStr ? scopeTagsStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
         return {
           text: r.text,
           source_url: r.source_url,
@@ -611,9 +616,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
           chunk_summary: r.chunk_summary,
           heading_path: r.heading_path,
           score: r.rerank_score > 0 ? r.rerank_score : r.rrf_score,
-          constraint_kind: tagMeta.constraint_kind,
-          corpus_class: tagMeta.corpus_class,
-          scope_tags: tagMeta.scope_tags,
+          constraint_kind: r.constraint_kind || tagMeta.constraint_kind,
+          corpus_class: r.corpus_class || tagMeta.corpus_class,
+          scope_tags: scopeFromCol.length > 0 ? scopeFromCol : tagMeta.scope_tags,
+          content_profile: r.content_profile || tagMeta.content_profile,
+          constraint_source: r.constraint_source ?? "",
+          constraint_confidence: r.constraint_confidence ?? -1,
+          golden_path_id: r.golden_path_id ?? "",
+          novel_pattern: r.novel_pattern ?? false,
         };
       });
 

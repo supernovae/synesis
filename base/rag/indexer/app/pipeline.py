@@ -167,6 +167,10 @@ def index_parsed_chunk_pairs(
     raw_scope_tags = source_config.get("scope_tags", [])
     if isinstance(raw_scope_tags, list):
         src_scope_tags = [str(x).strip().lower() for x in raw_scope_tags if str(x).strip()]
+    src_constraint_source = str(source_config.get("constraint_source", "") or "").strip().lower()
+    src_golden_path_id = str(source_config.get("golden_path_id", "") or "").strip()
+    src_novel_pattern = bool(source_config.get("novel_pattern", False))
+    src_novel_trace_level = str(source_config.get("novel_trace_level", "none") or "none").strip().lower()
 
     try:
         handler = get_handler(handler_type or "html_document")
@@ -189,7 +193,7 @@ def index_parsed_chunk_pairs(
         )
         src_constraint_kind = ""
 
-    if src_content_profile and src_content_profile not in {"code", "docs", "api_spec", "policy", "architecture", "mixed"}:
+    if src_content_profile and src_content_profile not in {"code", "docs", "api_spec", "policy", "architecture", "mixed", "reference", "procedural", "tutorial"}:
         logger.warning(
             "indexer_invalid_content_profile",
             extra={"source": name, "content_profile": src_content_profile},
@@ -216,6 +220,14 @@ def index_parsed_chunk_pairs(
                 raw_meta_scope = src_meta.get("scope_tags", [])
                 if isinstance(raw_meta_scope, list):
                     src_scope_tags = [str(x).strip().lower() for x in raw_meta_scope if str(x).strip()]
+            if not src_constraint_source:
+                src_constraint_source = str(src_meta.get("constraint_source", "") or "").strip().lower()
+            if not src_golden_path_id:
+                src_golden_path_id = str(src_meta.get("golden_path_id", "") or "").strip()
+            if not src_novel_pattern:
+                src_novel_pattern = bool(src_meta.get("novel_pattern", False))
+            if src_novel_trace_level == "none":
+                src_novel_trace_level = str(src_meta.get("novel_trace_level", "none") or "none").strip().lower()
 
     if src_visibility_scope not in ("global", "org", "tenant", "user", "session"):
         logger.error(
@@ -558,6 +570,14 @@ def index_parsed_chunk_pairs(
                 module_path=module_path,
                 symbol_name=symbol_name,
                 artifact_kind=artifact_kind,
+                corpus_class=src_corpus_class,
+                constraint_kind=src_constraint_kind,
+                content_profile=src_content_profile,
+                scope_tags=",".join(src_scope_tags),
+                constraint_source=src_constraint_source,
+                golden_path_id=src_golden_path_id,
+                novel_pattern=src_novel_pattern,
+                novel_trace_level=src_novel_trace_level,
                 visibility_scope=src_visibility_scope,
                 org_id=src_org_id,
                 tenant_id=src_tenant_id,

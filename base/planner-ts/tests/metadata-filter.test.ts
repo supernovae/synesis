@@ -20,19 +20,34 @@ describe("buildMetadataFilter", () => {
     expect(expr).toBe('artifact_kind == "code"');
   });
 
-  it("builds tags-based corpus_class filter", () => {
+  it("builds equality corpus_class filter (v14)", () => {
     const expr = buildMetadataFilter({ corpus_class: "coder_enriched" });
-    expect(expr).toBe('tags like "%corpus_class:coder_enriched%"');
+    expect(expr).toBe('corpus_class == "coder_enriched"');
   });
 
-  it("builds tags-based constraint_kind filter", () => {
+  it("builds equality constraint_kind filter (v14)", () => {
     const expr = buildMetadataFilter({ constraint_kind: "hard" });
-    expect(expr).toBe('tags like "%ck:hard%"');
+    expect(expr).toBe('constraint_kind == "hard"');
   });
 
-  it("builds scope_tags filters (AND)", () => {
+  it("builds equality content_profile filter (v14)", () => {
+    const expr = buildMetadataFilter({ content_profile: "reference" });
+    expect(expr).toBe('content_profile == "reference"');
+  });
+
+  it("builds equality constraint_source filter (v14)", () => {
+    const expr = buildMetadataFilter({ constraint_source: "typescript-spec" });
+    expect(expr).toBe('constraint_source == "typescript-spec"');
+  });
+
+  it("builds equality golden_path_id filter (v14)", () => {
+    const expr = buildMetadataFilter({ golden_path_id: "backstage/react-template" });
+    expect(expr).toBe('golden_path_id == "backstage/react-template"');
+  });
+
+  it("builds scope_tags filters via like on scope_tags column (v14)", () => {
     const expr = buildMetadataFilter({ scope_tags: ["error-catalog", "linter-rules"] });
-    expect(expr).toBe('tags like "%scope:error-catalog%" and tags like "%scope:linter-rules%"');
+    expect(expr).toBe('scope_tags like "%error-catalog%" and scope_tags like "%linter-rules%"');
   });
 
   it("combines multiple filters with AND", () => {
@@ -40,11 +55,13 @@ describe("buildMetadataFilter", () => {
       language: "rust",
       artifact_kind: "docs",
       constraint_kind: "guiding",
+      content_profile: "reference",
     });
     expect(expr).toContain('language == "rust"');
     expect(expr).toContain('artifact_kind == "docs"');
-    expect(expr).toContain('tags like "%ck:guiding%"');
-    expect(expr.split(" and ")).toHaveLength(3);
+    expect(expr).toContain('constraint_kind == "guiding"');
+    expect(expr).toContain('content_profile == "reference"');
+    expect(expr.split(" and ")).toHaveLength(4);
   });
 
   it("truncates long values", () => {
@@ -56,13 +73,18 @@ describe("buildMetadataFilter", () => {
   it("caps scope_tags at 10", () => {
     const tags = Array.from({ length: 15 }, (_, i) => `tag${i}`);
     const expr = buildMetadataFilter({ scope_tags: tags });
-    const matches = expr.match(/scope:/g) ?? [];
+    const matches = expr.match(/scope_tags like/g) ?? [];
     expect(matches.length).toBe(10);
   });
 
   it("escapes double quotes in values", () => {
     const expr = buildMetadataFilter({ domain: 'test"domain' });
     expect(expr).toBe('domain == "test\\"domain"');
+  });
+
+  it("preserves backward-compat raw tags filter", () => {
+    const expr = buildMetadataFilter({ tags: "my-custom-tag" });
+    expect(expr).toBe('tags like "%my-custom-tag%"');
   });
 });
 

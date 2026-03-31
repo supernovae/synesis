@@ -52,6 +52,14 @@ Version history:
             HITL review event in admin), effective_at_epoch (content date
             for freshness pivots). Completes the ingestion→retrieval→planner
             attribution pipeline for TrustPacketV1/AttributionV1.
+  v13 → v14: Constraint-aware retrieval — promotes corpus_class, constraint_kind,
+            content_profile, scope_tags from packed tags to first-class columns
+            for efficient equality filtering. Adds constraint_source (origin of
+            constraint, e.g. typescript-spec, eslint), constraint_confidence
+            (0.0-1.0 enrichment-time classification confidence), golden_path_id
+            (links to Backstage/Developer Hub golden path template),
+            novel_pattern (bool flag for experimental approaches),
+            novel_trace_level (none/basic/enhanced tracing guidance).
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -80,7 +88,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -130,6 +138,16 @@ EXPECTED_FIELDS = frozenset(
         "scan_signals",
         "review_trace_id",
         "effective_at_epoch",
+        # v14 — constraint-aware retrieval (promoted from packed tags)
+        "corpus_class",
+        "constraint_kind",
+        "content_profile",
+        "scope_tags",
+        "constraint_source",
+        "constraint_confidence",
+        "golden_path_id",
+        "novel_pattern",
+        "novel_trace_level",
         # v9 — semantic ingestion / MCP filters
         "content_type",
         "quality_score",
@@ -209,6 +227,16 @@ CATALOG_FIELDS = [
     FieldSchema(name="scan_signals", dtype=DataType.VARCHAR, max_length=1024),
     FieldSchema(name="review_trace_id", dtype=DataType.VARCHAR, max_length=128),
     FieldSchema(name="effective_at_epoch", dtype=DataType.INT64),
+    # v14 — constraint-aware retrieval (promoted from packed tags + new fields)
+    FieldSchema(name="corpus_class", dtype=DataType.VARCHAR, max_length=32),
+    FieldSchema(name="constraint_kind", dtype=DataType.VARCHAR, max_length=16),
+    FieldSchema(name="content_profile", dtype=DataType.VARCHAR, max_length=32),
+    FieldSchema(name="scope_tags", dtype=DataType.VARCHAR, max_length=256),
+    FieldSchema(name="constraint_source", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="constraint_confidence", dtype=DataType.FLOAT),
+    FieldSchema(name="golden_path_id", dtype=DataType.VARCHAR, max_length=128),
+    FieldSchema(name="novel_pattern", dtype=DataType.BOOL),
+    FieldSchema(name="novel_trace_level", dtype=DataType.VARCHAR, max_length=16),
     # v9 — semantic ingestion (gatekeeper + future preprocess/batch jobs)
     FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
     FieldSchema(name="quality_score", dtype=DataType.FLOAT),
@@ -401,6 +429,16 @@ def catalog_entity(
     scan_signals: str = "",
     review_trace_id: str = "",
     effective_at_epoch: int = 0,
+    # v14 — constraint-aware retrieval
+    corpus_class: str = "",
+    constraint_kind: str = "",
+    content_profile: str = "",
+    scope_tags: str = "",
+    constraint_source: str = "",
+    constraint_confidence: float = -1.0,
+    golden_path_id: str = "",
+    novel_pattern: bool = False,
+    novel_trace_level: str = "none",
     # v9
     content_type: str = "",
     quality_score: float = -1.0,
@@ -461,6 +499,15 @@ def catalog_entity(
         "scan_signals": _trunc_bytes(scan_signals or "", 1024),
         "review_trace_id": _trunc_bytes(review_trace_id or "", 128),
         "effective_at_epoch": int(effective_at_epoch),
+        "corpus_class": (corpus_class or "")[:32],
+        "constraint_kind": (constraint_kind or "")[:16],
+        "content_profile": (content_profile or "")[:32],
+        "scope_tags": _trunc_bytes(scope_tags or "", 256),
+        "constraint_source": (constraint_source or "")[:64],
+        "constraint_confidence": float(constraint_confidence),
+        "golden_path_id": _trunc_bytes(golden_path_id or "", 128),
+        "novel_pattern": bool(novel_pattern),
+        "novel_trace_level": (novel_trace_level or "none")[:16],
         "content_type": _trunc_bytes(content_type or "", 64),
         "quality_score": float(quality_score),
         "technical_depth": float(technical_depth),

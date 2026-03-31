@@ -41,6 +41,18 @@ const KNOWLEDGE_PARAMETERS = {
       description: "Filter by constraint trust level: hard (specs/compiler), guiding (best practice), advisory (community)",
       enum: ["hard", "guiding", "advisory"],
     },
+    content_profile: {
+      type: "string",
+      description: "Content profile: reference, procedural, tutorial, api_spec, architecture, policy",
+    },
+    constraint_source: {
+      type: "string",
+      description: "Source of constraint (e.g. typescript-spec, eslint, ruff)",
+    },
+    golden_path_id: {
+      type: "string",
+      description: "Backstage/Developer Hub golden path template ID",
+    },
     top_k: {
       type: "integer",
       description: "Number of results to return (default 5, max 20)",
@@ -77,6 +89,11 @@ export interface KnowledgeSearchResult {
     language: string;
     context_prefix: string;
     chunk_summary: string;
+    content_profile: string;
+    constraint_source: string;
+    constraint_confidence: number;
+    golden_path_id: string;
+    novel_pattern: boolean;
   }>;
   query: string;
   total: number;

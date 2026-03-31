@@ -36,6 +36,9 @@ const OUTPUT_FIELDS = [
   "scan_status", "scan_signals", "approval_status", "review_trace_id",
   "raw_content_hash", "crawl_timestamp", "effective_at_epoch",
   "tags", "language", "artifact_kind",
+  "corpus_class", "constraint_kind", "content_profile", "scope_tags",
+  "constraint_source", "constraint_confidence", "golden_path_id",
+  "novel_pattern", "novel_trace_level",
 ];
 
 interface MilvusSearchResponse {
@@ -176,6 +179,15 @@ function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagRe
     tags: String(row.tags ?? ""),
     language: String(row.language ?? ""),
     artifact_kind: String(row.artifact_kind ?? ""),
+    corpus_class: String(row.corpus_class ?? ""),
+    constraint_kind: String(row.constraint_kind ?? ""),
+    content_profile: String(row.content_profile ?? ""),
+    scope_tags: String(row.scope_tags ?? ""),
+    constraint_source: String(row.constraint_source ?? ""),
+    constraint_confidence: Number(row.constraint_confidence ?? -1),
+    golden_path_id: String(row.golden_path_id ?? ""),
+    novel_pattern: row.novel_pattern === true || row.novel_pattern === "true",
+    novel_trace_level: String(row.novel_trace_level ?? "none"),
   };
 }
 

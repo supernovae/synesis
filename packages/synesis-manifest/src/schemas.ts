@@ -28,7 +28,7 @@ export type Complexity = z.infer<typeof Complexity>;
 export const ManifestSource = z.enum(["target", "observed", "compared"]);
 export type ManifestSource = z.infer<typeof ManifestSource>;
 
-export const TaskPhase = z.enum(["plan", "implement", "validate", "repair"]);
+export const TaskPhase = z.enum(["explore", "plan", "implement", "validate", "repair"]);
 export type TaskPhase = z.infer<typeof TaskPhase>;
 
 export const TaskType = z.enum([

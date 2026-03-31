@@ -268,11 +268,15 @@ export async function runEvidencePrefetch(
   });
 }
 
+const HIGH_FIDELITY_PROFILES = new Set(["reference", "api_spec", "architecture", "policy"]);
+
 /**
  * Compute a confidence score for evidence results based on:
  * - Number of results returned (more = higher, up to 3)
  * - Best result score (higher = better)
  * - Constraint kind (hard patterns contribute more confidence)
+ * - Content profile (reference/api_spec/architecture/policy boost)
+ * - Constraint confidence from enrichment (if positive)
  */
 export function computeEvidenceConfidence(
   result: KnowledgeSearchResult,
@@ -286,7 +290,24 @@ export function computeEvidenceConfidence(
   const scoreFactor = Math.min(bestScore, 1.0);
   const constraintBoost = constraintKind === "hard" ? 0.15 : 0;
 
-  return Math.min(1.0, countFactor * 0.3 + scoreFactor * 0.55 + constraintBoost);
+  let profileBoost = 0;
+  for (const r of results) {
+    if (HIGH_FIDELITY_PROFILES.has(r.content_profile ?? "")) {
+      profileBoost = 0.05;
+      break;
+    }
+  }
+
+  let enrichmentBoost = 0;
+  for (const r of results) {
+    const cc = r.constraint_confidence ?? -1;
+    if (cc > 0.7) {
+      enrichmentBoost = 0.05;
+      break;
+    }
+  }
+
+  return Math.min(1.0, countFactor * 0.3 + scoreFactor * 0.45 + constraintBoost + profileBoost + enrichmentBoost);
 }
 
 /**
@@ -307,7 +328,8 @@ export function formatEvidenceBlock(result: FastPathResult): string | null {
   const lines = [`<synesis_evidence ${attrs.join(" ")}>`];
 
   for (const item of result.evidence.results.slice(0, 3)) {
-    lines.push(`[${item.authority}] ${item.document_name || item.source_url}`);
+    const profileTag = item.content_profile ? ` (${item.content_profile})` : "";
+    lines.push(`[${item.authority}${profileTag}] ${item.document_name || item.source_url}`);
     if (item.chunk_summary) {
       lines.push(item.chunk_summary);
     } else {

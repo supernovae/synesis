@@ -2,15 +2,10 @@
  * Metadata filter builder for knowledge search endpoint.
  *
  * Constructs Milvus boolean filter expressions from structured metadata
- * parameters (language, artifact_kind, domain, corpus_class, constraint_kind,
- * scope_tags, tags, content_format, repo_path). Composes with the existing
- * scope/ACL filter from scope-filter.ts.
- *
- * Tag-prefixed values use Milvus `like` expressions against the `tags` VARCHAR:
- *   corpus_class  -> tags like "%corpus_class:{value}%"
- *   constraint_kind -> tags like "%ck:{value}%"
- *   scope_tags    -> tags like "%scope:{tag}%" (AND for each)
- *   raw tags      -> tags like "%{value}%"
+ * parameters. With schema v14, corpus_class, constraint_kind, content_profile,
+ * and scope_tags are first-class columns with equality/like filters.
+ * The tags column remains for backward compatibility with pre-v14 data;
+ * extractTagMetadata parses it as a fallback.
  */
 
 import { buildScopeFilter } from "./scope-filter.js";
@@ -22,6 +17,9 @@ export interface MetadataFilterParams {
   domain?: string;
   corpus_class?: string;
   constraint_kind?: string;
+  content_profile?: string;
+  constraint_source?: string;
+  golden_path_id?: string;
   scope_tags?: string[];
   tags?: string;
   content_format?: string;
@@ -55,17 +53,27 @@ export function buildMetadataFilter(params: MetadataFilterParams): string {
     clauses.push(`repo_path == "${sanitize(params.repo_path, 256)}"`);
   }
 
+  // v14 first-class columns (equality filters, indexed)
   if (params.corpus_class) {
-    clauses.push(`tags like "%corpus_class:${sanitize(params.corpus_class, 32)}%"`);
+    clauses.push(`corpus_class == "${sanitize(params.corpus_class, 32)}"`);
   }
   if (params.constraint_kind) {
-    clauses.push(`tags like "%ck:${sanitize(params.constraint_kind, 16)}%"`);
+    clauses.push(`constraint_kind == "${sanitize(params.constraint_kind, 16)}"`);
+  }
+  if (params.content_profile) {
+    clauses.push(`content_profile == "${sanitize(params.content_profile, 32)}"`);
+  }
+  if (params.constraint_source) {
+    clauses.push(`constraint_source == "${sanitize(params.constraint_source, 64)}"`);
+  }
+  if (params.golden_path_id) {
+    clauses.push(`golden_path_id == "${sanitize(params.golden_path_id, 128)}"`);
   }
   if (params.scope_tags?.length) {
     for (const tag of params.scope_tags.slice(0, 10)) {
       const safe = sanitize(tag, 64);
       if (safe) {
-        clauses.push(`tags like "%scope:${safe}%"`);
+        clauses.push(`scope_tags like "%${safe}%"`);
       }
     }
   }
@@ -93,9 +101,10 @@ export function buildCombinedFilter(
 }
 
 /**
- * Extract structured metadata from a Milvus tags string.
+ * Extract structured metadata from a Milvus tags string (backward compat).
  * Tags are comma-separated; prefixed entries like "corpus_class:X",
  * "ck:X", "scope:X", "content_profile:X" are parsed into typed fields.
+ * With v14, prefer the first-class columns over these tag-parsed values.
  */
 export function extractTagMetadata(tags: string): {
   corpus_class: string;

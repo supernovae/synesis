@@ -42,7 +42,7 @@ import { buildVerificationPlan, formatVerificationPlanBlock } from "./verificati
 import { VerificationLoopTracker } from "./verification/loop-tracker.js";
 import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
-import { PhaseModelOrchestrator } from "./orchestration/phase-model-orchestrator.js";
+import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
 import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
@@ -222,12 +222,20 @@ const stablePrefixService = new StablePrefixService();
 const attentionPositioning = new AttentionPositioningService();
 const sessionContinuity = new SessionContinuityService();
 
+interface EnrichResult {
+  messages: Array<{ role: string; content: unknown }>;
+  workingPhase?: WorkflowPhase;
+  workingFrameGoal?: string;
+}
+
 function enrichWithFrameAndManifest(
   messages: Array<{ role: string; content: unknown }>,
   sessionKey: string,
   adapterBlock?: string
-): Array<{ role: string; content: unknown }> {
+): EnrichResult {
   const out = [...messages];
+  let detectedPhase: WorkflowPhase | undefined;
+  let detectedGoal: string | undefined;
 
   const systemPrefix = config.SYNESIS_YARN_STABLE_PREFIX_ENABLED
     ? stablePrefixService.partition(sessionKey, adapterBlock).stablePrefix
@@ -244,6 +252,8 @@ function enrichWithFrameAndManifest(
 
       if (complexityResult.complexity === "tiny" || complexityResult.complexity === "small") {
         const frame = workingFrameService.build(out);
+        detectedPhase = phaseFromFrame(frame.currentPhase);
+        detectedGoal = frame.goal;
         volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
       } else {
         const template = manifestGetTemplate(classification.projectKind);
@@ -270,10 +280,17 @@ function enrichWithFrameAndManifest(
         }
 
         const richFrame = workingFrameService.buildRich(out, manifestCtx);
+        detectedPhase = richFrame.phase === "plan" ? "planning"
+          : richFrame.phase === "validate" ? "validation"
+          : richFrame.phase === "explore" ? "explore"
+          : "implementation";
+        detectedGoal = richFrame.currentGoal;
         volatileBlocks.push({ role: "system", content: workingFrameService.toRichSystemBlock(richFrame) });
       }
     } else {
       const frame = workingFrameService.build(out);
+      detectedPhase = phaseFromFrame(frame.currentPhase);
+      detectedGoal = frame.goal;
       volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
     }
   }
@@ -305,9 +322,17 @@ function enrichWithFrameAndManifest(
     ...out
   ];
 
-  return config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED
+  const finalMessages = config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED
     ? attentionPositioning.position(enriched).messages
     : enriched;
+  return { messages: finalMessages, workingPhase: detectedPhase, workingFrameGoal: detectedGoal };
+}
+
+function phaseFromFrame(currentPhase: "explore" | "planning" | "implementation" | "validation"): WorkflowPhase {
+  if (currentPhase === "explore") return "explore";
+  if (currentPhase === "planning") return "planning";
+  if (currentPhase === "validation") return "validation";
+  return "implementation";
 }
 
 const FILE_RE_GLOBAL = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
@@ -1483,6 +1508,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiRecallDecision = toolResultReduction.getLastRecallDecision();
   const oaiVerifState = toolResultReduction.getVerificationTracker().getState();
 
+  const oaiPreFrame = config.SYNESIS_YARN_WORKING_FRAME_ENABLED
+    ? workingFrameService.build(normalizedOpenAI.messages as never)
+    : undefined;
+  const oaiWorkingPhase: WorkflowPhase | undefined = oaiPreFrame ? phaseFromFrame(oaiPreFrame.currentPhase) : undefined;
+  const oaiWorkingFrameGoal: string | undefined = oaiPreFrame?.goal;
+
   let oaiPrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
   if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestUserText) {
     const prefetchText = typeof latestUserText.content === "string" ? latestUserText.content : "";
@@ -1506,6 +1537,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const orchestration = phaseOrchestrator.decide({
     requestedModel: request.model,
     latestUserText: String(latestUserText?.content ?? ""),
+    workingPhase: oaiWorkingPhase,
     riskProfile: preManifest.riskProfile,
     decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
     evidence: {
@@ -1597,7 +1629,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
   }
-  let oaiEnrichedMsgs = enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as Array<{ role: string; content: unknown }>;
+  let oaiEnrichedMsgs = enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock).messages as Array<{ role: string; content: unknown }>;
 
   let oaiSensemakingResult: SensemakingResult | undefined;
   if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
@@ -1612,7 +1644,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
       languages: preManifest.languages ?? [],
       userText: String(latestUserText?.content ?? ""),
-      workingFrameGoal: undefined,
+      workingFrameGoal: oaiWorkingFrameGoal,
     };
     const gaps = analyzeGaps(gapCtx);
     const trigger = shouldTriggerSensemaking(gaps, orchestration, session.record.consecutiveFailedVerifications, config.SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD);
@@ -2159,6 +2191,12 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeRecallDecision = toolResultReduction.getLastRecallDecision();
   const claudeVerifState = toolResultReduction.getVerificationTracker().getState();
 
+  const claudePreFrame = config.SYNESIS_YARN_WORKING_FRAME_ENABLED
+    ? workingFrameService.build(normalizedFromClaude.messages as never)
+    : undefined;
+  const claudeWorkingPhase: WorkflowPhase | undefined = claudePreFrame ? phaseFromFrame(claudePreFrame.currentPhase) : undefined;
+  const claudeWorkingFrameGoal: string | undefined = claudePreFrame?.goal;
+
   let claudePrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
   if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestClaudeUser) {
     const claudePrefetchText = typeof latestClaudeUser.content === "string" ? latestClaudeUser.content : "";
@@ -2182,6 +2220,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeOrchestration = phaseOrchestrator.decide({
     requestedModel: body.model,
     latestUserText: String(latestClaudeUser?.content ?? ""),
+    workingPhase: claudeWorkingPhase,
     riskProfile: claudeManifest.riskProfile,
     decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
     evidence: {
@@ -2280,7 +2319,7 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
 
-  let enrichedClaudeMsgs = enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock) as Array<{ role: string; content: unknown }>;
+  let enrichedClaudeMsgs = enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock).messages as Array<{ role: string; content: unknown }>;
 
   let claudeSensemakingResult: SensemakingResult | undefined;
   if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
@@ -2295,7 +2334,7 @@ app.post("/v1/messages", async (req, reply) => {
       consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
       languages: claudeManifest.languages ?? [],
       userText: String(latestClaudeUser?.content ?? ""),
-      workingFrameGoal: undefined,
+      workingFrameGoal: claudeWorkingFrameGoal,
     };
     const claudeGaps = analyzeGaps(claudeGapCtx);
     const claudeTrigger = shouldTriggerSensemaking(claudeGaps, claudeOrchestration, session.record.consecutiveFailedVerifications, config.SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD);

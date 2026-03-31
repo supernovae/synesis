@@ -12,7 +12,7 @@ from ..milvus_utils import with_retry
 
 logger = logging.getLogger("synesis.admin.milvus")
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[str, Any]:
@@ -70,6 +70,16 @@ def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[st
         FieldSchema(name="scan_signals", dtype=DataType.VARCHAR, max_length=1024),
         FieldSchema(name="review_trace_id", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="effective_at_epoch", dtype=DataType.INT64),
+        # v14 — constraint-aware retrieval (promoted from packed tags + new fields)
+        FieldSchema(name="corpus_class", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="constraint_kind", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="content_profile", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="scope_tags", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="constraint_source", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="constraint_confidence", dtype=DataType.FLOAT),
+        FieldSchema(name="golden_path_id", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="novel_pattern", dtype=DataType.BOOL),
+        FieldSchema(name="novel_trace_level", dtype=DataType.VARCHAR, max_length=16),
         FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="quality_score", dtype=DataType.FLOAT),
         FieldSchema(name="technical_depth", dtype=DataType.FLOAT),

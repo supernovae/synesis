@@ -78,6 +78,15 @@ function buildSearchBody(
   const repoPath = optionalString(args.repo_path);
   if (repoPath !== undefined) body.repo_path = repoPath;
 
+  const contentProfile = optionalString(args.content_profile);
+  if (contentProfile !== undefined) body.content_profile = contentProfile;
+
+  const constraintSource = optionalString(args.constraint_source);
+  if (constraintSource !== undefined) body.constraint_source = constraintSource;
+
+  const goldenPathId = optionalString(args.golden_path_id);
+  if (goldenPathId !== undefined) body.golden_path_id = goldenPathId;
+
   if (caller?.org_id) body.caller_org_id = caller.org_id;
   if (caller?.tenant_ids?.length) body.caller_tenant_ids = [...caller.tenant_ids];
   if (caller?.acl_groups?.length) body.caller_acl_groups = [...caller.acl_groups];
@@ -168,6 +177,18 @@ const searchInputSchema: Record<string, unknown> = {
     tags: { type: "string", description: "Tag substring filter" },
     content_format: { type: "string", description: "Content format (e.g. yaml, json)" },
     repo_path: { type: "string", description: "Repository path filter" },
+    content_profile: {
+      type: "string",
+      description: "Content profile filter: reference, procedural, tutorial, api_spec, architecture, policy",
+    },
+    constraint_source: {
+      type: "string",
+      description: "Source of constraint classification (e.g. typescript-spec, eslint, ruff)",
+    },
+    golden_path_id: {
+      type: "string",
+      description: "Filter by Backstage/Developer Hub golden path template ID",
+    },
   },
   required: ["query"],
 };

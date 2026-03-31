@@ -15,7 +15,7 @@ export interface WorkingFrame {
   goal: string;
   constraints: string[];
   activeFiles: string[];
-  currentPhase: "planning" | "implementation" | "validation";
+  currentPhase: "explore" | "planning" | "implementation" | "validation";
   pendingChecks: string[];
   openDecisions: string[];
 }
@@ -88,8 +88,9 @@ export class WorkingFrameService {
     );
 
     let currentPhase: WorkingFrame["currentPhase"] = "implementation";
-    if (/\b(plan|roadmap|design)\b/i.test(latestUser)) currentPhase = "planning";
-    if (/\b(test|verify|validate|check)\b/i.test(latestUser)) currentPhase = "validation";
+    if (/\b(explore|discover|research|investigate|understand)\b/i.test(latestUser)) currentPhase = "explore";
+    else if (/\b(plan|roadmap|design)\b/i.test(latestUser)) currentPhase = "planning";
+    else if (/\b(test|verify|validate|check)\b/i.test(latestUser)) currentPhase = "validation";
 
     const goal = (latestUser.split("\n").find((s) => s.trim()) ?? "Complete the current coding task.").trim();
     const frame: WorkingFrame = {
@@ -145,7 +146,8 @@ export class WorkingFrameService {
       doneCriteria.push("Task completed successfully");
     }
 
-    const phase = base.currentPhase === "planning" ? "plan" as const
+    const phase = base.currentPhase === "explore" ? "explore" as const
+      : base.currentPhase === "planning" ? "plan" as const
       : base.currentPhase === "validation" ? "validate" as const
       : "implement" as const;
 
