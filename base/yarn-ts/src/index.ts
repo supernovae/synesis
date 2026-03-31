@@ -29,7 +29,7 @@ import { ValidationNormalizationService } from "./validation/service.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
-import { runEvidencePrefetch, formatEvidenceBlock } from "./evidence/fast-path.js";
+import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats } from "./evidence/fast-path.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
@@ -101,6 +101,7 @@ interface RequestDiagnostic {
   totalInputChars: number;
   toolDefinitionCount: number;
   artifactToolInjected: boolean;
+  knowledgeToolInjected: boolean;
   reducedToolResults: number;
   finishReason: string;
   tokensIn: number;
@@ -116,6 +117,9 @@ interface RequestDiagnostic {
   decisionEscalated?: boolean;
   sensemakingTriggered?: boolean;
   sensemakingReason?: string;
+  evidencePrefetchHit?: boolean;
+  evidencePrefetchConfidence?: number;
+  evidencePrefetchMs?: number;
   requestId?: string;
 }
 
@@ -1282,6 +1286,7 @@ app.get("/health/telemetry", async (req, reply) => {
     stablePrefix: stablePrefixService.getStats(),
     artifactRetrieval: artifactRetrieval.getStats(),
     knowledgeSearch: knowledgeSearch.getStats(),
+    evidencePrefetch: getEvidencePrefetchStats(),
     artifactStore: artifactStore.getStats(),
     circuitBreakers: circuitBreakers.getStats(),
     userRateLimiter: userRateLimiter.getStats(),
@@ -1477,6 +1482,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const oaiRecallDecision = toolResultReduction.getLastRecallDecision();
   const oaiVerifState = toolResultReduction.getVerificationTracker().getState();
+
+  let oaiPrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
+  if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestUserText) {
+    const prefetchText = typeof latestUserText.content === "string" ? latestUserText.content : "";
+    if (prefetchText.length > 0) {
+      oaiPrefetchResult = await runEvidencePrefetch(
+        prefetchText, knowledgeSearch,
+        config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
+        config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
+        { retryEnabled: config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED },
+      );
+      if (oaiPrefetchResult.matched) {
+        app.log.info({
+          pattern: oaiPrefetchResult.pattern, hasEvidence: Boolean(oaiPrefetchResult.evidence),
+          timedOut: oaiPrefetchResult.timedOut, latencyMs: Math.round(oaiPrefetchResult.latencyMs),
+          confidence: oaiPrefetchResult.confidence, authoritative: oaiPrefetchResult.authoritative,
+        }, "evidence_prefetch_result");
+      }
+    }
+  }
+
   const orchestration = phaseOrchestrator.decide({
     requestedModel: request.model,
     latestUserText: String(latestUserText?.content ?? ""),
@@ -1485,6 +1511,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     evidence: {
       recallConfidence: oaiRecallDecision?.resolution?.confidence,
       recallRouting: oaiRecallDecision?.routing,
+      evidenceConfidence: oaiPrefetchResult?.confidence,
+      evidenceAuthoritative: oaiPrefetchResult?.authoritative,
       verificationRound: oaiVerifState.round > 0 ? oaiVerifState.round : undefined,
       verificationStalled: oaiVerifState.stalled || undefined,
       consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
@@ -1576,9 +1604,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const gapCtx: GapAnalysisContext = {
       recallDecision: oaiRecallDecision,
       verificationState: oaiVerifState,
-      evidenceConfidence: undefined,
-      evidenceAuthoritative: undefined,
-      evidencePrefetched: undefined,
+      evidenceConfidence: oaiPrefetchResult?.confidence,
+      evidenceAuthoritative: oaiPrefetchResult?.authoritative,
+      evidencePrefetched: oaiPrefetchResult?.matched,
       phase: orchestration.phase,
       decisionPath: orchestration.decisionPath,
       consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
@@ -1668,36 +1696,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedRequest.tools = knowledgeSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
 
-  if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestUserText) {
-    const userText = typeof latestUserText.content === "string" ? latestUserText.content : "";
-    if (userText.length > 0) {
-      const prefetchResult = await runEvidencePrefetch(
-        userText,
-        knowledgeSearch,
-        config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
-        config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
-      );
-      if (prefetchResult.matched) {
-        app.log.info({
-          pattern: prefetchResult.pattern,
-          hasEvidence: Boolean(prefetchResult.evidence),
-          timedOut: prefetchResult.timedOut,
-          latencyMs: Math.round(prefetchResult.latencyMs),
-          confidence: prefetchResult.confidence,
-          authoritative: prefetchResult.authoritative,
-        }, "evidence_prefetch_result");
+  if (oaiPrefetchResult) {
+    const evidenceBlock = formatEvidenceBlock(oaiPrefetchResult);
+    if (evidenceBlock) {
+      const msgs = normalizedRequest.messages as Array<{ role: string; content: unknown }>;
+      const sysIdx = msgs.findIndex((m) => m.role === "system");
+      if (sysIdx >= 0 && typeof msgs[sysIdx].content === "string") {
+        msgs[sysIdx] = { ...msgs[sysIdx], content: `${msgs[sysIdx].content}\n\n${evidenceBlock}` };
+      } else {
+        msgs.unshift({ role: "system", content: evidenceBlock });
       }
-      const evidenceBlock = formatEvidenceBlock(prefetchResult);
-      if (evidenceBlock) {
-        const msgs = normalizedRequest.messages as Array<{ role: string; content: unknown }>;
-        const sysIdx = msgs.findIndex((m) => m.role === "system");
-        if (sysIdx >= 0 && typeof msgs[sysIdx].content === "string") {
-          msgs[sysIdx] = { ...msgs[sysIdx], content: `${msgs[sysIdx].content}\n\n${evidenceBlock}` };
-        } else {
-          msgs.unshift({ role: "system", content: evidenceBlock });
-        }
-        normalizedRequest.messages = msgs as never;
-      }
+      normalizedRequest.messages = msgs as never;
     }
   }
 
@@ -1823,6 +1832,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       policyMatchedRules: policyPrecheck.matchedRules,
       reducedToolResults: reducedOpenAI.reducedCount,
       tokensSavedByReduction: oaiSaved,
+      evidencePrefetched: oaiPrefetchResult?.matched,
+      evidenceConfidence: oaiPrefetchResult?.confidence,
+      evidenceAuthoritative: oaiPrefetchResult?.authoritative,
+      evidencePrefetchLatencyMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
       isStreaming: false,
       sensemakingTriggered: oaiSensemakingResult?.triggered,
       sensemakingReason: oaiSensemakingResult?.reason,
@@ -1837,6 +1850,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...msgCounts,
       toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+      knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
       reducedToolResults: reducedOpenAI.reducedCount,
       finishReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
       policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiLatency,
@@ -1849,6 +1863,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       decisionEscalated: orchestration.escalated || undefined,
       sensemakingTriggered: oaiSensemakingResult?.triggered || undefined,
       sensemakingReason: oaiSensemakingResult?.reason,
+      evidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
+      evidencePrefetchConfidence: oaiPrefetchResult?.confidence || undefined,
+      evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
@@ -1998,6 +2015,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     policyMatchedRules: policyPrecheck.matchedRules,
     reducedToolResults: reducedOpenAI.reducedCount,
     tokensSavedByReduction: oaiStreamSaved,
+    evidencePrefetched: oaiPrefetchResult?.matched,
+    evidenceConfidence: oaiPrefetchResult?.confidence,
+    evidenceAuthoritative: oaiPrefetchResult?.authoritative,
+    evidencePrefetchLatencyMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
     isStreaming: true,
     sensemakingTriggered: oaiSensemakingResult?.triggered,
     sensemakingReason: oaiSensemakingResult?.reason,
@@ -2011,6 +2032,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ...oaiStreamMsgCounts,
     toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
     artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+    knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
     reducedToolResults: reducedOpenAI.reducedCount,
     finishReason, tokensIn: oaiStreamUsage.inputTokens, tokensOut: oaiStreamUsage.outputTokens,
     policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiStreamLatency,
@@ -2023,6 +2045,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     decisionEscalated: orchestration.escalated || undefined,
     sensemakingTriggered: oaiSensemakingResult?.triggered || undefined,
     sensemakingReason: oaiSensemakingResult?.reason,
+    evidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
+    evidencePrefetchConfidence: oaiPrefetchResult?.confidence || undefined,
+    evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
   });
   return reply;
 });
@@ -2133,6 +2158,27 @@ app.post("/v1/messages", async (req, reply) => {
 
   const claudeRecallDecision = toolResultReduction.getLastRecallDecision();
   const claudeVerifState = toolResultReduction.getVerificationTracker().getState();
+
+  let claudePrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
+  if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestClaudeUser) {
+    const claudePrefetchText = typeof latestClaudeUser.content === "string" ? latestClaudeUser.content : "";
+    if (claudePrefetchText.length > 0) {
+      claudePrefetchResult = await runEvidencePrefetch(
+        claudePrefetchText, knowledgeSearch,
+        config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
+        config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
+        { retryEnabled: config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED },
+      );
+      if (claudePrefetchResult.matched) {
+        app.log.info({
+          pattern: claudePrefetchResult.pattern, hasEvidence: Boolean(claudePrefetchResult.evidence),
+          timedOut: claudePrefetchResult.timedOut, latencyMs: Math.round(claudePrefetchResult.latencyMs),
+          confidence: claudePrefetchResult.confidence, authoritative: claudePrefetchResult.authoritative,
+        }, "evidence_prefetch_result_claude");
+      }
+    }
+  }
+
   const claudeOrchestration = phaseOrchestrator.decide({
     requestedModel: body.model,
     latestUserText: String(latestClaudeUser?.content ?? ""),
@@ -2141,6 +2187,8 @@ app.post("/v1/messages", async (req, reply) => {
     evidence: {
       recallConfidence: claudeRecallDecision?.resolution?.confidence,
       recallRouting: claudeRecallDecision?.routing,
+      evidenceConfidence: claudePrefetchResult?.confidence,
+      evidenceAuthoritative: claudePrefetchResult?.authoritative,
       verificationRound: claudeVerifState.round > 0 ? claudeVerifState.round : undefined,
       verificationStalled: claudeVerifState.stalled || undefined,
       consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
@@ -2239,9 +2287,9 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeGapCtx: GapAnalysisContext = {
       recallDecision: claudeRecallDecision,
       verificationState: claudeVerifState,
-      evidenceConfidence: undefined,
-      evidenceAuthoritative: undefined,
-      evidencePrefetched: undefined,
+      evidenceConfidence: claudePrefetchResult?.confidence,
+      evidenceAuthoritative: claudePrefetchResult?.authoritative,
+      evidencePrefetched: claudePrefetchResult?.matched,
       phase: claudeOrchestration.phase,
       decisionPath: claudeOrchestration.decisionPath,
       consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
@@ -2327,8 +2375,25 @@ app.post("/v1/messages", async (req, reply) => {
     session
   ) as never;
 
+  if (claudePrefetchResult) {
+    const claudeEvidenceBlock = formatEvidenceBlock(claudePrefetchResult);
+    if (claudeEvidenceBlock) {
+      const claudeMsgs = openAIShape.messages as Array<{ role: string; content: unknown }>;
+      const claudeSysIdx = claudeMsgs.findIndex((m) => m.role === "system");
+      if (claudeSysIdx >= 0 && typeof claudeMsgs[claudeSysIdx].content === "string") {
+        claudeMsgs[claudeSysIdx] = { ...claudeMsgs[claudeSysIdx], content: `${claudeMsgs[claudeSysIdx].content}\n\n${claudeEvidenceBlock}` };
+      } else {
+        claudeMsgs.unshift({ role: "system", content: claudeEvidenceBlock });
+      }
+      openAIShape.messages = claudeMsgs as never;
+    }
+  }
+
   if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
     openAIShape.tools = artifactRetrieval.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
+  }
+  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
+    openAIShape.tools = knowledgeSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
   }
 
   const claudeResolveResult = runOpenAIRequest(openAIShape);
@@ -2427,7 +2492,7 @@ app.post("/v1/messages", async (req, reply) => {
           blockIdx++;
         } else if (part.type === "tool-input-start") {
           const tc = part as unknown as { toolCallId?: string; toolName?: string };
-          if (tc.toolName === ARTIFACT_TOOL_NAME) {
+          if (tc.toolName === ARTIFACT_TOOL_NAME || tc.toolName === KNOWLEDGE_TOOL_NAME) {
             pendingClaudeToolIds.add(tc.toolCallId ?? "");
             continue;
           }
@@ -2452,7 +2517,7 @@ app.post("/v1/messages", async (req, reply) => {
           }
         } else if (part.type === "tool-call") {
           const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
-          if (tcFull.toolName === ARTIFACT_TOOL_NAME) continue;
+          if (tcFull.toolName === ARTIFACT_TOOL_NAME || tcFull.toolName === KNOWLEDGE_TOOL_NAME) continue;
           const buf = claudeToolBuffer.get(tcFull.toolCallId ?? "");
           let finalInput = (tcFull.input ?? {}) as Record<string, unknown>;
           let wasRemapped = false;
@@ -2568,6 +2633,10 @@ app.post("/v1/messages", async (req, reply) => {
       policyMatchedRules: claudePolicyPrecheck.matchedRules,
       reducedToolResults: claudeToolResultCount,
       tokensSavedByReduction: claudeStreamSaved,
+      evidencePrefetched: claudePrefetchResult?.matched,
+      evidenceConfidence: claudePrefetchResult?.confidence,
+      evidenceAuthoritative: claudePrefetchResult?.authoritative,
+      evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
       isStreaming: true,
       sensemakingTriggered: claudeSensemakingResult?.triggered,
       sensemakingReason: claudeSensemakingResult?.reason,
@@ -2581,6 +2650,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...claudeStreamMsgCounts,
       toolDefinitionCount: (body.tools as unknown[] ?? []).length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+      knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
       reducedToolResults: claudeToolResultCount,
       finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
       policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeStreamLatency,
@@ -2593,6 +2663,9 @@ app.post("/v1/messages", async (req, reply) => {
       decisionEscalated: claudeOrchestration.escalated || undefined,
       sensemakingTriggered: claudeSensemakingResult?.triggered || undefined,
       sensemakingReason: claudeSensemakingResult?.reason,
+      evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0 || undefined,
+      evidencePrefetchConfidence: claudePrefetchResult?.confidence || undefined,
+      evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
     });
     return reply;
   }
@@ -2644,7 +2717,18 @@ app.post("/v1/messages", async (req, reply) => {
     allToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
   }
 
-  const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
+    const knowledgeCalls = allToolCalls.filter((tc) => tc.toolName === KNOWLEDGE_TOOL_NAME);
+    for (const kc of knowledgeCalls) {
+      await knowledgeSearch.resolve(kc.input as Record<string, unknown>, {
+        orgId: claudeIdentity.orgId,
+        userId: claudeIdentity.userId,
+      });
+    }
+    allToolCalls = allToolCalls.filter((tc) => tc.toolName !== KNOWLEDGE_TOOL_NAME);
+  }
+
+  const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME && tc.toolName !== KNOWLEDGE_TOOL_NAME);
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   const stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
@@ -2662,6 +2746,10 @@ app.post("/v1/messages", async (req, reply) => {
     policyMatchedRules: claudePolicyPrecheck.matchedRules,
     reducedToolResults: claudeToolResultCount,
     tokensSavedByReduction: claudeNonStreamSaved,
+    evidencePrefetched: claudePrefetchResult?.matched,
+    evidenceConfidence: claudePrefetchResult?.confidence,
+    evidenceAuthoritative: claudePrefetchResult?.authoritative,
+    evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
     isStreaming: false,
     sensemakingTriggered: claudeSensemakingResult?.triggered,
     sensemakingReason: claudeSensemakingResult?.reason,
@@ -2675,6 +2763,7 @@ app.post("/v1/messages", async (req, reply) => {
     ...claudeNonStreamMsgCounts,
     toolDefinitionCount: (body.tools as unknown[] ?? []).length,
     artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+    knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
     reducedToolResults: claudeToolResultCount,
     finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
     policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeNonStreamLatency,
@@ -2687,6 +2776,9 @@ app.post("/v1/messages", async (req, reply) => {
     decisionEscalated: claudeOrchestration.escalated || undefined,
     sensemakingTriggered: claudeSensemakingResult?.triggered || undefined,
     sensemakingReason: claudeSensemakingResult?.reason,
+    evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0 || undefined,
+    evidencePrefetchConfidence: claudePrefetchResult?.confidence || undefined,
+    evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
   });
 
   const content: Array<Record<string, unknown>> = [];

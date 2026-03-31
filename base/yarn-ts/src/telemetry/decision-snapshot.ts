@@ -25,6 +25,7 @@ export interface DecisionSnapshot {
   evidencePrefetched?: boolean;
   evidenceConfidence?: number;
   evidenceAuthoritative?: boolean;
+  evidencePrefetchLatencyMs?: number;
   languages?: string[];
   isStreaming: boolean;
   sensemakingTriggered?: boolean;
@@ -41,6 +42,7 @@ export interface SnapshotInputs {
   evidencePrefetched?: boolean;
   evidenceConfidence?: number;
   evidenceAuthoritative?: boolean;
+  evidencePrefetchLatencyMs?: number;
   languages?: string[];
   isStreaming: boolean;
   sensemakingTriggered?: boolean;
@@ -67,6 +69,7 @@ export function buildDecisionSnapshot(inputs: SnapshotInputs): DecisionSnapshot 
     evidencePrefetched: inputs.evidencePrefetched,
     evidenceConfidence: inputs.evidenceConfidence,
     evidenceAuthoritative: inputs.evidenceAuthoritative,
+    evidencePrefetchLatencyMs: inputs.evidencePrefetchLatencyMs,
     languages: inputs.languages,
     isStreaming: inputs.isStreaming,
     sensemakingTriggered: inputs.sensemakingTriggered,
@@ -93,6 +96,7 @@ export function snapshotToTraceFields(snapshot: DecisionSnapshot): {
       evidenceConfidence: snapshot.evidenceConfidence,
       evidenceAuthoritative: snapshot.evidenceAuthoritative,
       evidencePrefetched: snapshot.evidencePrefetched,
+      evidencePrefetchLatencyMs: snapshot.evidencePrefetchLatencyMs,
       verificationRound: snapshot.verificationRound,
       verificationStalled: snapshot.verificationStalled,
       verificationFindings: snapshot.verificationFindings,

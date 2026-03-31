@@ -63,6 +63,13 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     SYNESIS_YARN_MCP_TOOLS_ENABLED: false,
     SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE: false,
     SYNESIS_YARN_DEBUG_PROTOCOL: false,
+    SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED: false,
+    SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS: 200,
+    SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN: 0.3,
+    SYNESIS_YARN_RECALL_BYPASS_CONFIDENCE_THRESHOLD: 0.8,
+    SYNESIS_YARN_RECALL_ENRICH_THRESHOLD: 0.4,
+    SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS: 12,
+    ...overrides,
   } as AppConfig;
 }
 
@@ -565,5 +572,327 @@ describe("Event loop monitor integration", () => {
     expect(typeof stats.p99Ms).toBe("number");
     expect(typeof stats.maxMs).toBe("number");
     stopEventLoopMonitor();
+  });
+});
+
+/* ========== Evidence pipeline integration (Phase 13) ========== */
+describe("Evidence prefetch pipeline", () => {
+  it("evidence prefetch triggers pattern match and returns confidence", async () => {
+    const { runEvidencePrefetch, resetEvidencePrefetchStats, getEvidencePrefetchStats } = await import("../src/evidence/fast-path.js");
+    const { loadAllPacks, resetLanguagePackRegistry, resetLoader } = await import("../src/language-packs/index.js");
+    resetLanguagePackRegistry();
+    resetLoader();
+    loadAllPacks();
+    resetEvidencePrefetchStats();
+
+    const mockKnowledgeService = {
+      resolve: async () => ({
+        results: [{
+          text: "TS2345: Argument of type 'string' is not assignable",
+          source_url: "https://ts.dev/errors/2345",
+          document_name: "TypeScript Error Catalog",
+          authority: "official",
+          score: 0.92,
+          constraint_kind: "hard",
+          corpus_class: "coder_enriched",
+          scope_tags: ["error-catalog"],
+          language: "typescript",
+          context_prefix: "TypeScript compiler errors",
+          chunk_summary: "TS2345: Argument type mismatch",
+        }],
+        query: "TypeScript error TS2345",
+        total: 1,
+      }),
+    } as unknown as import("../src/state/knowledge-search.js").KnowledgeSearchService;
+
+    const result = await runEvidencePrefetch("error TS2345: Argument of type", mockKnowledgeService, 2000);
+    expect(result.matched).toBe(true);
+    expect(result.evidence).toBeDefined();
+    expect(result.confidence).toBeGreaterThan(0.3);
+    expect(result.constraintKind).toBe("hard");
+
+    const stats = getEvidencePrefetchStats();
+    expect(stats.attempts).toBe(1);
+    expect(stats.hits).toBe(1);
+    expect(stats.timeouts).toBe(0);
+  });
+
+  it("prefetch confidence flows into EvidenceSignals and decision routing", async () => {
+    const { PhaseModelOrchestrator } = await import("../src/orchestration/phase-model-orchestrator.js");
+    const orchestrator = new PhaseModelOrchestrator();
+
+    const highConfidenceDecision = orchestrator.decide({
+      requestedModel: "synesis-core",
+      latestUserText: "fix TS2345 error",
+      decisionMatrixEnabled: true,
+      evidence: {
+        recallConfidence: 0.95,
+        recallRouting: "bypass",
+        evidenceConfidence: 0.92,
+        evidenceAuthoritative: true,
+        verificationRound: 1,
+        consecutiveFailedVerifications: 0,
+      },
+    }, "test-session");
+
+    expect(highConfidenceDecision.decisionPath).toBeDefined();
+    expect(highConfidenceDecision.selectedModel).toBeDefined();
+    expect(highConfidenceDecision.tier).toBeDefined();
+
+    const lowConfidenceDecision = orchestrator.decide({
+      requestedModel: "synesis-core",
+      latestUserText: "write me a blog post",
+      decisionMatrixEnabled: true,
+      evidence: {
+        recallConfidence: undefined,
+        evidenceConfidence: undefined,
+        evidenceAuthoritative: false,
+        verificationRound: undefined,
+        consecutiveFailedVerifications: 0,
+      },
+    }, "test-session-2");
+
+    expect(lowConfidenceDecision.decisionPath).toBeDefined();
+  });
+
+  it("formatEvidenceBlock creates valid injection block", async () => {
+    const { formatEvidenceBlock } = await import("../src/evidence/fast-path.js");
+    const block = formatEvidenceBlock({
+      matched: true,
+      pattern: "typescript_error",
+      evidence: {
+        results: [{
+          text: "TS2345 explanation",
+          source_url: "https://ts.dev",
+          document_name: "TS Error Catalog",
+          authority: "official",
+          score: 0.9,
+          constraint_kind: "hard",
+          corpus_class: "coder_enriched",
+          scope_tags: ["error-catalog"],
+          language: "typescript",
+          context_prefix: "",
+          chunk_summary: "TS2345: Argument type mismatch",
+        }],
+        query: "TypeScript error TS2345",
+        total: 1,
+      },
+      latencyMs: 50,
+      timedOut: false,
+      confidence: 0.85,
+      constraintKind: "hard",
+      authoritative: true,
+    });
+    expect(block).toContain("<synesis_evidence");
+    expect(block).toContain("</synesis_evidence>");
+    expect(block).toContain('confidence="0.85"');
+    expect(block).toContain('authoritative="true"');
+  });
+});
+
+describe("Knowledge search tool Claude parity", () => {
+  it("injectToolOpenAI and injectToolClaude both add the tool", async () => {
+    const { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } = await import("../src/state/knowledge-search.js");
+    const svc = new KnowledgeSearchService("http://mcp:8080");
+
+    const oaiTools = svc.injectToolOpenAI([]);
+    expect(oaiTools).toHaveLength(1);
+    expect((oaiTools![0] as { function: { name: string } }).function.name).toBe(KNOWLEDGE_TOOL_NAME);
+
+    const claudeTools = svc.injectToolClaude([]);
+    expect(claudeTools).toHaveLength(1);
+    expect((claudeTools![0] as { name: string }).name).toBe(KNOWLEDGE_TOOL_NAME);
+  });
+
+  it("knowledge search resolve returns results and tracks stats", async () => {
+    const { KnowledgeSearchService } = await import("../src/state/knowledge-search.js");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          content: [{
+            text: JSON.stringify({
+              results: [{
+                text: "TypeScript error TS2345 explanation",
+                source_url: "https://ts.dev/errors/2345",
+                document_name: "TS Error Catalog",
+                authority: "official",
+                score: 0.92,
+                constraint_kind: "hard",
+                corpus_class: "coder_enriched",
+                scope_tags: ["error-catalog"],
+                language: "typescript",
+                context_prefix: "TypeScript compiler errors",
+                chunk_summary: "TS2345: Argument type mismatch",
+              }],
+              query: "TypeScript error TS2345",
+              total: 1,
+            }),
+          }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const svc = new KnowledgeSearchService("http://mcp:8080", "org-1");
+    const result = await svc.resolve({ query: "TypeScript error TS2345" });
+    expect(result.total).toBe(1);
+    expect(result.results[0].score).toBe(0.92);
+
+    const stats = svc.getStats();
+    expect(stats.searchCount).toBe(1);
+    expect(stats.errorCount).toBe(0);
+
+    fetchSpy.mockRestore();
+  });
+});
+
+describe("Decision snapshot with evidence metadata", () => {
+  it("buildDecisionSnapshot includes evidence prefetch fields", async () => {
+    const { buildDecisionSnapshot, snapshotToTraceFields } = await import("../src/telemetry/decision-snapshot.js");
+    const snapshot = buildDecisionSnapshot({
+      orchestration: {
+        decisionPath: "deterministic",
+        phase: "execute",
+        tier: "core",
+        selectedModel: "synesis-core",
+        escalated: false,
+        uncertaintyFraming: undefined,
+      },
+      recallDecision: null,
+      verificationState: { round: 0, stalled: false, findings: [], planId: undefined, roundResults: [], lastRunMs: 0 },
+      policyMatchedRules: ["default"],
+      reducedToolResults: 2,
+      tokensSavedByReduction: 500,
+      evidencePrefetched: true,
+      evidenceConfidence: 0.88,
+      evidenceAuthoritative: true,
+      evidencePrefetchLatencyMs: 45,
+      languages: ["typescript"],
+      isStreaming: false,
+    });
+
+    expect(snapshot.evidencePrefetched).toBe(true);
+    expect(snapshot.evidenceConfidence).toBe(0.88);
+    expect(snapshot.evidenceAuthoritative).toBe(true);
+    expect(snapshot.evidencePrefetchLatencyMs).toBe(45);
+
+    const traceFields = snapshotToTraceFields(snapshot);
+    expect(traceFields.evidence_summary.evidenceConfidence).toBe(0.88);
+    expect(traceFields.evidence_summary.evidenceAuthoritative).toBe(true);
+    expect(traceFields.evidence_summary.evidencePrefetched).toBe(true);
+    expect(traceFields.evidence_summary.evidencePrefetchLatencyMs).toBe(45);
+  });
+
+  it("snapshot without evidence has undefined fields", async () => {
+    const { buildDecisionSnapshot } = await import("../src/telemetry/decision-snapshot.js");
+    const snapshot = buildDecisionSnapshot({
+      orchestration: {
+        decisionPath: "inference-first",
+        phase: "execute",
+        tier: "pulse",
+        selectedModel: "synesis-pulse",
+        escalated: false,
+        uncertaintyFraming: undefined,
+      },
+      recallDecision: null,
+      verificationState: { round: 0, stalled: false, findings: [], planId: undefined, roundResults: [], lastRunMs: 0 },
+      policyMatchedRules: [],
+      reducedToolResults: 0,
+      tokensSavedByReduction: 0,
+      isStreaming: true,
+    });
+
+    expect(snapshot.evidencePrefetched).toBeUndefined();
+    expect(snapshot.evidenceConfidence).toBeUndefined();
+    expect(snapshot.evidencePrefetchLatencyMs).toBeUndefined();
+  });
+});
+
+describe("Evidence pipeline feature flag combinations", () => {
+  it("all evidence features enabled config is valid", () => {
+    const config = makeConfig({
+      SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED: true,
+      SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED: true,
+      SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED: true,
+      SYNESIS_YARN_DECISION_MATRIX_ENABLED: true,
+      SYNESIS_YARN_RECALL_BYPASS_ENABLED: true,
+      SYNESIS_YARN_SENSEMAKING_ENABLED: true,
+    });
+    expect(config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED).toBe(true);
+    expect(config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED).toBe(true);
+    expect(config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED).toBe(true);
+    expect(config.SYNESIS_YARN_DECISION_MATRIX_ENABLED).toBe(true);
+  });
+
+  it("evidence prefetch without knowledge search is still valid config", () => {
+    const config = makeConfig({
+      SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED: false,
+      SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED: true,
+    });
+    expect(config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED).toBe(false);
+  });
+
+  it("decision matrix with high evidence triggers deterministic path", async () => {
+    const { PhaseModelOrchestrator } = await import("../src/orchestration/phase-model-orchestrator.js");
+    const orchestrator = new PhaseModelOrchestrator();
+
+    const decision = orchestrator.decide({
+      requestedModel: "synesis-core",
+      latestUserText: "error TS2345",
+      decisionMatrixEnabled: true,
+      evidence: {
+        recallConfidence: 0.95,
+        recallRouting: "bypass",
+        evidenceConfidence: 0.95,
+        evidenceAuthoritative: true,
+        verificationRound: 1,
+        consecutiveFailedVerifications: 0,
+      },
+    }, "test-session-high");
+
+    expect(["deterministic", "constrained"]).toContain(decision.decisionPath);
+  });
+
+  it("decision matrix with no evidence uses inference_first path", async () => {
+    const { PhaseModelOrchestrator } = await import("../src/orchestration/phase-model-orchestrator.js");
+    const orchestrator = new PhaseModelOrchestrator();
+
+    const decision = orchestrator.decide({
+      requestedModel: "synesis-core",
+      latestUserText: "write me a poem about coding",
+      decisionMatrixEnabled: true,
+      evidence: {
+        recallConfidence: undefined,
+        evidenceConfidence: undefined,
+        evidenceAuthoritative: false,
+        consecutiveFailedVerifications: 0,
+      },
+    }, "test-session-low");
+
+    expect(["inference_first", "constrained"]).toContain(decision.decisionPath);
+  });
+
+  it("evidence prefetch stats accumulate correctly", async () => {
+    const { resetEvidencePrefetchStats, getEvidencePrefetchStats, runEvidencePrefetch } = await import("../src/evidence/fast-path.js");
+    const { loadAllPacks, resetLanguagePackRegistry, resetLoader } = await import("../src/language-packs/index.js");
+    resetLanguagePackRegistry();
+    resetLoader();
+    loadAllPacks();
+    resetEvidencePrefetchStats();
+
+    const emptySvc = {
+      resolve: async () => ({ results: [], query: "", total: 0 }),
+    } as unknown as import("../src/state/knowledge-search.js").KnowledgeSearchService;
+
+    await runEvidencePrefetch("error TS2345: test", emptySvc, 2000);
+    await runEvidencePrefetch("hello world", emptySvc, 2000);
+    await runEvidencePrefetch("Traceback (most recent call last):", emptySvc, 2000);
+
+    const stats = getEvidencePrefetchStats();
+    expect(stats.attempts).toBe(3);
+    expect(stats.misses).toBeGreaterThanOrEqual(2);
+    expect(stats.timeouts).toBe(0);
+    expect(stats.totalLatencyMs).toBeGreaterThan(0);
   });
 });

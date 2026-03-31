@@ -14,6 +14,7 @@
 import type { KnowledgeSearchService, KnowledgeSearchResult } from "../state/knowledge-search.js";
 import { getLanguagePackRegistry } from "../language-packs/index.js";
 import type { FastPathPatternDef } from "../language-packs/types.js";
+import { withSpanAsync } from "../telemetry/otel.js";
 
 export interface FastPathMatch {
   pattern: string;
@@ -146,62 +147,125 @@ export function detectPattern(text: string): FastPathMatch | null {
   return null;
 }
 
+export interface EvidencePrefetchOptions {
+  timeoutMs?: number;
+  confidenceMin?: number;
+  retryEnabled?: boolean;
+  retryTimeoutMs?: number;
+}
+
+export interface EvidencePrefetchStats {
+  attempts: number;
+  hits: number;
+  misses: number;
+  timeouts: number;
+  retries: number;
+  totalConfidence: number;
+  totalLatencyMs: number;
+}
+
+const _prefetchStats: EvidencePrefetchStats = {
+  attempts: 0, hits: 0, misses: 0, timeouts: 0, retries: 0, totalConfidence: 0, totalLatencyMs: 0,
+};
+
+export function getEvidencePrefetchStats(): EvidencePrefetchStats {
+  return { ..._prefetchStats };
+}
+
+export function resetEvidencePrefetchStats(): void {
+  _prefetchStats.attempts = 0;
+  _prefetchStats.hits = 0;
+  _prefetchStats.misses = 0;
+  _prefetchStats.timeouts = 0;
+  _prefetchStats.retries = 0;
+  _prefetchStats.totalConfidence = 0;
+  _prefetchStats.totalLatencyMs = 0;
+}
+
+async function raceSearch(
+  knowledgeService: KnowledgeSearchService,
+  searchArgs: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<KnowledgeSearchResult | null> {
+  const searchPromise = knowledgeService.resolve(searchArgs).catch(() => null);
+  const timeoutPromise = new Promise<null>((resolve) =>
+    setTimeout(() => resolve(null), timeoutMs),
+  );
+  return Promise.race([searchPromise, timeoutPromise]);
+}
+
 /**
  * Run the evidence pre-fetch within a latency budget.
  * Returns immediately if no pattern matches or if the search exceeds the timeout.
+ * When retryEnabled is true, retries once on timeout with a shorter deadline.
  */
 export async function runEvidencePrefetch(
   userText: string,
   knowledgeService: KnowledgeSearchService,
   timeoutMs: number = 200,
   confidenceMin: number = 0.3,
+  opts?: Pick<EvidencePrefetchOptions, "retryEnabled" | "retryTimeoutMs">,
 ): Promise<FastPathResult> {
-  const t0 = performance.now();
-  const match = detectPattern(userText);
-  if (!match) {
-    return { matched: false, latencyMs: performance.now() - t0, timedOut: false, confidence: 0, authoritative: false };
-  }
+  return withSpanAsync("yarn.evidence.prefetch", { "yarn.evidence.timeout_ms": timeoutMs }, async () => {
+    const t0 = performance.now();
+    _prefetchStats.attempts++;
 
-  const searchPromise = knowledgeService.resolve({
-    query: match.searchQuery,
-    language: match.language,
-    scope_tags: match.scope_tags,
-    constraint_kind: match.constraint_kind,
-    top_k: 3,
+    const match = detectPattern(userText);
+    if (!match) {
+      _prefetchStats.misses++;
+      return { matched: false, latencyMs: performance.now() - t0, timedOut: false, confidence: 0, authoritative: false };
+    }
+
+    const searchArgs = {
+      query: match.searchQuery,
+      language: match.language,
+      scope_tags: match.scope_tags,
+      constraint_kind: match.constraint_kind,
+      top_k: 3,
+    };
+
+    let result = await raceSearch(knowledgeService, searchArgs, timeoutMs);
+
+    if (result === null && opts?.retryEnabled) {
+      _prefetchStats.retries++;
+      const retryTimeout = opts.retryTimeoutMs ?? Math.max(Math.floor(timeoutMs / 2), 50);
+      result = await raceSearch(knowledgeService, searchArgs, retryTimeout);
+    }
+
+    const latencyMs = performance.now() - t0;
+    _prefetchStats.totalLatencyMs += latencyMs;
+
+    if (result === null) {
+      _prefetchStats.timeouts++;
+      return { matched: true, pattern: match.pattern, latencyMs, timedOut: true, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
+    }
+
+    if (result.total === 0) {
+      _prefetchStats.misses++;
+      return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
+    }
+
+    const confidence = computeEvidenceConfidence(result, match.constraint_kind);
+    const authoritative = confidence >= 0.8 && match.constraint_kind === "hard";
+    _prefetchStats.totalConfidence += confidence;
+
+    if (confidence < confidenceMin) {
+      _prefetchStats.misses++;
+      return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence, constraintKind: match.constraint_kind, authoritative: false };
+    }
+
+    _prefetchStats.hits++;
+    return {
+      matched: true,
+      pattern: match.pattern,
+      evidence: result,
+      latencyMs,
+      timedOut: false,
+      confidence,
+      constraintKind: match.constraint_kind,
+      authoritative,
+    };
   });
-
-  const timeoutPromise = new Promise<null>((resolve) =>
-    setTimeout(() => resolve(null), timeoutMs),
-  );
-
-  const result = await Promise.race([searchPromise, timeoutPromise]);
-  const latencyMs = performance.now() - t0;
-
-  if (result === null) {
-    return { matched: true, pattern: match.pattern, latencyMs, timedOut: true, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
-  }
-
-  if (result.total === 0) {
-    return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
-  }
-
-  const confidence = computeEvidenceConfidence(result, match.constraint_kind);
-  const authoritative = confidence >= 0.8 && match.constraint_kind === "hard";
-
-  if (confidence < confidenceMin) {
-    return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence, constraintKind: match.constraint_kind, authoritative: false };
-  }
-
-  return {
-    matched: true,
-    pattern: match.pattern,
-    evidence: result,
-    latencyMs,
-    timedOut: false,
-    confidence,
-    constraintKind: match.constraint_kind,
-    authoritative,
-  };
 }
 
 /**

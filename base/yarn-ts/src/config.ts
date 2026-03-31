@@ -140,6 +140,10 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS: z.coerce.number().default(200),
+  SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_GOVERNANCE_ENABLED: z
     .string()
     .optional()
