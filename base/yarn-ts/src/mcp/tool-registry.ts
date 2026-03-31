@@ -13,8 +13,20 @@ export interface McpToolCatalogEntry {
   inputSchema: Record<string, unknown>;
 }
 
+export class McpToolTimeoutError extends Error {
+  constructor(name: string, timeoutMs: number) {
+    super(`MCP tool '${name}' timed out after ${timeoutMs}ms`);
+    this.name = "McpToolTimeoutError";
+  }
+}
+
 export class McpToolRegistry {
   private tools = new Map<string, McpToolDefinition>();
+  private _timeoutMs = 60_000;
+
+  setTimeoutMs(ms: number): void {
+    this._timeoutMs = ms;
+  }
 
   register<TInput, TOutput>(tool: McpToolDefinition<TInput, TOutput>): void {
     this.tools.set(tool.name, tool as McpToolDefinition);
@@ -36,7 +48,13 @@ export class McpToolRegistry {
     const tool = this.tools.get(name);
     if (!tool) throw new McpToolNotFoundError(name);
     const parsed = tool.inputSchema.parse(args);
-    return tool.handler(parsed);
+    const timeoutMs = this._timeoutMs;
+    return Promise.race([
+      Promise.resolve(tool.handler(parsed)),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new McpToolTimeoutError(name, timeoutMs)), timeoutMs),
+      ),
+    ]);
   }
 
   has(name: string): boolean {

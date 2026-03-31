@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { AuthResolver, AuthUser } from "../auth.js";
-import { McpToolRegistry, McpToolNotFoundError } from "./tool-registry.js";
+import { McpToolRegistry, McpToolNotFoundError, McpToolTimeoutError } from "./tool-registry.js";
 import { classifyProjectTool } from "./handlers/classify-project.js";
 import { inspectRepoTool } from "./handlers/inspect-repo.js";
 import { scaffoldTool } from "./handlers/scaffold.js";
@@ -86,6 +86,13 @@ export async function registerMcpRoutes(
       if (err instanceof McpToolNotFoundError) {
         return reply.code(404).send({
           error: { type: "not_found", message: err.message },
+        });
+      }
+      if (err instanceof McpToolTimeoutError) {
+        const elapsed = Math.round(performance.now() - start);
+        app.log.warn({ tool: body.name, requestId, elapsed_ms: elapsed }, "mcp_tool_timeout");
+        return reply.code(504).send({
+          error: { type: "timeout", message: err.message },
         });
       }
       const elapsed = Math.round(performance.now() - start);

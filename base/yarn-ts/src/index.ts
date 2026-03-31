@@ -40,7 +40,7 @@ import { compareManifests as manifestCompare } from "./manifest/comparator.js";
 import { critiquStructure as manifestCritique } from "./manifest/structural-critic.js";
 import { buildVerificationPlan, formatVerificationPlanBlock } from "./verification/planner.js";
 import { VerificationLoopTracker } from "./verification/loop-tracker.js";
-import { registerMcpRoutes } from "./mcp/index.js";
+import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator } from "./orchestration/phase-model-orchestrator.js";
 import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
@@ -149,7 +149,7 @@ const securityIngestConfig = {
   adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
 };
 const tierRegistry = new SynesisProviderRegistry();
-const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS);
+const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS, config.SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS);
 const sessions = new Map<string, SessionState>();
 const sessionStore = new SessionStore(config);
 const diagnosticStore = new DiagnosticStore(config);
@@ -1394,6 +1394,7 @@ app.get("/v1/artifacts/:id", async (req, reply) => {
 });
 
 // --- Native MCP tools (replaces Python MCP proxy) ---
+getToolRegistry().setTimeoutMs(config.SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS);
 await registerMcpRoutes(app, {
   authResolver,
   enabled: config.SYNESIS_YARN_MCP_TOOLS_ENABLED,
@@ -2075,9 +2076,11 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Merge top-level `system` into the message list (parity with Anthropic SDK)
   const claudeSystemMsg = claudeSystemToMessage(body.system);
-  const rawOpenAIMessages = claudeMessagesToOpenAI(
-    body.messages as never,
-    (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
+  const rawOpenAIMessages = withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
+    claudeMessagesToOpenAI(
+      body.messages as never,
+      (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
+    ),
   );
   const openAIMessages = claudeSystemMsg ? [claudeSystemMsg, ...rawOpenAIMessages] : rawOpenAIMessages;
 
@@ -2324,8 +2327,9 @@ app.post("/v1/messages", async (req, reply) => {
     session
   ) as never;
 
-  // P0 FIX: Do NOT inject artifact tool into Claude path — no auto-resolve exists for streaming.
-  // Artifact retrieval stays OpenAI-only until streaming interception is implemented.
+  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
+    openAIShape.tools = artifactRetrieval.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
+  }
 
   const claudeResolveResult = runOpenAIRequest(openAIShape);
   if (!claudeResolveResult.ok) {
@@ -2576,7 +2580,7 @@ app.post("/v1/messages", async (req, reply) => {
       timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)", requestId: reqId,
       ...claudeStreamMsgCounts,
       toolDefinitionCount: (body.tools as unknown[] ?? []).length,
-      artifactToolInjected: false,
+      artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       reducedToolResults: claudeToolResultCount,
       finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
       policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeStreamLatency,
@@ -2629,7 +2633,17 @@ app.post("/v1/messages", async (req, reply) => {
   circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
   claudeNonStreamSpan.setStatus("ok");
   claudeNonStreamSpan.end();
-  const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+  let allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+
+  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
+    const artifactCalls = allToolCalls.filter((tc) => tc.toolName === ARTIFACT_TOOL_NAME);
+    for (const ac of artifactCalls) {
+      const inp = ac.input as { artifact_handle?: string; query?: string };
+      artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
+    }
+    allToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+  }
+
   const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
@@ -2660,7 +2674,7 @@ app.post("/v1/messages", async (req, reply) => {
     timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages", requestId: reqId,
     ...claudeNonStreamMsgCounts,
     toolDefinitionCount: (body.tools as unknown[] ?? []).length,
-    artifactToolInjected: false,
+    artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
     reducedToolResults: claudeToolResultCount,
     finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
     policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeNonStreamLatency,
