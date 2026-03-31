@@ -8,6 +8,7 @@ WORKDIR /opt/app-root/src
 COPY package.json package-lock.json ./
 COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
 COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
+COPY packages/synesis-manifest/package.json packages/synesis-manifest/
 COPY base/yarn-ts/package.json base/yarn-ts/
 COPY base/planner-ts/package.json base/planner-ts/
 RUN npm ci --ignore-scripts
@@ -20,6 +21,10 @@ RUN npm run build --workspace=packages/synesis-telemetry
 COPY packages/synesis-context-trust/tsconfig.json packages/synesis-context-trust/
 COPY packages/synesis-context-trust/src packages/synesis-context-trust/src
 RUN npm run build --workspace=packages/synesis-context-trust
+
+COPY packages/synesis-manifest/tsconfig.json packages/synesis-manifest/
+COPY packages/synesis-manifest/src packages/synesis-manifest/src
+RUN npm run build --workspace=packages/synesis-manifest
 
 # Build yarn-ts
 COPY base/yarn-ts/tsconfig.json base/yarn-ts/

@@ -435,7 +435,7 @@ jobs:
             base_change_key: ""
           - name: mcp-ts
             dockerfile: base/mcp-ts/Containerfile
-            context: .
+            context: base/mcp-ts
             base_arg: ""
             change_key: mcp-ts
             base_change_key: ""
