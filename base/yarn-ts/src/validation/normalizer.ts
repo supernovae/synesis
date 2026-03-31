@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 import { tryStructuredParse } from "./parsers/index.js";
 import { enrichFindings } from "./enrichment.js";
+import { getLanguagePackRegistry } from "../language-packs/index.js";
 
 /* ── Tier B: line-regex patterns for plain-text tool output ───── */
 
@@ -19,6 +20,12 @@ const TF_ERROR_SPLIT = /\n(?=Error: )/;
 const TF_LOCATION = /on\s+([^\s]+)\s+line\s+(\d+)/i;
 
 function detectFamily(toolName: string | undefined, raw: string): ValidationFamily {
+  const registry = getLanguagePackRegistry();
+  if (registry.size > 0) {
+    const fromRegistry = registry.detectFamilyFromTool(toolName ?? "", raw);
+    if (fromRegistry) return fromRegistry;
+  }
+
   const t = (toolName ?? "").toLowerCase();
   if (t.includes("tsc") || raw.includes("error TS")) return "typescript";
   if (t.includes("eslint") || raw.includes("eslint")) return "eslint";

@@ -82,6 +82,7 @@ const YarnReducers = lazy(() => import("./pages/yarn/YarnReducers"));
 const YarnEvents = lazy(() => import("./pages/yarn/YarnEvents"));
 const YarnPerformance = lazy(() => import("./pages/yarn/YarnPerformance"));
 const YarnVerification = lazy(() => import("./pages/yarn/YarnVerification"));
+const LanguagePacks = lazy(() => import("./pages/yarn/LanguagePacks"));
 
 export const router = createBrowserRouter([
   {
@@ -166,6 +167,7 @@ export const router = createBrowserRouter([
       { path: "yarn/events", element: <YarnEvents /> },
       { path: "yarn/performance", element: <YarnPerformance /> },
       { path: "yarn/verification", element: <YarnVerification /> },
+      { path: "yarn/language-packs", element: <LanguagePacks /> },
 
       { path: "account", element: <AccountHome /> },
       { path: "account/tokens", element: <ApiTokens /> },

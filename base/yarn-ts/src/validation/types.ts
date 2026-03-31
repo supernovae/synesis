@@ -18,6 +18,10 @@ export type ValidationFamily =
   | "shellcheck"
   | "rubocop"
   | "cppcheck"
+  | "java"
+  | "dotnet"
+  | "sqlfluff"
+  | "yamllint"
   | "generic";
 
 export type ValidationOutputFormat = "sarif" | "junit" | "checkstyle" | "json" | "text";

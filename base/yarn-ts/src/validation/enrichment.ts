@@ -13,6 +13,7 @@
  */
 import crypto from "node:crypto";
 import type { ValidationFamily, ValidationFinding } from "./types.js";
+import { getLanguagePackRegistry } from "../language-packs/index.js";
 
 /* ── Public API ────────────────────────────────────────────────── */
 
@@ -80,7 +81,16 @@ export function classifyErrorFamily(
     case "shellcheck": return classifyShellcheck(message, ruleId);
     case "rubocop": return classifyRubocop(message, ruleId);
     case "cppcheck": return classifyCppcheck(message, ruleId);
-    default: return undefined;
+    case "java": return classifyJava(message, ruleId);
+    case "dotnet": return classifyDotnet(message, ruleId);
+    case "sqlfluff": return classifySqlfluff(message, ruleId);
+    case "yamllint": return classifyYamllint(message, ruleId);
+    default: {
+      const registry = getLanguagePackRegistry();
+      const pack = registry.size > 0 ? registry.getByFamily(family) : undefined;
+      const classifier = pack?.classifiers[family];
+      return classifier ? classifier(message, ruleId) : undefined;
+    }
   }
 }
 
@@ -340,6 +350,80 @@ function classifyCppcheck(msg: string, ruleId?: string): string | undefined {
   return undefined;
 }
 
+/* ── Java (javac / Maven / Gradle) classifier ─────────────────── */
+
+function classifyJava(msg: string, ruleId?: string): string | undefined {
+  const m = msg.toLowerCase();
+  if (m.includes("cannot find symbol") || m.includes("cannot resolve symbol")) return "undeclared_name";
+  if (m.includes("incompatible types") || m.includes("inconvertible types")) return "type_mismatch";
+  if (m.includes("package") && m.includes("does not exist")) return "import_error";
+  if (m.includes("unreported exception") || m.includes("must be caught or declared")) return "unchecked_exception";
+  if (m.includes("method does not override") || m.includes("is not abstract")) return "override_error";
+  if (m.includes("variable") && m.includes("might not have been initialized")) return "uninitialized_variable";
+  if (m.includes("unreachable statement")) return "unreachable_code";
+  if (m.includes("duplicate class") || m.includes("already defined")) return "duplicate_definition";
+  if (m.includes("cannot access") || m.includes("has private access")) return "access_error";
+  if (m.includes("deprecated")) return "deprecated";
+  if (m.includes("non-static") && m.includes("static context")) return "static_context";
+  if (m.includes("nullpointerexception") || m.includes("null pointer")) return "null_dereference";
+  if (ruleId?.toLowerCase().includes("checkstyle")) return "style";
+  return undefined;
+}
+
+/* ── C# / .NET (dotnet build / Roslyn) classifier ─────────────── */
+
+function classifyDotnet(msg: string, ruleId?: string): string | undefined {
+  const code = (ruleId ?? "").toUpperCase();
+  const m = msg.toLowerCase();
+  if (code.startsWith("CS0103") || m.includes("does not exist in the current context")) return "undeclared_name";
+  if (code.startsWith("CS0029") || m.includes("cannot implicitly convert")) return "type_mismatch";
+  if (code.startsWith("CS0246") || m.includes("type or namespace") && m.includes("could not be found")) return "import_error";
+  if (code.startsWith("CS0234") || m.includes("does not exist in the namespace")) return "namespace_error";
+  if (code.startsWith("CS1061") || m.includes("does not contain a definition")) return "missing_member";
+  if (code.startsWith("CS0168") || m.includes("declared but never used")) return "unused_variable";
+  if (code.startsWith("CS8600") || m.includes("converting null literal")) return "null_check";
+  if (code.startsWith("CS0162") || m.includes("unreachable code")) return "unreachable_code";
+  if (code.startsWith("CS0019") || m.includes("cannot be applied to operands")) return "operator_error";
+  if (m.includes("ambiguous") && m.includes("reference")) return "ambiguous_reference";
+  if (m.includes("obsolete") || m.includes("deprecated")) return "deprecated";
+  return undefined;
+}
+
+/* ── SQL (sqlfluff / query errors) classifier ──────────────────── */
+
+function classifySqlfluff(msg: string, ruleId?: string): string | undefined {
+  const code = (ruleId ?? "").toUpperCase();
+  const m = msg.toLowerCase();
+  if (code.startsWith("L0") || m.includes("indentation")) return "style";
+  if (code === "L014" || m.includes("inconsistent capitalisation")) return "naming_convention";
+  if (code === "L036" || m.includes("select targets")) return "select_style";
+  if (code === "L044" || m.includes("query produces")) return "query_structure";
+  if (m.includes("syntax error") || m.includes("unexpected token")) return "syntax_error";
+  if (m.includes("unknown column") || m.includes("column") && m.includes("not found")) return "undeclared_column";
+  if (m.includes("table") && (m.includes("not found") || m.includes("doesn't exist"))) return "undeclared_table";
+  if (m.includes("ambiguous column")) return "ambiguous_reference";
+  if (m.includes("division by zero")) return "division_by_zero";
+  if (m.includes("deadlock")) return "deadlock";
+  if (m.includes("permission denied") || m.includes("access denied")) return "permission_error";
+  return undefined;
+}
+
+/* ── YAML lint classifier ──────────────────────────────────────── */
+
+function classifyYamllint(msg: string, ruleId?: string): string | undefined {
+  const r = (ruleId ?? "").toLowerCase();
+  const m = msg.toLowerCase();
+  if (r === "indentation" || m.includes("wrong indentation")) return "indentation";
+  if (r === "line-length" || m.includes("line too long")) return "line_length";
+  if (r === "trailing-spaces" || m.includes("trailing spaces")) return "trailing_spaces";
+  if (r === "truthy" || m.includes("truthy value")) return "truthy_value";
+  if (r === "document-start" || m.includes("missing document start")) return "document_start";
+  if (m.includes("syntax error") || m.includes("mapping values")) return "syntax_error";
+  if (m.includes("duplicate key") || m.includes("duplication of key")) return "duplicate_key";
+  if (m.includes("could not find expected")) return "syntax_error";
+  return undefined;
+}
+
 /* ── Root cause tables ─────────────────────────────────────────── */
 
 const ROOT_CAUSE_TABLES: Record<string, Record<string, string>> = {
@@ -517,6 +601,56 @@ const ROOT_CAUSE_TABLES: Record<string, Record<string, string>> = {
     syntax_error: "The source file contains a C/C++ syntax error.",
     dangling_reference: "A reference or pointer outlives the object it refers to.",
     division_by_zero: "A division by zero can occur at runtime."
+  },
+  java: {
+    undeclared_name: "A symbol (variable, method, class) is referenced but not declared or imported.",
+    type_mismatch: "The value type is incompatible with the expected type in this context.",
+    import_error: "A package or class cannot be resolved — missing dependency or wrong import.",
+    unchecked_exception: "A checked exception is thrown but not caught or declared in the method signature.",
+    override_error: "A method does not correctly override a superclass method.",
+    uninitialized_variable: "A local variable may not have been assigned before use.",
+    unreachable_code: "Code appears after a return or throw and can never execute.",
+    duplicate_definition: "A class, method, or variable is defined more than once in the same scope.",
+    access_error: "Attempting to access a member with insufficient visibility (private/protected).",
+    deprecated: "A deprecated API is being used — a newer alternative exists.",
+    static_context: "A non-static member is referenced from a static context.",
+    null_dereference: "A NullPointerException can occur because a reference may be null.",
+    style: "Code does not follow the configured style rules (Checkstyle)."
+  },
+  dotnet: {
+    undeclared_name: "A name is used that does not exist in the current context.",
+    type_mismatch: "An implicit type conversion is not possible between the given types.",
+    import_error: "A type or namespace could not be found — missing using directive or assembly reference.",
+    namespace_error: "A type does not exist in the specified namespace.",
+    missing_member: "The type does not contain a definition for the accessed member.",
+    unused_variable: "A variable is declared but its value is never used.",
+    null_check: "A null literal or possible null value is assigned to a non-nullable type.",
+    unreachable_code: "Code is unreachable and will never execute.",
+    operator_error: "An operator cannot be applied to the given operand types.",
+    ambiguous_reference: "An ambiguous reference exists between two or more types.",
+    deprecated: "An obsolete API is being used."
+  },
+  sqlfluff: {
+    style: "SQL formatting does not match configured style rules.",
+    naming_convention: "Inconsistent capitalization of keywords or identifiers.",
+    select_style: "SELECT targets should be on separate lines or follow style rules.",
+    query_structure: "Query structure does not follow best practices.",
+    syntax_error: "The SQL statement contains a syntax error.",
+    undeclared_column: "A column is referenced that does not exist in the table.",
+    undeclared_table: "A table is referenced that does not exist in the schema.",
+    ambiguous_reference: "An ambiguous column reference exists in a multi-table query.",
+    division_by_zero: "A division by zero can occur at runtime.",
+    deadlock: "A potential deadlock condition was detected.",
+    permission_error: "Insufficient permissions to access the resource."
+  },
+  yamllint: {
+    indentation: "YAML indentation does not match the expected level.",
+    line_length: "A line exceeds the configured maximum width.",
+    trailing_spaces: "Trailing whitespace found at end of line.",
+    truthy_value: "A truthy value should be explicitly true/false, not yes/no/on/off.",
+    document_start: "Missing document start marker (---) at beginning of file.",
+    syntax_error: "The YAML file contains a syntax error.",
+    duplicate_key: "A mapping key is duplicated — only the last value will be used."
   }
 };
 
@@ -697,5 +831,55 @@ const ACTION_TABLES: Record<string, Record<string, string>> = {
     syntax_error: "Fix the syntax error — check for unmatched braces or missing semicolons.",
     dangling_reference: "Ensure the referenced object outlives the pointer or reference.",
     division_by_zero: "Add a check for zero before the division in {file}."
+  },
+  java: {
+    undeclared_name: "Add the missing import or declare the symbol in {file}.",
+    type_mismatch: "Fix the type — check assignments, casts, and generic parameters in {file}.",
+    import_error: "Add the correct import statement or ensure the dependency is in pom.xml / build.gradle.",
+    unchecked_exception: "Add a try-catch block or declare the exception in the method signature.",
+    override_error: "Ensure the method signature matches the superclass — check return type and parameters.",
+    uninitialized_variable: "Initialize the local variable at declaration in {file}.",
+    unreachable_code: "Remove the unreachable code or fix the control flow above it.",
+    duplicate_definition: "Rename one of the duplicate definitions in {file}.",
+    access_error: "Change the access modifier or access through a public method.",
+    deprecated: "Replace with the recommended modern alternative — see @Deprecated javadoc.",
+    static_context: "Make the member static or create an instance to access it.",
+    null_dereference: "Add a null check before dereferencing the reference in {file}.",
+    style: "Run Checkstyle to see the style violations and fix them."
+  },
+  dotnet: {
+    undeclared_name: "Add a using directive or declare the name in {file}.",
+    type_mismatch: "Add an explicit cast or change the target type in {file}.",
+    import_error: "Add the missing using directive or NuGet package reference.",
+    namespace_error: "Check the namespace — add a using directive or verify the assembly reference.",
+    missing_member: "Check the type definition — the member may not exist or an extension method may be needed.",
+    unused_variable: "Remove the unused variable or use discard (_) in {file}.",
+    null_check: "Add a null check or use the null-conditional operator (?.) in {file}.",
+    unreachable_code: "Remove the unreachable code or fix the control flow above it.",
+    operator_error: "Check the operand types — add a cast or use a compatible operator.",
+    ambiguous_reference: "Qualify the reference with the full namespace to resolve the ambiguity.",
+    deprecated: "Replace with the recommended modern alternative."
+  },
+  sqlfluff: {
+    style: "Run `sqlfluff fix` to auto-correct formatting.",
+    naming_convention: "Standardize keyword/identifier capitalization — use UPPER for keywords, lower for identifiers.",
+    select_style: "Place each SELECT target on its own line for readability.",
+    query_structure: "Restructure the query following SQL best practices.",
+    syntax_error: "Fix the SQL syntax — check for unclosed parentheses, missing commas, or invalid keywords.",
+    undeclared_column: "Verify the column name exists in the table — check for typos or missing joins in {file}.",
+    undeclared_table: "Verify the table exists — check for typos or missing schema qualifier.",
+    ambiguous_reference: "Qualify the column with the table alias to resolve the ambiguity.",
+    division_by_zero: "Add a NULLIF or CASE guard before the division.",
+    deadlock: "Review transaction order and lock granularity to prevent deadlocks.",
+    permission_error: "Grant the necessary permissions or use a role with sufficient access."
+  },
+  yamllint: {
+    indentation: "Fix the indentation to match the expected level (usually 2 spaces) in {file}.",
+    line_length: "Break the line or use YAML block scalars (| or >) to reduce line width.",
+    trailing_spaces: "Remove trailing whitespace from the end of the line.",
+    truthy_value: "Replace yes/no/on/off with true/false for boolean values.",
+    document_start: "Add '---' at the beginning of the YAML document.",
+    syntax_error: "Fix the YAML syntax — check for incorrect indentation, unquoted special characters, or unclosed strings.",
+    duplicate_key: "Remove the duplicate key — only the last value is used."
   }
 };

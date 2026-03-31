@@ -11,6 +11,7 @@
 import { classifyErrorFamily, getNextAction, getRootCause } from "../validation/enrichment.js";
 import type { ValidationFamily } from "../validation/types.js";
 import type { EnrichedItem } from "./types.js";
+import { getLanguagePackRegistry } from "../language-packs/index.js";
 
 /**
  * Map from M2 ReducerFamily names to M1 ValidationFamily names.
@@ -30,7 +31,11 @@ const FAMILY_MAP: Record<string, ValidationFamily> = {
   "go-build": "go",
   shellcheck: "shellcheck",
   rubocop: "rubocop",
-  cppcheck: "cppcheck"
+  cppcheck: "cppcheck",
+  "java-build": "java",
+  gradle: "java",
+  dotnet: "dotnet",
+  "sql-result": "sqlfluff",
 };
 
 export interface ParsedItem {
@@ -97,5 +102,12 @@ function toUnenriched(item: ParsedItem): EnrichedItem {
 
 /** Check whether a reducer family is enrichment-eligible. */
 export function isEnrichable(reducerFamily: string): boolean {
-  return reducerFamily in FAMILY_MAP;
+  if (reducerFamily in FAMILY_MAP) return true;
+  const registry = getLanguagePackRegistry();
+  if (registry.size > 0) {
+    return registry.getAllPacks().some(
+      (p) => p.reducerFamilies.includes(reducerFamily) && Object.keys(p.classifiers).length > 0
+    );
+  }
+  return false;
 }

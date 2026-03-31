@@ -199,6 +199,22 @@ async def yarn_runtime_telemetry(
         raise HTTPException(status_code=502, detail="Could not reach Yarn telemetry endpoint")
 
 
+@router.get("/language-packs")
+async def yarn_language_packs(
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Proxy language pack conformance matrix from Yarn /health/telemetry."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{_YARN_URL.rstrip('/')}/health/telemetry")
+            resp.raise_for_status()
+            data = resp.json()
+            return {"languagePacks": data.get("languagePacks", [])}
+    except Exception as exc:
+        logger.warning("yarn_language_packs_proxy_error: %s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail="Could not reach Yarn telemetry endpoint")
+
+
 @router.post("/verify")
 async def yarn_verify(
     user: UserInfo = Depends(require_org_admin),

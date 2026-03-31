@@ -160,6 +160,10 @@ const governanceClient = config.SYNESIS_YARN_GOVERNANCE_ENABLED
   ? new GovernanceClient(config)
   : null;
 if (governanceClient) governanceClient.start();
+
+import { loadAllPacks, getLanguagePackRegistry } from "./language-packs/index.js";
+loadAllPacks();
+app.log.info({ packs: getLanguagePackRegistry().size }, "language_packs_loaded");
 const circuitBreakers = new CircuitBreakerRegistry({
   failureThreshold: config.SYNESIS_YARN_BREAKER_FAILURE_THRESHOLD,
   recoveryTimeoutMs: config.SYNESIS_YARN_BREAKER_RECOVERY_TIMEOUT_MS,
@@ -1152,6 +1156,7 @@ app.get("/health/telemetry", async (req, reply) => {
     streamAdmission: streamAdmission.getStats(),
     attentionPositioning: attentionPositioning.getStats(),
     compressionEfficiencyIndex: computeEfficiencyIndex(),
+    languagePacks: getLanguagePackRegistry().getConformanceMatrix(),
     sessionContinuity: sessionContinuity.getStats(),
     diagnosticRingMax: DIAGNOSTIC_RING_MAX,
     diagnosticRingCurrent: diagnosticRing.length,

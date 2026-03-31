@@ -12,6 +12,8 @@
  */
 
 import type { KnowledgeSearchService, KnowledgeSearchResult } from "../state/knowledge-search.js";
+import { getLanguagePackRegistry } from "../language-packs/index.js";
+import type { FastPathPatternDef } from "../language-packs/types.js";
 
 export interface FastPathMatch {
   pattern: string;
@@ -102,7 +104,30 @@ const PATTERNS: PatternRule[] = [
   },
 ];
 
+function getRegistryPatterns(): FastPathPatternDef[] {
+  const registry = getLanguagePackRegistry();
+  if (registry.size === 0) return [];
+  return registry.getAllPacks().flatMap((p) => p.fastPathPatterns);
+}
+
 export function detectPattern(text: string): FastPathMatch | null {
+  const registryPatterns = getRegistryPatterns();
+  for (const rp of registryPatterns) {
+    const m = rp.regex.exec(text);
+    if (m) {
+      const pack = getLanguagePackRegistry().getAllPacks().find((p) =>
+        p.fastPathPatterns.some((fp) => fp.name === rp.name)
+      );
+      return {
+        pattern: rp.name,
+        language: pack?.language ?? "unknown",
+        scope_tags: rp.scope_tags,
+        constraint_kind: rp.constraint_kind,
+        searchQuery: rp.queryTransform ? rp.queryTransform(m, text) : text.slice(0, 200),
+      };
+    }
+  }
+
   for (const rule of PATTERNS) {
     const m = rule.regex.exec(text);
     if (m) {

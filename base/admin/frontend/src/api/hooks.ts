@@ -2516,3 +2516,27 @@ export function useEffortRecommendationPreview() {
     mutationFn: (data) => client.post("/models/effort/recommend", data).then((r) => r.data),
   });
 }
+
+/* ── Language Packs ──────────────────────────────────────────────────────── */
+
+export interface LanguagePackConformance {
+  language: string;
+  displayName: string;
+  version: string;
+  familyCount: number;
+  classifierCount: number;
+  reducerCount: number;
+  fastPathPatternCount: number;
+  verificationCommandCount: number;
+  fixRecipeCount: number;
+  classifierCoverage: number;
+  reducerCoverage: number;
+}
+
+export function useYarnLanguagePacks() {
+  return useQuery<{ languagePacks: LanguagePackConformance[] }>({
+    queryKey: ["yarn", "language-packs"],
+    queryFn: () => client.get("/yarn/language-packs").then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}

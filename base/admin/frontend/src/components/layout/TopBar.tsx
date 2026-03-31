@@ -46,6 +46,7 @@ const breadcrumbLabels: Record<string, string> = {
   sessions: "Sessions",
   events: "Events",
   verification: "Verification",
+  "language-packs": "Language Packs",
   authz: "Authorization Policy",
   "authz-tuples": "FGA Tuples",
   "authz-checker": "Auth Debugger",
