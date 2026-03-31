@@ -9,6 +9,11 @@ import type { RecallDecision, RecallStats } from "../recall/types.js";
 import { createEmptyRecallStats } from "../recall/types.js";
 import { getLanguagePackRegistry } from "../language-packs/index.js";
 import type { RecallRoutingConfig } from "../recall/routing.js";
+import { VerificationLoopTracker } from "../verification/loop-tracker.js";
+import { getVerificationToolNames } from "../verification/planner.js";
+import type { VerificationStats } from "../verification/types.js";
+import { createEmptyVerificationStats } from "../verification/types.js";
+import { formatSelfRepairBlock } from "../recall/formatter.js";
 
 export interface ToolResultLike {
   role: string;
@@ -78,6 +83,9 @@ export class ToolResultReductionService {
   private readonly recallStats: RecallStats = createEmptyRecallStats();
   private readonly recallConfig: RecallRoutingConfig;
   private _lastRecallDecision: RecallDecision | null = null;
+  private readonly verificationTracker = new VerificationLoopTracker();
+  private readonly verificationStats: VerificationStats = createEmptyVerificationStats();
+  private _verificationToolNames: Set<string> | null = null;
 
   constructor(
     private readonly config: AppConfig,
@@ -138,20 +146,45 @@ export class ToolResultReductionService {
         if (reduced.bypassEligible) this.stats.bypassEligibleCount += 1;
 
         if (reduced.enrichedItems && reduced.enrichedItems.length > 0) {
+          const registry = getLanguagePackRegistry();
           const decision = makeRecallDecision(
             reduced.enrichedItems,
             reduced.bypassEligible ?? false,
-            getLanguagePackRegistry(),
+            registry,
             this.recallConfig,
             reduced.family,
             this.recallStats,
           );
           this._lastRecallDecision = decision;
 
-          if (decision.routing === "bypass" && decision.syntheticBlock) {
-            summary = decision.syntheticBlock;
-          } else if (decision.routing === "enrich" && decision.enrichmentBlock) {
-            summary = summary + "\n" + decision.enrichmentBlock;
+          const isVerify = this.isVerificationOutput(m.name);
+          if (isVerify) {
+            const loopState = this.verificationTracker.recordRound(
+              m.name ?? "unknown",
+              reduced.enrichedItems,
+              reduced.bypassEligible ?? false,
+              this.verificationStats,
+              decision.resolution?.language,
+            );
+
+            if (decision.routing !== "passthrough" && decision.resolution) {
+              const selfRepair = formatSelfRepairBlock(decision.resolution, loopState);
+              if (selfRepair) {
+                this.verificationStats.selfRepairSuggestions++;
+                summary = summary + "\n" + selfRepair;
+              }
+            }
+
+            const progress = this.verificationTracker.formatProgressAnnotation();
+            if (progress) {
+              summary = summary + "\n" + progress;
+            }
+          } else {
+            if (decision.routing === "bypass" && decision.syntheticBlock) {
+              summary = decision.syntheticBlock;
+            } else if (decision.routing === "enrich" && decision.enrichmentBlock) {
+              summary = summary + "\n" + decision.enrichmentBlock;
+            }
           }
         }
       } else {
@@ -213,20 +246,45 @@ export class ToolResultReductionService {
       if (reduced.bypassEligible) this.stats.bypassEligibleCount += 1;
 
       if (reduced.enrichedItems && reduced.enrichedItems.length > 0) {
+        const registry = getLanguagePackRegistry();
         const decision = makeRecallDecision(
           reduced.enrichedItems,
           reduced.bypassEligible ?? false,
-          getLanguagePackRegistry(),
+          registry,
           this.recallConfig,
           reduced.family,
           this.recallStats,
         );
         this._lastRecallDecision = decision;
 
-        if (decision.routing === "bypass" && decision.syntheticBlock) {
-          summary = decision.syntheticBlock;
-        } else if (decision.routing === "enrich" && decision.enrichmentBlock) {
-          summary = summary + "\n" + decision.enrichmentBlock;
+        const isVerify = this.isVerificationOutput(toolName);
+        if (isVerify) {
+          const loopState = this.verificationTracker.recordRound(
+            toolName ?? "unknown",
+            reduced.enrichedItems,
+            reduced.bypassEligible ?? false,
+            this.verificationStats,
+            decision.resolution?.language,
+          );
+
+          if (decision.routing !== "passthrough" && decision.resolution) {
+            const selfRepair = formatSelfRepairBlock(decision.resolution, loopState);
+            if (selfRepair) {
+              this.verificationStats.selfRepairSuggestions++;
+              summary = summary + "\n" + selfRepair;
+            }
+          }
+
+          const progress = this.verificationTracker.formatProgressAnnotation();
+          if (progress) {
+            summary = summary + "\n" + progress;
+          }
+        } else {
+          if (decision.routing === "bypass" && decision.syntheticBlock) {
+            summary = decision.syntheticBlock;
+          } else if (decision.routing === "enrich" && decision.enrichmentBlock) {
+            summary = summary + "\n" + decision.enrichmentBlock;
+          }
         }
       }
     } else {
@@ -269,6 +327,26 @@ export class ToolResultReductionService {
 
   getLastRecallDecision(): RecallDecision | null {
     return this._lastRecallDecision;
+  }
+
+  getVerificationStats(): VerificationStats {
+    return this.verificationStats;
+  }
+
+  getVerificationTracker(): VerificationLoopTracker {
+    return this.verificationTracker;
+  }
+
+  private isVerificationOutput(toolName: string | undefined): boolean {
+    if (!toolName) return false;
+    if (!this._verificationToolNames) {
+      this._verificationToolNames = getVerificationToolNames(getLanguagePackRegistry());
+    }
+    const lower = toolName.toLowerCase();
+    for (const vt of this._verificationToolNames) {
+      if (lower.includes(vt)) return true;
+    }
+    return false;
   }
 
   private artifactSummary(raw: string, toolName?: string): string {

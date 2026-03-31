@@ -7,5 +7,5 @@ export type {
   RecallStats,
 } from "./types.js";
 export { createEmptyRecallStats } from "./types.js";
-export { formatSyntheticResponse, formatEnrichmentBlock } from "./formatter.js";
+export { formatSyntheticResponse, formatEnrichmentBlock, formatSelfRepairBlock } from "./formatter.js";
 export { makeRecallDecision } from "./routing.js";

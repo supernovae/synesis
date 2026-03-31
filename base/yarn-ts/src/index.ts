@@ -37,6 +37,8 @@ import { classify as manifestClassify } from "./manifest/classifier.js";
 import { scanForManifest as manifestScan } from "./manifest/repo-scanner.js";
 import { compareManifests as manifestCompare } from "./manifest/comparator.js";
 import { critiquStructure as manifestCritique } from "./manifest/structural-critic.js";
+import { buildVerificationPlan, formatVerificationPlanBlock } from "./verification/planner.js";
+import { VerificationLoopTracker } from "./verification/loop-tracker.js";
 import { registerMcpRoutes } from "./mcp/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator } from "./orchestration/phase-model-orchestrator.js";
@@ -94,6 +96,9 @@ interface RequestDiagnostic {
   latencyMs: number;
   recallRouting?: string;
   recallConfidence?: number;
+  verificationRound?: number;
+  verificationFindings?: number;
+  verificationStalled?: boolean;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -250,6 +255,22 @@ function enrichWithFrameAndManifest(
     volatileBlocks.push({ role: "system", content: projectManifestService.toSystemBlock(manifest) });
   }
 
+  if (config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED) {
+    const detectedLangs = detectLanguagesFromMessages(out);
+    if (detectedLangs.length > 0) {
+      const vPlan = buildVerificationPlan(
+        detectedLangs,
+        getLanguagePackRegistry(),
+        config.SYNESIS_YARN_VERIFICATION_MAX_ROUNDS,
+        config.SYNESIS_YARN_VERIFICATION_BUDGET_MS,
+      );
+      const vBlock = formatVerificationPlanBlock(vPlan);
+      if (vBlock) {
+        volatileBlocks.push({ role: "system", content: vBlock });
+      }
+    }
+  }
+
   const enriched: Array<{ role: string; content: unknown }> = [
     { role: "system", content: systemPrefix },
     ...volatileBlocks,
@@ -262,6 +283,27 @@ function enrichWithFrameAndManifest(
 }
 
 const FILE_RE_GLOBAL = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
+
+const EXTENSION_TO_LANGUAGE: Record<string, string> = {
+  ts: "typescript", tsx: "typescript", js: "typescript", jsx: "typescript",
+  py: "python", go: "go", rs: "rust", java: "java", kt: "java",
+  cs: "csharp", sql: "sql", sh: "bash", bash: "bash",
+  tf: "terraform", hcl: "terraform",
+  yaml: "yaml-k8s", yml: "yaml-k8s",
+};
+
+function detectLanguagesFromMessages(messages: Array<{ role: string; content: unknown }>): string[] {
+  const allText = messages.map((m) => typeof m.content === "string" ? m.content : "").join("\n");
+  const files = allText.match(FILE_RE_GLOBAL) ?? [];
+  const langs = new Set<string>();
+  for (const f of files) {
+    const ext = f.split(".").pop()?.toLowerCase();
+    if (ext && EXTENSION_TO_LANGUAGE[ext]) {
+      langs.add(EXTENSION_TO_LANGUAGE[ext]);
+    }
+  }
+  return Array.from(langs);
+}
 
 interface SessionIdentity {
   userId: string;
@@ -1159,6 +1201,7 @@ app.get("/health/telemetry", async (req, reply) => {
     attentionPositioning: attentionPositioning.getStats(),
     compressionEfficiencyIndex: computeEfficiencyIndex(),
     recall: toolResultReduction.getRecallStats(),
+    verification: toolResultReduction.getVerificationStats(),
     languagePacks: getLanguagePackRegistry().getConformanceMatrix(),
     sessionContinuity: sessionContinuity.getStats(),
     diagnosticRingMax: DIAGNOSTIC_RING_MAX,
@@ -1174,6 +1217,7 @@ app.get("/health/telemetry", async (req, reply) => {
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
+      verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
       claudeToolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
       jitterBuffer: config.SYNESIS_YARN_JITTER_BUFFER_ENABLED,
       sortedTools: config.SYNESIS_YARN_SORTED_TOOLS_ENABLED,
@@ -1593,6 +1637,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
     const lastRecallOai = toolResultReduction.getLastRecallDecision();
+    const vStateOai = toolResultReduction.getVerificationTracker().getState();
     pushDiagnostic({
       timestamp: Date.now(), sessionKey, path: "/v1/chat/completions",
       ...msgCounts,
@@ -1603,6 +1648,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiLatency,
       recallRouting: lastRecallOai?.routing,
       recallConfidence: lastRecallOai?.resolution?.confidence,
+      verificationRound: vStateOai.round > 0 ? vStateOai.round : undefined,
+      verificationFindings: vStateOai.round > 0 ? vStateOai.findings.length : undefined,
+      verificationStalled: vStateOai.stalled || undefined,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
@@ -1747,6 +1795,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   maybeCheckpoint(session);
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   const lastRecallOaiStream = toolResultReduction.getLastRecallDecision();
+  const vStateOaiStream = toolResultReduction.getVerificationTracker().getState();
   pushDiagnostic({
     timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)",
     ...oaiStreamMsgCounts,
@@ -1757,6 +1806,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiStreamLatency,
     recallRouting: lastRecallOaiStream?.routing,
     recallConfidence: lastRecallOaiStream?.resolution?.confidence,
+    verificationRound: vStateOaiStream.round > 0 ? vStateOaiStream.round : undefined,
+    verificationFindings: vStateOaiStream.round > 0 ? vStateOaiStream.findings.length : undefined,
+    verificationStalled: vStateOaiStream.stalled || undefined,
   });
   return reply;
 });
@@ -2227,6 +2279,7 @@ app.post("/v1/messages", async (req, reply) => {
     maybeCheckpoint(session);
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     const lastRecallClaudeStream = toolResultReduction.getLastRecallDecision();
+    const vStateClaudeStream = toolResultReduction.getVerificationTracker().getState();
     pushDiagnostic({
       timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)",
       ...claudeStreamMsgCounts,
@@ -2237,6 +2290,9 @@ app.post("/v1/messages", async (req, reply) => {
       policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeStreamLatency,
       recallRouting: lastRecallClaudeStream?.routing,
       recallConfidence: lastRecallClaudeStream?.resolution?.confidence,
+      verificationRound: vStateClaudeStream.round > 0 ? vStateClaudeStream.round : undefined,
+      verificationFindings: vStateClaudeStream.round > 0 ? vStateClaudeStream.findings.length : undefined,
+      verificationStalled: vStateClaudeStream.stalled || undefined,
     });
     return reply;
   }
@@ -2291,6 +2347,7 @@ app.post("/v1/messages", async (req, reply) => {
   maybeCheckpoint(session);
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   const lastRecallClaudeNonStream = toolResultReduction.getLastRecallDecision();
+  const vStateClaudeNonStream = toolResultReduction.getVerificationTracker().getState();
   pushDiagnostic({
     timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages",
     ...claudeNonStreamMsgCounts,
@@ -2301,6 +2358,9 @@ app.post("/v1/messages", async (req, reply) => {
     policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeNonStreamLatency,
     recallRouting: lastRecallClaudeNonStream?.routing,
     recallConfidence: lastRecallClaudeNonStream?.resolution?.confidence,
+    verificationRound: vStateClaudeNonStream.round > 0 ? vStateClaudeNonStream.round : undefined,
+    verificationFindings: vStateClaudeNonStream.round > 0 ? vStateClaudeNonStream.findings.length : undefined,
+    verificationStalled: vStateClaudeNonStream.stalled || undefined,
   });
 
   const content: Array<Record<string, unknown>> = [];

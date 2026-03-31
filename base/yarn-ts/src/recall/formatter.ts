@@ -2,9 +2,11 @@
  * Format recall resolutions into structured text blocks:
  * - Synthetic response (bypass): a full deterministic answer block
  * - Enrichment block (enrich): context appended to tool results before LLM
+ * - Self-repair block: verification-loop-aware fix suggestions
  */
 
 import type { RecallResolution, ResolvedFinding } from "./types.js";
+import type { VerificationLoopState } from "../verification/types.js";
 
 /**
  * Build a synthetic deterministic response block from a fully resolved set
@@ -60,4 +62,42 @@ function formatFindingHint(f: ResolvedFinding): string {
   if (f.rootCause) parts.push(`cause: ${f.rootCause}`);
   if (f.recipe) parts.push(`fix: ${f.recipe.template}`);
   return parts.join(" | ");
+}
+
+/**
+ * Build a self-repair suggestion block for use inside a verification loop.
+ * Tells the LLM which findings have deterministic fixes and which need reasoning.
+ */
+export function formatSelfRepairBlock(
+  resolution: RecallResolution,
+  loopState: VerificationLoopState,
+): string | null {
+  const withRecipes = resolution.findings.filter((f) => f.recipe);
+  const withoutRecipes = resolution.findings.filter((f) => !f.recipe && f.errorFamily !== "unknown");
+
+  if (withRecipes.length === 0) return null;
+
+  const lines: string[] = [
+    `<synesis_self_repair round="${loopState.round}" deterministic="${withRecipes.length}" reasoning="${withoutRecipes.length}" total="${resolution.findings.length}">`,
+  ];
+
+  if (withRecipes.length > 0) {
+    lines.push("Deterministic fixes available:");
+    for (const f of withRecipes) {
+      lines.push(`  - [${f.errorFamily}] ${f.recipe!.template}`);
+      if (f.file) lines.push(`    File: ${f.file}`);
+    }
+  }
+
+  if (withoutRecipes.length > 0) {
+    lines.push("");
+    lines.push("Require reasoning:");
+    for (const f of withoutRecipes) {
+      lines.push(`  - [${f.errorFamily}] ${f.message}`);
+      if (f.rootCause) lines.push(`    Cause: ${f.rootCause}`);
+    }
+  }
+
+  lines.push("</synesis_self_repair>");
+  return lines.join("\n");
 }

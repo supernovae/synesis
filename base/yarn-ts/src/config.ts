@@ -163,6 +163,14 @@ const EnvSchema = z.object({
   SYNESIS_YARN_RECALL_ENRICH_THRESHOLD: z.coerce.number().default(0.4),
   SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN: z.coerce.number().default(0.3),
 
+  // Verification loop — language-pack-driven verification guidance
+  SYNESIS_YARN_VERIFICATION_PLAN_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_VERIFICATION_MAX_ROUNDS: z.coerce.number().default(3),
+  SYNESIS_YARN_VERIFICATION_BUDGET_MS: z.coerce.number().default(30_000),
+
   // Claude compat
   SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE: z
     .enum(["disable", "passthrough"])
