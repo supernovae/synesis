@@ -22,6 +22,7 @@ import { fetchTierConfigs } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry } from "./providers/synesis-provider.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import { SessionStore, type SessionRecord } from "./state/session-store.js";
+import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
@@ -62,8 +63,19 @@ import { sortToolSchemas } from "./compat/sorted-tools.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
-import { initOtel, getTracer } from "./telemetry/otel.js";
+import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
+import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
 import { buildDecisionSnapshot, snapshotToTraceFields, type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
+import {
+  analyzeGaps,
+  shouldTriggerSensemaking,
+  buildExplorationPlan,
+  formatExplorationPlanBlock,
+  createEmptySensemakingStats,
+  type SensemakingResult,
+  type GapAnalysisContext,
+  type SensemakingStats,
+} from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 
@@ -102,6 +114,9 @@ interface RequestDiagnostic {
   verificationStalled?: boolean;
   decisionPath?: string;
   decisionEscalated?: boolean;
+  sensemakingTriggered?: boolean;
+  sensemakingReason?: string;
+  requestId?: string;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -110,6 +125,9 @@ let DIAGNOSTIC_RING_MAX = 20;
 function pushDiagnostic(d: RequestDiagnostic): void {
   diagnosticRing.push(d);
   if (diagnosticRing.length > DIAGNOSTIC_RING_MAX) diagnosticRing.shift();
+  if (d.requestId) {
+    diagnosticStore.persistDiagnostic(d.requestId, d as unknown as Record<string, unknown>);
+  }
 }
 
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
@@ -134,6 +152,7 @@ const tierRegistry = new SynesisProviderRegistry();
 const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS);
 const sessions = new Map<string, SessionState>();
 const sessionStore = new SessionStore(config);
+const diagnosticStore = new DiagnosticStore(config);
 const usageWriter = new UsageWriter(config);
 const usagePersistenceEnabled =
   config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(String(config.SYNESIS_YARN_ADMIN_DB_URL ?? "").trim());
@@ -191,7 +210,9 @@ const streamAdmission = new StreamAdmissionController({
 });
 DIAGNOSTIC_RING_MAX = config.SYNESIS_YARN_DIAGNOSTIC_RING_MAX;
 await initOtel(config);
+startEventLoopMonitor();
 const phaseOrchestrator = new PhaseModelOrchestrator();
+const sensemakingStats: SensemakingStats = createEmptySensemakingStats();
 const clientAdapterPacks = new ClientAdapterPacks();
 const stablePrefixService = new StablePrefixService();
 const attentionPositioning = new AttentionPositioningService();
@@ -572,6 +593,11 @@ function persistSessionAndUsage(
   escalated = false,
   snapshot?: DecisionSnapshot,
 ): void {
+  const persistSpan = getTracer().startSpan("yarn.persist_session", {
+    "yarn.request_id": requestId,
+    "yarn.model": resolvedModelId,
+    "yarn.latency_ms": latencyMs,
+  });
   const tier = tierRegistry.getTierConfig(resolvedModelId);
   const tierRates = {
     input_per_million: Number(tier?.inputPerM ?? 0),
@@ -693,6 +719,8 @@ function persistSessionAndUsage(
     has_error: finishReason === "error" || undefined,
   };
   emitTrace(trace, traceEmitterConfig, app.log);
+  persistSpan.setStatus("ok");
+  persistSpan.end();
 }
 
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number } {
@@ -1015,6 +1043,14 @@ function emitDecisionEvents(
         verificationStalled: snapshot.verificationStalled,
       });
   }
+  if (snapshot.sensemakingTriggered && config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
+    recordSessionEvent(sessionKey, userId, orgId, "sensemaking_triggered", "sensemaking-engine",
+      snapshot.sensemakingReason ?? "sensemaking", requestId, {
+        phase: snapshot.phase,
+        decisionPath: snapshot.decisionPath,
+        reason: snapshot.sensemakingReason,
+      });
+  }
 }
 
 function getBearerToken(authHeader: string | undefined): string {
@@ -1028,17 +1064,25 @@ async function proxyMcpGet(
   bearer: string,
   headers?: { requestId?: string; traceparent?: string },
 ): Promise<unknown> {
-  const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
-    headers: {
-      Authorization: `Bearer ${bearer}`,
-      ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
-      ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
+  try {
+    const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
+      signal: AbortSignal.timeout(config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS),
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
+        ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`MCP upstream error ${response.status}`);
     }
-  });
-  if (!response.ok) {
-    throw new Error(`MCP upstream error ${response.status}`);
+    return response.json();
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error(`MCP upstream timeout after ${config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS}ms`);
+    }
+    throw err;
   }
-  return response.json();
 }
 
 async function proxyMcpPost(
@@ -1047,20 +1091,28 @@ async function proxyMcpPost(
   body: unknown,
   headers?: { requestId?: string; traceparent?: string },
 ): Promise<unknown> {
-  const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${bearer}`,
-      "Content-Type": "application/json",
-      ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
-      ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
-    },
-    body: JSON.stringify(body)
-  });
-  if (!response.ok) {
-    throw new Error(`MCP upstream error ${response.status}`);
+  try {
+    const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
+      method: "POST",
+      signal: AbortSignal.timeout(config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS),
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        "Content-Type": "application/json",
+        ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
+        ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
+      },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      throw new Error(`MCP upstream error ${response.status}`);
+    }
+    return response.json();
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error(`MCP upstream timeout after ${config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS}ms`);
+    }
+    throw err;
   }
-  return response.json();
 }
 
 function sse(reply: { raw: { write(data: string): boolean } }, event: string, data: unknown): void {
@@ -1158,7 +1210,7 @@ async function shutdown(): Promise<void> {
   governanceClient?.close();
   artifactStore.close();
   await app.close();
-  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close()]);
+  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticStore.close()]);
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown());
@@ -1241,6 +1293,14 @@ app.get("/health/telemetry", async (req, reply) => {
     verification: toolResultReduction.getVerificationStats(),
     languagePacks: getLanguagePackRegistry().getConformanceMatrix(),
     sessionContinuity: sessionContinuity.getStats(),
+    sensemaking: sensemakingStats,
+    eventLoopLag: getEventLoopStats(),
+    connectionPools: {
+      auth: authResolver.getPoolStats(),
+      usageWriter: usageWriter.getPoolStats(),
+    },
+    uptime: process.uptime(),
+    memoryUsage: process.memoryUsage(),
     diagnosticRingMax: DIAGNOSTIC_RING_MAX,
     diagnosticRingCurrent: diagnosticRing.length,
     featureFlags: {
@@ -1256,6 +1316,8 @@ app.get("/health/telemetry", async (req, reply) => {
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
       decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
+      sensemaking: config.SYNESIS_YARN_SENSEMAKING_ENABLED,
+      diagnosticPersistence: config.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED,
       claudeToolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
       jitterBuffer: config.SYNESIS_YARN_JITTER_BUFFER_ENABLED,
       sortedTools: config.SYNESIS_YARN_SORTED_TOOLS_ENABLED,
@@ -1287,6 +1349,18 @@ app.get("/v1/diagnostics/recent", async (req, reply) => {
     return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
   }
   return { diagnostics: [...diagnosticRing], count: diagnosticRing.length };
+});
+
+app.get("/v1/diagnostics/:requestId", async (req, reply) => {
+  if (!requireInternalToken(req as never)) {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
+  }
+  const { requestId } = req.params as { requestId: string };
+  const inMemory = diagnosticRing.find((d) => d.requestId === requestId);
+  if (inMemory) return inMemory;
+  const persisted = await diagnosticStore.getDiagnostic(requestId);
+  if (persisted) return persisted;
+  return reply.code(404).send({ error: { type: "not_found", message: "Diagnostic not found" } });
 });
 
 app.get("/v1", async () => ({
@@ -1366,7 +1440,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     request.tools = sortToolSchemas(request.tools) as never;
   }
 
-  const reducedOpenAI = toolResultReduction.reduceMessages(request.messages as never);
+  const reducedOpenAI = withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
+    toolResultReduction.reduceMessages(request.messages as never),
+  );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = validationNormalization.normalizeMessages(reducedOpenAI.messages as never);
   const adapterProfile = clientAdapterPacks.resolve(
@@ -1438,7 +1514,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (distToolCalls !== null && distToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = distToolCalls;
   }
-  const policyPrecheck = policyEngine.evaluate({
+  const policyPrecheck = withSpan("yarn.policy.evaluate", { "yarn.path": "openai" }, () => policyEngine.evaluate({
     tools: request.tools as unknown[],
     repeatAttempt: {
       action: "chat_completion",
@@ -1458,7 +1534,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
     hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
     governanceRules: governanceClient?.getRules(),
-  });
+  }));
   if (!policyPrecheck.allow) {
     logAndPersistSafetyEvent(policyPrecheck, sessionKey, session.record.totalTokensIn);
     if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && policyPrecheck.softFailClass === "tool_loop") {
@@ -1494,7 +1570,50 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   let oaiEnrichedMsgs = enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as Array<{ role: string; content: unknown }>;
 
-  if (orchestration.uncertaintyFraming) {
+  let oaiSensemakingResult: SensemakingResult | undefined;
+  if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
+    const gapCtx: GapAnalysisContext = {
+      recallDecision: oaiRecallDecision,
+      verificationState: oaiVerifState,
+      evidenceConfidence: undefined,
+      evidenceAuthoritative: undefined,
+      evidencePrefetched: undefined,
+      phase: orchestration.phase,
+      decisionPath: orchestration.decisionPath,
+      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
+      languages: preManifest.languages ?? [],
+      userText: String(latestUserText?.content ?? ""),
+      workingFrameGoal: undefined,
+    };
+    const gaps = analyzeGaps(gapCtx);
+    const trigger = shouldTriggerSensemaking(gaps, orchestration, session.record.consecutiveFailedVerifications, config.SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD);
+    if (trigger.trigger) {
+      const plan = buildExplorationPlan(gaps, gapCtx);
+      oaiSensemakingResult = { triggered: true, reason: trigger.reason, gaps, plan };
+      sensemakingStats.triggeredCount += 1;
+      sensemakingStats.byReason[trigger.reason ?? "unknown"] = (sensemakingStats.byReason[trigger.reason ?? "unknown"] ?? 0) + 1;
+      sensemakingStats.plansGenerated += 1;
+      sensemakingStats.actionsGenerated += plan.forwardPath.length;
+    } else {
+      oaiSensemakingResult = { triggered: false, gaps };
+      sensemakingStats.skippedCount += 1;
+    }
+    const total = gaps.known.length + gaps.unknown.length + gaps.knowBetter.length;
+    sensemakingStats.totalGapsClassified += total;
+    sensemakingStats.knownCount += gaps.known.length;
+    sensemakingStats.unknownCount += gaps.unknown.length;
+    sensemakingStats.knowBetterCount += gaps.knowBetter.length;
+  }
+
+  const oaiExplorationBlock = oaiSensemakingResult?.triggered ? formatExplorationPlanBlock(oaiSensemakingResult) : "";
+  if (oaiExplorationBlock) {
+    const sysIdx = oaiEnrichedMsgs.findIndex((m) => m.role === "system");
+    if (sysIdx >= 0 && typeof oaiEnrichedMsgs[sysIdx].content === "string") {
+      oaiEnrichedMsgs[sysIdx] = { ...oaiEnrichedMsgs[sysIdx], content: `${oaiEnrichedMsgs[sysIdx].content}\n\n${oaiExplorationBlock}` };
+    } else {
+      oaiEnrichedMsgs.unshift({ role: "system", content: oaiExplorationBlock });
+    }
+  } else if (orchestration.uncertaintyFraming) {
     const sysIdx = oaiEnrichedMsgs.findIndex((m) => m.role === "system");
     if (sysIdx >= 0 && typeof oaiEnrichedMsgs[sysIdx].content === "string") {
       oaiEnrichedMsgs[sysIdx] = { ...oaiEnrichedMsgs[sysIdx], content: `${oaiEnrichedMsgs[sysIdx].content}\n\n${orchestration.uncertaintyFraming}` };
@@ -1704,6 +1823,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       reducedToolResults: reducedOpenAI.reducedCount,
       tokensSavedByReduction: oaiSaved,
       isStreaming: false,
+      sensemakingTriggered: oaiSensemakingResult?.triggered,
+      sensemakingReason: oaiSensemakingResult?.reason,
     });
     persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason, oaiSaved, orchestration.escalated, oaiSnapshot);
     maybeCheckpoint(session);
@@ -1711,7 +1832,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
-      timestamp: Date.now(), sessionKey, path: "/v1/chat/completions",
+      timestamp: Date.now(), sessionKey, path: "/v1/chat/completions", requestId: reqId,
       ...msgCounts,
       toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
@@ -1725,6 +1846,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       verificationStalled: vStateOai.stalled || undefined,
       decisionPath: orchestration.decisionPath,
       decisionEscalated: orchestration.escalated || undefined,
+      sensemakingTriggered: oaiSensemakingResult?.triggered || undefined,
+      sensemakingReason: oaiSensemakingResult?.reason,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
@@ -1875,13 +1998,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     reducedToolResults: reducedOpenAI.reducedCount,
     tokensSavedByReduction: oaiStreamSaved,
     isStreaming: true,
+    sensemakingTriggered: oaiSensemakingResult?.triggered,
+    sensemakingReason: oaiSensemakingResult?.reason,
   });
   persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved, orchestration.escalated, oaiStreamSnapshot);
   maybeCheckpoint(session);
   emitDecisionEvents(sessionKey, identity.userId, identity.orgId, reqId, oaiStreamSnapshot);
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
-    timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)",
+    timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)", requestId: reqId,
     ...oaiStreamMsgCounts,
     toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
     artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
@@ -1895,6 +2020,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     verificationStalled: vStateOaiStream.stalled || undefined,
     decisionPath: orchestration.decisionPath,
     decisionEscalated: orchestration.escalated || undefined,
+    sensemakingTriggered: oaiSensemakingResult?.triggered || undefined,
+    sensemakingReason: oaiSensemakingResult?.reason,
   });
   return reply;
 });
@@ -2044,7 +2171,7 @@ app.post("/v1/messages", async (req, reply) => {
   if (claudeDistToolCalls !== null && claudeDistToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = claudeDistToolCalls;
   }
-  const claudePolicyPrecheck = policyEngine.evaluate({
+  const claudePolicyPrecheck = withSpan("yarn.policy.evaluate", { "yarn.path": "claude" }, () => policyEngine.evaluate({
     tools: (body.tools as unknown[]) ?? [],
     repeatAttempt: {
       action: "claude_messages",
@@ -2064,7 +2191,7 @@ app.post("/v1/messages", async (req, reply) => {
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
     hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
     governanceRules: governanceClient?.getRules(),
-  });
+  }));
   if (!claudePolicyPrecheck.allow) {
     logAndPersistSafetyEvent(claudePolicyPrecheck, claudeSessionKey, session.record.totalTokensIn);
     if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && claudePolicyPrecheck.softFailClass === "tool_loop") {
@@ -2104,7 +2231,50 @@ app.post("/v1/messages", async (req, reply) => {
 
   let enrichedClaudeMsgs = enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock) as Array<{ role: string; content: unknown }>;
 
-  if (claudeOrchestration.uncertaintyFraming) {
+  let claudeSensemakingResult: SensemakingResult | undefined;
+  if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
+    const claudeGapCtx: GapAnalysisContext = {
+      recallDecision: claudeRecallDecision,
+      verificationState: claudeVerifState,
+      evidenceConfidence: undefined,
+      evidenceAuthoritative: undefined,
+      evidencePrefetched: undefined,
+      phase: claudeOrchestration.phase,
+      decisionPath: claudeOrchestration.decisionPath,
+      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
+      languages: claudeManifest.languages ?? [],
+      userText: String(latestClaudeUser?.content ?? ""),
+      workingFrameGoal: undefined,
+    };
+    const claudeGaps = analyzeGaps(claudeGapCtx);
+    const claudeTrigger = shouldTriggerSensemaking(claudeGaps, claudeOrchestration, session.record.consecutiveFailedVerifications, config.SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD);
+    if (claudeTrigger.trigger) {
+      const claudePlan = buildExplorationPlan(claudeGaps, claudeGapCtx);
+      claudeSensemakingResult = { triggered: true, reason: claudeTrigger.reason, gaps: claudeGaps, plan: claudePlan };
+      sensemakingStats.triggeredCount += 1;
+      sensemakingStats.byReason[claudeTrigger.reason ?? "unknown"] = (sensemakingStats.byReason[claudeTrigger.reason ?? "unknown"] ?? 0) + 1;
+      sensemakingStats.plansGenerated += 1;
+      sensemakingStats.actionsGenerated += claudePlan.forwardPath.length;
+    } else {
+      claudeSensemakingResult = { triggered: false, gaps: claudeGaps };
+      sensemakingStats.skippedCount += 1;
+    }
+    const claudeTotal = claudeGaps.known.length + claudeGaps.unknown.length + claudeGaps.knowBetter.length;
+    sensemakingStats.totalGapsClassified += claudeTotal;
+    sensemakingStats.knownCount += claudeGaps.known.length;
+    sensemakingStats.unknownCount += claudeGaps.unknown.length;
+    sensemakingStats.knowBetterCount += claudeGaps.knowBetter.length;
+  }
+
+  const claudeExplorationBlock = claudeSensemakingResult?.triggered ? formatExplorationPlanBlock(claudeSensemakingResult) : "";
+  if (claudeExplorationBlock) {
+    const sysIdx = enrichedClaudeMsgs.findIndex((m) => m.role === "system");
+    if (sysIdx >= 0 && typeof enrichedClaudeMsgs[sysIdx].content === "string") {
+      enrichedClaudeMsgs[sysIdx] = { ...enrichedClaudeMsgs[sysIdx], content: `${enrichedClaudeMsgs[sysIdx].content}\n\n${claudeExplorationBlock}` };
+    } else {
+      enrichedClaudeMsgs.unshift({ role: "system", content: claudeExplorationBlock });
+    }
+  } else if (claudeOrchestration.uncertaintyFraming) {
     const sysIdx = enrichedClaudeMsgs.findIndex((m) => m.role === "system");
     if (sysIdx >= 0 && typeof enrichedClaudeMsgs[sysIdx].content === "string") {
       enrichedClaudeMsgs[sysIdx] = { ...enrichedClaudeMsgs[sysIdx], content: `${enrichedClaudeMsgs[sysIdx].content}\n\n${claudeOrchestration.uncertaintyFraming}` };
@@ -2395,13 +2565,15 @@ app.post("/v1/messages", async (req, reply) => {
       reducedToolResults: claudeToolResultCount,
       tokensSavedByReduction: claudeStreamSaved,
       isStreaming: true,
+      sensemakingTriggered: claudeSensemakingResult?.triggered,
+      sensemakingReason: claudeSensemakingResult?.reason,
     });
     persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved, claudeOrchestration.escalated, claudeStreamSnapshot);
     maybeCheckpoint(session);
     emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeStreamSnapshot);
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
-      timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)",
+      timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)", requestId: reqId,
       ...claudeStreamMsgCounts,
       toolDefinitionCount: (body.tools as unknown[] ?? []).length,
       artifactToolInjected: false,
@@ -2415,6 +2587,8 @@ app.post("/v1/messages", async (req, reply) => {
       verificationStalled: vStateClaudeStream.stalled || undefined,
       decisionPath: claudeOrchestration.decisionPath,
       decisionEscalated: claudeOrchestration.escalated || undefined,
+      sensemakingTriggered: claudeSensemakingResult?.triggered || undefined,
+      sensemakingReason: claudeSensemakingResult?.reason,
     });
     return reply;
   }
@@ -2475,13 +2649,15 @@ app.post("/v1/messages", async (req, reply) => {
     reducedToolResults: claudeToolResultCount,
     tokensSavedByReduction: claudeNonStreamSaved,
     isStreaming: false,
+    sensemakingTriggered: claudeSensemakingResult?.triggered,
+    sensemakingReason: claudeSensemakingResult?.reason,
   });
   persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved, claudeOrchestration.escalated, claudeNonStreamSnapshot);
   maybeCheckpoint(session);
   emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeNonStreamSnapshot);
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
-    timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages",
+    timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages", requestId: reqId,
     ...claudeNonStreamMsgCounts,
     toolDefinitionCount: (body.tools as unknown[] ?? []).length,
     artifactToolInjected: false,
@@ -2495,6 +2671,8 @@ app.post("/v1/messages", async (req, reply) => {
     verificationStalled: vStateClaudeNonStream.stalled || undefined,
     decisionPath: claudeOrchestration.decisionPath,
     decisionEscalated: claudeOrchestration.escalated || undefined,
+    sensemakingTriggered: claudeSensemakingResult?.triggered || undefined,
+    sensemakingReason: claudeSensemakingResult?.reason,
   });
 
   const content: Array<Record<string, unknown>> = [];

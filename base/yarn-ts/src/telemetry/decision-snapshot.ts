@@ -27,6 +27,8 @@ export interface DecisionSnapshot {
   evidenceAuthoritative?: boolean;
   languages?: string[];
   isStreaming: boolean;
+  sensemakingTriggered?: boolean;
+  sensemakingReason?: string;
 }
 
 export interface SnapshotInputs {
@@ -41,6 +43,8 @@ export interface SnapshotInputs {
   evidenceAuthoritative?: boolean;
   languages?: string[];
   isStreaming: boolean;
+  sensemakingTriggered?: boolean;
+  sensemakingReason?: string;
 }
 
 export function buildDecisionSnapshot(inputs: SnapshotInputs): DecisionSnapshot {
@@ -65,6 +69,8 @@ export function buildDecisionSnapshot(inputs: SnapshotInputs): DecisionSnapshot 
     evidenceAuthoritative: inputs.evidenceAuthoritative,
     languages: inputs.languages,
     isStreaming: inputs.isStreaming,
+    sensemakingTriggered: inputs.sensemakingTriggered,
+    sensemakingReason: inputs.sensemakingReason,
   };
 }
 
@@ -90,6 +96,8 @@ export function snapshotToTraceFields(snapshot: DecisionSnapshot): {
       verificationRound: snapshot.verificationRound,
       verificationStalled: snapshot.verificationStalled,
       verificationFindings: snapshot.verificationFindings,
+      sensemakingTriggered: snapshot.sensemakingTriggered,
+      sensemakingReason: snapshot.sensemakingReason,
     },
     decision_ledger: [{
       path: snapshot.decisionPath,

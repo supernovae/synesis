@@ -17,7 +17,14 @@ export class AuthResolver {
   private readonly pepper: string;
 
   constructor(config: AppConfig) {
-    this.pool = config.SYNESIS_YARN_ADMIN_DB_URL ? new Pool({ connectionString: config.SYNESIS_YARN_ADMIN_DB_URL }) : null;
+    this.pool = config.SYNESIS_YARN_ADMIN_DB_URL
+      ? new Pool({
+          connectionString: config.SYNESIS_YARN_ADMIN_DB_URL,
+          max: config.SYNESIS_YARN_AUTH_POOL_MAX,
+          idleTimeoutMillis: config.SYNESIS_YARN_DB_POOL_IDLE_MS,
+          connectionTimeoutMillis: config.SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS,
+        })
+      : null;
     this.pepper = config.SYNESIS_PAT_PEPPER;
   }
 
@@ -44,6 +51,15 @@ export class AuthResolver {
     const allowedPrefixes = ["coder", "model:", "chat:"];
     if (scopes.some((s) => allowedPrefixes.some((p) => s.startsWith(p)))) return;
     throw new Error("Insufficient scope for coder access");
+  }
+
+  getPoolStats(): { totalCount: number; idleCount: number; waitingCount: number } {
+    if (!this.pool) return { totalCount: 0, idleCount: 0, waitingCount: 0 };
+    return {
+      totalCount: this.pool.totalCount,
+      idleCount: this.pool.idleCount,
+      waitingCount: this.pool.waitingCount,
+    };
   }
 
   async close(): Promise<void> {

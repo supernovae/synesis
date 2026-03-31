@@ -224,6 +224,23 @@ const EnvSchema = z.object({
   SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH: z.coerce.number().default(100),
   SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS: z.coerce.number().default(30_000),
 
+  // Reliability hardening (Phase 11)
+  SYNESIS_YARN_AUTH_POOL_MAX: z.coerce.number().default(5),
+  SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS: z.coerce.number().default(30_000),
+  SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS: z.coerce.number().default(2000),
+  SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_DIAGNOSTIC_REDIS_TTL_S: z.coerce.number().default(86400),
+
+  // Sensemaking — future-backward exploration engine (Phase 10)
+  SYNESIS_YARN_SENSEMAKING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD: z.coerce.number().default(0.5),
+
   // Debug / trace
   SYNESIS_YARN_DEBUG_PROTOCOL: z
     .string()

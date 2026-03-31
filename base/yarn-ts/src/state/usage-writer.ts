@@ -116,6 +116,15 @@ export class UsageWriter {
     };
   }
 
+  getPoolStats(): { totalCount: number; idleCount: number; waitingCount: number } {
+    if (!this.pool) return { totalCount: 0, idleCount: 0, waitingCount: 0 };
+    return {
+      totalCount: this.pool.totalCount,
+      idleCount: this.pool.idleCount,
+      waitingCount: this.pool.waitingCount,
+    };
+  }
+
   private enqueue(item: { type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent } | { type: "safety"; event: SafetyEventInsert } | { type: "session_event"; event: SessionEventInsert }): void {
     if (!this.pool) return;
     if (this.queue.length >= this.queueMax) {

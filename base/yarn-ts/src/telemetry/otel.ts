@@ -39,6 +39,50 @@ export function getTracer(): OtelTracer {
   return tracerInstance ?? noopTracer;
 }
 
+/**
+ * Run a synchronous function inside a traced span. The span is ended
+ * automatically when the function returns (or throws).
+ */
+export function withSpan<T>(
+  name: string,
+  attrs: Record<string, string | number | boolean>,
+  fn: (span: OtelSpan) => T,
+): T {
+  const span = getTracer().startSpan(name, attrs);
+  try {
+    const result = fn(span);
+    span.setStatus("ok");
+    return result;
+  } catch (err) {
+    span.setStatus("error", err instanceof Error ? err.message : "unknown");
+    throw err;
+  } finally {
+    span.end();
+  }
+}
+
+/**
+ * Run an async function inside a traced span. The span is ended
+ * automatically when the promise resolves or rejects.
+ */
+export async function withSpanAsync<T>(
+  name: string,
+  attrs: Record<string, string | number | boolean>,
+  fn: (span: OtelSpan) => Promise<T>,
+): Promise<T> {
+  const span = getTracer().startSpan(name, attrs);
+  try {
+    const result = await fn(span);
+    span.setStatus("ok");
+    return result;
+  } catch (err) {
+    span.setStatus("error", err instanceof Error ? err.message : "unknown");
+    throw err;
+  } finally {
+    span.end();
+  }
+}
+
 export async function initOtel(config: AppConfig): Promise<void> {
   if (!config.SYNESIS_YARN_OTEL_ENABLED || !config.OTEL_EXPORTER_OTLP_ENDPOINT) {
     return;

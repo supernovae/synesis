@@ -32,6 +32,7 @@ export interface ToolResultReductionStats {
   jsonCompactionCount: number;
   contentDispatchCount: number;
   reducerFailures: number;
+  compactionFailures: number;
   enrichedCount: number;
   bypassEligibleCount: number;
   byFamily: Record<string, number>;
@@ -73,6 +74,7 @@ export class ToolResultReductionService {
     jsonCompactionCount: 0,
     contentDispatchCount: 0,
     reducerFailures: 0,
+    compactionFailures: 0,
     enrichedCount: 0,
     bypassEligibleCount: 0,
     byFamily: buildByFamilyStats(),
@@ -125,16 +127,22 @@ export class ToolResultReductionService {
         return { ...m, content: dispatched.transformed };
       }
 
-      const reduced = this.registry.reduce({
-        raw,
-        context: {
-          toolName: m.name,
-          command: m.name,
-          profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
-          maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
-          minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
-        }
-      });
+      let reduced: ReturnType<ReducerRegistry["reduce"]>;
+      try {
+        reduced = this.registry.reduce({
+          raw,
+          context: {
+            toolName: m.name,
+            command: m.name,
+            profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
+            maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+            minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
+          }
+        });
+      } catch {
+        this.stats.compactionFailures += 1;
+        reduced = null;
+      }
       const shouldReduce = Boolean(reduced) || raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
       if (!shouldReduce) return { ...m, content: raw };
 
@@ -216,16 +224,22 @@ export class ToolResultReductionService {
 
   reduceStandaloneToolResult(content: unknown, toolName?: string): string {
     const raw = toStringContent(content);
-    const reduced = this.registry.reduce({
-      raw,
-      context: {
-        toolName,
-        command: toolName,
-        profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
-        maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
-        minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
-      }
-    });
+    let reduced: ReturnType<ReducerRegistry["reduce"]>;
+    try {
+      reduced = this.registry.reduce({
+        raw,
+        context: {
+          toolName,
+          command: toolName,
+          profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
+          maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+          minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
+        }
+      });
+    } catch {
+      this.stats.compactionFailures += 1;
+      reduced = null;
+    }
     if (!reduced && raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS) {
       const jsonResult = compactJsonArray(raw);
       if (jsonResult && jsonResult.compressionRatio > 0.2) {
