@@ -153,6 +153,18 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // Phase 15: Conversation memory — durable continuity persistence to Postgres
+  SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_RECALL_MAX_AGE_MS: z.coerce.number().default(7 * 24 * 60 * 60 * 1000),
+
   SYNESIS_YARN_CONTENT_DISPATCH_ENABLED: z
     .string()
     .optional()

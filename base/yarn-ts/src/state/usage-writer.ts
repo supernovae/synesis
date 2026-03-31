@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import type { AppConfig } from "../config.js";
-import type { SessionRecord } from "./session-store.js";
+import type { SessionRecord, SessionContinuity } from "./session-store.js";
 
 export interface UsageEvent {
   sessionKey: string;
@@ -43,6 +43,20 @@ export interface SessionEventInsert {
   metadataJson?: Record<string, unknown>;
 }
 
+export interface ContinuityUpsert {
+  userId: string;
+  orgId: string;
+  sessionKey: string;
+  continuity: SessionContinuity;
+}
+
+export interface ConversationMemoryStats {
+  continuityUpserts: number;
+  recallLoads: number;
+  recallHits: number;
+  recallMisses: number;
+}
+
 export interface WriterStats {
   queueDepth: number;
   totalEnqueued: number;
@@ -52,14 +66,16 @@ export interface WriterStats {
   lastFlushMs: number;
 }
 
+type QueueItem =
+  | { type: "session"; session: SessionRecord }
+  | { type: "usage"; event: UsageEvent }
+  | { type: "safety"; event: SafetyEventInsert }
+  | { type: "session_event"; event: SessionEventInsert }
+  | { type: "continuity"; data: ContinuityUpsert };
+
 export class UsageWriter {
   private readonly pool: Pool | null;
-  private readonly queue: Array<
-    | { type: "session"; session: SessionRecord }
-    | { type: "usage"; event: UsageEvent }
-    | { type: "safety"; event: SafetyEventInsert }
-    | { type: "session_event"; event: SessionEventInsert }
-  > = [];
+  private readonly queue: QueueItem[] = [];
   private readonly queueMax: number;
   private readonly flushIntervalMs: number;
   private flushTimer: NodeJS.Timeout | null = null;
@@ -69,6 +85,10 @@ export class UsageWriter {
   private _totalDropped = 0;
   private _totalFlushErrors = 0;
   private _lastFlushMs = 0;
+  private _memoryStats: ConversationMemoryStats = {
+    continuityUpserts: 0, recallLoads: 0, recallHits: 0, recallMisses: 0,
+  };
+  private _tablesEnsured = false;
 
   constructor(config: AppConfig) {
     const enabled = config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(config.SYNESIS_YARN_ADMIN_DB_URL);
@@ -105,6 +125,72 @@ export class UsageWriter {
     this.enqueue({ type: "session_event", event });
   }
 
+  enqueueContinuityUpsert(userId: string, orgId: string, sessionKey: string, continuity: SessionContinuity): void {
+    this.enqueue({ type: "continuity", data: { userId, orgId, sessionKey, continuity } });
+  }
+
+  async ensureContinuityTable(): Promise<void> {
+    if (!this.pool || this._tablesEnsured) return;
+    try {
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS yarn_session_continuity (
+          user_id       TEXT NOT NULL,
+          org_id        TEXT NOT NULL DEFAULT '',
+          session_key   TEXT NOT NULL,
+          current_task  TEXT NOT NULL DEFAULT '',
+          key_findings  JSONB NOT NULL DEFAULT '[]',
+          decisions     JSONB NOT NULL DEFAULT '[]',
+          recent_files  JSONB NOT NULL DEFAULT '[]',
+          updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, session_key)
+        )
+      `);
+      await this.pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_continuity_user_updated
+          ON yarn_session_continuity (user_id, updated_at DESC)
+      `);
+      this._tablesEnsured = true;
+    } catch {
+      // table may already exist or permission issue — non-fatal
+    }
+  }
+
+  async loadLatestContinuity(userId: string, maxAgeMs: number = 7 * 24 * 60 * 60 * 1000): Promise<SessionContinuity | null> {
+    if (!this.pool) return null;
+    this._memoryStats.recallLoads++;
+    try {
+      const cutoff = new Date(Date.now() - maxAgeMs);
+      const result = await this.pool.query(
+        `SELECT current_task, key_findings, decisions, recent_files, updated_at
+         FROM yarn_session_continuity
+         WHERE user_id = $1 AND updated_at >= $2
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [userId, cutoff.toISOString()]
+      );
+      if (result.rows.length === 0) {
+        this._memoryStats.recallMisses++;
+        return null;
+      }
+      const row = result.rows[0];
+      this._memoryStats.recallHits++;
+      return {
+        currentTask: String(row.current_task ?? ""),
+        keyFindings: Array.isArray(row.key_findings) ? row.key_findings : [],
+        decisions: Array.isArray(row.decisions) ? row.decisions : [],
+        recentFiles: Array.isArray(row.recent_files) ? row.recent_files : [],
+        updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+      };
+    } catch {
+      this._memoryStats.recallMisses++;
+      return null;
+    }
+  }
+
+  getConversationMemoryStats(): ConversationMemoryStats {
+    return { ...this._memoryStats };
+  }
+
   getStats(): WriterStats {
     return {
       queueDepth: this.queue.length,
@@ -125,7 +211,7 @@ export class UsageWriter {
     };
   }
 
-  private enqueue(item: { type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent } | { type: "safety"; event: SafetyEventInsert } | { type: "session_event"; event: SessionEventInsert }): void {
+  private enqueue(item: QueueItem): void {
     if (!this.pool) return;
     if (this.queue.length >= this.queueMax) {
       this.queue.shift();
@@ -252,6 +338,33 @@ export class UsageWriter {
     );
   }
 
+  private async upsertContinuity(data: ContinuityUpsert): Promise<void> {
+    if (!this.pool) return;
+    await this.pool.query(
+      `INSERT INTO yarn_session_continuity (
+         user_id, org_id, session_key, current_task,
+         key_findings, decisions, recent_files, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (user_id, session_key) DO UPDATE SET
+         org_id = EXCLUDED.org_id,
+         current_task = EXCLUDED.current_task,
+         key_findings = EXCLUDED.key_findings,
+         decisions = EXCLUDED.decisions,
+         recent_files = EXCLUDED.recent_files,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        data.userId,
+        data.orgId,
+        data.sessionKey,
+        data.continuity.currentTask.slice(0, 2000),
+        JSON.stringify(data.continuity.keyFindings),
+        JSON.stringify(data.continuity.decisions),
+        JSON.stringify(data.continuity.recentFiles),
+      ]
+    );
+    this._memoryStats.continuityUpserts++;
+  }
+
   private async insertSafetyEvent(event: SafetyEventInsert): Promise<void> {
     if (!this.pool) return;
     await this.pool.query(
@@ -290,6 +403,8 @@ export class UsageWriter {
             await this.insertSafetyEvent(item.event);
           } else if (item.type === "session_event") {
             await this.insertSessionEvent(item.event);
+          } else if (item.type === "continuity") {
+            await this.upsertContinuity(item.data);
           }
           this._totalFlushed++;
         } catch {

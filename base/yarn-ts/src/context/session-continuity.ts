@@ -8,6 +8,7 @@ const MAX_ITEMS = 8;
 export interface SessionContinuityStats {
   extractionCount: number;
   continuityBlocksEmitted: number;
+  recallBlocksEmitted: number;
   avgFindingsPerSession: number;
 }
 
@@ -26,6 +27,7 @@ export class SessionContinuityService {
   private stats: SessionContinuityStats = {
     extractionCount: 0,
     continuityBlocksEmitted: 0,
+    recallBlocksEmitted: 0,
     avgFindingsPerSession: 0
   };
   private totalFindings = 0;
@@ -103,6 +105,37 @@ export class SessionContinuityService {
 
     parts.push("</SESSION_CONTINUITY>");
     this.stats.continuityBlocksEmitted++;
+    return parts.join("\n");
+  }
+
+  /**
+   * Build a recall block from a *prior* session's continuity loaded from Postgres.
+   * Distinct from SESSION_CONTINUITY (same-session Redis) — this is cross-conversation recall.
+   * Returns null if the continuity has no useful content.
+   */
+  toRecallBlock(continuity: SessionContinuity): string | null {
+    const parts: string[] = ["<SESSION_RECALL source=\"prior_session\">"];
+
+    if (continuity.currentTask) {
+      parts.push(`last_task=${continuity.currentTask}`);
+    }
+    if (continuity.keyFindings.length > 0) {
+      parts.push(`prior_findings=${continuity.keyFindings.join(" | ")}`);
+    }
+    if (continuity.decisions.length > 0) {
+      parts.push(`prior_decisions=${continuity.decisions.join(" | ")}`);
+    }
+    if (continuity.recentFiles.length > 0) {
+      parts.push(`prior_files=${continuity.recentFiles.join(",")}`);
+    }
+
+    if (parts.length <= 1) return null;
+
+    const ageMs = Date.now() - (continuity.updatedAt || 0);
+    const ageHours = Math.round(ageMs / (60 * 60 * 1000));
+    parts.push(`age_hours=${ageHours}`);
+    parts.push("</SESSION_RECALL>");
+    this.stats.recallBlocksEmitted++;
     return parts.join("\n");
   }
 

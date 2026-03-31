@@ -65,12 +65,14 @@ return 1
 
 export class SessionStore {
   private readonly redis: Redis;
-  private readonly ttlSeconds = 60 * 60 * 4;
+  private readonly ttlSeconds: number;
 
-  constructor(config: AppConfig) {
+  constructor(config: AppConfig, ttlMs?: number) {
     this.redis = new Redis(config.SYNESIS_YARN_SESSION_REDIS_URL, {
       maxRetriesPerRequest: 2
     });
+    const effectiveTtlMs = ttlMs ?? config.SYNESIS_YARN_SESSION_TTL_MS;
+    this.ttlSeconds = Math.ceil(effectiveTtlMs / 1000);
   }
 
   async load(sessionKey: string): Promise<SessionRecord | null> {

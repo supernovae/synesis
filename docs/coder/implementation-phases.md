@@ -94,12 +94,19 @@
 - Working frame explore phase wired into orchestrator and sensemaking
 - `golden_path_id` linking for Backstage/Developer Hub integration
 
+### Phase 15: Conversation Memory and Long-Term Context — COMPLETE
+
+- SessionStore Redis TTL now configurable via `SYNESIS_YARN_SESSION_TTL_MS` (was hardcoded 4h)
+- Durable `yarn_session_continuity` Postgres table for session continuity persistence beyond Redis eviction
+- `enqueueContinuityUpsert` wired into `persistSessionAndUsage` for both OpenAI and Claude paths (behind `SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED`)
+- Cross-conversation recall: returning users get `<SESSION_RECALL>` block from Postgres on new sessions (behind `SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED`)
+- `loadLatestContinuity` with configurable max age (`SYNESIS_YARN_RECALL_MAX_AGE_MS`, default 7 days)
+- `toRecallBlock` distinct from `toSystemBlock` — prior session context vs same-session continuity
+- `conversationMemory` stats in telemetry endpoint: upserts, recall loads, hits, misses
+- `cross_conversation_recall` session event emitted on recall load
+- 19 new tests covering TTL configuration, continuity persistence, recall loading, and formatting
+
 ## Upcoming
-
-### Phase 15: Conversation Memory and Long-Term Context
-
-- Extend session continuity beyond the 4h Redis TTL with a durable store
-- Cross-conversation recall for returning users
 
 ### Phase 16: Sub-Worker Architecture
 

@@ -170,6 +170,11 @@ if (!usagePersistenceEnabled) {
   );
 } else {
   app.log.info("yarn_usage_persistence_enabled");
+  if (config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED) {
+    void usageWriter.ensureContinuityTable().catch((err) =>
+      app.log.warn({ err }, "Failed to ensure yarn_session_continuity table (non-fatal)")
+    );
+  }
 }
 const authResolver = new AuthResolver(config);
 const artifactStore = new ArtifactStore({
@@ -472,6 +477,21 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     }
   }
 
+  if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED) {
+    try {
+      const pgContinuity = await usageWriter.loadLatestContinuity(identity.userId, config.SYNESIS_YARN_RECALL_MAX_AGE_MS);
+      if (pgContinuity) {
+        const recallBlock = sessionContinuity.toRecallBlock(pgContinuity);
+        if (recallBlock) {
+          history.push({ role: "system", content: recallBlock });
+          recordSessionEvent(key, identity.userId, identity.orgId, "cross_conversation_recall", "getSessionState", `Loaded prior continuity (age ${Math.round((Date.now() - pgContinuity.updatedAt) / 3600000)}h)`);
+        }
+      }
+    } catch (err) {
+      app.log.warn({ err }, "Cross-conversation recall failed (non-fatal)");
+    }
+  }
+
   const state: SessionState = {
     history,
     toolCallsSinceCheckpoint: 0,
@@ -694,6 +714,16 @@ function persistSessionAndUsage(
 
   void casSessionSave(state);
   usageWriter.enqueueSessionUpsert(state.record);
+
+  if (config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED && state.record.continuity) {
+    usageWriter.enqueueContinuityUpsert(
+      state.record.userId,
+      state.record.orgId,
+      state.record.sessionKey,
+      state.record.continuity,
+    );
+  }
+
   usageWriter.enqueueUsageInsert({
     sessionKey: state.record.sessionKey,
     requestId,
@@ -1323,6 +1353,7 @@ app.get("/health/telemetry", async (req, reply) => {
     verification: toolResultReduction.getVerificationStats(),
     languagePacks: getLanguagePackRegistry().getConformanceMatrix(),
     sessionContinuity: sessionContinuity.getStats(),
+    conversationMemory: usageWriter.getConversationMemoryStats(),
     sensemaking: sensemakingStats,
     eventLoopLag: getEventLoopStats(),
     connectionPools: {
@@ -1342,6 +1373,8 @@ app.get("/health/telemetry", async (req, reply) => {
       evidencePrefetch: config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED,
       governance: config.SYNESIS_YARN_GOVERNANCE_ENABLED,
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
+      conversationMemory: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
+      crossConversationRecall: config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
