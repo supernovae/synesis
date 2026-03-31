@@ -29,6 +29,9 @@ export interface FastPathResult {
   evidence?: KnowledgeSearchResult;
   latencyMs: number;
   timedOut: boolean;
+  confidence: number;
+  constraintKind?: "hard" | "guiding";
+  authoritative: boolean;
 }
 
 interface PatternRule {
@@ -151,11 +154,12 @@ export async function runEvidencePrefetch(
   userText: string,
   knowledgeService: KnowledgeSearchService,
   timeoutMs: number = 200,
+  confidenceMin: number = 0.3,
 ): Promise<FastPathResult> {
   const t0 = performance.now();
   const match = detectPattern(userText);
   if (!match) {
-    return { matched: false, latencyMs: performance.now() - t0, timedOut: false };
+    return { matched: false, latencyMs: performance.now() - t0, timedOut: false, confidence: 0, authoritative: false };
   }
 
   const searchPromise = knowledgeService.resolve({
@@ -174,11 +178,18 @@ export async function runEvidencePrefetch(
   const latencyMs = performance.now() - t0;
 
   if (result === null) {
-    return { matched: true, pattern: match.pattern, latencyMs, timedOut: true };
+    return { matched: true, pattern: match.pattern, latencyMs, timedOut: true, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
   }
 
   if (result.total === 0) {
-    return { matched: true, pattern: match.pattern, latencyMs, timedOut: false };
+    return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
+  }
+
+  const confidence = computeEvidenceConfidence(result, match.constraint_kind);
+  const authoritative = confidence >= 0.8 && match.constraint_kind === "hard";
+
+  if (confidence < confidenceMin) {
+    return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence, constraintKind: match.constraint_kind, authoritative: false };
   }
 
   return {
@@ -187,7 +198,31 @@ export async function runEvidencePrefetch(
     evidence: result,
     latencyMs,
     timedOut: false,
+    confidence,
+    constraintKind: match.constraint_kind,
+    authoritative,
   };
+}
+
+/**
+ * Compute a confidence score for evidence results based on:
+ * - Number of results returned (more = higher, up to 3)
+ * - Best result score (higher = better)
+ * - Constraint kind (hard patterns contribute more confidence)
+ */
+export function computeEvidenceConfidence(
+  result: KnowledgeSearchResult,
+  constraintKind: "hard" | "guiding",
+): number {
+  if (result.total === 0) return 0;
+
+  const results = result.results.slice(0, 3);
+  const countFactor = Math.min(results.length / 3, 1.0);
+  const bestScore = Math.max(...results.map((r) => r.score ?? 0));
+  const scoreFactor = Math.min(bestScore, 1.0);
+  const constraintBoost = constraintKind === "hard" ? 0.15 : 0;
+
+  return Math.min(1.0, countFactor * 0.3 + scoreFactor * 0.55 + constraintBoost);
 }
 
 /**
@@ -197,9 +232,15 @@ export async function runEvidencePrefetch(
 export function formatEvidenceBlock(result: FastPathResult): string | null {
   if (!result.evidence || result.evidence.total === 0) return null;
 
-  const lines = [
-    `<synesis_evidence pattern="${result.pattern}" source="rag_prefetch">`,
+  const attrs = [
+    `pattern="${result.pattern}"`,
+    `source="rag_prefetch"`,
+    `confidence="${result.confidence.toFixed(2)}"`,
   ];
+  if (result.constraintKind) attrs.push(`constraint_kind="${result.constraintKind}"`);
+  if (result.authoritative) attrs.push(`authoritative="true"`);
+
+  const lines = [`<synesis_evidence ${attrs.join(" ")}>`];
 
   for (const item of result.evidence.results.slice(0, 3)) {
     lines.push(`[${item.authority}] ${item.document_name || item.source_url}`);

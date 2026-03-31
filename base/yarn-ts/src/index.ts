@@ -92,6 +92,8 @@ interface RequestDiagnostic {
   tokensOut: number;
   policyDecision: string;
   latencyMs: number;
+  recallRouting?: string;
+  recallConfidence?: number;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -1156,6 +1158,7 @@ app.get("/health/telemetry", async (req, reply) => {
     streamAdmission: streamAdmission.getStats(),
     attentionPositioning: attentionPositioning.getStats(),
     compressionEfficiencyIndex: computeEfficiencyIndex(),
+    recall: toolResultReduction.getRecallStats(),
     languagePacks: getLanguagePackRegistry().getConformanceMatrix(),
     sessionContinuity: sessionContinuity.getStats(),
     diagnosticRingMax: DIAGNOSTIC_RING_MAX,
@@ -1170,6 +1173,7 @@ app.get("/health/telemetry", async (req, reply) => {
       governance: config.SYNESIS_YARN_GOVERNANCE_ENABLED,
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
+      recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       claudeToolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
       jitterBuffer: config.SYNESIS_YARN_JITTER_BUFFER_ENABLED,
       sortedTools: config.SYNESIS_YARN_SORTED_TOOLS_ENABLED,
@@ -1445,6 +1449,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         userText,
         knowledgeSearch,
         config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
+        config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
       );
       if (prefetchResult.matched) {
         app.log.info({
@@ -1452,6 +1457,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           hasEvidence: Boolean(prefetchResult.evidence),
           timedOut: prefetchResult.timedOut,
           latencyMs: Math.round(prefetchResult.latencyMs),
+          confidence: prefetchResult.confidence,
+          authoritative: prefetchResult.authoritative,
         }, "evidence_prefetch_result");
       }
       const evidenceBlock = formatEvidenceBlock(prefetchResult);
@@ -1585,6 +1592,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     maybeCheckpoint(session);
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
+    const lastRecallOai = toolResultReduction.getLastRecallDecision();
     pushDiagnostic({
       timestamp: Date.now(), sessionKey, path: "/v1/chat/completions",
       ...msgCounts,
@@ -1592,7 +1600,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       reducedToolResults: reducedOpenAI.reducedCount,
       finishReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
-      policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiLatency
+      policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiLatency,
+      recallRouting: lastRecallOai?.routing,
+      recallConfidence: lastRecallOai?.resolution?.confidence,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
@@ -1736,6 +1746,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved);
   maybeCheckpoint(session);
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
+  const lastRecallOaiStream = toolResultReduction.getLastRecallDecision();
   pushDiagnostic({
     timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)",
     ...oaiStreamMsgCounts,
@@ -1743,7 +1754,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
     reducedToolResults: reducedOpenAI.reducedCount,
     finishReason, tokensIn: oaiStreamUsage.inputTokens, tokensOut: oaiStreamUsage.outputTokens,
-    policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiStreamLatency
+    policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiStreamLatency,
+    recallRouting: lastRecallOaiStream?.routing,
+    recallConfidence: lastRecallOaiStream?.resolution?.confidence,
   });
   return reply;
 });
@@ -2213,6 +2226,7 @@ app.post("/v1/messages", async (req, reply) => {
     persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved);
     maybeCheckpoint(session);
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
+    const lastRecallClaudeStream = toolResultReduction.getLastRecallDecision();
     pushDiagnostic({
       timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)",
       ...claudeStreamMsgCounts,
@@ -2220,7 +2234,9 @@ app.post("/v1/messages", async (req, reply) => {
       artifactToolInjected: false,
       reducedToolResults: claudeToolResultCount,
       finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
-      policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeStreamLatency
+      policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeStreamLatency,
+      recallRouting: lastRecallClaudeStream?.routing,
+      recallConfidence: lastRecallClaudeStream?.resolution?.confidence,
     });
     return reply;
   }
@@ -2274,6 +2290,7 @@ app.post("/v1/messages", async (req, reply) => {
   persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved);
   maybeCheckpoint(session);
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
+  const lastRecallClaudeNonStream = toolResultReduction.getLastRecallDecision();
   pushDiagnostic({
     timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages",
     ...claudeNonStreamMsgCounts,
@@ -2281,7 +2298,9 @@ app.post("/v1/messages", async (req, reply) => {
     artifactToolInjected: false,
     reducedToolResults: claudeToolResultCount,
     finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
-    policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeNonStreamLatency
+    policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeNonStreamLatency,
+    recallRouting: lastRecallClaudeNonStream?.routing,
+    recallConfidence: lastRecallClaudeNonStream?.resolution?.confidence,
   });
 
   const content: Array<Record<string, unknown>> = [];

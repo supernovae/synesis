@@ -4,6 +4,11 @@ import { ReducerRegistry, registeredFamilies } from "./registry.js";
 import type { ReducerFamily } from "./types.js";
 import { compactJsonArray } from "./json-compactor.js";
 import { ContentDispatchService } from "./content-dispatch.js";
+import { makeRecallDecision } from "../recall/routing.js";
+import type { RecallDecision, RecallStats } from "../recall/types.js";
+import { createEmptyRecallStats } from "../recall/types.js";
+import { getLanguagePackRegistry } from "../language-packs/index.js";
+import type { RecallRoutingConfig } from "../recall/routing.js";
 
 export interface ToolResultLike {
   role: string;
@@ -70,6 +75,9 @@ export class ToolResultReductionService {
   };
   private readonly registry: ReducerRegistry;
   private readonly contentDispatch = new ContentDispatchService();
+  private readonly recallStats: RecallStats = createEmptyRecallStats();
+  private readonly recallConfig: RecallRoutingConfig;
+  private _lastRecallDecision: RecallDecision | null = null;
 
   constructor(
     private readonly config: AppConfig,
@@ -85,6 +93,11 @@ export class ToolResultReductionService {
       disabledFamilies,
       minConfidence: config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
     });
+    this.recallConfig = {
+      enabled: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
+      bypassConfidenceThreshold: config.SYNESIS_YARN_RECALL_BYPASS_CONFIDENCE_THRESHOLD,
+      enrichConfidenceThreshold: config.SYNESIS_YARN_RECALL_ENRICH_THRESHOLD,
+    };
   }
 
   reduceMessages(messages: ToolResultLike[]): ToolResultReductionResult {
@@ -123,6 +136,24 @@ export class ToolResultReductionService {
         this.stats.byFamily[reduced.family] += 1;
         if (reduced.enrichedItems && reduced.enrichedItems.length > 0) this.stats.enrichedCount += 1;
         if (reduced.bypassEligible) this.stats.bypassEligibleCount += 1;
+
+        if (reduced.enrichedItems && reduced.enrichedItems.length > 0) {
+          const decision = makeRecallDecision(
+            reduced.enrichedItems,
+            reduced.bypassEligible ?? false,
+            getLanguagePackRegistry(),
+            this.recallConfig,
+            reduced.family,
+            this.recallStats,
+          );
+          this._lastRecallDecision = decision;
+
+          if (decision.routing === "bypass" && decision.syntheticBlock) {
+            summary = decision.syntheticBlock;
+          } else if (decision.routing === "enrich" && decision.enrichmentBlock) {
+            summary = summary + "\n" + decision.enrichmentBlock;
+          }
+        }
       } else {
         const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
         if (jsonResult && jsonResult.compressionRatio > 0.2) {
@@ -180,6 +211,24 @@ export class ToolResultReductionService {
       this.stats.byFamily[reduced.family] += 1;
       if (reduced.enrichedItems && reduced.enrichedItems.length > 0) this.stats.enrichedCount += 1;
       if (reduced.bypassEligible) this.stats.bypassEligibleCount += 1;
+
+      if (reduced.enrichedItems && reduced.enrichedItems.length > 0) {
+        const decision = makeRecallDecision(
+          reduced.enrichedItems,
+          reduced.bypassEligible ?? false,
+          getLanguagePackRegistry(),
+          this.recallConfig,
+          reduced.family,
+          this.recallStats,
+        );
+        this._lastRecallDecision = decision;
+
+        if (decision.routing === "bypass" && decision.syntheticBlock) {
+          summary = decision.syntheticBlock;
+        } else if (decision.routing === "enrich" && decision.enrichmentBlock) {
+          summary = summary + "\n" + decision.enrichmentBlock;
+        }
+      }
     } else {
       const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
       if (jsonResult && jsonResult.compressionRatio > 0.2) {
@@ -209,9 +258,17 @@ export class ToolResultReductionService {
     return Math.max(0, delta);
   }
 
-  getStats(): ToolResultReductionStats & { contentDispatch: ReturnType<ContentDispatchService["getStats"]> } {
+  getStats(): ToolResultReductionStats & { contentDispatch: ReturnType<ContentDispatchService["getStats"]>; recall: RecallStats } {
     this.stats.lifecycle = this.registry.lifecycleStates();
-    return { ...this.stats, contentDispatch: this.contentDispatch.getStats() };
+    return { ...this.stats, contentDispatch: this.contentDispatch.getStats(), recall: this.recallStats };
+  }
+
+  getRecallStats(): RecallStats {
+    return this.recallStats;
+  }
+
+  getLastRecallDecision(): RecallDecision | null {
+    return this._lastRecallDecision;
   }
 
   private artifactSummary(raw: string, toolName?: string): string {
