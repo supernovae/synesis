@@ -617,6 +617,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
         };
       });
 
+      request.log.info({
+        knowledge_search: true,
+        query_len: query.length,
+        results_count: mapped.length,
+        filter_applied: metaFilter || null,
+        total_ms: Math.round(totalMs * 10) / 10,
+      }, "knowledge_search_complete");
+
       return {
         results: mapped,
         query,

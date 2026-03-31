@@ -157,6 +157,7 @@ from app.routers.authz import router as authz_router
 from app.routers.conflict_groups import router as conflict_groups_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.feedback import router as feedback_router
+from app.routers.governance import router as governance_router
 from app.routers.ingestion import router as ingestion_router
 from app.routers.ingestion_staged import router as ingestion_staged_router
 from app.routers.integrations import router as integrations_router
@@ -190,6 +191,7 @@ app.include_router(taxonomy_router)
 app.include_router(pipeline_router)
 app.include_router(integrations_router)
 app.include_router(feedback_router)
+app.include_router(governance_router)
 app.include_router(observability_router)
 app.include_router(traces_router)
 app.include_router(providers_router)

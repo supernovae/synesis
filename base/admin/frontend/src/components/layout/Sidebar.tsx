@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   ScanSearch,
+  Shield,
   ShieldCheck,
   Bot,
   Sparkles,
@@ -53,6 +54,17 @@ const navigation: NavItem[] = [
       { label: "Policies", path: "/models/policies" },
       { label: "Effort Routing", path: "/models/effort-routing" },
       { label: "Performance", path: "/models/performance" },
+    ],
+  },
+  {
+    label: "Governance",
+    icon: Shield,
+    minRole: "org_admin",
+    children: [
+      { label: "Overview", path: "/governance" },
+      { label: "Constitutions", path: "/governance/constitutions" },
+      { label: "Policies", path: "/governance/policies" },
+      { label: "Effective Rules", path: "/governance/effective" },
     ],
   },
   {

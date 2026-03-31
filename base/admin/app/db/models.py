@@ -895,6 +895,86 @@ class AclGroupMember(Base):
     )
 
 
+class GovernanceConstitution(Base):
+    """Versioned governance bundle scoped to org/tenant/project/team."""
+
+    __tablename__ = "governance_constitutions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    constitution_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="org")
+    scope_value: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    precedence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    provenance_source: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    provenance_owner: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    provenance_checksum: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    maturity_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="base")
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_gov_const_scope", "scope", "scope_value"),
+        Index("ix_gov_const_status", "status"),
+    )
+
+
+class GovernanceClause(Base):
+    """Individual rule within a governance constitution."""
+
+    __tablename__ = "governance_clauses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    clause_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    constitution_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False, default="quality")
+    constraint_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="guiding")
+    statement: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    machine_rule: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    applicability: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    evidence_requirements: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    actions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    validation_recipe_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (Index("ix_gov_clause_const", "constitution_id"),)
+
+
+class GovernancePolicyDef(Base):
+    """Standalone policy rule not tied to a constitution."""
+
+    __tablename__ = "governance_policy_defs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    policy_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="org")
+    scope_value: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    category: Mapped[str] = mapped_column(String(32), nullable=False, default="quality")
+    constraint_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="guiding")
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False, default="threshold")
+    rule_config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_gov_policy_org", "org_id"),
+        Index("ix_gov_policy_scope", "scope", "scope_value"),
+    )
+
+
 class AclPolicy(Base):
     __tablename__ = "acl_policies"
 

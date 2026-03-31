@@ -69,6 +69,12 @@ const AuthzDashboard = lazy(() => import("./pages/security/AuthzDashboard"));
 const AuthzTuples = lazy(() => import("./pages/security/AuthzTuples"));
 const AuthzChecker = lazy(() => import("./pages/security/AuthzChecker"));
 
+const GovernanceOverview = lazy(() => import("./pages/governance/GovernanceOverview"));
+const ConstitutionList = lazy(() => import("./pages/governance/ConstitutionList"));
+const ConstitutionDetail = lazy(() => import("./pages/governance/ConstitutionDetail"));
+const PolicyList = lazy(() => import("./pages/governance/PolicyList"));
+const EffectiveView = lazy(() => import("./pages/governance/EffectiveView"));
+
 const YarnOverview = lazy(() => import("./pages/yarn/YarnOverview"));
 const YarnSessions = lazy(() => import("./pages/yarn/YarnSessions"));
 const YarnSessionDetail = lazy(() => import("./pages/yarn/YarnSessionDetail"));
@@ -146,6 +152,12 @@ export const router = createBrowserRouter([
       { path: "security/authz", element: <AuthzDashboard /> },
       { path: "security/authz-tuples", element: <AuthzTuples /> },
       { path: "security/authz-checker", element: <AuthzChecker /> },
+
+      { path: "governance", element: <GovernanceOverview /> },
+      { path: "governance/constitutions", element: <ConstitutionList /> },
+      { path: "governance/constitutions/:constitutionId", element: <ConstitutionDetail /> },
+      { path: "governance/policies", element: <PolicyList /> },
+      { path: "governance/effective", element: <EffectiveView /> },
 
       { path: "yarn", element: <YarnOverview /> },
       { path: "yarn/sessions", element: <YarnSessions /> },

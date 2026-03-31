@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+import type { GovernanceRule } from "./governance-client.js";
+
 export interface PolicyContext {
   tools?: unknown[];
   repeatAttempt?: {
@@ -19,6 +21,7 @@ export interface PolicyContext {
   toolLoopNoUserAckCount?: number;
   toolLoopNoUserAckHardLimit?: number;
   hardRejectAfter?: number;
+  governanceRules?: GovernanceRule[];
 }
 
 export interface PolicyDecision {
@@ -109,6 +112,11 @@ export class DeterministicPolicyEngine {
     this.stats.evaluations += 1;
     const matchedRules: string[] = [];
     const sessionKey = ctx.sessionKey ?? "unknown";
+
+    if (ctx.governanceRules?.length) {
+      this.applyGovernanceOverrides(ctx);
+      matchedRules.push("governance_overrides_applied");
+    }
 
     for (const rawTool of ctx.tools ?? []) {
       const name = extractToolName((rawTool ?? {}) as ToolLike);
@@ -245,6 +253,25 @@ export class DeterministicPolicyEngine {
 
     matchedRules.push("allow");
     return { allow: true, matchedRules };
+  }
+
+  /**
+   * Applies governance rule overrides to the policy context.
+   * Threshold rules override numeric limits; feature_toggle rules can
+   * flip engine behavior without redeployment.
+   */
+  private applyGovernanceOverrides(ctx: PolicyContext): void {
+    for (const rule of ctx.governanceRules ?? []) {
+      if (!rule.rule_config || !rule.rule_type) continue;
+      if (rule.rule_type === "threshold") {
+        const cfg = rule.rule_config;
+        if (typeof cfg.max_input_tokens === "number") ctx.maxInputTokens = cfg.max_input_tokens;
+        if (typeof cfg.max_tool_calls === "number") ctx.consecutiveToolCallsLimit = cfg.max_tool_calls;
+        if (typeof cfg.tool_calls_pivot === "number") ctx.consecutiveToolCallsPivot = cfg.tool_calls_pivot;
+        if (typeof cfg.hard_reject_after === "number") ctx.hardRejectAfter = cfg.hard_reject_after;
+        if (typeof cfg.stagnant_cycles_limit === "number") ctx.stagnantToolCyclesLimit = cfg.stagnant_cycles_limit;
+      }
+    }
   }
 
   getRecentEvents(): PolicyEvent[] {

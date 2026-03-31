@@ -39,6 +39,9 @@ const breadcrumbLabels: Record<string, string> = {
   cache: "Cache",
   "circuit-breakers": "Circuit Breakers",
   errors: "Errors",
+  governance: "Governance",
+  constitutions: "Constitutions",
+  effective: "Effective Rules",
   yarn: "Yarn Fabric",
   sessions: "Sessions",
   events: "Events",
@@ -64,6 +67,7 @@ function breadcrumbSegmentLabel(seg: string, prevSeg: string | undefined): strin
   if (prevSeg === "errors" && isLikelyIdSegment(seg)) return "Failure detail";
   if (prevSeg === "quality" && seg.length > 0 && !breadcrumbLabels[seg]) return "Domain";
   if (prevSeg === "sessions" && seg.length > 0) return "Session detail";
+  if (prevSeg === "constitutions" && isLikelyIdSegment(seg)) return "Constitution detail";
   return breadcrumbLabels[seg] || seg;
 }
 

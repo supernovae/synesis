@@ -154,6 +154,12 @@ const policyEngine = new DeterministicPolicyEngine({
   maxRepeatEntries: config.SYNESIS_YARN_POLICY_REPEAT_MAP_MAX,
   repeatEntryTtlMs: config.SYNESIS_YARN_POLICY_REPEAT_ENTRY_TTL_MS,
 });
+
+import { GovernanceClient } from "./policy/governance-client.js";
+const governanceClient = config.SYNESIS_YARN_GOVERNANCE_ENABLED
+  ? new GovernanceClient(config)
+  : null;
+if (governanceClient) governanceClient.start();
 const circuitBreakers = new CircuitBreakerRegistry({
   failureThreshold: config.SYNESIS_YARN_BREAKER_FAILURE_THRESHOLD,
   recoveryTimeoutMs: config.SYNESIS_YARN_BREAKER_RECOVERY_TIMEOUT_MS,
@@ -1064,6 +1070,7 @@ async function shutdown(): Promise<void> {
   streamAdmission.close();
   userRateLimiter.close();
   policyEngine.close();
+  governanceClient?.close();
   artifactStore.close();
   await app.close();
   await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close()]);
@@ -1126,6 +1133,7 @@ app.get("/health/telemetry", async (req, reply) => {
     workingFrame: workingFrameService.getStats(),
     projectManifest: projectManifestService.getStats(),
     deterministicPolicy: policyEngine.getStats(),
+    governance: governanceClient ? governanceClient.getStats() : { enabled: false },
     phaseOrchestrator: phaseOrchestrator.getStats(),
     clientAdapterPacks: clientAdapterPacks.getStats(),
     sawtoothContext: {
@@ -1154,6 +1162,7 @@ app.get("/health/telemetry", async (req, reply) => {
       artifactRetrieval: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       knowledgeSearch: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
       evidencePrefetch: config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED,
+      governance: config.SYNESIS_YARN_GOVERNANCE_ENABLED,
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
       claudeToolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
@@ -1341,7 +1350,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
+    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+    governanceRules: governanceClient?.getRules(),
   });
   if (!policyPrecheck.allow) {
     logAndPersistSafetyEvent(policyPrecheck, sessionKey, session.record.totalTokensIn);
@@ -1881,7 +1891,8 @@ app.post("/v1/messages", async (req, reply) => {
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
+    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+    governanceRules: governanceClient?.getRules(),
   });
   if (!claudePolicyPrecheck.allow) {
     logAndPersistSafetyEvent(claudePolicyPrecheck, claudeSessionKey, session.record.totalTokensIn);

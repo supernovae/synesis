@@ -27,10 +27,17 @@ function optionalNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+export interface GovernanceSearchDefaults {
+  constraint_kind?: string;
+  corpus_class?: string;
+  scope_tags?: string[];
+}
+
 function buildSearchBody(
   args: Record<string, unknown>,
   caller: CallerIdentity | undefined,
   fixedArtifactKind: string | undefined,
+  governanceDefaults?: GovernanceSearchDefaults,
 ): Record<string, unknown> {
   const query = String(args.query ?? "").trim();
   const body: Record<string, unknown> = { query };
@@ -48,14 +55,18 @@ function buildSearchBody(
   const domain = optionalString(args.domain);
   if (domain !== undefined) body.domain = domain;
 
-  const corpusClass = optionalString(args.corpus_class);
+  const corpusClass = optionalString(args.corpus_class)
+    ?? governanceDefaults?.corpus_class;
   if (corpusClass !== undefined) body.corpus_class = corpusClass;
 
-  const constraintKind = optionalString(args.constraint_kind);
+  const constraintKind = optionalString(args.constraint_kind)
+    ?? governanceDefaults?.constraint_kind;
   if (constraintKind !== undefined) body.constraint_kind = constraintKind;
 
   if (Array.isArray(args.scope_tags) && args.scope_tags.length > 0) {
     body.scope_tags = args.scope_tags.map((t) => String(t));
+  } else if (governanceDefaults?.scope_tags?.length) {
+    body.scope_tags = [...governanceDefaults.scope_tags];
   }
 
   const tags = optionalString(args.tags);
