@@ -390,8 +390,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     let llmDetail = "disabled_or_not_configured";
     if (llmConfigured) {
       try {
-        const base = config.SYNESIS_PLANNER_TS_LLM_BASE_URL.replace(/\/$/, "");
-        const resp = await fetch(`${base}/health`, {
+        const origin = new URL(config.SYNESIS_PLANNER_TS_LLM_BASE_URL).origin;
+        const resp = await fetch(`${origin}/health/liveliness`, {
           method: "GET",
           signal: AbortSignal.timeout(2_000),
           headers: config.SYNESIS_PLANNER_TS_LLM_API_KEY

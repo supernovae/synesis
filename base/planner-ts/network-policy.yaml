@@ -31,68 +31,13 @@ spec:
         - port: 8080
           protocol: TCP
   egress:
-    # LiteLLM gateway
+    # OVN-Kubernetes on OCP 4.21 drops egress when port-level rules or
+    # multiple egress blocks are specified for these pods. Work around by
+    # allowing all cluster-internal traffic in a single rule. Ingress
+    # rules still enforce who can reach planner-ts.
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-gateway
-      ports:
-        - port: 4000
-          protocol: TCP
-    # Admin API + internal trace/security ingestion
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-admin
-      ports:
-        - port: 8080
-          protocol: TCP
-    # OpenFGA authz checks
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-authz
-      ports:
-        - port: 8080
-          protocol: TCP
-    # Redis session store (synesis-rag hosts the shared Redis deployment)
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-rag
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-planner
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-admin
-      ports:
-        - port: 6379
-          protocol: TCP
-    # Retrieval dependencies
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-rag
-      ports:
-        - port: 8080
-          protocol: TCP
-        - port: 19530
-          protocol: TCP
-    # Web search dependency
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-search
-      ports:
-        - port: 8080
-          protocol: TCP
-    # DNS egress
-    - to:
+        - namespaceSelector: {}
         - ipBlock:
-            cidr: 0.0.0.0/0
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
+            cidr: 172.30.0.0/16
+        - ipBlock:
+            cidr: 10.128.0.0/14
