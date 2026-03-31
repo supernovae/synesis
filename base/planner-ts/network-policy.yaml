@@ -55,8 +55,11 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
-    # Redis session store (service may run in planner/admin namespaces by overlay)
+    # Redis session store (synesis-rag hosts the shared Redis deployment)
     - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-rag
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: synesis-planner
