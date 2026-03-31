@@ -171,6 +171,16 @@ const EnvSchema = z.object({
   SYNESIS_YARN_VERIFICATION_MAX_ROUNDS: z.coerce.number().default(3),
   SYNESIS_YARN_VERIFICATION_BUDGET_MS: z.coerce.number().default(30_000),
 
+  // Decision matrix — evidence-aware four-path routing (Phase 8)
+  SYNESIS_YARN_DECISION_MATRIX_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_DETERMINISTIC_PATH_THRESHOLD: z.coerce.number().default(0.85),
+  SYNESIS_YARN_CONSTRAINED_PATH_THRESHOLD: z.coerce.number().default(0.5),
+  SYNESIS_YARN_ABSTAIN_EVIDENCE_FLOOR: z.coerce.number().default(0.2),
+  SYNESIS_YARN_ESCALATION_FAILED_VERIF_LIMIT: z.coerce.number().default(2),
+
   // Claude compat
   SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE: z
     .enum(["disable", "passthrough"])

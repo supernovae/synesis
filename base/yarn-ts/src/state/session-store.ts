@@ -24,6 +24,8 @@ export interface SessionRecord {
   totalTokensSaved: number;
   requestCount: number;
   escalationCount: number;
+  lastTier?: string;
+  consecutiveFailedVerifications: number;
   metadata: Record<string, unknown>;
   continuity?: SessionContinuity;
   version: number;

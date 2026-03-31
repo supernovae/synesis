@@ -99,6 +99,8 @@ interface RequestDiagnostic {
   verificationRound?: number;
   verificationFindings?: number;
   verificationStalled?: boolean;
+  decisionPath?: string;
+  decisionEscalated?: boolean;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -394,6 +396,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     totalTokensSaved: 0,
     requestCount: 0,
     escalationCount: 0,
+    consecutiveFailedVerifications: 0,
     metadata: {},
     version: 0
   };
@@ -564,7 +567,8 @@ function persistSessionAndUsage(
   usage: { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number },
   latencyMs: number,
   finishReason: string,
-  tokensSavedByReduction = 0
+  tokensSavedByReduction = 0,
+  escalated = false,
 ): void {
   const tier = tierRegistry.getTierConfig(resolvedModelId);
   const tierRates = {
@@ -647,7 +651,7 @@ function persistSessionAndUsage(
     latencyMs,
     costUsd: normalizedCostUsd,
     pricingSource,
-    escalated: false,
+    escalated,
     toolCallsCount: state.toolCallsSinceCheckpoint,
     finishReason
   });
@@ -1218,6 +1222,7 @@ app.get("/health/telemetry", async (req, reply) => {
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
+      decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
       claudeToolSearchMode: config.SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE,
       jitterBuffer: config.SYNESIS_YARN_JITTER_BUFFER_ENABLED,
       sortedTools: config.SYNESIS_YARN_SORTED_TOOLS_ENABLED,
@@ -1346,11 +1351,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
     stream: request.stream,
     client: adapterProfile.client,
   });
-  const orchestration = phaseOrchestrator.decide({
-    requestedModel: request.model,
-    latestUserText: String(latestUserText?.content ?? ""),
-    riskProfile: preManifest.riskProfile
-  });
   const oaiClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown");
   const identity: SessionIdentity = {
     userId: request.user || authUser.userId,
@@ -1364,6 +1364,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+
+  const oaiRecallDecision = toolResultReduction.getLastRecallDecision();
+  const oaiVerifState = toolResultReduction.getVerificationTracker().getState();
+  const orchestration = phaseOrchestrator.decide({
+    requestedModel: request.model,
+    latestUserText: String(latestUserText?.content ?? ""),
+    riskProfile: preManifest.riskProfile,
+    decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
+    evidence: {
+      recallConfidence: oaiRecallDecision?.resolution?.confidence,
+      recallRouting: oaiRecallDecision?.routing,
+      verificationRound: oaiVerifState.round > 0 ? oaiVerifState.round : undefined,
+      verificationStalled: oaiVerifState.stalled || undefined,
+      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
+    },
+  }, sessionKey);
+  if (orchestration.escalated) {
+    session.record.escalationCount += 1;
+  }
+  session.record.lastTier = orchestration.tier;
 
   const oaiLastToolId = [...(request.messages as Array<{ role: string; tool_call_id?: string }>)]
     .reverse().find((m) => m.role === "tool")?.tool_call_id ?? "";
@@ -1440,6 +1460,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
   }
   let oaiEnrichedMsgs = enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as Array<{ role: string; content: unknown }>;
+
+  if (orchestration.uncertaintyFraming) {
+    const sysIdx = oaiEnrichedMsgs.findIndex((m) => m.role === "system");
+    if (sysIdx >= 0 && typeof oaiEnrichedMsgs[sysIdx].content === "string") {
+      oaiEnrichedMsgs[sysIdx] = { ...oaiEnrichedMsgs[sysIdx], content: `${oaiEnrichedMsgs[sysIdx].content}\n\n${orchestration.uncertaintyFraming}` };
+    } else {
+      oaiEnrichedMsgs.unshift({ role: "system", content: orchestration.uncertaintyFraming });
+    }
+  }
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
     const { stableMessages, jitterBlock } = splitJitter(oaiEnrichedMsgs);
@@ -1632,7 +1661,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     const oaiLatency = Date.now() - started;
     const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason, oaiSaved);
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason, oaiSaved, orchestration.escalated);
     maybeCheckpoint(session);
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
@@ -1651,6 +1680,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       verificationRound: vStateOai.round > 0 ? vStateOai.round : undefined,
       verificationFindings: vStateOai.round > 0 ? vStateOai.findings.length : undefined,
       verificationStalled: vStateOai.stalled || undefined,
+      decisionPath: orchestration.decisionPath,
+      decisionEscalated: orchestration.escalated || undefined,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
@@ -1791,7 +1822,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const oaiStreamLatency = Date.now() - started;
   const oaiStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved);
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved, orchestration.escalated);
   maybeCheckpoint(session);
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   const lastRecallOaiStream = toolResultReduction.getLastRecallDecision();
@@ -1809,6 +1840,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     verificationRound: vStateOaiStream.round > 0 ? vStateOaiStream.round : undefined,
     verificationFindings: vStateOaiStream.round > 0 ? vStateOaiStream.findings.length : undefined,
     verificationStalled: vStateOaiStream.stalled || undefined,
+    decisionPath: orchestration.decisionPath,
+    decisionEscalated: orchestration.escalated || undefined,
   });
   return reply;
 });
@@ -1900,11 +1933,6 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeAdapterBlock = clientAdapterPacks.toSystemBlock(claudeAdapterProfile);
   const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
-  const claudeOrchestration = phaseOrchestrator.decide({
-    requestedModel: body.model,
-    latestUserText: String(latestClaudeUser?.content ?? ""),
-    riskProfile: claudeManifest.riskProfile
-  });
   const claudeClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
   const claudeConversationId = resolveClaudeConversationId(body.metadata, req.headers as Record<string, unknown>);
   const claudeIdentity: SessionIdentity = {
@@ -1919,6 +1947,26 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+
+  const claudeRecallDecision = toolResultReduction.getLastRecallDecision();
+  const claudeVerifState = toolResultReduction.getVerificationTracker().getState();
+  const claudeOrchestration = phaseOrchestrator.decide({
+    requestedModel: body.model,
+    latestUserText: String(latestClaudeUser?.content ?? ""),
+    riskProfile: claudeManifest.riskProfile,
+    decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
+    evidence: {
+      recallConfidence: claudeRecallDecision?.resolution?.confidence,
+      recallRouting: claudeRecallDecision?.routing,
+      verificationRound: claudeVerifState.round > 0 ? claudeVerifState.round : undefined,
+      verificationStalled: claudeVerifState.stalled || undefined,
+      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
+    },
+  }, claudeSessionKey);
+  if (claudeOrchestration.escalated) {
+    session.record.escalationCount += 1;
+  }
+  session.record.lastTier = claudeOrchestration.tier;
 
   const claudeLastToolUseId = [...(body.messages as Array<{ role: string; content: unknown }>)]
     .reverse()
@@ -2002,6 +2050,15 @@ app.post("/v1/messages", async (req, reply) => {
   }
 
   let enrichedClaudeMsgs = enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock) as Array<{ role: string; content: unknown }>;
+
+  if (claudeOrchestration.uncertaintyFraming) {
+    const sysIdx = enrichedClaudeMsgs.findIndex((m) => m.role === "system");
+    if (sysIdx >= 0 && typeof enrichedClaudeMsgs[sysIdx].content === "string") {
+      enrichedClaudeMsgs[sysIdx] = { ...enrichedClaudeMsgs[sysIdx], content: `${enrichedClaudeMsgs[sysIdx].content}\n\n${claudeOrchestration.uncertaintyFraming}` };
+    } else {
+      enrichedClaudeMsgs.unshift({ role: "system", content: claudeOrchestration.uncertaintyFraming });
+    }
+  }
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
     const { stableMessages, jitterBlock } = splitJitter(enrichedClaudeMsgs);
@@ -2275,7 +2332,7 @@ app.post("/v1/messages", async (req, reply) => {
     }
     const claudeStreamLatency = Date.now() - started;
     const claudeStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved);
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved, claudeOrchestration.escalated);
     maybeCheckpoint(session);
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     const lastRecallClaudeStream = toolResultReduction.getLastRecallDecision();
@@ -2293,6 +2350,8 @@ app.post("/v1/messages", async (req, reply) => {
       verificationRound: vStateClaudeStream.round > 0 ? vStateClaudeStream.round : undefined,
       verificationFindings: vStateClaudeStream.round > 0 ? vStateClaudeStream.findings.length : undefined,
       verificationStalled: vStateClaudeStream.stalled || undefined,
+      decisionPath: claudeOrchestration.decisionPath,
+      decisionEscalated: claudeOrchestration.escalated || undefined,
     });
     return reply;
   }
@@ -2343,7 +2402,7 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeNonStreamLatency = Date.now() - started;
   const claudeNonStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved);
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved, claudeOrchestration.escalated);
   maybeCheckpoint(session);
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   const lastRecallClaudeNonStream = toolResultReduction.getLastRecallDecision();
@@ -2361,6 +2420,8 @@ app.post("/v1/messages", async (req, reply) => {
     verificationRound: vStateClaudeNonStream.round > 0 ? vStateClaudeNonStream.round : undefined,
     verificationFindings: vStateClaudeNonStream.round > 0 ? vStateClaudeNonStream.findings.length : undefined,
     verificationStalled: vStateClaudeNonStream.stalled || undefined,
+    decisionPath: claudeOrchestration.decisionPath,
+    decisionEscalated: claudeOrchestration.escalated || undefined,
   });
 
   const content: Array<Record<string, unknown>> = [];
