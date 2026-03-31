@@ -1,0 +1,531 @@
+# Bootstrap code patterns — Terraform (HCL)
+patterns:
+  - pattern_id: tf-module-with-outputs
+    language: terraform
+    skill_family: config_pattern
+    description: >
+      Child module exposing typed outputs for callers while keeping implementation details private via internal resources.
+    code_block: |
+      # modules/network/main.tf
+      variable "vpc_cidr" { type = string }
+      
+      resource "aws_vpc" "this" {
+        cidr_block           = var.vpc_cidr
+        enable_dns_hostnames = true
+        tags = { Name = "app" }
+      }
+      
+      output "vpc_id" {
+        value       = aws_vpc.this.id
+        description = "VPC ID for attaching subnets and endpoints."
+      }
+    constraints: >
+      Document output contracts in README; avoid outputting secrets—use SSM or a secrets manager reference instead.
+    tags:
+      - modules
+      - outputs
+      - terraform
+  - pattern_id: tf-variable-validation
+    language: terraform
+    skill_family: config_pattern
+    description: >
+      Inline validation blocks reject bad variable values at plan time with clear error messages.
+    code_block: |
+      variable "environment" {
+        type        = string
+        description = "Deployment stage name."
+      
+        validation {
+          condition     = contains(["dev", "staging", "prod"], var.environment)
+          error_message = "environment must be dev, staging, or prod."
+        }
+      }
+    constraints: >
+      Validation cannot call provider APIs; keep rules pure on var.* and locals.*
+    tags:
+      - variables
+      - validation
+      - terraform
+  - pattern_id: tf-backend-s3-dynamodb
+    language: terraform
+    skill_family: config_pattern
+    description: >
+      Remote state in S3 with encryption, versioning, and DynamoDB locking for team Terraform workflows.
+    code_block: |
+      terraform {
+        backend "s3" {
+          bucket         = "myorg-tf-state-us-east-1"
+          key            = "apps/payments/terraform.tfstate"
+          region         = "us-east-1"
+          encrypt        = true
+          dynamodb_table = "myorg-tf-locks"
+        }
+      }
+    constraints: >
+      Bootstrap bucket/table with a one-shot root module or control plane; restrict IAM to CI roles and break-glass humans only.
+    tags:
+      - backend
+      - s3
+      - locking
+      - terraform
+  - pattern_id: tf-provider-version-constraints
+    language: terraform
+    skill_family: config_pattern
+    description: >
+      Pin Terraform core and provider versions to reduce surprise upgrades while allowing patch updates.
+    code_block: |
+      terraform {
+        required_version = ">= 1.6.0, < 2.0.0"
+      
+        required_providers {
+          aws = {
+            source  = "hashicorp/aws"
+            version = "~> 5.50"
+          }
+        }
+      }
+      
+      provider "aws" {
+        region = var.aws_region
+      }
+    constraints: >
+      Run `terraform providers lock` in CI and commit `.terraform.lock.hcl`; revisit majors on a schedule, not ad hoc during incidents.
+    tags:
+      - providers
+      - versions
+      - terraform
+  - pattern_id: tf-workspace-tagged-backend
+    language: terraform
+    skill_family: config_pattern
+    description: >
+      Use workspace-aware key prefixes or tags so dev/stage/prod states stay isolated when not using separate backend buckets.
+    code_block: |
+      locals {
+        state_key = "apps/${var.app_name}/${terraform.workspace}/terraform.tfstate"
+      }
+      
+      # Document: backend "s3" { key = "apps/payments/dev/terraform.tfstate" }
+      # or use partial config `-backend-config` files per workspace.
+    constraints: >
+      Workspaces share the same code; differences belong in tfvars or variable defaults—never encode secrets per workspace in HCL.
+    tags:
+      - workspace
+      - state
+      - terraform
+  - pattern_id: tf-complex-object-variable
+    language: terraform
+    skill_family: data_structure
+    description: >
+      Strongly typed object variable for service definitions with optional nested fields and sensible defaults.
+    code_block: |
+      variable "services" {
+        type = map(object({
+          image   = string
+          cpu     = number
+          memory  = number
+          public  = optional(bool, false)
+          secrets = optional(list(string), [])
+        }))
+        description = "Microservice container definitions keyed by name."
+      }
+      
+      locals {
+        public_services = {
+          for name, svc in var.services : name => svc if svc.public
+        }
+      }
+    constraints: >
+      Prefer maps of objects over parallel lists to avoid index drift; use `optional()` defaults to minimize null checks.
+    tags:
+      - object
+      - types
+      - terraform
+  - pattern_id: tf-dynamic-blocks
+    language: terraform
+    skill_family: data_structure
+    description: >
+      Dynamic blocks generate repeated nested configuration from a list or map, e.g. security group rules or listener rules.
+    code_block: |
+      resource "aws_security_group" "app" {
+        name        = "app"
+        description = "App tier"
+        vpc_id      = var.vpc_id
+      
+        dynamic "ingress" {
+          for_each = var.ingress_rules
+          content {
+            description = ingress.value.description
+            from_port   = ingress.value.from_port
+            to_port     = ingress.value.to_port
+            protocol    = ingress.value.protocol
+            cidr_blocks = ingress.value.cidr_blocks
+          }
+        }
+      }
+    constraints: >
+      Dynamic block labels must match the resource schema; overuse hurts readability— sometimes a separate `aws_security_group_rule` per item is clearer.
+    tags:
+      - dynamic
+      - meta
+      - terraform
+  - pattern_id: tf-for-each-map
+    language: terraform
+    skill_family: data_structure
+    description: >
+      Manage a collection of homogeneous resources with for_each on a map for stable, addressable instances.
+    code_block: |
+      resource "aws_s3_bucket" "tenant" {
+        for_each = var.tenant_buckets
+      
+        bucket = "${var.prefix}-${each.key}-data"
+      
+        tags = {
+          Tenant = each.key
+          Region = each.value.region
+        }
+      }
+      
+      output "bucket_names" {
+        value = { for k, b in aws_s3_bucket.tenant : k => b.bucket }
+      }
+    constraints: >
+      Keys must be known at plan time for for_each; changing keys forces replace; use `toset()` when starting from a list of known unique strings.
+    tags:
+      - for-each
+      - map
+      - terraform
+  - pattern_id: tf-lifecycle-prevent-destroy
+    language: terraform
+    skill_family: error_handling
+    description: >
+      Guard business-critical resources from accidental terraform destroy while still allowing targeted updates.
+    code_block: |
+      resource "aws_db_instance" "primary" {
+        identifier = "payments-primary"
+      
+        lifecycle {
+          prevent_destroy = true
+        }
+      }
+    constraints: >
+      Flip to false only during controlled decommissions; combine with IAM deny on `rds:DeleteDBInstance` for defense in depth.
+    tags:
+      - lifecycle
+      - safety
+      - terraform
+  - pattern_id: tf-moved-refactor
+    language: terraform
+    skill_family: error_handling
+    description: >
+      moved blocks preserve state when renaming resources or extracting modules without destroy/create churn.
+    code_block: |
+      moved {
+        from = aws_s3_bucket.logs
+        to   = module.logging.aws_s3_bucket.logs
+      }
+      
+      moved {
+        from = aws_s3_bucket.logs[0]
+        to   = aws_s3_bucket.logs
+      }
+    constraints: >
+      Plan after each logical batch of moves; `terraform state mv` remains useful for one-off emergencies outside HCL history.
+    tags:
+      - moved
+      - refactor
+      - state
+      - terraform
+  - pattern_id: tf-import-existing-resource
+    language: terraform
+    skill_family: error_handling
+    description: >
+      import blocks (Terraform 1.5+) adopt pre-existing infrastructure into state alongside the resource definition in one configuration.
+    code_block: |
+      import {
+        to = aws_s3_bucket.legacy_logs
+        id = "myorg-legacy-logs-bucket"
+      }
+      
+      resource "aws_s3_bucket" "legacy_logs" {
+        bucket = "myorg-legacy-logs-bucket"
+      
+        tags = {
+          ManagedBy = "terraform"
+        }
+      }
+    constraints: >
+      Run `terraform plan` to reconcile drift after import; id format is provider-specific; for many resources, generate import blocks with `terraform plan -generate-config-out=generated.tf` workflows.
+    tags:
+      - import
+      - adoption
+      - terraform
+  - pattern_id: tf-iam-least-privilege-policy
+    language: terraform
+    skill_family: security_pattern
+    description: >
+      Attach a minimal JSON policy document scoped to specific ARNs and actions required by the workload.
+    code_block: |
+      data "aws_iam_policy_document" "task" {
+        statement {
+          sid    = "ReadObject"
+          effect = "Allow"
+          actions = [
+            "s3:GetObject",
+            "s3:ListBucket",
+          ]
+          resources = [
+            aws_s3_bucket.data.arn,
+            "${aws_s3_bucket.data.arn}/*",
+          ]
+        }
+      }
+      
+      resource "aws_iam_role_policy" "task" {
+        name   = "task-data-access"
+        role   = aws_iam_role.task.id
+        policy = data.aws_iam_policy_document.task.json
+      }
+    constraints: >
+      Prefer managed policies for shared baselines; use policy conditions (VPC, source account, MFA) when the cloud supports them.
+    tags:
+      - iam
+      - least-privilege
+      - terraform
+  - pattern_id: tf-s3-encryption-versioning
+    language: terraform
+    skill_family: security_pattern
+    description: >
+      Bucket server-side encryption, block public access, and versioning for tamper-evident object storage.
+    code_block: |
+      resource "aws_s3_bucket" "data" {
+        bucket = "${var.prefix}-tenant-data"
+      }
+      
+      resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
+        bucket = aws_s3_bucket.data.id
+        rule {
+          apply_server_side_encryption_by_default {
+            sse_algorithm     = "aws:kms"
+            kms_master_key_id = aws_kms_key.data.arn
+          }
+        }
+      }
+      
+      resource "aws_s3_bucket_versioning" "data" {
+        bucket = aws_s3_bucket.data.id
+        versioning_configuration { status = "Enabled" }
+      }
+      
+      resource "aws_s3_bucket_public_access_block" "data" {
+        bucket                  = aws_s3_bucket.data.id
+        block_public_acls       = true
+        block_public_policy     = true
+        ignore_public_acls      = true
+        restrict_public_buckets = true
+      }
+    constraints: >
+      Lifecycle rules manage storage cost for versioned buckets; test restore paths, not only backup configuration.
+    tags:
+      - s3
+      - encryption
+      - kms
+      - terraform
+  - pattern_id: tf-security-group-least-open
+    language: terraform
+    skill_family: security_pattern
+    description: >
+      Ingress restricted to a known CIDR or security group source; default deny is implicit for unspecified ports.
+    code_block: |
+      resource "aws_security_group" "api" {
+        name   = "api"
+        vpc_id = var.vpc_id
+      }
+      
+      resource "aws_vpc_security_group_ingress_rule" "api_https" {
+        security_group_id            = aws_security_group.api.id
+        description                  = "HTTPS from load balancer only"
+        ip_protocol                  = "tcp"
+        from_port                    = 443
+        to_port                      = 443
+        referenced_security_group_id = aws_security_group.alb.id
+      }
+    constraints: >
+      Prefer referencing SG IDs over 0.0.0.0/0; document any temporary wide rules with ticket links in description.
+    tags:
+      - security-group
+      - vpc
+      - terraform
+  - pattern_id: tf-variable-validation-regex
+    language: terraform
+    skill_family: validation_pattern
+    description: >
+      Combine can() and regex() for lightweight string format validation without custom provider logic.
+    code_block: |
+      variable "dns_name" {
+        type = string
+      
+        validation {
+          condition     = can(regex("^[a-z0-9.-]+$", var.dns_name))
+          error_message = "dns_name must be lowercase letters, digits, dot, hyphen."
+        }
+      }
+    constraints: >
+      Regex checks are not a substitute for DNS availability checks; keep messages actionable for module consumers.
+    tags:
+      - regex
+      - validation
+      - terraform
+  - pattern_id: tf-lifecycle-precondition-postcondition
+    language: terraform
+    skill_family: validation_pattern
+    description: >
+      Preconditions gate create/destroy; postconditions assert final attributes after apply for critical invariants.
+    code_block: |
+      resource "aws_instance" "app" {
+        ami           = var.ami_id
+        instance_type = var.instance_type
+      
+        lifecycle {
+          precondition {
+            condition     = length(var.subnet_ids) > 0
+            error_message = "At least one subnet_id is required."
+          }
+      
+          postcondition {
+            condition     = self.private_dns != ""
+            error_message = "Expected private DNS to be assigned."
+          }
+        }
+      }
+    constraints: >
+      Preconditions evaluate at plan; postconditions may cause apply failures—use sparingly on stable attributes.
+    tags:
+      - precondition
+      - postcondition
+      - terraform
+  - pattern_id: tf-api-gateway-lambda-proxy
+    language: terraform
+    skill_family: api_endpoint
+    description: >
+      HTTP API (v2) integrated with Lambda proxy for JSON APIs with IAM-authenticated invocation role.
+    code_block: |
+      resource "aws_apigatewayv2_api" "http" {
+        name          = "payments-http"
+        protocol_type = "HTTP"
+      }
+      
+      resource "aws_apigatewayv2_integration" "lambda" {
+        api_id                 = aws_apigatewayv2_api.http.id
+        integration_type       = "AWS_PROXY"
+        integration_uri        = aws_lambda_function.handler.invoke_arn
+        payload_format_version = "2.0"
+      }
+      
+      resource "aws_apigatewayv2_route" "default" {
+        api_id    = aws_apigatewayv2_api.http.id
+        route_key = "$default"
+        target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+      }
+      
+      resource "aws_lambda_permission" "apigw" {
+        statement_id    = "AllowAPIGatewayInvoke"
+        action            = "lambda:InvokeFunction"
+        function_name     = aws_lambda_function.handler.function_name
+        principal         = "apigateway.amazonaws.com"
+        source_arn        = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
+      }
+    constraints: >
+      Add stages, throttling, and WAF at the edge; keep Lambda IAM least-privilege separate from API caller auth (JWT/Cognito/etc.).
+    tags:
+      - apigateway
+      - lambda
+      - aws
+      - terraform
+  - pattern_id: tf-alb-target-group-http
+    language: terraform
+    skill_family: api_endpoint
+    description: >
+      Application Load Balancer listener forwarding to a health-checked target group for container or EC2 backends.
+    code_block: |
+      resource "aws_lb_target_group" "app" {
+        name        = "app-tg"
+        port        = 8080
+        protocol    = "HTTP"
+        vpc_id      = var.vpc_id
+        target_type = "ip"
+      
+        health_check {
+          path                = "/healthz"
+          healthy_threshold   = 2
+          unhealthy_threshold = 3
+          matcher             = "200"
+        }
+      }
+      
+      resource "aws_lb_listener" "https" {
+        load_balancer_arn = aws_lb.public.arn
+        port              = 443
+        protocol          = "HTTPS"
+        ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+        certificate_arn   = aws_acm_certificate.app.arn
+      
+        default_action {
+          type             = "forward"
+          target_group_arn = aws_lb_target_group.app.arn
+        }
+      }
+    constraints: >
+      Pin TLS policies to org baseline; use listener rules for host/path routing; protect admin paths with separate TG or WAF rules.
+    tags:
+      - alb
+      - target-group
+      - tls
+      - terraform
+  - pattern_id: tf-cloudwatch-log-group
+    language: terraform
+    skill_family: logging_pattern
+    description: >
+      Central log group with retention and optional KMS encryption for application or Lambda logs.
+    code_block: |
+      resource "aws_cloudwatch_log_group" "app" {
+        name              = "/app/payments/service"
+        retention_in_days = 30
+        kms_key_id        = aws_kms_key.logs.arn
+      }
+      
+      resource "aws_cloudwatch_log_stream" "canary" {
+        name           = "canary"
+        log_group_name = aws_cloudwatch_log_group.app.name
+      }
+    constraints: >
+      Match retention to compliance; subscription filters ship to OpenSearch/Kinesis— budget for ingest costs.
+    tags:
+      - cloudwatch
+      - logs
+      - terraform
+  - pattern_id: tf-vpc-flow-logs
+    language: terraform
+    skill_family: logging_pattern
+    description: >
+      VPC flow logs to S3 or CloudWatch for network forensics and anomaly detection.
+    code_block: |
+      resource "aws_flow_log" "vpc" {
+        log_destination          = aws_cloudwatch_log_group.flow.arn
+        log_destination_type       = "cloud-watch-logs"
+        traffic_type               = "ALL"
+        vpc_id                     = aws_vpc.main.id
+        iam_role_arn               = aws_iam_role.flow_logs.arn
+        max_aggregation_interval   = 60
+      }
+      
+      resource "aws_cloudwatch_log_group" "flow" {
+        name              = "/net/vpc-flow"
+        retention_in_days = 90
+      }
+    constraints: >
+      Flow logs are not packet payloads; combine with IDS and application logs; partition S3 destinations for Athena cost control.
+    tags:
+      - vpc
+      - flow-logs
+      - network
+      - terraform

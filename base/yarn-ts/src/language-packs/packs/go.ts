@@ -60,7 +60,57 @@ export const goPack: LanguagePackManifest = {
     {
       errorFamily: "unchecked_error",
       template: "Handle the returned error — check and propagate or log it in {file}.",
-      description: "A function returns an error that is not checked",
+      description: "A function returns an error that is not checked (golangci-lint).",
+      steps: [
+        "Handle the error",
+        "Use _ explicitly if intentionally ignoring",
+        "Add error wrapping",
+      ],
+      constraints: "Prefer wrapping with fmt.Errorf %w.",
+    },
+    {
+      errorFamily: "type_conversion",
+      template: "Fix the conversion in {file}: use explicit casts, type assertions with ok, or adjust types.",
+      description: "Value cannot be converted to the target type.",
+      steps: [
+        "Check type compatibility",
+        "Use explicit conversion",
+        "Add type assertion with ok check",
+      ],
+      constraints: "Prefer comma-ok idiom.",
+    },
+    {
+      errorFamily: "argument_error",
+      template: "Match the call in {file} to the function signature; fix variadic usage and named returns if needed.",
+      description: "Function called with wrong number of arguments.",
+      steps: [
+        "Check function signature",
+        "Verify variadic args",
+        "Use named return values",
+      ],
+      constraints: "Don't add unused parameters.",
+    },
+    {
+      errorFamily: "syntax_error",
+      template: "Fix Go syntax in {file}: run gofmt, fix braces/imports, then rebuild.",
+      description: "Source file contains Go syntax error.",
+      steps: [
+        "Run gofmt",
+        "Check for missing braces/semicolons",
+        "Verify import paths",
+      ],
+      constraints: "Always gofmt before committing.",
+    },
+    {
+      errorFamily: "import_cycle",
+      template: "Break the cycle in {file}: extract shared types, introduce interfaces, or split packages.",
+      description: "Packages form circular import dependency.",
+      steps: [
+        "Extract shared types to a new package",
+        "Use interfaces for decoupling",
+        "Restructure package boundaries",
+      ],
+      constraints: "Avoid god packages.",
     },
   ],
   corpusPackId: "lang-go",

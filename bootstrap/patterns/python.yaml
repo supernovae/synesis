@@ -1,0 +1,772 @@
+patterns:
+  - pattern_id: python-custom-exception-hierarchy
+    language: python
+    skill_family: error_handling
+    description: >
+      Domain-specific exception base with stable codes and HTTP mapping helpers for FastAPI or similar frameworks.
+    code_block: |
+      from __future__ import annotations
+
+      class DomainError(Exception):
+          """Base for expected business failures."""
+
+          code = "domain_error"
+          status_code = 400
+
+      class NotFound(DomainError):
+          code = "not_found"
+          status_code = 404
+
+      class Conflict(DomainError):
+          code = "conflict"
+          status_code = 409
+
+      def to_http_payload(exc: DomainError) -> dict[str, object]:
+          return {"error": exc.code, "message": str(exc)}
+    constraints: >
+      Reserve Exception for unexpected bugs; never catch bare Exception at domain boundaries without re-raising or logging.
+    tags:
+      - exceptions
+      - domain
+
+  - pattern_id: python-contextmanager-error-handling
+    language: python
+    skill_family: error_handling
+    description: >
+      Context manager that records timing, suppresses or wraps errors, and always releases resources in finally-style cleanup.
+    code_block: |
+      from contextlib import contextmanager
+      from collections.abc import Iterator
+      import logging
+      import time
+
+      log = logging.getLogger(__name__)
+
+      @contextmanager
+      def timed_operation(name: str) -> Iterator[None]:
+          start = time.perf_counter()
+          try:
+              yield
+          except Exception:
+              log.exception("%s failed after %.3fs", name, time.perf_counter() - start)
+              raise
+          else:
+              log.info("%s ok in %.3fs", name, time.perf_counter() - start)
+    constraints: >
+      Use contextlib.closing for resources with close(); for async code use asynccontextmanager and async with.
+    tags:
+      - contextmanager
+      - errors
+
+  - pattern_id: python-retry-decorator
+    language: python
+    skill_family: error_handling
+    description: >
+      Simple synchronous retry decorator with exponential backoff for idempotent calls to flaky dependencies.
+    code_block: |
+      from __future__ import annotations
+
+      import functools
+      import random
+      import time
+      from collections.abc import Callable
+      from typing import ParamSpec, TypeVar
+
+      P = ParamSpec("P")
+      R = TypeVar("R")
+
+      def retry(
+          *,
+          attempts: int = 3,
+          base: float = 0.2,
+          max_sleep: float = 5.0,
+          exceptions: tuple[type[BaseException], ...] = (Exception,),
+      ) -> Callable[[Callable[P, R]], Callable[P, R]]:
+          def deco(fn: Callable[P, R]) -> Callable[P, R]:
+              @functools.wraps(fn)
+              def inner(*args: P.args, **kwargs: P.kwargs) -> R:
+                  delay = base
+                  last: BaseException | None = None
+                  for i in range(attempts):
+                      try:
+                          return fn(*args, **kwargs)
+                      except exceptions as e:  # noqa: BLE001
+                          last = e
+                          if i == attempts - 1:
+                              break
+                          time.sleep(min(max_sleep, delay * (0.5 + random.random() * 0.5)))
+                          delay = min(max_sleep, delay * 2)
+                  assert last is not None
+                  raise last
+
+              return inner
+
+          return deco
+    constraints: >
+      Do not use on non-idempotent mutations; prefer tenacity or backoff libraries for production metrics and cancellation.
+    tags:
+      - retry
+      - resilience
+
+  - pattern_id: python-fastapi-pydantic-endpoint
+    language: python
+    skill_family: api_endpoint
+    framework: fastapi
+    description: >
+      FastAPI router with Pydantic request/response models, dependency-injected DB session, and typed status codes.
+    code_block: |
+      from __future__ import annotations
+
+      import uuid
+
+      from fastapi import APIRouter, Depends, HTTPException, status
+      from pydantic import BaseModel, EmailStr
+      from sqlalchemy.orm import Session
+
+      router = APIRouter(prefix="/users", tags=["users"])
+
+      class UserCreate(BaseModel):
+          email: EmailStr
+          name: str
+
+      class UserOut(BaseModel):
+          id: str
+          email: EmailStr
+          name: str
+
+      def get_db() -> Session:
+          raise NotImplementedError  # wire your session factory
+
+      _seen_emails: set[str] = set()
+
+      @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+      def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserOut:
+          _ = db  # use Session for real INSERT ... ON CONFLICT / unique constraint
+          email = str(payload.email)
+          if email in _seen_emails:
+              raise HTTPException(status_code=409, detail="email_taken")
+          _seen_emails.add(email)
+          return UserOut(id=str(uuid.uuid4()), email=payload.email, name=payload.name)
+    constraints: >
+      Replace placeholder query with real ORM models; use response_model_exclude for sensitive fields; validate pagination with Field constraints.
+    tags:
+      - fastapi
+      - pydantic
+
+  - pattern_id: python-flask-marshmallow-route
+    language: python
+    skill_family: api_endpoint
+    framework: flask
+    description: >
+      Flask POST route using Marshmallow schema load for input validation and explicit JSON error responses.
+    code_block: |
+      from flask import Blueprint, jsonify, request
+      from marshmallow import Schema, fields, ValidationError
+
+      bp = Blueprint("items", __name__, url_prefix="/items")
+
+      class ItemSchema(Schema):
+          title = fields.Str(required=True, validate=lambda s: len(s) >= 1)
+          qty = fields.Int(required=True, validate=lambda n: n > 0)
+
+      schema = ItemSchema()
+
+      @bp.post("")
+      def create_item():
+          try:
+              data = schema.load(request.get_json(silent=True) or {})
+          except ValidationError as err:
+              return jsonify({"error": "validation_failed", "messages": err.messages}), 422
+          return jsonify({"id": "new", **data}), 201
+    constraints: >
+      Use marshmallow 4 APIs consistently; for OpenAPI generation consider flask-smorest or migrate critical paths to Pydantic v2.
+    tags:
+      - flask
+      - marshmallow
+
+  - pattern_id: python-django-rest-view
+    language: python
+    skill_family: api_endpoint
+    framework: django-rest-framework
+    description: >
+      Django REST framework APIView with serializer validation and permission classes stub.
+    code_block: |
+      from rest_framework import permissions, status
+      from rest_framework.request import Request
+      from rest_framework.response import Response
+      from rest_framework.views import APIView
+      from rest_framework import serializers
+
+      class NoteSerializer(serializers.Serializer):
+          title = serializers.CharField(max_length=200)
+          body = serializers.CharField()
+
+      class NoteCreateView(APIView):
+          permission_classes = [permissions.IsAuthenticated]
+
+          def post(self, request: Request) -> Response:
+              ser = NoteSerializer(data=request.data)
+              ser.is_valid(raise_exception=True)
+              # Note.objects.create(owner=request.user, **ser.validated_data)
+              return Response({"id": "new", **ser.validated_data}, status=status.HTTP_201_CREATED)
+    constraints: >
+      Prefer ModelSerializer when CRUD maps 1:1 to models; use generic views for list/detail when behavior is standard.
+    tags:
+      - django
+      - drf
+
+  - pattern_id: python-pytest-parametrize
+    language: python
+    skill_family: test_scaffold
+    framework: pytest
+    description: >
+      Table-driven tests with pytest.mark.parametrize and ids for readable failure output.
+    code_block: |
+      import pytest
+
+      def slugify(s: str) -> str:
+          return "-".join(s.lower().split())
+
+      @pytest.mark.parametrize(
+          ("raw", "expected"),
+          [
+              ("Hello World", "hello-world"),
+              ("  a   b  ", "a-b"),
+          ],
+          ids=["spaces", "collapsed"],
+      )
+      def test_slugify(raw: str, expected: str) -> None:
+          assert slugify(raw) == expected
+    constraints: >
+      Keep param lists small or load from files for huge matrices; use pytest.param(..., marks=...) for xfails on specific rows.
+    tags:
+      - pytest
+      - testing
+
+  - pattern_id: python-pytest-fixture
+    language: python
+    skill_family: test_scaffold
+    framework: pytest
+    description: >
+      Session-scoped engine and function-scoped connection fixtures with yield cleanup for integration tests.
+    code_block: |
+      import pytest
+
+      @pytest.fixture(scope="session")
+      def engine():
+          from sqlalchemy import create_engine
+
+          eng = create_engine("sqlite:///:memory:")
+          yield eng
+          eng.dispose()
+
+      @pytest.fixture()
+      def connection(engine):
+          conn = engine.connect()
+          trans = conn.begin()
+          try:
+              yield conn
+          finally:
+              trans.rollback()
+              conn.close()
+    constraints: >
+      Match scope to cost; avoid module-scoped fixtures that mutate global state unless tests are isolated by design.
+    tags:
+      - pytest
+      - fixtures
+
+  - pattern_id: python-mock-patch
+    language: python
+    skill_family: test_scaffold
+    framework: pytest
+    description: >
+      unittest.mock.patch as decorator targeting where the symbol is used, not where it is defined.
+    code_block: |
+      from unittest.mock import patch, MagicMock
+
+      from myapp import service
+
+      @patch("myapp.service.requests.get")
+      def test_fetch_user_maps_json(mock_get: MagicMock) -> None:
+          mock_get.return_value.json.return_value = {"id": "1", "name": "Ada"}
+          assert service.fetch_user_name("1") == "Ada"
+          mock_get.assert_called_once()
+    constraints: >
+      Patch the client namespace (myapp.service.requests) not requests.get globally unless intentional; use pytest-mock's mocker for shorter syntax.
+    tags:
+      - pytest
+      - mock
+
+  - pattern_id: python-dataclass-validation
+    language: python
+    skill_family: data_structure
+    description: >
+      Frozen dataclass with __post_init__ checks for lightweight invariants without pulling in Pydantic.
+    code_block: |
+      from __future__ import annotations
+
+      from dataclasses import dataclass
+
+      @dataclass(frozen=True, slots=True)
+      class Money:
+          currency: str
+          minor_units: int
+
+          def __post_init__(self) -> None:
+              if len(self.currency) != 3:
+                  raise ValueError("currency must be ISO-4217 code")
+              if self.minor_units < 0:
+                  raise ValueError("minor_units must be non-negative")
+    constraints: >
+      For JSON APIs prefer Pydantic or msgspec; dataclass validation shines for in-memory domain types.
+    tags:
+      - dataclasses
+      - validation
+
+  - pattern_id: python-typeddict
+    language: python
+    skill_family: data_structure
+    description: >
+      TypedDict for structural JSON-like dicts with total=False for optional keys and clear typing for parsers.
+    code_block: |
+      from typing import NotRequired, TypedDict
+
+      class UserPayload(TypedDict):
+          id: str
+          email: str
+          name: NotRequired[str]
+
+      def parse_user(data: object) -> UserPayload:
+          if not isinstance(data, dict):
+              raise TypeError("expected dict")
+          if "id" not in data or "email" not in data:
+              raise ValueError("missing keys")
+          return {
+              "id": str(data["id"]),
+              "email": str(data["email"]),
+              **({"name": str(data["name"])} if "name" in data else {}),
+          }
+    constraints: >
+      TypedDict does not validate at runtime; pair with manual checks or use pydantic.TypeAdapter for runtime parsing.
+    tags:
+      - typing
+      - json
+
+  - pattern_id: python-pydantic-model-validators
+    language: python
+    skill_family: data_structure
+    framework: pydantic
+    description: >
+      Pydantic v2 model with field validators and model validator for cross-field consistency.
+    code_block: |
+      from __future__ import annotations
+
+      from pydantic import BaseModel, Field, field_validator, model_validator
+
+      class Window(BaseModel):
+          label: str = Field(default="meeting")
+          start_hour: int = Field(ge=0, le=23)
+          end_hour: int = Field(ge=0, le=24)
+
+          @field_validator("label")
+          @classmethod
+          def strip_label(cls, v: str) -> str:
+              s = v.strip()
+              if not s:
+                  raise ValueError("label required")
+              return s
+
+          @model_validator(mode="after")
+          def validate_range(self) -> Window:
+              if self.end_hour <= self.start_hour:
+                  raise ValueError("end_hour must be after start_hour")
+              return self
+    constraints: >
+      Prefer model_validator(mode="wrap") for coercion pipelines; keep validators pure and side-effect free.
+    tags:
+      - pydantic
+      - validation
+
+  - pattern_id: python-protocol-structural-typing
+    language: python
+    skill_family: data_structure
+    description: >
+      typing.Protocol for duck-typed storage abstraction without inheritance, enabling test doubles.
+    code_block: |
+      from typing import Protocol, runtime_checkable
+
+      @runtime_checkable
+      class KVStore(Protocol):
+          def get(self, key: str) -> bytes | None: ...
+          def set(self, key: str, value: bytes, ttl_sec: int | None = None) -> None: ...
+
+      class InMemoryKV:
+          def __init__(self) -> None:
+              self._d: dict[str, bytes] = {}
+
+          def get(self, key: str) -> bytes | None:
+              return self._d.get(key)
+
+          def set(self, key: str, value: bytes, ttl_sec: int | None = None) -> None:
+              self._d[key] = value
+
+      def use_store(store: KVStore) -> None:
+          store.set("k", b"v")
+    constraints: >
+      runtime_checkable is for isinstance only; default Protocol is static-only; document thread-safety expectations on implementers.
+    tags:
+      - typing
+      - protocols
+
+  - pattern_id: python-pydantic-settings
+    language: python
+    skill_family: config_pattern
+    framework: pydantic-settings
+    description: >
+      Settings class loaded from environment with case-insensitive keys, validation, and secrets kept out of repr.
+    code_block: |
+      from pydantic import Field, PostgresDsn
+      from pydantic_settings import BaseSettings, SettingsConfigDict
+
+      class Settings(BaseSettings):
+          model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+          database_url: PostgresDsn
+          log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARN|ERROR)$")
+          feature_beta: bool = Field(default=False, validation_alias="FEATURE_BETA")
+
+      settings = Settings()  # parse once at import or in create_app
+    constraints: >
+      Instantiate settings once per process; use dependency injection in tests with Settings.model_construct overrides.
+    tags:
+      - pydantic-settings
+      - config
+
+  - pattern_id: python-env-with-defaults
+    language: python
+    skill_family: config_pattern
+    description: >
+      Small os.environ reader with defaults, typing, and explicit parsing without extra dependencies.
+    code_block: |
+      from __future__ import annotations
+
+      import os
+
+      def env_str(key: str, default: str | None = None) -> str:
+          v = os.environ.get(key)
+          if v is None or v == "":
+              if default is None:
+                  raise RuntimeError(f"missing env {key}")
+              return default
+          return v
+
+      def env_int(key: str, default: int) -> int:
+          v = os.environ.get(key)
+          if v is None or v == "":
+              return default
+          return int(v, 10)
+
+      PORT = env_int("PORT", 8080)
+      DATABASE_URL = env_str("DATABASE_URL")
+    constraints: >
+      Fail fast on startup for required vars; document all variables in README or deployment manifests.
+    tags:
+      - config
+      - stdlib
+
+  - pattern_id: python-asyncio-gather-errors
+    language: python
+    skill_family: async_pattern
+    description: >
+      asyncio.gather with return_exceptions to collect partial successes and surface all failures together.
+    code_block: |
+      import asyncio
+      from collections.abc import Awaitable
+      from typing import Any
+
+      async def fan_out(coros: list[Awaitable[Any]]) -> tuple[list[Any], list[BaseException]]:
+          results = await asyncio.gather(*coros, return_exceptions=True)
+          ok: list[Any] = []
+          err: list[BaseException] = []
+          for r in results:
+              if isinstance(r, BaseException):
+                  err.append(r)
+              else:
+                  ok.append(r)
+          return ok, err
+    constraints: >
+      Use TaskGroup (3.11+) for fail-fast groups; cancel outstanding tasks explicitly when one failure should abort the rest.
+    tags:
+      - asyncio
+      - concurrency
+
+  - pattern_id: python-async-generator
+    language: python
+    skill_family: async_pattern
+    description: >
+      Async generator streaming rows from an async cursor or paginated API for constant memory consumers.
+    code_block: |
+      from collections.abc import AsyncIterator
+
+      async def pages(client, path: str) -> AsyncIterator[dict]:
+          cursor = None
+          while True:
+              payload = await client.get_json(path, params={"cursor": cursor})
+              for row in payload["items"]:
+                  yield row
+              cursor = payload.get("next_cursor")
+              if not cursor:
+                  break
+    constraints: >
+      Use async with aclosing() in 3.10+ if generators hold resources that need deterministic cleanup.
+    tags:
+      - asyncio
+      - streaming
+
+  - pattern_id: python-aiohttp-client-session
+    language: python
+    skill_family: async_pattern
+    framework: aiohttp
+    description: >
+      Shared aiohttp ClientSession with timeout, default headers, and proper lifecycle in async context manager.
+    code_block: |
+      import aiohttp
+
+      class HttpClient:
+          def __init__(self, base_url: str, token: str) -> None:
+              self._base = base_url.rstrip("/")
+              self._token = token
+              self._session: aiohttp.ClientSession | None = None
+
+          async def __aenter__(self) -> "HttpClient":
+              timeout = aiohttp.ClientTimeout(total=30)
+              self._session = aiohttp.ClientSession(
+                  base_url=self._base,
+                  headers={"authorization": f"Bearer {self._token}"},
+                  timeout=timeout,
+              )
+              return self
+
+          async def __aexit__(self, *exc: object) -> None:
+              if self._session:
+                  await self._session.close()
+
+          async def get_json(self, path: str) -> dict:
+              assert self._session
+              async with self._session.get(path) as resp:
+                  resp.raise_for_status()
+                  return await resp.json()
+    constraints: >
+      One session per process or logical client; tune connector limits; never create a new session per request at scale.
+    tags:
+      - aiohttp
+      - http
+
+  - pattern_id: python-async-timeout-wrapper
+    language: python
+    skill_family: async_pattern
+    description: >
+      asyncio.wait_for wrapper pattern with clear timeout errors for outbound calls.
+    code_block: |
+      import asyncio
+      from collections.abc import Awaitable
+      from typing import TypeVar
+
+      T = TypeVar("T")
+
+      async def with_timeout(coro: Awaitable[T], seconds: float) -> T:
+          try:
+              return await asyncio.wait_for(coro, timeout=seconds)
+          except TimeoutError as e:
+              raise TimeoutError(f"operation exceeded {seconds}s") from e
+    constraints: >
+      On 3.11+ consider asyncio.timeout context manager for grouped cancellation; log slow operations at call site.
+    tags:
+      - asyncio
+      - timeouts
+
+  - pattern_id: python-fastapi-dependency-auth
+    language: python
+    skill_family: auth_pattern
+    framework: fastapi
+    description: >
+      FastAPI dependency that extracts bearer token, validates it, and returns a principal or raises 401.
+    code_block: |
+      from __future__ import annotations
+
+      from fastapi import Depends, HTTPException, status
+      from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+      security = HTTPBearer(auto_error=False)
+
+      def parse_token(raw: str) -> dict:
+          # replace with jose/jwt validation (iss, aud, exp, signature)
+          if raw != "valid":
+              raise ValueError("bad token")
+          return {"sub": "user-1"}
+
+      async def current_user(creds: HTTPAuthorizationCredentials | None = Depends(security)) -> dict:
+          if creds is None or creds.scheme.lower() != "bearer":
+              raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing_bearer")
+          try:
+              return parse_token(creds.credentials)
+          except ValueError:
+              raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token") from None
+    constraints: >
+      Use python-jose or authlib for real JWT; cache JWKS; never log raw tokens; combine with OAuth2PasswordBearer for interactive flows.
+    tags:
+      - fastapi
+      - jwt
+
+  - pattern_id: python-decorator-auth
+    language: python
+    skill_family: auth_pattern
+    framework: flask
+    description: >
+      Flask view decorator checking session or header role before executing the wrapped function.
+    code_block: |
+      from __future__ import annotations
+
+      import functools
+      from collections.abc import Callable
+      from typing import TypeVar
+
+      from flask import abort, request, session
+
+      F = TypeVar("F", bound=Callable[..., object])
+
+      def require_role(role: str) -> Callable[[F], F]:
+          def deco(fn: F) -> F:
+              @functools.wraps(fn)
+              def inner(*args: object, **kwargs: object):
+                  if session.get("role") != role and request.headers.get("X-Admin-Token") != "secret":
+                      abort(403)
+                  return fn(*args, **kwargs)
+
+              return inner  # type: ignore[return-value]
+
+          return deco
+    constraints: >
+      Replace header secret with signed tokens or server-side session stores; use Flask-Login or similar for production patterns.
+    tags:
+      - flask
+      - auth
+
+  - pattern_id: python-structlog-setup
+    language: python
+    skill_family: logging_pattern
+    description: >
+      structlog configuration with JSON renderer, stdlib integration, and bound contextvars processor for request scope.
+    code_block: |
+      import logging
+      import structlog
+
+      def configure_logging(json_logs: bool = True) -> None:
+          timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
+          shared = [
+              structlog.contextvars.merge_contextvars,
+              timestamper,
+              structlog.processors.add_log_level,
+              structlog.processors.StackInfoRenderer(),
+              structlog.processors.format_exc_info,
+          ]
+          if json_logs:
+              structlog.configure(
+                  processors=shared + [structlog.processors.JSONRenderer()],
+                  logger_factory=structlog.stdlib.LoggerFactory(),
+                  wrapper_class=structlog.stdlib.BoundLogger,
+                  cache_logger_on_first_use=True,
+              )
+              logging.basicConfig(level=logging.INFO, format="%(message)s")
+          else:
+              structlog.configure(
+                  processors=shared + [structlog.dev.ConsoleRenderer()],
+                  logger_factory=structlog.PrintLoggerFactory(),
+                  cache_logger_on_first_use=True,
+              )
+    constraints: >
+      Call configure_logging once at startup; use contextvars.clear_contextvars between requests in ASGI/WSGI middleware.
+    tags:
+      - structlog
+      - logging
+
+  - pattern_id: python-logging-context-filter
+    language: python
+    skill_family: logging_pattern
+    description: >
+      logging.Filter that injects request_id from contextvars into every LogRecord for Formatter access.
+    code_block: |
+      from __future__ import annotations
+
+      import contextvars
+      import logging
+
+      request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
+
+      class RequestIdFilter(logging.Filter):
+          def filter(self, record: logging.LogRecord) -> bool:
+              rid = request_id_var.get()
+              record.request_id = rid or "-"
+              return True
+
+      fmt = logging.Formatter("%(levelname)s %(request_id)s %(name)s: %(message)s")
+      handler = logging.StreamHandler()
+      handler.setFormatter(fmt)
+      handler.addFilter(RequestIdFilter())
+      root = logging.getLogger()
+      root.addHandler(handler)
+      root.setLevel(logging.INFO)
+    constraints: >
+      Set request_id_var in middleware at request start; avoid logging PII even with rich context.
+    tags:
+      - logging
+      - context
+
+  - pattern_id: python-cerberus-pydantic-validation
+    language: python
+    skill_family: validation_pattern
+    description: >
+      Cerberus schema validation for untrusted dict payloads with normalized document output.
+    code_block: |
+      from cerberus import Validator
+
+      schema = {
+          "email": {"type": "string", "regex": r"^[^@]+@[^@]+$"},
+          "age": {"type": "integer", "min": 0, "max": 130},
+      }
+
+      def validate_user(doc: object) -> dict:
+          if not isinstance(doc, dict):
+              raise TypeError("expected dict")
+          v = Validator(schema, allow_unknown=False)
+          if not v.validate(doc):
+              raise ValueError(v.errors)
+          return v.document
+    constraints: >
+      Cerberus is permissive on types unless coerced; migrate to Pydantic for static typing and JSON Schema export when possible.
+    tags:
+      - cerberus
+      - validation
+
+  - pattern_id: python-input-sanitization
+    language: python
+    skill_family: validation_pattern
+    description: >
+      Normalize and bound user string input before storage or template interpolation to reduce injection and abuse.
+    code_block: |
+      import html
+      import re
+
+      _ws = re.compile(r"\s+")
+
+      def sanitize_display_name(raw: str, *, max_len: int = 64) -> str:
+          s = raw.strip()
+          s = _ws.sub(" ", s)
+          if not s:
+              raise ValueError("empty name")
+          return html.escape(s[:max_len], quote=True)
+    constraints: >
+      Escaping is context-specific (HTML vs SQL); use parameterized queries for SQL; prefer allowlists over denylists for tags.
+    tags:
+      - security
+      - sanitization

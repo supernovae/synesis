@@ -32,8 +32,8 @@ spec:
             - name: SYNESIS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: synesis-service-tokens
-                  key: internal-service-token
+                  name: synesis-internal-service-auth
+                  key: token
                   optional: true
           resources:
             requests:

@@ -166,6 +166,7 @@ from app.routers.ingestion_staged import router as ingestion_staged_router
 from app.routers.integrations import router as integrations_router
 from app.routers.models import router as models_router
 from app.routers.observability import router as observability_router
+from app.routers.patterns import router as patterns_router
 from app.routers.pipeline import router as pipeline_router
 from app.routers.provider_governance import router as provider_governance_router
 from app.routers.providers import router as providers_router
@@ -199,6 +200,7 @@ app.include_router(integrations_router)
 app.include_router(feedback_router)
 app.include_router(governance_router)
 app.include_router(observability_router)
+app.include_router(patterns_router)
 app.include_router(traces_router)
 app.include_router(providers_router)
 app.include_router(settings_router)

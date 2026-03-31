@@ -50,6 +50,54 @@ export const bashPack: LanguagePackManifest = {
       template: "Replace with the modern syntax suggested by ShellCheck.",
       description: "Deprecated Bash/POSIX syntax used",
     },
+    {
+      errorFamily: "unused_variable",
+      template: "Remove the unused assignment, use the variable, or prefix with _ for intentional discard in {file}.",
+      description: "Variable assigned but never referenced.",
+      steps: [
+        "Remove unused variable or use it",
+        "Prefix with _ for intentional",
+        "Check for typos",
+      ],
+      constraints: "Use _ prefix convention.",
+    },
+    {
+      errorFamily: "unquoted_expansion",
+      template: "Quote command substitution with double quotes or use arrays for safe iteration in {file}.",
+      description: "Command substitution not quoted, risking word splitting.",
+      steps: [
+        "Quote the expansion with double quotes",
+        "Use arrays for word-split-safe iteration",
+      ],
+      constraints: "Always quote expansions.",
+    },
+    {
+      errorFamily: "declare_assign",
+      template: "Split `declare` and assignment into separate lines so exit codes are visible in {file}.",
+      description: "Declaration and assignment combined masks exit code.",
+      steps: ["Separate declare and assignment into two lines"],
+      constraints: "Always check exit codes.",
+    },
+    {
+      errorFamily: "indirect_exit_code",
+      template: "Put the command directly in if/while or capture $? immediately after the command in {file}.",
+      description: "Checking $? instead of using command directly in if.",
+      steps: [
+        "Put command directly in if/while condition",
+        "Or capture exit code immediately",
+      ],
+      constraints: "Prefer direct command in if.",
+    },
+    {
+      errorFamily: "missing_read_r",
+      template: "Use `read -r` and set IFS= when you need a full line without mangling backslashes in {file}.",
+      description: "read without -r mangles backslashes.",
+      steps: [
+        "Add -r flag to read",
+        "Use IFS= for full line reading",
+      ],
+      constraints: "Always use read -r.",
+    },
   ],
   corpusPackId: "lang-bash",
 };

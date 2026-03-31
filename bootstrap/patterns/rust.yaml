@@ -1,0 +1,877 @@
+patterns:
+- pattern_id: rust-thiserror-enum
+  language: rust
+  skill_family: error_handling
+  framework: thiserror
+  description: >
+    Derive Error on an enum with #[from] for automatic conversions and #[error] display strings,
+    keeping library errors typed without pulling in anyhow for callers.
+  code_block: |
+    use thiserror::Error;
+
+    #[derive(Debug, Error)]
+    pub enum AppError {
+        #[error("io: {0}")]
+        Io(#[from] std::io::Error),
+        #[error("not found: {0}")]
+        NotFound(String),
+        #[error("invalid input")]
+        BadInput,
+    }
+
+    pub fn load(path: &str) -> Result<Vec<u8>, AppError> {
+        let buf = std::fs::read(path)?;
+        if buf.is_empty() {
+            return Err(AppError::BadInput);
+        }
+        Ok(buf)
+    }
+  constraints: >
+    Use thiserror in libraries; reserve anyhow for binaries or application layers. Keep error
+    variants minimal and stable for public APIs; document which variants implement source().
+  tags:
+  - thiserror
+  - error-enum
+  - from-trait
+
+- pattern_id: rust-anyhow-context-chain
+  language: rust
+  skill_family: error_handling
+  framework: anyhow
+  description: >
+    anyhow::Result with .context() and .with_context() attaches semantic layers at failure
+    points while preserving backtraces when RUST_BACKTRACE=1.
+  code_block: |
+    use anyhow::{Context, Result};
+
+    fn read_config(path: &str) -> Result<String> {
+        std::fs::read_to_string(path).with_context(|| format!("read config {}", path))
+    }
+
+    fn boot() -> Result<()> {
+        let cfg = read_config("/etc/app.toml").context("load application config")?;
+        let _ = cfg;
+        Ok(())
+    }
+  constraints: >
+    Prefer anyhow in main and orchestration code; avoid anyhow in public library error types if
+    consumers need to match errors. Context closures should stay cheap—no heavy work unless error path.
+  tags:
+  - anyhow
+  - context
+  - error-handling
+
+- pattern_id: rust-result-question-mark-try-blocks
+  language: rust
+  skill_family: error_handling
+  framework: stdlib
+  description: >
+    The ? operator propagates compatible errors inside functions returning Result; try blocks
+    (Rust 1.65+) localize ? to a subexpression when mixing error types.
+  code_block: |
+    use std::fs;
+    use std::io::{self, Read};
+
+    fn read_two(path_a: &str, path_b: &str) -> io::Result<Vec<u8>> {
+        let mut a = fs::File::open(path_a)?;
+        let mut b = fs::File::open(path_b)?;
+        let mut out = Vec::new();
+        a.read_to_end(&mut out)?;
+        b.read_to_end(&mut out)?;
+        Ok(out)
+    }
+
+    fn parse_u32(s: &str) -> Option<u32> {
+        let n: u32 = s.parse().ok()?;
+        Some(n)
+    }
+  constraints: >
+    Error types must implement From for automatic ? conversion across boundaries. For mixed errors
+    in one function, map with .map_err or use anyhow/thiserror explicitly—try blocks help scope ?.
+  tags:
+  - result
+  - question-mark
+  - try-blocks
+
+- pattern_id: rust-axum-json-state
+  language: rust
+  skill_family: api_endpoint
+  framework: axum
+  description: >
+    Axum handler with State and Json extractor, returning typed StatusCode + Json responses
+    and mapping AppError to HTTP layers via IntoResponse or map_err.
+  code_block: |
+    use axum::extract::State;
+    use axum::routing::post;
+    use axum::{Json, Router};
+    use serde::Deserialize;
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct AppState {
+        db: Arc<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct CreateReq {
+        name: String,
+    }
+
+    async fn create(
+        State(st): State<AppState>,
+        Json(body): Json<CreateReq>,
+    ) -> Json<serde_json::Value> {
+        let _ = &*st.db;
+        Json(serde_json::json!({ "ok": true, "name": body.name }))
+    }
+
+    fn app() -> Router {
+        let state = AppState { db: Arc::new("pg".into()) };
+        Router::new().route("/items", post(create)).with_state(state)
+    }
+  constraints: >
+    Keep State cheap to clone (Arc inner data). Use Extension for per-request data; prefer typed
+    FromRequestParts for auth. Version routers with nest for large APIs.
+  tags:
+  - axum
+  - extractors
+  - json
+
+- pattern_id: rust-actix-web-handler
+  language: rust
+  skill_family: api_endpoint
+  framework: actix-web
+  description: >
+    Actix-web route with web::Json config extractor and HttpResponse builders for consistent
+    status and JSON payloads in async handlers.
+  code_block: |
+    use actix_web::{post, web, HttpResponse, Responder};
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct Payload {
+        name: String,
+    }
+
+    #[post("/items")]
+    async fn create_item(body: web::Json<Payload>) -> impl Responder {
+        HttpResponse::Created().json(serde_json::json!({
+            "name": body.name,
+        }))
+    }
+  constraints: >
+    Register data extractors and app state in App::new().configure; keep handlers thin and move
+    DB pools into web::Data<T>. Use either blocking or async adapters consistently for SQL clients.
+  tags:
+  - actix-web
+  - json
+  - async
+
+- pattern_id: rust-warp-filter-chain
+  language: rust
+  skill_family: api_endpoint
+  framework: warp
+  description: >
+    warp filter composition with path, method, and body_json then and() chains; map into
+    replies with map() for type-safe request handling.
+  code_block: |
+    use serde::Deserialize;
+    use warp::Filter;
+
+    #[derive(Deserialize)]
+    struct Body {
+        name: String,
+    }
+
+    fn routes() -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+        warp::path!("items")
+            .and(warp::post())
+            .and(warp::body::json())
+            .map(|b: Body| {
+                warp::reply::json(&serde_json::json!({ "name": b.name }))
+            })
+    }
+  constraints: >
+    Rejections need custom recover() for stable API errors. Filter clones are cheap—share config via
+    warp::any().map(move || ...) with care for capture lifetimes. Consider axum for larger teams.
+  tags:
+  - warp
+  - filters
+  - json
+
+- pattern_id: rust-test-assertions
+  language: rust
+  skill_family: test_scaffold
+  framework: stdlib
+  description: >
+    Unit test module with #[test], assert_eq!, and pretty assertions via optional debug output;
+    colocate tests in the same file under cfg(test) for private API coverage.
+  code_block: |
+    fn add(a: i32, b: i32) -> i32 {
+        a + b
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn adds() {
+            assert_eq!(add(2, 3), 5);
+        }
+
+        #[test]
+        #[should_panic(expected = "boom")]
+        fn panics_as_expected() {
+            panic!("boom");
+        }
+    }
+  constraints: >
+    Use assert_ne!, assert! for custom predicates; for floating point use approximate helpers.
+    should_panic is brittle—prefer Result-returning APIs under test when possible.
+  tags:
+  - testing
+  - assert
+  - cfg-test
+
+- pattern_id: rust-proptest-properties
+  language: rust
+  skill_family: test_scaffold
+  framework: proptest
+  description: >
+    proptest! macro generates random inputs to assert invariants; shrinking finds minimal failing
+    cases for parsers and pure functions.
+  code_block: |
+    fn reverse_twice_eq(s: &str) -> bool {
+        let mut t: String = s.chars().rev().collect();
+        let u: String = t.chars().rev().collect();
+        u == s
+    }
+
+    #[cfg(test)]
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn rev_involution(s in "[a-zA-Z0-9]{0,256}") {
+                prop_assert!(reverse_twice_eq(&s));
+            }
+        }
+    }
+  constraints: >
+    Keep strategies fast; use prop::num::u* for bounded numeric ranges. For String/Vec, cap size
+    with prop::collection::vec(strategy, 0..64) to avoid huge allocations and timeouts in CI.
+  tags:
+  - proptest
+  - property-based
+  - testing
+
+- pattern_id: rust-tokio-test-async
+  language: rust
+  skill_family: test_scaffold
+  framework: tokio
+  description: >
+    #[tokio::test] runs async tests on the multi-thread runtime; use timeout! or tokio::time
+    for bounded waits instead of sleeping arbitrarily.
+  code_block: |
+    async fn delayed_true() -> bool {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        true
+    }
+
+    #[cfg(test)]
+    mod async_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn completes() {
+            assert!(delayed_true().await);
+        }
+
+        #[tokio::test]
+        async fn times_out() {
+            let fut = tokio::time::timeout(
+                std::time::Duration::from_millis(1),
+                delayed_true(),
+            );
+            assert!(fut.await.is_err());
+        }
+    }
+  constraints: >
+    Default #[tokio::test] uses multi-thread; use #[tokio::test(flavor = "current_thread")] for
+    single-thread semantics. Avoid real timers in hot CI—inject clocks where design allows.
+  tags:
+  - tokio
+  - async-test
+  - timeout
+
+- pattern_id: rust-enum-display
+  language: rust
+  skill_family: data_structure
+  framework: stdlib
+  description: >
+    Implement Display (and optionally Error) for enums with match exhaustiveness, giving stable
+    user-facing strings without allocating when using write! to formatter.
+  code_block: |
+    use std::fmt::{self, Display, Formatter};
+
+    #[derive(Debug, Clone, Copy)]
+    enum Status {
+        Ok,
+        Degraded,
+        Down,
+    }
+
+    impl Display for Status {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let s = match self {
+                Status::Ok => "ok",
+                Status::Degraded => "degraded",
+                Status::Down => "down",
+            };
+            f.write_str(s)
+        }
+    }
+  constraints: >
+    Keep Display human-readable; use Debug for logs when structure matters. For Error, implement
+    source() when wrapping inner errors; strum can reduce boilerplate if policy allows the dependency.
+  tags:
+  - enum
+  - display
+  - formatting
+
+- pattern_id: rust-struct-serde-json
+  language: rust
+  skill_family: data_structure
+  framework: serde
+  description: >
+    Serialize and deserialize with serde rename and skip_serializing_if for stable JSON APIs
+    and smaller payloads on the wire.
+  code_block: |
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct User {
+        #[serde(rename = "userId")]
+        id: u64,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        email: Option<String>,
+    }
+
+    fn roundtrip(u: &User) -> serde_json::Result<User> {
+        let s = serde_json::to_string(u)?;
+        serde_json::from_str(&s)
+    }
+  constraints: >
+    Deny unknown fields at API boundaries with #[serde(deny_unknown_fields)] when breaking changes
+    are unacceptable. Version DTOs separately from domain models to avoid serde leaking inward.
+  tags:
+  - serde
+  - json
+  - struct
+
+- pattern_id: rust-builder-pattern
+  language: rust
+  skill_family: data_structure
+  framework: stdlib
+  description: >
+    Consuming builder methods set optional fields and finish() validates invariants before
+    constructing the final type—common for clients and complex configs.
+  code_block: |
+    #[derive(Debug)]
+    struct Server {
+        host: String,
+        port: u16,
+    }
+
+    struct ServerBuilder {
+        host: Option<String>,
+        port: Option<u16>,
+    }
+
+    impl ServerBuilder {
+        fn new() -> Self {
+            Self { host: None, port: None }
+        }
+        fn host(mut self, h: impl Into<String>) -> Self {
+            self.host = Some(h.into());
+            self
+        }
+        fn port(mut self, p: u16) -> Self {
+            self.port = Some(p);
+            self
+        }
+        fn build(self) -> Result<Server, &'static str> {
+            Ok(Server {
+                host: self.host.ok_or("host required")?,
+                port: self.port.unwrap_or(8080),
+            })
+        }
+    }
+  constraints: >
+    Consider typed-state builders (phantom types) to make invalid states unrepresentable. For many
+    optional fields, derive_builder or bon can reduce duplication—justify deps in small crates.
+  tags:
+  - builder
+  - fluent-api
+  - construction
+
+- pattern_id: rust-config-crate-env
+  language: rust
+  skill_family: config_pattern
+  framework: config
+  description: >
+    The config crate merges File, Environment, and defaults into a deserialized struct—good for
+    layered deployment settings with prefix separation.
+  code_block: |
+    use config::{Config, ConfigError, Environment, File};
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    struct Settings {
+        #[serde(default = "default_port")]
+        port: u16,
+        database_url: String,
+    }
+
+    fn default_port() -> u16 {
+        8080
+    }
+
+    fn load() -> Result<Settings, ConfigError> {
+        let c = Config::builder()
+            .add_source(File::with_name("config/default").required(false))
+            .add_source(Environment::with_prefix("APP").separator("__")))
+            .build()?;
+        c.try_deserialize()
+    }
+  constraints: >
+    Mark secrets as Secret<String> from secrecy crate if they must not log on Debug. Validate
+    after deserialize (e.g. non-empty URLs). File paths should be explicit for container mounts.
+  tags:
+  - config
+  - environment
+  - serde
+
+- pattern_id: rust-clap-derive-cli
+  language: rust
+  skill_family: config_pattern
+  framework: clap
+  description: >
+    clap Parser derive for subcommands, env fallbacks, and defaults produces help text and
+    structured CLI args for binaries.
+  code_block: |
+    use clap::Parser;
+
+    #[derive(Parser, Debug)]
+    #[command(name = "app", version, about = "Example CLI")]
+    struct Cli {
+        #[arg(long, env = "API_URL", default_value = "http://localhost:8080")]
+        api_url: String,
+        #[command(subcommand)]
+        cmd: Command,
+    }
+
+    #[derive(clap::Subcommand, Debug)]
+    enum Command {
+        Sync { path: std::path::PathBuf },
+    }
+
+    fn main() {
+        let cli = Cli::parse();
+        let _ = cli.api_url;
+    }
+  constraints: >
+    Use ArgAction for flags; document env vars in README. For testing, use try_parse_from in unit
+    tests instead of std::env manipulation when possible (clap 4+).
+  tags:
+  - clap
+  - cli
+  - args
+
+- pattern_id: rust-tokio-join-set-spawn
+  language: rust
+  skill_family: async_pattern
+  framework: tokio
+  description: >
+    JoinSet collects handles from spawned tasks; await join_next in a loop for structured
+    shutdown or use join_all-style patterns with futures::future::join_all for fixed arity.
+  code_block: |
+    async fn fanout(urls: &[String]) -> Vec<String> {
+        let mut set = tokio::task::JoinSet::new();
+        for u in urls {
+            let u = u.clone();
+            set.spawn(async move { u });
+        }
+        let mut out = Vec::new();
+        while let Some(res) = set.join_next().await {
+            out.push(res.expect("task panicked"));
+        }
+        out
+    }
+  constraints: >
+    Propagate cancellation: prefer spawn on tasks that respect JoinHandle abort semantics. For
+    CPU-heavy work use spawn_blocking. Handle join_next None when all tasks complete cleanly.
+  tags:
+  - tokio
+  - joinset
+  - spawn
+
+- pattern_id: rust-stream-futures-process
+  language: rust
+  skill_family: async_pattern
+  framework: futures
+  description: >
+    StreamExt maps futures over items; buffer_unordered caps concurrency while preserving
+    stream semantics for backpressured pipelines.
+  code_block: |
+    use futures::{stream, StreamExt};
+
+    async fn fetch_one(n: u32) -> u32 {
+        n * 2
+    }
+
+    async fn pipeline(nums: Vec<u32>) -> Vec<u32> {
+        stream::iter(nums)
+            .map(|n| fetch_one(n))
+            .buffer_unordered(8)
+            .collect()
+            .await
+    }
+  constraints: >
+    Choose buffer_unordered vs for_each_concurrent based on ordering needs. Attach timeouts per item
+    with tokio::time::timeout inside the async closure for external IO streams.
+  tags:
+  - stream
+  - futures
+  - async
+
+- pattern_id: rust-tokio-select-cancel
+  language: rust
+  skill_family: async_pattern
+  framework: tokio
+  description: >
+    tokio::select! races branches; biased attribute controls fairness when one branch always ready—
+    typical for shutdown signals vs work loops.
+  code_block: |
+    use tokio::sync::mpsc;
+    use tokio::time::{self, Duration};
+
+    async fn worker(mut rx: mpsc::Receiver<i32>, mut shutdown: mpsc::Receiver<()>) {
+        loop {
+            tokio::select! {
+                biased;
+                _ = shutdown.recv() => break,
+                maybe = rx.recv() => {
+                    match maybe {
+                        Some(n) => { let _ = n; }
+                        None => break,
+                    }
+                }
+                _ = time::sleep(Duration::from_secs(30)) => { /* heartbeat */ }
+            }
+        }
+    }
+  constraints: >
+    Cancel safety: branches that drop futures mid-await must be cancel-safe—avoid shared mutation
+    in incomplete branches. Document biased usage; default fair scheduling when starvation matters.
+  tags:
+  - select
+  - tokio
+  - cancellation
+
+- pattern_id: rust-tower-auth-layer
+  language: rust
+  skill_family: auth_pattern
+  framework: tower
+  description: >
+    Tower Layer + Service wrap the inner service, enrich http::Extensions when credentials are
+    present, and forward to the inner Future—extend with boxed futures or tower_http filters for hard 401s.
+  code_block: |
+    use http::Request;
+    use std::task::{Context, Poll};
+    use tower::{Layer, Service};
+
+    #[derive(Clone, Debug)]
+    struct UserId(String);
+
+    #[derive(Clone, Default)]
+    struct AuthLayer;
+
+    impl<S> Layer<S> for AuthLayer {
+        type Service = AuthService<S>;
+        fn layer(&self, inner: S) -> Self::Service {
+            AuthService { inner }
+        }
+    }
+
+    #[derive(Clone)]
+    struct AuthService<S> {
+        inner: S,
+    }
+
+    impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for AuthService<S>
+    where
+        S: Service<Request<ReqBody>, Response = http::Response<ResBody>> + Clone + Send + 'static,
+        S::Future: Send,
+        ReqBody: Send + 'static,
+        ResBody: Send + 'static,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+        type Future = S::Future;
+
+        fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            self.inner.poll_ready(cx)
+        }
+
+        fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
+            if let Some(raw) = req.headers().get("x-user").and_then(|v| v.to_str().ok()) {
+                req.extensions_mut().insert(UserId(raw.to_string()));
+            }
+            self.inner.call(req)
+        }
+    }
+  constraints: >
+    Returning 401 from Tower without boxing requires a unified Response type or helper crates like
+    tower_http::validate_request. For axum, middleware::from_fn is often simpler than custom Service impls.
+  tags:
+  - tower
+  - middleware
+  - auth
+
+- pattern_id: rust-axum-jwt-claims
+  language: rust
+  skill_family: auth_pattern
+  framework: axum-jsonwebtoken
+  description: >
+    Extract Bearer JWT into typed Claims with axum FromRequestParts; reject missing/invalid tokens
+    before the handler runs using RequestParts and TypedHeader.
+  code_block: |
+    use axum::async_trait;
+    use axum::extract::FromRequestParts;
+    use axum::http::request::Parts;
+    use axum::RequestPartsExt;
+    use axum_extra::headers::authorization::Bearer;
+    use axum_extra::TypedHeader;
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    struct Claims {
+        sub: String,
+        exp: usize,
+    }
+
+    struct AuthUser(String);
+
+    #[async_trait]
+    impl<S> FromRequestParts<S> for AuthUser
+    where
+        S: Send + Sync,
+    {
+        type Rejection = axum::http::StatusCode;
+
+        async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+            let TypedHeader(bearer) = parts
+                .extract::<TypedHeader<Bearer>>()
+                .await
+                .map_err(|_| axum::http::StatusCode::UNAUTHORIZED)?;
+            let key = DecodingKey::from_secret(b"secret");
+            let token = decode::<Claims>(bearer.token(), &key, &Validation::default())
+                .map_err(|_| axum::http::StatusCode::UNAUTHORIZED)?;
+            Ok(AuthUser(token.claims.sub))
+        }
+    }
+  constraints: >
+    Use asymmetric keys in production; validate aud/iss. axum-extra TypedHeader and jwt crates must
+    align on versions. Never commit secrets—load DecodingKey from env or KMS at startup.
+  tags:
+  - jwt
+  - axum
+  - extractor
+
+- pattern_id: rust-tracing-instrument
+  language: rust
+  skill_family: logging_pattern
+  framework: tracing
+  description: >
+    #[tracing::instrument] generates spans with automatic field capture; skip large args and
+    use fields(debug) sparingly to control cardinality and cost.
+  code_block: |
+    use tracing::{info, instrument};
+
+    #[instrument(skip(db), fields(user_id = %user_id))]
+    async fn load_user(db: &str, user_id: u64) -> Result<String, ()> {
+        info!("loading");
+        Ok(format!("user-{}", user_id))
+    }
+  constraints: >
+    instrument on async fn produces Enter on poll—avoid heavy work in sync pre-async sections.
+    Combine with tracing_subscriber fmt/json layers; set global max level in production configs.
+  tags:
+  - tracing
+  - spans
+  - instrument
+
+- pattern_id: rust-tracing-span-context
+  language: rust
+  skill_family: logging_pattern
+  framework: tracing
+  description: >
+    span! with parent: &current_span() links work units; in_scope runs closures inside a span
+    for synchronous sections and propagates in async when entered correctly.
+  code_block: |
+    use tracing::{span, Level, Span};
+
+    fn process_batch(ids: &[u64]) {
+        let parent = Span::current();
+        for id in ids {
+            let s = span!(parent: &parent, Level::INFO, "item", id = id);
+            let _g = s.enter();
+            tracing::info!("handled");
+        }
+    }
+  constraints: >
+    Entered guards are not Send across await points—use instrument async blocks or #[instrument]
+    for async code. For distributed tracing, connect to OpenTelemetry propagators at the edges.
+  tags:
+  - tracing
+  - span
+  - context
+
+- pattern_id: rust-serde-try-from-deserialize
+  language: rust
+  skill_family: validation_pattern
+  framework: serde
+  description: >
+    Deserialize into a private raw DTO then TryFrom into a validated domain type so invalid
+    states cannot exist after construction.
+  code_block: |
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct UserDto {
+        age: u8,
+        email: String,
+    }
+
+    struct User {
+        age: u8,
+        email: String,
+    }
+
+    impl TryFrom<UserDto> for User {
+        type Error = &'static str;
+
+        fn try_from(d: UserDto) -> Result<Self, Self::Error> {
+            if d.age < 18 {
+                return Err("too young");
+            }
+            if !d.email.contains('@') {
+                return Err("bad email");
+            }
+            Ok(User { age: d.age, email: d.email })
+        }
+    }
+  constraints: >
+    Prefer this over custom Visitor unless you need serde-level performance. Map errors to stable
+    API codes at the HTTP boundary; log unexpected serde failures at warn level.
+  tags:
+  - serde
+  - validation
+  - try-from
+
+- pattern_id: rust-garde-derive-validate
+  language: rust
+  skill_family: validation_pattern
+  framework: garde
+  description: >
+    garde Validate derive with rule attributes mirrors expectations for web inputs; call validate()
+    after deserialize in handlers for consistent error reporting.
+  code_block: |
+    use garde::Validate;
+
+    #[derive(Validate)]
+    struct Signup {
+        #[garde(length(min = 3, max = 32))]
+        username: String,
+        #[garde(email)]
+        email: String,
+    }
+
+    fn check(s: Signup) -> Result<(), garde::Report> {
+        s.validate(&())
+    }
+  constraints: >
+    Context argument (&()) is for custom rules needing locale or limits. Combine with axum extractor
+    wrapping Json + validate for DRY APIs; align error shapes with your problem+json policy.
+  tags:
+  - garde
+  - validation
+  - derive
+
+- pattern_id: rust-axum-middleware-from-fn
+  language: rust
+  skill_family: api_endpoint
+  framework: axum
+  description: >
+    middleware::from_fn provides lightweight request/response interception for logging, headers,
+    or early returns without implementing full Tower Service boilerplate.
+  code_block: |
+    use axum::body::Body;
+    use axum::http::Request;
+    use axum::middleware::Next;
+    use axum::response::Response;
+    use std::time::Instant;
+
+    async fn log_requests(req: Request<Body>, next: Next) -> Response {
+        let start = Instant::now();
+        let method = req.method().clone();
+        let uri = req.uri().clone();
+        let res = next.run(req).await;
+        tracing::info!(?method, %uri, ms = ?start.elapsed(), "done");
+        res
+    }
+
+    // Router::new().layer(axum::middleware::from_fn(log_requests))
+  constraints: >
+    from_fn middleware runs in order of layer application (outer last = runs first on request).
+    For auth, prefer early Next abort with appropriate status; avoid large body buffering in middleware.
+  tags:
+  - axum
+  - middleware
+  - observability
+
+- pattern_id: rust-mpsc-graceful-shutdown
+  language: rust
+  skill_family: async_pattern
+  framework: tokio
+  description: >
+    tokio::sync::mpsc bounded channel with drop of sender to signal workers to drain and exit;
+    join! coordinator shutdown after producers complete.
+  code_block: |
+    use tokio::sync::mpsc;
+    use tokio::task::JoinHandle;
+
+    async fn run() {
+        let (tx, mut rx) = mpsc::channel::<i32>(16);
+        let worker: JoinHandle<()> = tokio::spawn(async move {
+            while let Some(n) = rx.recv().await {
+                let _ = n;
+            }
+        });
+        let _ = tx.send(1).await;
+        drop(tx);
+        let _ = worker.await;
+    }
+  constraints: >
+    Use bounded channels for backpressure; handle send failures when receivers dropped. For multiple
+    producers, clone senders or use a broadcast for fan-out shutdown signals.
+  tags:
+  - mpsc
+  - shutdown
+  - channels

@@ -28,6 +28,10 @@ export function formatSyntheticResponse(resolution: RecallResolution): string {
     if (f.recipe) {
       lines.push(`   Fix: ${f.recipe.template}`);
       if (f.recipe.description) lines.push(`   Detail: ${f.recipe.description}`);
+      if (f.recipe.steps?.length) {
+        lines.push(`   Steps: ${f.recipe.steps.join(" → ")}`);
+      }
+      if (f.recipe.constraints) lines.push(`   Constraints: ${f.recipe.constraints}`);
     }
     if (f.action) lines.push(`   Next step: ${f.action}`);
     lines.push("");

@@ -1028,6 +1028,42 @@ class AclPolicy(Base):
     __table_args__ = (Index("ix_acl_policies_org_id", "org_id"),)
 
 
+class PatternEntry(Base):
+    """Curated compositional code pattern for Layer 2 recall."""
+
+    __tablename__ = "pattern_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pattern_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    language: Mapped[str] = mapped_column(String(64), nullable=False)
+    framework: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    skill_family: Mapped[str] = mapped_column(String(64), nullable=False)
+    code_block: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    constraints: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    test_snippet: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    trust_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_validated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_pattern_entries_language", "language"),
+        Index("ix_pattern_entries_skill_family", "skill_family"),
+        Index("ix_pattern_entries_org_id", "org_id"),
+        Index("ix_pattern_entries_enabled", "enabled"),
+    )
+
+
 class ConformanceRollup(Base):
     """Periodic conformance snapshot from Yarn telemetry or trace aggregation."""
 

@@ -61,6 +61,58 @@ export const javaPack: LanguagePackManifest = {
       errorFamily: "null_dereference",
       template: "Add a null check before dereferencing: if (obj != null) {{ ... }}",
       description: "Possible NullPointerException",
+      steps: [
+        "Add null check",
+        "Use Optional",
+        "Use Objects.requireNonNull for parameters",
+      ],
+      constraints: "Prefer Optional over null checks.",
+    },
+    {
+      errorFamily: "override_error",
+      template:
+        "In {file}: match the superclass method signature exactly (including return type covariance) and add @Override.",
+      description: "Method does not correctly override superclass method.",
+      steps: [
+        "Check method signature matches exactly",
+        "Verify return type covariance",
+        "Add @Override annotation",
+      ],
+      constraints: "Always use @Override.",
+    },
+    {
+      errorFamily: "uninitialized_variable",
+      template:
+        "In {file}: initialize at declaration, ensure every path assigns before use, or use Optional for absent values.",
+      description: "Local variable may not have been assigned before use.",
+      steps: [
+        "Initialize variable at declaration",
+        "Check all code paths assign a value",
+        "Use Optional",
+      ],
+      constraints: "Prefer initialization at declaration.",
+    },
+    {
+      errorFamily: "access_error",
+      template: "Adjust visibility in {file}: widen modifier, use getters, or move code into the accessible scope.",
+      description: "Attempting to access member with insufficient visibility.",
+      steps: [
+        "Check access modifier",
+        "Make member package-private or public as needed",
+        "Use getter methods",
+      ],
+      constraints: "Use most restrictive access level possible.",
+    },
+    {
+      errorFamily: "deprecated",
+      template: "Replace the deprecated API per javadoc in {file}; plan migration before suppressing warnings.",
+      description: "Deprecated API is being used.",
+      steps: [
+        "Find replacement API in javadoc",
+        "Suppress warning temporarily if migration planned",
+        "Update to modern API",
+      ],
+      constraints: "Never suppress without a migration plan.",
     },
   ],
   corpusPackId: "lang-java",

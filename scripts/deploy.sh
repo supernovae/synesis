@@ -18,9 +18,13 @@ set -euo pipefail
 #   env:  SYNESIS_FORCE_LITELLM_HELM=true (api mode only)
 #         Always run `helm upgrade --install` for LiteLLM even when values files are unchanged.
 #         Default: skip Helm when the values fingerprint matches the last successful deploy.
+#   env:  SYNESIS_YARN_FULL_FEATURES=true
+#         Enable ALL gated Yarn feature flags (Phases 7–19) at once.
+#         Overrides per-flag defaults so every implemented capability is active for testing.
+#         Individual flags (e.g. SYNESIS_YARN_PATTERN_RECALL_ENABLED=false) still take precedence.
 #
-# Yarn (IDE path) and the MCP agent deploy with both api and model overlays
-# (namespaces synesis-yarn, synesis-planner/synesis-mcp). Images: ghcr.io/.../yarn, .../mcp.
+# Yarn (IDE path) and the MCP-TS agent deploy with both api and model overlays
+# (namespaces synesis-yarn). Images: ghcr.io/.../yarn, .../mcp-ts.
 #
 # Yarn → Admin DB (sessions, usage, PAT lookup):
 #   - Secret synesis-admin-db-url in synesis-yarn (keys admin-url, trace-url), same as admin/planner.
@@ -1068,6 +1072,100 @@ patch_yarn_debug_and_streams() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS" "${SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS:-30000}" "$container"
 }
 
+# Patch all Yarn feature flags (Phases 7–19).
+# Each flag defaults to the value in config.ts but can be overridden by the
+# corresponding shell env var when running deploy.sh.
+# Set SYNESIS_YARN_FULL_FEATURES=true to flip every gated feature ON at once.
+patch_yarn_feature_flags() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+    local container="yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    local full="${SYNESIS_YARN_FULL_FEATURES:-false}"
+
+    _flag() {
+        local name="$1" default_val="$2"
+        local val="${!name:-}"
+        if [[ -z "$val" ]]; then
+            if is_true "$full"; then val="true"; else val="$default_val"; fi
+        fi
+        _patch_deployment_env "$ns" "$deploy" "$name" "$val" "$container"
+    }
+
+    # ── Phase 6: MCP + Knowledge Search ──
+    _flag SYNESIS_YARN_MCP_TOOLS_ENABLED              "true"
+    _flag SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED        "false"
+
+    # ── Phase 7a: Recall Engine ──
+    _flag SYNESIS_YARN_RECALL_BYPASS_ENABLED           "false"
+
+    # ── Phase 7b: Verification Loop ──
+    _flag SYNESIS_YARN_VERIFICATION_PLAN_ENABLED       "false"
+
+    # ── Phase 8: Decision Matrix ──
+    _flag SYNESIS_YARN_DECISION_MATRIX_ENABLED         "false"
+
+    # ── Phase 10: Sensemaking ──
+    _flag SYNESIS_YARN_SENSEMAKING_ENABLED             "false"
+
+    # ── Phase 11: Reliability Hardening ──
+    _flag SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED  "false"
+
+    # ── Phase 12: Feature Activation ──
+    _flag SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED      "false"
+
+    # ── Phase 13: Evidence Pipeline ──
+    _flag SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED       "false"
+    _flag SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED "false"
+
+    # ── Phase 14: Governance ──
+    _flag SYNESIS_YARN_GOVERNANCE_ENABLED              "false"
+
+    # ── Phase 15: Conversation Memory ──
+    _flag SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED     "false"
+    _flag SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED "false"
+    _flag SYNESIS_YARN_SESSION_CONTINUITY_ENABLED      "true"
+
+    # ── Phase 16: Worker Pool ──
+    _flag SYNESIS_YARN_WORKER_POOL_ENABLED             "false"
+
+    # ── Phase 19: Pattern Recall ──
+    _flag SYNESIS_YARN_PATTERN_RECALL_ENABLED          "false"
+    _flag SYNESIS_YARN_PATTERN_USAGE_FEEDBACK_ENABLED  "false"
+
+    # ── Content Dispatch ──
+    _flag SYNESIS_YARN_CONTENT_DISPATCH_ENABLED        "true"
+
+    # ── Trust / Security ──
+    _flag SYNESIS_YARN_TRUST_PACKET_ENABLED            "true"
+    _flag SYNESIS_YARN_INJECTION_SCAN_ENABLED          "true"
+    _flag SYNESIS_YARN_SECURITY_INGEST_ENABLED         "true"
+}
+
+# Ensure MCP-TS has the internal service token and admin DB URL.
+patch_mcp_ts_envs() {
+    local ns="synesis-yarn"
+    local deploy="synesis-mcp-ts"
+    local container="mcp-ts"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_INTERNAL_SERVICE_TOKEN" "${INTERNAL_SERVICE_TOKEN:-}" "$container"
+
+    local admin_url
+    admin_url=$(oc get secret synesis-admin-db-url -n "$ns" -o jsonpath='{.data.admin-url}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    admin_url=$(printf '%s' "$admin_url" | sed 's|^postgresql+asyncpg://|postgresql://|')
+    if [[ -n "$admin_url" ]]; then
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_ADMIN_DB_URL" "$admin_url" "$container"
+    fi
+}
+
 # Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
 # Deployments reference this Secret via secretKeyRef — no more inline-env race.
 patch_admin_db_urls() {
@@ -1939,6 +2037,17 @@ log "Patching Yarn debug protocol and stream admission (post-apply)..."
 patch_yarn_debug_and_streams
 
 log ""
+log "Patching Yarn feature flags (Phases 7–19, post-apply)..."
+if is_true "${SYNESIS_YARN_FULL_FEATURES:-false}"; then
+    log "  SYNESIS_YARN_FULL_FEATURES=true — enabling ALL gated features"
+fi
+patch_yarn_feature_flags
+
+log ""
+log "Patching MCP-TS service envs (post-apply)..."
+patch_mcp_ts_envs
+
+log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
 reconcile_litellm_webui_secrets
 
@@ -2073,7 +2182,7 @@ wait_for_deployment synesis-rag preprocess-service
 wait_for_deployment synesis-rag spam-service
 wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
-wait_for_deployment synesis-planner synesis-mcp
+wait_for_deployment synesis-yarn synesis-mcp-ts
 wait_for_deployment synesis-yarn synesis-yarn
 wait_for_deployment synesis-authz openfga
 wait_for_deployment synesis-webui open-webui

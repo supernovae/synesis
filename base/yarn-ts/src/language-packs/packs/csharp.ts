@@ -54,6 +54,50 @@ export const csharpPack: LanguagePackManifest = {
       template: "Check the type definition — add the member or use an extension method.",
       description: "Type does not contain the accessed definition",
     },
+    {
+      errorFamily: "namespace_error",
+      template: "Add the correct using directive, verify NuGet package references, and confirm target framework in {file}.",
+      description: "Type does not exist in the specified namespace.",
+      steps: [
+        "Add correct using directive",
+        "Check NuGet package reference",
+        "Verify target framework",
+      ],
+      constraints: "Prefer global usings for common namespaces.",
+    },
+    {
+      errorFamily: "unused_variable",
+      template: "Remove the unused variable, prefix with _ if intentionally unused, or check for assignment side effects in {file}.",
+      description: "Variable declared but never used.",
+      steps: [
+        "Remove unused variable",
+        "Prefix with _ if intentionally unused",
+        "Check for assignment side effects",
+      ],
+      constraints: "Use discard pattern for intent.",
+    },
+    {
+      errorFamily: "unreachable_code",
+      template: "Remove dead code, restructure control flow, or verify early returns in {file}.",
+      description: "Code unreachable and will never execute.",
+      steps: [
+        "Remove dead code",
+        "Restructure control flow",
+        "Check for early returns",
+      ],
+      constraints: "Verify the early return is intentional.",
+    },
+    {
+      errorFamily: "override_mismatch",
+      template: "Match the base method signature exactly; choose new vs override correctly; verify virtual/abstract in {file}.",
+      description: "Method override signature incompatible with base.",
+      steps: [
+        "Match base method signature exactly",
+        "Check for new vs override",
+        "Verify virtual/abstract",
+      ],
+      constraints: "Prefer override over new.",
+    },
   ],
   corpusPackId: "lang-csharp",
 };

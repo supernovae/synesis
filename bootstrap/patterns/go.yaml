@@ -1,0 +1,1048 @@
+patterns:
+- pattern_id: go-error-wrapped-sentinel
+  language: go
+  skill_family: error_handling
+  framework: stdlib
+  description: >
+    Define package-level sentinel errors with errors.Is and wrap failures at boundaries
+    with fmt.Errorf and %w so callers can inspect cause chains without string matching.
+  code_block: |
+    package example
+
+    import (
+    	"errors"
+    	"fmt"
+    )
+
+    var ErrNotFound = errors.New("not found")
+
+    func LoadUser(id string) error {
+    	row, err := dbQuery(id)
+    	if err != nil {
+    		return fmt.Errorf("load user %q: %w", id, err)
+    	}
+    	if row == nil {
+    		return fmt.Errorf("user %q: %w", id, ErrNotFound)
+    	}
+    	return nil
+    }
+
+    func IsNotFound(err error) bool {
+    	return errors.Is(err, ErrNotFound)
+    }
+  constraints: >
+    Prefer sentinels for stable API contracts; wrap once per layer with context, not deep
+    nesting of the same message. Do not compare err == ErrX after a wrap—use errors.Is.
+  tags:
+  - errors
+  - sentinel
+  - wrapping
+  - fmt-errorf
+
+- pattern_id: go-error-custom-type-is-as
+  language: go
+  skill_family: error_handling
+  framework: stdlib
+  description: >
+    Implement error on a struct type and support errors.As for typed handling while keeping
+    Unwrap for compatibility with errors.Is on underlying causes.
+  code_block: |
+    package example
+
+    import (
+    	"errors"
+    	"fmt"
+    )
+
+    type ValidationError struct {
+    	Field string
+    	Msg   string
+    	cause error
+    }
+
+    func (e *ValidationError) Error() string {
+    	return fmt.Sprintf("validation: %s: %s", e.Field, e.Msg)
+    }
+
+    func (e *ValidationError) Unwrap() error { return e.cause }
+
+    func NewValidationError(field, msg string, cause error) *ValidationError {
+    	return &ValidationError{Field: field, Msg: msg, cause: cause}
+    }
+
+    func Handle(err error) {
+    	var ve *ValidationError
+    	if errors.As(err, &ve) {
+    		_ = ve.Field
+    	}
+    }
+  constraints: >
+    Use pointer receivers for Error(); document which fields are safe for callers after As.
+    Chain causes only when they add signal; avoid leaking internal types across module boundaries.
+  tags:
+  - errors
+  - errors-as
+  - custom-type
+
+- pattern_id: go-error-group-pattern
+  language: go
+  skill_family: error_handling
+  framework: golang.org/x/sync/errgroup
+  description: >
+    Run parallel tasks with errgroup.Group; the first failure cancels the shared context
+    and Wait returns a single wrapped error for aggregation or logging.
+  code_block: |
+    package example
+
+    import (
+    	"context"
+    	"fmt"
+
+    	"golang.org/x/sync/errgroup"
+    )
+
+    func FanOut(ctx context.Context, ids []string) error {
+    	g, ctx := errgroup.WithContext(ctx)
+    	for _, id := range ids {
+    		id := id
+    		g.Go(func() error {
+    			if err := work(ctx, id); err != nil {
+    				return fmt.Errorf("id %s: %w", id, err)
+    			}
+    			return nil
+    		})
+    	}
+    	if err := g.Wait(); err != nil {
+    		return fmt.Errorf("fanout: %w", err)
+    	}
+    	return nil
+    }
+
+    func work(ctx context.Context, id string) error { return nil }
+  constraints: >
+    Capture loop variables in local copies inside Go closures. Prefer errgroup over manual
+    WaitGroup when any failure should cancel peers; limit concurrency with a semaphore if needed.
+  tags:
+  - errgroup
+  - concurrency
+  - context
+
+- pattern_id: go-stdlib-http-handler-middleware
+  language: go
+  skill_family: api_endpoint
+  framework: stdlib
+  description: >
+    Compose net/http handlers with a small middleware type that wraps ResponseWriter for
+    status capture and chains before the application handler.
+  code_block: |
+    package example
+
+    import (
+    	"log/slog"
+    	"net/http"
+    	"time"
+    )
+
+    type Middleware func(http.Handler) http.Handler
+
+    func Chain(ms ...Middleware) Middleware {
+    	return func(h http.Handler) http.Handler {
+    		for i := len(ms) - 1; i >= 0; i-- {
+    			h = ms[i](h)
+    		}
+    		return h
+    	}
+    }
+
+    func Logging(next http.Handler) http.Handler {
+    	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    		start := time.Now()
+    		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+    		next.ServeHTTP(rw, r)
+    		slog.Info("request", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur", time.Since(start))
+    	})
+    }
+
+    type responseWriter struct {
+    	http.ResponseWriter
+    	status int
+    }
+
+    func (rw *responseWriter) WriteHeader(code int) {
+    	rw.status = code
+    	rw.ResponseWriter.WriteHeader(code)
+    }
+  constraints: >
+    Middleware order matters: logging/recovery outermost, auth before business logic. When
+    wrapping ResponseWriter, delegate Flush/Hijack if the outer type must support them.
+  tags:
+  - net-http
+  - middleware
+  - handler
+
+- pattern_id: go-gin-json-handler
+  language: go
+  skill_family: api_endpoint
+  framework: gin
+  description: >
+    Gin handler binding JSON body and path param, returning consistent JSON errors and
+    HTTP status codes with ShouldBindJSON for validation-friendly errors.
+  code_block: |
+    package example
+
+    import (
+    	"net/http"
+
+    	"github.com/gin-gonic/gin"
+    )
+
+    type createReq struct {
+    	Name string `json:"name" binding:"required"`
+    }
+
+    func CreateItem(c *gin.Context) {
+    	id := c.Param("id")
+    	var req createReq
+    	if err := c.ShouldBindJSON(&req); err != nil {
+    		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    		return
+    	}
+    	// ... persist
+    	c.JSON(http.StatusCreated, gin.H{"id": id, "name": req.Name})
+    }
+
+    func Mount(r *gin.Engine) {
+    	r.POST("/collections/:id/items", CreateItem)
+    }
+  constraints: >
+    Use binding tags for input validation; avoid logging raw bodies in production. Set gin mode
+    (release/debug) via environment; register recovery middleware for panics.
+  tags:
+  - gin
+  - rest
+  - json
+
+- pattern_id: go-chi-router-mount
+  language: go
+  skill_family: api_endpoint
+  framework: chi
+  description: >
+    go-chi/chi v5 sub-router with middleware per route group and MethodNotAllowed/NotFound
+    handlers for predictable API behavior.
+  code_block: |
+    package example
+
+    import (
+    	"net/http"
+
+    	"github.com/go-chi/chi/v5"
+    	"github.com/go-chi/chi/v5/middleware"
+    )
+
+    func NewRouter() http.Handler {
+    	r := chi.NewRouter()
+    	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
+
+    	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+    		w.WriteHeader(http.StatusOK)
+    		_, _ = w.Write([]byte("ok"))
+    	})
+
+    	r.Route("/api/v1", func(r chi.Router) {
+    		r.Get("/items/{itemID}", getItem)
+    	})
+
+    	return r
+    }
+
+    func getItem(w http.ResponseWriter, r *http.Request) {
+    	id := chi.URLParam(r, "itemID")
+    	_, _ = w.Write([]byte(id))
+    }
+  constraints: >
+    Mount versioned APIs under Route; keep middleware scoped to subtrees. Use chi.URLParam
+    inside handlers; prefer explicit 405/404 with chi's default handlers or custom wrappers.
+  tags:
+  - chi
+  - router
+  - middleware
+
+- pattern_id: go-table-driven-test
+  language: go
+  skill_family: test_scaffold
+  framework: stdlib
+  description: >
+    Table-driven subtests with t.Run names from a struct slice; isolates cases and keeps
+    expected outputs next to inputs for parsers and pure functions.
+  code_block: |
+    package example
+
+    import "testing"
+
+    func Add(a, b int) int { return a + b }
+
+    func TestAdd(t *testing.T) {
+    	tests := []struct {
+    		name string
+    		a, b int
+    		want int
+    	}{
+    		{"zero", 0, 0, 0},
+    		{"positive", 2, 3, 5},
+    		{"negative", -1, 1, 0},
+    	}
+    	for _, tt := range tests {
+    		t.Run(tt.name, func(t *testing.T) {
+    			if got := Add(tt.a, tt.b); got != tt.want {
+    				t.Fatalf("Add(%d,%d) = %d; want %d", tt.a, tt.b, got, tt.want)
+    			}
+    		})
+    	}
+    }
+  constraints: >
+    Use t.Run for each row so failures pinpoint the case; copy loop variable tt in Go < 1.22
+    or use tt := tt. Prefer Fatalf for invariant violations, Errorf for multi-assertion cases.
+  tags:
+  - testing
+  - table-driven
+  - subtests
+
+- pattern_id: go-testify-require-assert
+  language: go
+  skill_family: test_scaffold
+  framework: testify
+  description: >
+    Use require for flow-stopping checks and assert for accumulating failures in setup-heavy
+    tests; keeps messages readable with formatted helpers.
+  code_block: |
+    package example
+
+    import (
+    	"errors"
+    	"testing"
+
+    	"github.com/stretchr/testify/assert"
+    	"github.com/stretchr/testify/require"
+    )
+
+    func Parse(s string) (string, error) {
+    	if s == "" {
+    		return "", ErrEmpty
+    	}
+    	return s, nil
+    }
+
+    var ErrEmpty = errors.New("empty")
+
+    func TestParse(t *testing.T) {
+    	out, err := Parse("x")
+    	require.NoError(t, err)
+    	assert.Equal(t, "x", out)
+
+    	_, err = Parse("")
+    	require.Error(t, err)
+    	assert.ErrorIs(t, err, ErrEmpty)
+    }
+  constraints: >
+    require stops the test immediately—use for preconditions. assert continues; avoid mixing
+    confusingly in the same block for the same invariant. Keep testify version pinned in go.mod.
+  tags:
+  - testify
+  - assert
+  - require
+
+- pattern_id: go-httptest-handler
+  language: go
+  skill_family: test_scaffold
+  framework: stdlib
+  description: >
+    httptest.ResponseRecorder exercises http.Handler without a real port; set Method, URL,
+    and optional body via NewRequest for handler integration tests.
+  code_block: |
+    package example
+
+    import (
+    	"io"
+    	"net/http"
+    	"net/http/httptest"
+    	"strings"
+    	"testing"
+    )
+
+    func Echo(w http.ResponseWriter, r *http.Request) {
+    	w.Header().Set("Content-Type", "text/plain")
+    	_, _ = io.Copy(w, r.Body)
+    }
+
+    func TestEcho(t *testing.T) {
+    	body := strings.NewReader("hello")
+    	req := httptest.NewRequest(http.MethodPost, "/echo", body)
+    	rec := httptest.NewRecorder()
+
+    	Echo(rec, req)
+
+    	if rec.Code != http.StatusOK {
+    		t.Fatalf("status %d", rec.Code)
+    	}
+    	if got := rec.Body.String(); got != "hello" {
+    		t.Fatalf("body %q", got)
+    	}
+    }
+  constraints: >
+    Close request bodies when handlers expect it; for Server-level tests use httptest.NewServer
+    and real clients. Check rec.Result().Header for side effects on headers.
+  tags:
+  - httptest
+  - http
+  - integration
+
+- pattern_id: go-struct-json-tags
+  language: go
+  skill_family: data_structure
+  framework: stdlib
+  description: >
+    Struct tags for JSON field naming, omitempty, and time encoding; separate transport DTOs
+    from domain types when evolution differs from storage.
+  code_block: |
+    package example
+
+    import (
+    	"encoding/json"
+    	"time"
+    )
+
+    type Event struct {
+    	ID        string    `json:"id"`
+    	CreatedAt time.Time `json:"created_at"`
+    	Meta      string    `json:"meta,omitempty"`
+    	internal  int       `json:"-"`
+    }
+
+    func MarshalEvent(e Event) ([]byte, error) {
+    	return json.Marshal(e)
+    }
+  constraints: >
+    Unexported fields are ignored by encoding/json. Use pointers or omitempty carefully for
+    "false" and zero values; document API stability for renames—prefer additive JSON fields.
+  tags:
+  - json
+  - struct-tags
+  - dto
+
+- pattern_id: go-interface-small-consumer
+  language: go
+  skill_family: data_structure
+  framework: stdlib
+  description: >
+    Define narrow interfaces at the point of use (consumer-side) so implementations stay
+    decoupled and mocking in tests requires only the methods you call.
+  code_block: |
+    package example
+
+    import "context"
+
+    type UserReader interface {
+    	GetByID(ctx context.Context, id string) (string, error)
+    }
+
+    type Greeter struct {
+    	users UserReader
+    }
+
+    func (g *Greeter) Hello(ctx context.Context, userID string) (string, error) {
+    	name, err := g.users.GetByID(ctx, userID)
+    	if err != nil {
+    		return "", err
+    	}
+    	return "Hello, " + name, nil
+    }
+  constraints: >
+    Keep interfaces small (often 1–2 methods). Accept interfaces, return concrete types from
+    constructors unless abstraction is required. Document context cancellation expectations.
+  tags:
+  - interfaces
+  - dependency-inversion
+  - testing
+
+- pattern_id: go-functional-options
+  language: go
+  skill_family: data_structure
+  framework: stdlib
+  description: >
+    Functional options pattern for optional constructor configuration without exploding
+    parameter lists or breaking callers when new settings are added.
+  code_block: |
+    package example
+
+    import "time"
+
+    type Server struct {
+    	addr    string
+    	timeout time.Duration
+    }
+
+    type Option func(*Server)
+
+    func WithTimeout(d time.Duration) Option {
+    	return func(s *Server) { s.timeout = d }
+    }
+
+    func NewServer(addr string, opts ...Option) *Server {
+    	s := &Server{addr: addr, timeout: 30 * time.Second}
+    	for _, o := range opts {
+    		o(s)
+    	}
+    	return s
+    }
+  constraints: >
+    Apply options in order; document interaction if order matters. Avoid storing Option values
+    for later—callers expect immediate application. Consider validation after all options run.
+  tags:
+  - functional-options
+  - constructor
+  - api-design
+
+- pattern_id: go-envconfig-struct
+  language: go
+  skill_family: config_pattern
+  framework: caarlos0/env/v11
+  description: >
+    Map environment variables to a typed struct with defaults and required keys; fails fast
+    at process start with clear parse errors.
+  code_block: |
+    package example
+
+    import (
+    	"fmt"
+    	"time"
+
+    	"github.com/caarlos0/env/v11"
+    )
+
+    type Config struct {
+    	Port         int           `env:"PORT" envDefault:"8080"`
+    	DatabaseURL  string        `env:"DATABASE_URL,required"`
+    	ReadTimeout  time.Duration `env:"READ_TIMEOUT" envDefault:"10s"`
+    }
+
+    func LoadConfig() (Config, error) {
+    	var c Config
+    	if err := env.Parse(&c); err != nil {
+    		return Config{}, fmt.Errorf("env: %w", err)
+    	}
+    	return c, nil
+    }
+  constraints: >
+    Validate cross-field rules after Parse (e.g. TLS cert/key pairs). Document env vars in
+    README; avoid logging secrets. Keep required tags minimal to ease local dev with .env loaders.
+  tags:
+  - env
+  - configuration
+  - 12-factor
+
+- pattern_id: go-viper-config
+  language: go
+  skill_family: config_pattern
+  framework: viper
+  description: >
+    Viper merges defaults, config file, and environment overrides; suited for layered
+    deployment config with explicit key env prefix.
+  code_block: |
+    package example
+
+    import (
+    	"fmt"
+
+    	"github.com/spf13/viper"
+    )
+
+    func Load() error {
+    	v := viper.New()
+    	v.SetConfigName("app")
+    	v.SetConfigType("yaml")
+    	v.AddConfigPath(".")
+    	v.AddConfigPath("/etc/myapp/")
+    	v.SetEnvPrefix("MYAPP")
+    	v.AutomaticEnv()
+
+    	v.SetDefault("server.port", 8080)
+
+    	if err := v.ReadInConfig(); err != nil {
+    		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+    			return fmt.Errorf("read config: %w", err)
+    		}
+    	}
+    	_ = v.GetInt("server.port")
+    	return nil
+    }
+  constraints: >
+    Treat viper as runtime map-like access—unmarshal into structs for type safety at boundaries.
+    WatchConfig adds complexity; prefer explicit reload hooks when you need hot reload.
+  tags:
+  - viper
+  - yaml
+  - configuration
+
+- pattern_id: go-goroutine-channel-worker
+  language: go
+  skill_family: async_pattern
+  framework: stdlib
+  description: >
+    Fan-in from multiple goroutines over a channel with a fixed worker count; close jobs
+    when producers finish and range the channel on the consumer side.
+  code_block: |
+    package example
+
+    import "sync"
+
+    func ProcessJobs(jobs <-chan int, workers int, fn func(int)) {
+    	var wg sync.WaitGroup
+    	wg.Add(workers)
+    	for i := 0; i < workers; i++ {
+    		go func() {
+    			defer wg.Done()
+    			for j := range jobs {
+    				fn(j)
+    			}
+    		}()
+    	}
+    	wg.Wait()
+    }
+  constraints: >
+    Only the sender should close a channel. Avoid unbuffered channels for bursty producers
+    without backpressure design; document shutdown when fn must respect context cancellation.
+  tags:
+  - goroutine
+  - channel
+  - worker-pool
+
+- pattern_id: go-errgroup-parallel-io
+  language: go
+  skill_family: async_pattern
+  framework: golang.org/x/sync/errgroup
+  description: >
+    Parallel bounded IO with a semaphore channel inside errgroup tasks to cap concurrency
+    while still canceling siblings on first error.
+  code_block: |
+    package example
+
+    import (
+    	"context"
+    	"fmt"
+
+    	"golang.org/x/sync/errgroup"
+    )
+
+    func FetchAll(ctx context.Context, urls []string, limit int) error {
+    	sem := make(chan struct{}, limit)
+    	g, ctx := errgroup.WithContext(ctx)
+    	for _, u := range urls {
+    		u := u
+    		g.Go(func() error {
+    			sem <- struct{}{}
+    			defer func() { <-sem }()
+    			return fetch(ctx, u)
+    		})
+    	}
+    	return g.Wait()
+    }
+
+    func fetch(ctx context.Context, url string) error {
+    	_ = ctx
+    	_ = url
+    	return fmt.Errorf("stub")
+    }
+  constraints: >
+    Semaphore acquire/release must pair on all paths—use defer after successful acquire.
+    Combine with context timeouts per request when external services are involved.
+  tags:
+  - errgroup
+  - semaphore
+  - concurrency
+
+- pattern_id: go-context-cancel-http
+  language: go
+  skill_family: async_pattern
+  framework: stdlib
+  description: >
+    Derive a cancellable context from http.Request.Context for downstream calls; cancel early
+    on client disconnect to release resources in goroutines you spawn.
+  code_block: |
+    package example
+
+    import (
+    	"context"
+    	"net/http"
+    	"time"
+    )
+
+    func Handler(w http.ResponseWriter, r *http.Request) {
+    	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    	defer cancel()
+
+    	if err := doWork(ctx); err != nil {
+    		if ctx.Err() != nil {
+    			http.Error(w, "deadline", http.StatusGatewayTimeout)
+    			return
+    		}
+    		http.Error(w, err.Error(), http.StatusInternalServerError)
+    		return
+    	}
+    	w.WriteHeader(http.StatusOK)
+    }
+
+    func doWork(ctx context.Context) error {
+    	select {
+    	case <-time.After(10 * time.Millisecond):
+    		return nil
+    	case <-ctx.Done():
+    		return ctx.Err()
+    	}
+    }
+  constraints: >
+    Always call cancel for WithTimeout/WithCancel to free timer resources. Propagate ctx to
+    net/http Client.Do, database calls, and gRPC—do not use context.Background in request path.
+  tags:
+  - context
+  - cancellation
+  - http
+
+- pattern_id: go-jwt-middleware-net-http
+  language: go
+  skill_family: auth_pattern
+  framework: golang-jwt/jwt/v5
+  description: >
+    net/http middleware validates Bearer JWT with a parsed claims type and attaches principal
+    to request context for inner handlers.
+  code_block: |
+    package example
+
+    import (
+    	"context"
+    	"errors"
+    	"net/http"
+    	"strings"
+
+    	"github.com/golang-jwt/jwt/v5"
+    )
+
+    type Middleware func(http.Handler) http.Handler
+
+    type ctxKey int
+
+    const claimsKey ctxKey = 1
+
+    type Claims struct {
+    	Sub string `json:"sub"`
+    	jwt.RegisteredClaims
+    }
+
+    func JWTAuth(secret []byte) Middleware {
+    	return func(next http.Handler) http.Handler {
+    		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    			raw := r.Header.Get("Authorization")
+    			tokenStr, ok := strings.CutPrefix(raw, "Bearer ")
+    			if !ok || tokenStr == "" {
+    				http.Error(w, "unauthorized", http.StatusUnauthorized)
+    				return
+    			}
+    			var claims Claims
+    			token, err := jwt.ParseWithClaims(tokenStr, &claims, func(t *jwt.Token) (any, error) {
+    				if t.Method != jwt.SigningMethodHS256 {
+    					return nil, errors.New("alg")
+    				}
+    				return secret, nil
+    			})
+    			if err != nil || !token.Valid {
+    				http.Error(w, "unauthorized", http.StatusUnauthorized)
+    				return
+    			}
+    			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, &claims)))
+    		})
+    	}
+    }
+  constraints: >
+    Prefer asymmetric keys (RSA/ECDSA) in production over shared HS256 secrets. Validate iss/aud
+    and use short-lived access tokens; never log raw JWTs. Use typed context keys (private type).
+  tags:
+  - jwt
+  - middleware
+  - auth
+
+- pattern_id: go-api-key-middleware
+  language: go
+  skill_family: auth_pattern
+  framework: stdlib
+  description: >
+    Constant-time comparison of API keys from a header against configured secrets to reduce
+    timing leaks; reject missing or malformed credentials before handler work.
+  code_block: |
+    package example
+
+    import (
+    	"crypto/subtle"
+    	"net/http"
+    )
+
+    type Middleware func(http.Handler) http.Handler
+
+    func APIKeyAuth(expected string) Middleware {
+    	return func(next http.Handler) http.Handler {
+    		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    			got := r.Header.Get("X-API-Key")
+    			if len(got) != len(expected) || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
+    				http.Error(w, "forbidden", http.StatusForbidden)
+    				return
+    			}
+    			next.ServeHTTP(w, r)
+    		})
+    	}
+    }
+  constraints: >
+    ConstantTimeCompare requires equal-length slices—hash or pad carefully if lengths differ.
+    Rotate keys via config reload or secrets manager; rate-limit failed attempts at the edge.
+  tags:
+  - api-key
+  - middleware
+  - crypto
+
+- pattern_id: go-slog-structured-handler
+  language: go
+  skill_family: logging_pattern
+  framework: log/slog
+  description: >
+    slog JSON handler with default attrs for service name and environment; log at call site
+    with key-value pairs for queryable structured logs.
+  code_block: |
+    package example
+
+    import (
+    	"log/slog"
+    	"os"
+    )
+
+    func InitLogger(service, env string) {
+    	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+    	logger := slog.New(h).With("service", service, "env", env)
+    	slog.SetDefault(logger)
+    }
+
+    func Example() {
+    	slog.Info("job finished", "job_id", "abc", "duration_ms", 42)
+    }
+  constraints: >
+    Avoid logging PII or secrets; use sampling for very hot paths. Set level from config;
+    prefer WithGroup for nested domains in large apps. Pass logger via context when threading.
+  tags:
+  - slog
+  - structured-logging
+  - observability
+
+- pattern_id: go-zerolog-request-hook
+  language: go
+  skill_family: logging_pattern
+  framework: zerolog
+  description: >
+    zerolog with timestamp and caller hooks; attach request-scoped fields in HTTP middleware
+    for trace correlation without global mutable state.
+  code_block: |
+    package example
+
+    import (
+    	"net/http"
+    	"os"
+    	"time"
+
+    	"github.com/rs/zerolog"
+    )
+
+    func NewLogger() zerolog.Logger {
+    	zl := zerolog.New(os.Stdout).With().
+    		Timestamp().
+    		Str("service", "api").
+    		Logger()
+    	return zl
+    }
+
+    func RequestLogger(l zerolog.Logger) func(http.Handler) http.Handler {
+    	return func(next http.Handler) http.Handler {
+    		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    			reqLog := l.With().
+    				Str("method", r.Method).
+    				Str("path", r.URL.Path).
+    				Logger()
+    			ctx := reqLog.WithContext(r.Context())
+    			next.ServeHTTP(w, r.WithContext(ctx))
+    		})
+    	}
+    }
+
+    // In handlers: zerolog.Ctx(r.Context()).Info().Msg("handled")
+
+    func init() {
+    	zerolog.TimeFieldFormat = time.RFC3339Nano
+    }
+  constraints: >
+    zerolog is zero-alloc oriented—keep log volume reasonable. Use hlog.RequestIDHandler with
+    middleware.RequestID from chi or custom ID. Buffer sync carefully on process exit in batch jobs.
+  tags:
+  - zerolog
+  - http
+  - logging
+
+- pattern_id: go-validator-struct-tags
+  language: go
+  skill_family: validation_pattern
+  framework: go-playground/validator/v10
+  description: >
+    Struct tag validation with validator/v10 and translation-friendly error aggregation for
+    HTTP APIs and config loading boundaries.
+  code_block: |
+    package example
+
+    import (
+    	"fmt"
+
+    	"github.com/go-playground/validator/v10"
+    )
+
+    type CreateUser struct {
+    	Email string `validate:"required,email"`
+    	Age   int    `validate:"gte=0,lte=130"`
+    }
+
+    var validate = validator.New()
+
+    func ValidateCreateUser(u CreateUser) error {
+    	if err := validate.Struct(u); err != nil {
+    		if ve, ok := err.(validator.ValidationErrors); ok {
+    			return fmt.Errorf("validation: %w", ve)
+    		}
+    		return err
+    	}
+    	return nil
+    }
+  constraints: >
+    Register custom validations on a single program-wide Validate instance or inject it.
+    Do not expose raw validator errors to clients without mapping to stable API error codes.
+  tags:
+  - validation
+  - struct-tags
+  - api
+
+- pattern_id: go-custom-validate-method
+  language: go
+  skill_family: validation_pattern
+  framework: stdlib
+  description: >
+    Implement a Validate method on a type for cross-field rules and invariants that tags
+    cannot express; return joined errors for multiple violations.
+  code_block: |
+    package example
+
+    import (
+    	"errors"
+    	"fmt"
+    	"strings"
+    	"time"
+    )
+
+    type Booking struct {
+    	Start time.Time
+    	End   time.Time
+    }
+
+    func (b Booking) Validate() error {
+    	var errs []string
+    	if b.End.Before(b.Start) {
+    		errs = append(errs, "end before start")
+    	}
+    	if b.Start.IsZero() {
+    		errs = append(errs, "start required")
+    	}
+    	if len(errs) > 0 {
+    		return fmt.Errorf("%w: %s", ErrInvalidBooking, strings.Join(errs, "; "))
+    	}
+    	return nil
+    }
+
+    var ErrInvalidBooking = errors.New("invalid booking")
+  constraints: >
+    Keep Validate free of IO; call from constructors or HTTP layer after decoding. Consider
+    errors.Join (Go 1.20+) for multiple errors instead of string joining when callers need As.
+  tags:
+  - validation
+  - domain
+  - invariants
+
+- pattern_id: go-middleware-panic-recovery
+  language: go
+  skill_family: api_endpoint
+  framework: stdlib
+  description: >
+    Recover panics in net/http middleware, log stack or request context, and return 500 without
+    crashing the process—pairs with structured logging in production servers.
+  code_block: |
+    package example
+
+    import (
+    	"log/slog"
+    	"net/http"
+    	"runtime/debug"
+    )
+
+    func RecoverPanic(next http.Handler) http.Handler {
+    	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    		defer func() {
+    			if rec := recover(); rec != nil {
+    				slog.Error("panic", "recover", rec, "stack", string(debug.Stack()))
+    				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+    			}
+    		}()
+    		next.ServeHTTP(w, r)
+    	})
+    }
+  constraints: >
+    Never swallow panics silently; log once with correlation IDs. After writing a response in
+    recover, avoid double writes—use a wrapper that tracks written status if handlers might panic late.
+  tags:
+  - panic
+  - recovery
+  - middleware
+
+- pattern_id: go-select-multiplex-shutdown
+  language: go
+  skill_family: async_pattern
+  framework: stdlib
+  description: >
+    select multiplexes channel receives and context cancellation for graceful shutdown of
+    background workers alongside periodic tickers or signal handling.
+  code_block: |
+    package example
+
+    import (
+    	"context"
+    	"time"
+    )
+
+    func Run(ctx context.Context, tick time.Duration, work func(context.Context) error) error {
+    	t := time.NewTicker(tick)
+    	defer t.Stop()
+    	for {
+    		select {
+    		case <-ctx.Done():
+    			return ctx.Err()
+    		case <-t.C:
+    			if err := work(ctx); err != nil {
+    				return err
+    			}
+    		}
+    	}
+    }
+  constraints: >
+    Always Stop tickers to avoid leaks. For signal.Notify, combine with context cancel in main.
+    Prefer a single shutdown path to avoid races between Done and final work flush.
+  tags:
+  - select
+  - context
+  - shutdown

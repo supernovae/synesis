@@ -57,6 +57,39 @@ export const sqlPack: LanguagePackManifest = {
       template: "Grant necessary permissions: GRANT SELECT ON {table} TO {role};",
       description: "Insufficient permissions to access resource",
     },
+    {
+      errorFamily: "type_mismatch",
+      template: "Align column types in {file}: verify definitions, add explicit CAST, and match join key types.",
+      description: "Column type doesn't match expected type in operation.",
+      steps: [
+        "Check column types",
+        "Add explicit CAST",
+        "Verify join conditions match types",
+      ],
+      constraints: "Prefer CAST over implicit conversion.",
+    },
+    {
+      errorFamily: "constraint_violation",
+      template: "Inspect the constraint definition, validate data before insert/update, and consider ON CONFLICT handling.",
+      description: "Insert/update violates check/unique/FK constraint.",
+      steps: [
+        "Check constraint definition",
+        "Validate data before insert",
+        "Handle conflict with ON CONFLICT",
+      ],
+      constraints: "Use UPSERT patterns.",
+    },
+    {
+      errorFamily: "deadlock",
+      template: "Use consistent lock ordering, narrow transaction scope, and add retry logic for concurrent access.",
+      description: "Concurrent transactions deadlocked.",
+      steps: [
+        "Ensure consistent lock ordering",
+        "Reduce transaction scope",
+        "Add retry logic",
+      ],
+      constraints: "Use advisory locks for complex coordination.",
+    },
   ],
   corpusPackId: "lang-sql",
 };

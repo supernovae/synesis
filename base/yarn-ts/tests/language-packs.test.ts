@@ -400,16 +400,16 @@ describe("Conformance matrix snapshot", () => {
     }));
 
     expect(summary).toEqual([
-      { language: "typescript", familyCount: 3, classifierCount: 3, reducerCount: 4, fastPathPatternCount: 2, fixRecipeCount: 5 },
-      { language: "python", familyCount: 4, classifierCount: 4, reducerCount: 6, fastPathPatternCount: 2, fixRecipeCount: 5 },
-      { language: "go", familyCount: 2, classifierCount: 2, reducerCount: 1, fastPathPatternCount: 2, fixRecipeCount: 5 },
-      { language: "rust", familyCount: 1, classifierCount: 1, reducerCount: 2, fastPathPatternCount: 2, fixRecipeCount: 5 },
-      { language: "terraform", familyCount: 2, classifierCount: 2, reducerCount: 1, fastPathPatternCount: 1, fixRecipeCount: 5 },
-      { language: "java", familyCount: 1, classifierCount: 1, reducerCount: 2, fastPathPatternCount: 2, fixRecipeCount: 5 },
-      { language: "csharp", familyCount: 1, classifierCount: 1, reducerCount: 1, fastPathPatternCount: 1, fixRecipeCount: 5 },
-      { language: "sql", familyCount: 1, classifierCount: 1, reducerCount: 1, fastPathPatternCount: 2, fixRecipeCount: 4 },
-      { language: "bash", familyCount: 1, classifierCount: 1, reducerCount: 1, fastPathPatternCount: 2, fixRecipeCount: 3 },
-      { language: "yaml-k8s", familyCount: 1, classifierCount: 1, reducerCount: 4, fastPathPatternCount: 2, fixRecipeCount: 3 },
+      { language: "typescript", familyCount: 3, classifierCount: 3, reducerCount: 4, fastPathPatternCount: 2, fixRecipeCount: 12 },
+      { language: "python", familyCount: 4, classifierCount: 4, reducerCount: 6, fastPathPatternCount: 2, fixRecipeCount: 12 },
+      { language: "go", familyCount: 2, classifierCount: 2, reducerCount: 1, fastPathPatternCount: 2, fixRecipeCount: 9 },
+      { language: "rust", familyCount: 1, classifierCount: 1, reducerCount: 2, fastPathPatternCount: 2, fixRecipeCount: 9 },
+      { language: "terraform", familyCount: 2, classifierCount: 2, reducerCount: 1, fastPathPatternCount: 1, fixRecipeCount: 10 },
+      { language: "java", familyCount: 1, classifierCount: 1, reducerCount: 2, fastPathPatternCount: 2, fixRecipeCount: 9 },
+      { language: "csharp", familyCount: 1, classifierCount: 1, reducerCount: 1, fastPathPatternCount: 1, fixRecipeCount: 9 },
+      { language: "sql", familyCount: 1, classifierCount: 1, reducerCount: 1, fastPathPatternCount: 2, fixRecipeCount: 7 },
+      { language: "bash", familyCount: 1, classifierCount: 1, reducerCount: 1, fastPathPatternCount: 2, fixRecipeCount: 8 },
+      { language: "yaml-k8s", familyCount: 1, classifierCount: 1, reducerCount: 4, fastPathPatternCount: 2, fixRecipeCount: 7 },
     ]);
   });
 

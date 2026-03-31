@@ -94,6 +94,7 @@ KNOWN_ROLES = (
     "coder-horizon",
     "coder-compaction",
     "summarizer",
+    "indexer-enrich",
 )
 
 ROLE_DESCRIPTIONS = {
@@ -108,6 +109,7 @@ ROLE_DESCRIPTIONS = {
     "coder-horizon": "Deep reasoning coder tier — architecture decisions, complex debugging (maps to Claude Opus class)",
     "coder-compaction": "Context compaction — small fast model for sawtooth trajectory summarization in Yarn coder sessions",
     "summarizer": "Pivot history summarization — router evidence compression",
+    "indexer-enrich": "Indexer chunk enrichment — small model for structured metadata extraction during corpus ingestion",
 }
 
 ROLE_SERVED_NAMES = {

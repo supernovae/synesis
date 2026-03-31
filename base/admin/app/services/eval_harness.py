@@ -48,7 +48,12 @@ class CaseResult:
     tokens: int = 0
     actual_decision_path: str | None = None
     actual_recall_routing: str | None = None
+    actual_languages: list[str] | None = None
+    decision_path_match: bool | None = None
+    recall_routing_match: bool | None = None
+    language_match: bool | None = None
     failures: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -82,7 +87,12 @@ class EvalResult:
                     "tokens": c.tokens,
                     "actual_decision_path": c.actual_decision_path,
                     "actual_recall_routing": c.actual_recall_routing,
+                    "actual_languages": c.actual_languages,
+                    "decision_path_match": c.decision_path_match,
+                    "recall_routing_match": c.recall_routing_match,
+                    "language_match": c.language_match,
                     "failures": c.failures,
+                    "warnings": c.warnings,
                     "error": c.error,
                 }
                 for c in self.cases
@@ -172,6 +182,41 @@ BUILTIN_SUITES: dict[str, EvalSuite] = {
                 prompt="What HTTP status code should I return for a rate-limited request?",
                 category="knowledge_recall",
                 expected_decision_path="deterministic",
+            ),
+        ],
+    ),
+    "pattern_recall": EvalSuite(
+        name="pattern_recall",
+        description="Prompts expected to trigger compositional pattern recall from the pattern library",
+        cases=[
+            EvalCase(
+                prompt="Write a Go HTTP handler with middleware for request logging",
+                category="pattern_recall",
+                expected_languages=["go"],
+            ),
+            EvalCase(
+                prompt="Create a Python FastAPI endpoint with Pydantic validation for a user registration",
+                category="pattern_recall",
+                expected_languages=["python"],
+            ),
+            EvalCase(
+                prompt="Build a TypeScript Express route with Zod input validation",
+                category="pattern_recall",
+                expected_languages=["typescript"],
+            ),
+            EvalCase(
+                prompt="Scaffold a Rust axum handler with JWT extraction",
+                category="pattern_recall",
+                expected_languages=["rust"],
+            ),
+            EvalCase(
+                prompt="Fix this TypeScript type error: TS2345 type mismatch",
+                category="error_not_pattern",
+                expected_languages=["typescript"],
+            ),
+            EvalCase(
+                prompt="Explain Kubernetes pod networking and service discovery",
+                category="knowledge_not_pattern",
             ),
         ],
     ),
@@ -294,19 +339,34 @@ async def _run_single_case(
             error=str(exc)[:200],
         )
 
-    failures = _check_expectations(case, latency, tokens, data)
+    expectations = _check_expectations(case, latency, tokens, data)
 
     return CaseResult(
         case_index=index,
         prompt_snippet=snippet,
         category=case.category,
-        passed=len(failures) == 0,
+        passed=len(expectations.failures) == 0,
         latency_ms=latency,
         tokens=tokens,
         actual_decision_path=data.get("_decision_path"),
         actual_recall_routing=data.get("_recall_routing"),
-        failures=failures,
+        actual_languages=expectations.actual_languages,
+        decision_path_match=expectations.decision_path_match,
+        recall_routing_match=expectations.recall_routing_match,
+        language_match=expectations.language_match,
+        failures=expectations.failures,
+        warnings=expectations.warnings,
     )
+
+
+@dataclass
+class _ExpectationResult:
+    failures: list[str]
+    warnings: list[str]
+    decision_path_match: bool | None
+    recall_routing_match: bool | None
+    language_match: bool | None
+    actual_languages: list[str] | None
 
 
 def _check_expectations(
@@ -314,9 +374,18 @@ def _check_expectations(
     latency_ms: float,
     tokens: int,
     response_data: dict,
-) -> list[str]:
-    """Compare actual results against case expectations. Returns list of failure reasons."""
+) -> _ExpectationResult:
+    """Compare actual results against case expectations.
+
+    Hard assertions (failures): latency, tokens, response presence.
+    Soft assertions (warnings): decision path, recall routing, languages.
+    """
     failures: list[str] = []
+    warnings: list[str] = []
+    dp_match: bool | None = None
+    rr_match: bool | None = None
+    lang_match: bool | None = None
+    actual_langs: list[str] | None = None
 
     if case.max_latency_ms is not None and latency_ms > case.max_latency_ms:
         failures.append(f"latency {latency_ms:.0f}ms exceeds max {case.max_latency_ms}ms")
@@ -324,12 +393,37 @@ def _check_expectations(
     if case.max_tokens is not None and tokens > case.max_tokens:
         failures.append(f"tokens {tokens} exceeds max {case.max_tokens}")
 
-    usage = response_data.get("usage", {})
-    if usage.get("total_tokens", 0) == 0 and tokens == 0:
-        pass  # can't check token budget without data
-
     choices = response_data.get("choices", [])
     if not choices:
         failures.append("no response choices returned")
 
-    return failures
+    actual_dp = response_data.get("_decision_path")
+    if case.expected_decision_path is not None and actual_dp is not None:
+        dp_match = actual_dp == case.expected_decision_path
+        if not dp_match:
+            warnings.append(f"decision_path mismatch: expected={case.expected_decision_path}, actual={actual_dp}")
+
+    actual_rr = response_data.get("_recall_routing")
+    if case.expected_recall_routing is not None and actual_rr is not None:
+        rr_match = actual_rr == case.expected_recall_routing
+        if not rr_match:
+            warnings.append(f"recall_routing mismatch: expected={case.expected_recall_routing}, actual={actual_rr}")
+
+    detected = response_data.get("_detected_languages")
+    if isinstance(detected, list):
+        actual_langs = detected
+    if case.expected_languages is not None and actual_langs is not None:
+        expected_set = set(l.lower() for l in case.expected_languages)
+        actual_set = set(l.lower() for l in actual_langs)
+        lang_match = bool(expected_set & actual_set)
+        if not lang_match:
+            warnings.append(f"language mismatch: expected={case.expected_languages}, actual={actual_langs}")
+
+    return _ExpectationResult(
+        failures=failures,
+        warnings=warnings,
+        decision_path_match=dp_match,
+        recall_routing_match=rr_match,
+        language_match=lang_match,
+        actual_languages=actual_langs,
+    )

@@ -82,7 +82,7 @@ export class ToolResultReductionService {
     lifecycle: {}
   };
   private readonly registry: ReducerRegistry;
-  private readonly contentDispatch = new ContentDispatchService();
+  private readonly contentDispatch: ContentDispatchService | null;
   private readonly recallStats: RecallStats = createEmptyRecallStats();
   private readonly recallConfig: RecallRoutingConfig;
   private _lastRecallDecision: RecallDecision | null = null;
@@ -99,6 +99,9 @@ export class ToolResultReductionService {
         .map((s) => s.trim())
         .filter(Boolean)
     );
+    this.contentDispatch = config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED
+      ? new ContentDispatchService()
+      : null;
     this.registry = new ReducerRegistry({
       enabled: config.SYNESIS_YARN_REDUCERS_ENABLED,
       disabledFamilies,
@@ -117,8 +120,8 @@ export class ToolResultReductionService {
       if (m.role !== "tool") return m;
       const raw = toStringContent(m.content);
 
-      const dispatched = this.contentDispatch.dispatch(raw);
-      if (dispatched.transformed) {
+      const dispatched = this.contentDispatch?.dispatch(raw);
+      if (dispatched?.transformed) {
         this.stats.contentDispatchCount += 1;
         this.stats.rawCharsTotal += raw.length;
         this.stats.reducedCharsTotal += dispatched.transformed.length;
@@ -245,7 +248,9 @@ export class ToolResultReductionService {
         const raw = toStringContent(messages[i].content);
         toolIndices.push(i);
         rawStrings.push(raw);
-        dispatchPromises.push(pool.dispatchContentAsync(raw));
+        dispatchPromises.push(
+          this.contentDispatch ? pool.dispatchContentAsync(raw) : Promise.resolve({ contentType: "unknown", transformed: null }),
+        );
       }
     }
 
@@ -475,7 +480,8 @@ export class ToolResultReductionService {
 
   getStats(): ToolResultReductionStats & { contentDispatch: ReturnType<ContentDispatchService["getStats"]>; recall: RecallStats } {
     this.stats.lifecycle = this.registry.lifecycleStates();
-    return { ...this.stats, contentDispatch: this.contentDispatch.getStats(), recall: this.recallStats };
+    const dispatchStats = this.contentDispatch?.getStats() ?? { dispatched: 0, byType: { "json-array": 0, "json-object": 0, "log-stream": 0, text: 0 } };
+    return { ...this.stats, contentDispatch: dispatchStats, recall: this.recallStats };
   }
 
   getRecallStats(): RecallStats {

@@ -140,6 +140,24 @@
 - **Testing Labs Execution Engine**: `testing_labs_engine` service with `execute_run()` (extracts prompts from historical traces, replays against Yarn, writes `TestingLabsResult` rows); `detect_regressions()` performs rule-based regression detection (verdict degradation, latency >2x, token >2x, decision path degradation); `RegressionReport` dataclass; new `POST /runs/{run_id}/execute` and `GET /runs/{run_id}/regressions` endpoints wired into existing Testing Labs router
 - 27 new tests covering trace analytics, conformance model/service, eval harness suites and expectations, testing labs engine and regression detection, all API endpoints, and migration verification
 
+### Phase 19: Compositional Pattern Library, Layer 2 Completion, and Enrichment Model Config — COMPLETE
+
+- **Indexer + Content Dispatch fixes**: added `pattern`, `conceptual`, `troubleshooting` to indexer `content_profile` allowlist; wired `SYNESIS_YARN_CONTENT_DISPATCH_ENABLED` as a real kill-switch (null-guards `ContentDispatchService` when disabled)
+- **Pattern Admin Model**: `PatternEntry` DB model with migration `043_pattern_entries`; full CRUD at `/api/v1/patterns` with bulk-import, stats, sync-to-ingestion, bootstrap loader, and usage feedback endpoints; content-hash-based incremental sync to `IngestionItem` with `corpus_class=coder_enriched`, `content_profile=pattern`
+- **Bootstrap Pattern Seeding**: 230 curated patterns across 10 languages (TypeScript, Python, Go, Rust, Java, C#, SQL, Bash, Terraform, YAML/K8s) covering error_handling, api_endpoint, test_scaffold, data_structure, config_pattern, async_pattern, auth_pattern, logging_pattern, validation_pattern, and more
+- **Composition Intent Detection**: heuristic detector in `composition-detector.ts` identifies code generation tasks via verb patterns, language inference, and skill family mapping; phase-aware gating; integrated into evidence prefetch pipeline with `SYNESIS_YARN_PATTERN_RECALL_ENABLED` kill-switch
+- **Pattern Prefetch**: `runPatternPrefetch()` in `fast-path.ts` queries MCP with `content_profile: "pattern"` filter, formats results as `<synesis_pattern_recall>` blocks injected into system prompt alongside existing evidence blocks
+- **Trust/Freshness Scoring**: EMA trust score updated via `POST /api/v1/patterns/{id}/usage` (pass/fail outcomes); `constraint_confidence` propagated during ingestion sync; fire-and-forget Yarn feedback behind `SYNESIS_YARN_PATTERN_USAGE_FEEDBACK_ENABLED`
+- **Fix Recipe Expansion**: expanded from 45 to 92 recipes across all 10 language packs, covering the highest-impact error families from `ROOT_CAUSE_TABLES` (e.g., TypeScript 5→12, Python 5→12, Go 5→9, Rust 5→9, Terraform 5→10, Java 5→9, C# 5→9, SQL 4→7, Bash 3→8, YAML/K8s 3→7)
+- **Admin-Configurable Enrichment Model**: added `indexer-enrich` to `KNOWN_ROLES` in provider catalog; `SYNESIS_INDEXER_ENRICHMENT_MODEL` and `SYNESIS_INDEXER_ENRICHMENT_TIMEOUT` env vars replace hardcoded `synesis-general`; documented Groq/vLLM/OpenAI configuration with cost estimates in `docs/INDEXERS.md`
+- **Eval Harness Decision Path Assertions**: extended `_check_expectations` with soft assertions for `expected_decision_path`, `expected_recall_routing`, and `expected_languages` (warnings, not failures); new `pattern_recall` built-in suite with 6 cases; `CaseResult` extended with `decision_path_match`, `recall_routing_match`, `language_match`, `actual_languages`, and `warnings` fields
+- 20 admin tests, 15 Yarn composition detector tests, 45 language pack tests all passing; TypeScript clean build
+
 ## Upcoming
 
-### Phase 19: (Planning next)
+### Phase 20: TBD
+
+- Scalability residuals (Redis scaling, PgBouncer, Postgres scaling) — user-driven separate phase
+- Yarn normalizer Tier C (small-LLM fallback) — same admin pattern when needed
+- Model A/B testing
+- `maxEffectiveTools` schema pruning

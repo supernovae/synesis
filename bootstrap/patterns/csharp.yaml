@@ -1,0 +1,791 @@
+patterns:
+  - pattern_id: csharp-custom-domain-exception
+    language: csharp
+    skill_family: error_handling
+    description: >
+      Typed domain exception carrying a stable error code for API mapping and structured logging without parsing messages.
+    code_block: |
+      public sealed class DomainException : Exception
+      {
+          public string Code { get; }
+
+          public DomainException(string code, string message, Exception? inner = null)
+              : base(message, inner)
+          {
+              Code = code;
+          }
+      }
+
+      public sealed class NotFoundException : DomainException
+      {
+          public NotFoundException(string entity, object id)
+              : base("NOT_FOUND", $"{entity} not found: {id}") { }
+      }
+    constraints: >
+      Map Code to HTTP status in middleware or ProblemDetails factory. Avoid using exception messages as contract for clients.
+    tags:
+      - exceptions
+      - domain
+      - errors
+
+  - pattern_id: csharp-global-exception-middleware
+    language: csharp
+    skill_family: error_handling
+    framework: aspnet
+    description: >
+      ASP.NET Core middleware catching unhandled exceptions and returning RFC 7807 ProblemDetails with trace id in development.
+    code_block: |
+      public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> log)
+      {
+          public async Task Invoke(HttpContext ctx)
+          {
+              try
+              {
+                  await next(ctx);
+              }
+              catch (DomainException ex)
+              {
+                  log.LogWarning(ex, "Domain error {Code}", ex.Code);
+                  await WriteProblem(ctx, StatusCodes.Status404NotFound, ex.Code, ex.Message);
+              }
+              catch (Exception ex)
+              {
+                  log.LogError(ex, "Unhandled");
+                  var detail = ctx.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment()
+                      ? ex.ToString()
+                      : "An error occurred.";
+                  await WriteProblem(ctx, StatusCodes.Status500InternalServerError, "INTERNAL_ERROR", detail);
+              }
+          }
+
+          private static Task WriteProblem(HttpContext ctx, int status, string title, string detail)
+          {
+              ctx.Response.StatusCode = status;
+              ctx.Response.ContentType = "application/problem+json";
+              return ctx.Response.WriteAsJsonAsync(new
+              {
+                  type = $"https://httpstatuses.io/{status}",
+                  title,
+                  detail,
+                  traceId = ctx.TraceIdentifier
+              });
+          }
+      }
+    constraints: >
+      Register early in the pipeline. Do not double-handle exceptions already converted to results downstream.
+    tags:
+      - aspnet-core
+      - middleware
+      - problem-details
+
+  - pattern_id: csharp-result-pattern
+    language: csharp
+    skill_family: error_handling
+    description: >
+      Lightweight Result<T> for expected failures without exceptions, suitable for application services and functional-style pipelines.
+    code_block: |
+      public readonly record struct Result<T>
+      {
+          public bool IsOk { get; }
+          public T? Value { get; }
+          public string? Error { get; }
+
+          private Result(bool ok, T? value, string? error)
+          {
+              IsOk = ok;
+              Value = value;
+              Error = error;
+          }
+
+          public static Result<T> Ok(T value) => new(true, value, null);
+          public static Result<T> Fail(string error) => new(false, default, error);
+
+          public Result<U> Map<U>(Func<T, U> f) =>
+              IsOk ? Result<U>.Ok(f(Value!)) : Result<U>.Fail(Error!);
+      }
+    constraints: >
+      Use for business-rule failures; still throw for programmer bugs and infrastructure faults. Consider ErrorOr or OneOf for richer unions.
+    tags:
+      - result
+      - functional
+      - errors
+
+  - pattern_id: csharp-minimal-api-endpoint
+    language: csharp
+    skill_family: api_endpoint
+    framework: aspnet
+    description: >
+      Minimal API with route group, typed Results for CRUD-style handlers, and correct builder/build split.
+    code_block: |
+      var builder = WebApplication.CreateBuilder(args);
+      var app = builder.Build();
+
+      var orders = app.MapGroup("/api/orders");
+
+      orders.MapGet("/{id:guid}", async (Guid id, IOrderService svc, CancellationToken ct) =>
+      {
+          var dto = await svc.GetAsync(id, ct);
+          return dto is null ? Results.NotFound() : Results.Ok(dto);
+      });
+
+      orders.MapPost("/", async (CreateOrderDto body, IOrderService svc, CancellationToken ct) =>
+      {
+          var created = await svc.CreateAsync(body, ct);
+          return Results.Created($"/api/orders/{created.Id}", created);
+      });
+
+      app.Run();
+    constraints: >
+      Extract complex handlers to static methods or endpoint classes. Add OpenAPI metadata via WithOpenApi / attributes as the surface grows.
+    tags:
+      - minimal-apis
+      - aspnet-core
+      - rest
+
+  - pattern_id: csharp-controller-model-binding
+    language: csharp
+    skill_family: api_endpoint
+    framework: aspnet
+    description: >
+      API controller with attribute routing, primary constructor injection, and ApiController validation behavior.
+    code_block: |
+      [ApiController]
+      [Route("api/[controller]")]
+      public sealed class UsersController(IUserService users) : ControllerBase
+      {
+          [HttpGet("{id:guid}")]
+          [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
+          [ProducesResponseType(StatusCodes.Status404NotFound)]
+          public async Task<ActionResult<UserDto>> Get(Guid id, CancellationToken ct)
+          {
+              var user = await users.GetAsync(id, ct);
+              return user is null ? NotFound() : Ok(user);
+          }
+
+          [HttpPost]
+          public async Task<ActionResult<UserDto>> Create([FromBody] CreateUserDto body, CancellationToken ct)
+          {
+              var created = await users.CreateAsync(body, ct);
+              return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
+          }
+      }
+    constraints: >
+      [ApiController] enables automatic 400 on invalid models. Prefer constructor injection on the controller over [FromServices] on actions.
+    tags:
+      - mvc
+      - controller
+      - model-binding
+
+  - pattern_id: csharp-grpc-service
+    language: csharp
+    skill_family: api_endpoint
+    framework: grpc
+    description: >
+      gRPC service implementation with server streaming and cancellation propagation from the client call context.
+    code_block: |
+      public sealed class GreeterService : Greeter.GreeterBase
+      {
+          public override async Task SayHello(
+              HelloRequest request,
+              IServerStreamWriter<HelloReply> responseStream,
+              ServerCallContext context)
+          {
+              for (var i = 0; i < 3; i++)
+              {
+                  context.CancellationToken.ThrowIfCancellationRequested();
+                  await responseStream.WriteAsync(new HelloReply { Message = $"{request.Name} #{i + 1}" });
+                  await Task.Delay(100, context.CancellationToken);
+              }
+          }
+      }
+    constraints: >
+      Keep proto contracts backward compatible. Use deadlines/metadata for cross-service calls; map RpcException to ProblemDetails at HTTP edges.
+    tags:
+      - grpc
+      - protobuf
+      - streaming
+
+  - pattern_id: csharp-xunit-theory-inline
+    language: csharp
+    skill_family: test_scaffold
+    framework: xunit
+    description: >
+      xUnit [Theory] with [InlineData] for table-driven tests of pure functions and parsers.
+    code_block: |
+      public sealed class DiscountTests
+      {
+          [Theory]
+          [InlineData(1, 0)]
+          [InlineData(5, 10)]
+          [InlineData(10, 20)]
+          public void Applies_tiered_percent(int quantity, int expectedPercent)
+          {
+              var actual = Pricing.DiscountPercent(quantity);
+              Assert.Equal(expectedPercent, actual);
+          }
+      }
+    constraints: >
+      Use [MemberData] for complex inputs; keep theory names descriptive (snake_case or DisplayName) for readable failure output.
+    tags:
+      - xunit
+      - theory
+      - parameterized
+
+  - pattern_id: csharp-nsubstitute-mock
+    language: csharp
+    skill_family: test_scaffold
+    framework: nsubstitute
+    description: >
+      NSubstitute arranging and asserting on collaborators with Returns and Received for behavior-focused unit tests.
+    code_block: |
+      public sealed class NotifierTests
+      {
+          [Fact]
+          public void Sends_when_enabled()
+          {
+              var mail = Substitute.For<IEmailGateway>();
+              mail.SendAsync(Arg.Any<EmailMessage>(), Arg.Any<CancellationToken>())
+                  .Returns(Task.FromResult(true));
+
+              var sut = new Notifier(mail);
+              sut.NotifyUser("u1", "hi");
+
+              mail.Received(1).SendAsync(
+                  Arg.Is<EmailMessage>(m => m.To == "u1"),
+                  Arg.Any<CancellationToken>());
+          }
+      }
+    constraints: >
+      Avoid substituting value types and sealed classes without wrappers. Clear received calls between tests if reusing the substitute.
+    tags:
+      - nsubstitute
+      - mocking
+      - unit-test
+
+  - pattern_id: csharp-webapplicationfactory-integration
+    language: csharp
+    skill_family: test_scaffold
+    framework: aspnet
+    description: >
+      WebApplicationFactory with HttpClient for full-stack HTTP tests against the in-memory test server and real DI graph.
+    code_block: |
+      public sealed class OrdersApiTests : IClassFixture<WebApplicationFactory<Program>>
+      {
+          private readonly HttpClient _client;
+
+          public OrdersApiTests(WebApplicationFactory<Program> factory)
+          {
+              _client = factory.WithWebHostBuilder(b =>
+              {
+                  b.ConfigureTestServices(services =>
+                  {
+                      services.AddSingleton<IOrderService, FakeOrderService>();
+                  });
+              }).CreateClient();
+          }
+
+          [Fact]
+          public async Task Get_returns_ok()
+          {
+              var res = await _client.GetAsync("/api/orders/11111111-1111-1111-1111-111111111111");
+              res.EnsureSuccessStatusCode();
+          }
+      }
+    constraints: >
+      Use IClassFixture for expensive factory setup. Replace only external boundaries in ConfigureTestServices; prefer Testcontainers for real DBs.
+    tags:
+      - integration-test
+      - webapplicationfactory
+      - aspnet-core
+
+  - pattern_id: csharp-record-init-only
+    language: csharp
+    skill_family: data_structure
+    description: >
+      Immutable positional record with init-only optional tweaks for DTOs and message contracts.
+    code_block: |
+      public sealed record Address(string Line1, string City, string PostalCode)
+      {
+          public string? Line2 { get; init; }
+      }
+
+      public sealed record OrderDto(Guid Id, string Status, Address ShipTo)
+      {
+          public IReadOnlyList<LineItemDto> Lines { get; init; } = Array.Empty<LineItemDto>();
+      }
+    constraints: >
+      Records are reference types; use readonly struct records (C# 12+) for small hot paths when appropriate. Validate at boundaries.
+    tags:
+      - record
+      - immutability
+      - dto
+
+  - pattern_id: csharp-oneof-discriminated-union
+    language: csharp
+    skill_family: data_structure
+    framework: oneof
+    description: >
+      OneOf union for exhaustive matching on payment outcomes without nullable soup or exception-driven control flow.
+    code_block: |
+      using OneOf;
+
+      public sealed record Card(string Last4);
+      public sealed record Bank(string IbanMasked);
+
+      public OneOf<Card, Bank, string> ParsePayment(string raw)
+      {
+          if (raw.StartsWith("card:", StringComparison.Ordinal))
+              return new Card(raw[5..]);
+          if (raw.StartsWith("bank:", StringComparison.Ordinal))
+              return new Bank(raw[5..]);
+          return "unknown_scheme";
+      }
+
+      public string Describe(OneOf<Card, Bank, string> p) =>
+          p.Match(
+              card => $"card *{card.Last4}",
+              bank => $"bank {bank.IbanMasked}",
+              err => err);
+    constraints: >
+      Add OneOf.SourceGenerator or OneOf package. Prefer exhaustive switch on closed hierarchies when a library is not desired.
+    tags:
+      - oneof
+      - discriminated-union
+      - functional
+
+  - pattern_id: csharp-immutable-collections
+    language: csharp
+    skill_family: data_structure
+    description: >
+      System.Collections.Immutable builders for safe multi-step construction of frozen list and dictionary snapshots.
+    code_block: |
+      var builder = ImmutableList.CreateBuilder<OrderLine>();
+      foreach (var line in source)
+          if (line.Qty > 0)
+              builder.Add(line);
+
+      ImmutableList<OrderLine> lines = builder.ToImmutable();
+
+      var map = ImmutableDictionary.CreateBuilder<string, int>();
+      map.Add("a", 1);
+      map.Add("b", 2);
+      ImmutableDictionary<string, int> frozen = map.ToImmutable();
+    constraints: >
+      Builders are not thread-safe; ToImmutable() is O(n). For hot paths, consider frozen collections (.NET 8+) when the shape is fixed after build.
+    tags:
+      - immutable
+      - collections
+      - builders
+
+  - pattern_id: csharp-ioptions-pattern
+    language: csharp
+    skill_family: config_pattern
+    framework: aspnet
+    description: >
+      Strongly typed options bound from configuration with IOptions<T> and validation on startup using data annotations.
+    code_block: |
+      public sealed class IntegrationOptions
+      {
+          public const string SectionName = "Integration";
+
+          [Required, Url]
+          public string BaseUrl { get; set; } = "";
+
+          [Range(1, 600)]
+          public int TimeoutSeconds { get; set; } = 30;
+      }
+
+      // Program.cs
+      builder.Services.AddOptions<IntegrationOptions>()
+          .BindConfiguration(IntegrationOptions.SectionName)
+          .ValidateDataAnnotations()
+          .ValidateOnStart();
+    constraints: >
+      Use IOptionsSnapshot for reloadable config per request scope. Secrets belong in user secrets / KeyVault, not appsettings.json in repos.
+    tags:
+      - options
+      - configuration
+      - validation
+
+  - pattern_id: csharp-appsettings-binding
+    language: csharp
+    skill_family: config_pattern
+    framework: aspnet
+    description: >
+      Direct IConfiguration binding to POCOs for console workers or libraries without the full options stack.
+    code_block: |
+      var host = Host.CreateApplicationBuilder(args);
+
+      var db = new DatabaseOptions();
+      host.Configuration.GetSection("Database").Bind(db);
+
+      host.Services.AddSingleton(db);
+
+      public sealed class DatabaseOptions
+      {
+          public string ConnectionString { get; set; } = "";
+          public int MaxPoolSize { get; set; } = 100;
+      }
+    constraints: >
+      Prefer options pattern in ASP.NET for validation and DI lifetime clarity. Use environment variable overrides with double-underscore keys.
+    tags:
+      - configuration
+      - binding
+      - appsettings
+
+  - pattern_id: csharp-task-whenall-cancellation
+    language: csharp
+    skill_family: async_pattern
+    description: >
+      Parallel async fan-out with Task.WhenAll and cooperative cancellation via a linked token source.
+    code_block: |
+      public static async Task<IReadOnlyList<T>> FetchAllAsync<T>(
+          IEnumerable<Task<T>> tasks,
+          CancellationToken cancellationToken)
+      {
+          using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+          var array = tasks.ToArray();
+          return await Task.WhenAll(array).WaitAsync(linked.Token);
+      }
+    constraints: >
+      WhenAll fails on first fault; use manual loops if partial success matters. Avoid async void.
+    tags:
+      - task
+      - cancellation
+      - parallelism
+
+  - pattern_id: csharp-iasyncenumerable
+    language: csharp
+    skill_family: async_pattern
+    description: >
+      IAsyncEnumerable streaming with ConfigureAwait and cancellation for database or gRPC-style pull streams.
+    code_block: |
+      private static async IAsyncEnumerable<IReadOnlyList<int>> ReadPagesAsync(
+          [EnumeratorCancellation] CancellationToken ct)
+      {
+          await Task.Yield();
+          yield return new[] { 1, 2, 3 };
+          ct.ThrowIfCancellationRequested();
+      }
+
+      public static async IAsyncEnumerable<int> StreamPages(
+          [EnumeratorCancellation] CancellationToken ct = default)
+      {
+          await foreach (var page in ReadPagesAsync(ct).ConfigureAwait(false))
+          {
+              foreach (var item in page)
+                  yield return item;
+          }
+      }
+    constraints: >
+      Apply [EnumeratorCancellation] on IAsyncEnumerable methods that accept CancellationToken. Prefer ConfigureAwait(false) in library code.
+    tags:
+      - async-streams
+      - iasyncenumerable
+      - streaming
+
+  - pattern_id: csharp-channel-producer-consumer
+    language: csharp
+    skill_family: async_pattern
+    description: >
+      System.Threading.Channels bounded queue with producer completion and async consumer for in-process pipelines.
+    code_block: |
+      var channel = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(100)
+      {
+          FullMode = BoundedChannelFullMode.Wait
+      });
+
+      var writer = channel.Writer;
+      var reader = channel.Reader;
+
+      async Task ProducerAsync(CancellationToken ct)
+      {
+          try
+          {
+              foreach (var item in Generate(ct))
+                  await writer.WriteAsync(item, ct);
+          }
+          finally
+          {
+              writer.Complete();
+          }
+      }
+
+      async Task ConsumerAsync(CancellationToken ct)
+      {
+          await foreach (var item in reader.ReadAllAsync(ct))
+              await ProcessAsync(item, ct);
+      }
+    constraints: >
+      Complete the writer when done; await reader completion to surface exceptions. Tune capacity to memory and producer burstiness.
+    tags:
+      - channels
+      - producer-consumer
+      - backpressure
+
+  - pattern_id: csharp-jwt-bearer-authentication
+    language: csharp
+    skill_family: auth_pattern
+    framework: aspnet
+    description: >
+      JWT bearer authentication with authority, audience validation, and token events for failed authentication handling.
+    code_block: |
+      builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+          .AddJwtBearer(o =>
+          {
+              o.Authority = "https://issuer.example.com";
+              o.Audience = "api://orders";
+              o.TokenValidationParameters = new TokenValidationParameters
+              {
+                  ValidateIssuer = true,
+                  ValidateAudience = true,
+                  ValidateLifetime = true,
+                  ClockSkew = TimeSpan.FromMinutes(2)
+              };
+              o.Events = new JwtBearerEvents
+              {
+                  OnAuthenticationFailed = ctx =>
+                  {
+                      ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                      return Task.CompletedTask;
+                  }
+              };
+          });
+
+      builder.Services.AddAuthorization();
+      app.UseAuthentication();
+      app.UseAuthorization();
+    constraints: >
+      Align Authority with your IdP metadata. Map role claims carefully; prefer policy-based authorization over raw role checks in handlers.
+    tags:
+      - jwt
+      - authentication
+      - aspnet-core
+
+  - pattern_id: csharp-policy-based-authorization
+    language: csharp
+    skill_family: auth_pattern
+    framework: aspnet
+    description: >
+      Named policies plus generic AuthorizationHandler for claim-based and resource-id checks against a repository.
+    code_block: |
+      public sealed class OrderOwnerRequirement : IAuthorizationRequirement { }
+
+      public sealed class OrderOwnerHandler(IOrderRepository orders)
+          : AuthorizationHandler<OrderOwnerRequirement, Guid>
+      {
+          protected override async Task HandleRequirementAsync(
+              AuthorizationHandlerContext context,
+              OrderOwnerRequirement requirement,
+              Guid orderId)
+          {
+              var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+              if (userId is null)
+                  return;
+
+              if (await orders.IsOwnerAsync(orderId, userId))
+                  context.Succeed(requirement);
+          }
+      }
+
+      builder.Services.AddSingleton<IAuthorizationHandler, OrderOwnerHandler>();
+      builder.Services.AddAuthorization(o =>
+      {
+          o.AddPolicy("OrdersManage", p => p.RequireClaim("permissions", "orders:manage"));
+          o.AddPolicy("OrderOwner", p => p.AddRequirements(new OrderOwnerRequirement()));
+      });
+
+      // Minimal API: await auth.AuthorizeAsync(user, orderId, "OrderOwner");
+      // or MVC: [Authorize(Policy = "OrderOwner")] with IAuthorizationService in the action.
+    constraints: >
+      Pass the route order id as the resource to IAuthorizationService.AuthorizeAsync; register handlers that implement AuthorizationHandler<TRequirement, TResource>.
+    tags:
+      - authorization
+      - policies
+      - resource-based
+
+  - pattern_id: csharp-ilogger-scopes
+    language: csharp
+    skill_family: logging_pattern
+    framework: aspnet
+    description: >
+      ILogger.BeginScope for structured properties attached to all nested log entries during an operation.
+    code_block: |
+      public sealed class OrderService(ILogger<OrderService> log, IOrderRepository repo)
+      {
+          public async Task<Order?> GetAsync(Guid id, CancellationToken ct)
+          {
+              using (log.BeginScope(new Dictionary<string, object>
+                     {
+                         ["OrderId"] = id,
+                         ["Operation"] = nameof(GetAsync)
+                     }))
+              {
+                  log.LogInformation("Loading order");
+                  return await repo.FindAsync(id, ct);
+              }
+          }
+      }
+    constraints: >
+      Scopes should be IDisposable and short-lived. Prefer request logging middleware for trace id already on HttpContext.
+    tags:
+      - ilogger
+      - scopes
+      - structured-logging
+
+  - pattern_id: csharp-serilog-structured
+    language: csharp
+    skill_family: logging_pattern
+    framework: serilog
+    description: >
+      Serilog configuration with enrichers and compact JSON formatter for machine-readable logs with stable property names.
+    code_block: |
+      using Serilog;
+      using Serilog.Formatting.Compact;
+
+      Log.Logger = new LoggerConfiguration()
+          .Enrich.FromLogContext()
+          .Enrich.WithProperty("Service", "orders-api")
+          .WriteTo.Console(new RenderedCompactJsonFormatter())
+          .CreateLogger();
+
+      try
+      {
+          Log.Information("Processing {OrderId} for {User}", orderId, userId);
+      }
+      finally
+      {
+          Log.CloseAndFlush();
+      }
+    constraints: >
+      Use destructuring (@object) sparingly to avoid huge payloads. Configure minimum level overrides per namespace in production.
+    tags:
+      - serilog
+      - json
+      - observability
+
+  - pattern_id: csharp-fluentvalidation
+    language: csharp
+    skill_family: validation_pattern
+    framework: fluentvalidation
+    description: >
+      FluentValidation abstract validator with async database-backed rules, ready for DI registration and pipeline filters.
+    code_block: |
+      public sealed class CreateUserValidator : AbstractValidator<CreateUserDto>
+      {
+          public CreateUserValidator(IUserRepository users)
+          {
+              RuleFor(x => x.Email)
+                  .NotEmpty().EmailAddress()
+                  .MustAsync(async (email, ct) => !await users.ExistsAsync(email, ct))
+                  .WithMessage("Email already registered");
+
+              RuleFor(x => x.DisplayName)
+                  .MaximumLength(80);
+          }
+      }
+
+      // builder.Services.AddValidatorsFromAssemblyContaining<CreateUserValidator>();
+    constraints: >
+      Prefer synchronous rules when possible; async rules have throughput implications. Map failures to ValidationProblemDetails in a filter.
+    tags:
+      - fluentvalidation
+      - validation
+      - di
+
+  - pattern_id: csharp-data-annotations
+    language: csharp
+    skill_family: validation_pattern
+    description: >
+      System.ComponentModel.DataAnnotations on DTOs for model binding and automatic 400 responses with [ApiController].
+    code_block: |
+      public sealed record CreateItemDto
+      {
+          [Required]
+          [StringLength(200, MinimumLength = 1)]
+          public string Title { get; init; } = "";
+
+          [Range(1, int.MaxValue)]
+          public int Quantity { get; init; }
+      }
+    constraints: >
+      Annotations are shallow; use IValidatableObject or FluentValidation for cross-property rules. Not a substitute for server-side authorization.
+    tags:
+      - data-annotations
+      - validation
+      - api
+
+  - pattern_id: csharp-minimal-api-openapi-metadata
+    language: csharp
+    skill_family: api_endpoint
+    framework: aspnet
+    description: >
+      Minimal API with TypedResults, Swagger, and explicit response metadata for generated OpenAPI and clients.
+    code_block: |
+      var b = WebApplication.CreateBuilder(args);
+      b.Services.AddEndpointsApiExplorer();
+      b.Services.AddSwaggerGen();
+      var app = b.Build();
+
+      app.MapGet("/api/items/{id:guid}", async Task<Results<Ok<ItemDto>, NotFound>> (
+              Guid id,
+              IItemService items,
+              CancellationToken ct) =>
+          {
+              var item = await items.GetAsync(id, ct);
+              return item is null ? TypedResults.NotFound() : TypedResults.Ok(item);
+          })
+          .WithName("GetItemById")
+          .WithTags("Items")
+          .Produces<ItemDto>(StatusCodes.Status200OK)
+          .Produces(StatusCodes.Status404NotFound);
+
+      app.UseSwagger();
+      app.UseSwaggerUI();
+      app.Run();
+    constraints: >
+      TypedResults improve OpenAPI inference; keep WithName unique for link generation. Lock down or disable Swagger UI in production.
+    tags:
+      - minimal-apis
+      - swagger
+      - openapi
+
+  - pattern_id: csharp-testcontainers-sqlserver
+    language: csharp
+    skill_family: test_scaffold
+    framework: testcontainers
+    description: >
+      xUnit class fixture with IAsyncLifetime starting SQL Server in a container for integration tests against real T-SQL behavior.
+    code_block: |
+      public sealed class SqlFixture : IAsyncLifetime
+      {
+          private readonly MsSqlContainer _sql = new MsSqlBuilder()
+              .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
+              .Build();
+
+          public string ConnectionString => _sql.GetConnectionString();
+
+          public async Task InitializeAsync() => await _sql.StartAsync();
+
+          public async Task DisposeAsync() => await _sql.DisposeAsync();
+      }
+
+      public sealed class OrdersDbTests : IClassFixture<SqlFixture>
+      {
+          private readonly SqlFixture _fixture;
+
+          public OrdersDbTests(SqlFixture fixture) => _fixture = fixture;
+
+          [Fact]
+          public async Task Can_connect()
+          {
+              await using var conn = new SqlConnection(_fixture.ConnectionString);
+              await conn.OpenAsync();
+          }
+      }
+    constraints: >
+      Container startup is slow; share fixtures across tests. On Apple Silicon, validate image availability or use Azure SQL Edge as needed.
+    tags:
+      - testcontainers
+      - sql-server
+      - integration-test

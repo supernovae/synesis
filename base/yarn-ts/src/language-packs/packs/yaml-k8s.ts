@@ -53,6 +53,43 @@ export const yamlK8sPack: LanguagePackManifest = {
       template: "Remove the duplicate mapping key in {file} — only the last value is used.",
       description: "Duplicate key in YAML mapping",
     },
+    {
+      errorFamily: "truthy_value",
+      template: "Quote boolean-like strings or use YAML true/false for booleans in {file}.",
+      description: "Unquoted boolean-like value (yes/no/on/off) in YAML.",
+      steps: [
+        "Quote the value as a string",
+        "Use true/false for booleans",
+      ],
+      constraints: "Always quote strings that look boolean.",
+    },
+    {
+      errorFamily: "line_length",
+      template: "Use folded (>) or literal (|) block scalars to wrap long lines in {file}.",
+      description: "Line exceeds configured maximum character width.",
+      steps: [
+        "Use YAML folded (>) or literal (|) block scalars",
+        "Break long strings",
+      ],
+      constraints: "Prefer block scalars for long values.",
+    },
+    {
+      errorFamily: "trailing_spaces",
+      template: "Trim trailing whitespace and enable strip-on-save in your editor for {file}.",
+      description: "Trailing whitespace detected.",
+      steps: [
+        "Trim trailing spaces",
+        "Configure editor to strip on save",
+      ],
+      constraints: "Use EditorConfig or yamllint.",
+    },
+    {
+      errorFamily: "document_start",
+      template: "Add --- at the beginning of the YAML document in {file}.",
+      description: "Missing document start marker (---) at beginning.",
+      steps: ["Add --- at the start of the YAML document"],
+      constraints: "Always include --- for multi-document files.",
+    },
   ],
   corpusPackId: "lang-yaml-k8s",
 };

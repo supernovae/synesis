@@ -189,6 +189,35 @@ Disable the most recently enabled flag if any of:
 - **Connection pool saturation** (`connectionPools.auth.waitingCount` > 0 sustained)
 - **Upstream model errors** increase (circuit breaker opens frequently)
 
+## Stage 7: Pattern Recall
+
+Enable compositional pattern prefetch for code generation tasks.
+
+### Flags
+
+```env
+SYNESIS_YARN_PATTERN_RECALL_ENABLED=true
+SYNESIS_YARN_PATTERN_USAGE_FEEDBACK_ENABLED=true
+```
+
+### Prerequisites
+
+- Stages 1-3 healthy
+- Bootstrap patterns loaded (`POST /api/v1/patterns/bootstrap`)
+- Patterns synced to ingestion (`POST /api/v1/patterns/sync`)
+- Indexer has processed pattern items (status=indexed)
+
+### Health gates
+
+- `GET /health/telemetry` → `patternPrefetch.hits` > 0 within 24h
+- `GET /api/v1/patterns/stats` → `enabled` > 200
+- Pattern prefetch latency (from telemetry) < 200ms p95
+- No increase in error rate from `patternFeedback.errors`
+
+### Rollback
+
+Set `SYNESIS_YARN_PATTERN_RECALL_ENABLED=false` — composition detection stops, normal evidence pipeline handles all requests.
+
 ## Telemetry Reference
 
 All health checks use the `GET /health/telemetry` endpoint. Key sections:

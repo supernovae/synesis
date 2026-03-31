@@ -1,0 +1,832 @@
+patterns:
+  - pattern_id: typescript-error-boundary
+    language: typescript
+    skill_family: error_handling
+    framework: react
+    description: >
+      React error boundary class component that catches render errors in children and renders a fallback UI while delegating to onError for logging or reporting.
+    code_block: |
+      import React, { Component, type ErrorInfo, type ReactNode } from "react";
+
+      type Props = {
+        children: ReactNode;
+        fallback: ReactNode;
+        onError?: (error: Error, info: ErrorInfo) => void;
+      };
+
+      type State = { error: Error | null };
+
+      export class ErrorBoundary extends Component<Props, State> {
+        state: State = { error: null };
+
+        static getDerivedStateFromError(error: Error): State {
+          return { error };
+        }
+
+        componentDidCatch(error: Error, info: ErrorInfo): void {
+          this.props.onError?.(error, info);
+        }
+
+        render(): ReactNode {
+          if (this.state.error) return this.props.fallback;
+          return this.props.children;
+        }
+      }
+    constraints: >
+      Must be a class component; does not catch errors in event handlers, async code, or SSR. Pair with error reporting service in onError.
+    tags:
+      - react
+      - errors
+      - ui
+
+  - pattern_id: typescript-custom-error-class
+    language: typescript
+    skill_family: error_handling
+    description: >
+      Extends Error with a stable code and optional cause for structured handling across API layers and log pipelines.
+    code_block: |
+      export class AppError extends Error {
+        readonly code: string;
+        readonly statusCode: number;
+        override readonly cause?: unknown;
+
+        constructor(
+          message: string,
+          opts: { code: string; statusCode?: number; cause?: unknown } = { code: "app_error" },
+        ) {
+          super(message, opts.cause !== undefined ? { cause: opts.cause } : undefined);
+          this.name = "AppError";
+          this.code = opts.code;
+          this.statusCode = opts.statusCode ?? 500;
+          Object.setPrototypeOf(this, new.target.prototype);
+        }
+      }
+
+      export function isAppError(e: unknown): e is AppError {
+        return e instanceof AppError;
+      }
+    constraints: >
+      Preserve prototype chain with setPrototypeOf when targeting older TS emit; map to HTTP responses only at the edge, not deep in domain code.
+    tags:
+      - errors
+      - domain
+
+  - pattern_id: typescript-try-catch-logging
+    language: typescript
+    skill_family: error_handling
+    description: >
+      Narrow unknown errors, attach context, and rethrow or wrap so callers never lose stack or diagnostic fields.
+    code_block: |
+      import { logger } from "./logger";
+
+      export async function runJob(jobId: string): Promise<void> {
+        try {
+          await doWork(jobId);
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          logger.error("job_failed", {
+            jobId,
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+          });
+          throw error;
+        }
+      }
+
+      async function doWork(_jobId: string): Promise<void> {
+        /* ... */
+      }
+    constraints: >
+      Avoid swallowing errors; if converting to HTTP responses, map AppError codes separately from unexpected failures.
+    tags:
+      - errors
+      - logging
+
+  - pattern_id: typescript-express-route-validation
+    language: typescript
+    skill_family: api_endpoint
+    framework: express
+    description: >
+      Express route that validates body with Zod, returns 400 on parse failure, and uses typed locals for the handler.
+    code_block: |
+      import express from "express";
+      import { z } from "zod";
+
+      const CreateUser = z.object({
+        email: z.string().email(),
+        name: z.string().min(1),
+      });
+
+      export const usersRouter = express.Router();
+
+      usersRouter.post("/users", (req, res, next) => {
+        const parsed = CreateUser.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ error: "validation_failed", issues: parsed.error.flatten() });
+        }
+        const { email, name } = parsed.data;
+        res.status(201).json({ id: crypto.randomUUID(), email, name });
+      });
+    constraints: >
+      Prefer a shared validate middleware for many routes; keep schemas next to OpenAPI or generated types to avoid drift.
+    tags:
+      - express
+      - http
+      - zod
+
+  - pattern_id: typescript-fastify-handler
+    language: typescript
+    skill_family: api_endpoint
+    framework: fastify
+    description: >
+      Fastify GET route with JSON schema for query validation and typed reply via generics.
+    code_block: |
+      import Fastify from "fastify";
+
+      const app = Fastify({ logger: true });
+
+      const listQuery = {
+        type: "object",
+        required: ["page"],
+        properties: {
+          page: { type: "integer", minimum: 1 },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+        },
+      } as const;
+
+      app.get<{ Querystring: { page: number; limit?: number } }>(
+        "/items",
+        { schema: { querystring: listQuery } },
+        async (request, reply) => {
+          const { page, limit = 20 } = request.query;
+          return reply.send({ page, limit, items: [] });
+        },
+      );
+
+      export { app };
+    constraints: >
+      Register schemas in a central $id map for reuse; use fastify-type-provider-zod if you standardize on Zod.
+    tags:
+      - fastify
+      - http
+
+  - pattern_id: typescript-next-api-route
+    language: typescript
+    skill_family: api_endpoint
+    framework: next.js
+    description: >
+      Next.js App Router route handler that validates JSON POST bodies and returns typed JSON responses.
+    code_block: |
+      import { NextResponse } from "next/server";
+      import { z } from "zod";
+
+      const Body = z.object({ title: z.string().min(1) });
+
+      export async function POST(req: Request): Promise<NextResponse> {
+        let json: unknown;
+        try {
+          json = await req.json();
+        } catch {
+          return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+        }
+        const parsed = Body.safeParse(json);
+        if (!parsed.success) {
+          return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
+        }
+        return NextResponse.json({ id: crypto.randomUUID(), title: parsed.data.title }, { status: 201 });
+      }
+    constraints: >
+      Use route segment config for runtime/region as needed; for heavy validation share schemas with client bundles via a shared package.
+    tags:
+      - nextjs
+      - http
+
+  - pattern_id: typescript-vitest-describe-it
+    language: typescript
+    skill_family: test_scaffold
+    framework: vitest
+    description: >
+      Vitest suite with describe/it, beforeEach setup, and expect assertions for a pure function module.
+    code_block: |
+      import { describe, it, expect, beforeEach } from "vitest";
+      import { createCounter } from "./counter";
+
+      describe("createCounter", () => {
+        let counter: ReturnType<typeof createCounter>;
+
+        beforeEach(() => {
+          counter = createCounter(0);
+        });
+
+        it("increments from initial value", () => {
+          expect(counter.value()).toBe(0);
+          counter.inc();
+          expect(counter.value()).toBe(1);
+        });
+      });
+    constraints: >
+      Colocate tests as *.test.ts next to sources or under __tests__; use vi.mock for modules, not require hooks, for ESM compatibility.
+    tags:
+      - vitest
+      - testing
+
+  - pattern_id: typescript-jest-mock
+    language: typescript
+    skill_family: test_scaffold
+    framework: jest
+    description: >
+      Jest mock of an ES module dependency with typed mock implementation and spy assertions.
+    code_block: |
+      import { fetchUser } from "./api";
+      import { loadDashboard } from "./dashboard";
+
+      jest.mock("./api", () => ({
+        fetchUser: jest.fn(),
+      }));
+
+      const mockedFetch = jest.mocked(fetchUser);
+
+      describe("loadDashboard", () => {
+        beforeEach(() => {
+          mockedFetch.mockReset();
+        });
+
+        it("returns view model when user exists", async () => {
+          mockedFetch.mockResolvedValue({ id: "1", name: "Ada" });
+          const vm = await loadDashboard("1");
+          expect(vm.title).toContain("Ada");
+          expect(mockedFetch).toHaveBeenCalledWith("1");
+        });
+      });
+    constraints: >
+      Prefer jest.mocked() for typing; hoist mocks or use jest.unstable_mockModule with dynamic import when testing ESM-first code.
+    tags:
+      - jest
+      - testing
+
+  - pattern_id: typescript-integration-test-pattern
+    language: typescript
+    skill_family: test_scaffold
+    framework: vitest
+    description: >
+      Integration test that spins an app with a test server, uses undici fetch against real HTTP, and tears down cleanly.
+    code_block: |
+      import { afterAll, beforeAll, describe, expect, it } from "vitest";
+      import { createServer } from "http";
+      type Server = ReturnType<typeof createServer>;
+
+      describe("HTTP integration", () => {
+        let server: Server;
+        let baseUrl: string;
+
+        beforeAll(
+          () =>
+            new Promise<void>((resolve) => {
+              server = createServer((req, res) => {
+                res.setHeader("content-type", "application/json");
+                res.end(JSON.stringify({ ok: true, path: req.url }));
+              });
+              server.listen(0, () => {
+                const addr = server.address();
+                if (addr && typeof addr === "object") {
+                  baseUrl = `http://127.0.0.1:${addr.port}`;
+                }
+                resolve();
+              });
+            }),
+        );
+
+        afterAll(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              server.close((err) => (err ? reject(err) : resolve()));
+            }),
+        );
+
+        it("responds on /health", async () => {
+          const res = await fetch(`${baseUrl}/health`);
+          expect(res.status).toBe(200);
+          const body = await res.json();
+          expect(body.ok).toBe(true);
+        });
+      });
+    constraints: >
+      Use random ports (0) to avoid flakes; for DB-backed tests, use transactions or testcontainers and isolate per suite.
+    tags:
+      - integration
+      - http
+
+  - pattern_id: typescript-zod-schema
+    language: typescript
+    skill_family: data_structure
+    framework: zod
+    description: >
+      Zod schema with transforms and inferred TypeScript type for runtime-safe parsing at API boundaries.
+    code_block: |
+      import { z } from "zod";
+
+      export const Pagination = z.object({
+        page: z.coerce.number().int().min(1).default(1),
+        pageSize: z.coerce.number().int().min(1).max(100).default(20),
+      });
+
+      export const UserRecord = z.object({
+        id: z.string().uuid(),
+        email: z.string().email(),
+        createdAt: z.string().datetime({ offset: true }).transform((s) => new Date(s)),
+      });
+
+      export type UserRecord = z.infer<typeof UserRecord>;
+    constraints: >
+      Use .strict() on external input schemas to reject unknown keys; export types via z.infer only, not duplicate interfaces.
+    tags:
+      - zod
+      - validation
+
+  - pattern_id: typescript-interface-generics
+    language: typescript
+    skill_family: data_structure
+    description: >
+      Generic repository-style interface with constrained type parameters for keys and entity shape.
+    code_block: |
+      export interface Repository<TEntity, TId extends string | number = string> {
+        findById(id: TId): Promise<TEntity | null>;
+        save(entity: TEntity): Promise<TEntity>;
+        delete(id: TId): Promise<void>;
+      }
+
+      export type User = { id: string; email: string };
+
+      export type UserRepository = Repository<User, string>;
+    constraints: >
+      Prefer interfaces for public extension points; use type aliases for unions and mapped types; document variance expectations for implementers.
+    tags:
+      - typescript
+      - generics
+
+  - pattern_id: typescript-discriminated-union
+    language: typescript
+    skill_family: data_structure
+    description: >
+      Discriminated union for event or result modeling with exhaustive switch checking.
+    code_block: |
+      type Ok<T> = { ok: true; value: T };
+      type Err<E> = { ok: false; error: E };
+      export type Result<T, E = Error> = Ok<T> | Err<E>;
+
+      export function unwrap<T, E>(r: Result<T, E>): T {
+        if (r.ok) return r.value;
+        throw r.error instanceof Error ? r.error : new Error(String(r.error));
+      }
+
+      type Event =
+        | { type: "created"; id: string }
+        | { type: "updated"; id: string; patch: Record<string, unknown> }
+        | { type: "deleted"; id: string };
+
+      export function describeEvent(e: Event): string {
+        switch (e.type) {
+          case "created":
+            return `created ${e.id}`;
+          case "updated":
+            return `updated ${e.id}`;
+          case "deleted":
+            return `deleted ${e.id}`;
+          default: {
+            const _exhaustive: never = e;
+            return _exhaustive;
+          }
+        }
+      }
+    constraints: >
+      Keep discriminant field stable across API versions; use never exhaustiveness checks whenever adding union members.
+    tags:
+      - typescript
+      - unions
+
+  - pattern_id: typescript-branded-type
+    language: typescript
+    skill_family: data_structure
+    description: >
+      Nominal branding for string IDs to prevent accidental mixing of different identifier kinds at compile time.
+    code_block: |
+      declare const brand: unique symbol;
+      type Brand<B> = { readonly [brand]: B };
+
+      export type UserId = string & Brand<"UserId">;
+      export type OrgId = string & Brand<"OrgId">;
+
+      export function userId(id: string): UserId {
+        if (!/^[a-z0-9_-]{8,}$/.test(id)) throw new Error("invalid user id");
+        return id as UserId;
+      }
+
+      function linkUserToOrg(_user: UserId, _org: OrgId): void {
+        /* ... */
+      }
+    constraints: >
+      Brand at module boundaries (parsing); avoid casting from plain strings deep in call stacks without validation.
+    tags:
+      - typescript
+      - safety
+
+  - pattern_id: typescript-env-config-zod
+    language: typescript
+    skill_family: config_pattern
+    framework: zod
+    description: >
+      Process environment parsed once at startup with Zod defaults and coercions; fail fast on invalid config.
+    code_block: |
+      import { z } from "zod";
+
+      const Env = z.object({
+        NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+        PORT: z.coerce.number().int().min(1).max(65535).default(8080),
+        DATABASE_URL: z.string().url(),
+        FEATURE_BETA: z
+          .enum(["true", "false"])
+          .default("false")
+          .transform((v) => v === "true"),
+      });
+
+      export type Env = z.infer<typeof Env>;
+
+      export const env: Env = Env.parse(process.env);
+    constraints: >
+      Do not read process.env ad hoc after parse; inject env into factories for testability; redact secrets in logs.
+    tags:
+      - config
+      - zod
+
+  - pattern_id: typescript-feature-flag-pattern
+    language: typescript
+    skill_family: config_pattern
+    description: >
+      Typed feature flag resolver combining remote config, env overrides, and safe defaults with memoized snapshot.
+    code_block: |
+      export type Flags = { enableNewEditor: boolean; maxUploadMb: number };
+
+      const defaults: Flags = { enableNewEditor: false, maxUploadMb: 25 };
+
+      export function loadFlags(env: NodeJS.ProcessEnv, remote?: Partial<Flags>): Flags {
+        const fromEnv: Partial<Flags> = {
+          enableNewEditor: env.FF_NEW_EDITOR === "true" ? true : env.FF_NEW_EDITOR === "false" ? false : undefined,
+          maxUploadMb: env.MAX_UPLOAD_MB ? Number(env.MAX_UPLOAD_MB) : undefined,
+        };
+        return { ...defaults, ...remote, ...stripUndefined(fromEnv) };
+      }
+
+      function stripUndefined<T extends Record<string, unknown>>(o: T): Partial<T> {
+        return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+      }
+    constraints: >
+      Evaluate flags once per request or process as appropriate; document precedence (remote vs env vs default) for operators.
+    tags:
+      - config
+      - feature-flags
+
+  - pattern_id: typescript-promise-all-error-handling
+    language: typescript
+    skill_family: async_pattern
+    description: >
+      Promise.allSettled wrapper that classifies successes and failures and preserves original errors for reporting.
+    code_block: |
+      export async function fetchAll<T>(
+        tasks: Array<() => Promise<T>>,
+      ): Promise<{ ok: T[]; errors: Error[] }> {
+        const results = await Promise.allSettled(tasks.map((t) => t()));
+        const ok: T[] = [];
+        const errors: Error[] = [];
+        for (const r of results) {
+          if (r.status === "fulfilled") ok.push(r.value);
+          else errors.push(r.reason instanceof Error ? r.reason : new Error(String(r.reason)));
+        }
+        return { ok, errors };
+      }
+    constraints: >
+      Use Promise.all when you want fail-fast; use allSettled for partial success; consider p-limit for concurrency caps.
+    tags:
+      - async
+      - promises
+
+  - pattern_id: typescript-async-iterator
+    language: typescript
+    skill_family: async_pattern
+    description: >
+      Async generator that streams paginated API results until exhaustion, consumable with for await.
+    code_block: |
+      export async function* paginate<T>(
+        fetchPage: (cursor: string | null) => Promise<{ items: T[]; next: string | null }>,
+      ): AsyncGenerator<T, void, undefined> {
+        let cursor: string | null = null;
+        for (;;) {
+          const { items, next } = await fetchPage(cursor);
+          for (const item of items) yield item;
+          if (!next) break;
+          cursor = next;
+        }
+      }
+
+      // usage: for await (const row of paginate(query)) { ... }
+    constraints: >
+      Handle backpressure if producers outpace consumers; cancel via AbortSignal by passing signal into fetchPage closures.
+    tags:
+      - async
+      - streams
+
+  - pattern_id: typescript-retry-backoff
+    language: typescript
+    skill_family: async_pattern
+    description: >
+      Async retry with exponential backoff, jitter, and optional retry predicate for transient failures.
+    code_block: |
+      export async function withRetry<T>(
+        fn: () => Promise<T>,
+        opts: { retries: number; baseMs: number; maxMs: number; jitter?: boolean; retryOn?: (e: unknown) => boolean } = {
+          retries: 3,
+          baseMs: 200,
+          maxMs: 5000,
+          jitter: true,
+        },
+      ): Promise<T> {
+        let attempt = 0;
+        for (;;) {
+          try {
+            return await fn();
+          } catch (e) {
+            if (attempt >= opts.retries || (opts.retryOn && !opts.retryOn(e))) throw e;
+            const exp = Math.min(opts.maxMs, opts.baseMs * 2 ** attempt);
+            const delay = opts.jitter ? Math.floor(exp * (0.5 + Math.random() * 0.5)) : exp;
+            await new Promise((r) => setTimeout(r, delay));
+            attempt += 1;
+          }
+        }
+      }
+    constraints: >
+      Do not retry non-idempotent writes without deduplication keys; cap total wall time; log attempt count on final failure.
+    tags:
+      - async
+      - resilience
+
+  - pattern_id: typescript-abort-signal-fetch
+    language: typescript
+    skill_family: async_pattern
+    description: >
+      Fetch wrapper that respects AbortSignal for timeouts and cooperative cancellation.
+    code_block: |
+      export async function fetchJson<T>(url: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
+        const { timeoutMs = 10_000, signal, ...rest } = init;
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(new DOMException("timeout", "TimeoutError")), timeoutMs);
+        try {
+          const res = await fetch(url, { ...rest, signal: mergeSignals(signal, ctrl.signal) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as T;
+        } finally {
+          clearTimeout(t);
+        }
+      }
+
+      function mergeSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
+        if (!a) return b;
+        if (!b) return a;
+        const c = new AbortController();
+        const onAbort = () => c.abort();
+        a.addEventListener("abort", onAbort);
+        b.addEventListener("abort", onAbort);
+        return c.signal;
+      }
+    constraints: >
+      Prefer AbortSignal.timeout in runtimes that support it; always clear timers in finally to avoid leaks on success.
+    tags:
+      - fetch
+      - cancellation
+
+  - pattern_id: typescript-jwt-middleware
+    language: typescript
+    skill_family: auth_pattern
+    framework: express
+    description: >
+      Express middleware verifying HS256 JWT from Authorization bearer, attaching claims to req for downstream handlers.
+    code_block: |
+      import type { Request, Response, NextFunction } from "express";
+      import { createHmac, timingSafeEqual } from "crypto";
+
+      type Claims = { sub: string; role?: string };
+
+      function b64urlDecode(s: string): Buffer {
+        const pad = 4 - (s.length % 4 || 4);
+        return Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad % 4), "base64");
+      }
+
+      export function jwtMiddleware(secret: string) {
+        return (req: Request, res: Response, next: NextFunction): void => {
+          const hdr = req.header("authorization");
+          const token = hdr?.startsWith("Bearer ") ? hdr.slice(7) : undefined;
+          if (!token) {
+            res.status(401).json({ error: "missing_token" });
+            return;
+          }
+          const [h, p, sig] = token.split(".");
+          if (!h || !p || !sig) {
+            res.status(401).json({ error: "malformed_token" });
+            return;
+          }
+          const data = `${h}.${p}`;
+          const expected = createHmac("sha256", secret).update(data).digest("base64url");
+          if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+            res.status(401).json({ error: "bad_signature" });
+            return;
+          }
+          const payload = JSON.parse(b64urlDecode(p).toString("utf8")) as Claims & { exp?: number };
+          if (payload.exp && Date.now() / 1000 > payload.exp) {
+            res.status(401).json({ error: "expired" });
+            return;
+          }
+          (req as Request & { user?: Claims }).user = { sub: payload.sub, role: payload.role };
+          next();
+        };
+      }
+    constraints: >
+      Use battle-tested libraries (jose, jsonwebtoken with care) in production; this pattern illustrates structure—verify alg, iss, aud, and use RS256 when possible.
+    tags:
+      - jwt
+      - express
+      - auth
+
+  - pattern_id: typescript-api-key-validation
+    language: typescript
+    skill_family: auth_pattern
+    framework: express
+    description: >
+      Constant-time comparison of API keys from header against configured secrets loaded from env.
+    code_block: |
+      import type { Request, Response, NextFunction } from "express";
+      import { timingSafeEqual, createHash } from "crypto";
+
+      function hashKey(key: string): Buffer {
+        return createHash("sha256").update(key, "utf8").digest();
+      }
+
+      export function apiKeyGuard(validKeys: string[]) {
+        const allowed = new Set(validKeys.map((k) => hashKey(k).toString("hex")));
+        return (req: Request, res: Response, next: NextFunction): void => {
+          const key = req.header("x-api-key");
+          if (!key) {
+            res.status(401).json({ error: "missing_api_key" });
+            return;
+          }
+          const digest = hashKey(key).toString("hex");
+          let ok = false;
+          for (const h of allowed) {
+            if (timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(h, "hex"))) {
+              ok = true;
+              break;
+            }
+          }
+          if (!ok) {
+            res.status(403).json({ error: "invalid_api_key" });
+            return;
+          }
+          next();
+        };
+      }
+    constraints: >
+      Store only hashed keys at rest; rotate keys with overlap; prefer mTLS or OAuth for high-assurance APIs.
+    tags:
+      - api-key
+      - auth
+
+  - pattern_id: typescript-structured-logger
+    language: typescript
+    skill_family: logging_pattern
+    description: >
+      Minimal structured logger with level, JSON lines output, and bound default fields for service name and environment.
+    code_block: |
+      type Level = "debug" | "info" | "warn" | "error";
+
+      const order: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+
+      export function createLogger(service: string, min: Level = "info", defaults: Record<string, unknown> = {}) {
+        const minN = order[min];
+        return {
+          child(extra: Record<string, unknown>) {
+            return createLogger(service, min, { ...defaults, ...extra });
+          },
+          log(level: Level, msg: string, fields?: Record<string, unknown>) {
+            if (order[level] < minN) return;
+            const line = JSON.stringify({
+              ts: new Date().toISOString(),
+              level,
+              msg,
+              service,
+              ...defaults,
+              ...fields,
+            });
+            // eslint-disable-next-line no-console
+            console.log(line);
+          },
+          debug(msg: string, f?: Record<string, unknown>) {
+            this.log("debug", msg, f);
+          },
+          info(msg: string, f?: Record<string, unknown>) {
+            this.log("info", msg, f);
+          },
+          warn(msg: string, f?: Record<string, unknown>) {
+            this.log("warn", msg, f);
+          },
+          error(msg: string, f?: Record<string, unknown>) {
+            this.log("error", msg, f);
+          },
+        };
+      }
+    constraints: >
+      Ship logs to aggregation with retention policies; never log secrets or full PII; use correlation IDs from middleware.
+    tags:
+      - logging
+      - observability
+
+  - pattern_id: typescript-request-context-logging
+    language: typescript
+    skill_family: logging_pattern
+    framework: express
+    description: >
+      Express middleware that assigns request id and exposes a per-request logger on res.locals for handlers.
+    code_block: |
+      import type { Request, Response, NextFunction } from "express";
+      import { randomUUID } from "crypto";
+      import { createLogger } from "./structured-logger";
+
+      const base = createLogger("api", "info");
+
+      export function requestContext() {
+        return (req: Request, res: Response, next: NextFunction): void => {
+          const requestId = (req.header("x-request-id") ?? randomUUID()).toString();
+          res.setHeader("x-request-id", requestId);
+          const log = base.child({ requestId, method: req.method, path: req.path });
+          res.locals.log = log;
+          const start = Date.now();
+          res.on("finish", () => {
+            log.info("request_complete", { status: res.statusCode, ms: Date.now() - start });
+          });
+          next();
+        };
+      }
+    constraints: >
+      Extend types for res.locals via declaration merging; propagate requestId to outbound HTTP and message producers.
+    tags:
+      - logging
+      - express
+
+  - pattern_id: typescript-input-validation-middleware
+    language: typescript
+    skill_family: validation_pattern
+    framework: express
+    description: >
+      Factory middleware that validates req.body with a Zod schema and attaches typed body to res.locals.
+    code_block: |
+      import type { Request, Response, NextFunction, RequestHandler } from "express";
+      type AnyZod = { safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: { flatten: () => unknown } } };
+
+      export function validateBody<S extends AnyZod>(schema: S): RequestHandler {
+        return (req: Request, res: Response, next: NextFunction): void => {
+          const parsed = schema.safeParse(req.body);
+          if (!parsed.success) {
+            res.status(400).json({ error: "validation_failed", details: parsed.error?.flatten() });
+            return;
+          }
+          (res.locals as { body?: unknown }).body = parsed.data;
+          next();
+        };
+      }
+    constraints: >
+      Prefer a single pattern (locals vs mutating req) across the codebase; generate OpenAPI from the same schemas where possible.
+    tags:
+      - validation
+      - express
+
+  - pattern_id: typescript-runtime-type-guard
+    language: typescript
+    skill_family: validation_pattern
+    description: >
+      User-defined type guards and small parsers for unknown JSON without a full schema library at hot paths.
+    code_block: |
+      export function isRecord(v: unknown): v is Record<string, unknown> {
+        return typeof v === "object" && v !== null && !Array.isArray(v);
+      }
+
+      export function isStringArray(v: unknown): v is string[] {
+        return Array.isArray(v) && v.every((x) => typeof x === "string");
+      }
+
+      export function parseTags(input: unknown): string[] {
+        if (!isRecord(input)) return [];
+        const raw = input.tags;
+        return isStringArray(raw) ? raw : [];
+      }
+    constraints: >
+      Guards are not a substitute for boundary validation; centralize complex shapes with Zod or similar at IO edges.
+    tags:
+      - validation
+      - typescript

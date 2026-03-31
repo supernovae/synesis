@@ -266,6 +266,16 @@ const EnvSchema = z.object({
   SYNESIS_YARN_WORKER_POOL_SIZE: z.coerce.number().default(0),
   SYNESIS_YARN_WORKER_TASK_TIMEOUT_MS: z.coerce.number().default(5000),
 
+  // Pattern recall — compositional pattern library (Phase 19)
+  SYNESIS_YARN_PATTERN_RECALL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_PATTERN_USAGE_FEEDBACK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+
   // Debug / trace
   SYNESIS_YARN_DEBUG_PROTOCOL: z
     .string()

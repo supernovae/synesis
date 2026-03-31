@@ -29,7 +29,8 @@ import { ValidationNormalizationService } from "./validation/service.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
-import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats } from "./evidence/fast-path.js";
+import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, runPatternPrefetch, formatPatternBlock, getPatternPrefetchStats } from "./evidence/fast-path.js";
+import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
@@ -203,6 +204,7 @@ const governanceClient = config.SYNESIS_YARN_GOVERNANCE_ENABLED
   ? new GovernanceClient(config)
   : null;
 if (governanceClient) governanceClient.start();
+initPatternFeedback(config);
 
 import { loadAllPacks, getLanguagePackRegistry } from "./language-packs/index.js";
 loadAllPacks();
@@ -1347,6 +1349,8 @@ app.get("/health/telemetry", async (req, reply) => {
     artifactRetrieval: artifactRetrieval.getStats(),
     knowledgeSearch: knowledgeSearch.getStats(),
     evidencePrefetch: getEvidencePrefetchStats(),
+    patternPrefetch: getPatternPrefetchStats(),
+    patternFeedback: getPatternFeedbackStats(),
     artifactStore: artifactStore.getStats(),
     circuitBreakers: circuitBreakers.getStats(),
     userRateLimiter: userRateLimiter.getStats(),
@@ -1383,6 +1387,7 @@ app.get("/health/telemetry", async (req, reply) => {
       crossConversationRecall: config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED,
       workerPool: config.SYNESIS_YARN_WORKER_POOL_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
+      patternRecall: config.SYNESIS_YARN_PATTERN_RECALL_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
       decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
@@ -1578,6 +1583,30 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
 
+  let oaiPatternResult: import("./evidence/fast-path.js").PatternPrefetchResult | undefined;
+  if (config.SYNESIS_YARN_PATTERN_RECALL_ENABLED && latestUserText && !oaiPrefetchResult?.matched) {
+    const prefetchText = typeof latestUserText.content === "string" ? latestUserText.content : "";
+    if (prefetchText.length > 0) {
+      oaiPatternResult = await runPatternPrefetch(
+        prefetchText, knowledgeSearch,
+        config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
+        oaiWorkingPhase,
+      );
+      if (oaiPatternResult.matched) {
+        app.log.info({
+          intent: oaiPatternResult.intent, hasEvidence: Boolean(oaiPatternResult.evidence),
+          timedOut: oaiPatternResult.timedOut, latencyMs: Math.round(oaiPatternResult.latencyMs),
+          confidence: oaiPatternResult.confidence,
+        }, "pattern_prefetch_result");
+      }
+    }
+  }
+
+  const combinedEvidenceConfidence = Math.max(
+    oaiPrefetchResult?.confidence ?? 0,
+    oaiPatternResult?.confidence ?? 0,
+  );
+
   const orchestration = phaseOrchestrator.decide({
     requestedModel: request.model,
     latestUserText: String(latestUserText?.content ?? ""),
@@ -1587,7 +1616,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     evidence: {
       recallConfidence: oaiRecallDecision?.resolution?.confidence,
       recallRouting: oaiRecallDecision?.routing,
-      evidenceConfidence: oaiPrefetchResult?.confidence,
+      evidenceConfidence: combinedEvidenceConfidence || undefined,
       evidenceAuthoritative: oaiPrefetchResult?.authoritative,
       verificationRound: oaiVerifState.round > 0 ? oaiVerifState.round : undefined,
       verificationStalled: oaiVerifState.stalled || undefined,
@@ -1772,15 +1801,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedRequest.tools = knowledgeSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
 
-  if (oaiPrefetchResult) {
-    const evidenceBlock = formatEvidenceBlock(oaiPrefetchResult);
-    if (evidenceBlock) {
+  {
+    const blocks: string[] = [];
+    if (oaiPrefetchResult) {
+      const evidenceBlock = formatEvidenceBlock(oaiPrefetchResult);
+      if (evidenceBlock) blocks.push(evidenceBlock);
+    }
+    if (oaiPatternResult) {
+      const patternBlock = formatPatternBlock(oaiPatternResult);
+      if (patternBlock) blocks.push(patternBlock);
+    }
+    if (blocks.length > 0) {
+      const combined = blocks.join("\n\n");
       const msgs = normalizedRequest.messages as Array<{ role: string; content: unknown }>;
       const sysIdx = msgs.findIndex((m) => m.role === "system");
       if (sysIdx >= 0 && typeof msgs[sysIdx].content === "string") {
-        msgs[sysIdx] = { ...msgs[sysIdx], content: `${msgs[sysIdx].content}\n\n${evidenceBlock}` };
+        msgs[sysIdx] = { ...msgs[sysIdx], content: `${msgs[sysIdx].content}\n\n${combined}` };
       } else {
-        msgs.unshift({ role: "system", content: evidenceBlock });
+        msgs.unshift({ role: "system", content: combined });
       }
       normalizedRequest.messages = msgs as never;
     }
@@ -2261,6 +2299,23 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
 
+  let claudePatternResult: import("./evidence/fast-path.js").PatternPrefetchResult | undefined;
+  if (config.SYNESIS_YARN_PATTERN_RECALL_ENABLED && latestClaudeUser && !claudePrefetchResult?.matched) {
+    const claudePatternText = typeof latestClaudeUser.content === "string" ? latestClaudeUser.content : "";
+    if (claudePatternText.length > 0) {
+      claudePatternResult = await runPatternPrefetch(
+        claudePatternText, knowledgeSearch,
+        config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
+        claudeWorkingPhase,
+      );
+    }
+  }
+
+  const claudeCombinedConfidence = Math.max(
+    claudePrefetchResult?.confidence ?? 0,
+    claudePatternResult?.confidence ?? 0,
+  );
+
   const claudeOrchestration = phaseOrchestrator.decide({
     requestedModel: body.model,
     latestUserText: String(latestClaudeUser?.content ?? ""),
@@ -2270,7 +2325,7 @@ app.post("/v1/messages", async (req, reply) => {
     evidence: {
       recallConfidence: claudeRecallDecision?.resolution?.confidence,
       recallRouting: claudeRecallDecision?.routing,
-      evidenceConfidence: claudePrefetchResult?.confidence,
+      evidenceConfidence: claudeCombinedConfidence || undefined,
       evidenceAuthoritative: claudePrefetchResult?.authoritative,
       verificationRound: claudeVerifState.round > 0 ? claudeVerifState.round : undefined,
       verificationStalled: claudeVerifState.stalled || undefined,
@@ -2458,15 +2513,24 @@ app.post("/v1/messages", async (req, reply) => {
     session
   ) as never;
 
-  if (claudePrefetchResult) {
-    const claudeEvidenceBlock = formatEvidenceBlock(claudePrefetchResult);
-    if (claudeEvidenceBlock) {
+  {
+    const claudeBlocks: string[] = [];
+    if (claudePrefetchResult) {
+      const claudeEvBlock = formatEvidenceBlock(claudePrefetchResult);
+      if (claudeEvBlock) claudeBlocks.push(claudeEvBlock);
+    }
+    if (claudePatternResult) {
+      const claudePtBlock = formatPatternBlock(claudePatternResult);
+      if (claudePtBlock) claudeBlocks.push(claudePtBlock);
+    }
+    if (claudeBlocks.length > 0) {
+      const combined = claudeBlocks.join("\n\n");
       const claudeMsgs = openAIShape.messages as Array<{ role: string; content: unknown }>;
       const claudeSysIdx = claudeMsgs.findIndex((m) => m.role === "system");
       if (claudeSysIdx >= 0 && typeof claudeMsgs[claudeSysIdx].content === "string") {
-        claudeMsgs[claudeSysIdx] = { ...claudeMsgs[claudeSysIdx], content: `${claudeMsgs[claudeSysIdx].content}\n\n${claudeEvidenceBlock}` };
+        claudeMsgs[claudeSysIdx] = { ...claudeMsgs[claudeSysIdx], content: `${claudeMsgs[claudeSysIdx].content}\n\n${combined}` };
       } else {
-        claudeMsgs.unshift({ role: "system", content: claudeEvidenceBlock });
+        claudeMsgs.unshift({ role: "system", content: combined });
       }
       openAIShape.messages = claudeMsgs as never;
     }

@@ -1,0 +1,802 @@
+patterns:
+  - pattern_id: java-custom-exception-hierarchy
+    language: java
+    skill_family: error_handling
+    description: >
+      Base domain exception with HTTP status mapping and typed subclasses for predictable
+      error propagation without stringly-typed checks.
+    code_block: |
+      public abstract class DomainException extends RuntimeException {
+          private final String errorCode;
+
+          protected DomainException(String errorCode, String message) {
+              super(message);
+              this.errorCode = errorCode;
+          }
+
+          public String getErrorCode() { return errorCode; }
+      }
+
+      public final class ResourceNotFoundException extends DomainException {
+          public ResourceNotFoundException(String resource, Object id) {
+              super("NOT_FOUND", resource + " not found: " + id);
+          }
+      }
+
+      public final class ConflictException extends DomainException {
+          public ConflictException(String message) {
+              super("CONFLICT", message);
+          }
+      }
+    constraints: >
+      Prefer a small hierarchy; map errorCode to HTTP responses in a single place (filter or @ControllerAdvice).
+      Do not catch generic Exception for business flow—catch DomainException or specific types at boundaries.
+    tags:
+      - exceptions
+      - domain
+      - hierarchy
+
+  - pattern_id: java-try-with-resources
+    language: java
+    skill_family: error_handling
+    description: >
+      Automatic close of AutoCloseable resources with suppressed exception handling for I/O and JDBC usage.
+    code_block: |
+      public List<String> readLines(Path path) throws IOException {
+          try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+              return reader.lines().toList();
+          }
+      }
+
+      public void copyWithSuppressed(Path from, Path to) throws IOException {
+          try (var in = Files.newInputStream(from); var out = Files.newOutputStream(to)) {
+              in.transferTo(out);
+          }
+      }
+    constraints: >
+      Resources must implement AutoCloseable; declare checked exceptions from the try block or rethrow wrapped.
+      Order resources from outer to inner when one depends on another's successful open.
+    tags:
+      - try-with-resources
+      - io
+      - autocloseable
+
+  - pattern_id: java-spring-global-exception-handler
+    language: java
+    skill_family: error_handling
+    framework: spring
+    description: >
+      Centralized @RestControllerAdvice mapping domain and validation errors to Problem Details–style JSON responses.
+    code_block: |
+      @RestControllerAdvice
+      public class GlobalExceptionHandler {
+
+          @ExceptionHandler(MethodArgumentNotValidException.class)
+          public ResponseEntity<ErrorBody> handleValidation(MethodArgumentNotValidException ex) {
+              var fieldErrors = ex.getBindingResult().getFieldErrors().stream()
+                  .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
+                  .toList();
+              return ResponseEntity.badRequest()
+                  .body(new ErrorBody("VALIDATION_ERROR", fieldErrors));
+          }
+
+          @ExceptionHandler(DomainException.class)
+          public ResponseEntity<ErrorBody> handleDomain(DomainException ex) {
+              var status = switch (ex.getErrorCode()) {
+                  case "NOT_FOUND" -> HttpStatus.NOT_FOUND;
+                  case "CONFLICT" -> HttpStatus.CONFLICT;
+                  default -> HttpStatus.BAD_REQUEST;
+              };
+              return ResponseEntity.status(status)
+                  .body(new ErrorBody(ex.getErrorCode(), List.of(ex.getMessage())));
+          }
+      }
+
+      public record ErrorBody(String code, List<String> messages) {}
+    constraints: >
+      Keep handlers thin; log server errors (5xx) with correlation id. Do not leak stack traces in production bodies.
+    tags:
+      - spring
+      - controller-advice
+      - rest
+
+  - pattern_id: java-spring-rest-controller
+    language: java
+    skill_family: api_endpoint
+    framework: spring
+    description: >
+      REST controller with constructor injection, DTO mapping, and appropriate HTTP verbs and status codes.
+    code_block: |
+      @RestController
+      @RequestMapping("/api/v1/orders")
+      public class OrderController {
+
+          private final OrderService orderService;
+
+          public OrderController(OrderService orderService) {
+              this.orderService = orderService;
+          }
+
+          @GetMapping("/{id}")
+          public OrderDto get(@PathVariable UUID id) {
+              return orderService.findById(id);
+          }
+
+          @PostMapping
+          public ResponseEntity<OrderDto> create(@Valid @RequestBody CreateOrderRequest body) {
+              var created = orderService.create(body);
+              return ResponseEntity.created(URI.create("/api/v1/orders/" + created.id()))
+                  .body(created);
+          }
+      }
+    constraints: >
+      Use DTOs at the boundary; validate with @Valid. Return 201 with Location for creates; 404 from service layer exceptions.
+    tags:
+      - spring-mvc
+      - rest
+      - controller
+
+  - pattern_id: java-jax-rs-resource
+    language: java
+    skill_family: api_endpoint
+    framework: jax-rs
+    description: >
+      JAX-RS resource class with path params, JSON binding, and exception mapping for portable Jakarta EE style APIs.
+    code_block: |
+      @Path("/items")
+      @Produces(MediaType.APPLICATION_JSON)
+      @Consumes(MediaType.APPLICATION_JSON)
+      public class ItemResource {
+
+          @Inject
+          private ItemService itemService;
+
+          @GET
+          @Path("/{id}")
+          public ItemDto get(@PathParam("id") String id) {
+              return itemService.get(id);
+          }
+
+          @POST
+          public Response create(@Valid ItemCreateDto body) {
+              var created = itemService.create(body);
+              return Response.created(URI.create("/items/" + created.id()))
+                  .entity(created)
+                  .build();
+          }
+      }
+    constraints: >
+      Register providers for JSON (e.g. Jackson) and validation. Use sub-resource locators only when URL nesting is required.
+    tags:
+      - jax-rs
+      - jakarta
+      - rest
+
+  - pattern_id: java-spring-webflux-handler
+    language: java
+    skill_family: api_endpoint
+    framework: spring
+    description: >
+      Functional WebFlux router with a handler returning Mono for non-blocking request/response pipelines.
+    code_block: |
+      @Configuration
+      public class UserRoutes {
+
+          @Bean
+          public RouterFunction<ServerResponse> userRouter(UserHandler handler) {
+              return route()
+                  .GET("/users/{id}", handler::getById)
+                  .POST("/users", accept(APPLICATION_JSON), handler::create)
+                  .build();
+          }
+      }
+
+      @Component
+      public class UserHandler {
+          private final UserRepository repo;
+
+          public UserHandler(UserRepository repo) { this.repo = repo; }
+
+          public Mono<ServerResponse> getById(ServerRequest req) {
+              var id = req.pathVariable("id");
+              return repo.findById(id)
+                  .flatMap(u -> ServerResponse.ok().bodyValue(u))
+                  .switchIfEmpty(ServerResponse.notFound().build());
+          }
+
+          public Mono<ServerResponse> create(ServerRequest req) {
+              return req.bodyToMono(CreateUserRequest.class)
+                  .flatMap(repo::save)
+                  .flatMap(u -> ServerResponse.status(HttpStatus.CREATED).bodyValue(u));
+          }
+      }
+    constraints: >
+      Avoid blocking calls inside handlers; use bounded schedulers if you must bridge blocking I/O.
+    tags:
+      - webflux
+      - reactive
+      - router
+
+  - pattern_id: java-junit5-parameterized
+    language: java
+    skill_family: test_scaffold
+    framework: junit5
+    description: >
+      JUnit 5 parameterized test with @CsvSource for table-driven assertions on pure functions.
+    code_block: |
+      import org.junit.jupiter.params.ParameterizedTest;
+      import org.junit.jupiter.params.provider.CsvSource;
+
+      import static org.junit.jupiter.api.Assertions.assertEquals;
+
+      class PricingTest {
+
+          @ParameterizedTest
+          @CsvSource({
+              "1, 10.00",
+              "5, 45.00",
+              "10, 80.00"
+          })
+          void tieredPrice(int quantity, String expected) {
+              assertEquals(expected, Pricing.total(quantity).toPlainString());
+          }
+      }
+    constraints: >
+      Prefer @MethodSource for complex inputs; keep CSV rows readable. One logical behavior per parameterized test method.
+    tags:
+      - junit5
+      - parameterized
+      - testing
+
+  - pattern_id: java-mockito-mock-setup
+    language: java
+    skill_family: test_scaffold
+    framework: mockito
+    description: >
+      Mockito @ExtendWith and strict stubbing with verify for collaboration-focused unit tests.
+    code_block: |
+      import org.junit.jupiter.api.Test;
+      import org.junit.jupiter.api.extension.ExtendWith;
+      import org.mockito.InjectMocks;
+      import org.mockito.Mock;
+      import org.mockito.junit.jupiter.MockitoExtension;
+
+      import static org.mockito.ArgumentMatchers.any;
+      import static org.mockito.Mockito.verify;
+      import static org.mockito.Mockito.when;
+
+      @ExtendWith(MockitoExtension.class)
+      class NotificationServiceTest {
+
+          @Mock EmailClient emailClient;
+          @InjectMocks NotificationService service;
+
+          @Test
+          void sendsWhenUserOptedIn() {
+              when(emailClient.send(any())).thenReturn(true);
+              service.notifyUser("u1", "hello");
+              verify(emailClient).send(any());
+          }
+      }
+    constraints: >
+      Use lenient() only when necessary; prefer stubbing only methods the test exercises. Avoid mocking value objects.
+    tags:
+      - mockito
+      - junit5
+      - unit-test
+
+  - pattern_id: java-spring-boot-integration-test
+    language: java
+    skill_family: test_scaffold
+    framework: spring
+    description: >
+      @SpringBootTest with @MockBean and MockMvc slice for HTTP contract verification against the full context.
+    code_block: |
+      import org.junit.jupiter.api.Test;
+      import org.springframework.beans.factory.annotation.Autowired;
+      import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+      import org.springframework.boot.test.context.SpringBootTest;
+      import org.springframework.boot.test.mock.mockito.MockBean;
+      import org.springframework.test.web.servlet.MockMvc;
+
+      import static org.mockito.ArgumentMatchers.any;
+      import static org.mockito.Mockito.when;
+      import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+      import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+      @SpringBootTest
+      @AutoConfigureMockMvc
+      class OrderApiIT {
+
+          @Autowired MockMvc mvc;
+          @MockBean OrderService orderService;
+
+          @Test
+          void getReturnsOk() throws Exception {
+              when(orderService.findById(any())).thenReturn(new OrderDto("1", "open"));
+              mvc.perform(get("/api/v1/orders/1"))
+                  .andExpect(status().isOk());
+          }
+      }
+    constraints: >
+      Use test slices (@WebMvcTest, @DataJpaTest) when full context is slow. Isolate external systems with mocks or Testcontainers.
+    tags:
+      - spring-boot
+      - integration-test
+      - mockmvc
+
+  - pattern_id: java-record-bean-validation
+    language: java
+    skill_family: data_structure
+    description: >
+      Compact immutable data carrier with Jakarta Bean Validation constraints for API and service boundaries.
+    code_block: |
+      import jakarta.validation.constraints.Email;
+      import jakarta.validation.constraints.NotBlank;
+      import jakarta.validation.constraints.Size;
+
+      public record CreateUserRequest(
+          @NotBlank @Size(max = 80) String displayName,
+          @NotBlank @Email String email
+      ) {}
+    constraints: >
+      Records are shallowly immutable; validate at construction boundaries. Use @Valid on nested records in parent DTOs.
+    tags:
+      - record
+      - bean-validation
+      - dto
+
+  - pattern_id: java-sealed-interface-payment
+    language: java
+    skill_family: data_structure
+    description: >
+      Sealed interface with permitted implementations for exhaustive switch-style modeling of payment kinds.
+    code_block: |
+      public sealed interface Payment permits CardPayment, BankTransfer, WalletPayment {
+          String referenceId();
+      }
+
+      public record CardPayment(String referenceId, String last4, String brand) implements Payment {}
+      public record BankTransfer(String referenceId, String ibanMasked) implements Payment {}
+      public record WalletPayment(String referenceId, String walletId) implements Payment {}
+
+      public static String describe(Payment p) {
+          return switch (p) {
+              case CardPayment c -> "card:" + c.brand();
+              case BankTransfer b -> "bank:" + b.ibanMasked();
+              case WalletPayment w -> "wallet:" + w.walletId();
+          };
+      }
+    constraints: >
+      Keep the sealed hierarchy in one module if possible; add default branch in switch only for non-exhaustive evolution during refactors.
+    tags:
+      - sealed
+      - algebraic-data
+      - switch
+
+  - pattern_id: java-lombok-builder
+    language: java
+    skill_family: data_structure
+    framework: lombok
+    description: >
+      Lombok @Builder for optional fields and readable construction of complex configuration or domain objects.
+    code_block: |
+      import lombok.Builder;
+      import lombok.Value;
+
+      @Value
+      @Builder
+      public class RetryPolicy {
+          int maxAttempts;
+          @Builder.Default long initialDelayMillis = 200L;
+          @Builder.Default double multiplier = 2.0;
+      }
+
+      // Usage
+      RetryPolicy policy = RetryPolicy.builder()
+          .maxAttempts(5)
+          .initialDelayMillis(100L)
+          .build();
+    constraints: >
+      Prefer records + compact constructors when shape is simple. Ensure Lombok is on annotation processor path in the build.
+    tags:
+      - lombok
+      - builder
+      - immutable
+
+  - pattern_id: java-spring-configuration-properties
+    language: java
+    skill_family: config_pattern
+    framework: spring
+    description: >
+      Type-safe binding of application.yaml prefixes with validation and IDE-friendly property metadata.
+    code_block: |
+      import jakarta.validation.constraints.Min;
+      import jakarta.validation.constraints.NotBlank;
+      import org.springframework.boot.context.properties.ConfigurationProperties;
+      import org.springframework.validation.annotation.Validated;
+
+      @Validated
+      @ConfigurationProperties(prefix = "app.integration")
+      public record IntegrationProperties(
+          @NotBlank String baseUrl,
+          @Min(1) int timeoutSeconds,
+          boolean logPayloads
+      ) {}
+    constraints: >
+      Register with @EnableConfigurationProperties or @ConfigurationPropertiesScan. Keep secrets in env vars, not committed YAML.
+    tags:
+      - spring-boot
+      - configuration
+      - properties
+
+  - pattern_id: java-spring-profile-environment
+    language: java
+    skill_family: config_pattern
+    framework: spring
+    description: >
+      Profile-specific @Configuration beans selected by spring.profiles.active for environment differences.
+    code_block: |
+      @Configuration
+      @Profile("dev")
+      public class DevDataSourceConfig {
+          @Bean
+          DataSource dataSource() {
+              return new EmbeddedDatabaseBuilder()
+                  .setType(EmbeddedDatabaseType.H2)
+                  .build();
+          }
+      }
+
+      @Configuration
+      @Profile("prod")
+      public class ProdDataSourceConfig {
+          @Bean
+          DataSource dataSource(DataSourceProperties props) {
+              return DataSourceBuilder.create()
+                  .url(props.getUrl())
+                  .username(props.getUsername())
+                  .password(props.getPassword())
+                  .build();
+          }
+      }
+    constraints: >
+      Document required profiles per environment. Avoid duplicating large config—use profile-specific fragments plus shared base beans.
+    tags:
+      - profiles
+      - spring
+      - environment
+
+  - pattern_id: java-completablefuture-chain
+    language: java
+    skill_family: async_pattern
+    description: >
+      CompletableFuture composition with thenCompose for dependent async steps and exceptionally for recovery.
+    code_block: |
+      public CompletableFuture<Quote> quoteForUser(String userId) {
+          return userService.findAsync(userId)
+              .thenCompose(user -> pricingService.priceAsync(user.tier()))
+              .exceptionally(ex -> Quote.fallback());
+      }
+    constraints: >
+      Use a shared Executor for CPU work; default fork-join pool is fine for short I/O chains. Always handle timeouts at the call site.
+    tags:
+      - completablefuture
+      - async
+      - composition
+
+  - pattern_id: java-virtual-threads-loom
+    language: java
+    skill_family: async_pattern
+    description: >
+      Structured concurrency with Executors.newVirtualThreadPerTaskExecutor for high-throughput blocking-style code.
+    code_block: |
+      try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+          var f1 = executor.submit(() -> fetchRemote("a"));
+          var f2 = executor.submit(() -> fetchRemote("b"));
+          var a = f1.get();
+          var b = f2.get();
+          return merge(a, b);
+      }
+    constraints: >
+      Avoid pinning (synchronized + blocking foreign code) on carrier threads; prefer ReentrantLock for long critical sections with virtual threads.
+    tags:
+      - virtual-threads
+      - java-21
+      - concurrency
+
+  - pattern_id: java-reactive-mono-flux
+    language: java
+    skill_family: async_pattern
+    framework: spring
+    description: >
+      Project Reactor Mono/Flux with backpressure-friendly operators for streaming and single-result reactive pipelines.
+    code_block: |
+      public Flux<Event> streamEvents(String topic) {
+          return client.subscribe(topic)
+              .map(Event::parse)
+              .filter(Event::isValid)
+              .onBackpressureBuffer(256, dropped -> log.warn("Dropped {}", dropped));
+      }
+
+      public Mono<Summary> summarize(Flux<Event> events) {
+          return events
+              .reduce(Summary.empty(), Summary::accumulate)
+              .defaultIfEmpty(Summary.empty());
+      }
+    constraints: >
+      Subscribe only at the framework edge (WebFlux, RSocket). Test with StepVerifier; set explicit schedulers for blocking bridges.
+    tags:
+      - reactor
+      - mono
+      - flux
+
+  - pattern_id: java-spring-security-filter-chain
+    language: java
+    skill_family: auth_pattern
+    framework: spring
+    description: >
+      SecurityFilterChain bean configuring CSRF, session state, and OAuth2 resource server JWT in Spring Security 6 style.
+    code_block: |
+      @Configuration
+      @EnableWebSecurity
+      public class SecurityConfig {
+
+          @Bean
+          SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+              http
+                  .csrf(csrf -> csrf.disable())
+                  .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                  .authorizeHttpRequests(auth -> auth
+                      .requestMatchers("/actuator/health").permitAll()
+                      .requestMatchers("/api/**").authenticated()
+                      .anyRequest().denyAll())
+                  .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+              return http.build();
+          }
+      }
+    constraints: >
+      Align issuer-uri with your IdP; rotate keys via JWKS. Never disable CSRF for browser cookie sessions without replacement defenses.
+    tags:
+      - spring-security
+      - jwt
+      - filter-chain
+
+  - pattern_id: java-jwt-token-provider
+    language: java
+    skill_family: auth_pattern
+    description: >
+      Issue signed JWTs with standard claims and clock skew tolerance for service-to-service or first-party auth (use a vetted library in production).
+    code_block: |
+      import java.time.Instant;
+      import java.util.Date;
+      import java.util.Map;
+
+      // Illustrative — use Nimbus JOSE+JWT or Spring Authorization Server in production
+      public final class JwtIssuer {
+          private final String issuer;
+          private final SigningKey key;
+
+          public JwtIssuer(String issuer, SigningKey key) {
+              this.issuer = issuer;
+              this.key = key;
+          }
+
+          public String issue(String subject, Map<String, Object> extraClaims, Duration ttl) {
+              var now = Instant.now();
+              // build JWT with iss, sub, iat, exp, and extraClaims; sign with key
+              return "signed-jwt-placeholder";
+          }
+      }
+    constraints: >
+      Prefer established libraries for signing/verification; store keys in KMS/HSM. Short-lived access tokens; refresh via secure channel.
+    tags:
+      - jwt
+      - security
+      - tokens
+
+  - pattern_id: java-slf4j-mdc-context
+    language: java
+    skill_family: logging_pattern
+    description: >
+      SLF4J MDC for request-scoped correlation IDs propagated to all log lines in a thread or reactive context.
+    code_block: |
+      import org.slf4j.MDC;
+
+      public void withCorrelation(String correlationId, Runnable work) {
+          var previous = MDC.get("correlationId");
+          try {
+              MDC.put("correlationId", correlationId);
+              work.run();
+          } finally {
+              if (previous != null) {
+                  MDC.put("correlationId", previous);
+              } else {
+                  MDC.remove("correlationId");
+              }
+          }
+      }
+    constraints: >
+      Clear MDC in finally blocks to avoid leaks in thread pools. For WebFlux, use ContextRegistry or reactor hooks to bridge MDC.
+    tags:
+      - slf4j
+      - mdc
+      - correlation-id
+
+  - pattern_id: java-logback-structured-json
+    language: java
+    skill_family: logging_pattern
+    description: >
+      Logback JSON encoder pattern for one JSON object per line with stable keys for log aggregation (e.g. ELK, Loki).
+    code_block: |
+      <!-- logback-spring.xml fragment: net.logstash.logback encoder -->
+      <configuration>
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+          <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
+            <customFields>{"service":"orders-api"}</customFields>
+          </encoder>
+        </appender>
+        <root level="INFO">
+          <appender-ref ref="JSON"/>
+        </root>
+      </configuration>
+    constraints: >
+      Add logstash-logback-encoder dependency. Keep PII out of structured fields; use hashing or omission for sensitive attributes.
+    tags:
+      - logback
+      - json-logging
+      - observability
+
+  - pattern_id: java-bean-validation-annotations
+    language: java
+    skill_family: validation_pattern
+    description: >
+      Standard Jakarta validation annotations on a DTO with grouping for partial updates vs create semantics.
+    code_block: |
+      import jakarta.validation.constraints.NotNull;
+      import jakarta.validation.constraints.Positive;
+      import jakarta.validation.constraints.Size;
+      import jakarta.validation.groups.Default;
+
+      public interface ValidationGroups {
+          interface OnCreate {}
+      }
+
+      public record UpdateItemRequest(
+          @Size(max = 200) String title,
+          @Positive Integer quantity
+      ) {}
+
+      public record CreateItemRequest(
+          @NotNull(groups = {Default.class, ValidationGroups.OnCreate.class})
+          @Size(max = 200) String title,
+          @NotNull @Positive Integer quantity
+      ) {}
+    constraints: >
+      Trigger groups with @Validated(OnCreate.class) on controller methods. Custom messages should be i18n keys in larger apps.
+    tags:
+      - jakarta-validation
+      - annotations
+      - dto
+
+  - pattern_id: java-custom-constraint-validator
+    language: java
+    skill_family: validation_pattern
+    description: >
+      Custom @Constraint with ConstraintValidator implementation for cross-field or database-backed rules.
+    code_block: |
+      import jakarta.validation.Constraint;
+      import jakarta.validation.ConstraintValidator;
+      import jakarta.validation.ConstraintValidatorContext;
+      import jakarta.validation.Payload;
+      import java.lang.annotation.*;
+
+      @Target({ElementType.TYPE})
+      @Retention(RetentionPolicy.RUNTIME)
+      @Constraint(validatedBy = DateRangeValidator.class)
+      public @interface ValidDateRange {
+          String message() default "end must be after start";
+          Class<?>[] groups() default {};
+          Class<? extends Payload>[] payload() default {};
+      }
+
+      @ValidDateRange
+      public record DateRangeRequest(Instant start, Instant end) {}
+
+      public class DateRangeValidator implements ConstraintValidator<ValidDateRange, DateRangeRequest> {
+          @Override
+          public boolean isValid(DateRangeRequest value, ConstraintValidatorContext ctx) {
+              if (value == null || value.start() == null || value.end() == null) return true;
+              return value.end().isAfter(value.start());
+          }
+      }
+    constraints: >
+      Return true for null components unless @NotNull is also applied. For DB lookups, inject a Spring bean via ConstraintValidatorFactory.
+    tags:
+      - bean-validation
+      - custom-constraint
+      - cross-field
+
+  - pattern_id: java-spring-sse-emitter
+    language: java
+    skill_family: api_endpoint
+    framework: spring
+    description: >
+      Server-Sent Events endpoint using SseEmitter for streaming progress or live updates to browsers and proxies.
+    code_block: |
+      @RestController
+      @RequestMapping("/api/events")
+      public class JobEventsController {
+
+          @GetMapping(value = "/{jobId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+          public SseEmitter stream(@PathVariable String jobId) {
+              var emitter = new SseEmitter(0L);
+              executor.execute(() -> {
+                  try {
+                      for (int i = 0; i < 5; i++) {
+                          emitter.send(SseEmitter.event()
+                              .name("progress")
+                              .data(Map.of("jobId", jobId, "pct", (i + 1) * 20)));
+                          Thread.sleep(200);
+                      }
+                      emitter.complete();
+                  } catch (Exception ex) {
+                      emitter.completeWithError(ex);
+                  }
+              });
+              return emitter;
+          }
+
+          private final Executor executor = Executors.newCachedThreadPool();
+      }
+    constraints: >
+      Configure async request timeout in Spring; use heartbeat comments if intermediaries drop idle connections.
+    tags:
+      - sse
+      - spring-mvc
+      - streaming
+
+  - pattern_id: java-testcontainers-postgresql
+    language: java
+    skill_family: test_scaffold
+    framework: testcontainers
+    description: >
+      JUnit 5 integration test spinning a disposable PostgreSQL container and wiring Spring DataSource to it.
+    code_block: |
+      import org.junit.jupiter.api.Test;
+      import org.springframework.beans.factory.annotation.Autowired;
+      import org.springframework.boot.test.context.SpringBootTest;
+      import org.springframework.test.context.DynamicPropertyRegistry;
+      import org.springframework.test.context.DynamicPropertySource;
+      import org.testcontainers.containers.PostgreSQLContainer;
+      import org.testcontainers.junit.jupiter.Container;
+      import org.testcontainers.junit.jupiter.Testcontainers;
+
+      @SpringBootTest
+      @Testcontainers
+      class OrderRepositoryIT {
+
+          @Container
+          static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+
+          @DynamicPropertySource
+          static void registerProps(DynamicPropertyRegistry r) {
+              r.add("spring.datasource.url", postgres::getJdbcUrl);
+              r.add("spring.datasource.username", postgres::getUsername);
+              r.add("spring.datasource.password", postgres::getPassword);
+          }
+
+          @Autowired OrderRepository orders;
+
+          @Test
+          void persists() {
+              orders.save(new Order("x"));
+          }
+      }
+    constraints: >
+      Reuse containers across tests with singleton pattern when suite time matters; pin image digests in CI for reproducibility.
+    tags:
+      - testcontainers
+      - postgresql
+      - integration-test

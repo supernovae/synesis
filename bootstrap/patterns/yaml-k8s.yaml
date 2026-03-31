@@ -1,0 +1,782 @@
+# Bootstrap code patterns — YAML / Kubernetes
+patterns:
+  - pattern_id: k8s-configmap-env-injection
+    language: yaml
+    skill_family: config_pattern
+    framework: kubernetes
+    description: >
+      ConfigMap keys injected as environment variables and as files for apps that read both styles.
+    code_block: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: app-config
+        namespace: payments
+      data:
+        LOG_LEVEL: info
+        FEATURE_FLAGS: '{"newCheckout":true}'
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                image: checkout:1.4.2
+                envFrom:
+                  - configMapRef:
+                      name: app-config
+                volumeMounts:
+                  - name: cfg
+                    mountPath: /config
+                    readOnly: true
+            volumes:
+              - name: cfg
+                configMap:
+                  name: app-config
+    constraints: >
+      ConfigMaps are not secret—do not place credentials here; use Secrets or an external secrets operator; bump deployment when only binary data in CM changes if your app caches on disk.
+    tags:
+      - configmap
+      - deployment
+      - env
+      - kubernetes
+  - pattern_id: k8s-secret-volume-mount
+    language: yaml
+    skill_family: config_pattern
+    framework: kubernetes
+    description: >
+      Secret mounted read-only into the pod filesystem with explicit mode for sensitive key material.
+    code_block: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: api-tls
+        namespace: payments
+      type: kubernetes.io/tls
+      data:
+        tls.crt: LS0tLS1CRUdJTi...  # base64
+        tls.key: LS0tLS1CRUdJTi...
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                image: checkout:1.4.2
+                volumeMounts:
+                  - name: tls
+                    mountPath: /etc/tls
+                    readOnly: true
+            volumes:
+              - name: tls
+                secret:
+                  secretName: api-tls
+                  defaultMode: 0400
+    constraints: >
+      Prefer external secret sync (ESO, Vault Agent) over long-lived Secret YAML in git; rotate certs with overlapping validity and rolling restarts.
+    tags:
+      - secret
+      - tls
+      - volume
+      - kubernetes
+  - pattern_id: k8s-hpa-cpu-memory
+    language: yaml
+    skill_family: config_pattern
+    framework: kubernetes
+    description: >
+      HorizontalPodAutoscaler scales a Deployment on CPU and memory utilization with sensible min/max replicas.
+    code_block: |
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        scaleTargetRef:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: checkout
+        minReplicas: 2
+        maxReplicas: 20
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 65
+          - type: Resource
+            resource:
+              name: memory
+              target:
+                type: Utilization
+                averageUtilization: 80
+    constraints: >
+      Metrics Server must be healthy; set requests/limits on pods or HPA behavior is misleading; add custom metrics (KEDA/Prometheus) for queue depth workloads.
+    tags:
+      - hpa
+      - autoscaling
+      - metrics
+      - kubernetes
+  - pattern_id: k8s-resource-requests-limits
+    language: yaml
+    skill_family: config_pattern
+    framework: kubernetes
+    description: >
+      Pod template with CPU/memory requests and limits for predictable scheduling and noisy-neighbor control.
+    code_block: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                image: checkout:1.4.2
+                resources:
+                  requests:
+                    cpu: "250m"
+                    memory: "512Mi"
+                  limits:
+                    cpu: "1"
+                    memory: "1Gi"
+    constraints: >
+      Omit CPU limits only with a deliberate policy; memory limits trigger OOMKill— load-test before production; use LimitRanges/ResourceQuota at namespace scope.
+    tags:
+      - resources
+      - qos
+      - kubernetes
+  - pattern_id: k8s-priority-class-preemption
+    language: yaml
+    skill_family: config_pattern
+    framework: kubernetes
+    description: >
+      PriorityClass ensures critical workloads preempt lower-priority pods under node pressure when enabled by the cluster policy.
+    code_block: |
+      apiVersion: scheduling.k8s.io/v1
+      kind: PriorityClass
+      metadata:
+        name: platform-critical
+      value: 1000000
+      globalDefault: false
+      description: "Cluster and security control plane workloads."
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ingress-controller
+        namespace: kube-system
+      spec:
+        template:
+          spec:
+            priorityClassName: platform-critical
+            containers:
+              - name: controller
+                image: ingress:1.10.0
+    constraints: >
+      Preemption can disrupt batch jobs—pair with PodDisruptionBudgets for apps that must stay available; verify admission policy allows high priorities.
+    tags:
+      - priorityclass
+      - scheduling
+      - kubernetes
+  - pattern_id: k8s-multi-container-pod
+    language: yaml
+    skill_family: data_structure
+    framework: kubernetes
+    description: >
+      Classic pod with app container plus a lightweight helper sharing network namespace and volumes.
+    code_block: |
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: report-job
+        namespace: batch
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: generator
+            image: reports:2.1.0
+            args: ["--out", "/data/report.pdf"]
+            volumeMounts:
+              - name: data
+                mountPath: /data
+          - name: uploader
+            image: aws-cli:2
+            command: ["/bin/sh", "-c"]
+            args:
+              - aws s3 cp /data/report.pdf s3://my-bucket/reports/
+            volumeMounts:
+              - name: data
+                mountPath: /data
+        volumes:
+          - name: data
+            emptyDir: {}
+    constraints: >
+      Share process namespace only when required (`shareProcessNamespace: true`); prefer Jobs/CronJobs over long-lived multi-container pods for batch.
+    tags:
+      - pod
+      - multi-container
+      - kubernetes
+  - pattern_id: k8s-init-container-migrate
+    language: yaml
+    skill_family: data_structure
+    framework: kubernetes
+    description: >
+      Init container runs database migrations or waits for dependencies before the main app container starts.
+    code_block: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: migrate
+                image: checkout:1.4.2
+                command: ["/app/migrate", "up"]
+                env:
+                  - name: DATABASE_URL
+                    valueFrom:
+                      secretKeyRef:
+                        name: db-url
+                        key: url
+            containers:
+              - name: app
+                image: checkout:1.4.2
+    constraints: >
+      Migrations in initContainers run per replica—use leader election or a Job if migrations must be exactly-once; keep init image in lockstep with app.
+    tags:
+      - init-container
+      - migration
+      - kubernetes
+  - pattern_id: k8s-sidecar-observability
+    language: yaml
+    skill_family: data_structure
+    framework: kubernetes
+    description: >
+      Sidecar pattern for log shipping or metrics scraping alongside the primary workload in the same pod.
+    code_block: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          metadata:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "9102"
+          spec:
+            containers:
+              - name: app
+                image: checkout:1.4.2
+              - name: exporter
+                image: prometheuscommunity/stackdriver-exporter:v0.14.1
+                args:
+                  - --google.project-id=myproj
+                ports:
+                  - containerPort: 9102
+                    name: metrics
+    constraints: >
+      Sidecars duplicate per-replica resource cost; for uniform telemetry prefer DaemonSet agents (node-level) when possible.
+    tags:
+      - sidecar
+      - metrics
+      - kubernetes
+  - pattern_id: k8s-network-policy-default-deny
+    language: yaml
+    skill_family: security_pattern
+    framework: kubernetes
+    description: >
+      Default-deny ingress for a namespace layered with explicit allow rules between known services.
+    code_block: |
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: default-deny-ingress
+        namespace: payments
+      spec:
+        podSelector: {}
+        policyTypes:
+          - Ingress
+      ---
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-from-ingress
+        namespace: payments
+      spec:
+        podSelector:
+          matchLabels:
+            app: checkout
+        policyTypes:
+          - Ingress
+        ingress:
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: ingress-nginx
+            ports:
+              - protocol: TCP
+                port: 8080
+    constraints: >
+      Requires a CNI that enforces NetworkPolicy (Calico, Cilium, etc.); verify DNS and control-plane paths still work; egress default-deny is a separate policy.
+    tags:
+      - networkpolicy
+      - zero-trust
+      - kubernetes
+  - pattern_id: k8s-pod-security-context
+    language: yaml
+    skill_family: security_pattern
+    framework: kubernetes
+    description: >
+      Hardened securityContext: non-root user, read-only root filesystem, dropped capabilities, and seccomp profile.
+    code_block: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 10001
+              fsGroup: 10001
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - name: app
+                image: checkout:1.4.2
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop:
+                      - ALL
+                volumeMounts:
+                  - name: tmp
+                    mountPath: /tmp
+            volumes:
+              - name: tmp
+                emptyDir: {}
+    constraints: >
+      Writable paths must be mounted explicitly; some runtimes need CAP_NET_BIND for low ports—prefer higher ports or init capabilities review.
+    tags:
+      - securitycontext
+      - hardening
+      - kubernetes
+  - pattern_id: k8s-serviceaccount-rbac
+    language: yaml
+    skill_family: security_pattern
+    framework: kubernetes
+    description: >
+      Dedicated ServiceAccount bound to a Role for in-cluster API access following least privilege.
+    code_block: |
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: checkout
+        namespace: payments
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: checkout-leader-election
+        namespace: payments
+      rules:
+        - apiGroups: ["coordination.k8s.io"]
+          resources: ["leases"]
+          verbs: ["get", "watch", "list", "create", "update", "patch"]
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: checkout-leader-election
+        namespace: payments
+      subjects:
+        - kind: ServiceAccount
+          name: checkout
+          namespace: payments
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: checkout-leader-election
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            serviceAccountName: checkout
+            automountServiceAccountToken: true
+            containers:
+              - name: app
+                image: checkout:1.4.2
+    constraints: >
+      Set automountServiceAccountToken false when pods do not need API access; prefer namespace-scoped Role over ClusterRole unless cross-namespace reads are required.
+    tags:
+      - rbac
+      - serviceaccount
+      - kubernetes
+  - pattern_id: k8s-image-pull-secrets-private-registry
+    language: yaml
+    skill_family: security_pattern
+    framework: kubernetes
+    description: >
+      Reference a docker-registry Secret for pulling images from a private registry without embedding credentials in the image name.
+    code_block: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: regcred
+        namespace: payments
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: eyJhdXRocyI6...  # base64 docker config JSON
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            imagePullSecrets:
+              - name: regcred
+            containers:
+              - name: app
+                image: registry.example.com/payments/checkout:1.4.2
+    constraints: >
+      Rotate registry tokens via ESO or similar; default ServiceAccount imagePullSecrets only if namespace-wide policy is acceptable.
+    tags:
+      - imagepullsecrets
+      - registry
+      - kubernetes
+  - pattern_id: k8s-ingress-tls-cert-manager
+    language: yaml
+    skill_family: api_endpoint
+    framework: kubernetes
+    description: >
+      Ingress host with TLS terminated at the ingress controller using cert-manager HTTP-01 ClusterIssuer annotations.
+    code_block: |
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: checkout
+        namespace: payments
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt-prod
+      spec:
+        ingressClassName: nginx
+        tls:
+          - hosts:
+              - checkout.example.com
+            secretName: checkout-tls
+        rules:
+          - host: checkout.example.com
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: checkout
+                      port:
+                        number: 80
+    constraints: >
+      DNS must resolve to the ingress LB before HTTP-01 succeeds; pin ingress class and TLS minimum version via controller ConfigMap where supported.
+    tags:
+      - ingress
+      - tls
+      - cert-manager
+      - kubernetes
+  - pattern_id: k8s-service-loadbalancer-annotations
+    language: yaml
+    skill_family: api_endpoint
+    framework: kubernetes
+    description: >
+      Service type LoadBalancer with cloud-specific annotations for internal-only exposure and health checks.
+    code_block: |
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: checkout
+        namespace: payments
+        annotations:
+          service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+          service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      spec:
+        type: LoadBalancer
+        selector:
+          app: checkout
+        ports:
+          - name: http
+            port: 80
+            targetPort: 8080
+            protocol: TCP
+    constraints: >
+      Annotation keys differ per cloud (AWS/GCP/Azure); verify dual-stack and IPv6 needs; prefer Gateway API for greenfield L7 routing.
+    tags:
+      - service
+      - loadbalancer
+      - aws
+      - kubernetes
+  - pattern_id: k8s-probes-liveness-readiness
+    language: yaml
+    skill_family: error_handling
+    framework: kubernetes
+    description: >
+      HTTP readiness excludes not-ready pods from Service endpoints; liveness restarts wedged processes without flapping on slow starts.
+    code_block: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                image: checkout:1.4.2
+                ports:
+                  - containerPort: 8080
+                startupProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 8080
+                  failureThreshold: 30
+                  periodSeconds: 5
+                readinessProbe:
+                  httpGet:
+                    path: /ready
+                    port: 8080
+                  periodSeconds: 5
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 8080
+                  periodSeconds: 10
+    constraints: >
+      Readiness should fail on dependency outages you cannot serve through; liveness must not depend on external systems that can cause restart storms.
+    tags:
+      - probes
+      - health
+      - kubernetes
+  - pattern_id: k8s-pod-disruption-budget
+    language: yaml
+    skill_family: error_handling
+    framework: kubernetes
+    description: >
+      PodDisruptionBudget limits voluntary evictions during node drains and cluster upgrades while allowing some churn.
+    code_block: |
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        minAvailable: 1
+        selector:
+          matchLabels:
+            app: checkout
+    constraints: >
+      For large replica counts prefer maxUnavailable with percentages; ensure PDB selector matches pod labels exactly; watch for conflicts with HPA min replicas.
+    tags:
+      - pdb
+      - availability
+      - kubernetes
+  - pattern_id: k8s-gatekeeper-constraint-template
+    language: yaml
+    skill_family: validation_pattern
+    framework: kubernetes
+    description: >
+      OPA Gatekeeper ConstraintTemplate with Rego requiring privileged pods to be denied at admission.
+    code_block: |
+      apiVersion: templates.gatekeeper.sh/v1
+      kind: ConstraintTemplate
+      metadata:
+        name: k8spsprivilegedcontainer
+      spec:
+        crd:
+          spec:
+            names:
+              kind: K8sPSPrivilegedContainer
+        targets:
+          - target: admission.k8s.gatekeeper.sh
+            rego: |
+              package k8spsprivilegedcontainer
+              violation[{"msg": msg}] {
+                c := input_containers[_]
+                c.securityContext.privileged
+                msg := sprintf("privileged container not allowed: %v", [c.name])
+              }
+              input_containers[c] {
+                c := input.review.object.spec.containers[_]
+              }
+              input_containers[c] {
+                c := input.review.object.spec.initContainers[_]
+              }
+      ---
+      apiVersion: constraints.gatekeeper.sh/v1beta1
+      kind: K8sPSPrivilegedContainer
+      metadata:
+        name: deny-privileged
+      spec:
+        match:
+          kinds:
+            - apiGroups: [""]
+              kinds: ["Pod"]
+          namespaces:
+            - payments
+    constraints: >
+      Install Gatekeeper with audit sync; test constraints in dry-run admission modes; exempt system namespaces carefully with narrow matchers.
+    tags:
+      - opa
+      - gatekeeper
+      - policy
+      - kubernetes
+  - pattern_id: k8s-kyverno-require-requests-limits
+    language: yaml
+    skill_family: validation_pattern
+    framework: kubernetes
+    description: >
+      Kyverno ClusterPolicy rejects Pods that omit CPU/memory requests or limits to enforce schedulability and chargeback.
+    code_block: |
+      apiVersion: kyverno.io/v1
+      kind: ClusterPolicy
+      metadata:
+        name: require-requests-limits
+      spec:
+        validationFailureAction: Enforce
+        background: true
+        rules:
+          - name: validate-resources
+            match:
+              any:
+                - resources:
+                    kinds:
+                      - Pod
+            validate:
+              message: "CPU and memory requests/limits are required."
+              pattern:
+                spec:
+                  containers:
+                    - resources:
+                        requests:
+                          memory: "?*"
+                          cpu: "?*"
+                        limits:
+                          memory: "?*"
+                          cpu: "?*"
+    constraints: >
+      Scope policies with match/exclude for kube-system; run Kyverno in HA; use generate/mutate rules for defaults where validate-only is too strict.
+    tags:
+      - kyverno
+      - policy
+      - validation
+      - kubernetes
+  - pattern_id: k8s-fluent-bit-daemonset
+    language: yaml
+    skill_family: logging_pattern
+    framework: kubernetes
+    description: >
+      Fluent Bit DaemonSet tailing container logs and forwarding to a centralized sink with Kubernetes metadata enrichment.
+    code_block: |
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: fluent-bit
+        namespace: logging
+      spec:
+        selector:
+          matchLabels:
+            app: fluent-bit
+        template:
+          metadata:
+            labels:
+              app: fluent-bit
+          spec:
+            serviceAccountName: fluent-bit
+            containers:
+              - name: fluent-bit
+                image: cr.fluentbit.io/fluent/fluent-bit:2.2
+                volumeMounts:
+                  - name: varlog
+                    mountPath: /var/log
+                  - name: varlibdockercontainers
+                    mountPath: /var/lib/docker/containers
+                    readOnly: true
+                  - name: fluent-bit-config
+                    mountPath: /fluent-bit/etc/
+            volumes:
+              - name: varlog
+                hostPath:
+                  path: /var/log
+              - name: varlibdockercontainers
+                hostPath:
+                  path: /var/lib/docker/containers
+              - name: fluent-bit-config
+                configMap:
+                  name: fluent-bit-config
+    constraints: >
+      Paths differ for containerd vs docker; secure RBAC for reading pod metadata; rate-limit and compress egress to the log backend.
+    tags:
+      - fluent-bit
+      - daemonset
+      - logging
+      - kubernetes
+  - pattern_id: k8s-structured-logging-json
+    language: yaml
+    skill_family: logging_pattern
+    framework: kubernetes
+    description: >
+      Deployment env configuration nudging the app to emit JSON logs on stdout for cluster-level parsing without file tails.
+    code_block: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: checkout
+        namespace: payments
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                image: checkout:1.4.2
+                env:
+                  - name: LOG_FORMAT
+                    value: json
+                  - name: LOG_LEVEL
+                    value: info
+                args:
+                  - --access-log-json
+    constraints: >
+      One JSON object per line; avoid logging secrets; pair with Pod log rotation settings at node level and centralized retention policies.
+    tags:
+      - json
+      - stdout
+      - logging
+      - kubernetes

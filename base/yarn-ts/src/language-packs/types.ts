@@ -20,6 +20,8 @@ export interface FixRecipe {
   errorFamily: string;
   template: string;
   description: string;
+  steps?: string[];
+  constraints?: string;
 }
 
 export interface LanguagePackManifest {

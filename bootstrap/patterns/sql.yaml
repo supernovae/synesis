@@ -1,0 +1,579 @@
+# Bootstrap code patterns — SQL (PostgreSQL-oriented, portable where noted)
+patterns:
+  - pattern_id: sql-normalized-table-constraints
+    language: sql
+    skill_family: data_structure
+    framework: postgresql
+    description: >
+      Third-normal-form table with primary key, foreign keys, not-null, unique, and timestamptz audit columns for relational integrity.
+    code_block: |
+      CREATE TABLE department (
+        id          BIGSERIAL PRIMARY KEY,
+        name        TEXT NOT NULL UNIQUE,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      
+      CREATE TABLE employee (
+        id              BIGSERIAL PRIMARY KEY,
+        department_id   BIGINT NOT NULL REFERENCES department (id)
+          ON UPDATE CASCADE ON DELETE RESTRICT,
+        email           CITEXT NOT NULL UNIQUE,
+        full_name       TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      
+      CREATE INDEX idx_employee_department ON employee (department_id);
+    constraints: >
+      Prefer ON DELETE RESTRICT for employee→department unless you have an explicit cascade policy; use application triggers or deferred constraints for complex rules.
+    tags:
+      - ddl
+      - normalization
+      - constraints
+      - postgresql
+  - pattern_id: sql-junction-table
+    language: sql
+    skill_family: data_structure
+    framework: postgresql
+    description: >
+      Many-to-many link table with composite primary key, optional payload columns, and indexes for lookups from either side.
+    code_block: |
+      CREATE TABLE project (
+        id   BIGSERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE
+      );
+      
+      CREATE TABLE tag (
+        id   BIGSERIAL PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE
+      );
+      
+      CREATE TABLE project_tag (
+        project_id BIGINT NOT NULL REFERENCES project (id) ON DELETE CASCADE,
+        tag_id     BIGINT NOT NULL REFERENCES tag (id) ON DELETE CASCADE,
+        assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (project_id, tag_id)
+      );
+      
+      CREATE INDEX idx_project_tag_tag ON project_tag (tag_id);
+    constraints: >
+      Keep junction rows narrow; put rich attributes on a separate entity if the relationship itself becomes first-class.
+    tags:
+      - many-to-many
+      - join-table
+      - postgresql
+  - pattern_id: sql-temporal-scd2
+    language: sql
+    skill_family: data_structure
+    framework: postgresql
+    description: >
+      Slowly-changing dimension type 2 with validity interval and current-row flag so history remains queryable while preserving referential integrity to stable keys.
+    code_block: |
+      CREATE TABLE customer_scd2 (
+        customer_sk     BIGSERIAL PRIMARY KEY,
+        customer_bk     UUID NOT NULL,
+        name            TEXT NOT NULL,
+        valid_from      TIMESTAMPTZ NOT NULL,
+        valid_to        TIMESTAMPTZ,
+        is_current      BOOLEAN NOT NULL DEFAULT true,
+        CONSTRAINT customer_scd2_valid_range
+          CHECK (valid_to IS NULL OR valid_to > valid_from),
+        CONSTRAINT customer_scd2_current_consistency
+          CHECK (
+            (is_current AND valid_to IS NULL)
+            OR (NOT is_current AND valid_to IS NOT NULL)
+          )
+      );
+      
+      CREATE UNIQUE INDEX uq_customer_current
+        ON customer_scd2 (customer_bk)
+        WHERE is_current;
+      
+      CREATE INDEX idx_customer_bk_time
+        ON customer_scd2 (customer_bk, valid_from);
+    constraints: >
+      ETL or application code must close the prior row (set valid_to, is_current=false) before inserting the new current row; consider deferrable constraints for bulk loads.
+    tags:
+      - scd2
+      - slowly-changing-dimension
+      - history
+      - postgresql
+  - pattern_id: sql-migration-add-column-default
+    language: sql
+    skill_family: migration_pattern
+    framework: postgresql
+    description: >
+      Add a nullable column, backfill in batches, then set NOT NULL and default to avoid long table rewrites under heavy write load.
+    code_block: |
+      BEGIN;
+      
+      ALTER TABLE invoice
+        ADD COLUMN IF NOT EXISTS status TEXT;
+      
+      -- Backfill in application-controlled batches, e.g. WHERE id BETWEEN $1 AND $2
+      UPDATE invoice SET status = 'open' WHERE status IS NULL AND id < 100000;
+      
+      COMMIT;
+      
+      ALTER TABLE invoice
+        ALTER COLUMN status SET DEFAULT 'open',
+        ALTER COLUMN status SET NOT NULL;
+      
+      COMMENT ON COLUMN invoice.status IS 'Workflow state for the invoice.';
+    constraints: >
+      On PostgreSQL 11+, ADD COLUMN with a constant default can be fast; still prefer the backfill pattern for volatile defaults or very large tables.
+    tags:
+      - ddl
+      - backfill
+      - zero-downtime
+      - postgresql
+  - pattern_id: sql-create-index-concurrently
+    language: sql
+    skill_family: migration_pattern
+    framework: postgresql
+    description: >
+      Build a supporting index without blocking writes; run outside a transaction block and handle failure by dropping INVALID indexes before retrying.
+    code_block: |
+      -- Cannot run inside an explicit transaction block
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_invoice_tenant_created
+        ON invoice (tenant_id, created_at DESC)
+        WHERE NOT archived;
+      
+      -- If the build fails, you may see an INVALID index — inspect and drop:
+      -- SELECT indexrelid::regclass, indisvalid FROM pg_index JOIN ...
+      -- DROP INDEX CONCURRENTLY IF EXISTS idx_invoice_tenant_created;
+    constraints: >
+      CONCURRENTLY cannot run inside BEGIN/COMMIT; use a migration runner that issues DDL as autocommit; expect longer build time and higher I/O.
+    tags:
+      - ddl
+      - index
+      - concurrent
+      - postgresql
+  - pattern_id: sql-data-migration-cte
+    language: sql
+    skill_family: migration_pattern
+    framework: postgresql
+    description: >
+      One-shot data migration using CTEs for clarity, idempotency via WHERE NOT EXISTS, and optional RETURNING for verification counts.
+    code_block: |
+      WITH src AS (
+        SELECT id, legacy_code
+        FROM legacy_customer
+        WHERE legacy_code IS NOT NULL
+      ),
+      ins AS (
+        INSERT INTO customer_external_ref (customer_id, external_system, external_id)
+        SELECT c.id, 'legacy', s.legacy_code
+        FROM src s
+        JOIN customer c ON c.legacy_id = s.id
+        WHERE NOT EXISTS (
+          SELECT 1 FROM customer_external_ref r
+          WHERE r.customer_id = c.id AND r.external_system = 'legacy'
+        )
+        RETURNING 1
+      )
+      SELECT count(*) AS rows_inserted FROM ins;
+    constraints: >
+      Wrap in a transaction when the migration is small; for huge tables, batch on key ranges and checkpoint progress in a scratch table.
+    tags:
+      - cte
+      - etl
+      - idempotent
+      - postgresql
+  - pattern_id: sql-migration-safe-drop-column
+    language: sql
+    skill_family: migration_pattern
+    framework: postgresql
+    description: >
+      Two-phase column removal—stop writing, ignore reads, then drop after deploy— reduces risk when multiple services touch the same table.
+    code_block: |
+      -- Phase 1 (deploy): application stops writing; column may remain nullable
+      ALTER TABLE "user" ALTER COLUMN old_screen_name DROP NOT NULL;
+      
+      -- Phase 2 (later deploy): drop when no code references the column
+      ALTER TABLE "user" DROP COLUMN IF EXISTS old_screen_name;
+    constraints: >
+      In managed Postgres, verify dependent views/materialized views; use CASCADE only when you intend to drop dependents.
+    tags:
+      - ddl
+      - deprecation
+      - postgresql
+  - pattern_id: sql-transaction-savepoint
+    language: sql
+    skill_family: error_handling
+    framework: postgresql
+    description: >
+      Nested logical units inside one transaction using SAVEPOINT so a failure in an optional step rolls back only that step, not the whole transaction.
+    code_block: |
+      CREATE OR REPLACE FUNCTION place_order_with_optional_promo(
+        p_customer_id bigint,
+        p_promo_code text,
+        p_sku text,
+        p_qty integer
+      ) RETURNS bigint
+      LANGUAGE plpgsql AS $$
+      DECLARE
+        v_order_id bigint;
+      BEGIN
+        INSERT INTO order_header (customer_id)
+        VALUES (p_customer_id)
+        RETURNING id INTO v_order_id;
+      
+        SAVEPOINT after_header;
+        BEGIN
+          INSERT INTO order_promo (order_id, code)
+          VALUES (v_order_id, p_promo_code);
+        EXCEPTION
+          WHEN unique_violation OR foreign_key_violation THEN
+            ROLLBACK TO SAVEPOINT after_header;
+        END;
+      
+        INSERT INTO order_line (order_id, sku, qty)
+        VALUES (v_order_id, p_sku, p_qty);
+      
+        RETURN v_order_id;
+      END;
+      $$;
+    constraints: >
+      Savepoints do not shield you from serialization failures at COMMIT; retry the whole transaction when using SERIALIZABLE or on 40001.
+    tags:
+      - plpgsql
+      - savepoint
+      - transactions
+      - postgresql
+  - pattern_id: sql-deadlock-retry
+    language: sql
+    skill_family: error_handling
+    framework: postgresql
+    description: >
+      Keep transactions short and lock rows in a consistent order; on deadlock_detected (SQLSTATE 40P01) the driver should ROLLBACK and retry with backoff—illustrated here as the core SQL body inside that retry loop.
+    code_block: |
+      BEGIN;
+      SET LOCAL lock_timeout = '2s';
+      
+      -- Always lock rows in deterministic order (e.g. lower id first) across the app.
+      SELECT id FROM inventory WHERE sku IN ($1, $2) ORDER BY id FOR UPDATE;
+      
+      UPDATE inventory SET qty = qty - $3 WHERE sku = $1;
+      UPDATE inventory SET qty = qty + $3 WHERE sku = $2;
+      
+      COMMIT;
+      
+      -- If the client receives SQLSTATE 40P01 (deadlock_detected): ROLLBACK; wait
+      -- with exponential backoff; retry up to N times, then fail and log.
+    constraints: >
+      lock_timeout avoids indefinite waits but can surface as different errors; combine with statement_timeout; never swallow 40P01 without rolling back the transaction.
+    tags:
+      - deadlock
+      - 40p01
+      - locking
+      - postgresql
+  - pattern_id: sql-check-constraints
+    language: sql
+    skill_family: validation_pattern
+    framework: postgresql
+    description: >
+      Column and table CHECK constraints enforce invariants at the database layer, complementing application validation.
+    code_block: |
+      CREATE TABLE subscription (
+        id         BIGSERIAL PRIMARY KEY,
+        tier       TEXT NOT NULL CHECK (tier IN ('free', 'pro', 'enterprise')),
+        seat_count INTEGER NOT NULL CHECK (seat_count > 0),
+        starts_on  DATE NOT NULL,
+        ends_on    DATE,
+        CONSTRAINT subscription_date_order CHECK (ends_on IS NULL OR ends_on >= starts_on)
+      );
+    constraints: >
+      CHECK runs on every row change; avoid calling volatile functions; for complex rules spanning tables, prefer triggers or deferrable constraints.
+    tags:
+      - check
+      - invariants
+      - postgresql
+  - pattern_id: sql-trigger-validation
+    language: sql
+    skill_family: validation_pattern
+    framework: postgresql
+    description: >
+      BEFORE INSERT OR UPDATE trigger centralizes cross-field or cross-row validation and raises meaningful exceptions to callers.
+    code_block: |
+      CREATE OR REPLACE FUNCTION trg_enforce_invoice_total()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.total_cents < 0 THEN
+          RAISE EXCEPTION 'total_cents must be non-negative' USING ERRCODE = '23514';
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM invoice_line l
+          WHERE l.invoice_id = NEW.id
+          HAVING sum(l.line_total_cents) <> NEW.total_cents
+        ) THEN
+          RAISE EXCEPTION 'invoice total does not match lines' USING ERRCODE = '23514';
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      
+      CREATE TRIGGER invoice_total_consistency
+        BEFORE INSERT OR UPDATE ON invoice
+        FOR EACH ROW EXECUTE PROCEDURE trg_enforce_invoice_total();
+    constraints: >
+      Triggers add latency and complexity; document behavior for ORM users; prefer constraints when expressible declaratively.
+    tags:
+      - trigger
+      - plpgsql
+      - postgresql
+  - pattern_id: sql-referential-integrity-cascade
+    language: sql
+    skill_family: validation_pattern
+    framework: postgresql
+    description: >
+      Foreign keys with ON DELETE/UPDATE CASCADE (or SET NULL) encode ownership and cleanup rules so orphans cannot accumulate.
+    code_block: |
+      CREATE TABLE folder (
+        id       BIGSERIAL PRIMARY KEY,
+        owner_id BIGINT NOT NULL REFERENCES app_user (id) ON DELETE CASCADE
+      );
+      
+      CREATE TABLE document (
+        id        BIGSERIAL PRIMARY KEY,
+        folder_id BIGINT NOT NULL REFERENCES folder (id) ON DELETE CASCADE,
+        title     TEXT NOT NULL
+      );
+      
+      CREATE TABLE document_share (
+        document_id BIGINT NOT NULL REFERENCES document (id) ON DELETE CASCADE,
+        user_id     BIGINT NOT NULL REFERENCES app_user (id) ON DELETE CASCADE,
+        PRIMARY KEY (document_id, user_id)
+      );
+    constraints: >
+      CASCADE deletes are sharp tools—audit paths that delete parents; consider soft-delete flags if you need recovery or legal hold.
+    tags:
+      - foreign-key
+      - cascade
+      - postgresql
+  - pattern_id: sql-exclusion-constraint
+    language: sql
+    skill_family: validation_pattern
+    framework: postgresql
+    description: >
+      Exclusion constraints prevent overlapping ranges per resource—ideal for bookings and scheduling without race-prone application checks alone.
+    code_block: |
+      CREATE EXTENSION IF NOT EXISTS btree_gist;
+      
+      CREATE TABLE room_booking (
+        id       BIGSERIAL PRIMARY KEY,
+        room_id  BIGINT NOT NULL REFERENCES room (id) ON DELETE CASCADE,
+        tsrange  TSTZRANGE NOT NULL,
+        EXCLUDE USING gist (room_id WITH =, tsrange WITH &&)
+      );
+    constraints: >
+      Requires btree_gist for scalar + range exclusion; overlaps are rejected at commit time—still handle serialization retries under concurrency.
+    tags:
+      - exclusion
+      - gist
+      - scheduling
+      - postgresql
+  - pattern_id: sql-partitioned-table
+    language: sql
+    skill_family: config_pattern
+    framework: postgresql
+    description: >
+      Range-partitioned fact table by month keeps indexes smaller and enables partition pruning and cheap archival drops.
+    code_block: |
+      CREATE TABLE events (
+        id         BIGSERIAL,
+        occurred_at TIMESTAMPTZ NOT NULL,
+        payload    JSONB NOT NULL,
+        PRIMARY KEY (id, occurred_at)
+      ) PARTITION BY RANGE (occurred_at);
+      
+      CREATE TABLE events_2025_01 PARTITION OF events
+        FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
+      
+      CREATE TABLE events_2025_02 PARTITION OF events
+        FOR VALUES FROM ('2025-02-01') TO ('2025-03-01');
+      
+      CREATE INDEX idx_events_payload ON events USING gin (payload);
+    constraints: >
+      Create partitions ahead of time or use pg_partman; unique constraints must include the partition key; long transactions may block attach/detach.
+    tags:
+      - partitioning
+      - ddl
+      - postgresql
+  - pattern_id: sql-materialized-view
+    language: sql
+    skill_family: config_pattern
+    framework: postgresql
+    description: >
+      Precomputed aggregation refreshed on a schedule or after ETL for read-heavy dashboards without hammering base tables.
+    code_block: |
+      CREATE MATERIALIZED VIEW daily_sales AS
+      SELECT date_trunc('day', occurred_at) AS day,
+             product_id,
+             sum(amount_cents) AS revenue_cents,
+             count(*) AS order_count
+      FROM sale_line
+      GROUP BY 1, 2;
+      
+      CREATE UNIQUE INDEX ON daily_sales (day, product_id);
+      
+      -- Refresh strategies: CONCURRENTLY requires unique index
+      REFRESH MATERIALIZED VIEW CONCURRENTLY daily_sales;
+    constraints: >
+      REFRESH CONCURRENTLY needs a unique index; stale data is expected—expose last_refreshed in metadata if users need freshness guarantees.
+    tags:
+      - materialized-view
+      - refresh
+      - postgresql
+  - pattern_id: sql-row-level-security
+    language: sql
+    skill_family: security_pattern
+    framework: postgresql
+    description: >
+      RLS policies restrict rows per session tenant, enforcing defense in depth even if the application forgets a WHERE clause.
+    code_block: |
+      ALTER TABLE customer ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE customer FORCE ROW LEVEL SECURITY;
+      
+      CREATE POLICY tenant_isolation_select ON customer
+        FOR SELECT USING (tenant_id = current_setting('app.tenant_id')::bigint);
+      
+      CREATE POLICY tenant_isolation_modify ON customer
+        FOR ALL USING (tenant_id = current_setting('app.tenant_id')::bigint)
+        WITH CHECK (tenant_id = current_setting('app.tenant_id')::bigint);
+      
+      -- Session setup (example): SET LOCAL app.tenant_id = '42';
+    constraints: >
+      Superusers bypass RLS unless FORCE; set GUCs per transaction; test every role with psql, not only the application superuser.
+    tags:
+      - rls
+      - multi-tenant
+      - postgresql
+  - pattern_id: sql-least-privilege-roles
+    language: sql
+    skill_family: security_pattern
+    framework: postgresql
+    description: >
+      Separate roles for migration (DDL) and runtime (DML) with explicit schema usage and default privileges on new objects.
+    code_block: |
+      CREATE ROLE app_migrator LOGIN PASSWORD 'use-vault';
+      CREATE ROLE app_runtime LOGIN PASSWORD 'use-vault';
+      
+      GRANT USAGE ON SCHEMA app TO app_migrator, app_runtime;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA app TO app_runtime;
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA app TO app_runtime;
+      
+      ALTER DEFAULT PRIVILEGES FOR ROLE app_migrator IN SCHEMA app
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_runtime;
+      ALTER DEFAULT PRIVILEGES FOR ROLE app_migrator IN SCHEMA app
+        GRANT USAGE, SELECT ON SEQUENCES TO app_runtime;
+      
+      REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+    constraints: >
+      Migrator retains DDL; runtime cannot CREATE TABLE; rotate passwords via your secrets manager; audit with pg_audit or cloud logging where available.
+    tags:
+      - iam
+      - roles
+      - grants
+      - postgresql
+  - pattern_id: sql-advisory-lock
+    language: sql
+    skill_family: async_pattern
+    framework: postgresql
+    description: >
+      Session-level advisory locks coordinate critical sections across connections using application-chosen bigint keys without locking table rows.
+    code_block: |
+      -- Non-blocking try; pair with application retry
+      SELECT pg_try_advisory_lock(hashtext('job:nightly-settlement'));
+      
+      -- ... critical section ...
+      
+      SELECT pg_advisory_unlock(hashtext('job:nightly-settlement'));
+      
+      -- Transaction-scoped variant (released automatically at COMMIT/ROLLBACK)
+      SELECT pg_advisory_xact_lock(hashtext('tenant:42:report'));
+    constraints: >
+      Always unlock on all success and failure paths for session locks; xact locks avoid leaks but scope to one transaction only.
+    tags:
+      - locking
+      - concurrency
+      - postgresql
+  - pattern_id: sql-skip-locked-queue
+    language: sql
+    skill_family: async_pattern
+    framework: postgresql
+    description: >
+      Work-queue dequeue pattern using FOR UPDATE SKIP LOCKED so many workers can drain jobs without blocking each other.
+    code_block: |
+      WITH cte AS (
+        SELECT id
+        FROM job_queue
+        WHERE status = 'pending'
+        ORDER BY priority DESC, enqueued_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      UPDATE job_queue q
+      SET status = 'processing', locked_at = now(), locked_by = $1
+      FROM cte
+      WHERE q.id = cte.id
+      RETURNING q.*;
+    constraints: >
+      Requires appropriate indexes on (status, priority, enqueued_at); workers must heartbeat or timeout stale processing rows; test under high concurrency.
+    tags:
+      - queue
+      - for-update
+      - workers
+      - postgresql
+  - pattern_id: sql-audit-trigger
+    language: sql
+    skill_family: logging_pattern
+    framework: postgresql
+    description: >
+      Generic AFTER trigger writes old/new row snapshots and actor metadata to an append-only audit table for compliance and debugging.
+    code_block: |
+      CREATE TABLE audit_row_change (
+        id           BIGSERIAL PRIMARY KEY,
+        table_name   TEXT NOT NULL,
+        row_pk       TEXT NOT NULL,
+        op           CHAR(1) NOT NULL CHECK (op IN ('I','U','D')),
+        changed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        actor        TEXT,
+        old_row      JSONB,
+        new_row      JSONB
+      );
+      
+      CREATE OR REPLACE FUNCTION trg_audit_row()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      DECLARE
+        pk_text TEXT;
+      BEGIN
+        pk_text := coalesce(NEW.id::text, OLD.id::text);
+        INSERT INTO audit_row_change (table_name, row_pk, op, actor, old_row, new_row)
+        VALUES (
+          TG_TABLE_NAME,
+          pk_text,
+          CASE TG_OP
+            WHEN 'INSERT' THEN 'I'
+            WHEN 'UPDATE' THEN 'U'
+            WHEN 'DELETE' THEN 'D'
+          END,
+          current_setting('app.actor', true),
+          CASE WHEN TG_OP IN ('UPDATE','DELETE') THEN to_jsonb(OLD) END,
+          CASE WHEN TG_OP IN ('UPDATE','INSERT') THEN to_jsonb(NEW) END
+        );
+        RETURN COALESCE(NEW, OLD);
+      END;
+      $$;
+      
+      CREATE TRIGGER customer_audit
+        AFTER INSERT OR UPDATE OR DELETE ON customer
+        FOR EACH ROW EXECUTE PROCEDURE trg_audit_row();
+    constraints: >
+      High-volume tables generate large audit volume—partition the audit table, exclude sensitive columns in tailored triggers, and secure SELECT on audit rows.
+    tags:
+      - audit
+      - trigger
+      - compliance
+      - postgresql

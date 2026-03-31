@@ -193,7 +193,7 @@ def index_parsed_chunk_pairs(
         )
         src_constraint_kind = ""
 
-    if src_content_profile and src_content_profile not in {"code", "docs", "api_spec", "policy", "architecture", "mixed", "reference", "procedural", "tutorial"}:
+    if src_content_profile and src_content_profile not in {"code", "docs", "api_spec", "policy", "architecture", "mixed", "reference", "procedural", "tutorial", "pattern", "conceptual", "troubleshooting"}:
         logger.warning(
             "indexer_invalid_content_profile",
             extra={"source": name, "content_profile": src_content_profile},

@@ -61,6 +61,54 @@ export const rustPack: LanguagePackManifest = {
       errorFamily: "import_error",
       template: "Check the crate name in Cargo.toml and the `use` path in {file}.",
       description: "Crate or module path cannot be resolved",
+      steps: [
+        "Verify Cargo.toml dependency",
+        "Check feature flags",
+        "Use correct crate:: or super:: path",
+      ],
+      constraints: "Pin dependency versions.",
+    },
+    {
+      errorFamily: "missing_method",
+      template:
+        "In {file}: verify the method name, import the trait that provides it, or use fully-qualified syntax if ambiguous.",
+      description: "Method does not exist on type, or trait needs importing.",
+      steps: [
+        "Check method name",
+        "Import the required trait",
+        "Use fully-qualified syntax if ambiguous",
+      ],
+      constraints: "Prefer importing trait over UFCS.",
+    },
+    {
+      errorFamily: "unused_symbol",
+      template: "In {file}: remove the unused item, prefix with _ if intentionally unused, or check cfg attributes.",
+      description: "Variable, import, or function declared but never used.",
+      steps: [
+        "Remove unused item",
+        "Prefix with underscore if intentionally unused",
+        "Check cfg attributes",
+      ],
+      constraints: "Use _ prefix convention.",
+    },
+    {
+      errorFamily: "lifetime",
+      template:
+        "In {file}: add explicit lifetime annotations, consider owned types, or use 'static for global data where appropriate.",
+      description: "Lifetime annotations missing or conflicting.",
+      steps: [
+        "Add explicit lifetime annotations",
+        "Consider using owned types",
+        "Use 'static for global data",
+      ],
+      constraints: "Prefer owned types when lifetime complexity is high.",
+    },
+    {
+      errorFamily: "undeclared_name",
+      template: "In {file}: add a use statement, fix the module path, or verify feature flags for the name.",
+      description: "Name used that is not in scope.",
+      steps: ["Add use statement", "Check module path", "Verify feature flags"],
+      constraints: "Prefer use at module level.",
     },
   ],
   corpusPackId: "lang-rust",

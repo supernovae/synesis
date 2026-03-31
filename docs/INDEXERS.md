@@ -687,4 +687,51 @@ curl -s "$ADMIN_URL/api/v1/rag/corpus/sample?fields=language,artifact_kind,conte
 
 ---
 
+## Enrichment Model Configuration
+
+The indexer's optional LLM enrichment (`--enrich full`) uses a configurable model for chunk summarization and metadata extraction.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SYNESIS_INDEXER_ENRICHMENT_MODEL` | `synesis-general` | Model name sent in the OpenAI-compatible API request |
+| `SYNESIS_INDEXER_ENRICHMENT_TIMEOUT` | `30` | HTTP timeout in seconds per LLM call |
+| `SYNESIS_INDEXER_LLM_URL` | (none) | Base URL for the OpenAI-compatible endpoint (passed via `--llm-url`) |
+
+### Admin Model Registry
+
+The `indexer-enrich` role is available in the admin Models UI. Configuring a deployment for this role makes the model/endpoint visible and manageable alongside router, coder, and general tiers.
+
+### Using Groq (fast + low cost)
+
+For large corpus ingestion, a fast external API can reduce processing time:
+
+```bash
+export SYNESIS_INDEXER_ENRICHMENT_MODEL="llama-3.3-70b-versatile"
+export SYNESIS_INDEXER_ENRICHMENT_TIMEOUT="15"
+# Pass the Groq-compatible endpoint URL
+python -m app.main --mode queue --enrich full --llm-url "https://api.groq.com/openai/v1"
+```
+
+Set `GROQ_API_KEY` in the indexer deployment for authentication.
+
+### Using a local vLLM spot instance
+
+```bash
+export SYNESIS_INDEXER_ENRICHMENT_MODEL="your-served-model-name"
+export SYNESIS_INDEXER_ENRICHMENT_TIMEOUT="30"
+python -m app.main --mode queue --enrich full --llm-url "http://vllm-svc.synesis-rag.svc.cluster.local:8080/v1"
+```
+
+### Cost estimation
+
+Enrichment makes one LLM request per chunk. Typical prompt size: ~400 tokens input, ~100 tokens output. For a 10,000-chunk corpus:
+
+- **vLLM (local):** infrastructure cost only (~$0 marginal)
+- **Groq (Llama 3.3 70B):** ~$0.003/1K input tokens → ~$12 for 10K chunks
+- **OpenAI (GPT-4o-mini):** ~$0.15/1M input tokens → ~$0.60 for 10K chunks
+
+---
+
 Back to [README](../README.md) | See also: [RAG Pipeline](RAG.md), [Security & Trust](SECURITY.md), [Semantic ingestion plan](plans/semantic_rag_ingestion_v9.md), [Taxonomy Shaping](TAXONOMY_SHAPING.md), [Bootstrap Data](../bootstrap/README.md)

@@ -18,12 +18,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger("synesis.indexer.enrichment")
+
+_ENRICHMENT_MODEL = os.getenv("SYNESIS_INDEXER_ENRICHMENT_MODEL", "synesis-general")
+_ENRICHMENT_TIMEOUT = int(os.getenv("SYNESIS_INDEXER_ENRICHMENT_TIMEOUT", "30"))
 
 
 @dataclass
@@ -249,12 +253,12 @@ def _llm_complete(prompt: str, llm_url: str, max_tokens: int = 100) -> str:
         resp = httpx.post(
             f"{llm_url}/chat/completions",
             json={
-                "model": "synesis-general",
+                "model": _ENRICHMENT_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": max_tokens,
                 "temperature": 0.1,
             },
-            timeout=30,
+            timeout=_ENRICHMENT_TIMEOUT,
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()
@@ -278,12 +282,12 @@ def _llm_complete_json(
         resp = httpx.post(
             f"{llm_url}/chat/completions",
             json={
-                "model": "synesis-general",
+                "model": _ENRICHMENT_MODEL,
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "temperature": 0.1,
             },
-            timeout=30,
+            timeout=_ENRICHMENT_TIMEOUT,
         )
         resp.raise_for_status()
         content = str(resp.json()["choices"][0]["message"]["content"]).strip()

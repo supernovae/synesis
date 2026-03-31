@@ -15,6 +15,8 @@ import type { KnowledgeSearchService, KnowledgeSearchResult } from "../state/kno
 import { getLanguagePackRegistry } from "../language-packs/index.js";
 import type { FastPathPatternDef } from "../language-packs/types.js";
 import { withSpanAsync } from "../telemetry/otel.js";
+import { detectCompositionIntent } from "./composition-detector.js";
+import type { CompositionIntent } from "./composition-detector.js";
 
 export interface FastPathMatch {
   pattern: string;
@@ -339,5 +341,98 @@ export function formatEvidenceBlock(result: FastPathResult): string | null {
   }
 
   lines.push("</synesis_evidence>");
+  return lines.join("\n");
+}
+
+/* ── Composition pattern recall ──────────────────────────────────── */
+
+export interface PatternPrefetchResult {
+  matched: boolean;
+  intent?: CompositionIntent;
+  evidence?: KnowledgeSearchResult;
+  latencyMs: number;
+  timedOut: boolean;
+  confidence: number;
+}
+
+const _patternPrefetchStats = {
+  attempts: 0, hits: 0, misses: 0, timeouts: 0,
+};
+
+export function getPatternPrefetchStats() {
+  return { ..._patternPrefetchStats };
+}
+
+/**
+ * Pattern-based composition prefetch: when the user wants to build/create
+ * something, fetch matching patterns from the corpus.
+ */
+export async function runPatternPrefetch(
+  userText: string,
+  knowledgeService: KnowledgeSearchService,
+  timeoutMs: number = 200,
+  workingPhase?: string,
+): Promise<PatternPrefetchResult> {
+  return withSpanAsync("yarn.evidence.pattern_prefetch", { "yarn.pattern.timeout_ms": timeoutMs }, async () => {
+    const t0 = performance.now();
+    _patternPrefetchStats.attempts++;
+
+    const intent = detectCompositionIntent(userText, workingPhase);
+    if (!intent) {
+      _patternPrefetchStats.misses++;
+      return { matched: false, latencyMs: performance.now() - t0, timedOut: false, confidence: 0 };
+    }
+
+    const searchArgs = {
+      query: intent.searchQuery,
+      language: intent.language,
+      content_profile: "pattern",
+      scope_tags: [intent.skillFamily],
+      top_k: 3,
+    };
+
+    const result = await raceSearch(knowledgeService, searchArgs, timeoutMs);
+    const latencyMs = performance.now() - t0;
+
+    if (result === null) {
+      _patternPrefetchStats.timeouts++;
+      return { matched: true, intent, latencyMs, timedOut: true, confidence: 0 };
+    }
+
+    if (result.total === 0) {
+      _patternPrefetchStats.misses++;
+      return { matched: true, intent, latencyMs, timedOut: false, confidence: 0 };
+    }
+
+    const confidence = computeEvidenceConfidence(result, "guiding");
+    _patternPrefetchStats.hits++;
+    return { matched: true, intent, evidence: result, latencyMs, timedOut: false, confidence };
+  });
+}
+
+/**
+ * Format pattern recall results as a structured block for injection.
+ */
+export function formatPatternBlock(result: PatternPrefetchResult): string | null {
+  if (!result.evidence || result.evidence.total === 0 || !result.intent) return null;
+
+  const attrs = [
+    `language="${result.intent.language}"`,
+    `skill_family="${result.intent.skillFamily}"`,
+    `source="pattern_library"`,
+    `confidence="${result.confidence.toFixed(2)}"`,
+  ];
+
+  const lines = [`<synesis_pattern_recall ${attrs.join(" ")}>`];
+
+  for (const item of result.evidence.results.slice(0, 3)) {
+    lines.push(`[${item.authority ?? "vetted"}] ${item.document_name || item.source_url}`);
+    if (item.text) {
+      lines.push(item.text.slice(0, 800));
+    }
+    lines.push("");
+  }
+
+  lines.push("</synesis_pattern_recall>");
   return lines.join("\n");
 }

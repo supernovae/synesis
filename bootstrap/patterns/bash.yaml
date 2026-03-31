@@ -1,0 +1,472 @@
+# Bootstrap code patterns — Bash (bash 4+)
+patterns:
+  - pattern_id: bash-strict-set-euo-pipefail
+    language: bash
+    skill_family: error_handling
+    description: >
+      Fail fast on errors, unset variables, and pipeline failures—baseline for production shell scripts.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      IFS=$' \n\t'
+      
+      main() {
+        echo "ok"
+      }
+      
+      main "$@"
+    constraints: >
+      Commands in conditionals (if, while, ||, &&) do not trigger errexit in the same way; use explicit `|| true` only where failure is intentional.
+    tags:
+      - strict-mode
+      - errexit
+      - shell
+  - pattern_id: bash-trap-cleanup
+    language: bash
+    skill_family: error_handling
+    description: >
+      Register EXIT and signal traps so temp resources and background jobs are always torn down.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      tmpdir=""
+      cleanup() {
+        local exit_code=$?
+        [[ -n "${tmpdir}" && -d "${tmpdir}" ]] && rm -rf "${tmpdir}"
+        jobs -p | xargs -r kill 2>/dev/null || true
+        exit "${exit_code}"
+      }
+      trap cleanup EXIT INT TERM
+      
+      tmpdir="$(mktemp -d)"
+      echo "work dir: ${tmpdir}"
+    constraints: >
+      Trap runs on EXIT even after successful completion—keep cleanup idempotent; on macOS, `xargs -r` may be unavailable; use a portable kill loop if needed.
+    tags:
+      - trap
+      - cleanup
+      - signals
+      - shell
+  - pattern_id: bash-error-function-exit
+    language: bash
+    skill_family: error_handling
+    description: >
+      Central die() helper prints to stderr with script name and optional line context, then exits with a non-zero status.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      die() {
+        echo "$(basename "$0"): error: $*" >&2
+        exit 1
+      }
+      
+      [[ $# -ge 1 ]] || die "expected at least one argument"
+    constraints: >
+      Avoid calling die from subshells without propagating exit—prefer grouping `{ ...; }` over pipes when state must abort the whole script.
+    tags:
+      - die
+      - stderr
+      - shell
+  - pattern_id: bash-getopts-cli
+    language: bash
+    skill_family: config_pattern
+    description: >
+      Portable option parsing with getopts, including flags, values, and a usage helper.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      usage() {
+        echo "Usage: $0 [-v] [-o out] arg" >&2
+        exit 1
+      }
+      
+      verbose=0
+      out=""
+      while getopts ":vo:h" opt; do
+        case "$opt" in
+          v) verbose=1 ;;
+          o) out="$OPTARG" ;;
+          h) usage ;;
+          :) echo "Option -$OPTARG needs a value" >&2; usage ;;
+          *) echo "Invalid option -$OPTARG" >&2; usage ;;
+        esac
+      done
+      shift $((OPTIND - 1))
+    constraints: >
+      getopts stops at first non-option argument; use `--` to pass through dashed operands; reset OPTIND if parsing twice in one script.
+    tags:
+      - cli
+      - getopts
+      - shell
+  - pattern_id: bash-env-defaults
+    language: bash
+    skill_family: config_pattern
+    description: >
+      Parameter expansion supplies defaults and errors when required env vars are unset.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      : "${API_URL:?API_URL must be set}"
+      : "${TIMEOUT_SECONDS:=30}"
+      : "${LOG_LEVEL:=info}"
+      
+      echo "Calling ${API_URL} (timeout ${TIMEOUT_SECONDS}s)"
+    constraints: >
+      `:=` assigns default only when unset or empty with `: "${VAR:=x}"`; combine with a config file for non-secret defaults in development.
+    tags:
+      - environment
+      - defaults
+      - shell
+  - pattern_id: bash-source-config-file
+    language: bash
+    skill_family: config_pattern
+    description: >
+      Load key=value pairs from a file into the shell environment with a safe path and explicit sourcing semantics.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      CONFIG_FILE="${CONFIG_FILE:-$HOME/.myapp/env}"
+      
+      if [[ -f "${CONFIG_FILE}" ]]; then
+        # shellcheck source=/dev/null
+        set -a
+        source "${CONFIG_FILE}"
+        set +a
+      fi
+    constraints: >
+      Sourced files execute as shell code—only source paths you control; never source untrusted input; prefer envdir or systemd EnvironmentFile for services.
+    tags:
+      - config
+      - dotenv
+      - shell
+  - pattern_id: bash-readonly-guard
+    language: bash
+    skill_family: config_pattern
+    description: >
+      Mark critical variables read-only after first assignment to prevent accidental override later in long scripts.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      readonly SCRIPT_DIR
+      
+      export PROJECT_ROOT="${PROJECT_ROOT:-${SCRIPT_DIR}/..}"
+      readonly PROJECT_ROOT
+    constraints: >
+      readonly applies per shell; subshell assignments do not affect the parent; declare -r is an alternative with similar semantics.
+    tags:
+      - readonly
+      - constants
+      - shell
+  - pattern_id: bash-input-validation
+    language: bash
+    skill_family: validation_pattern
+    description: >
+      Validate positional arguments and simple formats before doing I/O or network calls.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      email="$1"
+      
+      if [[ ! "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+        echo "invalid email: $email" >&2
+        exit 1
+      fi
+    constraints: >
+      Regex support depends on bash version; for complex validation, delegate to a dedicated tool (jq, openssl, etc.).
+    tags:
+      - validation
+      - regex
+      - shell
+  - pattern_id: bash-dependency-check
+    language: bash
+    skill_family: validation_pattern
+    description: >
+      Assert required external commands exist with human-readable install hints.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      need_cmd() {
+        command -v "$1" >/dev/null 2>&1 || {
+          echo "missing required command: $1" >&2
+          exit 1
+        }
+      }
+      
+      need_cmd curl
+      need_cmd jq
+    constraints: >
+      Check version when minimum features matter: `tool --version` or `tool -V`.
+    tags:
+      - path
+      - command
+      - shell
+  - pattern_id: bash-file-existence-guard
+    language: bash
+    skill_family: validation_pattern
+    description: >
+      Fail early if input paths are missing, not regular files, or not readable.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      f="$1"
+      
+      [[ -e "$f" ]] || { echo "not found: $f" >&2; exit 1; }
+      [[ -f "$f" ]] || { echo "not a file: $f" >&2; exit 1; }
+      [[ -r "$f" ]] || { echo "not readable: $f" >&2; exit 1; }
+    constraints: >
+      For symlinks, consider `-L` tests; use `realpath`/`readlink -f` when canonical paths matter for security comparisons.
+    tags:
+      - filesystem
+      - guard
+      - shell
+  - pattern_id: bash-numeric-range-check
+    language: bash
+    skill_family: validation_pattern
+    description: >
+      Ensure a value is an integer in range before using it in arithmetic or indexing.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      n="$1"
+      [[ "$n" =~ ^[0-9]+$ ]] || { echo "not a non-negative integer: $n" >&2; exit 1; }
+      (( n >= 1 && n <= 100 )) || { echo "out of range (1-100): $n" >&2; exit 1; }
+    constraints: >
+      Leading zeros make numbers octal in arithmetic contexts—strip or validate format for user-facing numeric input.
+    tags:
+      - validation
+      - integer
+      - shell
+  - pattern_id: bash-associative-array
+    language: bash
+    skill_family: data_structure
+    description: >
+      Declare and use an associative array for O(1) string-key lookups in bash 4+.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      declare -A region_to_az=(
+        [us-east-1]="use1-az1"
+        [us-west-2]="usw2-az2"
+      )
+      
+      region="${1:-us-east-1}"
+      az="${region_to_az[$region]-unknown}"
+      echo "$az"
+    constraints: >
+      Requires bash 4; default macOS /bin/bash may be 3.2—use `#!/usr/bin/env bash` from Homebrew or target Linux CI explicitly.
+    tags:
+      - associative-array
+      - bash4
+      - shell
+  - pattern_id: bash-temp-file-pattern
+    language: bash
+    skill_family: data_structure
+    description: >
+      Create a temp file with a template, register cleanup, and write atomically via a fd or mv from another temp.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      tmp="$(mktemp -t myapp.XXXXXX)"
+      trap 'rm -f "${tmp}"' EXIT
+      
+      {
+        echo "line1"
+        echo "line2"
+      } >"${tmp}"
+      
+      mv "${tmp}" ./out.txt
+      trap - EXIT
+    constraints: >
+      For secrets, use `mktemp` in a mode 0700 directory; `shred`/`rm` on EXIT for sensitive intermediates when threat model requires it.
+    tags:
+      - mktemp
+      - atomic
+      - shell
+  - pattern_id: bash-log-levels
+    language: bash
+    skill_family: logging_pattern
+    description: >
+      Simple leveled logging to stderr controlled by LOG_LEVEL numeric threshold.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      : "${LOG_LEVEL:=2}"  # 0=error 1=warn 2=info 3=debug
+      
+      log() {
+        local level="$1"; shift
+        local msg="$*"
+        [[ "$level" -le "$LOG_LEVEL" ]] || return 0
+        printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$msg" >&2
+      }
+      
+      log 2 "starting"
+      log 3 "debug detail"
+    constraints: >
+      Keep messages single-line for log aggregators; structured logs can use printf with key=value pairs.
+    tags:
+      - logging
+      - levels
+      - shell
+  - pattern_id: bash-timestamp-logging
+    language: bash
+    skill_family: logging_pattern
+    description: >
+      Prefix each line of a long-running command with an ISO-like timestamp using a pipeline-friendly awk filter.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      long_running | awk '{ print strftime("%Y-%m-%dT%H:%M:%SZ"), $0; fflush() }'
+    constraints: >
+      `strftime` requires GNU awk for full portability of fflush; on macOS default awk, use `gawk` or a while-read loop with `date`.
+    tags:
+      - logging
+      - pipeline
+      - shell
+  - pattern_id: bash-parallel-wait
+    language: bash
+    skill_family: async_pattern
+    description: >
+      Run independent tasks in parallel background jobs and wait for all with exit-status aggregation.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      pids=()
+      for host in east west; do
+        (
+          echo "sync $host"
+          sleep 1
+        ) &
+        pids+=("$!")
+      done
+      
+      status=0
+      for pid in "${pids[@]}"; do
+        wait "$pid" || status=$?
+      done
+      exit "$status"
+    constraints: >
+      Subshells lose errexit unless set inside; capture logs per job to files if interleaved stdout is hard to read.
+    tags:
+      - parallel
+      - wait
+      - shell
+  - pattern_id: bash-background-monitor
+    language: bash
+    skill_family: async_pattern
+    description: >
+      Start a background worker and poll its health with timeout and teardown.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      ./worker --port 8080 &
+      worker_pid=$!
+      
+      deadline=$((SECONDS + 30))
+      while ! curl -fsS "http://127.0.0.1:8080/health" >/dev/null; do
+        (( SECONDS < deadline )) || { kill "$worker_pid"; exit 1; }
+        sleep 0.2
+      done
+      
+      kill "$worker_pid"
+      wait "$worker_pid" 2>/dev/null || true
+    constraints: >
+      Use `wait -n` on bash 5+ for finer job control; prefer systemd/supervisor for daemons in production.
+    tags:
+      - background
+      - health
+      - shell
+  - pattern_id: bash-bats-test
+    language: bash
+    skill_family: test_scaffold
+    description: >
+      Minimal Bats test file layout with setup, teardown, and a focused assertion.
+    code_block: |
+      #!/usr/bin/env bats
+      
+      setup() {
+        export TMPDIR="$(mktemp -d)"
+      }
+      
+      teardown() {
+        rm -rf "${TMPDIR}"
+      }
+      
+      @test "sum helper adds numbers" {
+        run bash -c 'echo $(( 2 + 2 ))'
+        [[ "$status" -eq 0 ]]
+        [[ "$output" == "4" ]]
+      }
+    constraints: >
+      Install bats-core from package manager; keep tests hermetic—avoid relying on developer home directory state.
+    tags:
+      - bats
+      - testing
+      - shell
+  - pattern_id: bash-assertion-helpers
+    language: bash
+    skill_family: test_scaffold
+    description: >
+      Reusable assert helpers for non-Bats shell test harnesses or CI smoke scripts.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      assert_eq() {
+        local want="$1" got="$2"
+        [[ "$want" == "$got" ]] || {
+          echo "assert_eq failed: want=${want} got=${got}" >&2
+          return 1
+        }
+      }
+      
+      assert_file() {
+        [[ -f "$1" ]] || {
+          echo "assert_file failed: missing $1" >&2
+          return 1
+        }
+      }
+    constraints: >
+      Return 1 instead of exiting so callers can run multiple assertions; use `set -e` in the outer script to stop the suite on first failure.
+    tags:
+      - testing
+      - assert
+      - shell
+  - pattern_id: bash-secure-temp-dir
+    language: bash
+    skill_family: security_pattern
+    description: >
+      Create a private temporary directory with restrictive permissions before writing secrets or unpack artifacts.
+    code_block: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      umask 077
+      workdir="$(mktemp -d "${TMPDIR:-/tmp}/myapp.XXXXXX")"
+      chmod 700 "${workdir}"
+      
+      secret_file="${workdir}/token"
+      printf '%s' "$TOKEN" >"${secret_file}"
+    constraints: >
+      Never use predictable paths in /tmp; on multi-tenant hosts consider a dedicated secrets volume or tmpfs with mount options.
+    tags:
+      - security
+      - umask
+      - mktemp
+      - shell
