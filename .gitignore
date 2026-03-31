@@ -15,6 +15,9 @@ base/admin/frontend/.vite/
 # Shared TS package build output (rebuilt in CI)
 packages/*/dist/
 
+# TypeScript service build output
+base/mcp-ts/dist/
+
 # KFP compiled pipeline artifacts
 pipelines/*.yaml
 
