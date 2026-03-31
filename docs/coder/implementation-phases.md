@@ -106,12 +106,19 @@
 - `cross_conversation_recall` session event emitted on recall load
 - 19 new tests covering TTL configuration, continuity persistence, recall loading, and formatting
 
+### Phase 16: Sub-Worker Architecture — COMPLETE
+
+- Worker thread pool via `tinypool` for parallel CPU-bound enrichment processing
+- `EnrichmentPool` wrapper with configurable pool size, task timeout, and sync fallback
+- Worker script offloads stateless operations: JSON compaction, content type detection, log compression, JSON summarization
+- `reduceMessagesAsync` fans out tool-message processing to workers via `Promise.all`
+- Feature-flagged (`SYNESIS_YARN_WORKER_POOL_ENABLED`, default off) — zero overhead when disabled
+- Automatic sync fallback on pool failure or timeout
+- Pool lifecycle management: graceful shutdown on SIGTERM
+- `workerPool` stats in `/health/telemetry`: completed tasks, failed tasks, sync fallbacks
+- 17 new tests covering pool lifecycle, task correctness, sync parity, and reduction async path
+
 ## Upcoming
-
-### Phase 16: Sub-Worker Architecture
-
-- Node.js worker threads for CPU-bound operations (language pack parsing, compaction, evidence scoring)
-- Keep main event loop responsive under load
 
 ### Phase 17: Developer Hub Integration
 

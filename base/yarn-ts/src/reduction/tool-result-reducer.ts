@@ -14,6 +14,7 @@ import { getVerificationToolNames } from "../verification/planner.js";
 import type { VerificationStats } from "../verification/types.js";
 import { createEmptyVerificationStats } from "../verification/types.js";
 import { formatSelfRepairBlock } from "../recall/formatter.js";
+import type { EnrichmentPool } from "../workers/pool.js";
 
 export interface ToolResultLike {
   role: string;
@@ -219,6 +220,148 @@ export class ToolResultReductionService {
         content: summary
       };
     });
+    return { messages: out, reducedCount };
+  }
+
+  /**
+   * Async variant of reduceMessages that fans out stateless content dispatch
+   * and JSON compaction to worker threads for parallel processing.
+   * Falls back to sync reduceMessages when pool is unavailable.
+   */
+  async reduceMessagesAsync(
+    messages: ToolResultLike[],
+    pool: EnrichmentPool,
+  ): Promise<ToolResultReductionResult> {
+    if (!pool.isAvailable()) {
+      return this.reduceMessages(messages);
+    }
+
+    const toolIndices: number[] = [];
+    const dispatchPromises: Promise<{ contentType: string; transformed: string | null }>[] = [];
+    const rawStrings: string[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === "tool") {
+        const raw = toStringContent(messages[i].content);
+        toolIndices.push(i);
+        rawStrings.push(raw);
+        dispatchPromises.push(pool.dispatchContentAsync(raw));
+      }
+    }
+
+    const dispatched = await Promise.all(dispatchPromises);
+
+    let reducedCount = 0;
+    const out = [...messages];
+
+    for (let j = 0; j < toolIndices.length; j++) {
+      const idx = toolIndices[j];
+      const m = messages[idx];
+      const raw = rawStrings[j];
+      const dispatch = dispatched[j];
+
+      if (dispatch.transformed) {
+        this.stats.contentDispatchCount += 1;
+        this.stats.rawCharsTotal += raw.length;
+        this.stats.reducedCharsTotal += dispatch.transformed.length;
+        this.stats.reducedCount += 1;
+        this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(dispatch.transformed));
+        reducedCount += 1;
+        out[idx] = { ...m, content: dispatch.transformed };
+        continue;
+      }
+
+      let reduced: ReturnType<ReducerRegistry["reduce"]>;
+      try {
+        reduced = this.registry.reduce({
+          raw,
+          context: {
+            toolName: m.name,
+            command: m.name,
+            profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
+            maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+            minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE,
+          },
+        });
+      } catch {
+        this.stats.compactionFailures += 1;
+        reduced = null;
+      }
+
+      const shouldReduce = Boolean(reduced) || raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
+      if (!shouldReduce) {
+        out[idx] = { ...m, content: raw };
+        continue;
+      }
+
+      let summary: string;
+      if (reduced) {
+        summary = reduced.summary;
+        this.stats.byFamily[reduced.family] += 1;
+        if (reduced.enrichedItems && reduced.enrichedItems.length > 0) this.stats.enrichedCount += 1;
+        if (reduced.bypassEligible) this.stats.bypassEligibleCount += 1;
+
+        if (reduced.enrichedItems && reduced.enrichedItems.length > 0) {
+          const registry = getLanguagePackRegistry();
+          const decision = makeRecallDecision(
+            reduced.enrichedItems,
+            reduced.bypassEligible ?? false,
+            registry,
+            this.recallConfig,
+            reduced.family,
+            this.recallStats,
+          );
+          this._lastRecallDecision = decision;
+
+          const isVerify = this.isVerificationOutput(m.name);
+          if (isVerify) {
+            const loopState = this.verificationTracker.recordRound(
+              m.name ?? "unknown",
+              reduced.enrichedItems,
+              reduced.bypassEligible ?? false,
+              this.verificationStats,
+              decision.resolution?.language,
+            );
+            if (decision.routing !== "passthrough" && decision.resolution) {
+              const selfRepair = formatSelfRepairBlock(decision.resolution, loopState);
+              if (selfRepair) {
+                this.verificationStats.selfRepairSuggestions++;
+                summary = summary + "\n" + selfRepair;
+              }
+            }
+            const progress = this.verificationTracker.formatProgressAnnotation();
+            if (progress) {
+              summary = summary + "\n" + progress;
+            }
+          } else {
+            if (decision.routing === "bypass" && decision.syntheticBlock) {
+              summary = decision.syntheticBlock;
+            } else if (decision.routing === "enrich" && decision.enrichmentBlock) {
+              summary = summary + "\n" + decision.enrichmentBlock;
+            }
+          }
+        }
+      } else {
+        const compactResult = await pool.compactJsonAsync(raw);
+        if (compactResult && compactResult.compressionRatio > 0.2) {
+          summary = compactResult.compacted;
+          this.stats.jsonCompactionCount += 1;
+        } else {
+          summary = this.artifactSummary(raw, m.name);
+          this.stats.fallbackToArtifactCount += 1;
+          this.stats.reducerFailures += 1;
+        }
+      }
+
+      this.stats.rawCharsTotal += raw.length;
+      this.stats.reducedCharsTotal += summary.length;
+      this.stats.reducedCount += 1;
+      if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
+      this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(summary));
+      reducedCount += 1;
+      out[idx] = { ...m, content: summary };
+    }
+
     return { messages: out, reducedCount };
   }
 

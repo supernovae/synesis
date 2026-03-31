@@ -78,6 +78,7 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
+import { EnrichmentPool } from "./workers/pool.js";
 
 type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
@@ -186,6 +187,10 @@ const artifactRetrieval = new ArtifactRetrievalService(artifactStore);
 const knowledgeSearch = new KnowledgeSearchService(config.SYNESIS_YARN_MCP_SERVICE_URL);
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
+const enrichmentPool = new EnrichmentPool(config);
+if (enrichmentPool.isAvailable()) {
+  app.log.info({ poolSize: config.SYNESIS_YARN_WORKER_POOL_SIZE || "auto" }, "worker_pool_enabled");
+}
 const workingFrameService = new WorkingFrameService(config.SYNESIS_YARN_FRAME_MAX_FILES);
 const projectManifestService = new ProjectManifestService();
 const policyEngine = new DeterministicPolicyEngine({
@@ -1269,7 +1274,7 @@ async function shutdown(): Promise<void> {
   governanceClient?.close();
   artifactStore.close();
   await app.close();
-  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticStore.close()]);
+  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticStore.close(), enrichmentPool.close()]);
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown());
@@ -1354,6 +1359,7 @@ app.get("/health/telemetry", async (req, reply) => {
     languagePacks: getLanguagePackRegistry().getConformanceMatrix(),
     sessionContinuity: sessionContinuity.getStats(),
     conversationMemory: usageWriter.getConversationMemoryStats(),
+    workerPool: enrichmentPool.getStats(),
     sensemaking: sensemakingStats,
     eventLoopLag: getEventLoopStats(),
     connectionPools: {
@@ -1375,6 +1381,7 @@ app.get("/health/telemetry", async (req, reply) => {
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
       conversationMemory: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
       crossConversationRecall: config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED,
+      workerPool: config.SYNESIS_YARN_WORKER_POOL_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
@@ -1504,9 +1511,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     request.tools = sortToolSchemas(request.tools) as never;
   }
 
-  const reducedOpenAI = withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
-    toolResultReduction.reduceMessages(request.messages as never),
-  );
+  const reducedOpenAI = enrichmentPool.isAvailable()
+    ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
+        toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool),
+      )
+    : withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
+        toolResultReduction.reduceMessages(request.messages as never),
+      );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = validationNormalization.normalizeMessages(reducedOpenAI.messages as never);
   const adapterProfile = clientAdapterPacks.resolve(
