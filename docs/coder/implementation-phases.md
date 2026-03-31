@@ -118,13 +118,20 @@
 - `workerPool` stats in `/health/telemetry`: completed tasks, failed tasks, sync fallbacks
 - 17 new tests covering pool lifecycle, task correctness, sync parity, and reduction async path
 
+### Phase 17: Developer Hub Integration — COMPLETE
+
+- `DevHubConnector` DB model with Alembic migration (`023_devhub_connector`) for connector configuration: base URL, auth (none/bearer/oauth by reference), entity kind filters, sync interval, cached entity snapshot, org scoping
+- Full CRUD REST API at `/api/v1/developer-hub/connectors` with audit events on all mutations
+- `CatalogClient` async httpx client for the Backstage Catalog REST API: entity listing with kind/namespace filters, get-by-ref, health check, configurable timeout/retries, typed `CatalogEntity`/`EntityMetadata` dataclasses
+- `SyncEngine` that pulls Template/Component/API/System entities and maps them to `IngestionSource` + `IngestionItem` records with proper `golden_path_id`, `backstage_entity_ref`, `content_profile`, `constraint_source`, and tags
+- Incremental sync via content-hash comparison — only changed entities reset to `pending` for re-indexing
+- Governance bridge: Template entities with `synesis.io/governance-constitution` annotations auto-create/update `GovernanceClause` records with provenance tracking
+- Cached entity snapshot fallback: when the Backstage API is unreachable, sync falls back to the last-known-good snapshot
+- Sync preview (dry-run) endpoint showing create/update/unchanged actions before committing
+- Connector health endpoint combining live connectivity probe with sync freshness tracking
+- 34 new tests covering CatalogClient parsing, token resolution, health check; SyncEngine content hashing, URI building, tag/metadata mapping; governance annotation detection; API CRUD, validation, and cache endpoints
+
 ## Upcoming
-
-### Phase 17: Developer Hub Integration
-
-- First-class Backstage/Developer Hub connector
-- Sync golden paths, templates, and organizational standards into the RAG corpus
-- Wire `golden_path_id` linking end-to-end
 
 ### Phase 18: Evaluation and Conformance Framework
 

@@ -975,6 +975,39 @@ class GovernancePolicyDef(Base):
     )
 
 
+class DevHubConnector(Base):
+    """Configuration for a Backstage / Red Hat Developer Hub catalog connector."""
+
+    __tablename__ = "devhub_connectors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    connector_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    auth_type: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
+    auth_token_ref: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    entity_kinds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    sync_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="never")
+    last_sync_summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    cached_entity_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="org")
+    scope_value: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_devhub_connectors_org", "org_id"),
+        Index("ix_devhub_connectors_enabled", "enabled"),
+    )
+
+
 class AclPolicy(Base):
     __tablename__ = "acl_policies"
 
