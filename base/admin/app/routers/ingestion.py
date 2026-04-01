@@ -6,7 +6,6 @@ import ipaddress
 import json
 import logging
 import os
-import socket
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -343,34 +342,26 @@ _CORPUS_HEURISTICS: dict[str, str] = {
 
 
 def _is_public_discovery_host(host: str) -> bool:
-    """Allow only publicly routable hosts for discovery probes."""
+    """Allow hostnames/IPs that are not local/private targets."""
     hostname = (host or "").strip().lower().rstrip(".")
     if not hostname:
         return False
     if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
         return False
     try:
-        # Resolve all addresses and reject private/local destinations.
-        infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
+        ip_obj = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Non-IP hostnames are allowed after localhost-style checks above.
+        return True
+    if (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    ):
         return False
-    except Exception:
-        return False
-    for info in infos:
-        ip_txt = info[4][0]
-        try:
-            ip_obj = ipaddress.ip_address(ip_txt)
-        except ValueError:
-            return False
-        if (
-            ip_obj.is_private
-            or ip_obj.is_loopback
-            or ip_obj.is_link_local
-            or ip_obj.is_multicast
-            or ip_obj.is_reserved
-            or ip_obj.is_unspecified
-        ):
-            return False
     return True
 
 
@@ -395,8 +386,6 @@ async def _run_heuristic_discovery(
     Returns the full discovery payload including ``recommendation_reasons``,
     ``suggested_corpus_class``, and ``required_missing_fields``.
     """
-    import httpx
-
     raw_url, parsed = _validate_discovery_target_url(raw_url)
     host = parsed.hostname or ""
     path = parsed.path.rstrip("/").lower()
@@ -435,50 +424,10 @@ async def _run_heuristic_discovery(
         if signal in path:
             tags.append(tag)
 
-    content_type = ""
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
-            resp = await client.head(raw_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
-            content_type = resp.headers.get("content-type", "")
-            if resp.status_code in (401, 403):
-                risk_flags.append("likely_login_gated")
-                recommendation_reasons.append(f"HTTP {resp.status_code} — content may be login-gated")
-            if resp.status_code >= 400:
-                risk_flags.append(f"http_{resp.status_code}")
-            if "text/html" not in content_type and "application/pdf" not in content_type:
-                if content_type:
-                    risk_flags.append("non_html")
-                    notes_parts.append(f"Content-Type: {content_type}")
-    except Exception as exc:
-        notes_parts.append(f"HEAD probe failed: {type(exc).__name__}")
+    # Keep discovery deterministic and SSRF-safe: no network fetches from user URLs.
+    notes_parts.append("Network probing disabled for discovery safety")
 
     sitemap_url_count = 0
-    if handler == "web_page":
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
-                robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-                robots_resp = await client.get(robots_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
-                if robots_resp.status_code == 200:
-                    for line in robots_resp.text.splitlines():
-                        if line.lower().startswith("sitemap:"):
-                            sitemap_url_count += 1
-                    disallow_count = sum(
-                        1 for ln in robots_resp.text.splitlines() if ln.strip().lower().startswith("disallow")
-                    )
-                    if disallow_count > 50:
-                        notes_parts.append(f"robots.txt has {disallow_count} Disallow rules — heavily restricted")
-
-                sm_resp = await client.get(
-                    f"{parsed.scheme}://{parsed.netloc}/sitemap.xml",
-                    headers={"User-Agent": "SynesisDiscovery/1.0"},
-                )
-                if sm_resp.status_code == 200:
-                    loc_count = sm_resp.text.count("<loc>")
-                    if loc_count > 0:
-                        sitemap_url_count = max(sitemap_url_count, loc_count)
-                        notes_parts.append(f"Sitemap lists ~{loc_count} URLs")
-        except Exception:
-            pass
 
     config: dict[str, Any] = {}
     if handler == "web_page":

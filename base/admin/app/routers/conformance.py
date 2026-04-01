@@ -50,4 +50,8 @@ async def trigger_scrape(
     if result.get("status") == "error":
         logger.warning("conformance_scrape_failed", extra={"status": result.get("status")})
         raise HTTPException(status_code=502, detail="Scrape failed")
-    return result
+    return {
+        "status": str(result.get("status") or "ok"),
+        "scraped": int(result.get("scraped", 0) or 0),
+        "updated": int(result.get("updated", 0) or 0),
+    }

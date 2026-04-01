@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
+import fastifyRateLimit from "@fastify/rate-limit";
 import { Registry } from "prom-client";
 import {
   ZERO_USAGE,
@@ -199,6 +200,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     logger: { level: config.LOG_LEVEL },
     forceCloseConnections: "idle"
   });
+  void app.register(fastifyRateLimit, { global: false });
 
   const promRegistry = new Registry();
   const metrics = createServiceMetrics("planner", promRegistry);
@@ -798,7 +800,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }))
   }));
 
-  app.delete("/v1/memory/:conversationId", async (request, reply) => {
+  app.delete("/v1/memory/:conversationId", {
+    config: { rateLimit: { max: 60, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
@@ -1105,7 +1109,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
     emitTrace(trace, traceEmitterConfig, app.log);
   }
 
-  app.post("/v1/chat/completions", async (request, reply) => {
+  app.post("/v1/chat/completions", {
+    config: { rateLimit: { max: 300, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     const inboundTraceparentHeader = request.headers["traceparent"];
     const inboundTraceparent = typeof inboundTraceparentHeader === "string" && inboundTraceparentHeader.trim().length > 0

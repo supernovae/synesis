@@ -356,8 +356,8 @@ async def test_connector(
     try:
         result = await client.health_check()
         return {"status": "ok", "connector_id": connector_id, "detail": result}
-    except CatalogClientError as exc:
-        return {"status": "error", "connector_id": connector_id, "error": str(exc)}
+    except CatalogClientError:
+        return {"status": "error", "connector_id": connector_id, "error": "connector_health_check_failed"}
     finally:
         await client.close()
 
@@ -399,8 +399,8 @@ async def connector_health(
     try:
         probe = await client.health_check()
         health["connectivity"] = probe
-    except CatalogClientError as exc:
-        health["connectivity"] = {"reachable": False, "error": str(exc)}
+    except CatalogClientError:
+        health["connectivity"] = {"reachable": False, "error": "connector_health_check_failed"}
     finally:
         await client.close()
 

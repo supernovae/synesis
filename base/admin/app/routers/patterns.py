@@ -282,7 +282,13 @@ async def bootstrap_patterns(user: UserInfo = Depends(get_current_user)):
     if not patterns_dir.is_dir():
         raise HTTPException(404, "Bootstrap patterns directory not found")
     result = await load_patterns_from_directory(patterns_dir)
-    return result
+    if isinstance(result, dict):
+        return {
+            "ok": bool(result.get("ok", True)),
+            "loaded": int(result.get("loaded", 0) or 0),
+            "skipped": int(result.get("skipped", 0) or 0),
+        }
+    return {"ok": True, "loaded": 0, "skipped": 0}
 
 
 @router.post("/{pattern_id}/usage")

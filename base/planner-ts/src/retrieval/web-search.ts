@@ -133,13 +133,51 @@ async function fetchPage(url: string): Promise<string> {
 }
 
 function stripHtml(html: string): string {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[<>]/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  let out = "";
+  let i = 0;
+  let inTag = false;
+  let skipUntilTag = "";
+
+  while (i < html.length) {
+    if (!inTag && html[i] === "<") {
+      const close = html.indexOf(">", i + 1);
+      if (close === -1) break;
+      const rawTag = html.slice(i + 1, close).trim().toLowerCase();
+      const normalizedTag = rawTag.replace(/^\//, "").split(/\s+/)[0] ?? "";
+      inTag = true;
+      if (normalizedTag === "script" || normalizedTag === "style") {
+        skipUntilTag = normalizedTag;
+      }
+      i = close + 1;
+      continue;
+    }
+
+    if (inTag) {
+      if (html[i] === "<") {
+        const close = html.indexOf(">", i + 1);
+        if (close === -1) break;
+        const rawTag = html.slice(i + 1, close).trim().toLowerCase();
+        const normalizedTag = rawTag.replace(/^\//, "").split(/\s+/)[0] ?? "";
+        const isClosing = rawTag.startsWith("/");
+        if (!skipUntilTag && isClosing) {
+          inTag = false;
+        } else if (skipUntilTag && isClosing && normalizedTag === skipUntilTag) {
+          skipUntilTag = "";
+          inTag = false;
+        }
+        i = close + 1;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+
+    const ch = html[i];
+    out += (ch === "<" || ch === ">") ? " " : ch;
+    i += 1;
+  }
+
+  return out.replace(/\s{2,}/g, " ").trim();
 }
 
 /**

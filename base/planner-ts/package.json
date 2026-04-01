@@ -15,6 +15,7 @@
     "rehearsal:new": "bash ./scripts/new-rehearsal-record.sh"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^10.3.0",
     "@langchain/core": "^1.1.36",
     "@langchain/langgraph": "^1.2.6",
     "@openfga/sdk": "^0.9.1",
