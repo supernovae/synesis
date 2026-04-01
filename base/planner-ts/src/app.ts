@@ -165,6 +165,33 @@ function isLikelyClarificationAnswer(
   return words.some((w) => haystack.includes(w));
 }
 
+function isLikelyQuizOptionAnswer(answer: string): boolean {
+  const trimmed = answer.trim();
+  return /^([a-d]|[1-4])[\)\.\:]?$/i.test(trimmed);
+}
+
+function hasMultipleChoiceOptions(text: string): boolean {
+  const optionMatches = text.match(/\b([A-D])[\)\.\:]\s+/gi) ?? [];
+  const unique = new Set(optionMatches.map((m) => m.trim().charAt(0).toUpperCase()));
+  return unique.size >= 2;
+}
+
+function buildQuizFollowupTask(
+  answer: string,
+  previousAssistantTurn: string,
+): string {
+  return [
+    "Quiz context:",
+    previousAssistantTurn.trim(),
+    "",
+    "Learner answer:",
+    answer.trim(),
+    "",
+    "Instruction:",
+    "Grade the answer against the quiz options, state whether it is correct, and give a short explanation.",
+  ].join("\n");
+}
+
 export function buildApp(config: AppConfig): FastifyInstance {
   initFgaClient(config);
 
@@ -394,10 +421,25 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const pendingClarification = await sessionManager.consumePendingClarification(sessionKey);
     let mergedTaskText = taskText;
+    const messageTail = optimized.messages;
+    const lastMessage = messageTail[messageTail.length - 1];
+    const prevAssistant = [...messageTail]
+      .reverse()
+      .find((m, idx) => idx > 0 && m.role === "assistant" && typeof m.content === "string");
+    const applyQuizFollowupMerge = Boolean(
+      lastMessage?.role === "user"
+      && typeof lastMessage.content === "string"
+      && isLikelyQuizOptionAnswer(lastMessage.content)
+      && prevAssistant
+      && typeof prevAssistant.content === "string"
+      && hasMultipleChoiceOptions(prevAssistant.content),
+    );
     const applyPendingClarification = Boolean(
       pendingClarification && isLikelyClarificationAnswer(taskText, pendingClarification),
     );
-    if (applyPendingClarification && pendingClarification?.originalTaskDescription) {
+    if (applyQuizFollowupMerge && prevAssistant && typeof prevAssistant.content === "string") {
+      mergedTaskText = buildQuizFollowupTask(taskText, prevAssistant.content);
+    } else if (applyPendingClarification && pendingClarification?.originalTaskDescription) {
       const originalTask = pendingClarification.originalTaskDescription.trim();
       const answer = taskText.trim();
       mergedTaskText = [
@@ -461,6 +503,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
       // pipeline so the planner runs with conversation context + answer.
       baseState.plan_required = true;
       baseState.difficulty = Math.max(baseState.difficulty ?? 0, 0.6);
+    }
+    if (applyQuizFollowupMerge) {
+      // Short quiz answers are context-dependent; avoid downgrading to trivial.
+      baseState.plan_required = true;
+      baseState.difficulty = Math.max(baseState.difficulty ?? 0, 0.45);
     }
 
     return baseState;
