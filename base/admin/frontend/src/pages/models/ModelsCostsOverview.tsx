@@ -65,11 +65,12 @@ export default function ModelsCostsOverview() {
               </div>
               <div className="mt-3 grid gap-4 sm:grid-cols-3">
                 <dl className="space-y-1 text-sm">
-                  <dt className="font-medium text-gray-700 dark:text-gray-300">Planner</dt>
+                  <dt className="font-medium text-gray-700 dark:text-gray-300">Pipeline (LangGraph)</dt>
                   <dd className="text-lg font-semibold text-gray-900 dark:text-white">
                     {fmtCost(Number(spend.planner_estimated_usd || 0))}
                     <span className="ml-1 text-xs font-normal text-gray-500">est.</span>
                   </dd>
+                  <dd className="text-xs text-gray-500 dark:text-gray-400">planner_usage_log (+ trace fallback)</dd>
                   {Number(spend.planner_actual_usd || 0) > 0 && (
                     <dd className="text-xs text-gray-500">
                       {fmtCost(Number(spend.planner_actual_usd))} actual
@@ -109,8 +110,8 @@ export default function ModelsCostsOverview() {
               </div>
               <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <dt className="text-gray-500">Traces</dt>
-                  <dd>{tr?.trace_count ?? "—"}</dd>
+                  <dt className="text-gray-500">Requests</dt>
+                  <dd>{tr?.request_count ?? tr?.trace_count ?? "—"}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-gray-500">Tokens</dt>
@@ -124,6 +125,12 @@ export default function ModelsCostsOverview() {
                   <dt className="text-gray-500">Actual cost</dt>
                   <dd>{tr ? fmtCost(tr.actual_cost_usd) : "—"}</dd>
                 </div>
+                {tr?.source && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Source: {tr.source}</p>
+                )}
+                {tr?.note && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200/90">{tr.note}</p>
+                )}
               </dl>
             </div>
 
@@ -149,9 +156,10 @@ export default function ModelsCostsOverview() {
                     </dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-gray-500">Cost</dt>
+                    <dt className="text-gray-500">Est. cost</dt>
                     <dd>
                       {yarn.total_cost_usd != null ? fmtCost(Number(yarn.total_cost_usd)) : "—"}
+                      <span className="ml-1 text-xs text-gray-500">yarn_usage_log</span>
                     </dd>
                   </div>
                   <div className="pt-2">

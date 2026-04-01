@@ -180,7 +180,8 @@ export default function CostTracker() {
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage & spend</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Pipeline (LangGraph / traces) only — estimated vs actual by role; Yarn / IDE spend is on{" "}
+            Rolled up from <span className="font-medium">trace JSON llm_calls</span> (per-role), not
+            planner_usage_log; Yarn / IDE spend is on{" "}
             <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Overview
             </Link>
@@ -211,18 +212,19 @@ export default function CostTracker() {
             <MetricCard
               label="Estimated Cost"
               value={`$${totalEstimated.toFixed(4)}`}
-              subtitle={`${days}d period`}
+              subtitle={`${days}d · from trace llm_calls`}
               icon={DollarSign}
             />
             <MetricCard
               label="Actual Cost"
               value={totalActual > 0 ? `$${totalActual.toFixed(4)}` : "N/A"}
-              subtitle={totalActual > 0 ? "from provider" : "no data yet"}
+              subtitle={totalActual > 0 ? "provider-reported on calls" : "no provider USD yet"}
               icon={DollarSign}
             />
             <MetricCard
               label="Cost Variance"
               value={totalActual > 0 ? `${costDiff > 0 ? "+" : ""}${costDiff.toFixed(1)}%` : "-"}
+              subtitle={totalActual > 0 ? "est. vs provider" : "needs actual USD"}
               icon={costDiff > 0 ? TrendingUp : TrendingDown}
               trend={costDiff > 2 ? "up" : costDiff < -2 ? "down" : "neutral"}
             />

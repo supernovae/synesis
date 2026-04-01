@@ -42,6 +42,7 @@ export default function TraceList() {
   const [purgeThreshold, setPurgeThreshold] = useState(100);
   const [maxTokensFilter, setMaxTokensFilter] = useState<number | undefined>(undefined);
   const [hallucinationFilter, setHallucinationFilter] = useState(false);
+  const [serviceFilter, setServiceFilter] = useState<"planner" | "yarn" | "all">("planner");
   const limit = 30;
 
   const { data, isLoading } = useTraces({
@@ -52,6 +53,7 @@ export default function TraceList() {
     org_id: orgFilter || undefined,
     max_tokens: maxTokensFilter,
     min_hallucinated_urls: hallucinationFilter ? 1 : undefined,
+    trace_service: serviceFilter,
   });
   const { data: stats } = useTraceStats();
   const deleteTrace = useDeleteTrace();
@@ -117,11 +119,15 @@ export default function TraceList() {
             LLM Traces
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Per-request pipeline traces with LLM call detail. Cost column uses the same estimated pricing as{" "}
-            <Link to="/models/costs" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-              Usage &amp; spend
+            Operator observability: full prompts and spans. For billing totals use{" "}
+            <Link to="/account/usage" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+              Account usage
+            </Link>{" "}
+            /{" "}
+            <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+              Models overview
             </Link>
-            .
+            . Table cost column is <span className="font-medium">estimated</span> (registry rates).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -200,6 +206,7 @@ export default function TraceList() {
           <MetricCard
             label="Traces (24h)"
             value={stats.total_traces_24h}
+            subtitle="pipeline rows only (excl. Yarn)"
             icon={Activity}
           />
           <MetricCard
@@ -214,13 +221,39 @@ export default function TraceList() {
             trend={stats.error_rate > 0.05 ? "down" : "neutral"}
           />
           <MetricCard
-            label="Avg Cost"
+            label="Avg cost (est.)"
             value={fmtCost(stats.avg_cost_usd)}
-            subtitle={`Total: ${fmtCost(stats.total_cost_usd)}`}
+            subtitle={`Total est.: ${fmtCost(stats.total_cost_usd)} · trace rows`}
             icon={DollarSign}
           />
         </div>
       )}
+
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            { id: "planner" as const, label: "Pipeline (LangGraph)" },
+            { id: "yarn" as const, label: "Yarn" },
+            { id: "all" as const, label: "All" },
+          ]
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setServiceFilter(tab.id);
+              setOffset(0);
+            }}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              serviceFilter === tab.id
+                ? "bg-indigo-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <select

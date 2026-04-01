@@ -13,10 +13,11 @@ from ..db.models import BenchmarkResult, KnowledgeGap, QualitySnapshot, Trace
 from ..deps import CURATOR_PROPOSALS_PATH, QUALITY_REPORT_PATH
 from ..rbac import Role, resolve_role, trace_scope_filters
 from ..services import prometheus_client_svc as prom
-from ..services import trace_store
+from ..services import trace_store, yarn_service
 from ..services.cost_estimator import get_cost_summary
 from ..services.health_prober import probe_all
 from ..services.model_registry import get_role_assignments
+from ..services.planner_usage_service import aggregate_planner_usage_24h_for_dashboard
 
 logger = logging.getLogger("synesis.admin.dashboard")
 
@@ -37,11 +38,26 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
     role = resolve_role(_user)
     scope = trace_scope_filters(_user)
     is_admin = role >= Role.platform_admin
+    su = scope.get("user_id", "") or ""
+    so = scope.get("org_id", "") or ""
+    st = scope.get("scope_tenant_id", "") or ""
 
-    ts_coro = trace_store.get_trace_stats(
-        scope_user_id=scope.get("user_id", ""),
-        scope_org_id=scope.get("org_id", ""),
+    ts_coro = trace_store.get_trace_stats(scope_user_id=su, scope_org_id=so, scope_tenant_id=st)
+    pl_coro = aggregate_planner_usage_24h_for_dashboard(
+        scope_user_id=su, scope_org_id=so, scope_tenant_id=st
     )
+
+    async def _yarn_24h():
+        if role < Role.org_admin:
+            return None
+        yarn_org = so if role < Role.platform_admin else ""
+        try:
+            return await yarn_service.get_yarn_overview(
+                since_hours=24, scope_user_id="", scope_org_id=yarn_org
+            )
+        except Exception:
+            logger.warning("dashboard_yarn_overview_failed", exc_info=True)
+            return None
 
     if is_admin:
         (
@@ -51,6 +67,8 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             ts,
             cost_estimate,
             roles,
+            pl_24,
+            yarn_24,
         ) = await asyncio.gather(
             _safe(probe_all(), "probe_all", []),
             _safe(prom.get_cache_metrics(), "cache_metrics", {}),
@@ -58,14 +76,25 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             _safe(ts_coro, "trace_stats", {}),
             _safe(get_cost_summary(), "cost_summary", {}),
             _safe(get_role_assignments(), "role_assignments", []),
+            _safe(pl_coro, "planner_usage_24h", {}),
+            _safe(_yarn_24h(), "yarn_24h", None),
         )
     else:
         services, cache, raw, cost_estimate, roles = [], {}, {}, {}, []
-        ts = await _safe(ts_coro, "trace_stats", {})
+        ts, pl_24, yarn_24 = await asyncio.gather(
+            _safe(ts_coro, "trace_stats", {}),
+            _safe(pl_coro, "planner_usage_24h", {}),
+            _safe(_yarn_24h(), "yarn_24h", None),
+        )
 
     assigned = sum(1 for r in (roles or []) if r.get("assigned"))
     healthy = sum(1 for s in (services or []) if isinstance(s, dict) and s.get("status") == "ok")
     total_requests = prom._find_metric(raw or {}, "synesis_chat_requests_total")
+
+    pipe_spend = float((pl_24 or {}).get("estimated_spend_24h_usd", 0) or 0)
+    yarn_spend = 0.0
+    if isinstance(yarn_24, dict):
+        yarn_spend = float(yarn_24.get("total_cost_usd", 0) or 0)
 
     return {
         "services": services or [],
@@ -76,8 +105,12 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             "cache_hit_rate": (cache or {}).get("hit_rate", 0),
             "active_models": assigned,
             "traces_24h": (ts or {}).get("total_traces_24h", 0),
-            # Trace-table estimated spend (24h), not provider invoice
-            "trace_estimated_spend_24h_usd": (ts or {}).get("total_cost_usd", 0),
+            # Pipeline metering (planner_usage_log), not provider invoice
+            "pipeline_usage_estimated_spend_24h_usd": round(pipe_spend, 4),
+            "yarn_usage_estimated_spend_24h_usd": round(yarn_spend, 4),
+            "platform_usage_estimated_spend_24h_usd": round(pipe_spend + yarn_spend, 4),
+            # Legacy: pipeline-only trace rows (observability); prefer pipeline_usage_* for spend
+            "trace_estimated_spend_24h_usd": round(pipe_spend, 4),
         },
         # Monthly fixed infrastructure estimate from model_costs — not usage spend
         "monthly_fixed_cost_estimate": cost_estimate or {},

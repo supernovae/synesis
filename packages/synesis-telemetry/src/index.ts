@@ -37,3 +37,8 @@ export {
 } from "./metrics.js";
 
 export { emitTrace, type TraceEmitterConfig } from "./trace-emitter.js";
+
+export {
+  emitPlannerUsageMetering,
+  type UsageMeteringEmitterConfig,
+} from "./usage-metering-emitter.js";

@@ -4,7 +4,20 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -525,6 +538,36 @@ class YarnUsageLog(Base):
         Index("ix_yarn_usage_created", "created_at"),
         Index("ix_yarn_usage_provider", "provider"),
         Index("ix_yarn_usage_request_id_unique", "request_id", unique=True),
+    )
+
+
+class PlannerUsageLog(Base):
+    """Pipeline (LangGraph) metering — one row per completed chat completion; no prompt text."""
+
+    __tablename__ = "planner_usage_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    conversation_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_cached: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    actual_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    pricing_source: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    has_error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_planner_usage_user", "user_id"),
+        Index("ix_planner_usage_org", "org_id"),
+        Index("ix_planner_usage_created", "created_at"),
+        Index("ix_planner_usage_request_id_unique", "request_id", unique=True),
     )
 
 

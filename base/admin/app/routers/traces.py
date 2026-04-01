@@ -1,4 +1,8 @@
-"""Trace browsing: list, detail, aggregate statistics, and pipeline test."""
+"""Trace browsing: list, detail, aggregate statistics, and pipeline test.
+
+All read routes require ``org_observability`` (org_admin+ with org, or platform_admin).
+End-user billing totals should use ``/api/v1/usage/me/summary`` (planner_usage_log), not traces.
+"""
 
 import asyncio
 import logging
@@ -45,6 +49,10 @@ async def list_traces(
         "", description="Filter by decision routing path (deterministic, constrained, inference_first, abstain)"
     ),
     tenant_id: str = Query("", description="Filter by tenant"),
+    trace_service: str = Query(
+        "",
+        description="Filter by emitter: planner (default all non-yarn), yarn, or all",
+    ),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_observability(_user)
@@ -70,6 +78,7 @@ async def list_traces(
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
         scope_tenant_id=effective_tenant,
+        trace_service=trace_service,
     )
 
 

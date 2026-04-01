@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Activity, Layers, Database, Zap, DollarSign } from "lucide-react";
 import {
   BarChart,
@@ -12,6 +13,7 @@ import {
 } from "recharts";
 import MetricCard from "../components/common/MetricCard";
 import ChartCard from "../components/common/ChartCard";
+import EmptyState from "../components/common/EmptyState";
 import StatusBadge from "../components/common/StatusBadge";
 import { useDashboardSummary } from "../api/hooks";
 
@@ -44,6 +46,14 @@ export default function Dashboard() {
     role,
     usd: Number(usd),
   }));
+  const monthlyFixedTotal = data?.monthly_fixed_cost_estimate?.total_usd ?? 0;
+  const hasMonthlyFixed = monthlyFixedTotal > 0;
+
+  const pipeSpend =
+    m?.pipeline_usage_estimated_spend_24h_usd ?? m?.trace_estimated_spend_24h_usd ?? 0;
+  const yarnSpend = m?.yarn_usage_estimated_spend_24h_usd ?? 0;
+  const platformSpend =
+    m?.platform_usage_estimated_spend_24h_usd ?? pipeSpend + yarnSpend;
 
   return (
     <div className="space-y-6">
@@ -83,16 +93,28 @@ export default function Dashboard() {
         <MetricCard
           label="Traces (24h)"
           value={m?.traces_24h ?? "---"}
+          subtitle="LangGraph pipeline rows only (excludes Yarn traces)"
           icon={Activity}
         />
         <MetricCard
-          label="Pipeline spend (24h)"
-          value={
-            m?.trace_estimated_spend_24h_usd != null
-              ? `$${Number(m.trace_estimated_spend_24h_usd).toFixed(4)}`
-              : "---"
-          }
-          subtitle="trace estimated_cost sum"
+          label="Pipeline usage (24h)"
+          value={`$${Number(pipeSpend).toFixed(4)}`}
+          subtitle="estimated · planner_usage_log"
+          icon={DollarSign}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <MetricCard
+          label="Yarn / IDE (24h)"
+          value={`$${Number(yarnSpend).toFixed(4)}`}
+          subtitle="estimated · yarn_usage_log"
+          icon={DollarSign}
+        />
+        <MetricCard
+          label="Platform usage (24h)"
+          value={`$${Number(platformSpend).toFixed(4)}`}
+          subtitle="pipeline + Yarn (estimated)"
           icon={DollarSign}
         />
       </div>
@@ -172,11 +194,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {costData.length > 0 && (
-        <ChartCard
-          title="Monthly fixed (infra) by role"
-          subtitle="From model cost registry — not the same as 24h usage above"
-        >
+      <ChartCard
+        title="Monthly fixed (infra) by role"
+        subtitle="From model cost registry — not the same as 24h usage above"
+      >
+        {hasMonthlyFixed ? (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={costData}>
               <XAxis dataKey="role" tick={{ fontSize: 11 }} />
@@ -185,8 +207,23 @@ export default function Dashboard() {
               <Bar dataKey="usd" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </ChartCard>
-      )}
+        ) : (
+          <div className="py-4">
+            <EmptyState
+              title="No monthly fixed costs configured"
+              description="Set monthly_fixed_cost on model cost entries or infra settings so this chart reflects fixed infrastructure estimates."
+            />
+            <p className="mt-3 text-center">
+              <Link
+                to="/models/costs"
+                className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Open cost tracker
+              </Link>
+            </p>
+          </div>
+        )}
+      </ChartCard>
     </div>
   );
 }

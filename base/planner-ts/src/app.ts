@@ -8,6 +8,7 @@ import {
   createServiceMetrics,
   recordUsageMetrics,
   emitTrace,
+  emitPlannerUsageMetering,
   type LlmUsage,
   type TraceRecord,
   type TraceSensemaking,
@@ -1132,6 +1133,35 @@ export function buildApp(config: AppConfig): FastifyInstance {
     emitTrace(trace, traceEmitterConfig, app.log);
   }
 
+  function emitPlannerUsageMeteringRow(
+    state: GraphState,
+    usage: LlmUsage,
+    latencyMs: number,
+    auth: Awaited<ReturnType<typeof resolveAuthContext>>,
+  ): void {
+    const model = state.response_model ?? state.requested_model ?? "unknown";
+    const requestId = state.authz_trace_id ?? "";
+    if (!requestId) return;
+    emitPlannerUsageMetering(
+      {
+        request_id: requestId,
+        user_id: auth.userEmail || auth.userId,
+        org_id: auth.orgId,
+        tenant_id: auth.tenantIds?.[0] ?? "",
+        conversation_id: state.conversation_id,
+        model,
+        tokens: usage,
+        estimated_cost_usd: usage.estimated_cost_usd,
+        actual_cost_usd: usage.actual_cost_usd,
+        pricing_source: "registry",
+        latency_ms: latencyMs,
+        has_error: Boolean(state.error),
+      },
+      traceEmitterConfig,
+      app.log,
+    );
+  }
+
   app.post("/v1/chat/completions", {
     config: { rateLimit: { max: 300, timeWindow: "1 minute" } }
   }, async (request, reply) => {
@@ -1270,6 +1300,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         const latencyS = (Date.now() - reqStart) / 1000;
         recordUsageMetrics(metrics, responseModel, initialState.model_tier ?? "auto", usage, latencyS);
         emitPlannerTrace(state, usage, Date.now() - reqStart, auth, { mode: "non-streaming" });
+        emitPlannerUsageMeteringRow(state, usage, Date.now() - reqStart, auth);
         requestSpan.setStatus("ok");
         return {
           id: completionId,
@@ -1423,6 +1454,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         mode: "streaming",
         timeToFirstTokenMs: firstTokenAt ? firstTokenAt - streamReqStart : undefined,
       });
+      emitPlannerUsageMeteringRow(finalState, streamUsage, Date.now() - streamReqStart, auth);
       if (isSseWritable(reply.raw)) {
         writeFinalChunk(reply.raw, {
           id: completionId,

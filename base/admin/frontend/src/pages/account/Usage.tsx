@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useUsageSummary, useUsageSeries, useYarnUserUsage } from "../../api/hooks";
+import { useUsageMeSummary, useUsageMeSeries, useYarnUserUsage } from "../../api/hooks";
 import type { UsageTimeSeriesEntry } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
@@ -29,8 +29,8 @@ function fmtBucket(iso: string): string {
 
 export default function Usage() {
   const [period, setPeriod] = useState(24);
-  const { data: summary, isLoading: summaryLoading } = useUsageSummary(period);
-  const { data: series, isLoading: seriesLoading } = useUsageSeries(period);
+  const { data: summary, isLoading: summaryLoading } = useUsageMeSummary(period);
+  const { data: series, isLoading: seriesLoading } = useUsageMeSeries(period);
   const { data: yarnUsage, isLoading: yarnLoading } = useYarnUserUsage(
     period <= 24 ? 24 : period <= 168 ? 168 : 720,
   );
@@ -48,7 +48,9 @@ export default function Usage() {
             Usage
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Pipeline usage from traces. Yarn / IDE spend is separate — see{" "}
+            Pipeline usage from{" "}
+            <span className="font-medium text-gray-700 dark:text-gray-300">planner_usage_log</span>{" "}
+            (PII-minimal metering); trace aggregates may be used as fallback. Yarn / IDE is separate — see{" "}
             <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Models &amp; Costs overview
             </Link>
@@ -77,7 +79,7 @@ export default function Usage() {
       ) : !summary || summary.trace_count === 0 ? (
         <EmptyState
           title="No usage data for this period"
-          description="Usage is aggregated from trace records. Run some requests to see data here."
+          description="Run planner requests after metering is enabled, or check org scope. Totals come from planner_usage_log with trace fallback."
         />
       ) : (
         <>
@@ -100,7 +102,9 @@ export default function Usage() {
               subtitle={
                 hasCostVariance
                   ? `actual: ${fmtCost(summary.actual_cost_usd)}`
-                  : "from trace pricing model"
+                  : summary.source === "planner_usage_log"
+                    ? "estimated · planner_usage_log"
+                    : "estimated · pipeline traces (fallback)"
               }
             />
             <MetricCard
@@ -114,6 +118,12 @@ export default function Usage() {
               }
             />
           </div>
+
+          {summary.note && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+              {summary.note}
+            </div>
+          )}
 
           {hasCostVariance && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">

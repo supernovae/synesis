@@ -207,9 +207,17 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
             ? `${call.prompt_tokens} in (${call.cached_prompt_tokens} cached) + ${call.completion_tokens} out`
             : `${call.prompt_tokens}+${call.completion_tokens} tok`}
         </span>
-        {typeof call.actual_cost === "number" || typeof call.estimated_cost === "number" ? (
-          <span className="text-xs text-gray-400">
-            {fmtCost(call.actual_cost ?? call.estimated_cost ?? 0)}
+        {typeof call.estimated_cost === "number" || typeof call.actual_cost === "number" ? (
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {typeof call.estimated_cost === "number" && (
+              <span>est. {fmtCost(call.estimated_cost)}</span>
+            )}
+            {typeof call.estimated_cost === "number" && typeof call.actual_cost === "number" && (
+              <span className="mx-1 text-gray-300 dark:text-gray-600">·</span>
+            )}
+            {typeof call.actual_cost === "number" && (
+              <span>act. {fmtCost(call.actual_cost)}</span>
+            )}
           </span>
         ) : null}
         <span className="text-xs text-gray-400">
@@ -791,9 +799,9 @@ export default function TraceDetail() {
           )}
         </div>
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
-          <p className="text-xs text-gray-500">Cost</p>
+          <p className="text-xs text-gray-500">Cost (trace row)</p>
           <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
-            {fmtCost(trace.estimated_cost_usd)}
+            est. {fmtCost(trace.estimated_cost_usd)}
           </p>
           <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
             actual: {fmtCost(trace.actual_cost_usd ?? 0)}

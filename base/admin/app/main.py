@@ -176,6 +176,7 @@ from app.routers.models import router as models_router
 from app.routers.observability import router as observability_router
 from app.routers.patterns import router as patterns_router
 from app.routers.pipeline import router as pipeline_router
+from app.routers.planner_usage import router as planner_usage_router
 from app.routers.provider_governance import router as provider_governance_router
 from app.routers.providers import router as providers_router
 from app.routers.rag import router as rag_router
@@ -204,6 +205,7 @@ app.include_router(models_router)
 app.include_router(rag_router)
 app.include_router(taxonomy_router)
 app.include_router(pipeline_router)
+app.include_router(planner_usage_router)
 app.include_router(integrations_router)
 app.include_router(feedback_router)
 app.include_router(governance_router)

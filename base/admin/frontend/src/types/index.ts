@@ -67,8 +67,14 @@ export interface DashboardSummary {
     cache_hit_rate: number;
     active_models: number;
     traces_24h: number;
-    /** Sum of trace estimated_cost_usd (24h) — not provider invoice */
+    /** @deprecated use pipeline_usage_estimated_spend_24h_usd */
     trace_estimated_spend_24h_usd: number;
+    /** LangGraph pipeline metering (planner_usage_log), estimated, 24h */
+    pipeline_usage_estimated_spend_24h_usd?: number;
+    /** Yarn IDE (yarn_usage_log), 24h */
+    yarn_usage_estimated_spend_24h_usd?: number;
+    /** Pipeline + Yarn estimated, 24h */
+    platform_usage_estimated_spend_24h_usd?: number;
   };
   /** Monthly fixed infra estimate from model_costs — not usage spend */
   monthly_fixed_cost_estimate: {

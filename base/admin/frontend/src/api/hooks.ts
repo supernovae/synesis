@@ -43,11 +43,14 @@ export interface UsageUnifiedSummary {
     traces: {
       period_hours: number;
       trace_count: number;
+      request_count?: number;
       total_tokens: number;
       estimated_cost_usd: number;
       actual_cost_usd: number;
       avg_duration_ms: number;
       error_count: number;
+      source?: string;
+      note?: string;
     };
   };
   yarn: Record<string, number | string> | null;
@@ -61,6 +64,7 @@ export interface UsageUnifiedSummary {
     effective_total_usd: number;
     note: string;
   };
+  debug_yarn_trace_estimated_usd?: number;
   glossary: Record<string, string>;
 }
 
@@ -1477,6 +1481,8 @@ export function useTraces(params?: {
   domain_tag?: string;
   max_tokens?: number;
   min_hallucinated_urls?: number;
+  /** planner | yarn | all */
+  trace_service?: string;
 }) {
   return useQuery<{ traces: import("../types").TraceRecord[]; total: number }>({
     queryKey: ["traces", params],
@@ -2007,6 +2013,8 @@ export interface UsageSummary {
   actual_cost_usd: number;
   avg_duration_ms: number;
   error_count: number;
+  source?: string;
+  note?: string;
 }
 
 export function useUsageSeries(sinceHours = 24) {
@@ -2021,6 +2029,23 @@ export function useUsageSummary(sinceHours = 24) {
   return useQuery<UsageSummary>({
     queryKey: ["usage", "summary", sinceHours],
     queryFn: () => client.get(`/usage/summary?since_hours=${sinceHours}`).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+/** Account Usage — any authenticated user; planner_usage_log (+ trace fallback). */
+export function useUsageMeSummary(sinceHours = 24) {
+  return useQuery<UsageSummary>({
+    queryKey: ["usage", "me-summary", sinceHours],
+    queryFn: () => client.get(`/usage/me/summary?since_hours=${sinceHours}`).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useUsageMeSeries(sinceHours = 24) {
+  return useQuery<UsageTimeSeriesEntry[]>({
+    queryKey: ["usage", "me-series", sinceHours],
+    queryFn: () => client.get(`/usage/me/series?since_hours=${sinceHours}`).then((r) => r.data),
     refetchInterval: 60_000,
   });
 }

@@ -19,6 +19,24 @@ from ..db.models import Trace
 logger = logging.getLogger("synesis.admin.trace_store")
 
 
+def _trace_service_filter(service: str):
+    """Filter traces by full_record.service: planner (non-yarn), yarn, or all."""
+    s = (service or "").strip().lower()
+    if s in ("", "all"):
+        return None
+    svc_col = Trace.full_record["service"].astext
+    if s == "yarn":
+        return svc_col == "yarn"
+    # planner / pipeline — legacy rows without service treated as planner
+    return sa.or_(svc_col.is_(None), svc_col == "", svc_col != "yarn")
+
+
+def _pipeline_traces_only_clause():
+    """Exclude Yarn service traces (Yarn metering is yarn_usage_log)."""
+    svc_col = Trace.full_record["service"].astext
+    return sa.or_(svc_col.is_(None), svc_col == "", svc_col != "yarn")
+
+
 async def list_traces(
     *,
     offset: int = 0,
@@ -40,6 +58,7 @@ async def list_traces(
     scope_user_id: str = "",
     scope_org_id: str = "",
     scope_tenant_id: str = "",
+    trace_service: str = "",
 ) -> dict[str, Any]:
     """Return paginated trace list from Postgres, newest first.
 
@@ -50,6 +69,10 @@ async def list_traces(
     async with async_session() as session:
         try:
             q = select(Trace).order_by(desc(Trace.timestamp))
+
+            tsf = _trace_service_filter(trace_service)
+            if tsf is not None:
+                q = q.where(tsf)
 
             if scope_user_id:
                 q = q.where(Trace.user_id == scope_user_id)
@@ -201,6 +224,7 @@ async def get_trace_stats(
                 func.avg(Trace.estimated_cost_usd).label("avg_cost"),
                 func.sum(Trace.estimated_cost_usd).label("total_cost"),
             ).where(Trace.timestamp >= cutoff)
+            q = q.where(_pipeline_traces_only_clause())
 
             if scope_user_id:
                 q = q.where(Trace.user_id == scope_user_id)
@@ -221,6 +245,7 @@ async def get_trace_stats(
 
             return {
                 "total_traces_24h": total,
+                "pipeline_only": True,
                 "error_count_24h": errors,
                 "error_rate": round(errors / total, 4),
                 "avg_duration_ms": round(float(row.avg_duration or 0), 1),
@@ -253,6 +278,7 @@ async def aggregate_traces_period(
                 func.coalesce(func.avg(Trace.total_duration_ms), 0).label("avg_duration_ms"),
                 func.sum(case((Trace.has_error == True, 1), else_=0)).label("error_count"),
             ).where(Trace.timestamp >= cutoff)
+            q = q.where(_pipeline_traces_only_clause())
             if scope_user_id:
                 q = q.where(Trace.user_id == scope_user_id)
             elif scope_org_id:
@@ -270,6 +296,7 @@ async def aggregate_traces_period(
                 "actual_cost_usd": round(float(row.actual_cost_usd or 0), 4),
                 "avg_duration_ms": round(float(row.avg_duration_ms or 0), 1),
                 "error_count": int(row.error_count or 0),
+                "source": "traces_pipeline_only",
             }
         except Exception:
             logger.warning("trace_store_aggregate_period_failed", exc_info=True)
@@ -281,6 +308,7 @@ async def aggregate_traces_period(
                 "actual_cost_usd": 0.0,
                 "avg_duration_ms": 0.0,
                 "error_count": 0,
+                "source": "traces_pipeline_only",
             }
 
 
@@ -312,6 +340,7 @@ async def trace_time_series(
                 .group_by(bucket_col)
                 .order_by(bucket_col.desc())
             )
+            q = q.where(_pipeline_traces_only_clause())
             if scope_user_id:
                 q = q.where(Trace.user_id == scope_user_id)
             elif scope_org_id:
@@ -335,6 +364,32 @@ async def trace_time_series(
         except Exception:
             logger.warning("trace_time_series_failed", exc_info=True)
             return []
+
+
+async def sum_yarn_trace_estimated_cost(
+    *,
+    since_hours: int = 24,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+    scope_tenant_id: str = "",
+) -> float:
+    """Diagnostic: estimated_cost on traces with service=yarn (should stay near zero if not double-counting)."""
+    cutoff = time.time() - since_hours * 3600
+    async with async_session() as session:
+        try:
+            q = select(func.coalesce(func.sum(Trace.estimated_cost_usd), 0)).where(Trace.timestamp >= cutoff)
+            q = q.where(Trace.full_record["service"].astext == "yarn")
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            if scope_tenant_id:
+                q = q.where(Trace.tenant_id == scope_tenant_id)
+            row = (await session.execute(q)).scalar_one()
+            return round(float(row or 0), 4)
+        except Exception:
+            logger.warning("sum_yarn_trace_estimated_failed", exc_info=True)
+            return 0.0
 
 
 async def insert_trace(record: dict[str, Any]) -> None:
