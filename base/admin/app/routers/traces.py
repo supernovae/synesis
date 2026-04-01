@@ -212,6 +212,9 @@ async def ingest_trace(request: Request, body: dict = Body(...)):
         "user_id": body.get("user_id", ""),
         "org_id": body.get("org_id", ""),
         "tenant_id": body.get("tenant_id", ""),
+        "conversation_id": body.get("conversation_id", ""),
+        "parent_trace_id": body.get("parent_trace_id", ""),
+        "root_trace_id": body.get("root_trace_id", ""),
         "query_snippet": body.get("query_snippet", ""),
         "timestamp": body.get("timestamp", time.time()),
         "total_duration_ms": body.get("latency_ms", 0),
@@ -324,6 +327,25 @@ async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Not authorized to view this trace")
     _enrich_detail(record)
     return record
+
+
+@router.get("/{trace_id}/chain")
+async def get_trace_chain(
+    trace_id: str,
+    limit: int = Query(200, ge=1, le=1000),
+    _user: UserInfo = Depends(get_current_user),
+):
+    _ensure_org_observability(_user)
+    data = await trace_store.get_trace_chain(trace_id, limit=limit)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    filtered = [row for row in data.get("chain", []) if can_access_trace(_user, row)]
+    return {
+        "trace_id": data.get("trace_id", trace_id),
+        "root_trace_id": data.get("root_trace_id"),
+        "conversation_id": data.get("conversation_id"),
+        "chain": filtered,
+    }
 
 
 def _enrich_detail(record: dict) -> None:

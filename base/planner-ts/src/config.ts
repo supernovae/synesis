@@ -27,6 +27,7 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_MS: z.coerce.number().default(60000),
   SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_HALF_OPEN_MAX: z.coerce.number().default(1),
   SYNESIS_PLANNER_TS_NODE_TIMEOUT_MS: z.coerce.number().default(60000),
+  SYNESIS_PLANNER_TS_WRITER_NODE_TIMEOUT_MS: z.coerce.number().default(180000),
   SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(30),
   SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT: z.coerce.number().default(50),

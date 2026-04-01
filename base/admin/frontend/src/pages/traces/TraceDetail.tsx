@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import {
   useTrace,
+  useTraceChain,
   useAssistantChat,
   useDeleteTrace,
   useClearCriticData,
@@ -641,6 +642,7 @@ export default function TraceDetail() {
   const { traceId } = useParams<{ traceId: string }>();
   const navigate = useNavigate();
   const { data: trace, isLoading, refetch: refetchTrace } = useTrace(traceId || "");
+  const { data: traceChainData } = useTraceChain(traceId || "");
   const [assistantSpanIndex, setAssistantSpanIndex] = useState<number | null>(null);
   const [showTraceAssistant, setShowTraceAssistant] = useState(false);
   const deleteTrace = useDeleteTrace();
@@ -804,6 +806,41 @@ export default function TraceDetail() {
           </p>
         </div>
       </div>
+
+      {traceChainData && (traceChainData.chain?.length ?? 0) > 1 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            Conversation trace chain ({traceChainData.chain.length} turns)
+          </h3>
+          <div className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            Root trace: <span className="font-mono">{traceChainData.root_trace_id ?? "unknown"}</span>
+          </div>
+          <div className="space-y-2">
+            {traceChainData.chain.map((item, idx) => {
+              const isCurrent = item.trace_id === trace.trace_id;
+              return (
+                <button
+                  key={item.trace_id}
+                  onClick={() => navigate(`/traces/${item.trace_id}`)}
+                  className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left transition-colors ${
+                    isCurrent
+                      ? "border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-900/30"
+                      : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Turn {idx + 1} - {fmtDate(item.timestamp)}</div>
+                    <div className="truncate text-sm text-gray-900 dark:text-gray-100">
+                      {item.query_snippet || "No query snippet"}
+                    </div>
+                  </div>
+                  <StatusBadge status={item.has_error ? "error" : "ok"} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Query */}
       {trace.query_snippet && (

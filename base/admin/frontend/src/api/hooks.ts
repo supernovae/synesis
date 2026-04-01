@@ -1408,6 +1408,19 @@ export function useTrace(traceId: string) {
   });
 }
 
+export function useTraceChain(traceId: string, limit = 200) {
+  return useQuery<{
+    trace_id: string;
+    root_trace_id?: string;
+    conversation_id?: string;
+    chain: import("../types").TraceRecord[];
+  }>({
+    queryKey: ["traces", traceId, "chain", limit],
+    queryFn: () => client.get(`/traces/${traceId}/chain`, { params: { limit } }).then((r) => r.data),
+    enabled: !!traceId,
+  });
+}
+
 export function useTraceStats() {
   return useQuery<import("../types").TraceStats>({
     queryKey: ["traces", "stats"],

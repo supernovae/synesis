@@ -12,6 +12,7 @@ export interface SessionData {
     question: string;
     options: string[];
     assumptions: string[];
+    originalTaskDescription?: string;
   };
 }
 

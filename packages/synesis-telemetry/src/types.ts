@@ -149,6 +149,14 @@ export interface TraceRecord {
    * Optional conversation/session correlation key.
    */
   conversation_id?: string;
+  /**
+   * Optional parent trace ID (immediate predecessor in same conversation).
+   */
+  parent_trace_id?: string;
+  /**
+   * Optional root trace ID (first trace in same conversation lineage).
+   */
+  root_trace_id?: string;
   timestamp: number;
   user_id: string;
   org_id: string;

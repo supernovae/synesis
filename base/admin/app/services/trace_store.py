@@ -127,6 +127,66 @@ async def get_trace(trace_id: str) -> dict[str, Any] | None:
             return None
 
 
+async def get_trace_chain(trace_id: str, limit: int = 200) -> dict[str, Any] | None:
+    """Return the causal chain for a trace (root/parent lineage or conversation fallback)."""
+    async with async_session() as session:
+        try:
+            base = (
+                await session.execute(select(Trace).where(Trace.trace_id == trace_id))
+            ).scalar_one_or_none()
+            if base is None:
+                return None
+
+            root_id = (base.root_trace_id or base.trace_id or "").strip()
+            conversation_id = (base.conversation_id or "").strip()
+
+            if root_id and (base.root_trace_id or base.parent_trace_id):
+                q = (
+                    select(Trace)
+                    .where(
+                        sa.or_(
+                            Trace.trace_id == root_id,
+                            Trace.root_trace_id == root_id,
+                        )
+                    )
+                    .order_by(Trace.timestamp.asc())
+                    .limit(max(1, min(limit, 1000)))
+                )
+                if conversation_id:
+                    q = q.where(
+                        sa.or_(
+                            Trace.conversation_id == conversation_id,
+                            Trace.conversation_id.is_(None),
+                        )
+                    )
+            elif conversation_id:
+                q = (
+                    select(Trace)
+                    .where(Trace.conversation_id == conversation_id)
+                    .order_by(Trace.timestamp.asc())
+                    .limit(max(1, min(limit, 1000)))
+                )
+            else:
+                return {
+                    "trace_id": trace_id,
+                    "root_trace_id": root_id or trace_id,
+                    "conversation_id": conversation_id or None,
+                    "chain": [_row_to_dict(base)],
+                }
+
+            rows = (await session.execute(q)).scalars().all()
+            chain = [_row_to_dict(r) for r in rows]
+            return {
+                "trace_id": trace_id,
+                "root_trace_id": root_id or trace_id,
+                "conversation_id": conversation_id or None,
+                "chain": chain,
+            }
+        except Exception:
+            logger.warning("trace_store_chain_failed", exc_info=True)
+            return None
+
+
 async def get_trace_stats(
     *,
     scope_user_id: str = "",
@@ -289,6 +349,9 @@ async def insert_trace(record: dict[str, Any]) -> None:
             tenant_id = record.get("tenant_id", "")
             trace = Trace(
                 trace_id=record["trace_id"],
+                conversation_id=(record.get("conversation_id") or "")[:128] or None,
+                parent_trace_id=(record.get("parent_trace_id") or "")[:64] or None,
+                root_trace_id=(record.get("root_trace_id") or "")[:64] or None,
                 user_id=record.get("user_id", ""),
                 org_id=org_id,
                 tenant_id=tenant_id,
@@ -320,6 +383,9 @@ async def upsert_trace(record: dict[str, Any]) -> None:
 
             stmt = pg_insert(Trace).values(
                 trace_id=record["trace_id"],
+                conversation_id=(record.get("conversation_id") or "")[:128] or None,
+                parent_trace_id=(record.get("parent_trace_id") or "")[:64] or None,
+                root_trace_id=(record.get("root_trace_id") or "")[:64] or None,
                 user_id=record.get("user_id", ""),
                 org_id=record.get("org_id", ""),
                 tenant_id=record.get("tenant_id", ""),
@@ -362,6 +428,9 @@ async def upsert_trace(record: dict[str, Any]) -> None:
                     "actual_cost_usd": sa.func.greatest(
                         Trace.actual_cost_usd, stmt.excluded.actual_cost_usd,
                     ),
+                    "conversation_id": sa.func.coalesce(Trace.conversation_id, stmt.excluded.conversation_id),
+                    "parent_trace_id": sa.func.coalesce(stmt.excluded.parent_trace_id, Trace.parent_trace_id),
+                    "root_trace_id": sa.func.coalesce(Trace.root_trace_id, stmt.excluded.root_trace_id),
                     "full_record": merged_full,
                 },
             )

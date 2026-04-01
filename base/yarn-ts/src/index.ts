@@ -93,6 +93,24 @@ type SessionState = {
   record: SessionRecord;
 };
 
+function getMetadataString(meta: Record<string, unknown>, key: string): string {
+  const value = meta[key];
+  return typeof value === "string" ? value : "";
+}
+
+function trimSnippet(text: string, max = 2000): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function updateTracePromptMetadata(state: SessionState, latestUserText: string): void {
+  const latest = trimSnippet(latestUserText);
+  if (!latest) return;
+  state.record.metadata.latest_user_prompt = latest;
+  if (!getMetadataString(state.record.metadata, "trace_root_prompt")) {
+    state.record.metadata.trace_root_prompt = latest;
+  }
+}
+
 interface RequestDiagnostic {
   timestamp: number;
   sessionKey: string;
@@ -699,6 +717,11 @@ function persistSessionAndUsage(
   state.record.metadata.total_cost_usd = prevCost + normalizedCostUsd;
   state.record.requestCount += 1;
   state.record.lastActiveAt = Date.now();
+  const previousTraceId = getMetadataString(state.record.metadata, "last_trace_id");
+  const rootTraceId = getMetadataString(state.record.metadata, "root_trace_id") || previousTraceId || requestId;
+  const parentTraceId = previousTraceId || undefined;
+  state.record.metadata.root_trace_id = rootTraceId;
+  state.record.metadata.last_trace_id = requestId;
 
   if (finishReason === "tool_calls" || finishReason === "tool_use") {
     state.consecutiveToolCalls += 1;
@@ -759,17 +782,22 @@ function persistSessionAndUsage(
     actual_cost_usd: usage.costUsd > 0 ? usage.costUsd : 0,
   };
   recordUsageMetrics(svcMetrics, resolvedModelId, resolvedModelId, telemetryUsage, latencyMs / 1000);
+  const rootPromptSnippet = getMetadataString(state.record.metadata, "trace_root_prompt");
+  const latestPromptSnippet = getMetadataString(state.record.metadata, "latest_user_prompt");
 
   const trace: TraceRecord = {
     service: "yarn",
     trace_id: requestId,
     request_id: requestId,
     conversation_id: state.record.sessionKey,
+    parent_trace_id: parentTraceId,
+    root_trace_id: rootTraceId,
     timestamp: Date.now() / 1000,
     user_id: state.record.userId,
     org_id: state.record.orgId,
     tenant_id: "",
     model: resolvedModelId,
+    query_snippet: (rootPromptSnippet || latestPromptSnippet).slice(0, 2000),
     tokens: telemetryUsage,
     cost: {
       estimated_usd: normalizedCostUsd,
@@ -782,6 +810,13 @@ function persistSessionAndUsage(
     },
     latency_ms: latencyMs,
     ...(snapshot ? snapshotToTraceFields(snapshot) : {}),
+    trace_context: {
+      turn_index: state.record.requestCount,
+      root_user_prompt: rootPromptSnippet || undefined,
+      latest_user_prompt: latestPromptSnippet || undefined,
+      parent_trace_id: parentTraceId,
+      root_trace_id: rootTraceId,
+    },
     has_error: finishReason === "error" || undefined,
   };
   emitTrace(trace, traceEmitterConfig, app.log);
@@ -1553,6 +1588,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  if (latestUserText && typeof latestUserText.content === "string") {
+    updateTracePromptMetadata(session, latestUserText.content);
+  }
 
   const oaiRecallDecision = toolResultReduction.getLastRecallDecision();
   const oaiVerifState = toolResultReduction.getVerificationTracker().getState();
@@ -2269,6 +2307,9 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  if (latestClaudeUser && typeof latestClaudeUser.content === "string") {
+    updateTracePromptMetadata(session, latestClaudeUser.content);
+  }
 
   const claudeRecallDecision = toolResultReduction.getLastRecallDecision();
   const claudeVerifState = toolResultReduction.getVerificationTracker().getState();

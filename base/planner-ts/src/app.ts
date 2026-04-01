@@ -95,6 +95,30 @@ export function resolvePlannerSessionKey(
   return { sessionKey: `ephemeral:${requestId}`, source: "ephemeral_request" };
 }
 
+function normalizeWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3);
+}
+
+function isLikelyClarificationAnswer(
+  answer: string,
+  pending: { question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string },
+): boolean {
+  const trimmed = answer.trim();
+  if (!trimmed) return false;
+  if (/^([a-z]|[0-9]{1,2})[\)\.]?$/i.test(trimmed)) return false;
+  if (/\b(proceed|go ahead|use assumptions|continue)\b/i.test(trimmed)) return true;
+  if (trimmed.length >= 24) return true;
+
+  const haystack = `${pending.question} ${pending.options.join(" ")}`.toLowerCase();
+  const words = normalizeWords(trimmed);
+  return words.some((w) => haystack.includes(w));
+}
+
 export function buildApp(config: AppConfig): FastifyInstance {
   initFgaClient(config);
 
@@ -322,8 +346,26 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
     }
 
-    const domainProfile = buildDomainProfile(taskText);
     const pendingClarification = await sessionManager.consumePendingClarification(sessionKey);
+    let mergedTaskText = taskText;
+    const applyPendingClarification = Boolean(
+      pendingClarification && isLikelyClarificationAnswer(taskText, pendingClarification),
+    );
+    if (applyPendingClarification && pendingClarification?.originalTaskDescription) {
+      const originalTask = pendingClarification.originalTaskDescription.trim();
+      const answer = taskText.trim();
+      mergedTaskText = [
+        "Original request:",
+        originalTask,
+        "",
+        "Clarification response:",
+        answer || "(no answer provided)",
+        "",
+        "Re-plan instruction:",
+        "Use the original request and the clarification response together. The clarification constrains the original request; it does not replace it.",
+      ].join("\n");
+    }
+    const domainProfile = buildDomainProfile(mergedTaskText);
 
     const baseState: GraphState = {
       messages: optimized.messages.map((m) => ({ role: m.role, content: m.content ?? "" })),
@@ -345,7 +387,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         critic: pricingRegistry.getRates("critic"),
       },
       requested_effort_mode: requestedEffortMode,
-      task_description: taskText,
+      task_description: mergedTaskText,
       evidence_packets: [],
       decision_ledger: [],
       critique_register: {},
@@ -364,7 +406,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       injection_scan_result: injectionScanResult,
     };
 
-    if (pendingClarification) {
+    if (applyPendingClarification && pendingClarification) {
       baseState.user_answer_to_clarification = taskText;
       baseState.assumptions = pendingClarification.assumptions;
       // The original request was complex enough to trigger clarification.
@@ -1066,6 +1108,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
             question: state.clarification_question,
             options: state.clarification_options ?? [],
             assumptions: state.assumptions ?? [],
+            originalTaskDescription: initialState.task_description,
           });
         }
 
@@ -1198,6 +1241,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
             question: finalState.clarification_question,
             options: finalState.clarification_options ?? [],
             assumptions: finalState.assumptions ?? [],
+            originalTaskDescription: initialState.task_description,
           });
         }
 

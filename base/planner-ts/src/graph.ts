@@ -33,12 +33,20 @@ function nodeTimeoutMs(): number {
   return raw;
 }
 
+function nodeTimeoutMsFor(nodeName: string): number {
+  if (nodeName === "writer") {
+    const writerRaw = Number(process.env.SYNESIS_PLANNER_TS_WRITER_NODE_TIMEOUT_MS ?? 180000);
+    if (Number.isFinite(writerRaw) && writerRaw > 0) return writerRaw;
+  }
+  return nodeTimeoutMs();
+}
+
 async function runNodeWithTimeout(
   nodeName: string,
   envelope: GraphEnvelope,
   fn: () => Promise<GraphEnvelope>,
 ): Promise<GraphEnvelope> {
-  const timeoutMs = nodeTimeoutMs();
+  const timeoutMs = nodeTimeoutMsFor(nodeName);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeoutPromise = new Promise<GraphEnvelope>((resolve) => {

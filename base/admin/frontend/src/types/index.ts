@@ -736,6 +736,9 @@ export interface TraceClassification {
 
 export interface TraceRecord {
   trace_id: string;
+  conversation_id?: string;
+  parent_trace_id?: string;
+  root_trace_id?: string;
   user_id: string;
   user_email?: string;
   org_id?: string;

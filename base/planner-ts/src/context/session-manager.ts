@@ -241,7 +241,7 @@ export class SessionManager {
 
   async setPendingClarification(
     key: string,
-    clarification: { question: string; options: string[]; assumptions: string[] },
+    clarification: { question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string },
   ): Promise<void> {
     if (!this.opts.enabled) return;
     await this.store.mutate(key, this.opts.ttlMs, (current) => {
@@ -258,9 +258,9 @@ export class SessionManager {
 
   async consumePendingClarification(
     key: string,
-  ): Promise<{ question: string; options: string[]; assumptions: string[] } | undefined> {
+  ): Promise<{ question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string } | undefined> {
     if (!this.opts.enabled) return undefined;
-    let pending: { question: string; options: string[]; assumptions: string[] } | undefined;
+    let pending: { question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string } | undefined;
     await this.store.mutate(key, this.opts.ttlMs, (current) => {
       const session: SessionData = current ?? {
         key,
