@@ -40,10 +40,13 @@ What it does:
 
 - Validates cluster identity, namespaces, and Go corpus YAML.
 - Verifies Admin token can call `/api/v1/ingestion/stats`.
+- **By default** calls **`POST /api/v1/ingestion/items/purge-pending`** (platform admin) to delete **all** pending queue rows and release stale `running` leases, so the run is not mixed with an old backlog. Set **`GO_FIRST_PURGE_PENDING=false`** to skip.
 - Enqueues only `bootstrap/corpus/lang-go.yaml`.
-- Creates one manual queue job from `cronjob/synesis-indexer-queue`.
+- Creates one manual queue job from `cronjob/synesis-indexer-queue` with **`SYNESIS_INDEXER_QUEUE_DOMAIN=go`** so the indexer only claims Go-domain items (even if other pending rows exist later).
 - Waits for completion and prints job logs + post-run ingestion stats.
 - Runs an optional Yarn retrieval probe if Yarn is ready and `SYNESIS_TEST_AUTH` is set.
+
+For **large multi-stage** loads (avoid re-fetch on failure), use the staged S3 pipeline described in **`docs/INDEXERS.md`** (`staged-fetch` → `staged-normalize` → `staged-enrich`) after Go-first validation.
 
 ## Manual phase commands (if needed)
 

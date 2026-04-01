@@ -6,14 +6,14 @@ import ipaddress
 import json
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth import UserInfo, get_current_user, require_admin
@@ -1034,9 +1034,84 @@ async def requeue_item(
 # ---------------------------------------------------------------------------
 
 
+@router.post("/items/purge-pending")
+async def purge_pending_ingestion_items(
+    domain: str | None = Query(
+        None,
+        max_length=128,
+        description="If set, only delete pending rows whose domain matches (exact, case-insensitive).",
+    ),
+    release_stale_running_minutes: int = Query(
+        0,
+        ge=0,
+        le=10_080,
+        description="If >0, reset items stuck in running longer than this many minutes back to pending.",
+    ),
+    user: UserInfo = Depends(require_platform_admin),
+):
+    """Delete all pending ingestion queue rows (optional domain filter).
+
+    Use before a focused bootstrap (e.g. Go-only) so the queue indexer does not
+    drain unrelated pending work. Requires **platform_admin**.
+
+    Related child rows (``ingestion_documents``, enrich queue) cascade on delete.
+    """
+    now = datetime.now(UTC)
+    released = 0
+    deleted = 0
+    async with async_session() as session:
+        if release_stale_running_minutes > 0:
+            cutoff = now - timedelta(minutes=release_stale_running_minutes)
+            res = await session.execute(
+                update(IngestionItem)
+                .where(IngestionItem.status == "running", IngestionItem.started_at.is_not(None), IngestionItem.started_at < cutoff)
+                .values(
+                    status="pending",
+                    started_at=None,
+                    completed_at=None,
+                    queued_at=now,
+                    error_message="released_stale_running",
+                )
+            )
+            released = res.rowcount or 0  # type: ignore[union-attr]
+
+        stmt = delete(IngestionItem).where(IngestionItem.status == "pending")
+        if domain and domain.strip():
+            stmt = stmt.where(IngestionItem.domain == domain.strip().lower()[:128])
+        res = await session.execute(stmt)
+        deleted = res.rowcount or 0  # type: ignore[union-attr]
+        await session.commit()
+
+    await record_admin_audit(
+        action="ingestion.queue.purge_pending",
+        status="success",
+        summary=f"Purged {deleted} pending ingestion item(s)"
+        + (f" (domain filter={domain.strip()[:64]!r})" if domain and domain.strip() else ""),
+        detail={
+            "deleted": deleted,
+            "domain_filter": (domain.strip().lower()[:128] if domain and domain.strip() else None),
+            "released_stale_running": released,
+            "release_stale_running_minutes": release_stale_running_minutes,
+        },
+        user=user,
+        source="admin_api",
+    )
+    return {"ok": True, "deleted": deleted, "released_stale_running": released}
+
+
 @router.post("/items/claim")
 async def claim_item(
     response: Response,
+    domain: str | None = Query(
+        None,
+        max_length=128,
+        description="Only consider items with this domain (e.g. go). Matches bootstrap corpus domain field.",
+    ),
+    tag: str | None = Query(
+        None,
+        max_length=64,
+        description="Only consider items whose tags array contains this string.",
+    ),
     _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
 ):
     """Atomically claim the next pending or retryable-failed item.
@@ -1046,27 +1121,37 @@ async def claim_item(
     Uses SELECT ... FOR UPDATE SKIP LOCKED for safe concurrent claiming.
     Returns 204 when nothing is claimable.
     Requires internal service token or platform_admin token.
+
+    Optional ``domain`` / ``tag`` narrow the queue so a job can process a slice
+    (e.g. Go corpus only) without draining the full backlog.
     """
-    from sqlalchemy import or_, text
+    status_clause = or_(
+        IngestionItem.status == "pending",
+        (
+            (IngestionItem.status == "failed")
+            & (IngestionItem.retry_count < IngestionItem.max_retries)
+            & (
+                IngestionItem.completed_at
+                <= text("NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0))")
+            )
+        ),
+    )
+    filter_parts: list[Any] = [status_clause]
+    if domain and domain.strip():
+        filter_parts.append(IngestionItem.domain == domain.strip().lower()[:128])
+    if tag and tag.strip():
+        tag_clean = tag.strip().lower()[:64]
+        filter_parts.append(
+            text(
+                "CAST(:claim_tag AS varchar(64)) = ANY(COALESCE(ingestion_items.tags, ARRAY[]::varchar[]))"
+            ).bindparams(claim_tag=tag_clean)
+        )
+    where_clause = and_(*filter_parts) if len(filter_parts) > 1 else filter_parts[0]
 
     async with async_session() as session:
         q = (
             select(IngestionItem)
-            .where(
-                or_(
-                    IngestionItem.status == "pending",
-                    # Auto-retry failed items that haven't exceeded max_retries,
-                    # with exponential backoff: 2^retry_count minutes after last attempt
-                    (
-                        (IngestionItem.status == "failed")
-                        & (IngestionItem.retry_count < IngestionItem.max_retries)
-                        & (
-                            IngestionItem.completed_at
-                            <= text("NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0))")
-                        )
-                    ),
-                )
-            )
+            .where(where_clause)
             .order_by(
                 # pending items first, then retryable failed items
                 (IngestionItem.status == "pending").desc(),

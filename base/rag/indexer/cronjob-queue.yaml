@@ -41,6 +41,10 @@ spec:
                 - --mode
                 - queue
               env:
+                # Optional claim filters (see admin POST /api/v1/ingestion/items/claim):
+                #   SYNESIS_INDEXER_QUEUE_DOMAIN — e.g. go (matches ingestion_items.domain)
+                #   SYNESIS_INDEXER_QUEUE_TAG — tag must appear in items.tags[]
+                #   SYNESIS_INDEXER_QUEUE_MAX_ITEMS — stop after N successful claims (testing / batch caps)
                 - name: SYNESIS_ADMIN_URL
                   value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
                 - name: SYNESIS_ADMIN_SERVICE_TOKEN

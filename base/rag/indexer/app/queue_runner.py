@@ -30,6 +30,12 @@ _DEFAULT_ADMIN_URL = os.getenv(
     "http://synesis-admin.synesis-admin.svc.cluster.local:8080",
 )
 
+# Optional claim filters (must match admin API query params on POST .../items/claim).
+_QUEUE_DOMAIN = os.getenv("SYNESIS_INDEXER_QUEUE_DOMAIN", "").strip()
+_QUEUE_TAG = os.getenv("SYNESIS_INDEXER_QUEUE_TAG", "").strip()
+_QUEUE_MAX_ITEMS_RAW = os.getenv("SYNESIS_INDEXER_QUEUE_MAX_ITEMS", "").strip()
+_QUEUE_MAX_ITEMS = int(_QUEUE_MAX_ITEMS_RAW) if _QUEUE_MAX_ITEMS_RAW.isdigit() else 0
+
 
 class QueueClient:
     """HTTP client for the admin ingestion API."""
@@ -46,7 +52,12 @@ class QueueClient:
         self._http = httpx.Client(base_url=self._base, timeout=timeout, headers=headers)
 
     def claim_item(self) -> dict[str, Any] | None:
-        resp = self._http.post("/api/v1/ingestion/items/claim")
+        params: dict[str, str] = {}
+        if _QUEUE_DOMAIN:
+            params["domain"] = _QUEUE_DOMAIN
+        if _QUEUE_TAG:
+            params["tag"] = _QUEUE_TAG
+        resp = self._http.post("/api/v1/ingestion/items/claim", params=params or None)
         if resp.status_code == 204:
             return None
         resp.raise_for_status()
@@ -189,7 +200,16 @@ def run_queue(
     admin_url = admin_url or _DEFAULT_ADMIN_URL
     client = QueueClient(admin_url)
 
-    logger.info("queue_runner_start", extra={"admin_url": admin_url, "trigger": trigger})
+    logger.info(
+        "queue_runner_start",
+        extra={
+            "admin_url": admin_url,
+            "trigger": trigger,
+            "claim_domain": _QUEUE_DOMAIN or None,
+            "claim_tag": _QUEUE_TAG or None,
+            "max_items": _QUEUE_MAX_ITEMS or None,
+        },
+    )
 
     run_id = client.create_run(trigger=trigger)
     logger.info("queue_run_created", extra={"run_id": run_id})
@@ -202,8 +222,11 @@ def run_queue(
             writer = MilvusWriter(**writer_kwargs)
         except Exception as e:
             logger.error("queue_milvus_connect_failed", extra={"error": str(e)})
-            client.update_run(run_id, status="failed")
-            return
+            try:
+                client.update_run(run_id, status="failed")
+            except Exception:
+                logger.debug("queue_run_failed_update_skipped", exc_info=True)
+            raise SystemExit(1) from e
         embedder = EmbedClient(**embedder_kwargs)
         ensure_synesis_catalog(writer.client)
 
@@ -241,6 +264,10 @@ def run_queue(
     items_failed = 0
 
     while True:
+        if _QUEUE_MAX_ITEMS and items_total >= _QUEUE_MAX_ITEMS:
+            logger.info("queue_max_items_reached", extra={"max_items": _QUEUE_MAX_ITEMS})
+            break
+
         try:
             item = client.claim_item()
         except httpx.HTTPError as e:

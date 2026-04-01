@@ -1,6 +1,6 @@
 # Synesis RAG Indexer
 
-Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQL-backed ingestion queue (the admin service's `ingestion_items` table). Content is added via the admin UI, the bootstrap API, or bulk YAML import. The indexer processes whatever is pending — no ConfigMaps or per-handler CronJobs required.
+Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQL-backed ingestion queue (the admin service's `ingestion_items` table). Content is added via the admin UI, the bootstrap API, or bulk YAML import. By default the indexer processes **all** pending rows in priority order. For a **narrow slice** (e.g. Go-only bootstrap), set **`SYNESIS_INDEXER_QUEUE_DOMAIN`** (and optionally **`SYNESIS_INDEXER_QUEUE_TAG`**) on the queue job; the admin **`POST /api/v1/ingestion/items/claim`** endpoint accepts matching `domain` / `tag` query parameters. To **clear pending work** before a focused import, **`POST /api/v1/ingestion/items/purge-pending`** (platform admin) deletes pending rows; optional **`release_stale_running_minutes`** resets stuck `running` leases. The helper script **`scripts/go-first-rag-load.sh`** automates purge → enqueue `lang-go.yaml` → one-shot job with **`SYNESIS_INDEXER_QUEUE_DOMAIN=go`**. For very large corpora, prefer the **staged S3 pipeline** (`staged-fetch` → `staged-normalize` → `staged-enrich`) so fetches land in S3 and later stages can be retried without re-fetching (see sections below).
 
 **Related docs:** Semantic ingestion / v9 design bar — [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md). Cost levers — [`RAG_INGESTION_COST.md`](RAG_INGESTION_COST.md). Format extractors and enrichment boundaries — [`INGESTION_ENRICHMENT.md`](INGESTION_ENRICHMENT.md). Trust envelope and attribution — [`SECURITY.md`](SECURITY.md).
 
@@ -261,6 +261,28 @@ base/rag/indexer/
 | **YAML** (legacy) | `--mode yaml --sources file.yaml` | Local YAML file | Local development, one-off imports |
 
 Queue mode is the default for the deployed CronJob. YAML mode remains available for local development.
+
+### Connectivity, auth, and NetworkPolicy (OpenShift)
+
+Queue mode needs **three** things to work reliably:
+
+1. **Internal service token** — The indexer CronJob sets `SYNESIS_ADMIN_SERVICE_TOKEN` from the **`synesis-internal-service-auth`** secret (key `token`) in **`synesis-rag`**. That value **must match** the **`SYNESIS_INTERNAL_SERVICE_TOKEN`** env on **synesis-admin** (same secret in `synesis-admin`). Run **`ensure_internal_service_auth`** from [`scripts/deploy.sh`](scripts/deploy.sh) to generate/sync the secret across namespaces, or copy the secret manually. If the env is empty (`optional: true` on the CronJob), the indexer calls the admin API **without** a Bearer token and receives **401** on `claim` / `runs` / `schema-sync`.
+
+2. **Milvus** — Default client URI is `http://synesis-milvus.synesis-rag.svc.cluster.local:19530` (see `milvus_writer.py`). No extra Milvus token is required for the default standalone image unless you enabled auth separately.
+
+3. **NetworkPolicy** — [`base/rag/indexer/network-policy.yaml`](../base/rag/indexer/network-policy.yaml) selects pods with **`app.kubernetes.io/name=synesis-indexer`** and allows **egress** to: **`synesis-admin:8080`**, **`synesis-rag`** on **19530** (Milvus) and **8080** (embedder, preprocess, spam, …), **`synesis-gateway:4000`** (optional LiteLLM/gatekeeper), **DNS (53)**, and **80/443** (web fetch + S3). It is included from the indexer Kustomize bundle (`overlays/jobs*`). **Admin** ingress (`base/admin/network-policy.yaml`) already allows **TCP 8080** from any peer (no `from` restriction), so indexer → admin is permitted.
+
+**Quick checks after deploy:**
+
+```bash
+# Same token bytes in both namespaces (should be non-empty)
+oc get secret synesis-internal-service-auth -n synesis-admin -o jsonpath='{.data.token}' | wc -c
+oc get secret synesis-internal-service-auth -n synesis-rag -o jsonpath='{.data.token}' | wc -c
+
+oc get networkpolicy synesis-indexer-egress -n synesis-rag -o yaml
+```
+
+Then run a one-shot queue job and **`oc logs job/…`**: you should see `queue_runner_start`, `queue_run_created`, and either `queue_item_claimed` or `queue_empty` — not repeated `401` / `403` from httpx.
 
 ## Handler Types
 

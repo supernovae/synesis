@@ -17,6 +17,11 @@ set -euo pipefail
 # - SYNESIS_ADMIN_URL (default: https://synesis-admin.apps.openshiftdemo.dev)
 # - SYNESIS_YARN_URL  (default: https://synesis-yarn.apps.openshiftdemo.dev)
 # - SYNESIS_TEST_AUTH for yarn retrieval checks
+# - GO_FIRST_PURGE_PENDING=true (default) — DELETE all pending ingestion_items before enqueue
+#   (platform_admin PAT). Set to false to keep existing pending work.
+# - GO_FIRST_RELEASE_STALE_RUNNING_MINUTES=180 (default) — reset stuck running rows before purge
+# - GO_FIRST_QUEUE_DOMAIN=go (default) — indexer only claims this domain (matches lang-go.yaml)
+# - GO_FIRST_QUEUE_MAX_ITEMS — optional cap on items processed per job (digits only)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GO_CORPUS_FILE="${ROOT_DIR}/bootstrap/corpus/lang-go.yaml"
@@ -30,6 +35,10 @@ RAG_NS="${RAG_NS:-synesis-rag}"
 ADMIN_NS="${ADMIN_NS:-synesis-admin}"
 YARN_NS="${YARN_NS:-synesis-yarn}"
 QUEUE_CRONJOB="${QUEUE_CRONJOB:-synesis-indexer-queue}"
+GO_FIRST_PURGE_PENDING="${GO_FIRST_PURGE_PENDING:-true}"
+GO_FIRST_RELEASE_STALE_RUNNING_MINUTES="${GO_FIRST_RELEASE_STALE_RUNNING_MINUTES:-180}"
+GO_FIRST_QUEUE_DOMAIN="${GO_FIRST_QUEUE_DOMAIN:-go}"
+GO_FIRST_QUEUE_MAX_ITEMS="${GO_FIRST_QUEUE_MAX_ITEMS:-}"
 
 function require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -92,6 +101,34 @@ PY
   exit 1
 fi
 
+phase_header "Phase 1b: optional queue cleanup (Go-first isolation)"
+if [[ "${GO_FIRST_PURGE_PENDING}" == "true" ]]; then
+  log "Purging ALL pending ingestion rows (GO_FIRST_PURGE_PENDING=true)"
+  log "Releasing running items older than ${GO_FIRST_RELEASE_STALE_RUNNING_MINUTES}m if any"
+  purge_url="${ADMIN_URL%/}/api/v1/ingestion/items/purge-pending?release_stale_running_minutes=${GO_FIRST_RELEASE_STALE_RUNNING_MINUTES}"
+  purge_code="$(curl -sS -o /tmp/go-first-purge.json -w '%{http_code}' \
+    -X POST "${purge_url}" \
+    -H "Authorization: Bearer ${ADMIN_TOKEN}")"
+  if [[ "${purge_code}" != "200" ]]; then
+    echo "ERROR: purge-pending failed (HTTP ${purge_code}). platform_admin PAT required." >&2
+    python3 - <<'PY'
+from pathlib import Path
+resp = Path("/tmp/go-first-purge.json")
+print(resp.read_text() if resp.exists() else "(no body)")
+PY
+    exit 1
+  fi
+  python3 - <<'PY'
+import json
+from pathlib import Path
+d = json.loads(Path("/tmp/go-first-purge.json").read_text())
+print(f"purge_result deleted={d.get('deleted', 0)} released_stale_running={d.get('released_stale_running', 0)}")
+PY
+else
+  log "GO_FIRST_PURGE_PENDING!=true — leaving existing pending ingestion items in place"
+  log "Indexer will use domain filter=${GO_FIRST_QUEUE_DOMAIN} for this job only"
+fi
+
 phase_header "Phase 2: enqueue Go-only corpus"
 bootstrap_code="$(curl -sS -o /tmp/go-first-bootstrap.json -w '%{http_code}' \
   -X POST "${ADMIN_URL%/}/api/v1/ingestion/bootstrap?status_override=pending&upsert=false" \
@@ -119,7 +156,21 @@ phase_header "Phase 2b: run queue job and monitor"
 ts="$(date +%s)"
 job_name="go-first-queue-${ts}"
 log "Creating one-shot job from cronjob/${QUEUE_CRONJOB}: ${job_name}"
-oc -n "${RAG_NS}" create job --from=cronjob/"${QUEUE_CRONJOB}" "${job_name}" >/dev/null
+log "Queue slice: SYNESIS_INDEXER_QUEUE_DOMAIN=${GO_FIRST_QUEUE_DOMAIN}"
+if [[ -n "${GO_FIRST_QUEUE_MAX_ITEMS}" ]]; then
+  python3 "${ROOT_DIR}/scripts/create-indexer-queue-job.py" \
+    --namespace "${RAG_NS}" \
+    --cronjob "${QUEUE_CRONJOB}" \
+    --job-name "${job_name}" \
+    --queue-domain "${GO_FIRST_QUEUE_DOMAIN}" \
+    --max-items "${GO_FIRST_QUEUE_MAX_ITEMS}"
+else
+  python3 "${ROOT_DIR}/scripts/create-indexer-queue-job.py" \
+    --namespace "${RAG_NS}" \
+    --cronjob "${QUEUE_CRONJOB}" \
+    --job-name "${job_name}" \
+    --queue-domain "${GO_FIRST_QUEUE_DOMAIN}"
+fi
 
 log "Waiting for job to complete (timeout 45m)"
 if ! oc -n "${RAG_NS}" wait --for=condition=complete --timeout=45m "job/${job_name}" >/dev/null; then
