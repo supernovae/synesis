@@ -51,7 +51,7 @@ spec:
                       optional: true
                 - name: SYNESIS_INGESTION_S3_BUCKET
                   value: ""
-                # Optional: SYNESIS_INGESTION_S3_PREFIX, AWS_REGION (IRSA supplies credentials)
+                  # Optional: SYNESIS_INGESTION_S3_PREFIX, AWS_REGION (IRSA supplies credentials)
               resources:
                 requests:
                   cpu: "500m"

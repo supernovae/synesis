@@ -10,8 +10,8 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-  # Deny all by default. The runner job gets explicit egress to
-  # planner/admin/embedder/milvus via the allow policy below.
+    # Deny all by default. The runner job gets explicit egress to
+    # planner/admin/embedder/milvus via the allow policy below.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

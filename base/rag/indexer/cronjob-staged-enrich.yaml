@@ -62,7 +62,7 @@ spec:
                       optional: true
                 - name: SYNESIS_INGESTION_S3_BUCKET
                   value: ""
-                # Optional gatekeeper / LLM (same as queue CronJob) — see docs/INDEXERS.md
+                  # Optional gatekeeper / LLM (same as queue CronJob) — see docs/INDEXERS.md
               resources:
                 requests:
                   cpu: "2"

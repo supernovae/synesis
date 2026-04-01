@@ -84,9 +84,6 @@ sources:
       prompt_aliases: ["code", "github", "stackoverflow"]
       always: false
 
-  # --- Examples of additional sources (disabled by default) ---
-  # Uncomment and configure to enable.
-
   # - id: github_internal
   #   label: "Internal GitHub"
   #   description: "Internal GitHub Enterprise code and issues"

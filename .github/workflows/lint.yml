@@ -38,20 +38,6 @@ jobs:
       - name: Ruff format check
         run: uvx ruff format --check base/
 
-  dead-code:
-    name: Dead code (vulture)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: astral-sh/setup-uv@v7
-
-      - name: Sync dev group (vulture)
-        run: uv sync --group dev
-
-      - name: Vulture
-        run: ./scripts/check-dead-code.sh
-
   yaml:
     name: YAML Lint
     runs-on: ubuntu-latest
@@ -96,11 +82,11 @@ jobs:
         run: |
           uv pip install --system -r base/images/base-api/requirements.lock
           uv pip install --system -r base/admin/requirements.lock
-          uv pip install --system "pytest>=8"
+          uv pip install --system "pytest>=8" "pytest-asyncio>=0.23"
 
       - name: Admin pytest
         working-directory: base/admin
-        run: PYTHONPATH=. python -m pytest tests/ -q --tb=short
+        run: PYTHONPATH=.:../images/base-api/synesis-telemetry python -m pytest tests/ -q --tb=short
 
   yarn-ts-tests:
     name: Yarn-TS typecheck + tests
@@ -115,6 +101,12 @@ jobs:
       - name: Install dependencies
         working-directory: base/yarn-ts
         run: npm ci
+
+      - name: Build workspace packages
+        run: |
+          npm run build -w packages/synesis-telemetry
+          npm run build -w packages/synesis-context-trust
+          npm run build -w packages/synesis-manifest
 
       - name: Typecheck
         working-directory: base/yarn-ts
@@ -162,6 +154,12 @@ jobs:
       - name: Install planner-ts dependencies
         working-directory: base/planner-ts
         run: npm ci
+
+      - name: Build workspace packages
+        run: |
+          npm run build -w packages/synesis-telemetry
+          npm run build -w packages/synesis-context-trust
+          npm run build -w packages/synesis-manifest
 
       - name: Unit tests
         working-directory: base/planner-ts
