@@ -218,24 +218,24 @@ class TestEvalHarness:
         from app.services.eval_harness import EvalCase, _check_expectations
 
         case = EvalCase(prompt="test", max_latency_ms=100)
-        failures = _check_expectations(case, 500.0, 10, {"choices": [{"message": {"content": "ok"}}]})
-        assert any("latency" in f for f in failures)
+        result = _check_expectations(case, 500.0, 10, {"choices": [{"message": {"content": "ok"}}]})
+        assert any("latency" in f for f in result.failures)
 
     def test_check_expectations_token_fail(self):
         from app.services.eval_harness import EvalCase, _check_expectations
 
         case = EvalCase(prompt="test", max_tokens=50)
-        failures = _check_expectations(case, 100.0, 200, {"choices": [{"message": {"content": "ok"}}]})
-        assert any("tokens" in f for f in failures)
+        result = _check_expectations(case, 100.0, 200, {"choices": [{"message": {"content": "ok"}}]})
+        assert any("tokens" in f for f in result.failures)
 
     def test_check_expectations_all_pass(self):
         from app.services.eval_harness import EvalCase, _check_expectations
 
         case = EvalCase(prompt="test", max_latency_ms=1000, max_tokens=500)
-        failures = _check_expectations(
+        result = _check_expectations(
             case, 200.0, 100, {"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 100}}
         )
-        assert failures == []
+        assert result.failures == []
 
     def test_eval_result_to_dict(self):
         from app.services.eval_harness import CaseResult, EvalResult
