@@ -183,13 +183,8 @@ async def yarn_health(
                 category="yarn",
             )
         if isinstance(result, dict) and result.get("status") == "ok":
-            return result
-        if isinstance(result, dict):
-            return {
-                "name": str(result.get("name") or "synesis-yarn"),
-                "status": str(result.get("status") or "unknown"),
-            }
-        return {"name": "synesis-yarn", "status": "unknown"}
+            return {"name": "synesis-yarn", "status": "ok"}
+        return {"name": "synesis-yarn", "status": "degraded"}
     except Exception:
         logger.warning("yarn_health_probe_failed", exc_info=True)
         raise HTTPException(status_code=502, detail="Could not probe Yarn health endpoint")

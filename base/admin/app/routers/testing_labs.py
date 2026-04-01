@@ -233,12 +233,7 @@ async def execute_run(
         status_code = 404 if "not found" in err_text.lower() else 409
         logger.warning("testing_labs_execute_failed run_id=%s status=%d", run_id, status_code)
         raise HTTPException(status_code=status_code, detail="Run execution failed")
-    return {
-        "run_id": result.get("run_id", run_id),
-        "status": result.get("status", "completed"),
-        "processed": int(result.get("processed", 0) or 0),
-        "failed": int(result.get("failed", 0) or 0),
-    }
+    return {"run_id": run_id, "status": "completed"}
 
 
 @router.get("/runs/{run_id}/regressions")

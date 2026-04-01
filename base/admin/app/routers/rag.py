@@ -49,6 +49,14 @@ def _load_quality_report() -> dict:
         return {}
 
 
+def _drop_error_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _drop_error_fields(v) for k, v in value.items() if k != "error"}
+    if isinstance(value, list):
+        return [_drop_error_fields(v) for v in value]
+    return value
+
+
 @router.get("/corpus")
 async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     _ensure_org_observability(_user)
@@ -82,7 +90,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
         unique_sources = len({r.get("document_name", "") for r in meta_rows if r.get("document_name")})
         return {
             "collection": CATALOG_COLLECTION,
-            "total_chunks": stats.get("row_count", 0),
+            "total_chunks": int(stats.get("row_count", 0) or 0),
             "total_documents": unique_docs,
             "total_sources": unique_sources,
             "domains_covered": unique_domains,
@@ -109,8 +117,8 @@ async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
         hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
         return {
             "collection": CATALOG_COLLECTION,
-            "schema": schema,
-            "hierarchy": hierarchy,
+            "schema": _drop_error_fields(schema),
+            "hierarchy": _drop_error_fields(hierarchy),
         }
     except Exception:
         logger.warning("corpus_schema_failed", exc_info=True)

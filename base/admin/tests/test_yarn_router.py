@@ -288,7 +288,7 @@ def test_yarn_health_uses_probe_service(client, monkeypatch):
     monkeypatch.setattr("app.routers.yarn.probe_service", mock_probe)
     resp = client.get("/api/v1/yarn/health")
     assert resp.status_code == 200
-    assert resp.json() == probe_result
+    assert resp.json() == {"name": "synesis-yarn", "status": "ok"}
     mock_probe.assert_awaited_once()
     call = mock_probe.await_args
     assert call.kwargs.get("category") == "yarn"

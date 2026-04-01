@@ -32,12 +32,8 @@ async def mcp_tools(_user: UserInfo = Depends(get_current_user)):
 async def mcp_agent_health(_user: UserInfo = Depends(get_current_user)):
     """Reachability of synesis-mcp (Yarn / IDE agent tools)."""
     try:
-        raw = await probe_mcp_health()
-        # Only return stable health fields; do not pass through backend error payloads.
-        return {
-            "ok": bool(raw.get("ok")) if isinstance(raw, dict) else False,
-            "status": (raw.get("status") if isinstance(raw, dict) else "unknown") or "unknown",
-        }
+        await probe_mcp_health()
+        return {"ok": True, "status": "ok"}
     except Exception:
         return {"ok": False, "status": "error", "detail": "mcp_health_probe_failed"}
 

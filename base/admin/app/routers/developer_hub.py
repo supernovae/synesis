@@ -354,8 +354,8 @@ async def test_connector(
         auth_token_ref=row.auth_token_ref,
     )
     try:
-        result = await client.health_check()
-        return {"status": "ok", "connector_id": connector_id, "detail": result}
+        await client.health_check()
+        return {"status": "ok", "connector_id": connector_id}
     except CatalogClientError:
         return {"status": "error", "connector_id": connector_id, "error": "connector_health_check_failed"}
     finally:
@@ -397,8 +397,8 @@ async def connector_health(
         timeout_s=5,
     )
     try:
-        probe = await client.health_check()
-        health["connectivity"] = probe
+        await client.health_check()
+        health["connectivity"] = {"reachable": True}
     except CatalogClientError:
         health["connectivity"] = {"reachable": False, "error": "connector_health_check_failed"}
     finally:

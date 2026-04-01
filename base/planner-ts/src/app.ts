@@ -816,6 +816,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
         throw err;
       }
       const auth = await resolveAuthContext(request, config);
+      const rateSubject = (auth.userId || auth.userEmail || "anonymous").trim() || "anonymous";
+      const rateLimit = userRateLimiter.check(rateSubject);
+      if (!rateLimit.allowed) {
+        const err = new Error("Too many requests for this user in the current window") as ErrorWithMeta;
+        err.statusCode = 429;
+        err.retryAfterSeconds = rateLimit.retryAfterSeconds ?? 1;
+        throw err;
+      }
       const policyDecision = await authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
         traceId: authzTraceId
       });
