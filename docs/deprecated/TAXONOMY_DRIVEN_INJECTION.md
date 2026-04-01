@@ -175,7 +175,7 @@ Per-request cost is O(1) dict access. No YAML parsing, no disk I/O on the hot pa
 
 - [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, verticals, coverage status
 - [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) — Extension points by role, examples
-- [WORKFLOW.md](WORKFLOW.md) — Graph flow, routing, startup compilation details
+- [WORKFLOW_PLANNER.MD](../WORKFLOW_PLANNER.MD) — Graph flow, routing, startup compilation details
 - `base/planner/app/taxonomy_prompt_factory.py` — `resolve_taxonomy_metadata`, `_load_config`, `_get_taxonomies`
 - `base/planner/app/taxonomy_config_linter.py` — Pydantic schema validation
 - `base/planner/taxonomy_prompt_config.yaml` — 190 taxonomy definitions

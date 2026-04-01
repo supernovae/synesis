@@ -1,6 +1,6 @@
 # Intent Taxonomy — Critic-Aware Routing
 
-> **Status: IMPLEMENTED.** Intent classes use BM25-scored keyword matching (term frequency saturation, document length normalization, IDF weighting). The `intent_weights.yaml` file defines keywords per intent class; the ScoringEngine scores all intents simultaneously and picks the highest (code intents preferred within 10% ties). Code/knowledge disambiguation (`is_code_task`) uses a semantic intent classifier based on cosine similarity against route embeddings (see section 7). See `entry_classifier_engine.py`, `semantic_intent.py`, and `docs/WORKFLOW.md` ref #10.
+> **Status: IMPLEMENTED.** Intent classes use BM25-scored keyword matching (term frequency saturation, document length normalization, IDF weighting). The `intent_weights.yaml` file defines keywords per intent class; the ScoringEngine scores all intents simultaneously and picks the highest (code intents preferred within 10% ties). Code/knowledge disambiguation (`is_code_task`) uses a semantic intent classifier based on cosine similarity against route embeddings (see section 7). See `entry_classifier_engine.py`, `semantic_intent.py`, and `docs/WORKFLOW_PLANNER.MD` research references.
 
 **Design:** Intent class × Domain vertical → routing + critic behavior.
 
@@ -119,7 +119,7 @@ Intent classification is defined in `intent_weights.yaml` under the `intent_clas
 
 The highest-scoring intent wins. When a code intent scores within 10% of the best non-code intent, the code intent is preferred (preserving code-priority for ambiguous prompts). Default when nothing matches: `general` (text/document path).
 
-See `entry_classifier_engine.py` for the implementation and `docs/WORKFLOW.md` ref #10 for the research references.
+See `entry_classifier_engine.py` for the implementation and `docs/WORKFLOW_PLANNER.MD` for the research references.
 
 ---
 

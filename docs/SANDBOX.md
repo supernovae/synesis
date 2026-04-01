@@ -2,7 +2,7 @@
 
 Synesis validates generated code when quality concerns arise. Code snippets produced by the **Worker** can be sent to the **Sandbox** — an isolated execution environment that runs linting, security scanning, and actual execution. If any step fails, the code is routed back to the Worker with detailed error context for revision.
 
-> **Exception-flow design**: The sandbox is not in the default pipeline. It fires when code validation is needed — triggered by the Critic or on explicit request. This keeps the happy path fast. See [docs/WORKFLOW.md](WORKFLOW.md) for routing details.
+> **Exception-flow design**: The sandbox is not in the default pipeline. It fires when code validation is needed — triggered by the Critic or on explicit request. This keeps the happy path fast. See [docs/WORKFLOW_PLANNER.MD](WORKFLOW_PLANNER.MD) for routing details.
 
 ## How It Works
 
@@ -90,4 +90,4 @@ Scale replicas by patching the `synesis-warm-pool` Deployment in the environment
 
 ---
 
-Back to [README](../README.md) | See also: [LSP Intelligence](LSP.md), [Workflow](WORKFLOW.md)
+Back to [README](../README.md) | See also: [LSP Intelligence](LSP.md), [Workflow](WORKFLOW_PLANNER.MD)

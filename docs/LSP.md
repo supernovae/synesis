@@ -2,7 +2,7 @@
 
 Synesis includes an optional **LSP Gateway** that provides deep type checking and symbol analysis beyond what basic linters (ruff, eslint, shellcheck) can catch. When generated code fails validation, the LSP Gateway runs language-specific diagnostic tools to identify type errors, undefined symbols, import resolution failures, and borrow checker violations — then feeds those structured diagnostics back to the Worker for a more informed revision.
 
-> **Exception-flow design**: Like the sandbox, LSP analysis is not in the default pipeline. It fires on code validation failure or when explicitly requested, acting as a diagnostic tool for the Critic and Worker to use when code quality issues arise. See [docs/WORKFLOW.md](WORKFLOW.md) for routing details.
+> **Exception-flow design**: Like the sandbox, LSP analysis is not in the default pipeline. It fires on code validation failure or when explicitly requested, acting as a diagnostic tool for the Critic and Worker to use when code quality issues arise. See [docs/WORKFLOW_PLANNER.MD](WORKFLOW_PLANNER.MD) for routing details.
 
 ## Why LSP Matters
 
@@ -87,4 +87,4 @@ Or remove `../../base/lsp` from the overlay's `kustomization.yaml` to avoid depl
 
 ---
 
-Back to [README](../README.md) | See also: [Sandbox](SANDBOX.md), [Workflow](WORKFLOW.md)
+Back to [README](../README.md) | See also: [Sandbox](SANDBOX.md), [Workflow](WORKFLOW_PLANNER.MD)

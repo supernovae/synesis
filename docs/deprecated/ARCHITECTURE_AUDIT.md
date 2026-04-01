@@ -4,7 +4,7 @@ The long-form audit below was written against an **older** tree (line-numbered e
 
 The "Verified addressed" section below was written against the **Python planner** (`base/planner/`), which is the legacy/deprecated orchestration runtime. **planner-ts** (`base/planner-ts/`) is now the primary runtime. Where a theme applies only to infrastructure shared by both runtimes (Milvus, indexer, admin, gateway) the distinction does not matter. Where behavior is planner-specific (LLM calls, token budgets, session state, metrics) a separate [planner-ts mapping](#planner-ts-mapping-primary-runtime) section below records the TS equivalent.
 
-**See also:** [SECURITY.md](SECURITY.md), [WORKFLOW.md](WORKFLOW.md), [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md), [performance.md](performance.md), [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md), [BUDGET_AND_LIMITS.md](BUDGET_AND_LIMITS.md).
+**See also:** [SECURITY.md](SECURITY.md), [WORKFLOW_PLANNER.MD](../WORKFLOW_PLANNER.MD), [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md), [performance.md](performance.md), [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md), [BUDGET_AND_LIMITS.md](BUDGET_AND_LIMITS.md).
 
 ---
 
