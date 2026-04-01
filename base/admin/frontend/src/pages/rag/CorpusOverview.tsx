@@ -105,8 +105,21 @@ export default function CorpusOverview() {
             icon={Grid3X3}
           />
           <MetricCard
-            label="Schema"
-            value={`v${corpus?.schema_version ?? "?"}`}
+            label="Milvus schema"
+            value={
+              corpus?.schema_upgrade_pending
+                ? (corpus.schema_version ?? 0) > 0
+                  ? `v${corpus.schema_version}`
+                  : "—"
+                : `v${corpus?.schema_version ?? "?"}`
+            }
+            subtitle={
+              corpus?.expected_schema_version != null && corpus.schema_upgrade_pending
+                ? (corpus.schema_version ?? 0) > 0
+                  ? `Upgrade to v${corpus.expected_schema_version} pending (run indexer)`
+                  : `Not reported yet · target v${corpus.expected_schema_version}`
+                : undefined
+            }
             icon={Layers}
           />
         </div>

@@ -19,6 +19,7 @@ from ..services.milvus_service import (
     collection_domain_hierarchy,
     collection_schema_info,
     collection_stats,
+    expected_milvus_schema_version,
     safe_query,
 )
 
@@ -78,6 +79,9 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     except Exception:
         pass
 
+    expected_sv = expected_milvus_schema_version()
+    schema_upgrade_pending = schema_version < expected_sv
+
     try:
         stats = collection_stats(CATALOG_COLLECTION)
         meta_rows = safe_query(
@@ -95,6 +99,8 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             "total_sources": unique_sources,
             "domains_covered": unique_domains,
             "schema_version": schema_version,
+            "expected_schema_version": expected_sv,
+            "schema_upgrade_pending": schema_upgrade_pending,
         }
     except Exception:
         logger.warning("corpus_overview_failed", exc_info=True)
@@ -105,6 +111,8 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             "total_sources": 0,
             "domains_covered": 0,
             "schema_version": schema_version,
+            "expected_schema_version": expected_sv,
+            "schema_upgrade_pending": schema_upgrade_pending,
         }
 
 

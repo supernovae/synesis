@@ -37,7 +37,9 @@ from ..rbac import (
     resolve_role,
 )
 from ..services.admin_audit import record_admin_audit
-from ..services.milvus_service import recreate_synesis_catalog_v12
+from ..services.milvus_service import expected_milvus_schema_version, recreate_synesis_catalog_v12
+
+EXPECTED_SCHEMA_VERSION = expected_milvus_schema_version()
 
 logger = logging.getLogger("synesis.admin.ingestion")
 
@@ -1594,17 +1596,29 @@ async def report_schema_version(
         }
 
 
-EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "12"))
-
 SYNESIS_CATALOG_NAME = "synesis_catalog"
+
+_MILVUS_RESET_CONFIRM_PHRASES = frozenset(
+    {
+        "DELETE_SYNESIS_CATALOG",
+        "DELETE_MILVUS_SCHEMA",
+    }
+)
+
+
+def _milvus_reset_confirm_ok(raw: str) -> bool:
+    return (raw or "").strip() in _MILVUS_RESET_CONFIRM_PHRASES
 
 
 class ResetCatalogRequest(BaseModel):
     """Dangerous: drops Milvus synesis_catalog. Requires exact confirm phrase."""
 
-    confirm: str = Field(..., description="Must be exactly DELETE_SYNESIS_CATALOG")
+    confirm: str = Field(
+        ...,
+        description='Must be DELETE_SYNESIS_CATALOG or DELETE_MILVUS_SCHEMA (after trim)',
+    )
     reset_queue: bool = Field(True, description="Reset ingestion items to pending")
-    recreate_now: bool = Field(True, description="Immediately recreate schema v12 from admin")
+    recreate_now: bool = Field(True, description="Immediately recreate collection from admin at expected schema version")
 
 
 @router.post("/milvus/reset-catalog")
@@ -1614,12 +1628,12 @@ async def reset_milvus_catalog(
 ):
     """Drop the unified RAG collection and optionally reset the ingestion queue.
 
-    By default, recreate happens immediately with schema v12.
+    By default, recreate happens immediately at the expected Milvus schema version.
     """
-    if body.confirm != "DELETE_SYNESIS_CATALOG":
+    if not _milvus_reset_confirm_ok(body.confirm):
         raise HTTPException(
             status_code=400,
-            detail='confirm must be exactly "DELETE_SYNESIS_CATALOG"',
+            detail='confirm must be "DELETE_SYNESIS_CATALOG" or "DELETE_MILVUS_SCHEMA"',
         )
     now = datetime.now(UTC)
     drop_err = ""
@@ -1633,9 +1647,12 @@ async def reset_milvus_catalog(
         logger.warning("milvus_reset_catalog_drop_failed", extra={"error": drop_err})
 
     recreated = False
+    reported_schema_version = 0
     if body.recreate_now:
         recreate_result = recreate_synesis_catalog_v12(SYNESIS_CATALOG_NAME)
         recreated = bool(recreate_result.get("ok"))
+        if recreated:
+            reported_schema_version = int(recreate_result.get("schema_version") or EXPECTED_SCHEMA_VERSION)
         if not recreated:
             recreate_err = str(recreate_result.get("error") or "unknown")[:500]
             logger.warning("milvus_reset_catalog_recreate_failed", extra={"error": recreate_err})
@@ -1650,14 +1667,14 @@ async def reset_milvus_catalog(
             session.add(
                 MilvusSchemaSync(
                     collection=SYNESIS_CATALOG_NAME,
-                    schema_version=EXPECTED_SCHEMA_VERSION if recreated else 0,
+                    schema_version=reported_schema_version if recreated else 0,
                     last_reported_by="admin_reset",
                     last_reset_at=now,
                     updated_at=now,
                 )
             )
         else:
-            row.schema_version = EXPECTED_SCHEMA_VERSION if recreated else 0
+            row.schema_version = reported_schema_version if recreated else 0
             row.last_reported_by = "admin_reset"
             row.last_reset_at = now
             row.updated_at = now
@@ -1715,7 +1732,7 @@ async def reset_milvus_catalog(
         "drop_error": "drop_failed" if drop_err else None,
         "recreated": recreated,
         "recreate_error": "recreate_failed" if recreate_err else None,
-        "schema_version": EXPECTED_SCHEMA_VERSION if recreated else 0,
+        "schema_version": reported_schema_version if recreated else 0,
     }
 
 
@@ -1723,24 +1740,25 @@ async def reset_milvus_catalog(
 async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
     """Get the current Milvus schema version tracked by the admin DB.
 
-    Includes expected_version (from deploy config) and upgrade_pending flag
-    so the UI can show a banner when the indexer hasn't run yet after a
-    schema bump.
+    Includes expected_version (from :func:`~app.services.milvus_service.expected_milvus_schema_version`)
+    and upgrade_pending so the UI can show a banner when the indexer has not reported the latest
+    schema yet (or the DB row is behind code).
     """
+    exp = expected_milvus_schema_version()
     async with async_session() as session:
         rows = (await session.execute(select(MilvusSchemaSync))).scalars().all()
 
         syncs = []
         any_pending = False
         for r in rows:
-            pending = r.schema_version < EXPECTED_SCHEMA_VERSION
+            pending = r.schema_version < exp
             if pending:
                 any_pending = True
             syncs.append(
                 {
                     "collection": r.collection,
                     "schema_version": r.schema_version,
-                    "expected_version": EXPECTED_SCHEMA_VERSION,
+                    "expected_version": exp,
                     "upgrade_pending": pending,
                     "last_reset_at": r.last_reset_at.isoformat() if r.last_reset_at else None,
                     "last_reported_by": r.last_reported_by,
@@ -1754,7 +1772,7 @@ async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
                 {
                     "collection": "synesis_catalog",
                     "schema_version": 0,
-                    "expected_version": EXPECTED_SCHEMA_VERSION,
+                    "expected_version": exp,
                     "upgrade_pending": True,
                     "last_reset_at": None,
                     "last_reported_by": None,
@@ -1763,7 +1781,7 @@ async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
             )
 
         return {
-            "expected_version": EXPECTED_SCHEMA_VERSION,
+            "expected_version": exp,
             "upgrade_pending": any_pending,
             "syncs": syncs,
         }

@@ -1659,6 +1659,7 @@ export function useResetMilvusCatalog() {
       client.post("/ingestion/milvus/reset-catalog", data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
+      qc.invalidateQueries({ queryKey: ["rag"] });
     },
   });
 }

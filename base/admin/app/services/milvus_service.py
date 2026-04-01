@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from pymilvus import CollectionSchema, DataType, FieldSchema, Function, FunctionType, MilvusClient
@@ -15,11 +16,20 @@ logger = logging.getLogger("synesis.admin.milvus")
 SCHEMA_VERSION = 14
 
 
-def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[str, Any]:
-    """Drop and recreate synesis_catalog with schema v13 immediately.
+def expected_milvus_schema_version() -> int:
+    """Integer schema generation the fleet expects (admin UI, drift detection, reset-catalog).
 
-    Function name kept as ``_v12`` for backward compatibility with callers;
-    the schema produced is v13 (adds trust attribution fields).
+    Defaults to :data:`SCHEMA_VERSION` so it stays aligned with ``recreate_synesis_catalog_v12``
+    and the indexer image. Override with env ``SYNESIS_EXPECTED_SCHEMA_VERSION`` only when
+    rolling out a coordinated bump.
+    """
+    return int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", str(SCHEMA_VERSION)))
+
+
+def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[str, Any]:
+    """Drop and recreate synesis_catalog with the current unified schema (see :data:`SCHEMA_VERSION`).
+
+    Function name kept as ``_v12`` for backward compatibility with callers.
     """
     embedding_dim = 384
     fields = [

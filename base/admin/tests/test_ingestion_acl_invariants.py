@@ -133,3 +133,14 @@ class TestPydanticSchemaDefaults:
         assert i.acl_mode == "open"
         assert i.acl_groups == ""
         assert i.visibility_scope == "global"
+
+
+class TestMilvusResetConfirm:
+    def test_accepts_catalog_and_schema_phrases(self):
+        from app.routers.ingestion import _milvus_reset_confirm_ok
+
+        assert _milvus_reset_confirm_ok("DELETE_SYNESIS_CATALOG")
+        assert _milvus_reset_confirm_ok("DELETE_MILVUS_SCHEMA")
+        assert _milvus_reset_confirm_ok("  DELETE_MILVUS_SCHEMA  ")
+        assert not _milvus_reset_confirm_ok("wrong")
+        assert not _milvus_reset_confirm_ok("")

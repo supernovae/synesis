@@ -22,6 +22,11 @@ import { useAuth } from "../../components/auth/useAuth";
 import { apiErrorMessage } from "../../api/errorMessage";
 import type { IngestionItem, IngestionRun, IndexerIngestionStats, StagedIngestionDocument } from "../../types";
 
+const MILVUS_CATALOG_RESET_CONFIRM_PHRASES = new Set([
+  "DELETE_SYNESIS_CATALOG",
+  "DELETE_MILVUS_SCHEMA",
+]);
+
 function numConfig(cfg: Record<string, unknown> | null, key: string, fallback: number): number {
   if (!cfg) return fallback;
   const v = cfg[key];
@@ -129,7 +134,9 @@ function SchemaUpgradeBanner() {
         <span className="mt-0.5 text-amber-600 dark:text-amber-400 text-lg">&#9888;</span>
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-            Schema Upgrade Pending {neverReported ? "" : `(v${currentVersion} → v${expectedVersion})`}
+            {neverReported
+              ? `Milvus schema not reported yet (target v${expectedVersion})`
+              : `Schema upgrade pending (v${currentVersion} → v${expectedVersion})`}
           </h3>
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
             {neverReported ? (
@@ -1081,6 +1088,7 @@ function ResetCatalogPanel() {
   const [open, setOpen] = useState(false);
   const [phrase, setPhrase] = useState("");
   const [resetQueue, setResetQueue] = useState(true);
+  const phraseOk = MILVUS_CATALOG_RESET_CONFIRM_PHRASES.has(phrase.trim());
 
   if (!isAdmin) return null;
 
@@ -1113,7 +1121,7 @@ function ResetCatalogPanel() {
             type="text"
             value={phrase}
             onChange={(e) => setPhrase(e.target.value)}
-            placeholder='Type DELETE_SYNESIS_CATALOG to confirm'
+            placeholder="DELETE_SYNESIS_CATALOG or DELETE_MILVUS_SCHEMA"
             className="block w-full max-w-md rounded border border-red-200 px-2 py-1 text-sm dark:border-red-900 dark:bg-slate-900 dark:text-white"
           />
           {reset.isError ? (
@@ -1127,10 +1135,10 @@ function ResetCatalogPanel() {
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={reset.isPending || phrase !== "DELETE_SYNESIS_CATALOG"}
+              disabled={reset.isPending || !phraseOk}
               onClick={() =>
                 reset.mutate(
-                  { confirm: "DELETE_SYNESIS_CATALOG", reset_queue: resetQueue },
+                  { confirm: phrase.trim(), reset_queue: resetQueue },
                   {
                     onSuccess: () => {
                       setPhrase("");

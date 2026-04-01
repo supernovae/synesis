@@ -361,7 +361,11 @@ export interface CorpusStats {
   total_documents: number;
   total_sources: number;
   domains_covered: number;
+  /** Last schema generation reported by indexer / admin reset (0 = none yet). */
   schema_version: number;
+  /** Code default (or SYNESIS_EXPECTED_SCHEMA_VERSION); same source as /ingestion/schema-sync. */
+  expected_schema_version: number;
+  schema_upgrade_pending: boolean;
 }
 
 export interface DomainScorecard {

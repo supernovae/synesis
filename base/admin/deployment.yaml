@@ -85,8 +85,7 @@ spec:
             # JWT issuer in tokens stays the public URL; only the token HTTP call uses this.
             - name: SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL
               value: "http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis"
-            - name: SYNESIS_EXPECTED_SCHEMA_VERSION
-              value: "12"
+            # Milvus catalog expected schema: defaults to milvus_service.SCHEMA_VERSION (set SYNESIS_EXPECTED_SCHEMA_VERSION only for coordinated rollouts).
             - name: SYNESIS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:

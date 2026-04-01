@@ -218,7 +218,7 @@ The admin DB tracks the last-known Milvus schema version in the `milvus_schema_s
 
 This means schema bumps are fully automatic — no manual intervention to re-import. Dead-letter items also get a fresh start since the new handler code may fix the original failure.
 
-**Manual catalog wipe (admin):** `POST /api/v1/ingestion/milvus/reset-catalog` with JSON body `{"confirm":"DELETE_SYNESIS_CATALOG","reset_queue":true}` (admin auth required). Drops `synesis_catalog`, sets `milvus_schema_sync` to uninitialized, and optionally resets all indexed/failed/dead-letter items to `pending`. The **Ingestion Queue** UI includes the same flow under **Danger zone** (admin role).
+**Manual catalog wipe (admin):** `POST /api/v1/ingestion/milvus/reset-catalog` with JSON body `{"confirm":"DELETE_SYNESIS_CATALOG","reset_queue":true}` — `confirm` may also be `DELETE_MILVUS_SCHEMA` (same effect; whitespace trimmed). Admin auth required. Drops `synesis_catalog`, updates `milvus_schema_sync`, and optionally resets indexed/failed/dead-letter items to `pending`. The **Ingestion Queue** UI includes the same flow under **Danger zone** (admin role).
 
 ```
 base/rag/indexer/
