@@ -68,6 +68,30 @@ def test_org_admin_can_manage_org_scope_in_own_org():
     assert allowed is True
 
 
+def test_org_admin_cannot_manage_global_scope():
+    from app.rbac import can_manage_visibility_scope
+
+    allowed = can_manage_visibility_scope(
+        _user(role="org_admin", org_id="org-a"),
+        visibility_scope="global",
+        org_id="",
+        tenant_id="",
+    )
+    assert allowed is False
+
+
+def test_platform_admin_can_manage_global_scope():
+    from app.rbac import can_manage_visibility_scope
+
+    allowed = can_manage_visibility_scope(
+        _user(role="platform_admin", org_id=""),
+        visibility_scope="global",
+        org_id="",
+        tenant_id="",
+    )
+    assert allowed is True
+
+
 def test_tenant_operator_denied_org_observability_group():
     from app.rbac import RouteGroup, can_access_route_group
 

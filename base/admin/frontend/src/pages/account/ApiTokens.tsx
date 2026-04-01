@@ -5,6 +5,7 @@ import type { AxiosResponse } from "axios";
 import client from "../../api/client";
 import type { PersonalAccessToken, TokenCreated } from "../../types";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import { useAuth } from "../../components/auth/useAuth";
 
 type ScopeTarget = "model" | "coder";
 type ScopeLevel = "readonly" | "readwrite";
@@ -25,6 +26,7 @@ function scopeDisplayLabel(scope: string): string {
 }
 
 export default function ApiTokens() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [expiresDays, setExpiresDays] = useState<number | "">("");
@@ -38,6 +40,36 @@ export default function ApiTokens() {
     model: "readonly",
     coder: "readonly",
   });
+  const [tokenIntent, setTokenIntent] = useState<
+    "admin" | "model" | "coder" | "hybrid"
+  >("admin");
+
+  const isOrgAdmin =
+    user?.role === "org_admin" ||
+    user?.role === "platform_admin" ||
+    (user?.org_roles ?? []).includes("admin");
+
+  function applyTokenIntent(intent: "admin" | "model" | "coder" | "hybrid") {
+    setTokenIntent(intent);
+    if (intent === "admin") {
+      // Admin API access is role-gated; keep minimum non-empty service scope.
+      setSelectedTargets(new Set(["model"]));
+      setLevels((prev) => ({ ...prev, model: "readonly" }));
+      return;
+    }
+    if (intent === "model") {
+      setSelectedTargets(new Set(["model"]));
+      setLevels((prev) => ({ ...prev, model: "readwrite" }));
+      return;
+    }
+    if (intent === "coder") {
+      setSelectedTargets(new Set(["coder"]));
+      setLevels((prev) => ({ ...prev, coder: "readwrite" }));
+      return;
+    }
+    setSelectedTargets(new Set(["model", "coder"]));
+    setLevels((prev) => ({ ...prev, model: "readwrite", coder: "readwrite" }));
+  }
 
   function toggleTarget(t: ScopeTarget) {
     setSelectedTargets((prev) => {
@@ -109,6 +141,65 @@ export default function ApiTokens() {
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
           Create new token
         </h2>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Admin routes are role-based. Model/Coder scopes below are service API
+          permissions for planner/yarn endpoints.
+        </p>
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            {
+              key: "admin" as const,
+              title: "Admin automation",
+              subtitle: "Ingestion, governance, telemetry scripts",
+            },
+            {
+              key: "model" as const,
+              title: "Model API",
+              subtitle: "Planner / LLM front-door",
+            },
+            {
+              key: "coder" as const,
+              title: "Coder API",
+              subtitle: "Yarn / IDE integrations",
+            },
+            {
+              key: "hybrid" as const,
+              title: "Hybrid",
+              subtitle: "Model + coder APIs",
+            },
+          ].map((intent) => (
+            <button
+              key={intent.key}
+              type="button"
+              onClick={() => applyTokenIntent(intent.key)}
+              className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                tokenIntent === intent.key
+                  ? "border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20"
+                  : "border-gray-200 bg-gray-50 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
+              }`}
+            >
+              <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                {intent.title}
+              </div>
+              <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                {intent.subtitle}
+              </div>
+            </button>
+          ))}
+        </div>
+        {tokenIntent === "admin" && !isOrgAdmin && (
+          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+            This account is not org/platform admin. Token creation will succeed,
+            but org-admin endpoints will still return 403.
+          </div>
+        )}
+        {tokenIntent === "admin" && isOrgAdmin && (
+          <div className="mt-3 rounded-md border border-green-300 bg-green-50 p-2 text-xs text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300">
+            Admin role detected. For global ingestion/bootstrap, platform admin
+            is required; org admin remains valid for org-scoped operations.
+          </div>
+        )}
 
         <div className="mt-3 flex items-end gap-3">
           <div className="flex-1">

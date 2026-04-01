@@ -35,6 +35,12 @@ spec:
                   name: synesis-internal-service-auth
                   key: token
                   optional: true
+            - name: SYNESIS_ADMIN_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-admin-db-url
+                  key: admin-url
+                  optional: true
           resources:
             requests:
               cpu: 100m

@@ -208,6 +208,11 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             Synesis Admin. Other products (IDEs, Yarn) may accept the same format
             when documented.
           </p>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Note: token role is captured when the token is created. If your org
+            role changes (for example, promoted to org admin), revoke old tokens
+            and create a new one.
+          </p>
           <Link
             to="/account/tokens"
             className="mt-4 inline-block text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"

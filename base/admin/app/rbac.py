@@ -167,7 +167,8 @@ def can_manage_visibility_scope(
     if role >= Role.platform_admin:
         return True
     if scope == "global":
-        return role >= Role.org_admin
+        # Global content is cross-org by design; restrict writes to platform admin.
+        return False
     if scope == "org":
         return role >= Role.org_admin and caller_org and (org_id or caller_org) == caller_org
     if scope == "tenant":

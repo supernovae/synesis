@@ -1161,20 +1161,45 @@ patch_yarn_feature_flags() {
 patch_mcp_ts_envs() {
     local ns="synesis-yarn"
     local deploy="synesis-mcp-ts"
-    local container="mcp-ts"
 
     if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
         return
     fi
 
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_INTERNAL_SERVICE_TOKEN" "${INTERNAL_SERVICE_TOKEN:-}" "$container"
-
-    local admin_url
-    admin_url=$(oc get secret synesis-admin-db-url -n "$ns" -o jsonpath='{.data.admin-url}' 2>/dev/null | base64 -d 2>/dev/null || true)
-    admin_url=$(printf '%s' "$admin_url" | sed 's|^postgresql+asyncpg://|postgresql://|')
-    if [[ -n "$admin_url" ]]; then
-        _patch_deployment_env "$ns" "$deploy" "SYNESIS_ADMIN_DB_URL" "$admin_url" "$container"
-    fi
+    # Keep sensitive values secret-backed (never patch inline plaintext env values).
+    oc patch deployment "$deploy" -n "$ns" --type='strategic' -p '{
+      "spec": {
+        "template": {
+          "spec": {
+            "containers": [{
+              "name": "mcp-ts",
+              "env": [
+                {
+                  "name": "SYNESIS_INTERNAL_SERVICE_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "synesis-internal-service-auth",
+                      "key": "token",
+                      "optional": true
+                    }
+                  }
+                },
+                {
+                  "name": "SYNESIS_ADMIN_DB_URL",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "synesis-admin-db-url",
+                      "key": "admin-url",
+                      "optional": true
+                    }
+                  }
+                }
+              ]
+            }]
+          }
+        }
+      }
+    }' >/dev/null 2>&1 || log "WARNING: unable to patch secret-backed envs for $ns/$deploy"
 }
 
 # Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
