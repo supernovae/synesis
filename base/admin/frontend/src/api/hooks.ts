@@ -1988,6 +1988,10 @@ export interface YarnRuntimeTelemetry {
     rawCharsTotal: number;
     reducedCharsTotal: number;
     reducedCount: number;
+    shrunkCount: number;
+    expandedCount: number;
+    unchangedCount: number;
+    netCharsSavedTotal: number;
     artifactHandleCount: number;
     tokensSavedEstimateTotal: number;
     fallbackToArtifactCount: number;

@@ -27,6 +27,10 @@ export interface ToolResultReductionStats {
   rawCharsTotal: number;
   reducedCharsTotal: number;
   reducedCount: number;
+  shrunkCount: number;
+  expandedCount: number;
+  unchangedCount: number;
+  netCharsSavedTotal: number;
   artifactHandleCount: number;
   tokensSavedEstimateTotal: number;
   fallbackToArtifactCount: number;
@@ -43,10 +47,6 @@ export interface ToolResultReductionStats {
 export interface ToolResultReductionResult {
   messages: ToolResultLike[];
   reducedCount: number;
-}
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
 }
 
 function toStringContent(content: unknown): string {
@@ -69,6 +69,10 @@ export class ToolResultReductionService {
     rawCharsTotal: 0,
     reducedCharsTotal: 0,
     reducedCount: 0,
+    shrunkCount: 0,
+    expandedCount: 0,
+    unchangedCount: 0,
+    netCharsSavedTotal: 0,
     artifactHandleCount: 0,
     tokensSavedEstimateTotal: 0,
     fallbackToArtifactCount: 0,
@@ -123,10 +127,7 @@ export class ToolResultReductionService {
       const dispatched = this.contentDispatch?.dispatch(raw);
       if (dispatched?.transformed) {
         this.stats.contentDispatchCount += 1;
-        this.stats.rawCharsTotal += raw.length;
-        this.stats.reducedCharsTotal += dispatched.transformed.length;
-        this.stats.reducedCount += 1;
-        this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(dispatched.transformed));
+        this.trackTransformation(raw.length, dispatched.transformed.length);
         reducedCount += 1;
         return { ...m, content: dispatched.transformed };
       }
@@ -211,11 +212,8 @@ export class ToolResultReductionService {
         }
       }
 
-      this.stats.rawCharsTotal += raw.length;
-      this.stats.reducedCharsTotal += summary.length;
-      this.stats.reducedCount += 1;
+      this.trackTransformation(raw.length, summary.length);
       if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
-      this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(summary));
       reducedCount += 1;
 
       return {
@@ -267,10 +265,7 @@ export class ToolResultReductionService {
 
       if (dispatch.transformed) {
         this.stats.contentDispatchCount += 1;
-        this.stats.rawCharsTotal += raw.length;
-        this.stats.reducedCharsTotal += dispatch.transformed.length;
-        this.stats.reducedCount += 1;
-        this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(dispatch.transformed));
+        this.trackTransformation(raw.length, dispatch.transformed.length);
         reducedCount += 1;
         out[idx] = { ...m, content: dispatch.transformed };
         continue;
@@ -358,11 +353,8 @@ export class ToolResultReductionService {
         }
       }
 
-      this.stats.rawCharsTotal += raw.length;
-      this.stats.reducedCharsTotal += summary.length;
-      this.stats.reducedCount += 1;
+      this.trackTransformation(raw.length, summary.length);
       if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
-      this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(summary));
       reducedCount += 1;
       out[idx] = { ...m, content: summary };
     }
@@ -392,10 +384,7 @@ export class ToolResultReductionService {
       const jsonResult = compactJsonArray(raw);
       if (jsonResult && jsonResult.compressionRatio > 0.2) {
         this.stats.jsonCompactionCount += 1;
-        this.stats.rawCharsTotal += raw.length;
-        this.stats.reducedCharsTotal += jsonResult.compacted.length;
-        this.stats.reducedCount += 1;
-        this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(jsonResult.compacted));
+        this.trackTransformation(raw.length, jsonResult.compacted.length);
         return jsonResult.compacted;
       }
       return raw;
@@ -460,11 +449,8 @@ export class ToolResultReductionService {
         this.stats.reducerFailures += 1;
       }
     }
-    this.stats.rawCharsTotal += raw.length;
-    this.stats.reducedCharsTotal += summary.length;
-    this.stats.reducedCount += 1;
+    this.trackTransformation(raw.length, summary.length);
     if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
-    this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(summary));
     return summary;
   }
 
@@ -510,6 +496,17 @@ export class ToolResultReductionService {
       if (lower.includes(vt)) return true;
     }
     return false;
+  }
+
+  private trackTransformation(rawChars: number, outChars: number): void {
+    this.stats.rawCharsTotal += rawChars;
+    this.stats.reducedCharsTotal += outChars;
+    this.stats.reducedCount += 1;
+    this.stats.netCharsSavedTotal += rawChars - outChars;
+    this.stats.tokensSavedEstimateTotal += Math.max(0, Math.ceil(rawChars / 4) - Math.ceil(outChars / 4));
+    if (outChars < rawChars) this.stats.shrunkCount += 1;
+    else if (outChars > rawChars) this.stats.expandedCount += 1;
+    else this.stats.unchangedCount += 1;
   }
 
   private artifactSummary(raw: string, toolName?: string): string {

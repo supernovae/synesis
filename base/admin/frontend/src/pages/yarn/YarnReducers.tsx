@@ -67,7 +67,7 @@ export default function YarnReducers() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Total Reduced" value={trr.reducedCount} />
+            <StatCard label="Total Transformed" value={trr.reducedCount} />
             <StatCard
               label="Tokens Saved"
               value={trr.tokensSavedEstimateTotal}
@@ -88,10 +88,18 @@ export default function YarnReducers() {
               subtitle="Aggregate reducer metrics since last restart"
             >
               <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
-                <Row label="Total reduced outputs" value={trr.reducedCount} />
+                <Row label="Total transformed outputs" value={trr.reducedCount} />
+                <Row label="Outputs shrunk" value={trr.shrunkCount} />
+                <Row label="Outputs expanded" value={trr.expandedCount} warn={trr.expandedCount > 0} />
+                <Row label="Outputs unchanged" value={trr.unchangedCount} />
                 <Row
                   label="Estimated tokens saved"
                   value={trr.tokensSavedEstimateTotal}
+                />
+                <Row
+                  label="Net chars saved"
+                  value={formatSigned(trr.netCharsSavedTotal)}
+                  warn={trr.netCharsSavedTotal < 0}
                 />
                 <Row
                   label="Raw chars processed"
@@ -393,4 +401,9 @@ function LifecycleBadge({ state }: { state: string }) {
       {state}
     </span>
   );
+}
+
+function formatSigned(value: number): string {
+  if (value > 0) return `+${value.toLocaleString()}`;
+  return value.toLocaleString();
 }
