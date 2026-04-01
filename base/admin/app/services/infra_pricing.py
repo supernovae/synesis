@@ -150,7 +150,7 @@ async def get_infra_config_for_role(role: str) -> dict[str, Any] | None:
             row = result.mappings().first()
             return dict(row) if row else None
     except Exception:
-        logger.debug("infra_config_read_role_failed role=%s", role, exc_info=True)
+        logger.debug("infra_config_read_role_failed", exc_info=True)
         return None
 
 

@@ -31,7 +31,10 @@ async def mcp_tools(_user: UserInfo = Depends(get_current_user)):
 @router.get("/mcp/health")
 async def mcp_agent_health(_user: UserInfo = Depends(get_current_user)):
     """Reachability of synesis-mcp (Yarn / IDE agent tools)."""
-    return await probe_mcp_health()
+    try:
+        return await probe_mcp_health()
+    except Exception:
+        return {"ok": False, "status": "error", "detail": "mcp_health_probe_failed"}
 
 
 @router.get("/mcp/admin-catalog")

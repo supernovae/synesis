@@ -229,8 +229,10 @@ async def execute_run(
     """Execute a Testing Labs run: replay prompts from traces against Yarn."""
     result = await testing_labs_engine.execute_run(run_id, _YARN_URL)
     if result.get("error"):
-        status_code = 404 if "not found" in result["error"].lower() else 409
-        raise HTTPException(status_code=status_code, detail=result["error"])
+        err_text = str(result.get("error") or "")
+        status_code = 404 if "not found" in err_text.lower() else 409
+        logger.warning("testing_labs_execute_failed run_id=%s status=%d", run_id, status_code)
+        raise HTTPException(status_code=status_code, detail="Run execution failed")
     return result
 
 

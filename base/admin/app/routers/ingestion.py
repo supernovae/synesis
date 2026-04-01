@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
+import socket
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
@@ -339,6 +342,49 @@ _CORPUS_HEURISTICS: dict[str, str] = {
 }
 
 
+def _is_public_discovery_host(host: str) -> bool:
+    """Allow only publicly routable hosts for discovery probes."""
+    hostname = (host or "").strip().lower().rstrip(".")
+    if not hostname:
+        return False
+    if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
+        return False
+    try:
+        # Resolve all addresses and reject private/local destinations.
+        infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    except Exception:
+        return False
+    for info in infos:
+        ip_txt = info[4][0]
+        try:
+            ip_obj = ipaddress.ip_address(ip_txt)
+        except ValueError:
+            return False
+        if (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+            or ip_obj.is_reserved
+            or ip_obj.is_unspecified
+        ):
+            return False
+    return True
+
+
+def _validate_discovery_target_url(raw_url: str) -> tuple[str, Any]:
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="URL credentials are not allowed")
+    if not _is_public_discovery_host(parsed.hostname or ""):
+        raise HTTPException(status_code=400, detail="URL host is not allowed for discovery")
+    return parsed.geturl(), parsed
+
+
 async def _run_heuristic_discovery(
     raw_url: str,
     *,
@@ -349,11 +395,9 @@ async def _run_heuristic_discovery(
     Returns the full discovery payload including ``recommendation_reasons``,
     ``suggested_corpus_class``, and ``required_missing_fields``.
     """
-    from urllib.parse import urlparse
-
     import httpx
 
-    parsed = urlparse(raw_url)
+    raw_url, parsed = _validate_discovery_target_url(raw_url)
     host = parsed.hostname or ""
     path = parsed.path.rstrip("/").lower()
 
@@ -368,7 +412,9 @@ async def _run_heuristic_discovery(
     elif any(raw_url.endswith(ext) for ext in (".md", ".rst", ".txt")):
         handler = "html_document"
         recommendation_reasons.append("File extension indicates plain-text document")
-    elif ("github.com" in host and "/tree/" in raw_url) or "github.com" in host:
+    elif ((host == "github.com" or host.endswith(".github.com")) and "/tree/" in raw_url) or (
+        host == "github.com" or host.endswith(".github.com")
+    ):
         handler = "github_repo"
         recommendation_reasons.append("GitHub host detected — using repo handler")
     else:
@@ -528,11 +574,7 @@ async def discover_url(
     if not raw_url:
         raise HTTPException(status_code=400, detail="url is required")
 
-    from urllib.parse import urlparse
-
-    parsed = urlparse(raw_url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    raw_url, _parsed = _validate_discovery_target_url(raw_url)
 
     result = await _run_heuristic_discovery(raw_url, hints=body.hints)
 
@@ -640,11 +682,7 @@ async def discover_preview(
     if not raw_url:
         raise HTTPException(status_code=400, detail="url is required")
 
-    from urllib.parse import urlparse
-
-    parsed = urlparse(raw_url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    raw_url, _parsed = _validate_discovery_target_url(raw_url)
 
     return await _run_heuristic_discovery(raw_url, hints=body.hints)
 
@@ -1632,17 +1670,17 @@ async def reset_milvus_catalog(
         summary=f"Dropped {SYNESIS_CATALOG_NAME}; recreated={recreated}; queue_reset={body.reset_queue}",
         detail={
             "items_reset": items_reset,
-            "drop_error": drop_err or None,
-            "recreate_error": recreate_err or None,
+            "drop_error": bool(drop_err),
+            "recreate_error": bool(recreate_err),
         },
     )
     return {
         "ok": True,
         "collection": SYNESIS_CATALOG_NAME,
         "items_reset": items_reset,
-        "drop_error": drop_err or None,
+        "drop_error": "drop_failed" if drop_err else None,
         "recreated": recreated,
-        "recreate_error": recreate_err or None,
+        "recreate_error": "recreate_failed" if recreate_err else None,
         "schema_version": EXPECTED_SCHEMA_VERSION if recreated else 0,
     }
 
@@ -1978,8 +2016,9 @@ async def bootstrap_validate(
     content = await file.read()
     try:
         data = yaml.safe_load(content)
-    except yaml.YAMLError as e:
-        return {"ok": False, "error": f"YAML parse error: {e}", "items": []}
+    except yaml.YAMLError:
+        logger.warning("bootstrap_validate_yaml_parse_failed", exc_info=True)
+        return {"ok": False, "error": "YAML parse error", "items": []}
 
     items_list = data.get("items", [])
     if not items_list:
@@ -2072,8 +2111,9 @@ async def bootstrap_from_yaml(
     content = await file.read()
     try:
         data = yaml.safe_load(content)
-    except yaml.YAMLError as e:
-        return {"ok": False, "error": f"YAML parse error: {e}"}
+    except yaml.YAMLError:
+        logger.warning("bootstrap_import_yaml_parse_failed", exc_info=True)
+        return {"ok": False, "error": "YAML parse error"}
 
     items_list = data.get("items", [])
     if not items_list:

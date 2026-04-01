@@ -803,6 +803,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
     reply.header("x-synesis-authz-trace-id", authzTraceId);
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
     try {
+      const preAuthSubject = `preauth:${(request.ip || "unknown").trim() || "unknown"}:memory-purge`;
+      const preAuthRateLimit = userRateLimiter.check(preAuthSubject);
+      if (!preAuthRateLimit.allowed) {
+        const err = new Error("Too many requests for this user in the current window") as ErrorWithMeta;
+        err.statusCode = 429;
+        err.retryAfterSeconds = preAuthRateLimit.retryAfterSeconds ?? 1;
+        throw err;
+      }
       const auth = await resolveAuthContext(request, config);
       const policyDecision = await authorizeChatCompletionsWithPolicy(authzPolicyEngine, auth, {
         traceId: authzTraceId
@@ -1116,6 +1124,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
     let streamRelease: (() => void) | undefined;
     try {
+      const preAuthSubject = `preauth:${(request.ip || "unknown").trim() || "unknown"}:chat-completions`;
+      const preAuthRateLimit = userRateLimiter.check(preAuthSubject);
+      if (!preAuthRateLimit.allowed) {
+        const err = new Error("Too many requests for this user in the current window") as ErrorWithMeta;
+        err.statusCode = 429;
+        err.retryAfterSeconds = preAuthRateLimit.retryAfterSeconds ?? 1;
+        throw err;
+      }
       assertCapabilityLock();
       const auth = await resolveAuthContext(request, config);
       const rateSubject = (auth.userId || auth.userEmail || "anonymous").trim() || "anonymous";

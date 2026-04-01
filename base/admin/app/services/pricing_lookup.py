@@ -146,7 +146,7 @@ async def lookup_litellm_pricing(model_name: str) -> tuple[float, float] | None:
                 if inp or out:
                     return (float(inp) * 1_000_000, float(out) * 1_000_000)
     except Exception:
-        logger.debug("litellm_pricing_lookup_failed model=%s", model_name, exc_info=True)
+        logger.debug("litellm_pricing_lookup_failed", exc_info=True)
     return None
 
 

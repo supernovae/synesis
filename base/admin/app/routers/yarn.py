@@ -175,13 +175,17 @@ async def yarn_health(
     user: UserInfo = Depends(require_org_admin),
 ):
     """Direct health probe of the Yarn service."""
-    async with httpx.AsyncClient() as client:
-        result = await probe_service(
-            client,
-            {"name": "synesis-yarn", "url": f"{_YARN_URL.rstrip('/')}/health"},
-            category="yarn",
-        )
-    return result
+    try:
+        async with httpx.AsyncClient() as client:
+            result = await probe_service(
+                client,
+                {"name": "synesis-yarn", "url": f"{_YARN_URL.rstrip('/')}/health"},
+                category="yarn",
+            )
+        return result
+    except Exception:
+        logger.warning("yarn_health_probe_failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="Could not probe Yarn health endpoint")
 
 
 @router.get("/runtime-telemetry")
@@ -241,8 +245,9 @@ async def yarn_verify(
                     "status_code": resp.status_code,
                 }
             )
-        except Exception as exc:
-            checks.append({"check": "health", "status": "fail", "error": str(exc)[:120]})
+        except Exception:
+            logger.warning("yarn_verify_health_failed", exc_info=True)
+            checks.append({"check": "health", "status": "fail", "error": "request_failed"})
 
         try:
             resp = await client.get(f"{_YARN_URL.rstrip('/')}/v1/models")
@@ -253,8 +258,9 @@ async def yarn_verify(
                     "status_code": resp.status_code,
                 }
             )
-        except Exception as exc:
-            checks.append({"check": "models_endpoint", "status": "fail", "error": str(exc)[:120]})
+        except Exception:
+            logger.warning("yarn_verify_models_failed", exc_info=True)
+            checks.append({"check": "models_endpoint", "status": "fail", "error": "request_failed"})
 
     all_pass = all(c["status"] == "pass" for c in checks)
     return {"overall": "pass" if all_pass else "fail", "checks": checks}

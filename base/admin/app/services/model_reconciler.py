@@ -129,7 +129,7 @@ def _resolve_litellm_params(raw_params: dict | None, provider_keys: dict[str, st
             params["api_key"] = resolved
         else:
             unresolved = True
-            logger.warning("reconcile_missing_provider_key env=%s", key_name)
+            logger.warning("reconcile_missing_provider_key")
     return params, unresolved
 
 

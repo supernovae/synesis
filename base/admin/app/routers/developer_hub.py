@@ -271,7 +271,7 @@ async def trigger_sync(
         return {"status": "ok", "connector_id": connector_id, "result": result.to_dict()}
     except Exception as exc:
         logger.error("devhub_sync_error connector=%s error=%s", connector_id, exc)
-        raise HTTPException(500, f"Sync failed: {exc}")
+        raise HTTPException(500, "Sync failed")
 
 
 @router.get("/connectors/{connector_id}/sync/preview")
@@ -303,7 +303,7 @@ async def preview_sync(
         }
     except Exception as exc:
         logger.error("devhub_preview_error connector=%s error=%s", connector_id, exc)
-        raise HTTPException(500, f"Preview failed: {exc}")
+        raise HTTPException(500, "Preview failed")
 
 
 @router.get("/connectors/{connector_id}/cache")

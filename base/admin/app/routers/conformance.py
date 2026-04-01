@@ -48,5 +48,6 @@ async def trigger_scrape(
     """Manually trigger a Yarn telemetry scrape (platform-admin only)."""
     result = await conformance_tracker.scrape_yarn_telemetry()
     if result.get("status") == "error":
-        raise HTTPException(status_code=502, detail=result.get("error", "Scrape failed"))
+        logger.warning("conformance_scrape_failed", extra={"status": result.get("status")})
+        raise HTTPException(status_code=502, detail="Scrape failed")
     return result

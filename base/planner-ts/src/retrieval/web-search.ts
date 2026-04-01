@@ -134,9 +134,10 @@ async function fetchPage(url: string): Promise<string> {
 
 function stripHtml(html: string): string {
   return html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "")
     .replace(/<[^>]+>/g, " ")
+    .replace(/[<>]/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
 }

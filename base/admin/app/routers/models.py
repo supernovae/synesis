@@ -115,7 +115,8 @@ async def pipeline_services(_user: UserInfo = Depends(get_current_user)):
                         "error": "",
                     }
                 )
-            except Exception as exc:
+            except Exception:
+                logger.warning("pipeline_service_probe_failed service=%s", name, exc_info=True)
                 rows.append(
                     {
                         "name": name,
@@ -124,7 +125,7 @@ async def pipeline_services(_user: UserInfo = Depends(get_current_user)):
                         "reachable": False,
                         "status_code": None,
                         "latency_ms": None,
-                        "error": str(exc)[:180],
+                        "error": "probe_failed",
                     }
                 )
     return {"services": rows}
@@ -1193,9 +1194,10 @@ async def preview_effort_recommendation(
                 headers={"Authorization": f"Bearer {service_token}"},
             )
     except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail=f"Planner request timed out: {exc}") from exc
+        raise HTTPException(status_code=504, detail="Planner request timed out") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Planner request failed: {exc}") from exc
+        logger.warning("planner_effort_proxy_failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="Planner request failed") from exc
 
     if resp.status_code != 200:
         detail = resp.text[:300] if getattr(resp, "text", "") else f"planner returned {resp.status_code}"

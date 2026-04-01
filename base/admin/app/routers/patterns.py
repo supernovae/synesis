@@ -280,7 +280,7 @@ async def bootstrap_patterns(user: UserInfo = Depends(get_current_user)):
 
     patterns_dir = Path(__file__).parent.parent.parent.parent.parent / "bootstrap" / "patterns"
     if not patterns_dir.is_dir():
-        raise HTTPException(404, f"Bootstrap patterns directory not found: {patterns_dir}")
+        raise HTTPException(404, "Bootstrap patterns directory not found")
     result = await load_patterns_from_directory(patterns_dir)
     return result
 
