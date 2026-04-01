@@ -1493,7 +1493,7 @@ ensure_openfga() {
     local fga_base="http://localhost:$fga_local_port"
 
     # Ensure port-forward is cleaned up on return
-    trap "kill $pf_pid 2>/dev/null || true" RETURN
+    trap 'kill "$pf_pid" 2>/dev/null || true' RETURN
 
     # ── Step 6: create the FGA store (idempotent) ─────────────────────────
     local store_id=""
@@ -1625,10 +1625,6 @@ except: pass
     fi
 
     # ── Step 9: sync openfga-client-config to consumer namespaces ─────────
-    OPENFGA_STORE_ID="$store_id"
-    OPENFGA_MODEL_ID="${model_id:-}"
-    OPENFGA_AUTH_TOKEN="$preshared_key"
-
     local consumer_ns
     for consumer_ns in synesis-admin synesis-planner synesis-yarn; do
         oc create namespace "$consumer_ns" 2>/dev/null || true

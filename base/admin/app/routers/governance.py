@@ -148,7 +148,15 @@ async def create_constitution(body: ConstitutionCreate, user: UserInfo = Depends
     )
     async with async_session() as session:
         session.add(row)
-        session.add(_audit(user, "governance.constitution.create", "ok", f"Created constitution '{body.name}'", {"constitution_id": cid}))
+        session.add(
+            _audit(
+                user,
+                "governance.constitution.create",
+                "ok",
+                f"Created constitution '{body.name}'",
+                {"constitution_id": cid},
+            )
+        )
         await session.commit()
         await session.refresh(row)
     return _constitution_to_dict(row)
@@ -164,7 +172,11 @@ async def get_constitution(constitution_id: str, user: UserInfo = Depends(get_cu
         if not row:
             raise HTTPException(404, "Constitution not found")
 
-        cq = select(GovernanceClause).where(GovernanceClause.constitution_id == constitution_id).order_by(GovernanceClause.priority.desc())
+        cq = (
+            select(GovernanceClause)
+            .where(GovernanceClause.constitution_id == constitution_id)
+            .order_by(GovernanceClause.priority.desc())
+        )
         clause_result = await session.execute(cq)
         clauses = clause_result.scalars().all()
 
@@ -175,14 +187,21 @@ async def get_constitution(constitution_id: str, user: UserInfo = Depends(get_cu
 
 
 @router.put("/constitutions/{constitution_id}")
-async def update_constitution(constitution_id: str, body: ConstitutionUpdate, user: UserInfo = Depends(get_current_user)):
+async def update_constitution(
+    constitution_id: str, body: ConstitutionUpdate, user: UserInfo = Depends(get_current_user)
+):
     if user.role not in ("platform_admin", "org_admin", "admin"):
         raise HTTPException(403, "Requires org_admin or higher")
 
     async with async_session() as session:
-        q = select(GovernanceConstitution).where(
-            GovernanceConstitution.constitution_id == constitution_id,
-        ).order_by(GovernanceConstitution.version.desc()).limit(1)
+        q = (
+            select(GovernanceConstitution)
+            .where(
+                GovernanceConstitution.constitution_id == constitution_id,
+            )
+            .order_by(GovernanceConstitution.version.desc())
+            .limit(1)
+        )
         result = await session.execute(q)
         row = result.scalar_one_or_none()
         if not row:
@@ -206,21 +225,36 @@ async def update_constitution(constitution_id: str, body: ConstitutionUpdate, us
             row.effective_until = body.effective_until
         row.updated_at = datetime.now(UTC)
 
-        session.add(_audit(user, "governance.constitution.update", "ok", f"Updated constitution '{row.name}'", {"constitution_id": constitution_id}))
+        session.add(
+            _audit(
+                user,
+                "governance.constitution.update",
+                "ok",
+                f"Updated constitution '{row.name}'",
+                {"constitution_id": constitution_id},
+            )
+        )
         await session.commit()
         await session.refresh(row)
     return _constitution_to_dict(row)
 
 
 @router.post("/constitutions/{constitution_id}/activate")
-async def activate_constitution(constitution_id: str, user: UserInfo = Depends(get_current_user), dry_run: bool = Query(False)):
+async def activate_constitution(
+    constitution_id: str, user: UserInfo = Depends(get_current_user), dry_run: bool = Query(False)
+):
     if user.role not in ("platform_admin", "org_admin", "admin"):
         raise HTTPException(403, "Requires org_admin or higher")
 
     async with async_session() as session:
-        q = select(GovernanceConstitution).where(
-            GovernanceConstitution.constitution_id == constitution_id,
-        ).order_by(GovernanceConstitution.version.desc()).limit(1)
+        q = (
+            select(GovernanceConstitution)
+            .where(
+                GovernanceConstitution.constitution_id == constitution_id,
+            )
+            .order_by(GovernanceConstitution.version.desc())
+            .limit(1)
+        )
         result = await session.execute(q)
         row = result.scalar_one_or_none()
         if not row:
@@ -232,9 +266,7 @@ async def activate_constitution(constitution_id: str, user: UserInfo = Depends(g
         clause_result = await session.execute(cq)
         clauses = clause_result.scalars().all()
 
-        checksum = hashlib.sha256(
-            "|".join(sorted(c.clause_id for c in clauses)).encode()
-        ).hexdigest()[:32]
+        checksum = hashlib.sha256("|".join(sorted(c.clause_id for c in clauses)).encode()).hexdigest()[:32]
 
         if dry_run:
             return {
@@ -248,18 +280,28 @@ async def activate_constitution(constitution_id: str, user: UserInfo = Depends(g
 
         await session.execute(
             update(GovernanceConstitution)
-            .where(and_(
-                GovernanceConstitution.constitution_id == constitution_id,
-                GovernanceConstitution.status == "active",
-                GovernanceConstitution.id != row.id,
-            ))
+            .where(
+                and_(
+                    GovernanceConstitution.constitution_id == constitution_id,
+                    GovernanceConstitution.status == "active",
+                    GovernanceConstitution.id != row.id,
+                )
+            )
             .values(status="deprecated", updated_at=datetime.now(UTC))
         )
 
         row.status = "active"
         row.provenance_checksum = checksum
         row.updated_at = datetime.now(UTC)
-        session.add(_audit(user, "governance.constitution.activate", "ok", f"Activated constitution '{row.name}' v{row.version}", {"constitution_id": constitution_id, "checksum": checksum}))
+        session.add(
+            _audit(
+                user,
+                "governance.constitution.activate",
+                "ok",
+                f"Activated constitution '{row.name}' v{row.version}",
+                {"constitution_id": constitution_id, "checksum": checksum},
+            )
+        )
         await session.commit()
         await session.refresh(row)
     return _constitution_to_dict(row)
@@ -271,9 +313,14 @@ async def deprecate_constitution(constitution_id: str, user: UserInfo = Depends(
         raise HTTPException(403, "Requires org_admin or higher")
 
     async with async_session() as session:
-        q = select(GovernanceConstitution).where(
-            GovernanceConstitution.constitution_id == constitution_id,
-        ).order_by(GovernanceConstitution.version.desc()).limit(1)
+        q = (
+            select(GovernanceConstitution)
+            .where(
+                GovernanceConstitution.constitution_id == constitution_id,
+            )
+            .order_by(GovernanceConstitution.version.desc())
+            .limit(1)
+        )
         result = await session.execute(q)
         row = result.scalar_one_or_none()
         if not row:
@@ -283,7 +330,15 @@ async def deprecate_constitution(constitution_id: str, user: UserInfo = Depends(
 
         row.status = "deprecated"
         row.updated_at = datetime.now(UTC)
-        session.add(_audit(user, "governance.constitution.deprecate", "ok", f"Deprecated constitution '{row.name}' v{row.version}", {"constitution_id": constitution_id}))
+        session.add(
+            _audit(
+                user,
+                "governance.constitution.deprecate",
+                "ok",
+                f"Deprecated constitution '{row.name}' v{row.version}",
+                {"constitution_id": constitution_id},
+            )
+        )
         await session.commit()
         await session.refresh(row)
     return _constitution_to_dict(row)
@@ -310,9 +365,14 @@ async def clone_constitution(constitution_id: str, user: UserInfo = Depends(get_
         raise HTTPException(403, "Requires org_admin or higher")
 
     async with async_session() as session:
-        q = select(GovernanceConstitution).where(
-            GovernanceConstitution.constitution_id == constitution_id,
-        ).order_by(GovernanceConstitution.version.desc()).limit(1)
+        q = (
+            select(GovernanceConstitution)
+            .where(
+                GovernanceConstitution.constitution_id == constitution_id,
+            )
+            .order_by(GovernanceConstitution.version.desc())
+            .limit(1)
+        )
         result = await session.execute(q)
         src = result.scalar_one_or_none()
         if not src:
@@ -344,22 +404,32 @@ async def clone_constitution(constitution_id: str, user: UserInfo = Depends(get_
         cq = select(GovernanceClause).where(GovernanceClause.constitution_id == constitution_id)
         clause_result = await session.execute(cq)
         for c in clause_result.scalars().all():
-            session.add(GovernanceClause(
-                clause_id=str(uuid.uuid4()),
-                constitution_id=constitution_id,
-                category=c.category,
-                constraint_kind=c.constraint_kind,
-                statement=c.statement,
-                machine_rule=c.machine_rule,
-                applicability=c.applicability,
-                evidence_requirements=c.evidence_requirements,
-                actions=c.actions,
-                validation_recipe_id=c.validation_recipe_id,
-                enabled=c.enabled,
-                priority=c.priority,
-            ))
+            session.add(
+                GovernanceClause(
+                    clause_id=str(uuid.uuid4()),
+                    constitution_id=constitution_id,
+                    category=c.category,
+                    constraint_kind=c.constraint_kind,
+                    statement=c.statement,
+                    machine_rule=c.machine_rule,
+                    applicability=c.applicability,
+                    evidence_requirements=c.evidence_requirements,
+                    actions=c.actions,
+                    validation_recipe_id=c.validation_recipe_id,
+                    enabled=c.enabled,
+                    priority=c.priority,
+                )
+            )
 
-        session.add(_audit(user, "governance.constitution.clone", "ok", f"Cloned constitution '{src.name}' to v{max_ver + 1}", {"constitution_id": constitution_id, "new_version": max_ver + 1}))
+        session.add(
+            _audit(
+                user,
+                "governance.constitution.clone",
+                "ok",
+                f"Cloned constitution '{src.name}' to v{max_ver + 1}",
+                {"constitution_id": constitution_id, "new_version": max_ver + 1},
+            )
+        )
         await session.commit()
         await session.refresh(new_row)
     return _constitution_to_dict(new_row)
@@ -453,7 +523,15 @@ async def create_clause(constitution_id: str, body: ClauseCreate, user: UserInfo
     )
     async with async_session() as session:
         session.add(row)
-        session.add(_audit(user, "governance.clause.create", "ok", f"Created clause in constitution {constitution_id}", {"clause_id": cid, "constitution_id": constitution_id}))
+        session.add(
+            _audit(
+                user,
+                "governance.clause.create",
+                "ok",
+                f"Created clause in constitution {constitution_id}",
+                {"clause_id": cid, "constitution_id": constitution_id},
+            )
+        )
         await session.commit()
         await session.refresh(row)
     return _clause_to_dict(row)
@@ -496,7 +574,9 @@ async def update_clause(clause_id: str, body: ClauseUpdate, user: UserInfo = Dep
         if body.priority is not None:
             row.priority = body.priority
 
-        session.add(_audit(user, "governance.clause.update", "ok", f"Updated clause {clause_id}", {"clause_id": clause_id}))
+        session.add(
+            _audit(user, "governance.clause.update", "ok", f"Updated clause {clause_id}", {"clause_id": clause_id})
+        )
         await session.commit()
         await session.refresh(row)
     return _clause_to_dict(row)
@@ -514,7 +594,9 @@ async def delete_clause(clause_id: str, user: UserInfo = Depends(get_current_use
         if not row:
             raise HTTPException(404, "Clause not found")
         await session.delete(row)
-        session.add(_audit(user, "governance.clause.delete", "ok", f"Deleted clause {clause_id}", {"clause_id": clause_id}))
+        session.add(
+            _audit(user, "governance.clause.delete", "ok", f"Deleted clause {clause_id}", {"clause_id": clause_id})
+        )
         await session.commit()
     return {"deleted": clause_id}
 
@@ -664,7 +746,9 @@ async def update_policy(policy_id: str, body: PolicyDefUpdate, user: UserInfo = 
             row.constraint_kind = body.constraint_kind
         row.updated_at = datetime.now(UTC)
 
-        session.add(_audit(user, "governance.policy.update", "ok", f"Updated policy '{row.name}'", {"policy_id": policy_id}))
+        session.add(
+            _audit(user, "governance.policy.update", "ok", f"Updated policy '{row.name}'", {"policy_id": policy_id})
+        )
         await session.commit()
         await session.refresh(row)
     return _policy_to_dict(row)
@@ -682,7 +766,9 @@ async def delete_policy(policy_id: str, user: UserInfo = Depends(get_current_use
         if not row:
             raise HTTPException(404, "Policy not found")
         await session.delete(row)
-        session.add(_audit(user, "governance.policy.delete", "ok", f"Deleted policy '{row.name}'", {"policy_id": policy_id}))
+        session.add(
+            _audit(user, "governance.policy.delete", "ok", f"Deleted policy '{row.name}'", {"policy_id": policy_id})
+        )
         await session.commit()
     return {"deleted": policy_id}
 
@@ -710,10 +796,7 @@ async def get_effective_governance(
     async with async_session() as session:
         cq = select(GovernanceConstitution).where(GovernanceConstitution.status == "active")
         if org_id:
-            cq = cq.where(
-                (GovernanceConstitution.scope == "platform")
-                | (GovernanceConstitution.scope_value == org_id)
-            )
+            cq = cq.where((GovernanceConstitution.scope == "platform") | (GovernanceConstitution.scope_value == org_id))
         if scope:
             cq = cq.where(GovernanceConstitution.scope == scope)
         const_result = await session.execute(cq)
@@ -724,7 +807,7 @@ async def get_effective_governance(
         for c in constitutions:
             clq = select(GovernanceClause).where(
                 GovernanceClause.constitution_id == c.constitution_id,
-                GovernanceClause.enabled == True,  # noqa: E712
+                GovernanceClause.enabled == True,
             )
             if category:
                 clq = clq.where(GovernanceClause.category == category)
@@ -734,62 +817,63 @@ async def get_effective_governance(
                     langs = cl.applicability.get("languages", [])
                     if langs and language.lower() not in [l.lower() for l in langs]:
                         continue
-                rules.append({
-                    "source": "constitution",
-                    "constitution_id": c.constitution_id,
-                    "constitution_name": c.name,
-                    "maturity_mode": c.maturity_mode,
-                    "scope": c.scope,
-                    "scope_precedence": SCOPE_PRECEDENCE.get(c.scope, 99),
-                    "precedence": c.precedence,
-                    "clause_id": cl.clause_id,
-                    "category": cl.category,
-                    "constraint_kind": cl.constraint_kind,
-                    "statement": cl.statement,
-                    "machine_rule": cl.machine_rule,
-                    "applicability": cl.applicability,
-                    "evidence_requirements": cl.evidence_requirements,
-                    "actions": cl.actions,
-                    "priority": cl.priority,
-                })
+                rules.append(
+                    {
+                        "source": "constitution",
+                        "constitution_id": c.constitution_id,
+                        "constitution_name": c.name,
+                        "maturity_mode": c.maturity_mode,
+                        "scope": c.scope,
+                        "scope_precedence": SCOPE_PRECEDENCE.get(c.scope, 99),
+                        "precedence": c.precedence,
+                        "clause_id": cl.clause_id,
+                        "category": cl.category,
+                        "constraint_kind": cl.constraint_kind,
+                        "statement": cl.statement,
+                        "machine_rule": cl.machine_rule,
+                        "applicability": cl.applicability,
+                        "evidence_requirements": cl.evidence_requirements,
+                        "actions": cl.actions,
+                        "priority": cl.priority,
+                    }
+                )
 
-        pq = select(GovernancePolicyDef).where(GovernancePolicyDef.enabled == True)  # noqa: E712
+        pq = select(GovernancePolicyDef).where(GovernancePolicyDef.enabled == True)
         if org_id:
-            pq = pq.where(
-                (GovernancePolicyDef.org_id == "")
-                | (GovernancePolicyDef.org_id == org_id)
-            )
+            pq = pq.where((GovernancePolicyDef.org_id == "") | (GovernancePolicyDef.org_id == org_id))
         if scope:
             pq = pq.where(GovernancePolicyDef.scope == scope)
         if category:
             pq = pq.where(GovernancePolicyDef.category == category)
         pol_result = await session.execute(pq)
         for p in pol_result.scalars().all():
-            rules.append({
-                "source": "policy",
-                "policy_id": p.policy_id,
-                "policy_name": p.name,
-                "scope": p.scope,
-                "scope_precedence": SCOPE_PRECEDENCE.get(p.scope, 99),
-                "precedence": p.priority,
-                "category": p.category,
-                "constraint_kind": p.constraint_kind,
-                "rule_type": p.rule_type,
-                "rule_config": p.rule_config,
-                "priority": p.priority,
-            })
+            rules.append(
+                {
+                    "source": "policy",
+                    "policy_id": p.policy_id,
+                    "policy_name": p.name,
+                    "scope": p.scope,
+                    "scope_precedence": SCOPE_PRECEDENCE.get(p.scope, 99),
+                    "precedence": p.priority,
+                    "category": p.category,
+                    "constraint_kind": p.constraint_kind,
+                    "rule_type": p.rule_type,
+                    "rule_config": p.rule_config,
+                    "priority": p.priority,
+                }
+            )
 
-    rules.sort(key=lambda r: (
-        0 if r["constraint_kind"] == "hard" else (1 if r["constraint_kind"] == "guiding" else 2),
-        r["scope_precedence"],
-        -r["precedence"],
-        -r["priority"],
-    ))
-
-    etag_src = "|".join(
-        r.get("clause_id", r.get("policy_id", "")) for r in rules
+    rules.sort(
+        key=lambda r: (
+            0 if r["constraint_kind"] == "hard" else (1 if r["constraint_kind"] == "guiding" else 2),
+            r["scope_precedence"],
+            -r["precedence"],
+            -r["priority"],
+        )
     )
-    etag = hashlib.md5(etag_src.encode()).hexdigest()[:16]
+
+    etag_src = "|".join(r.get("clause_id", r.get("policy_id", "")) for r in rules)
+    etag = hashlib.sha256(etag_src.encode()).hexdigest()[:16]
     response.headers["ETag"] = f'"{etag}"'
 
     if_none_match = request.headers.get("if-none-match", "").strip('"')
@@ -820,21 +904,21 @@ async def governance_summary(user: UserInfo = Depends(get_current_user)):
         status_result = await session.execute(status_q)
         status_counts = {row[0]: row[1] for row in status_result.all()}
 
-        maturity_q = select(
-            GovernanceConstitution.maturity_mode,
-            func.count(GovernanceConstitution.id),
-        ).where(GovernanceConstitution.status == "active").group_by(GovernanceConstitution.maturity_mode)
+        maturity_q = (
+            select(
+                GovernanceConstitution.maturity_mode,
+                func.count(GovernanceConstitution.id),
+            )
+            .where(GovernanceConstitution.status == "active")
+            .group_by(GovernanceConstitution.maturity_mode)
+        )
         maturity_result = await session.execute(maturity_q)
         maturity_counts = {row[0]: row[1] for row in maturity_result.all()}
 
         policy_count_q = select(func.count(GovernancePolicyDef.id))
         policy_count = (await session.execute(policy_count_q)).scalar() or 0
 
-        recent_q = (
-            select(GovernanceConstitution)
-            .order_by(GovernanceConstitution.updated_at.desc())
-            .limit(5)
-        )
+        recent_q = select(GovernanceConstitution).order_by(GovernanceConstitution.updated_at.desc()).limit(5)
         recent_result = await session.execute(recent_q)
         recent = recent_result.scalars().all()
 
