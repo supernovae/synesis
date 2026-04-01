@@ -1,6 +1,6 @@
 # Debian exception: Playwright + Chromium shared libraries require Debian packages
 # unavailable on UBI. Python 3.11 matches fleet standard.
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
