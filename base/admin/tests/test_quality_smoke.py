@@ -95,6 +95,10 @@ def _mock_all(monkeypatch):
     monkeypatch.setattr("app.auth.get_current_user", lambda: _fake_user())
     monkeypatch.setattr("app.auth.require_admin", lambda: _fake_user())
     monkeypatch.setattr("app.db.engine.async_session", _fake_async_session)
+    # Some routers import async_session directly at module import time; patch those
+    # aliases too so this smoke suite is stable regardless of import order.
+    monkeypatch.setattr("app.routers.feedback.async_session", _fake_async_session)
+    monkeypatch.setattr("app.routers.observability.async_session", _fake_async_session)
     monkeypatch.setattr(
         "app.services.milvus_service.collection_stats",
         lambda *a, **kw: {"row_count": 42},
