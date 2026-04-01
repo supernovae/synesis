@@ -1,120 +1,66 @@
-# Planner TS Scaling and Production Plan
+# Planner TS Scaling and Production Status
 
 ## Purpose
 
-This document is the canonical implementation and operations guide for scaling `planner-ts` toward beta production with a target of **25-50+ concurrent users**.
+This document tracks the **current** scaling/reliability state of `planner-ts` and the objective TODOs for production hardening.
 
-Design intent:
-- Fix-forward only (no backward-compatibility shims).
-- Prioritize reliability and observability under concurrent load.
-- Keep parity and DRY alignment between `planner-ts` and `yarn-ts` where practical.
-- Treat Redis/Postgres infrastructure provisioning as external to this document.
+This is the only planner in scope. No Python planner migration/deprecation plan is tracked here.
 
-## Scope and non-goals
+Target operating envelope remains **25-50+ concurrent users** with stable latency/error behavior.
 
-In scope:
-- planner-ts request resilience and bounded execution.
-- Multi-pod-safe runtime behavior for streamed and non-streamed requests.
-- Admission control for fairness and overload protection.
-- Health/readiness posture for production rollouts.
-- Network policy hardening.
-- OTEL consistency plan across planner/yarn/mcp surfaces.
+## Current State (Implemented)
 
-Out of scope:
-- Redis/Postgres cluster provisioning and HA topology.
-- Prompt/retrieval cache migration hardening.
+### Runtime resilience
 
-Explicit decision:
-- **Won't do (for this effort): prompt-level and retrieval response caching in planner-ts.**
-  - Rationale: low observed hit rate, referential-integrity risks, and evidence ambiguity when corpus changes over time.
-  - Revisit only with a stronger provenance-safe cache contract.
+- LLM retry + circuit breaker is implemented in `base/planner-ts/src/llm/client.ts` and `base/planner-ts/src/llm/circuit-breaker.ts`.
+- Per-node timeout enforcement is implemented in `base/planner-ts/src/graph.ts`.
+- Dedicated writer-node timeout support is implemented (writer-specific timeout config in planner config/graph flow).
+- User rate limiting is implemented and enforced in `base/planner-ts/src/middleware/user-rate-limit.ts` and `base/planner-ts/src/app.ts`.
+- Stream admission control is implemented and enforced in `base/planner-ts/src/middleware/stream-admission.ts` and `base/planner-ts/src/app.ts`.
 
-## Current implementation status
+### Health, readiness, and diagnostics
 
-Completed in planner-ts:
-- LLM resilience:
-  - Circuit breaker + retry/backoff in `base/planner-ts/src/llm/client.ts`.
-  - Breaker module in `base/planner-ts/src/llm/circuit-breaker.ts`.
-- Per-node timeout guard in `base/planner-ts/src/graph.ts`.
-- Per-user sliding-window rate limiter:
-  - `base/planner-ts/src/middleware/user-rate-limit.ts`
-  - Enforced in `base/planner-ts/src/app.ts`.
-- Streaming admission controller:
-  - `base/planner-ts/src/middleware/stream-admission.ts`
-  - Enforced in `base/planner-ts/src/app.ts` with deterministic release.
-- Readiness split:
-  - Liveness at `/health`
-  - Dependency-aware readiness at `/health/readiness` in `base/planner-ts/src/app.ts`.
-  - Deployment probe switched in `base/planner-ts/deployment.yaml`.
-- Network policy tightening in `base/planner-ts/network-policy.yaml` (removed fail-open egress).
-- Config knobs added in `base/planner-ts/src/config.ts`.
-- Validation tests expanded in `base/planner-ts/tests/api-contract.test.ts`.
+- Liveness endpoint: `/health`.
+- Dependency readiness endpoint: `/health/readiness`.
+- Additional operational diagnostics are exposed via dependency and failure health surfaces in planner-ts.
+- Deployment probes are aligned to the readiness/liveness split.
 
-Outstanding:
-- Retrieval cache remains intentionally deferred (won't do for this effort).
-- OTEL context propagation and schema unification across planner/yarn/mcp.
-- Final 25/35/50 concurrency load testing and cutover gate.
+### Multi-pod/session safety
 
-Implemented as part of early Phase B:
-- Redis session CAS-style mutation path (`WATCH`/`MULTI` retry loop) in `session-store`.
-- Memory-session cap with oldest-session eviction fallback mode.
-- `RedisSessionStore.keys()` moved from `KEYS` to `SCAN`.
-- HPA/PDB manifests added and wired in planner-ts kustomization.
-- Dependency health monitor + `/health/deps` endpoint.
-- Failure diagnostics store + `/health/failures` endpoint.
-- Planner OTEL bootstrap and request span instrumentation (baseline).
+- Redis session-store conflict-safe mutation path exists (WATCH/MULTI retry loop).
+- Redis key enumeration path uses `SCAN` instead of `KEYS`.
+- In-memory fallback has explicit session-cap/eviction behavior.
 
-## Phased execution plan
+### Kubernetes scaling posture
 
-### Phase A: Runtime hardening (done)
+- Planner HPA/PDB manifests are present and wired in planner kustomization.
+- Network policy has fail-closed baseline hardening (no broad fail-open egress defaults).
 
-Goal: prevent cascade failures and unbounded latency.
+### Observability baseline
 
-Delivered:
-- circuit breaker + retries
-- per-node timeout
-- per-user rate limiting
-- stream admission
-- readiness/liveness split
-- fail-closed network policy baseline
+- Planner OTEL bootstrap + request span baseline is in place.
+- Telemetry trace lineage fields (`conversation_id`, `parent_trace_id`, `root_trace_id`) are emitted and ingested by admin.
 
-### Phase B: Scale hardening (next)
+### Conversation continuity and follow-up handling
 
-Goal: make multi-pod behavior reliable under 25-50+ load.
+- Conversation ID fallback capture is implemented on planner ingress for OpenWebUI-style calls (body/metadata/header fallback sources).
+- Clarification follow-up merge is implemented (original task + clarification answer merged for replanning).
+- Short quiz-option follow-up handling is implemented (`a)`, `b)`, etc.) by merging prior assistant quiz context before planning.
 
-Work items:
-- Implement session write conflict protection in:
-  - `base/planner-ts/src/context/session-store.ts`
-  - `base/planner-ts/src/context/session-manager.ts`
-- Add explicit cap/eviction for memory fallback session store.
-- Add HPA and PDB manifests under `base/planner-ts/` and wire in `kustomization.yaml`.
-- Add load-test profile and execute 25/35/50 concurrent-user runs.
+## Objective TODO (Not Done Yet)
 
-### Phase C: OTEL consistency track (parallel)
+1. Run and publish repeatable load gates at 25/35/50 concurrency (stream + non-stream), with pass/fail thresholds on p95 latency and error rate.
+2. Finalize OTEL propagation consistency across planner, yarn, mcp, and admin (`traceparent`/request correlation end-to-end validation, not just baseline spans).
+3. Add/expand regression tests for short-answer conversational follow-ups (quiz-style, clarification-style, and other context-dependent one-token replies).
+4. Validate and tune default admission/rate/timeouts per environment from measured production-like load, then lock environment-specific baselines.
+5. Add dashboard/alert definitions for stream queue pressure, breaker-open rate, admission rejects, and dependency-health degradation.
 
-Goal: end-to-end traceability across planner/yarn/mcp/admin.
+## Explicit Non-Goals (Current)
 
-Work items:
-- Create shared TS OTEL bootstrap in `packages/` and adopt in planner + yarn.
-- Standardize trace context propagation:
-  - `traceparent`
-  - `x-request-id`
-  - authz trace correlation IDs
-- Align `trace_id`/`request_id` semantics in `packages/synesis-telemetry/src/types.ts`.
-- Ensure MCP routes/proxies in yarn propagate correlation headers.
+- No prompt-level or retrieval-response caching rollout in planner-ts in this effort.
+- No Redis/Postgres infrastructure provisioning/HA topology design in this document.
 
-### Phase D: Verification and release gate
-
-Planner-ts is deprecation-ready when all are true:
-- Functional parity checks pass for required planner flows.
-- 25-50+ concurrency validation passes with acceptable p95 latency and error rate.
-- No runaway queue growth or memory pressure in sustained load.
-- Multi-pod session behavior is conflict-safe.
-- OTEL trace stitching works across planner/yarn/mcp/admin path.
-
-## Load verification harness
-
-Use the built-in planner-ts load probe for 25/35/50 concurrent-user checks:
+## Load Verification Harness
 
 ```bash
 cd base/planner-ts
@@ -132,11 +78,10 @@ PLANNER_BEARER_TOKEN="<token>" \
 npm run load:verify -- --concurrency 50 --requests 500 --stream true
 ```
 
-The command outputs JSON with status counts and p50/p95/p99 latency. Treat non-zero error rate as a rollout blocker.
+Treat non-zero error rate or unstable p95/p99 under sustained load as release blockers.
 
-## Production defaults (planner-ts)
+## Production Knob Baseline
 
-Current recommended baseline for new resilience knobs:
 - `SYNESIS_PLANNER_TS_LLM_RETRY_MAX_ATTEMPTS=3`
 - `SYNESIS_PLANNER_TS_LLM_RETRY_BASE_DELAY_MS=1000`
 - `SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5`
@@ -149,23 +94,9 @@ Current recommended baseline for new resilience knobs:
 - `SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX=100`
 - `SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS=30000`
 
-Tune per environment based on load-test telemetry, not ad hoc.
+Tune from measured telemetry, not ad hoc edits.
 
-## Observability and OTEL guide pointer
+## Reference
 
-Use `docs/OBSERVABILITY.md` as the current source of truth for:
-- metrics naming and dashboards,
-- service monitor coverage,
-- trace ingestion patterns.
-
-OTEL consistency updates should be merged into that doc (or a dedicated companion OTEL guide) once planner/yarn/mcp propagation is implemented.
-
-## Historical source document
-
-The discovery/research source remains:
-- `docs/deprecated/PLANNER_TS_SCALABILITY_RESEARCH.md`
-
-It should be maintained as historical evidence and marked for eventual removal after:
-- all required phases are verified,
-- this document remains current and complete,
-- production rollout sign-off is recorded.
+- Observability source of truth: `docs/OBSERVABILITY.md`
+- Historical research archive: `docs/deprecated/PLANNER_TS_SCALABILITY_RESEARCH.md`
