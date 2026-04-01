@@ -33,6 +33,11 @@ export interface ModelAdapter {
   maxEffectiveTools?: number;
 }
 
+export interface ToolArgValidationResult {
+  valid: boolean;
+  missing: string[];
+}
+
 /**
  * Common parameter name aliases that models use incorrectly.
  * Maps { wrongName: correctName } per tool.
@@ -41,6 +46,7 @@ const CLAUDE_CODE_PARAM_ALIASES: Record<string, Record<string, string>> = {
   Write: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", text: "content", code: "content", file_content: "content", body: "content" },
   Read: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path" },
   Edit: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", find: "old_string", search: "old_string", replace: "new_string", replacement: "new_string" },
+  Update: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", find: "old_string", search: "old_string", replace: "new_string", replacement: "new_string" },
   Bash: {
     cmd: "command",
     script: "command",
@@ -84,6 +90,8 @@ export class Qwen3CoderAdapter implements ModelAdapter {
         "Use the EXACT parameter names from each tool's schema.",
         "If a tool requires no arguments, pass an empty object: `{}`.",
         "Use RELATIVE file paths (e.g., `hello.go`, `cmd/main.go`), not absolute paths.",
+        "For file tools, paths are workspace-relative. Do NOT prefix paths with the workspace folder name.",
+        "Do NOT assume shell `cd` changes file-tool path roots.",
       ].join("\n");
     }
 
@@ -117,6 +125,8 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "## File paths:",
       "Use RELATIVE paths from the current working directory (e.g., `hello.go`, `cmd/main.go`).",
       "Do NOT use absolute paths like `/home/user/...`. The user's OS may not be Linux.",
+      "For file tools, do NOT prefix with the repository/workspace folder name.",
+      "Shell `cd` usage does not change file-tool root semantics; keep file paths workspace-relative.",
     ].join("\n");
   }
 
@@ -262,6 +272,49 @@ export function repairWriteToolCall(
   };
 }
 
+export function normalizeFileToolArgs(
+  toolName: string,
+  input: Record<string, unknown>,
+): { input: Record<string, unknown>; normalized: boolean } {
+  if (!["Write", "Read", "Edit", "Update"].includes(toolName)) {
+    return { input, normalized: false };
+  }
+  const filePath = input.file_path;
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    return { input, normalized: false };
+  }
+  const normalizedPath = normalizeWorkspaceRelativeFilePath(filePath);
+  if (normalizedPath === filePath) {
+    return { input, normalized: false };
+  }
+  return { input: { ...input, file_path: normalizedPath }, normalized: true };
+}
+
+export function validateToolArgs(
+  toolName: string,
+  input: Record<string, unknown>,
+): ToolArgValidationResult {
+  const requiredByTool: Record<string, string[]> = {
+    Write: ["file_path", "content"],
+    Read: ["file_path"],
+    Edit: ["file_path", "old_string", "new_string"],
+    Update: ["file_path", "old_string", "new_string"],
+    Bash: ["command"],
+    Glob: ["glob_pattern"],
+    Grep: ["pattern"],
+    WebFetch: ["url"],
+  };
+  const required = requiredByTool[toolName];
+  if (!required) return { valid: true, missing: [] };
+
+  const missing = required.filter((k) => {
+    const v = input[k];
+    if (typeof v === "string") return v.trim().length === 0;
+    return v === undefined || v === null;
+  });
+  return { valid: missing.length === 0, missing };
+}
+
 /**
  * Models often hallucinate `/home/user/foo.go` (Linux sandbox). Claude Code runs on the user's machine;
  * use a relative path (basename or tail after /home/<user>/).
@@ -272,6 +325,30 @@ export function normalizeHallucinatedLinuxWritePath(filePath: string): string {
   const m = p.match(homeUser);
   if (m) return m[1];
   if (p.startsWith("/root/")) return p.slice("/root/".length);
+  return p;
+}
+
+/**
+ * Normalize common file-path quirks from tool calls:
+ * - surrounding quotes/backticks
+ * - Windows separators
+ * - duplicated leading repo segment (e.g. foo/foo/bar.go)
+ * - leading "./"
+ */
+export function normalizeWorkspaceRelativeFilePath(filePath: string): string {
+  let p = filePath.trim();
+  if (!p) return p;
+  p = p.replace(/^["'`]+|["'`]+$/g, "");
+  p = p.replace(/\\/g, "/");
+  p = p.replace(/^\.\/+/, "");
+  p = p.replace(/\/{2,}/g, "/");
+  p = normalizeHallucinatedLinuxWritePath(p);
+
+  const parts = p.split("/").filter((s) => s.length > 0);
+  if (parts.length >= 2 && parts[0] === parts[1] && parts[0] !== "." && parts[0] !== "..") {
+    parts.shift();
+    p = parts.join("/");
+  }
   return p;
 }
 

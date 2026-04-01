@@ -145,6 +145,14 @@ interface RequestDiagnostic {
 
 const diagnosticRing: RequestDiagnostic[] = [];
 let DIAGNOSTIC_RING_MAX = 20;
+const toolArgHardeningStats = {
+  normalizedPathCount: 0,
+  remappedArgsCount: 0,
+  repairedWriteCount: 0,
+  repairedBashCount: 0,
+  validationFailedCount: 0,
+  qwenParserMismatchSuspectCount: 0,
+};
 
 function pushDiagnostic(d: RequestDiagnostic): void {
   diagnosticRing.push(d);
@@ -636,9 +644,10 @@ async function refreshTierRegistry(): Promise<void> {
 
 import type { ModelAdapter } from "./providers/model-adapter.js";
 import {
-  normalizeHallucinatedLinuxWritePath,
+  normalizeFileToolArgs,
   repairBashToolCall,
   repairWriteToolCall,
+  validateToolArgs,
 } from "./providers/model-adapter.js";
 
 type ResolveResult =
@@ -1368,6 +1377,7 @@ app.get("/health/telemetry", async (req, reply) => {
     writeQueue: usageWriter.getStats(),
     validationNormalization: validationNormalization.getStats(),
     toolResultReduction: toolResultReduction.getStats(),
+    toolArgHardening: { ...toolArgHardeningStats },
     workingFrame: workingFrameService.getStats(),
     projectManifest: projectManifestService.getStats(),
     deterministicPolicy: policyEngine.getStats(),
@@ -2651,6 +2661,16 @@ app.post("/v1/messages", async (req, reply) => {
     let stopReason = "end_turn";
     const pendingClaudeToolIds = new Set<string>();
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
+    const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
+    const isLocalLikeBaseUrl =
+      !!resolvedTier?.baseUrl &&
+      (
+        resolvedTier.baseUrl.includes(".svc.cluster.local")
+        || resolvedTier.baseUrl.includes("localhost")
+        || resolvedTier.baseUrl.includes("127.0.0.1")
+      );
+    let requestToolValidationFailures = 0;
+    let requestToolRepairs = 0;
 
     try {
       for await (const part of streamed.fullStream) {
@@ -2714,17 +2734,14 @@ app.post("/v1/messages", async (req, reply) => {
             const remap = claudeAdapter.remapToolArgs(tcFull.toolName ?? "", finalInput);
             finalInput = remap.input;
             wasRemapped = remap.remapped;
+            if (wasRemapped) toolArgHardeningStats.remappedArgsCount += 1;
           }
 
           let emitToolName = buf?.toolName ?? tcFull.toolName ?? "";
-          if (emitToolName === "Write") {
-            const fp = finalInput.file_path;
-            if (typeof fp === "string" && fp.trim()) {
-              const n = normalizeHallucinatedLinuxWritePath(fp);
-              if (n !== fp) {
-                finalInput = { ...finalInput, file_path: n };
-              }
-            }
+          const pathNorm = normalizeFileToolArgs(emitToolName, finalInput);
+          if (pathNorm.normalized) {
+            finalInput = pathNorm.input;
+            toolArgHardeningStats.normalizedPathCount += 1;
           }
 
           // Adapter-neutral: detect malformed Write content and rewrite as Bash heredoc
@@ -2732,6 +2749,8 @@ app.post("/v1/messages", async (req, reply) => {
           if (repair) {
             emitToolName = repair.rewrittenToolName;
             finalInput = repair.rewrittenInput;
+            toolArgHardeningStats.repairedWriteCount += 1;
+            requestToolRepairs += 1;
             app.log.warn({
               reqId: traceReqId, originalTool: tcFull.toolName,
               rewrittenTo: repair.rewrittenToolName,
@@ -2742,9 +2761,26 @@ app.post("/v1/messages", async (req, reply) => {
           const bashRepair = repairBashToolCall(emitToolName, finalInput);
           if (bashRepair) {
             finalInput = bashRepair.input;
+            toolArgHardeningStats.repairedBashCount += 1;
+            requestToolRepairs += 1;
             app.log.warn(
               { reqId: traceReqId, toolName: emitToolName, bashRepaired: bashRepair.repaired },
               "bash_tool_args_repaired",
+            );
+          }
+
+          const validation = validateToolArgs(emitToolName, finalInput);
+          if (!validation.valid) {
+            requestToolValidationFailures += 1;
+            toolArgHardeningStats.validationFailedCount += 1;
+            app.log.warn(
+              {
+                reqId: traceReqId,
+                toolName: emitToolName,
+                missing: validation.missing,
+                argsPreview: JSON.stringify(finalInput).slice(0, 220),
+              },
+              "tool_args_validation_failed",
             );
           }
 
@@ -2768,6 +2804,24 @@ app.post("/v1/messages", async (req, reply) => {
           claudeToolBuffer.delete(toolCallId);
           stopReason = "tool_use";
         }
+      }
+      if (
+        claudeAdapter.family === "qwen3-coder"
+        && isLocalLikeBaseUrl
+        && requestToolValidationFailures > 0
+        && requestToolRepairs >= 2
+      ) {
+        toolArgHardeningStats.qwenParserMismatchSuspectCount += 1;
+        app.log.warn(
+          {
+            reqId: traceReqId,
+            resolvedModel: resolved.resolvedModelId,
+            baseUrl: resolvedTier?.baseUrl,
+            validationFailures: requestToolValidationFailures,
+            repairs: requestToolRepairs,
+          },
+          "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
+        );
       }
     } catch (streamErr) {
       const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);

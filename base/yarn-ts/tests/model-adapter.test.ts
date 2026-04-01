@@ -4,9 +4,12 @@ import {
   Qwen3CoderAdapter,
   GenericOpenAIAdapter,
   DeepSeekAdapter,
+  normalizeFileToolArgs,
+  validateToolArgs,
   repairWriteToolCall,
   repairBashToolCall,
   normalizeHallucinatedLinuxWritePath,
+  normalizeWorkspaceRelativeFilePath,
 } from "../src/providers/model-adapter.js";
 
 describe("resolveAdapter", () => {
@@ -138,6 +141,12 @@ describe("Qwen3CoderAdapter", () => {
     expect(result.input).toEqual({ command: "ls -la" });
   });
 
+  it("remaps file-path aliases for Update tool", () => {
+    const result = adapter.remapToolArgs!("Update", { path: "cmd/main.go", find: "old", replace: "new" });
+    expect(result.remapped).toBe(true);
+    expect(result.input).toEqual({ file_path: "cmd/main.go", old_string: "old", new_string: "new" });
+  });
+
   it("remaps 'input' to 'command' for Bash", () => {
     const result = adapter.remapToolArgs!("Bash", { input: "whoami" });
     expect(result.remapped).toBe(true);
@@ -174,6 +183,7 @@ describe("Qwen3CoderAdapter (nativeToolParser)", () => {
     const prompt = adapter.toolSystemPrompt!(10);
     expect(prompt).toBeDefined();
     expect(prompt).toContain("RELATIVE");
+    expect(prompt).toContain("workspace-relative");
     expect(prompt).not.toContain("heredoc");
     expect(prompt).not.toContain("cat >");
   });
@@ -307,5 +317,47 @@ describe("normalizeHallucinatedLinuxWritePath", () => {
 
   it("strips /root/ prefix", () => {
     expect(normalizeHallucinatedLinuxWritePath("/root/app.go")).toBe("app.go");
+  });
+});
+
+describe("normalizeWorkspaceRelativeFilePath", () => {
+  it("normalizes quotes, slashes, and leading ./", () => {
+    expect(normalizeWorkspaceRelativeFilePath("'./cmd\\\\main.go'")).toBe("cmd/main.go");
+  });
+
+  it("collapses duplicated leading repo segment", () => {
+    expect(normalizeWorkspaceRelativeFilePath("rosa-cost-calculator/rosa-cost-calculator/internal/main.go"))
+      .toBe("rosa-cost-calculator/internal/main.go");
+  });
+});
+
+describe("normalizeFileToolArgs", () => {
+  it("normalizes file_path for file tools", () => {
+    const result = normalizeFileToolArgs("Update", { file_path: "'./repo\\\\repo/main.go'" });
+    expect(result.normalized).toBe(true);
+    expect(result.input.file_path).toBe("repo/main.go");
+  });
+
+  it("does nothing for non-file tools", () => {
+    const result = normalizeFileToolArgs("Bash", { command: "pwd" });
+    expect(result.normalized).toBe(false);
+    expect(result.input).toEqual({ command: "pwd" });
+  });
+});
+
+describe("validateToolArgs", () => {
+  it("accepts valid Write args", () => {
+    expect(validateToolArgs("Write", { file_path: "main.go", content: "package main" }))
+      .toEqual({ valid: true, missing: [] });
+  });
+
+  it("reports missing required keys", () => {
+    expect(validateToolArgs("Bash", { description: "run thing" }))
+      .toEqual({ valid: false, missing: ["command"] });
+  });
+
+  it("passes through unknown tools as valid", () => {
+    expect(validateToolArgs("UnknownTool", { a: 1 }))
+      .toEqual({ valid: true, missing: [] });
   });
 });
