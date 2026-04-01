@@ -38,6 +38,12 @@ export default function YarnReducers() {
     tokensSaved: s.tokens_saved_estimate,
     errors: s.errors,
   }));
+  const reducerSizeDeltaPct = trr && trr.rawCharsTotal > 0
+    ? ((trr.reducedCharsTotal - trr.rawCharsTotal) / trr.rawCharsTotal) * 100
+    : null;
+  const sawtoothDeltaPct = rt?.sawtoothContext && rt.sawtoothContext.totalCharsBefore > 0
+    ? ((rt.sawtoothContext.totalCharsAfter - rt.sawtoothContext.totalCharsBefore) / rt.sawtoothContext.totalCharsBefore) * 100
+    : null;
 
   return (
     <div className="space-y-8">
@@ -95,10 +101,11 @@ export default function YarnReducers() {
                   label="Reduced chars emitted"
                   value={trr.reducedCharsTotal}
                 />
-                {trr.rawCharsTotal > 0 && (
+                {reducerSizeDeltaPct !== null && (
                   <Row
-                    label="Avg reduction ratio"
-                    value={`${((1 - trr.reducedCharsTotal / trr.rawCharsTotal) * 100).toFixed(1)}%`}
+                    label={reducerSizeDeltaPct <= 0 ? "Avg reduction ratio" : "Avg expansion ratio"}
+                    value={`${Math.abs(reducerSizeDeltaPct).toFixed(1)}%`}
+                    warn={reducerSizeDeltaPct > 0}
                   />
                 )}
                 <Row
@@ -239,10 +246,11 @@ export default function YarnReducers() {
                       : 0
                   }
                 />
-                {rt.sawtoothContext.totalCharsBefore > 0 && (
+                {sawtoothDeltaPct !== null && (
                   <Row
-                    label="Avg compaction ratio"
-                    value={`${((1 - rt.sawtoothContext.totalCharsAfter / rt.sawtoothContext.totalCharsBefore) * 100).toFixed(1)}%`}
+                    label={sawtoothDeltaPct <= 0 ? "Avg compaction ratio" : "Avg expansion ratio"}
+                    value={`${Math.abs(sawtoothDeltaPct).toFixed(1)}%`}
+                    warn={sawtoothDeltaPct > 0}
                   />
                 )}
                 <Row

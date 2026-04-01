@@ -4,13 +4,13 @@ import EmptyState from "../../components/common/EmptyState";
 
 function CoverageIndicator({ value, label }: { value: number; label: string }) {
   const pct = Math.round(value * 100);
-  let color = "text-red-400";
+  let color = "text-red-600 dark:text-red-400";
   let Icon = MinusCircle;
   if (pct >= 80) {
-    color = "text-green-400";
+    color = "text-green-600 dark:text-green-400";
     Icon = CheckCircle2;
   } else if (pct >= 50) {
-    color = "text-yellow-400";
+    color = "text-amber-600 dark:text-amber-400";
     Icon = AlertCircle;
   }
   return (
@@ -22,7 +22,9 @@ function CoverageIndicator({ value, label }: { value: number; label: string }) {
 }
 
 function CountBadge({ count, label }: { count: number; label: string }) {
-  const bg = count > 0 ? "bg-zinc-700 text-zinc-200" : "bg-zinc-800 text-zinc-500";
+  const bg = count > 0
+    ? "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+    : "bg-gray-50 text-gray-500 dark:bg-gray-800 dark:text-gray-500";
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono ${bg}`}
@@ -35,9 +37,9 @@ function CountBadge({ count, label }: { count: number; label: string }) {
 
 function PackRow({ pack }: { pack: LanguagePackConformance }) {
   return (
-    <tr className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
-      <td className="px-4 py-3 font-medium text-zinc-100">{pack.displayName}</td>
-      <td className="px-4 py-3 text-xs text-zinc-500 font-mono">{pack.version}</td>
+    <tr className="border-b border-gray-200 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50">
+      <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{pack.displayName}</td>
+      <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{pack.version}</td>
       <td className="px-4 py-3 text-center">
         <CountBadge count={pack.familyCount} label="Validation families" />
       </td>
@@ -70,7 +72,7 @@ export default function LanguagePacks() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-pulse text-zinc-400">Loading language packs…</div>
+        <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading language packs…</div>
       </div>
     );
   }
@@ -104,39 +106,39 @@ export default function LanguagePacks() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-zinc-100">Language Intelligence Packs</h1>
-        <p className="text-sm text-zinc-400 mt-1">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Language Intelligence Packs</h1>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
           Conformance matrix showing capability coverage per language.
         </p>
       </div>
 
       <div className="grid grid-cols-5 gap-4">
-        <div className="rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
-          <div className="text-2xl font-bold text-zinc-100">{packs.length}</div>
-          <div className="text-xs text-zinc-500">Languages</div>
+        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{packs.length}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Languages</div>
         </div>
-        <div className="rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
-          <div className="text-2xl font-bold text-zinc-100">{totalFamilies}</div>
-          <div className="text-xs text-zinc-500">Families</div>
+        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalFamilies}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Families</div>
         </div>
-        <div className="rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
-          <div className="text-2xl font-bold text-zinc-100">{totalClassifiers}</div>
-          <div className="text-xs text-zinc-500">Classifiers</div>
+        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalClassifiers}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Classifiers</div>
         </div>
-        <div className="rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
-          <div className="text-2xl font-bold text-zinc-100">{totalReducers}</div>
-          <div className="text-xs text-zinc-500">Reducers</div>
+        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalReducers}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Reducers</div>
         </div>
-        <div className="rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
-          <div className="text-2xl font-bold text-zinc-100">{totalFastPath}</div>
-          <div className="text-xs text-zinc-500">Fast-path patterns</div>
+        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalFastPath}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Fast-path patterns</div>
         </div>
       </div>
 
-      <div className="rounded-lg bg-zinc-900 border border-zinc-800 overflow-hidden">
+      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-zinc-400 text-xs uppercase border-b border-zinc-800">
+            <tr className="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-gray-800 dark:text-gray-400">
               <th className="px-4 py-3 text-left font-medium">Language</th>
               <th className="px-4 py-3 text-left font-medium">Version</th>
               <th className="px-4 py-3 text-center font-medium">Families</th>
@@ -153,7 +155,7 @@ export default function LanguagePacks() {
             ))}
           </tbody>
           <tfoot>
-            <tr className="text-zinc-400 text-xs border-t border-zinc-700 font-medium">
+            <tr className="border-t border-gray-200 text-xs font-medium text-gray-600 dark:border-gray-700 dark:text-gray-400">
               <td className="px-4 py-2">Total</td>
               <td className="px-4 py-2" />
               <td className="px-4 py-2 text-center">{totalFamilies}</td>
