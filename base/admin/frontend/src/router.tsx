@@ -20,6 +20,7 @@ const ProviderManagement = lazy(() => import("./pages/models/ProviderManagement"
 const ServingManagement = lazy(() => import("./pages/models/ServingManagement"));
 const ModelPolicies = lazy(() => import("./pages/models/ModelPolicies"));
 const EffortRoutingPreview = lazy(() => import("./pages/models/EffortRoutingPreview"));
+const PromptLibrary = lazy(() => import("./pages/models/PromptLibrary"));
 
 const CorpusOverview = lazy(() => import("./pages/rag/CorpusOverview"));
 const QualityDashboard = lazy(() => import("./pages/rag/QualityDashboard"));
@@ -111,6 +112,7 @@ export const router = createBrowserRouter([
       { path: "models/serving", element: <ServingManagement /> },
       { path: "models/policies", element: <ModelPolicies /> },
       { path: "models/effort-routing", element: <EffortRoutingPreview /> },
+      { path: "models/prompts", element: <PromptLibrary /> },
 
       { path: "rag/corpus", element: <CorpusOverview /> },
       { path: "rag/quality", element: <QualityDashboard /> },

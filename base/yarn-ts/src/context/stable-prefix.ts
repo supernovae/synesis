@@ -4,6 +4,8 @@ export interface PrefixPartition {
   stablePrefix: string;
   volatileSuffix: string;
   prefixHash: string;
+  promptProfileIds?: number[];
+  promptProfileHashes?: string[];
 }
 
 export interface StablePrefixStats {
@@ -15,6 +17,30 @@ export interface StablePrefixStats {
 const BASE_INSTRUCTIONS =
   "You are an AI coding assistant provided by Synesis.";
 
+interface PromptProfileLike {
+  id: number;
+  content: string;
+  content_hash: string;
+}
+
+interface PromptAssignmentLike {
+  target_type: string;
+  target_value: string;
+  profile_id: number;
+}
+
+interface PromptSnapshotLike {
+  profiles: PromptProfileLike[];
+  assignments: PromptAssignmentLike[];
+}
+
+export interface PromptCompositionContext {
+  tier?: string;
+  role?: string;
+  modelFamily?: string;
+  node?: string;
+}
+
 export class StablePrefixService {
   private stats: StablePrefixStats = {
     partitionsBuilt: 0,
@@ -24,8 +50,57 @@ export class StablePrefixService {
   private knownHashes = new Set<string>();
   private sessionPrefixCache = new Map<string, string>();
 
-  partition(sessionKey: string, adapterBlock: string | undefined): PrefixPartition {
+  private resolvePromptBlocks(
+    snapshot: PromptSnapshotLike | null | undefined,
+    ctx: PromptCompositionContext | undefined,
+  ): { blocks: string[]; profileIds: number[]; profileHashes: string[] } {
+    if (!snapshot || !Array.isArray(snapshot.profiles) || !Array.isArray(snapshot.assignments)) {
+      return { blocks: [], profileIds: [], profileHashes: [] };
+    }
+    const profileById = new Map<number, PromptProfileLike>();
+    for (const p of snapshot.profiles) profileById.set(p.id, p);
+
+    const orderedTargets: Array<[string, string | undefined]> = [
+      ["default", "*"],
+      ["tier", ctx?.tier],
+      ["model_family", ctx?.modelFamily],
+      ["role", ctx?.role],
+      ["node", ctx?.node],
+    ];
+
+    const outBlocks: string[] = [];
+    const outIds: number[] = [];
+    const outHashes: string[] = [];
+    const seenProfileIds = new Set<number>();
+
+    for (const [targetType, targetValue] of orderedTargets) {
+      if (!targetValue) continue;
+      const match = snapshot.assignments.find(
+        (a) => a.target_type === targetType && a.target_value === targetValue,
+      );
+      if (!match || seenProfileIds.has(match.profile_id)) continue;
+      const profile = profileById.get(match.profile_id);
+      if (!profile || !profile.content.trim()) continue;
+      seenProfileIds.add(profile.id);
+      outIds.push(profile.id);
+      outHashes.push(profile.content_hash);
+      outBlocks.push(profile.content);
+    }
+
+    return { blocks: outBlocks, profileIds: outIds, profileHashes: outHashes };
+  }
+
+  partition(
+    sessionKey: string,
+    adapterBlock: string | undefined,
+    promptSnapshot?: PromptSnapshotLike | null,
+    promptContext?: PromptCompositionContext,
+  ): PrefixPartition {
     const stableParts = [BASE_INSTRUCTIONS];
+    const promptBlocks = this.resolvePromptBlocks(promptSnapshot, promptContext);
+    if (promptBlocks.blocks.length > 0) {
+      stableParts.push(...promptBlocks.blocks);
+    }
     if (adapterBlock) {
       stableParts.push(adapterBlock);
     }
@@ -50,7 +125,13 @@ export class StablePrefixService {
       }
     }
 
-    return { stablePrefix, volatileSuffix: "", prefixHash };
+    return {
+      stablePrefix,
+      volatileSuffix: "",
+      prefixHash,
+      promptProfileIds: promptBlocks.profileIds,
+      promptProfileHashes: promptBlocks.profileHashes,
+    };
   }
 
   evictSession(sessionKey: string): void {

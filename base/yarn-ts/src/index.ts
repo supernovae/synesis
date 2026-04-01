@@ -20,6 +20,8 @@ import {
 } from "./schemas.js";
 import {
   fetchTierRegistrySnapshot,
+  TIER_TO_ROLE,
+  type PromptSnapshot,
   type RoleAssignmentConfig,
 } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry } from "./providers/synesis-provider.js";
@@ -234,6 +236,8 @@ interface RequestDiagnostic {
   evidencePrefetchConfidence?: number;
   evidencePrefetchMs?: number;
   requestId?: string;
+  promptProfileIds?: number[];
+  promptProfileHashes?: string[];
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -280,6 +284,7 @@ const securityIngestConfig = {
 };
 const tierRegistry = new SynesisProviderRegistry();
 const roleAssignmentRegistry = new Map<string, RoleAssignmentConfig>();
+let promptSnapshotRegistry: PromptSnapshot | null = null;
 const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS, config.SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS);
 const sessions = new Map<string, SessionState>();
 const sessionStore = new SessionStore(config);
@@ -363,20 +368,36 @@ interface EnrichResult {
   messages: Array<{ role: string; content: unknown }>;
   workingPhase?: WorkflowPhase;
   workingFrameGoal?: string;
+  promptProfileIds?: number[];
+  promptProfileHashes?: string[];
+}
+
+function inferModelFamily(backendModel: string): string {
+  const m = (backendModel || "").toLowerCase();
+  if (/qwen3.*coder/.test(m)) return "qwen3-coder";
+  if (/deepseek/.test(m)) return "deepseek";
+  if (/kimi|moonshot/.test(m)) return "kimi";
+  return "generic";
 }
 
 function enrichWithFrameAndManifest(
   messages: Array<{ role: string; content: unknown }>,
   sessionKey: string,
-  adapterBlock?: string
+  adapterBlock?: string,
+  promptContext?: { tier?: string; role?: string; modelFamily?: string; node?: string },
 ): EnrichResult {
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
   let detectedGoal: string | undefined;
 
-  const systemPrefix = config.SYNESIS_YARN_STABLE_PREFIX_ENABLED
-    ? stablePrefixService.partition(sessionKey, adapterBlock).stablePrefix
-    : "You are an AI coding assistant provided by Synesis.";
+  const partition = config.SYNESIS_YARN_STABLE_PREFIX_ENABLED
+    ? stablePrefixService.partition(sessionKey, adapterBlock, promptSnapshotRegistry, promptContext)
+    : {
+      stablePrefix: "You are an AI coding assistant provided by Synesis.",
+      promptProfileIds: [],
+      promptProfileHashes: [],
+    };
+  const systemPrefix = partition.stablePrefix;
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
 
@@ -462,7 +483,13 @@ function enrichWithFrameAndManifest(
   const finalMessages = config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED
     ? attentionPositioning.position(enriched).messages
     : enriched;
-  return { messages: finalMessages, workingPhase: detectedPhase, workingFrameGoal: detectedGoal };
+  return {
+    messages: finalMessages,
+    workingPhase: detectedPhase,
+    workingFrameGoal: detectedGoal,
+    promptProfileIds: partition.promptProfileIds,
+    promptProfileHashes: partition.promptProfileHashes,
+  };
 }
 
 function phaseFromFrame(currentPhase: "explore" | "planning" | "implementation" | "validation"): WorkflowPhase {
@@ -708,6 +735,9 @@ async function refreshTierRegistry(): Promise<void> {
     roleAssignmentRegistry.clear();
     for (const role of snapshot.roleAssignments) {
       roleAssignmentRegistry.set(role.role, role);
+    }
+    if (snapshot.promptSnapshot) {
+      promptSnapshotRegistry = snapshot.promptSnapshot;
     }
     if (snapshot.tiers.length > 0) {
       app.log.info({ tiers: snapshot.tiers.map((t) => t.id), auxiliaryRoles: snapshot.roleAssignments.length }, "tier_registry_refreshed");
@@ -1562,6 +1592,14 @@ app.get("/health/telemetry", async (req, reply) => {
     workerPool: enrichmentPool.getStats(),
     sensemaking: sensemakingStats,
     eventLoopLag: getEventLoopStats(),
+    promptLibrary: {
+      loaded: Boolean(promptSnapshotRegistry),
+      service: promptSnapshotRegistry?.service ?? "yarn",
+      profiles: promptSnapshotRegistry?.profiles.length ?? 0,
+      assignments: promptSnapshotRegistry?.assignments.length ?? 0,
+      profileHashes: (promptSnapshotRegistry?.profiles ?? []).map((p) => p.content_hash).slice(0, 12),
+      updatedAt: promptSnapshotRegistry?.updated_at ?? null,
+    },
     connectionPools: {
       auth: authResolver.getPoolStats(),
       usageWriter: usageWriter.getPoolStats(),
@@ -1904,7 +1942,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
   }
-  let oaiEnrichedMsgs = enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock).messages as Array<{ role: string; content: unknown }>;
+  const oaiRole = TIER_TO_ROLE[orchestration.tier];
+  const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
+  const oaiPromptContext = {
+    tier: orchestration.tier,
+    role: oaiRole,
+    modelFamily: inferModelFamily(oaiBackendModel),
+  };
+  const oaiEnriched = enrichWithFrameAndManifest(
+    normalizedOpenAI.messages as never,
+    sessionKey,
+    adapterBlock,
+    oaiPromptContext,
+  );
+  let oaiEnrichedMsgs = oaiEnriched.messages as Array<{ role: string; content: unknown }>;
 
   let oaiSensemakingResult: SensemakingResult | undefined;
   if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
@@ -2196,6 +2247,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       evidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
       evidencePrefetchConfidence: oaiPrefetchResult?.confidence || undefined,
       evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
+      promptProfileIds: oaiEnriched.promptProfileIds,
+      promptProfileHashes: oaiEnriched.promptProfileHashes,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
@@ -2378,6 +2431,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     evidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
     evidencePrefetchConfidence: oaiPrefetchResult?.confidence || undefined,
     evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
+    promptProfileIds: oaiEnriched.promptProfileIds,
+    promptProfileHashes: oaiEnriched.promptProfileHashes,
   });
   return reply;
 });
@@ -2640,7 +2695,20 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
 
-  let enrichedClaudeMsgs = enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock).messages as Array<{ role: string; content: unknown }>;
+  const claudeRole = TIER_TO_ROLE[claudeOrchestration.tier];
+  const claudeBackendModel = roleAssignmentRegistry.get(claudeRole)?.backendModel ?? "";
+  const claudePromptContext = {
+    tier: claudeOrchestration.tier,
+    role: claudeRole,
+    modelFamily: inferModelFamily(claudeBackendModel),
+  };
+  const claudeEnriched = enrichWithFrameAndManifest(
+    normalizedFromClaude.messages as never,
+    claudeSessionKey,
+    claudeAdapterBlock,
+    claudePromptContext,
+  );
+  let enrichedClaudeMsgs = claudeEnriched.messages as Array<{ role: string; content: unknown }>;
 
   let claudeSensemakingResult: SensemakingResult | undefined;
   if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
@@ -3093,6 +3161,8 @@ app.post("/v1/messages", async (req, reply) => {
       evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0 || undefined,
       evidencePrefetchConfidence: claudePrefetchResult?.confidence || undefined,
       evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
+      promptProfileIds: claudeEnriched.promptProfileIds,
+      promptProfileHashes: claudeEnriched.promptProfileHashes,
     });
     return reply;
   }
@@ -3206,6 +3276,8 @@ app.post("/v1/messages", async (req, reply) => {
     evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0 || undefined,
     evidencePrefetchConfidence: claudePrefetchResult?.confidence || undefined,
     evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
+    promptProfileIds: claudeEnriched.promptProfileIds,
+    promptProfileHashes: claudeEnriched.promptProfileHashes,
   });
 
   const content: Array<Record<string, unknown>> = [];

@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     from app.services.infra_pricing import ensure_table as ensure_infra_table
     from app.services.model_reconciler import reconcile
     from app.services.model_registry import seed_model_deployments
+    from app.services.prompt_library import seed_default_prompt_profiles
 
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
     logger.info("admin_db_ready")
@@ -57,6 +58,13 @@ async def lifespan(app: FastAPI):
             logger.info("model_seed_complete count=%d", seeded)
     except Exception:
         logger.warning("model_seed_failed", exc_info=True)
+
+    try:
+        prompt_seeded = await seed_default_prompt_profiles()
+        if prompt_seeded:
+            logger.info("prompt_profile_seed_complete count=%d", prompt_seeded)
+    except Exception:
+        logger.warning("prompt_profile_seed_failed", exc_info=True)
 
     try:
         boot = await reconcile()

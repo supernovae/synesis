@@ -26,6 +26,7 @@ import {
 } from "../taxonomy/taxonomy-prompt-factory.js";
 import { getWorkerPersonaBlock } from "../taxonomy/vertical-prompts.js";
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
+import { composePlannerPrompt } from "../prompt-composer.js";
 
 export interface WriterResult {
   content: string;
@@ -184,8 +185,15 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     if (personaBlock) systemParts.push(`\n${personaBlock}`);
   }
 
+  const writerModel = process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis";
+  const composedWriterSystem = composePlannerPrompt(systemParts.join(" "), {
+    tier: state.model_tier,
+    role: "general",
+    node: "writer",
+    model: writerModel,
+  }).content;
   const msgs: ChatMessage[] = [
-    { role: "system" as const, content: systemParts.join(" ") },
+    { role: "system" as const, content: composedWriterSystem },
   ];
 
   const conversationHistory = (state.messages ?? []).filter(

@@ -21,6 +21,29 @@ const RolesEnvelopeSchema = z.object({
   roles: z.array(RoleSchema)
 });
 
+const PromptProfileSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  service: z.string(),
+  content: z.string(),
+  content_hash: z.string(),
+});
+
+const PromptAssignmentSchema = z.object({
+  id: z.number(),
+  service: z.string(),
+  target_type: z.string(),
+  target_value: z.string(),
+  profile_id: z.number(),
+});
+
+const PromptSnapshotSchema = z.object({
+  service: z.string(),
+  profiles: z.array(PromptProfileSchema),
+  assignments: z.array(PromptAssignmentSchema),
+  updated_at: z.string().nullable().optional(),
+});
+
 const CostRowSchema = z.object({
   role: z.string(),
   input_per_million: z.number().optional(),
@@ -61,7 +84,12 @@ export interface RoleAssignmentConfig {
 export interface TierRegistrySnapshot {
   tiers: TierConfig[];
   roleAssignments: RoleAssignmentConfig[];
+  promptSnapshot?: PromptSnapshot;
 }
+
+export type PromptProfile = z.infer<typeof PromptProfileSchema>;
+export type PromptAssignment = z.infer<typeof PromptAssignmentSchema>;
+export type PromptSnapshot = z.infer<typeof PromptSnapshotSchema>;
 
 export const ROLE_TO_TIER: Record<string, TierId> = {
   "coder-pulse": "synesis-pulse",
@@ -98,8 +126,10 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
   const hasToken = Boolean(config.SYNESIS_INTERNAL_SERVICE_TOKEN);
   const rolesPath = hasToken ? "/api/v1/models/roles/internal" : "/api/v1/models/roles";
   const costsPath = hasToken ? "/api/v1/models/costs/active/internal" : "/api/v1/models/costs/active";
+  const promptsPath = "/api/v1/models/prompts/internal/yarn";
   const rolesUrl = `${config.SYNESIS_YARN_ADMIN_API_URL}${rolesPath}`;
   const costsUrl = `${config.SYNESIS_YARN_ADMIN_API_URL}${costsPath}`;
+  const promptsUrl = `${config.SYNESIS_YARN_ADMIN_API_URL}${promptsPath}`;
   const headers: Record<string, string> = {};
   if (hasToken) {
     const token = config.SYNESIS_INTERNAL_SERVICE_TOKEN!;
@@ -107,7 +137,11 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
     headers["x-synesis-service-name"] = "synesis-yarn-ts";
     headers.authorization = `Bearer ${token}`;
   }
-  const [rolesResponse, costsResponse] = await Promise.all([fetch(rolesUrl, { headers }), fetch(costsUrl, { headers })]);
+  const [rolesResponse, costsResponse, promptsResponse] = await Promise.all([
+    fetch(rolesUrl, { headers }),
+    fetch(costsUrl, { headers }),
+    hasToken ? fetch(promptsUrl, { headers }) : Promise.resolve(null),
+  ]);
   if (!rolesResponse.ok) {
     throw new Error(`tier role fetch failed ${rolesResponse.status}`);
   }
@@ -116,6 +150,14 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
   }
   const payload = RolesEnvelopeSchema.parse(await rolesResponse.json());
   const costPayload = CostEnvelopeSchema.parse(await costsResponse.json());
+  let promptSnapshot: PromptSnapshot | undefined;
+  if (promptsResponse && promptsResponse.ok) {
+    try {
+      promptSnapshot = PromptSnapshotSchema.parse(await promptsResponse.json());
+    } catch {
+      promptSnapshot = undefined;
+    }
+  }
   const costs = costPayload.costs ?? costPayload.roles ?? [];
   const costByRole = new Map<string, z.infer<typeof CostRowSchema>>();
   for (const row of costs) {
@@ -168,7 +210,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       pricingSource,
     });
   }
-  return { tiers: out, roleAssignments };
+  return { tiers: out, roleAssignments, promptSnapshot };
 }
 
 export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]> {

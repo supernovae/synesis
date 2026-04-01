@@ -100,6 +100,7 @@ const EnvSchema = z.object({
 
   SYNESIS_ADMIN_URL: z.string().default(""),
   SYNESIS_ADMIN_INTERNAL_TOKEN: z.string().default(""),
+  SYNESIS_PLANNER_TS_PROMPT_REFRESH_MS: z.coerce.number().default(30000),
   SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER: z.coerce.number().default(0.1),
   /** Publish knowledge gap when router max_confidence is below this. */
   SYNESIS_PLANNER_TS_KNOWLEDGE_GAP_THRESHOLD: z.coerce.number().default(0.4),

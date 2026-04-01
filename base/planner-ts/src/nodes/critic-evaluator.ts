@@ -7,6 +7,7 @@ import { TRUST_POLICY_COMPACT } from "../security/trust-prompts.js";
 import { getCriticRegulatedBlock, getCriticAssistantSystemsBlock } from "../taxonomy/taxonomy-prompt-factory.js";
 import { getCriticMode, getCriticTierPrompt, selectCriticTier } from "../taxonomy/vertical-prompts.js";
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
+import { composePlannerPrompt } from "../prompt-composer.js";
 
 export type CriticResult = CriticOut & { usage: LlmUsage };
 
@@ -223,8 +224,18 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
     .filter(Boolean)
     .join("\n\n");
 
+  const criticModel = process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "Synesis";
+  const criticSystemPrompt = composePlannerPrompt(
+    `You are Synesis Critic. Output only valid JSON matching keys: approved, need_more_evidence, continue_reason, blocking_issues, nonblocking, repair_instructions, scores.\n\n${TRUST_POLICY_COMPACT}`,
+    {
+      tier: state.model_tier,
+      role: "critic",
+      node: "critic",
+      model: criticModel,
+    },
+  ).content;
   const result = await chatCompletion({
-    model: process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "Synesis",
+    model: criticModel,
     temperature: 0,
     max_tokens: state.critic_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE,
     pricingRates: state.pricing_rates_by_role?.critic,
@@ -234,8 +245,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
     messages: [
       {
         role: "system",
-        content:
-          `You are Synesis Critic. Output only valid JSON matching keys: approved, need_more_evidence, continue_reason, blocking_issues, nonblocking, repair_instructions, scores.\n\n${TRUST_POLICY_COMPACT}`,
+        content: criticSystemPrompt,
       },
       {
         role: "user",

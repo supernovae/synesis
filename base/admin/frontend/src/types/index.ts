@@ -240,6 +240,31 @@ export interface RoleHistoryEntry {
   deactivated_at: string | null;
 }
 
+export interface PromptProfile {
+  id: number;
+  name: string;
+  service: "yarn" | "planner";
+  description: string;
+  content: string;
+  content_hash: string;
+  enabled: boolean;
+  created_by: string;
+  updated_by: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface PromptAssignment {
+  id: number;
+  service: "yarn" | "planner";
+  target_type: "default" | "tier" | "role" | "model_family" | "node";
+  target_value: string;
+  profile_id: number;
+  enabled: boolean;
+  updated_by: string;
+  updated_at: string | null;
+}
+
 export interface RolePerformance {
   role: string;
   request_count: number;

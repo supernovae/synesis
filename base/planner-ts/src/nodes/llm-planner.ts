@@ -21,6 +21,7 @@ import { loadConfig } from "../config.js";
 import { getPlannerSystemPromptAppend } from "../taxonomy/taxonomy-prompt-factory.js";
 import { getPlannerDecompositionRules } from "../taxonomy/vertical-prompts.js";
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
+import { composePlannerPrompt } from "../prompt-composer.js";
 
 const PlannerOutputSchema = z.object({
   steps: z.array(z.object({
@@ -269,26 +270,33 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     const plannerModel = process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL
       ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
       ?? "Synesis";
+    const plannerSystemPrompt = [
+      "You are Synesis Planner. Produce a JSON plan for the user's request.",
+      "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
+      "",
+      TRUST_POLICY_COMPACT,
+      "",
+      "RULES:",
+      "- If the user's latest message is a short follow-up (e.g., an answer choice like 'B)', 'yes', 'expand on that'), interpret it IN CONTEXT of the conversation history.",
+      "- List ALL material assumptions you are making to create this plan.",
+      "- List ALL open questions where the user's intent is genuinely ambiguous.",
+      "- Rate your confidence (0.0-1.0) that this plan addresses the user's actual need.",
+      "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
+      "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
+      `- Target format: ${requestedFormat}.${schemaHint}`,
+      taxonomyAppend,
+      decompositionBlock,
+    ].filter(Boolean).join("\n");
+    const composedSystemPrompt = composePlannerPrompt(plannerSystemPrompt, {
+      tier: state.model_tier,
+      role: "router",
+      node: "planner",
+      model: plannerModel,
+    }).content;
     const plannerMessages = [
       {
         role: "system" as const,
-        content: [
-          "You are Synesis Planner. Produce a JSON plan for the user's request.",
-          "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
-          "",
-          TRUST_POLICY_COMPACT,
-          "",
-          "RULES:",
-          "- If the user's latest message is a short follow-up (e.g., an answer choice like 'B)', 'yes', 'expand on that'), interpret it IN CONTEXT of the conversation history.",
-          "- List ALL material assumptions you are making to create this plan.",
-          "- List ALL open questions where the user's intent is genuinely ambiguous.",
-          "- Rate your confidence (0.0-1.0) that this plan addresses the user's actual need.",
-          "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
-          "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
-          `- Target format: ${requestedFormat}.${schemaHint}`,
-          taxonomyAppend,
-          decompositionBlock,
-        ].filter(Boolean).join("\n"),
+        content: composedSystemPrompt,
       },
       {
         role: "user" as const,

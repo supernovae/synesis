@@ -33,6 +33,16 @@ from ..services.model_registry import (
     update_deployment,
     upsert_model_cost,
 )
+from ..services.prompt_library import (
+    create_prompt_profile,
+    delete_prompt_assignment,
+    delete_prompt_profile,
+    get_prompt_snapshot,
+    list_prompt_assignments,
+    list_prompt_profiles,
+    update_prompt_profile,
+    upsert_prompt_assignment,
+)
 from ..services.provider_catalog import KNOWN_ROLES
 from ..services.token_cost import (
     estimate_llm_call_cost_from_payload,
@@ -148,6 +158,132 @@ async def list_role_assignments_internal(
 ):
     """Internal service read path for role assignments (Yarn tier polling)."""
     return {"roles": await get_role_assignments()}
+
+
+@router.get("/prompts/profiles")
+async def list_prompts_profiles(
+    service: str | None = Query(None),
+    _user: UserInfo = Depends(get_current_user),
+):
+    return {"profiles": await list_prompt_profiles(service=service)}
+
+
+@router.post("/prompts/profiles")
+async def create_prompts_profile(
+    data: dict = Body(...),
+    user: UserInfo = Depends(require_platform_admin),
+):
+    try:
+        out = await create_prompt_profile(data, actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    await record_admin_audit(
+        user=user,
+        action="models.prompt_profile_create",
+        status="success",
+        summary=f"Created prompt profile {out.get('name', '')}",
+        detail={"profile": out},
+    )
+    return out
+
+
+@router.put("/prompts/profiles/{profile_id}")
+async def update_prompts_profile(
+    profile_id: int,
+    data: dict = Body(...),
+    user: UserInfo = Depends(require_platform_admin),
+):
+    try:
+        out = await update_prompt_profile(profile_id, data, actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    if out is None:
+        raise HTTPException(404, "prompt profile not found")
+    await record_admin_audit(
+        user=user,
+        action="models.prompt_profile_update",
+        status="success",
+        summary=f"Updated prompt profile id={profile_id}",
+        detail={"profile_id": profile_id, "patch_keys": list(data.keys())},
+    )
+    return out
+
+
+@router.delete("/prompts/profiles/{profile_id}")
+async def delete_prompts_profile(
+    profile_id: int,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    ok = await delete_prompt_profile(profile_id)
+    if not ok:
+        raise HTTPException(404, "prompt profile not found")
+    await record_admin_audit(
+        user=user,
+        action="models.prompt_profile_delete",
+        status="success",
+        summary=f"Deleted prompt profile id={profile_id}",
+        detail={"profile_id": profile_id},
+    )
+    return {"deleted": profile_id}
+
+
+@router.get("/prompts/assignments")
+async def list_prompts_assignments(
+    service: str | None = Query(None),
+    _user: UserInfo = Depends(get_current_user),
+):
+    return {"assignments": await list_prompt_assignments(service=service)}
+
+
+@router.put("/prompts/assignments")
+async def put_prompts_assignment(
+    data: dict = Body(...),
+    user: UserInfo = Depends(require_platform_admin),
+):
+    try:
+        out = await upsert_prompt_assignment(data, actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    await record_admin_audit(
+        user=user,
+        action="models.prompt_assignment_upsert",
+        status="success",
+        summary=(
+            f"Assigned prompt service={out.get('service', '')} "
+            f"{out.get('target_type', '')}:{out.get('target_value', '')} -> profile={out.get('profile_id', '')}"
+        ),
+        detail={"assignment": out},
+    )
+    return out
+
+
+@router.delete("/prompts/assignments/{assignment_id}")
+async def delete_prompts_assignment(
+    assignment_id: int,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    ok = await delete_prompt_assignment(assignment_id)
+    if not ok:
+        raise HTTPException(404, "prompt assignment not found")
+    await record_admin_audit(
+        user=user,
+        action="models.prompt_assignment_delete",
+        status="success",
+        summary=f"Deleted prompt assignment id={assignment_id}",
+        detail={"assignment_id": assignment_id},
+    )
+    return {"deleted": assignment_id}
+
+
+@router.get("/prompts/internal/{service}")
+async def prompts_snapshot_internal(
+    service: str,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    try:
+        return await get_prompt_snapshot(service)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
 
 
 @router.put("/roles/{role}")

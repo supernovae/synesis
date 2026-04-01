@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -828,6 +828,52 @@ class ModelPolicy(Base):
     )
 
     __table_args__ = (Index("ix_model_policies_role_priority", "role", "priority"),)
+
+
+class PromptProfile(Base):
+    """Prompt library profile used by Yarn/Planner runtime composition."""
+
+    __tablename__ = "prompt_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    service: Mapped[str] = mapped_column(String(32), nullable=False, default="yarn")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    updated_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_prompt_profiles_service", "service"),
+        Index("ix_prompt_profiles_enabled", "enabled"),
+    )
+
+
+class PromptAssignment(Base):
+    """Profile assignment by service + selector (default/tier/role/model_family/node)."""
+
+    __tablename__ = "prompt_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    service: Mapped[str] = mapped_column(String(32), nullable=False, default="yarn")
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, default="default")
+    target_value: Mapped[str] = mapped_column(String(128), nullable=False, default="*")
+    profile_id: Mapped[int] = mapped_column(Integer, ForeignKey("prompt_profiles.id", ondelete="CASCADE"), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("service", "target_type", "target_value", name="uq_prompt_assignments_service_target"),
+        Index("ix_prompt_assignments_service", "service"),
+        Index("ix_prompt_assignments_profile_id", "profile_id"),
+    )
 
 
 class PrefixCacheSnapshot(Base):

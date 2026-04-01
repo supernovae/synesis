@@ -52,6 +52,8 @@ import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scann
 import { FailureStore } from "./diagnostics/failure-store.js";
 import { DependencyHealthMonitor } from "./diagnostics/health-monitor.js";
 import { getTracer } from "./telemetry/otel.js";
+import { PromptRegistry } from "./prompt-registry.js";
+import { setPlannerPromptSnapshot } from "./prompt-composer.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
@@ -263,6 +265,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
     store: sessionStore
   });
   const authzPolicyEngine = createAuthorizationPolicyEngine(config);
+  const promptRegistry = new PromptRegistry({
+    adminUrl: config.SYNESIS_ADMIN_URL,
+    adminToken: config.SYNESIS_ADMIN_INTERNAL_TOKEN,
+    refreshMs: config.SYNESIS_PLANNER_TS_PROMPT_REFRESH_MS,
+    logger: app.log,
+  });
+  promptRegistry.start();
   const failureStore = new FailureStore();
   const dependencyHealthMonitor = new DependencyHealthMonitor(config, sessionStore);
   const userRateLimiter = new UserRateLimiter({
@@ -279,6 +288,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     userRateLimiter.close();
     streamAdmission.close();
     dependencyHealthMonitor.stop();
+    promptRegistry.stop();
   });
   dependencyHealthMonitor.start();
 
@@ -381,6 +391,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
     sessionKey: string,
     traceparent?: string,
   ): Promise<GraphState> {
+    const promptSnapshot = promptRegistry.getSnapshot();
+    if (promptSnapshot) {
+      setPlannerPromptSnapshot(promptSnapshot);
+    }
     const incomingWithSession = await sessionManager.enrichIncomingMessages(
       sessionKey,
       requestBody.messages.map((m) => ({ role: m.role, content: m.content ?? "" }))
@@ -574,6 +588,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       configured: Boolean(config.SYNESIS_PLANNER_TS_REDIS_URL)
     },
     llmResilience: getLlmResilienceStats(),
+    promptLibrary: promptRegistry.getStats(),
     admissionControl: {
       userRateLimit: userRateLimiter.getStats(),
       streamAdmission: streamAdmission.getStats(),

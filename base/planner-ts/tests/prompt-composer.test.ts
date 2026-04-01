@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import { composePlannerPrompt, setPlannerPromptSnapshot } from "../src/prompt-composer.js";
+
+describe("planner prompt composer", () => {
+  it("falls back to base when no snapshot loaded", () => {
+    const out = composePlannerPrompt("base-planner", { role: "router", node: "planner" });
+    expect(out.content).toBe("base-planner");
+    expect(out.profileIds).toEqual([]);
+  });
+
+  it("applies default -> tier -> model_family -> role -> node overlays", () => {
+    setPlannerPromptSnapshot({
+      service: "planner",
+      profiles: [
+        { id: 10, name: "default", service: "planner", content: "default-overlay", content_hash: "h10" },
+        { id: 11, name: "tier", service: "planner", content: "tier-overlay", content_hash: "h11" },
+        { id: 12, name: "family", service: "planner", content: "family-overlay", content_hash: "h12" },
+        { id: 13, name: "role", service: "planner", content: "role-overlay", content_hash: "h13" },
+        { id: 14, name: "node", service: "planner", content: "node-overlay", content_hash: "h14" },
+      ],
+      assignments: [
+        { id: 1, service: "planner", target_type: "default", target_value: "*", profile_id: 10 },
+        { id: 2, service: "planner", target_type: "tier", target_value: "core", profile_id: 11 },
+        { id: 3, service: "planner", target_type: "model_family", target_value: "qwen3-coder", profile_id: 12 },
+        { id: 4, service: "planner", target_type: "role", target_value: "critic", profile_id: 13 },
+        { id: 5, service: "planner", target_type: "node", target_value: "critic", profile_id: 14 },
+      ],
+      updated_at: null,
+    });
+
+    const out = composePlannerPrompt("base", {
+      tier: "core",
+      role: "critic",
+      node: "critic",
+      model: "Qwen/Qwen3-Coder-32B-Instruct",
+    });
+
+    expect(out.content).toContain("base");
+    expect(out.content).toContain("default-overlay");
+    expect(out.content).toContain("tier-overlay");
+    expect(out.content).toContain("family-overlay");
+    expect(out.content).toContain("role-overlay");
+    expect(out.content).toContain("node-overlay");
+    expect(out.profileIds).toEqual([10, 11, 12, 13, 14]);
+    expect(out.profileHashes).toEqual(["h10", "h11", "h12", "h13", "h14"]);
+  });
+});

@@ -258,6 +258,91 @@ export function useReconcileModels() {
   });
 }
 
+export function usePromptProfiles(service?: "yarn" | "planner") {
+  return useQuery<{ profiles: import("../types").PromptProfile[] }>({
+    queryKey: ["models", "prompts", "profiles", service ?? "all"],
+    queryFn: () =>
+      client
+        .get("/models/prompts/profiles", { params: service ? { service } : undefined })
+        .then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreatePromptProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<import("../types").PromptProfile> & { name: string; service: string; content: string }) =>
+      client.post("/models/prompts/profiles", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "prompts"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useUpdatePromptProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: number } & Partial<import("../types").PromptProfile>) =>
+      client.put(`/models/prompts/profiles/${id}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "prompts"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useDeletePromptProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => client.delete(`/models/prompts/profiles/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "prompts"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function usePromptAssignments(service?: "yarn" | "planner") {
+  return useQuery<{ assignments: import("../types").PromptAssignment[] }>({
+    queryKey: ["models", "prompts", "assignments", service ?? "all"],
+    queryFn: () =>
+      client
+        .get("/models/prompts/assignments", { params: service ? { service } : undefined })
+        .then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useUpsertPromptAssignment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      service: "yarn" | "planner";
+      target_type: "default" | "tier" | "role" | "model_family" | "node";
+      target_value: string;
+      profile_id: number;
+      enabled?: boolean;
+    }) => client.put("/models/prompts/assignments", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "prompts"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useDeletePromptAssignment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => client.delete(`/models/prompts/assignments/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "prompts"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
 export function useUpdateFallbacks() {
   const qc = useQueryClient();
   return useMutation({
