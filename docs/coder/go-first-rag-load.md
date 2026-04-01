@@ -13,9 +13,7 @@ It is designed for fix-forward operations (no rollback choreography required).
 ## Prerequisites
 
 - OpenShift access with `oc` logged into the target cluster.
-- Admin PAT with:
-  - `platform_admin` for default global bootstrap packs (including `lang-go.yaml`)
-  - tenant content grants (content operator permissions)
+- Admin PAT with **`platform_admin`** role (stored on the PAT) for default global bootstrap packs (`lang-go.yaml` uses `visibility_scope: global`). **`org_admin` alone cannot enqueue global rows** — use a platform-admin account or change the corpus to org/tenant scope.
 - Optional Yarn test token for retrieval checks:
   - `SYNESIS_TEST_AUTH`
 

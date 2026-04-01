@@ -10,7 +10,8 @@ set -euo pipefail
 #
 # Required:
 # - oc login to the target cluster
-# - SYNESIS_ADMIN_TOKEN with org_admin + tenant content grants
+# - SYNESIS_ADMIN_TOKEN: platform_admin PAT for default lang-go.yaml (global visibility).
+#   Org-admin-only tokens cannot enqueue global bootstrap rows (by design).
 #
 # Optional:
 # - SYNESIS_ADMIN_URL (default: https://synesis-admin.apps.openshiftdemo.dev)
@@ -71,7 +72,8 @@ python3 "${ROOT_DIR}/scripts/validate-bootstrap-corpus.py" "${GO_CORPUS_FILE}" >
 
 if [[ -z "${ADMIN_TOKEN}" ]]; then
   echo "ERROR: SYNESIS_ADMIN_TOKEN is required for bootstrap enqueue." >&2
-  echo "Hint: create PAT in Admin UI with org_admin + tenant content grants." >&2
+  echo "Hint: create a PAT while signed in as platform admin (realm synesis-admin)." >&2
+  echo "      Global corpus YAML needs platform_admin; org_admin alone returns 403 on bootstrap." >&2
   exit 1
 fi
 

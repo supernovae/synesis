@@ -138,7 +138,13 @@ require_org_content_admin = require_route_group(RouteGroup.org_content_admin)
 
 def is_tenant_content_operator(user: UserInfo) -> bool:
     """True when user can operate on tenant-scoped content in own org."""
-    if resolve_role(user) >= Role.org_admin:
+    role = resolve_role(user)
+    # Platform admins often have no Keycloak org selected (empty org_id on PAT).
+    # They must still reach ingestion bootstrap and other content-operator routes
+    # so global corpus loads (visibility_scope=global) can proceed.
+    if role >= Role.platform_admin:
+        return True
+    if role >= Role.org_admin:
         return bool((user.org_id or "").strip())
     return bool((user.org_id or "").strip() and (user.tenant_ids or []))
 

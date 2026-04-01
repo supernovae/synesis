@@ -26,6 +26,13 @@ def test_is_tenant_content_operator_for_org_admin():
     assert is_tenant_content_operator(_user(role="org_admin", org_id="org-a")) is True
 
 
+def test_is_tenant_content_operator_platform_admin_without_org():
+    """Platform PATs often omit org_id; bootstrap/global ingestion must still work."""
+    from app.rbac import is_tenant_content_operator
+
+    assert is_tenant_content_operator(_user(role="platform_admin", org_id="")) is True
+
+
 def test_is_tenant_content_operator_for_tenant_granted_user():
     from app.rbac import is_tenant_content_operator
 

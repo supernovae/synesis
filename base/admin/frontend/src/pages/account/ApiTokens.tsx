@@ -25,12 +25,29 @@ function scopeDisplayLabel(scope: string): string {
   return `${SCOPE_LABELS[target] ?? target} · ${LEVEL_LABELS[level] ?? level}`;
 }
 
+function roleBadgeLabel(role: string): string {
+  switch (role) {
+    case "platform_admin":
+      return "Platform admin";
+    case "org_admin":
+      return "Org admin";
+    case "readonly":
+    case "viewer":
+      return "Read-only";
+    case "user":
+      return "User";
+    default:
+      return role || "Unknown";
+  }
+}
+
 export default function ApiTokens() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [expiresDays, setExpiresDays] = useState<number | "">("");
   const [newToken, setNewToken] = useState<string | null>(null);
+  const [lastCreatedRole, setLastCreatedRole] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const [selectedTargets, setSelectedTargets] = useState<Set<ScopeTarget>>(
@@ -104,6 +121,7 @@ export default function ApiTokens() {
         .then((r: AxiosResponse<TokenCreated>) => r.data),
     onSuccess: (data) => {
       setNewToken(data.token);
+      setLastCreatedRole(data.role);
       setName("");
       setExpiresDays("");
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
@@ -142,8 +160,14 @@ export default function ApiTokens() {
           Create new token
         </h2>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Admin routes are role-based. Model/Coder scopes below are service API
-          permissions for planner/yarn endpoints.
+          <strong className="font-medium text-gray-700 dark:text-gray-300">
+            Admin REST API
+          </strong>{" "}
+          access is controlled by your{" "}
+          <strong className="font-medium">account role</strong> stored on the
+          token when it is created — not by the Planner/Yarn scope checkboxes
+          below. Those scopes only affect Model/Coder service routes (and
+          related gateway checks).
         </p>
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -201,6 +225,24 @@ export default function ApiTokens() {
           </div>
         )}
 
+        {tokenIntent === "admin" && (
+          <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/80 p-3 dark:border-indigo-800 dark:bg-indigo-950/30">
+            <div className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+              Admin API (role-based)
+            </div>
+            <p className="mt-1 text-xs text-indigo-800 dark:text-indigo-300">
+              This token can call{" "}
+              <code className="rounded bg-indigo-100 px-1 dark:bg-indigo-900/50">
+                /api/v1/…
+              </code>{" "}
+              according to the role captured at creation time (see &quot;API
+              role&quot; on your token after you generate it). Changing
+              &quot;User (Read-write)&quot; under Model only affects Planner
+              access, not admin write APIs.
+            </p>
+          </div>
+        )}
+
         <div className="mt-3 flex items-end gap-3">
           <div className="flex-1">
             <label className="block text-xs text-gray-500 dark:text-gray-400">
@@ -231,14 +273,15 @@ export default function ApiTokens() {
           </div>
         </div>
 
-        {/* Scope selection */}
+        {/* Scope selection — planner/yarn only; admin API uses role (see above) */}
         <div className="mt-4">
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
-            Service access
+            Planner &amp; Yarn (service scopes)
           </label>
           <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-            Select which services this token can reach and the permission level
-            for each.
+            Optional access to Model (planner) and Coder (Yarn) endpoints. Does
+            not upgrade Synesis Admin REST permissions — use an account with
+            org/platform admin for automation scripts against the admin API.
           </p>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             {(["model", "coder"] as const).map((target) => {
@@ -313,7 +356,16 @@ export default function ApiTokens() {
         {newToken && (
           <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/20">
             <p className="text-xs font-medium text-green-800 dark:text-green-300">
-              Token created — copy it now, it won&apos;t be shown again:
+              Token created — copy it now, it won&apos;t be shown again.
+              {lastCreatedRole && (
+                <>
+                  {" "}
+                  <span className="font-normal opacity-90">
+                    Admin API role:{" "}
+                    <strong>{roleBadgeLabel(lastCreatedRole)}</strong>.
+                  </span>
+                </>
+              )}
             </p>
             <div className="mt-1 flex items-center gap-2">
               <code className="flex-1 break-all rounded bg-green-100 px-2 py-1 text-xs text-green-900 dark:bg-green-800 dark:text-green-100">
@@ -372,11 +424,18 @@ export default function ApiTokens() {
                       </span>
                     )}
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-1">
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <span
+                      className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      title="Role stored on this token; gates /api/v1 admin routes"
+                    >
+                      API role: {roleBadgeLabel(t.role)}
+                    </span>
                     {t.scopes.map((s) => (
                       <span
                         key={s}
                         className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400"
+                        title="Planner / Yarn service scope"
                       >
                         {scopeDisplayLabel(s)}
                       </span>
