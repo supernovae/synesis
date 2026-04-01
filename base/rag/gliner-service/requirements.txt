@@ -1,2 +1,3 @@
 # torch, transformers, fastapi, uvicorn, pydantic provided by synesis-base-ml
 gliner>=0.2.7
+pygments>=2.20.0

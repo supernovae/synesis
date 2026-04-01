@@ -17,3 +17,6 @@ crawl4ai==0.8.6
 # Code parsing (tree-sitter — 170+ languages via language-pack)
 tree-sitter>=0.23.0
 tree-sitter-language-pack>=0.13.0
+cryptography>=46.0.6
+requests>=2.33.0
+pygments>=2.20.0

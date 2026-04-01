@@ -208,9 +208,7 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         tenant_ids = [str(t).strip()[:64] for t in (raw_tenants or []) if str(t).strip()][:50]
         org_id = (getattr(pat, "org_id", "") or "").strip()
         if tenant_ids and not org_id:
-            logger.warning(
-                "pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(getattr(pat, "id", ""))
-            )  # nosemgrep: python-logger-credential-disclosure
+            logger.warning("pat_auth_invalid_scope reason=tenant_ids_without_org")
             return None
 
         return UserInfo(
