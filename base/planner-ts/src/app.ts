@@ -95,6 +95,52 @@ export function resolvePlannerSessionKey(
   return { sessionKey: `ephemeral:${requestId}`, source: "ephemeral_request" };
 }
 
+function resolveIncomingConversationId(
+  rawBody: unknown,
+  headers: Record<string, unknown>,
+  parsedConversationId?: string | null,
+): { id: string; source: string } {
+  const parsed = (parsedConversationId ?? "").trim();
+  if (parsed) return { id: parsed, source: "body.conversation_id" };
+
+  const body = (rawBody && typeof rawBody === "object" && !Array.isArray(rawBody))
+    ? (rawBody as Record<string, unknown>)
+    : {};
+
+  for (const key of ["conversation_id", "session_id", "chat_id"]) {
+    const val = body[key];
+    if (typeof val === "string" && val.trim()) {
+      return { id: val.trim(), source: `body.${key}` };
+    }
+  }
+
+  const metadata = body.metadata;
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const meta = metadata as Record<string, unknown>;
+    for (const key of ["conversation_id", "synesis_conversation_id", "session_id", "chat_id"]) {
+      const val = meta[key];
+      if (typeof val === "string" && val.trim()) {
+        return { id: val.trim(), source: `body.metadata.${key}` };
+      }
+    }
+  }
+
+  for (const key of [
+    "x-synesis-conversation-id",
+    "x-openwebui-conversation-id",
+    "x-openwebui-chat-id",
+    "x-chat-id",
+    "x-session-id",
+  ]) {
+    const val = headers[key];
+    if (typeof val === "string" && val.trim()) {
+      return { id: val.trim(), source: `header.${key}` };
+    }
+  }
+
+  return { id: "", source: "none" };
+}
+
 function normalizeWords(text: string): string[] {
   return text
     .toLowerCase()
@@ -1046,10 +1092,25 @@ export function buildApp(config: AppConfig): FastifyInstance {
         },
         "authz allow"
       );
-      const body = ChatCompletionRequestSchema.parse(request.body);
+      const rawBody = request.body;
+      const body = ChatCompletionRequestSchema.parse(rawBody);
+      const resolvedConversation = resolveIncomingConversationId(
+        rawBody,
+        request.headers as Record<string, unknown>,
+        body.conversation_id,
+      );
+      const effectiveBody: ParsedChatRequest = resolvedConversation.id
+        ? { ...body, conversation_id: resolvedConversation.id }
+        : body;
+      if (resolvedConversation.id && !body.conversation_id) {
+        request.log.info(
+          { authzTraceId, userId: auth.userId, conversationSource: resolvedConversation.source },
+          "resolved conversation_id from fallback source",
+        );
+      }
       requestSpan.setAttribute("planner.request.stream", Boolean(body.stream));
       requestSpan.setAttribute("planner.request.model", body.model);
-      const resolvedSession = resolvePlannerSessionKey(body, authzTraceId);
+      const resolvedSession = resolvePlannerSessionKey(effectiveBody, authzTraceId);
       if (resolvedSession.source === "ephemeral_request") {
         request.log.warn(
           {
@@ -1074,7 +1135,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
 
       const initialState = await toState(
-        body,
+        effectiveBody,
         auth,
         authzTraceId,
         policyDecision,

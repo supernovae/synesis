@@ -14,7 +14,7 @@ const RoleSchema = z.object({
   endpoint: z.string().optional(),
   provider: z.string().optional(),
   api_key_env: z.string().optional(),
-  litellm_params: z.record(z.string(), z.any()).optional()
+  litellm_params: z.record(z.string(), z.any()).nullable().optional()
 });
 
 const RolesEnvelopeSchema = z.object({
