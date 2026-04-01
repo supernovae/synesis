@@ -165,9 +165,7 @@ async def get_connector(
 ):
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
@@ -221,9 +219,7 @@ async def update_connector(
         await session.commit()
 
         row = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one()
         return _connector_to_dict(row)
 
@@ -236,9 +232,7 @@ async def delete_connector(
     from sqlalchemy import delete as sa_delete
 
     async with async_session() as session:
-        result = await session.execute(
-            sa_delete(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-        )
+        result = await session.execute(sa_delete(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         if result.rowcount == 0:
             raise HTTPException(404, "Connector not found")
         session.add(_audit(user, "devhub.connector.delete", "ok", f"Deleted connector {connector_id}"))
@@ -256,9 +250,7 @@ async def trigger_sync(
 
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
@@ -292,9 +284,7 @@ async def preview_sync(
 
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
@@ -324,9 +314,7 @@ async def get_connector_cache(
     """Inspect the cached entity snapshot for a connector."""
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
@@ -355,9 +343,7 @@ async def test_connector(
 
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
@@ -386,9 +372,7 @@ async def connector_health(
 
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")

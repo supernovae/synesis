@@ -34,9 +34,9 @@ class Severity(str, Enum):
 
 
 class ConfidenceBand(str, Enum):
-    LOW = "low"       # < 0.60
+    LOW = "low"  # < 0.60
     MEDIUM = "medium"  # 0.60 - 0.79
-    HIGH = "high"      # >= 0.80
+    HIGH = "high"  # >= 0.80
 
     @classmethod
     def from_score(cls, score: float) -> ConfidenceBand:
@@ -124,7 +124,7 @@ class SecurityEvent:
     action_taken: PolicyAction = PolicyAction.ALLOW
     scope: Scope = Scope.REQUEST
 
-    service: str = ""        # "planner" or "yarn"
+    service: str = ""  # "planner" or "yarn"
     request_id: str = ""
     session_id: str = ""
     user_id: str = ""

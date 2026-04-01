@@ -7,7 +7,6 @@ Run from ``base/admin/``::
 
 from __future__ import annotations
 
-import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -202,8 +201,9 @@ class TestCatalogClient:
         assert _resolve_token("none", "SOME_VAR") is None
 
     def test_resolve_token_bearer_env(self):
-        from app.services.catalog_client import _resolve_token
         import os
+
+        from app.services.catalog_client import _resolve_token
 
         os.environ["TEST_DEVHUB_TOKEN"] = "secret123"
         try:
@@ -281,11 +281,13 @@ class TestSyncEngine:
         from app.services.catalog_client import _parse_entity
         from app.services.devhub_sync import _entity_to_tags
 
-        e = _parse_entity({
-            "kind": "Template",
-            "metadata": {"name": "t", "tags": ["react", "frontend"]},
-            "spec": {"type": "website", "lifecycle": "production"},
-        })
+        e = _parse_entity(
+            {
+                "kind": "Template",
+                "metadata": {"name": "t", "tags": ["react", "frontend"]},
+                "spec": {"type": "website", "lifecycle": "production"},
+            }
+        )
         tags = _entity_to_tags(e)
         assert "react" in tags
         assert "devhub-kind:template" in tags
@@ -296,14 +298,16 @@ class TestSyncEngine:
         from app.services.catalog_client import _parse_entity
         from app.services.devhub_sync import _entity_to_synesis_meta
 
-        e = _parse_entity({
-            "kind": "Template",
-            "metadata": {
-                "name": "react-app",
-                "annotations": {"synesis.io/constraint-kind": "guiding"},
-            },
-            "spec": {},
-        })
+        e = _parse_entity(
+            {
+                "kind": "Template",
+                "metadata": {
+                    "name": "react-app",
+                    "annotations": {"synesis.io/constraint-kind": "guiding"},
+                },
+                "spec": {},
+            }
+        )
         meta = _entity_to_synesis_meta("conn-1", e)
         assert meta["golden_path_id"] == "react-app"
         assert meta["backstage_entity_ref"] == "template:default/react-app"
@@ -337,11 +341,13 @@ class TestSyncEngine:
             org_id="org-1",
             scope="org",
         )
-        e = _parse_entity({
-            "kind": "Template",
-            "metadata": {"name": "go-svc", "description": "Go microservice golden path", "tags": ["go"]},
-            "spec": {"type": "service"},
-        })
+        e = _parse_entity(
+            {
+                "kind": "Template",
+                "metadata": {"name": "go-svc", "description": "Go microservice golden path", "tags": ["go"]},
+                "spec": {"type": "service"},
+            }
+        )
         fields = _map_entity_to_item_fields(connector, e)
         assert fields["uri"] == "devhub://devhub-abc/template:default/go-svc"
         assert fields["handler"] == "devhub_template"
@@ -379,14 +385,16 @@ class TestGovernanceBridge:
     def test_template_with_annotation_detected(self):
         from app.services.catalog_client import _parse_entity
 
-        e = _parse_entity({
-            "kind": "Template",
-            "metadata": {
-                "name": "governed",
-                "annotations": {"synesis.io/governance-constitution": "org-std"},
-            },
-            "spec": {},
-        })
+        e = _parse_entity(
+            {
+                "kind": "Template",
+                "metadata": {
+                    "name": "governed",
+                    "annotations": {"synesis.io/governance-constitution": "org-std"},
+                },
+                "spec": {},
+            }
+        )
         assert e.metadata.annotations.get("synesis.io/governance-constitution") == "org-std"
 
 

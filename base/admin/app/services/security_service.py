@@ -81,9 +81,7 @@ async def get_summary(
             by_type_q = by_type_q.where(SecurityEvent.org_id == scope_org_id)
         by_type = dict((await session.execute(by_type_q)).all())
 
-        unresolved_q = select(func.count()).select_from(
-            base.where(SecurityEvent.resolved == False).subquery()
-        )
+        unresolved_q = select(func.count()).select_from(base.where(SecurityEvent.resolved == False).subquery())
         unresolved = (await session.execute(unresolved_q)).scalar() or 0
 
     return {

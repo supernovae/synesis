@@ -632,11 +632,7 @@ def _pricing_by_role_from_active_rows(
         str(r.get("role", "")): (
             float(r.get("input_per_million", 0.0) or 0.0),
             float(r.get("output_per_million", 0.0) or 0.0),
-            (
-                float(r.get("input_cached_per_million"))
-                if r.get("input_cached_per_million") is not None
-                else None
-            ),
+            (float(r.get("input_cached_per_million")) if r.get("input_cached_per_million") is not None else None),
         )
         for r in active_rows
     }
@@ -690,7 +686,9 @@ async def costs_by_model(
     scope_org_id = scope.get("org_id", "")
     try:
         async with async_session() as session:
-            q = select(Trace.full_record, Trace.estimated_cost_usd, Trace.actual_cost_usd).where(Trace.timestamp >= cutoff)
+            q = select(Trace.full_record, Trace.estimated_cost_usd, Trace.actual_cost_usd).where(
+                Trace.timestamp >= cutoff
+            )
             if scope_user_id:
                 q = q.where(Trace.user_id == scope_user_id)
             elif scope_org_id:
@@ -1225,16 +1223,18 @@ async def list_model_policies(_user: UserInfo = Depends(get_current_user)):
     policies: dict[str, list[dict]] = {}
     for row in rows:
         role = row[1]
-        policies.setdefault(role, []).append({
-            "id": row[0],
-            "role": role,
-            "priority": row[2],
-            "condition_type": row[3],
-            "condition_value": row[4],
-            "model": row[5],
-            "label": row[6],
-            "enabled": row[7],
-        })
+        policies.setdefault(role, []).append(
+            {
+                "id": row[0],
+                "role": role,
+                "priority": row[2],
+                "condition_type": row[3],
+                "condition_value": row[4],
+                "model": row[5],
+                "label": row[6],
+                "enabled": row[7],
+            }
+        )
     return {"policies": policies}
 
 

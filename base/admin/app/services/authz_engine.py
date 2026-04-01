@@ -49,6 +49,7 @@ def _get_fga_client():
         return None
     try:
         from openfga_sdk import ClientConfiguration, OpenFgaClient
+
         configuration = ClientConfiguration(
             api_url=SYNESIS_OPENFGA_API_URL,
             store_id=SYNESIS_OPENFGA_STORE_ID,
@@ -73,11 +74,14 @@ async def fga_check(user: str, relation: str, object_type: str, object_id: str) 
         return False
     try:
         from openfga_sdk import ClientCheckRequest
+
         body = ClientCheckRequest(user=user, relation=relation, object=f"{object_type}:{object_id}")
         response = await client.check(body)
         return bool(getattr(response, "allowed", False))
     except Exception:
-        logger.exception("openfga_check_failed user=%s relation=%s object=%s:%s", user, relation, object_type, object_id)
+        logger.exception(
+            "openfga_check_failed user=%s relation=%s object=%s:%s", user, relation, object_type, object_id
+        )
         return False
 
 
@@ -110,7 +114,17 @@ class AuthorizationPolicyEngine:
             self._rejections += 1
             matched.append("deny_no_user_id")
             decision = PolicyDecision(allow=False, reject_reason="No user identity", matched_rules=matched)
-            self._record(PolicyEvent(trace_id=trace_id, resource=resource, action=action, allow=False, matched_rules=matched, user_id=user_id, timestamp=time.time()))
+            self._record(
+                PolicyEvent(
+                    trace_id=trace_id,
+                    resource=resource,
+                    action=action,
+                    allow=False,
+                    matched_rules=matched,
+                    user_id=user_id,
+                    timestamp=time.time(),
+                )
+            )
             return decision
 
         fga_object_type = "admin_endpoint"
@@ -125,9 +139,21 @@ class AuthorizationPolicyEngine:
         else:
             self._rejections += 1
             matched.append(f"deny_openfga_{fga_relation}")
-            decision = PolicyDecision(allow=False, reject_reason=f"Authorization denied for {resource}:{action}", matched_rules=matched)
+            decision = PolicyDecision(
+                allow=False, reject_reason=f"Authorization denied for {resource}:{action}", matched_rules=matched
+            )
 
-        self._record(PolicyEvent(trace_id=trace_id, resource=resource, action=action, allow=decision.allow, matched_rules=matched, user_id=user_id, timestamp=time.time()))
+        self._record(
+            PolicyEvent(
+                trace_id=trace_id,
+                resource=resource,
+                action=action,
+                allow=decision.allow,
+                matched_rules=matched,
+                user_id=user_id,
+                timestamp=time.time(),
+            )
+        )
         return decision
 
     def get_stats(self) -> dict[str, Any]:
@@ -153,7 +179,7 @@ class AuthorizationPolicyEngine:
     def _record(self, event: PolicyEvent) -> None:
         self._recent.append(event)
         if len(self._recent) > self._max_recent:
-            self._recent = self._recent[-self._max_recent:]
+            self._recent = self._recent[-self._max_recent :]
 
 
 def create_authz_engine() -> AuthorizationPolicyEngine:

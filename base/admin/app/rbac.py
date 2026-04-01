@@ -242,6 +242,7 @@ require_coder_scope = require_scope("coder")
 
 # ── OpenFGA-backed dependency ─────────────────────────────────────────────────
 
+
 def require_fga(object_type: str, object_id: str, relation: str):
     """FastAPI dependency that enforces an OpenFGA check on the current user."""
 

@@ -1867,7 +1867,9 @@ def _string_list(v: Any, *, item_limit: int = 64, max_items: int = 20) -> list[s
     return out
 
 
-def _normalize_bootstrap_meta(entry: dict[str, Any], config: dict[str, Any] | None) -> tuple[dict[str, Any] | None, list[str]]:
+def _normalize_bootstrap_meta(
+    entry: dict[str, Any], config: dict[str, Any] | None
+) -> tuple[dict[str, Any] | None, list[str]]:
     """Normalize optional corpus metadata into config.synesis_meta.
 
     This keeps ingestion backward compatible while allowing richer corpus
@@ -1945,11 +1947,20 @@ async def bootstrap_metadata_guide(
         "visibility_scope": ["global", "org", "tenant", "user", "session"],
         "acl_mode": ["open", "restricted", "private"],
         "artifact_kind_examples": [
-            "docs", "api-reference", "tutorial", "blog", "source-code",
-            "specification", "runbook", "changelog",
+            "docs",
+            "api-reference",
+            "tutorial",
+            "blog",
+            "source-code",
+            "specification",
+            "runbook",
+            "changelog",
         ],
         "content_profile_examples": [
-            "reference", "conceptual", "procedural", "troubleshooting",
+            "reference",
+            "conceptual",
+            "procedural",
+            "troubleshooting",
         ],
     }
 
@@ -2016,17 +2027,19 @@ async def bootstrap_validate(
 
         meta = (config or {}).get("synesis_meta", {}) if isinstance(config, dict) else {}
 
-        item_reports.append({
-            "index": idx,
-            "uri": uri,
-            "handler": handler,
-            "title": title,
-            "domain": domain,
-            "tags": tags,
-            "synesis_meta": meta,
-            "errors": item_errors,
-            "warnings": item_warnings,
-        })
+        item_reports.append(
+            {
+                "index": idx,
+                "uri": uri,
+                "handler": handler,
+                "title": title,
+                "domain": domain,
+                "tags": tags,
+                "synesis_meta": meta,
+                "errors": item_errors,
+                "warnings": item_warnings,
+            }
+        )
 
     return {
         "ok": total_errors == 0,

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from ..auth import UserInfo, get_current_user
-from ..rbac import RouteGroup, Role, can_access_route_group, resolve_role
+from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role
 from ..services import security_service
 from ..services.admin_audit import record_admin_audit
 

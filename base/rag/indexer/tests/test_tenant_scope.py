@@ -109,9 +109,7 @@ class TestPipelineScopeValidation:
         progress = MagicMock()
         progress.log_error = MagicMock()
 
-        count, meta = index_parsed_chunk_pairs(
-            cfg, [], {}, writer, embedder, progress, set()
-        )
+        count, meta = index_parsed_chunk_pairs(cfg, [], {}, writer, embedder, progress, set())
         assert count == 0
         progress.log_error.assert_called_once()
         assert "org_id" in str(progress.log_error.call_args)
@@ -121,17 +119,13 @@ class TestPipelineScopeValidation:
 
         from app.pipeline import index_parsed_chunk_pairs
 
-        cfg = self._make_source_config(
-            visibility_scope="tenant", org_id="acme", tenant_id=""
-        )
+        cfg = self._make_source_config(visibility_scope="tenant", org_id="acme", tenant_id="")
         writer = MagicMock()
         embedder = MagicMock()
         progress = MagicMock()
         progress.log_error = MagicMock()
 
-        count, meta = index_parsed_chunk_pairs(
-            cfg, [], {}, writer, embedder, progress, set()
-        )
+        count, meta = index_parsed_chunk_pairs(cfg, [], {}, writer, embedder, progress, set())
         assert count == 0
         progress.log_error.assert_called_once()
         assert "tenant_id" in str(progress.log_error.call_args)
@@ -147,9 +141,7 @@ class TestPipelineScopeValidation:
         progress = MagicMock()
         progress.log_error = MagicMock()
 
-        count, meta = index_parsed_chunk_pairs(
-            cfg, [], {}, writer, embedder, progress, set()
-        )
+        count, meta = index_parsed_chunk_pairs(cfg, [], {}, writer, embedder, progress, set())
         assert count == 0
         progress.log_error.assert_called_once()
 

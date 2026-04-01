@@ -19,7 +19,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("provider_configs", sa.Column("is_custom", sa.Boolean, nullable=False, server_default=sa.text("false")))
+    op.add_column(
+        "provider_configs", sa.Column("is_custom", sa.Boolean, nullable=False, server_default=sa.text("false"))
+    )
     op.add_column("provider_configs", sa.Column("label", sa.String(128), nullable=True))
     op.add_column("provider_configs", sa.Column("litellm_prefix", sa.String(64), nullable=True))
     op.add_column("provider_configs", sa.Column("api_key_env", sa.String(128), nullable=True))

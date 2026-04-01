@@ -62,6 +62,7 @@ from synesis_callbacks import SynesisErrorSanitizer, _classify  # noqa: I001
 # _classify unit tests
 # ---------------------------------------------------------------------------
 
+
 class _FakeExc(Exception):
     """Exception whose __name__ we can control."""
 
@@ -117,6 +118,7 @@ def test_classify_never_leaks_original_message() -> None:
 # ---------------------------------------------------------------------------
 # Hook integration test
 # ---------------------------------------------------------------------------
+
 
 def test_hook_returns_sanitized_exception() -> None:
     sanitizer = SynesisErrorSanitizer()

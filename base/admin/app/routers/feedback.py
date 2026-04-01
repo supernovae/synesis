@@ -429,6 +429,7 @@ async def knowledge_gaps(
 
 class KnowledgeGapIngest(BaseModel):
     """Service-to-service knowledge gap from planner-ts (or any runtime)."""
+
     gap_id: str = Field(..., max_length=64)
     query: str = Field(..., max_length=4096)
     task_description: str = Field("", max_length=2048)
@@ -443,6 +444,7 @@ class KnowledgeGapIngest(BaseModel):
 async def ingest_knowledge_gap(request: Request, body: KnowledgeGapIngest):
     """Accept a knowledge gap from a runtime service (service-token auth)."""
     from ..deps import INTERNAL_SERVICE_TOKEN
+
     if INTERNAL_SERVICE_TOKEN:
         token = (
             request.headers.get("x-synesis-service-token", "")
@@ -452,27 +454,28 @@ async def ingest_knowledge_gap(request: Request, body: KnowledgeGapIngest):
             raise HTTPException(status_code=401, detail="Invalid service token")
 
     import time
+
     async with async_session() as session:
         existing = (
-            await session.execute(
-                select(KnowledgeGap).where(KnowledgeGap.gap_id == body.gap_id)
-            )
-        ).scalars().first()
+            (await session.execute(select(KnowledgeGap).where(KnowledgeGap.gap_id == body.gap_id))).scalars().first()
+        )
         if existing:
             return {"status": "duplicate", "gap_id": body.gap_id}
 
-        session.add(KnowledgeGap(
-            gap_id=body.gap_id,
-            query=body.query,
-            task_description=body.task_description or body.query,
-            collections_queried=body.collections_queried,
-            max_score=body.max_score,
-            platform_context=body.platform_context,
-            language=body.language,
-            status="open",
-            web_search_fallback=body.web_search_fallback,
-            timestamp=int(time.time()),
-        ))
+        session.add(
+            KnowledgeGap(
+                gap_id=body.gap_id,
+                query=body.query,
+                task_description=body.task_description or body.query,
+                collections_queried=body.collections_queried,
+                max_score=body.max_score,
+                platform_context=body.platform_context,
+                language=body.language,
+                status="open",
+                web_search_fallback=body.web_search_fallback,
+                timestamp=int(time.time()),
+            )
+        )
         await session.commit()
 
     logger.info("knowledge_gap_ingested gap_id=%s", body.gap_id[:12])

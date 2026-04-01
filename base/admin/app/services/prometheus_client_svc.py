@@ -111,7 +111,9 @@ def _sum_prefix_cache(raw: dict[str, Any], prefix: str) -> dict[str, float]:
     est_cost = 0.0
     act_cost = 0.0
     for key, val in raw.items():
-        metric_val = val["value"] if isinstance(val, dict) and "value" in val else val if isinstance(val, (int, float)) else 0
+        metric_val = (
+            val["value"] if isinstance(val, dict) and "value" in val else val if isinstance(val, (int, float)) else 0
+        )
         full_name = key if isinstance(key, str) else ""
         if full_name.startswith(f"{prefix}_token_total"):
             if "cache_status" in full_name and '"cached"' in full_name:
@@ -160,7 +162,9 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
     y_prompt = y["total_prompt_tokens"]
     y_cached = y["cached_prompt_tokens"]
 
-    planner_mode = planner_health.get("llm", {}).get("prefixCacheMode", "auto") if isinstance(planner_health, dict) else "auto"
+    planner_mode = (
+        planner_health.get("llm", {}).get("prefixCacheMode", "auto") if isinstance(planner_health, dict) else "auto"
+    )
 
     planner_block = {
         "hit_rate": round(p_cached / p_prompt, 4) if p_prompt > 0 else 0.0,
@@ -522,11 +526,7 @@ async def get_token_budget_metrics() -> dict[str, Any]:
         "degraded_total": int(degraded),
         "anomaly_trips_total": int(anomaly_trips),
         "overspend_by_node": overspend_by_node,
-        "risk_level": (
-            "critical" if exhausted > 0 or anomaly_trips > 0
-            else "warning" if degraded > 0
-            else "healthy"
-        ),
+        "risk_level": ("critical" if exhausted > 0 or anomaly_trips > 0 else "warning" if degraded > 0 else "healthy"),
     }
 
 

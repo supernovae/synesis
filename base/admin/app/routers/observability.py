@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from asyncio import Lock, create_task
+from datetime import UTC
 
 import httpx
 from fastapi import APIRouter, Depends, Query
@@ -74,15 +75,13 @@ async def cache_history(
     _user: UserInfo = Depends(get_current_user),
 ):
     """Time-series prefix cache snapshots from the database."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from ..db.models import PrefixCacheSnapshot
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
     async with async_session() as session:
-        stmt = select(PrefixCacheSnapshot).where(
-            PrefixCacheSnapshot.captured_at >= cutoff
-        )
+        stmt = select(PrefixCacheSnapshot).where(PrefixCacheSnapshot.captured_at >= cutoff)
         if service:
             stmt = stmt.where(PrefixCacheSnapshot.service == service)
         stmt = stmt.order_by(PrefixCacheSnapshot.captured_at.asc()).limit(500)
@@ -116,15 +115,13 @@ async def compaction_metrics(
     _user: UserInfo = Depends(get_current_user),
 ):
     """Time-series compaction snapshots from the database."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from ..db.models import CompactionSnapshot
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
     async with async_session() as session:
-        stmt = select(CompactionSnapshot).where(
-            CompactionSnapshot.captured_at >= cutoff
-        )
+        stmt = select(CompactionSnapshot).where(CompactionSnapshot.captured_at >= cutoff)
         if service:
             stmt = stmt.where(CompactionSnapshot.service == service)
         stmt = stmt.order_by(CompactionSnapshot.captured_at.asc()).limit(500)
@@ -713,6 +710,7 @@ async def fga_status(_admin: UserInfo = Depends(require_admin)):
 
 class TokenFgaExplanation(BaseModel):
     """Explains how PAT scopes relate to FGA relationships for the current user."""
+
     scopes: list[str]
     fga_relations_explain: list[str]
 
@@ -727,9 +725,13 @@ async def token_fga_explain(user: UserInfo = Depends(get_current_user)):
         explain.append("JWT session: all FGA relationships apply based on user identity (no scope restriction)")
     else:
         if any(s.startswith("model") for s in scopes):
-            explain.append("model scope: grants planner_endpoint:chat_completions#can_invoke + rag_catalog:default#can_read_public")
+            explain.append(
+                "model scope: grants planner_endpoint:chat_completions#can_invoke + rag_catalog:default#can_read_public"
+            )
         if any(s.startswith("coder") for s in scopes):
-            explain.append("coder scope: grants yarn_endpoint:completions#can_invoke + yarn_endpoint:messages#can_invoke")
+            explain.append(
+                "coder scope: grants yarn_endpoint:completions#can_invoke + yarn_endpoint:messages#can_invoke"
+            )
         if not any(s.startswith("model") for s in scopes) and not any(s.startswith("coder") for s in scopes):
             explain.append("token has no recognized scope prefix: FGA invocation checks will likely fail")
 

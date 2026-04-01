@@ -827,9 +827,7 @@ class ModelPolicy(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_model_policies_role_priority", "role", "priority"),
-    )
+    __table_args__ = (Index("ix_model_policies_role_priority", "role", "priority"),)
 
 
 class PrefixCacheSnapshot(Base):

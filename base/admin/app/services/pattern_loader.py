@@ -51,9 +51,7 @@ async def load_patterns_from_yaml(path: str | Path) -> dict:
             content_hash = _hash_code(code)
 
             existing = (
-                await session.execute(
-                    select(PatternEntry).where(PatternEntry.pattern_id == pid)
-                )
+                await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == pid))
             ).scalar_one_or_none()
 
             if existing:
@@ -87,7 +85,14 @@ async def load_patterns_from_yaml(path: str | Path) -> dict:
 
         await session.commit()
 
-    logger.info("pattern_load_complete file=%s created=%d updated=%d unchanged=%d errors=%d", path.name, created, updated, unchanged, errors)
+    logger.info(
+        "pattern_load_complete file=%s created=%d updated=%d unchanged=%d errors=%d",
+        path.name,
+        created,
+        updated,
+        unchanged,
+        errors,
+    )
     return {"file": path.name, "created": created, "updated": updated, "unchanged": unchanged, "errors": errors}
 
 

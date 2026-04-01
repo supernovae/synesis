@@ -40,9 +40,7 @@ async def sync_patterns_to_ingestion() -> dict:
 
     async with async_session() as session:
         source = (
-            await session.execute(
-                select(IngestionSource).where(IngestionSource.name == _SOURCE_NAME)
-            )
+            await session.execute(select(IngestionSource).where(IngestionSource.name == _SOURCE_NAME))
         ).scalar_one_or_none()
 
         if not source:
@@ -57,11 +55,7 @@ async def sync_patterns_to_ingestion() -> dict:
             session.add(source)
             await session.flush()
 
-        patterns = (
-            await session.execute(
-                select(PatternEntry).where(PatternEntry.enabled == True)
-            )
-        ).scalars().all()
+        patterns = (await session.execute(select(PatternEntry).where(PatternEntry.enabled == True))).scalars().all()
 
         for p in patterns:
             body = _content_body(p)
@@ -69,9 +63,7 @@ async def sync_patterns_to_ingestion() -> dict:
             uri = f"pattern://{p.pattern_id}"
 
             existing = (
-                await session.execute(
-                    select(IngestionItem).where(IngestionItem.uri == uri)
-                )
+                await session.execute(select(IngestionItem).where(IngestionItem.uri == uri))
             ).scalar_one_or_none()
 
             tags = [f"lang:{p.language}", f"skill:{p.skill_family}"]

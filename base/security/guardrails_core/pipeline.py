@@ -49,8 +49,13 @@ def scan_input(
     decision = policy_lookup(scan.event_type, scan.confidence)
 
     sanitized = text
-    if decision.action in (PolicyAction.SANITIZE, PolicyAction.BLOCK, PolicyAction.RESTRICT_TOOLS,
-                           PolicyAction.FREEZE_TOKEN, PolicyAction.CIRCUIT_BREAK):
+    if decision.action in (
+        PolicyAction.SANITIZE,
+        PolicyAction.BLOCK,
+        PolicyAction.RESTRICT_TOOLS,
+        PolicyAction.FREEZE_TOKEN,
+        PolicyAction.CIRCUIT_BREAK,
+    ):
         sanitized = redact_patterns(text, include_web=web)
 
     result = GuardrailResult(
@@ -130,4 +135,5 @@ def scan_batch(
 ) -> tuple[list[str], bool, list[dict[str, Any]]]:
     """Scan a batch (RAG chunks, web results); filter per action."""
     from .scanner import scan_and_filter_texts
+
     return scan_and_filter_texts(texts, source_prefix=source_prefix, action=action, web=web)

@@ -53,9 +53,7 @@ async def seed_provider_configs() -> int:
 async def get_disabled_provider_keys() -> frozenset[str]:
     """Return the set of provider keys that are disabled in provider governance."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ProviderConfig.provider_key).where(ProviderConfig.enabled == False)
-        )
+        result = await session.execute(select(ProviderConfig.provider_key).where(ProviderConfig.enabled == False))
         return frozenset(row[0] for row in result.all())
 
 
@@ -90,9 +88,13 @@ def _effective_provider_fields(info: dict, row: ProviderConfig | None) -> dict:
     return {
         **info,
         "label": (row.label or info.get("label", "")) if row else info.get("label", ""),
-        "litellm_prefix": (row.litellm_prefix or info.get("litellm_prefix", "")) if row else info.get("litellm_prefix", ""),
+        "litellm_prefix": (row.litellm_prefix or info.get("litellm_prefix", ""))
+        if row
+        else info.get("litellm_prefix", ""),
         "api_key_env": (row.api_key_env or info.get("api_key_env", "")) if row else info.get("api_key_env", ""),
-        "needs_endpoint": row.needs_endpoint if (row and row.needs_endpoint is not None) else info.get("needs_endpoint", False),
+        "needs_endpoint": row.needs_endpoint
+        if (row and row.needs_endpoint is not None)
+        else info.get("needs_endpoint", False),
         "placeholder": (row.placeholder or info.get("placeholder", "")) if row else info.get("placeholder", ""),
         "is_local": bool(row.is_local) if row and row.is_local is not None else bool(info.get("is_local", False)),
     }
@@ -116,9 +118,7 @@ async def _get_all_config_rows() -> dict[str, ProviderConfig]:
 async def _get_custom_rows() -> list[ProviderConfig]:
     """Return all custom (user-defined) provider rows."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ProviderConfig).where(ProviderConfig.is_custom == True)
-        )
+        result = await session.execute(select(ProviderConfig).where(ProviderConfig.is_custom == True))
         return list(result.scalars().all())
 
 
@@ -266,9 +266,7 @@ async def get_provider_config(provider_key: str, _user: UserInfo = Depends(get_c
 
     if cfg and cfg.get("is_custom"):
         async with async_session() as session:
-            result = await session.execute(
-                select(ProviderConfig).where(ProviderConfig.provider_key == provider_key)
-            )
+            result = await session.execute(select(ProviderConfig).where(ProviderConfig.provider_key == provider_key))
             row = result.scalar_one_or_none()
             if row:
                 return _custom_row_to_provider(row)

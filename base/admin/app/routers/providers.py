@@ -398,7 +398,6 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
             "Unknown key name. Only env vars from the provider catalog or custom providers may be set here.",
         )
 
-
     try:
         secret = await _get_secret()
         if secret is None:

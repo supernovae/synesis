@@ -136,7 +136,9 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(synesis_meta, dict):
         synesis_meta = {}
     meta_languages = synesis_meta.get("languages")
-    languages = [str(x).strip().lower() for x in (meta_languages if isinstance(meta_languages, list) else []) if str(x).strip()]
+    languages = [
+        str(x).strip().lower() for x in (meta_languages if isinstance(meta_languages, list) else []) if str(x).strip()
+    ]
     preferred_language = str(synesis_meta.get("language") or "").strip().lower()
     if not preferred_language and languages:
         preferred_language = languages[0]

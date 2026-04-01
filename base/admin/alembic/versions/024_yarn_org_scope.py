@@ -36,4 +36,3 @@ def downgrade() -> None:
 
     op.drop_column("yarn_usage_log", "org_id")
     op.drop_column("yarn_sessions", "org_id")
-

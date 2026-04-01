@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..db.engine import async_session
 from ..db.models import CompactionSnapshot, PrefixCacheSnapshot
@@ -104,16 +104,18 @@ async def _persist_prefix_snapshot(
 ) -> None:
     hit_rate = cached_tokens / prompt_tokens if prompt_tokens > 0 else 0.0
     async with async_session() as session:
-        session.add(PrefixCacheSnapshot(
-            service=service,
-            captured_at=datetime.now(timezone.utc),
-            prompt_tokens=prompt_tokens,
-            cached_prompt_tokens=cached_tokens,
-            hit_rate=round(hit_rate, 4),
-            cache_mode=mode,
-            requests=requests,
-            estimated_savings_usd=round(savings, 6),
-        ))
+        session.add(
+            PrefixCacheSnapshot(
+                service=service,
+                captured_at=datetime.now(UTC),
+                prompt_tokens=prompt_tokens,
+                cached_prompt_tokens=cached_tokens,
+                hit_rate=round(hit_rate, 4),
+                cache_mode=mode,
+                requests=requests,
+                estimated_savings_usd=round(savings, 6),
+            )
+        )
         await session.commit()
 
 
@@ -125,16 +127,18 @@ async def _persist_compaction_snapshot(
     detail: dict | None = None,
 ) -> None:
     async with async_session() as session:
-        session.add(CompactionSnapshot(
-            service=service,
-            captured_at=datetime.now(timezone.utc),
-            compaction_count=count,
-            chars_before=0,
-            chars_after=0,
-            tokens_saved_estimate=chars_saved // 4 if chars_saved > 0 else 0,
-            errors=errors,
-            detail=detail,
-        ))
+        session.add(
+            CompactionSnapshot(
+                service=service,
+                captured_at=datetime.now(UTC),
+                compaction_count=count,
+                chars_before=0,
+                chars_after=0,
+                tokens_saved_estimate=chars_saved // 4 if chars_saved > 0 else 0,
+                errors=errors,
+                detail=detail,
+            )
+        )
         await session.commit()
 
 
@@ -171,7 +175,11 @@ async def scrape_all() -> dict:
             p_requests = int(_extract_counter(delta_p, "synesis_planner_request_total"))
             p_savings = _extract_counter(delta_p, "synesis_planner_cost_estimated_usd_total")
 
-            mode = planner_health.get("llm", {}).get("prefixCacheMode", "auto") if isinstance(planner_health, dict) else "auto"
+            mode = (
+                planner_health.get("llm", {}).get("prefixCacheMode", "auto")
+                if isinstance(planner_health, dict)
+                else "auto"
+            )
 
             if p_prompt > 0 or p_requests > 0:
                 await _persist_prefix_snapshot("planner", p_prompt, p_cached, p_requests, mode, p_savings)

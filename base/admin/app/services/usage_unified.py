@@ -69,9 +69,7 @@ async def get_summary_unified(
         "yarn_actual_usd": 0,
         "total_estimated_usd": round(pipeline_est + yarn_cost, 4),
         "total_actual_usd": round(pipeline_act, 4),
-        "effective_total_usd": round(
-            max(pipeline_act, pipeline_est) + yarn_cost, 4
-        ),
+        "effective_total_usd": round(max(pipeline_act, pipeline_est) + yarn_cost, 4),
         "note": "effective = max(actual, estimated) per service; never $0 when tokens consumed.",
     }
 

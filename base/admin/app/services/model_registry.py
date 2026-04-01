@@ -261,16 +261,8 @@ def _resolve_role_endpoint(
     catalog_eff = _merged_catalog_endpoint(provider, maps.default_endpoints)
     lp_stored = dict(stored_litellm_params or {})
     if prov_info.needs_endpoint:
-        return (
-            (endpoint_field or "").strip()
-            or str(lp_stored.get("api_base") or "").strip()
-            or catalog_eff
-        )
-    return (
-        catalog_eff
-        or (endpoint_field or "").strip()
-        or str(lp_stored.get("api_base") or "").strip()
-    )
+        return (endpoint_field or "").strip() or str(lp_stored.get("api_base") or "").strip() or catalog_eff
+    return catalog_eff or (endpoint_field or "").strip() or str(lp_stored.get("api_base") or "").strip()
 
 
 def resolve_deployment_routing_for_parts(
@@ -887,4 +879,3 @@ async def get_cost_by_model() -> list[dict]:
         except Exception:
             logger.warning("cost_by_model_failed", exc_info=True)
             return []
-

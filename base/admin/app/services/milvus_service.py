@@ -105,7 +105,9 @@ def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[st
         output_field_names=["sparse_text"],
         function_type=FunctionType.BM25,
     )
-    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description=f"Synesis unified catalog v{SCHEMA_VERSION}")
+    schema = CollectionSchema(
+        fields=fields, functions=[bm25_fn], description=f"Synesis unified catalog v{SCHEMA_VERSION}"
+    )
     client = get_resilient_milvus().get()
     dropped = False
     try:
@@ -117,7 +119,9 @@ def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[st
     try:
         client.create_collection(collection_name=collection, schema=schema)
         idx = MilvusClient.prepare_index_params()
-        idx.add_index(field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 200})
+        idx.add_index(
+            field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 200}
+        )
         idx.add_index(field_name="sparse_text", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
         client.create_index(collection_name=collection, index_params=idx)
         client.load_collection(collection_name=collection)

@@ -151,7 +151,5 @@ class TestVerifyRequest:
 
     def test_custom_max_age(self):
         headers = auth.sign_request(_BODY, _SECRET)
-        valid, reason = auth.verify_request(
-            headers["Authorization"], _BODY, _SECRET, max_age=0
-        )
+        valid, reason = auth.verify_request(headers["Authorization"], _BODY, _SECRET, max_age=0)
         assert valid is True or "expired" in reason

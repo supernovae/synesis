@@ -54,8 +54,16 @@ class TestTraceDecisionAnalytics:
 
             result = await get_decision_analytics()
 
-        for key in ("total_traces", "traces_with_decision_ledger", "decision_paths",
-                     "escalation_count", "escalation_rate", "recall", "evidence", "period"):
+        for key in (
+            "total_traces",
+            "traces_with_decision_ledger",
+            "decision_paths",
+            "escalation_count",
+            "escalation_rate",
+            "recall",
+            "evidence",
+            "period",
+        ):
             assert key in result
 
 
@@ -224,7 +232,9 @@ class TestEvalHarness:
         from app.services.eval_harness import EvalCase, _check_expectations
 
         case = EvalCase(prompt="test", max_latency_ms=1000, max_tokens=500)
-        failures = _check_expectations(case, 200.0, 100, {"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 100}})
+        failures = _check_expectations(
+            case, 200.0, 100, {"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 100}}
+        )
         assert failures == []
 
     def test_eval_result_to_dict(self):

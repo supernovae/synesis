@@ -117,14 +117,10 @@ async def delete_group(
     _user: UserInfo = Depends(require_platform_admin),
 ):
     async with async_session() as session:
-        row = (
-            await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))
-        ).scalar_one_or_none()
+        row = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
         if not row:
             raise HTTPException(status_code=404, detail="Group not found")
-        await session.execute(
-            delete(AclGroupMember).where(AclGroupMember.group_id == group_id)
-        )
+        await session.execute(delete(AclGroupMember).where(AclGroupMember.group_id == group_id))
         await session.delete(row)
         await session.commit()
     await record_admin_audit(
@@ -154,14 +150,11 @@ async def list_members(
     _ensure_org_content_admin(_user)
     async with async_session() as session:
         rows = (
-            await session.execute(
-                select(AclGroupMember).where(AclGroupMember.group_id == group_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(AclGroupMember).where(AclGroupMember.group_id == group_id))).scalars().all()
+        )
     return {
         "members": [
-            {"user_id": m.user_id, "granted_by": m.granted_by, "granted_at": m.granted_at.isoformat()}
-            for m in rows
+            {"user_id": m.user_id, "granted_by": m.granted_by, "granted_at": m.granted_at.isoformat()} for m in rows
         ]
     }
 
@@ -174,9 +167,7 @@ async def add_member(
 ):
     _ensure_org_content_admin(_user)
     async with async_session() as session:
-        grp = (
-            await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))
-        ).scalar_one_or_none()
+        grp = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
         if not grp:
             raise HTTPException(status_code=404, detail="Group not found")
         existing = (
@@ -335,23 +326,15 @@ async def effective_permissions(
     _ensure_org_content_admin(_user)
     async with async_session() as session:
         memberships = (
-            await session.execute(
-                select(AclGroupMember).where(AclGroupMember.user_id == user_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(AclGroupMember).where(AclGroupMember.user_id == user_id))).scalars().all()
+        )
         group_ids = [m.group_id for m in memberships]
 
         groups = []
         if group_ids:
-            groups = (
-                await session.execute(
-                    select(AclGroup).where(AclGroup.group_id.in_(group_ids))
-                )
-            ).scalars().all()
+            groups = (await session.execute(select(AclGroup).where(AclGroup.group_id.in_(group_ids)))).scalars().all()
 
-        policies = (
-            await session.execute(select(AclPolicy).order_by(AclPolicy.priority.desc()))
-        ).scalars().all()
+        policies = (await session.execute(select(AclPolicy).order_by(AclPolicy.priority.desc()))).scalars().all()
 
         applicable = []
         for p in policies:

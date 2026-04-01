@@ -93,6 +93,7 @@ def reader_client():
 
 # ── Mock DB session ──────────────────────────────────────────────────────────
 
+
 class FakeRow:
     """Simulates a SQLAlchemy model instance with attribute access."""
 
@@ -181,13 +182,17 @@ def _mock_db():
 
 # ── Constitution CRUD ────────────────────────────────────────────────────────
 
+
 class TestConstitutionCRUD:
     def test_create_constitution(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/constitutions", json={
-            "name": "Platform Safety",
-            "scope": "platform",
-            "maturity_mode": "base",
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions",
+            json={
+                "name": "Platform Safety",
+                "scope": "platform",
+                "maturity_mode": "base",
+            },
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "Platform Safety"
@@ -196,23 +201,32 @@ class TestConstitutionCRUD:
         assert data["scope"] == "platform"
 
     def test_create_constitution_invalid_scope(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/constitutions", json={
-            "name": "Bad",
-            "scope": "galaxy",
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions",
+            json={
+                "name": "Bad",
+                "scope": "galaxy",
+            },
+        )
         assert resp.status_code == 400
 
     def test_create_constitution_invalid_maturity(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/constitutions", json={
-            "name": "Bad",
-            "maturity_mode": "legendary",
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions",
+            json={
+                "name": "Bad",
+                "maturity_mode": "legendary",
+            },
+        )
         assert resp.status_code == 400
 
     def test_reader_cannot_create(self, reader_client, _mock_db):
-        resp = reader_client.post("/api/v1/governance/constitutions", json={
-            "name": "Forbidden",
-        })
+        resp = reader_client.post(
+            "/api/v1/governance/constitutions",
+            json={
+                "name": "Forbidden",
+            },
+        )
         assert resp.status_code == 403
 
     def test_list_constitutions_empty(self, admin_client, _mock_db):
@@ -247,39 +261,72 @@ class TestConstitutionCRUD:
             updated_at=datetime.now(UTC),
         )
         _mock_db._execute_results = [FakeResult(items=[row])]
-        resp = admin_client.put("/api/v1/governance/constitutions/c-1", json={
-            "name": "Updated",
-            "description": "New desc",
-        })
+        resp = admin_client.put(
+            "/api/v1/governance/constitutions/c-1",
+            json={
+                "name": "Updated",
+                "description": "New desc",
+            },
+        )
         assert resp.status_code == 200
         assert row.name == "Updated"
         assert row.description == "New desc"
 
     def test_update_active_constitution_rejected(self, admin_client, _mock_db):
         row = FakeRow(
-            id=1, constitution_id="c-2", name="Active", version=1, status="active",
-            scope="org", scope_value="", precedence=0, description="", provenance_source="",
-            provenance_owner="", provenance_checksum="", effective_from=None,
-            effective_until=None, maturity_mode="base", created_by="admin",
-            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            id=1,
+            constitution_id="c-2",
+            name="Active",
+            version=1,
+            status="active",
+            scope="org",
+            scope_value="",
+            precedence=0,
+            description="",
+            provenance_source="",
+            provenance_owner="",
+            provenance_checksum="",
+            effective_from=None,
+            effective_until=None,
+            maturity_mode="base",
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         _mock_db._execute_results = [FakeResult(items=[row])]
-        resp = admin_client.put("/api/v1/governance/constitutions/c-2", json={
-            "name": "Should Fail",
-        })
+        resp = admin_client.put(
+            "/api/v1/governance/constitutions/c-2",
+            json={
+                "name": "Should Fail",
+            },
+        )
         assert resp.status_code == 409
 
 
 # ── Constitution Lifecycle ───────────────────────────────────────────────────
 
+
 class TestConstitutionLifecycle:
     def test_activate_draft(self, admin_client, _mock_db):
         row = FakeRow(
-            id=1, constitution_id="c-3", name="Ready", version=1, status="draft",
-            scope="org", scope_value="", precedence=0, description="", provenance_source="",
-            provenance_owner="", provenance_checksum="", effective_from=None,
-            effective_until=None, maturity_mode="guided", created_by="admin",
-            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            id=1,
+            constitution_id="c-3",
+            name="Ready",
+            version=1,
+            status="draft",
+            scope="org",
+            scope_value="",
+            precedence=0,
+            description="",
+            provenance_source="",
+            provenance_owner="",
+            provenance_checksum="",
+            effective_from=None,
+            effective_until=None,
+            maturity_mode="guided",
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         _mock_db._execute_results = [
             FakeResult(items=[row]),
@@ -292,11 +339,24 @@ class TestConstitutionLifecycle:
 
     def test_activate_dry_run(self, admin_client, _mock_db):
         row = FakeRow(
-            id=1, constitution_id="c-4", name="Preview", version=1, status="draft",
-            scope="org", scope_value="", precedence=0, description="", provenance_source="",
-            provenance_owner="", provenance_checksum="", effective_from=None,
-            effective_until=None, maturity_mode="base", created_by="admin",
-            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            id=1,
+            constitution_id="c-4",
+            name="Preview",
+            version=1,
+            status="draft",
+            scope="org",
+            scope_value="",
+            precedence=0,
+            description="",
+            provenance_source="",
+            provenance_owner="",
+            provenance_checksum="",
+            effective_from=None,
+            effective_until=None,
+            maturity_mode="base",
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         _mock_db._execute_results = [
             FakeResult(items=[row]),
@@ -311,11 +371,24 @@ class TestConstitutionLifecycle:
 
     def test_deprecate_active(self, admin_client, _mock_db):
         row = FakeRow(
-            id=1, constitution_id="c-5", name="Dep", version=1, status="active",
-            scope="org", scope_value="", precedence=0, description="", provenance_source="",
-            provenance_owner="", provenance_checksum="abc", effective_from=None,
-            effective_until=None, maturity_mode="governed", created_by="admin",
-            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            id=1,
+            constitution_id="c-5",
+            name="Dep",
+            version=1,
+            status="active",
+            scope="org",
+            scope_value="",
+            precedence=0,
+            description="",
+            provenance_source="",
+            provenance_owner="",
+            provenance_checksum="abc",
+            effective_from=None,
+            effective_until=None,
+            maturity_mode="governed",
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         _mock_db._execute_results = [FakeResult(items=[row])]
         resp = admin_client.post("/api/v1/governance/constitutions/c-5/deprecate")
@@ -324,11 +397,24 @@ class TestConstitutionLifecycle:
 
     def test_deprecate_draft_rejected(self, admin_client, _mock_db):
         row = FakeRow(
-            id=1, constitution_id="c-6", name="Bad", version=1, status="draft",
-            scope="org", scope_value="", precedence=0, description="", provenance_source="",
-            provenance_owner="", provenance_checksum="", effective_from=None,
-            effective_until=None, maturity_mode="base", created_by="admin",
-            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            id=1,
+            constitution_id="c-6",
+            name="Bad",
+            version=1,
+            status="draft",
+            scope="org",
+            scope_value="",
+            precedence=0,
+            description="",
+            provenance_source="",
+            provenance_owner="",
+            provenance_checksum="",
+            effective_from=None,
+            effective_until=None,
+            maturity_mode="base",
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         _mock_db._execute_results = [FakeResult(items=[row])]
         resp = admin_client.post("/api/v1/governance/constitutions/c-6/deprecate")
@@ -337,14 +423,18 @@ class TestConstitutionLifecycle:
 
 # ── Clause CRUD ──────────────────────────────────────────────────────────────
 
+
 class TestClauseCRUD:
     def test_create_clause(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/constitutions/c-1/clauses", json={
-            "category": "safety",
-            "constraint_kind": "hard",
-            "statement": "No secrets in code",
-            "priority": 100,
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions/c-1/clauses",
+            json={
+                "category": "safety",
+                "constraint_kind": "hard",
+                "statement": "No secrets in code",
+                "priority": 100,
+            },
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["category"] == "safety"
@@ -352,25 +442,40 @@ class TestClauseCRUD:
         assert data["statement"] == "No secrets in code"
 
     def test_create_clause_invalid_category(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/constitutions/c-1/clauses", json={
-            "category": "nonsense",
-            "constraint_kind": "hard",
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions/c-1/clauses",
+            json={
+                "category": "nonsense",
+                "constraint_kind": "hard",
+            },
+        )
         assert resp.status_code == 400
 
     def test_create_clause_invalid_constraint_kind(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/constitutions/c-1/clauses", json={
-            "category": "quality",
-            "constraint_kind": "mandatory",
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions/c-1/clauses",
+            json={
+                "category": "quality",
+                "constraint_kind": "mandatory",
+            },
+        )
         assert resp.status_code == 400
 
     def test_delete_clause(self, admin_client, _mock_db):
         clause = FakeRow(
-            id=10, clause_id="cl-1", constitution_id="c-1", category="quality",
-            constraint_kind="guiding", statement="Test", machine_rule=None,
-            applicability=None, evidence_requirements=None, actions=None,
-            validation_recipe_id=None, enabled=True, priority=0,
+            id=10,
+            clause_id="cl-1",
+            constitution_id="c-1",
+            category="quality",
+            constraint_kind="guiding",
+            statement="Test",
+            machine_rule=None,
+            applicability=None,
+            evidence_requirements=None,
+            actions=None,
+            validation_recipe_id=None,
+            enabled=True,
+            priority=0,
         )
         _mock_db._execute_results = [FakeResult(items=[clause])]
         resp = admin_client.delete("/api/v1/governance/clauses/cl-1")
@@ -384,34 +489,52 @@ class TestClauseCRUD:
 
 # ── Policy CRUD ──────────────────────────────────────────────────────────────
 
+
 class TestPolicyCRUD:
     def test_create_policy(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/policies", json={
-            "name": "Max Tool Calls",
-            "rule_type": "threshold",
-            "rule_config": {"max_tool_calls": 20},
-            "category": "safety",
-            "constraint_kind": "guiding",
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/policies",
+            json={
+                "name": "Max Tool Calls",
+                "rule_type": "threshold",
+                "rule_config": {"max_tool_calls": 20},
+                "category": "safety",
+                "constraint_kind": "guiding",
+            },
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "Max Tool Calls"
         assert data["rule_type"] == "threshold"
 
     def test_create_policy_invalid_rule_type(self, admin_client, _mock_db):
-        resp = admin_client.post("/api/v1/governance/policies", json={
-            "name": "Bad",
-            "rule_type": "magic",
-        })
+        resp = admin_client.post(
+            "/api/v1/governance/policies",
+            json={
+                "name": "Bad",
+                "rule_type": "magic",
+            },
+        )
         assert resp.status_code == 400
 
     def test_delete_policy(self, admin_client, _mock_db):
         policy = FakeRow(
-            id=20, policy_id="p-1", name="Delete Me", description="",
-            scope="org", scope_value="", org_id="org-1", category="quality",
-            constraint_kind="guiding", rule_type="threshold", rule_config={},
-            enabled=True, priority=0, created_by="admin",
-            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            id=20,
+            policy_id="p-1",
+            name="Delete Me",
+            description="",
+            scope="org",
+            scope_value="",
+            org_id="org-1",
+            category="quality",
+            constraint_kind="guiding",
+            rule_type="threshold",
+            rule_config={},
+            enabled=True,
+            priority=0,
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         _mock_db._execute_results = [FakeResult(items=[policy])]
         resp = admin_client.delete("/api/v1/governance/policies/p-1")
@@ -420,6 +543,7 @@ class TestPolicyCRUD:
 
 
 # ── Effective Governance ─────────────────────────────────────────────────────
+
 
 class TestEffectiveGovernance:
     def test_effective_empty(self, admin_client, _mock_db):

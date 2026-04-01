@@ -22,11 +22,9 @@ async def _write_tuples(writes: list[dict[str, str]]) -> bool:
         return False
     try:
         from openfga_sdk import ClientTupleKey, ClientWriteRequest
+
         body = ClientWriteRequest(
-            writes=[
-                ClientTupleKey(user=w["user"], relation=w["relation"], object=w["object"])
-                for w in writes
-            ]
+            writes=[ClientTupleKey(user=w["user"], relation=w["relation"], object=w["object"]) for w in writes]
         )
         await client.write(body)
         return True
@@ -41,6 +39,7 @@ async def _delete_tuples(deletes: list[dict[str, str]]) -> bool:
         return False
     try:
         from openfga_sdk import ClientTupleKeyWithoutCondition, ClientWriteRequest
+
         body = ClientWriteRequest(
             deletes=[
                 ClientTupleKeyWithoutCondition(user=d["user"], relation=d["relation"], object=d["object"])
@@ -82,7 +81,7 @@ async def on_pat_created(
             writes.append({"user": fga_user, "relation": "admin", "object": f"org:{org_id}"})
         writes.append({"user": f"org:{org_id}#member", "relation": "can_read_org", "object": "rag_catalog:default"})
 
-    for tid in (tenant_ids or []):
+    for tid in tenant_ids or []:
         writes.append({"user": fga_user, "relation": "member", "object": f"tenant:{tid}"})
 
     if role in ("platform_admin", "admin"):

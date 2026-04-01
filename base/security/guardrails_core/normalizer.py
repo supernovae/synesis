@@ -11,11 +11,22 @@ import re
 import unicodedata
 
 _CONFUSABLE_MAP: dict[str, str] = {
-    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
-    "\u0441": "c", "\u0443": "y", "\u0445": "x", "\u0456": "i",
-    "\u04bb": "h", "\u0501": "d",
-    "\uff49": "i", "\uff47": "g", "\uff4e": "n", "\uff4f": "o",
-    "\uff52": "r", "\uff45": "e",
+    "\u0430": "a",
+    "\u0435": "e",
+    "\u043e": "o",
+    "\u0440": "p",
+    "\u0441": "c",
+    "\u0443": "y",
+    "\u0445": "x",
+    "\u0456": "i",
+    "\u04bb": "h",
+    "\u0501": "d",
+    "\uff49": "i",
+    "\uff47": "g",
+    "\uff4e": "n",
+    "\uff4f": "o",
+    "\uff52": "r",
+    "\uff45": "e",
 }
 
 _ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]")

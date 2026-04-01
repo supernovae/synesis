@@ -87,9 +87,7 @@ async def create_pattern(body: PatternCreate, user: UserInfo = Depends(get_curre
     _require_admin(user)
     async with async_session() as session:
         existing = (
-            await session.execute(
-                select(PatternEntry).where(PatternEntry.pattern_id == body.pattern_id)
-            )
+            await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == body.pattern_id))
         ).scalar_one_or_none()
         if existing:
             raise HTTPException(409, f"Pattern '{body.pattern_id}' already exists")
@@ -145,9 +143,7 @@ async def pattern_stats(_user: UserInfo = Depends(get_current_user)):
     async with async_session() as session:
         total = (await session.execute(select(func.count(PatternEntry.id)))).scalar() or 0
         enabled = (
-            await session.execute(
-                select(func.count(PatternEntry.id)).where(PatternEntry.enabled == True)
-            )
+            await session.execute(select(func.count(PatternEntry.id)).where(PatternEntry.enabled == True))
         ).scalar() or 0
 
         by_language = (
@@ -178,9 +174,7 @@ async def pattern_stats(_user: UserInfo = Depends(get_current_user)):
 async def get_pattern(pattern_id: str, _user: UserInfo = Depends(get_current_user)):
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(PatternEntry).where(PatternEntry.pattern_id == pattern_id)
-            )
+            await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == pattern_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Pattern not found")
@@ -192,15 +186,23 @@ async def update_pattern(pattern_id: str, body: PatternUpdate, user: UserInfo = 
     _require_admin(user)
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(PatternEntry).where(PatternEntry.pattern_id == pattern_id)
-            )
+            await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == pattern_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Pattern not found")
 
         changed = False
-        for field in ("code_block", "description", "constraints", "test_snippet", "framework", "skill_family", "tags", "enabled", "trust_score"):
+        for field in (
+            "code_block",
+            "description",
+            "constraints",
+            "test_snippet",
+            "framework",
+            "skill_family",
+            "tags",
+            "enabled",
+            "trust_score",
+        ):
             val = getattr(body, field, None)
             if val is not None:
                 setattr(row, field, val)
@@ -218,9 +220,7 @@ async def update_pattern(pattern_id: str, body: PatternUpdate, user: UserInfo = 
 async def delete_pattern(pattern_id: str, user: UserInfo = Depends(get_current_user)):
     _require_admin(user)
     async with async_session() as session:
-        result = await session.execute(
-            delete(PatternEntry).where(PatternEntry.pattern_id == pattern_id)
-        )
+        result = await session.execute(delete(PatternEntry).where(PatternEntry.pattern_id == pattern_id))
         await session.commit()
         if result.rowcount == 0:
             raise HTTPException(404, "Pattern not found")
@@ -235,9 +235,7 @@ async def bulk_import(patterns: list[PatternCreate], user: UserInfo = Depends(ge
     async with async_session() as session:
         for p in patterns:
             existing = (
-                await session.execute(
-                    select(PatternEntry.id).where(PatternEntry.pattern_id == p.pattern_id)
-                )
+                await session.execute(select(PatternEntry.id).where(PatternEntry.pattern_id == p.pattern_id))
             ).scalar_one_or_none()
             if existing:
                 skipped += 1
@@ -292,9 +290,7 @@ async def record_usage(pattern_id: str, body: PatternUsageFeedback, _user: UserI
     """Record usage feedback and update trust score."""
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(PatternEntry).where(PatternEntry.pattern_id == pattern_id)
-            )
+            await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == pattern_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Pattern not found")
@@ -305,6 +301,7 @@ async def record_usage(pattern_id: str, body: PatternUsageFeedback, _user: UserI
         elif body.outcome == "fail":
             row.trust_score = 0.5 * row.trust_score + 0.5 * 0.0
         from datetime import UTC, datetime
+
         row.last_validated = datetime.now(UTC)
 
         await session.commit()

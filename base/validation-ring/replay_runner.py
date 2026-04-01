@@ -93,7 +93,9 @@ def report_results(admin_url: str, run_id: str, results: list[dict], api_key: st
     headers["Content-Type"] = "application/json"
 
     n = len(results)
-    completed = sum(1 for r in results if r.get("baseline", {}).get("verdict") and r.get("candidate", {}).get("verdict"))
+    completed = sum(
+        1 for r in results if r.get("baseline", {}).get("verdict") and r.get("candidate", {}).get("verdict")
+    )
     failed = sum(
         1
         for r in results
@@ -163,22 +165,24 @@ def main() -> int:
         candidate = replay_prompt(args.planner_url, prompt, candidate_model, args.api_key)
         candidate["verdict"] = evaluate_response(candidate)
 
-        results.append({
-            "prompt_index": i,
-            "prompt_text": prompt[:500],
-            "baseline": {
-                "latency_ms": baseline.get("latency_ms", 0),
-                "tokens": baseline.get("tokens", 0),
-                "citation_count": baseline.get("citation_count", 0),
-                "verdict": baseline["verdict"],
-            },
-            "candidate": {
-                "latency_ms": candidate.get("latency_ms", 0),
-                "tokens": candidate.get("tokens", 0),
-                "citation_count": candidate.get("citation_count", 0),
-                "verdict": candidate["verdict"],
-            },
-        })
+        results.append(
+            {
+                "prompt_index": i,
+                "prompt_text": prompt[:500],
+                "baseline": {
+                    "latency_ms": baseline.get("latency_ms", 0),
+                    "tokens": baseline.get("tokens", 0),
+                    "citation_count": baseline.get("citation_count", 0),
+                    "verdict": baseline["verdict"],
+                },
+                "candidate": {
+                    "latency_ms": candidate.get("latency_ms", 0),
+                    "tokens": candidate.get("tokens", 0),
+                    "citation_count": candidate.get("citation_count", 0),
+                    "verdict": candidate["verdict"],
+                },
+            }
+        )
 
     report_results(args.admin_url, args.run_id, results, args.api_key)
 

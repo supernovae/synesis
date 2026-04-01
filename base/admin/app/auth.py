@@ -208,7 +208,9 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         tenant_ids = [str(t).strip()[:64] for t in (raw_tenants or []) if str(t).strip()][:50]
         org_id = (getattr(pat, "org_id", "") or "").strip()
         if tenant_ids and not org_id:
-            logger.warning("pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(getattr(pat, "id", "")))  # nosemgrep: python-logger-credential-disclosure
+            logger.warning(
+                "pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(getattr(pat, "id", ""))
+            )  # nosemgrep: python-logger-credential-disclosure
             return None
 
         return UserInfo(
@@ -257,8 +259,8 @@ async def get_current_user(
     if KEYCLOAK_ISSUER:
         try:
             requested_org_id = (
-                (request.headers.get("x-synesis-org-id") or request.headers.get("x-active-org-id") or "").strip()[:128]
-            )
+                request.headers.get("x-synesis-org-id") or request.headers.get("x-active-org-id") or ""
+            ).strip()[:128]
             return _verify_keycloak_token(token, requested_org_id=requested_org_id)
         except jwt.ExpiredSignatureError as err:
             raise HTTPException(status_code=401, detail="Token expired") from err

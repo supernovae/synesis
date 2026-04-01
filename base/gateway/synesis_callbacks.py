@@ -20,12 +20,10 @@ from litellm.proxy.proxy_server import UserAPIKeyAuth
 logger = logging.getLogger("synesis.gateway.errors")
 
 _AUTH_KEYWORDS = frozenset(
-    ("401", "403", "unauthorized", "forbidden", "token", "oauth",
-     "credential", "api_key", "api key", "authentication")
+    ("401", "403", "unauthorized", "forbidden", "token", "oauth", "credential", "api_key", "api key", "authentication")
 )
 _TIMEOUT_KEYWORDS = frozenset(
-    ("timeout", "timed out", "connect", "unreachable", "connection refused",
-     "connection reset", "connection error")
+    ("timeout", "timed out", "connect", "unreachable", "connection refused", "connection reset", "connection error")
 )
 
 
@@ -36,41 +34,26 @@ def _classify(exc: Exception) -> tuple[int, str]:
 
     if name == "AuthenticationError" or any(kw in msg for kw in _AUTH_KEYWORDS):
         return 502, (
-            "The AI service is temporarily unavailable due to a provider "
-            "authentication issue. Please try again later."
+            "The AI service is temporarily unavailable due to a provider authentication issue. Please try again later."
         )
 
     if name == "RateLimitError" or "429" in msg or "rate limit" in msg:
         return 429, "Rate limit reached. Please try again in a moment."
 
-    if name == "ContextWindowExceededError" or (
-        "context" in msg and "window" in msg
-    ):
-        return 400, (
-            "Your request exceeded the model's context window. "
-            "Please shorten your prompt and try again."
-        )
+    if name == "ContextWindowExceededError" or ("context" in msg and "window" in msg):
+        return 400, ("Your request exceeded the model's context window. Please shorten your prompt and try again.")
 
-    if name in ("Timeout", "APIConnectionError") or any(
-        kw in msg for kw in _TIMEOUT_KEYWORDS
-    ):
-        return 504, (
-            "The request timed out or the provider was unreachable. "
-            "Please try again."
-        )
+    if name in ("Timeout", "APIConnectionError") or any(kw in msg for kw in _TIMEOUT_KEYWORDS):
+        return 504, ("The request timed out or the provider was unreachable. Please try again.")
 
     if name == "ContentPolicyViolationError" or "content policy" in msg:
         return 400, "The request was rejected by the provider's content policy."
 
     if name == "ServiceUnavailableError" or "503" in msg:
-        return 503, (
-            "The AI service is temporarily unavailable. "
-            "Please try again shortly."
-        )
+        return 503, ("The AI service is temporarily unavailable. Please try again shortly.")
 
     return 502, (
-        "Something went wrong while contacting the AI service. "
-        "If the problem persists, please contact support."
+        "Something went wrong while contacting the AI service. If the problem persists, please contact support."
     )
 
 
@@ -95,9 +78,7 @@ class SynesisErrorSanitizer(CustomLogger):
             original_exception,
         )
         if traceback_str:
-            logger.debug(
-                "Traceback [incident=%s]:\n%s", incident_id, traceback_str
-            )
+            logger.debug("Traceback [incident=%s]:\n%s", incident_id, traceback_str)
 
         status, safe_message = _classify(original_exception)
         return HTTPException(

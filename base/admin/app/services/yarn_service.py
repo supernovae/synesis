@@ -66,9 +66,7 @@ async def get_yarn_overview(
         elif scope_org_id:
             active_sessions_base = active_sessions_base.where(YarnSession.org_id == scope_org_id)
 
-        active_sessions_res = await session.execute(
-            select(func.count()).select_from(active_sessions_base.subquery())
-        )
+        active_sessions_res = await session.execute(select(func.count()).select_from(active_sessions_base.subquery()))
         active_sessions = active_sessions_res.scalar() or 0
 
     total_reqs = int(row.total_requests)
@@ -421,8 +419,12 @@ async def get_yarn_intelligence(
                 func.coalesce(func.avg(sub.c.tool_calls_count), 0).label("avg_tool_calls"),
                 func.coalesce(func.sum(sub.c.tokens_cached), 0).label("cached_tokens"),
                 func.coalesce(func.sum(sub.c.tokens_in + sub.c.tokens_out), 0).label("total_tokens"),
-                func.coalesce(func.sum(case((sub.c.finish_reason == "tool_use", 1), else_=0)), 0).label("tool_use_stops"),
-                func.coalesce(func.sum(case((sub.c.finish_reason.in_(["error", "tool_loop_limit_exceeded"]), 1), else_=0)), 0).label("error_like"),
+                func.coalesce(func.sum(case((sub.c.finish_reason == "tool_use", 1), else_=0)), 0).label(
+                    "tool_use_stops"
+                ),
+                func.coalesce(
+                    func.sum(case((sub.c.finish_reason.in_(["error", "tool_loop_limit_exceeded"]), 1), else_=0)), 0
+                ).label("error_like"),
             ).select_from(sub)
         )
         row = agg.one()
@@ -460,10 +462,7 @@ async def get_yarn_intelligence(
             .order_by(text("count DESC"))
             .limit(8)
         )
-        finish_reason_counts = {
-            (r.finish_reason or "unknown"): int(r.count or 0)
-            for r in finish_reason_res
-        }
+        finish_reason_counts = {(r.finish_reason or "unknown"): int(r.count or 0) for r in finish_reason_res}
 
     requests = int(row.requests or 0)
     total_tokens = int(row.total_tokens or 0)
@@ -553,9 +552,7 @@ async def get_yarn_safety_summary(
         by_kind = {r.event_kind: int(r.count) for r in by_kind_result}
 
         total_tokens_burned = (
-            await session.execute(
-                select(func.coalesce(func.sum(sub.c.tokens_burned), 0)).select_from(sub)
-            )
+            await session.execute(select(func.coalesce(func.sum(sub.c.tokens_burned), 0)).select_from(sub))
         ).scalar() or 0
 
     return {
@@ -606,18 +603,10 @@ async def purge_yarn_sessions(
                 "events": int(events_count),
             }
 
-        await session.execute(
-            YarnSessionEvent.__table__.delete().where(YarnSessionEvent.session_key.in_(keys))
-        )
-        await session.execute(
-            YarnUsageLog.__table__.delete().where(YarnUsageLog.session_key.in_(keys))
-        )
-        await session.execute(
-            YarnSafetyEvent.__table__.delete().where(YarnSafetyEvent.session_key.in_(keys))
-        )
-        await session.execute(
-            YarnSession.__table__.delete().where(YarnSession.session_key.in_(keys))
-        )
+        await session.execute(YarnSessionEvent.__table__.delete().where(YarnSessionEvent.session_key.in_(keys)))
+        await session.execute(YarnUsageLog.__table__.delete().where(YarnUsageLog.session_key.in_(keys)))
+        await session.execute(YarnSafetyEvent.__table__.delete().where(YarnSafetyEvent.session_key.in_(keys)))
+        await session.execute(YarnSession.__table__.delete().where(YarnSession.session_key.in_(keys)))
         await session.commit()
 
     logger.info("purged_yarn_sessions older_than_days=%d sessions=%d", older_than_days, len(keys))

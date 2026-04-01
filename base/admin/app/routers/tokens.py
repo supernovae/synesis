@@ -137,6 +137,7 @@ async def create_token(
     await session.commit()
 
     from ..services.fga_tuple_writer import on_pat_created
+
     await on_pat_created(
         user_id=user.user_id or user.username,
         org_id=user.org_id or "",
@@ -211,6 +212,7 @@ async def revoke_token(
     await session.commit()
 
     from ..services.fga_tuple_writer import on_pat_revoked
+
     await on_pat_revoked(pat.user_id)
 
 
@@ -259,5 +261,6 @@ async def backfill_fga_tuples(
 ):
     """Backfill OpenFGA tuples from existing PAT rows (platform admin only)."""
     from ..services.fga_tuple_writer import backfill_from_db
+
     result = await backfill_from_db(session)
     return result

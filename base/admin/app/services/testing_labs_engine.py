@@ -126,11 +126,13 @@ async def _extract_prompts(run_id: str) -> list[dict[str, Any]]:
         prompt_text = full.get("query_snippet") or snippet
         if not prompt_text or len(prompt_text) < 5:
             continue
-        prompts.append({
-            "prompt_text": prompt_text,
-            "source_trace_id": row.trace_id,
-            "category": row.task_type or "",
-        })
+        prompts.append(
+            {
+                "prompt_text": prompt_text,
+                "source_trace_id": row.trace_id,
+                "category": row.task_type or "",
+            }
+        )
 
     return prompts
 
@@ -177,27 +179,31 @@ async def _replay_prompt(
                 response_text = choices[0].get("message", {}).get("content", "")[:4000]
 
             verdict = "pass" if resp.status_code < 400 else "fail"
-            result.update({
-                "candidate_response": response_text,
-                "candidate_latency_ms": round(latency, 1),
-                "candidate_tokens": tokens,
-                "candidate_verdict": verdict,
-                "candidate_detail": {
-                    "status_code": resp.status_code,
-                    "decision_path": data.get("_decision_path"),
-                    "recall_routing": data.get("_recall_routing"),
-                },
-            })
+            result.update(
+                {
+                    "candidate_response": response_text,
+                    "candidate_latency_ms": round(latency, 1),
+                    "candidate_tokens": tokens,
+                    "candidate_verdict": verdict,
+                    "candidate_detail": {
+                        "status_code": resp.status_code,
+                        "decision_path": data.get("_decision_path"),
+                        "recall_routing": data.get("_recall_routing"),
+                    },
+                }
+            )
 
     except Exception as exc:
         latency = (time.time() - t0) * 1000
-        result.update({
-            "candidate_response": "",
-            "candidate_latency_ms": round(latency, 1),
-            "candidate_tokens": 0,
-            "candidate_verdict": "error",
-            "candidate_detail": {"error": str(exc)[:200]},
-        })
+        result.update(
+            {
+                "candidate_response": "",
+                "candidate_latency_ms": round(latency, 1),
+                "candidate_tokens": 0,
+                "candidate_verdict": "error",
+                "candidate_detail": {"error": str(exc)[:200]},
+            }
+        )
 
     return result
 
@@ -247,12 +253,16 @@ async def detect_regressions(run_id: str) -> RegressionReport:
     """Analyze results for regressions based on rule-based thresholds."""
     async with async_session() as session:
         results = (
-            await session.execute(
-                select(TestingLabsResult)
-                .where(TestingLabsResult.run_id == run_id)
-                .order_by(TestingLabsResult.prompt_index)
+            (
+                await session.execute(
+                    select(TestingLabsResult)
+                    .where(TestingLabsResult.run_id == run_id)
+                    .order_by(TestingLabsResult.prompt_index)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     if not results:
         return RegressionReport(run_id=run_id, total_results=0)
@@ -264,65 +274,71 @@ async def detect_regressions(run_id: str) -> RegressionReport:
         detail = r.detail or {}
 
         if r.candidate_verdict == "error":
-            regressions.append(Regression(
-                prompt_index=r.prompt_index,
-                prompt_snippet=snippet,
-                kind="error",
-                candidate_value=r.candidate_verdict,
-                detail="Candidate returned an error",
-            ))
+            regressions.append(
+                Regression(
+                    prompt_index=r.prompt_index,
+                    prompt_snippet=snippet,
+                    kind="error",
+                    candidate_value=r.candidate_verdict,
+                    detail="Candidate returned an error",
+                )
+            )
 
         if r.candidate_verdict == "fail" and r.baseline_verdict == "pass":
-            regressions.append(Regression(
-                prompt_index=r.prompt_index,
-                prompt_snippet=snippet,
-                kind="verdict_degradation",
-                baseline_value="pass",
-                candidate_value="fail",
-                detail="Baseline passed but candidate failed",
-            ))
+            regressions.append(
+                Regression(
+                    prompt_index=r.prompt_index,
+                    prompt_snippet=snippet,
+                    kind="verdict_degradation",
+                    baseline_value="pass",
+                    candidate_value="fail",
+                    detail="Baseline passed but candidate failed",
+                )
+            )
 
         if (
             r.baseline_latency_ms > 0
             and r.candidate_latency_ms > 0
             and r.candidate_latency_ms > r.baseline_latency_ms * 2
         ):
-            regressions.append(Regression(
-                prompt_index=r.prompt_index,
-                prompt_snippet=snippet,
-                kind="latency_regression",
-                baseline_value=round(r.baseline_latency_ms, 1),
-                candidate_value=round(r.candidate_latency_ms, 1),
-                detail="Candidate latency >2x baseline",
-            ))
+            regressions.append(
+                Regression(
+                    prompt_index=r.prompt_index,
+                    prompt_snippet=snippet,
+                    kind="latency_regression",
+                    baseline_value=round(r.baseline_latency_ms, 1),
+                    candidate_value=round(r.candidate_latency_ms, 1),
+                    detail="Candidate latency >2x baseline",
+                )
+            )
 
-        if (
-            r.baseline_tokens > 0
-            and r.candidate_tokens > 0
-            and r.candidate_tokens > r.baseline_tokens * 2
-        ):
-            regressions.append(Regression(
-                prompt_index=r.prompt_index,
-                prompt_snippet=snippet,
-                kind="token_regression",
-                baseline_value=r.baseline_tokens,
-                candidate_value=r.candidate_tokens,
-                detail="Candidate tokens >2x baseline",
-            ))
+        if r.baseline_tokens > 0 and r.candidate_tokens > 0 and r.candidate_tokens > r.baseline_tokens * 2:
+            regressions.append(
+                Regression(
+                    prompt_index=r.prompt_index,
+                    prompt_snippet=snippet,
+                    kind="token_regression",
+                    baseline_value=r.baseline_tokens,
+                    candidate_value=r.candidate_tokens,
+                    detail="Candidate tokens >2x baseline",
+                )
+            )
 
         baseline_dp = (r.detail or {}).get("baseline_decision_path")
         candidate_dp = detail.get("decision_path")
         if baseline_dp and candidate_dp and baseline_dp != candidate_dp:
             dp_rank = {"deterministic": 0, "constrained": 1, "inference_first": 2, "abstain": 3}
             if dp_rank.get(candidate_dp, 99) > dp_rank.get(baseline_dp, 99):
-                regressions.append(Regression(
-                    prompt_index=r.prompt_index,
-                    prompt_snippet=snippet,
-                    kind="decision_path_degradation",
-                    baseline_value=baseline_dp,
-                    candidate_value=candidate_dp,
-                    detail=f"Decision path degraded: {baseline_dp} -> {candidate_dp}",
-                ))
+                regressions.append(
+                    Regression(
+                        prompt_index=r.prompt_index,
+                        prompt_snippet=snippet,
+                        kind="decision_path_degradation",
+                        baseline_value=baseline_dp,
+                        candidate_value=candidate_dp,
+                        detail=f"Decision path degraded: {baseline_dp} -> {candidate_dp}",
+                    )
+                )
 
     report = RegressionReport(
         run_id=run_id,

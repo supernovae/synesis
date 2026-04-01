@@ -296,12 +296,16 @@ async def testing_labs_stats(_user: UserInfo = Depends(get_current_user)):
         total = (await session.execute(select(func.count()).select_from(TestingLabsRun))).scalar() or 0
         pending = (
             await session.execute(
-                select(func.count()).select_from(select(TestingLabsRun).where(TestingLabsRun.status == "pending").subquery())
+                select(func.count()).select_from(
+                    select(TestingLabsRun).where(TestingLabsRun.status == "pending").subquery()
+                )
             )
         ).scalar() or 0
         running = (
             await session.execute(
-                select(func.count()).select_from(select(TestingLabsRun).where(TestingLabsRun.status == "running").subquery())
+                select(func.count()).select_from(
+                    select(TestingLabsRun).where(TestingLabsRun.status == "running").subquery()
+                )
             )
         ).scalar() or 0
         completed = (

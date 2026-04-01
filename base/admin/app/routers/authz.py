@@ -55,6 +55,7 @@ async def authz_status(_admin: UserInfo = Depends(require_platform_admin)):
                     "type_definitions_count": len(getattr(m, "type_definitions", []) or []),
                 }
             import os
+
             store_info = {
                 "store_id": os.getenv("SYNESIS_OPENFGA_STORE_ID", ""),
                 "api_url": os.getenv("SYNESIS_OPENFGA_API_URL", ""),
@@ -99,6 +100,7 @@ async def list_tuples(
             fga_tuple_key["object"] = object
         if fga_tuple_key:
             from openfga_sdk import ReadRequestTupleKey
+
             body = ClientReadRequest(tuple_key=ReadRequestTupleKey(**fga_tuple_key))
 
         response = await client.read(body)
@@ -106,12 +108,14 @@ async def list_tuples(
         result = []
         for t in tuples_raw:
             key = getattr(t, "key", t)
-            result.append({
-                "user": getattr(key, "user", ""),
-                "relation": getattr(key, "relation", ""),
-                "object": getattr(key, "object", ""),
-                "timestamp": str(getattr(t, "timestamp", "")),
-            })
+            result.append(
+                {
+                    "user": getattr(key, "user", ""),
+                    "relation": getattr(key, "relation", ""),
+                    "object": getattr(key, "object", ""),
+                    "timestamp": str(getattr(t, "timestamp", "")),
+                }
+            )
         return {"tuples": result, "count": len(result)}
     except Exception as exc:
         logger.exception("authz_tuple_list_failed")
@@ -203,15 +207,18 @@ async def user_permissions(
     if client:
         try:
             from openfga_sdk import ClientReadRequest, ReadRequestTupleKey
+
             body = ClientReadRequest(tuple_key=ReadRequestTupleKey(user=fga_user))
             response = await client.read(body)
             for t in getattr(response, "tuples", []) or []:
                 key = getattr(t, "key", t)
-                tuples.append({
-                    "user": getattr(key, "user", ""),
-                    "relation": getattr(key, "relation", ""),
-                    "object": getattr(key, "object", ""),
-                })
+                tuples.append(
+                    {
+                        "user": getattr(key, "user", ""),
+                        "relation": getattr(key, "relation", ""),
+                        "object": getattr(key, "object", ""),
+                    }
+                )
         except Exception:
             logger.debug("user_permissions_tuple_read_failed", exc_info=True)
 
@@ -258,11 +265,16 @@ async def schema_types(_admin: UserInfo = Depends(require_platform_admin)):
             relations = {}
             meta = getattr(td, "metadata", None)
             rel_meta = getattr(meta, "relations", {}) if meta else {}
-            for rname in (getattr(td, "relations", {}) or {}):
-                relations[rname] = {"directly_related": list(
-                    str(getattr(rt, "type", "")) + (f"#{getattr(rt, 'relation', '')}" if getattr(rt, "relation", "") else "")
-                    for rt in (getattr(rel_meta.get(rname), "directly_related_user_types", []) or [])
-                ) if rel_meta.get(rname) else []}
+            for rname in getattr(td, "relations", {}) or {}:
+                relations[rname] = {
+                    "directly_related": list(
+                        str(getattr(rt, "type", ""))
+                        + (f"#{getattr(rt, 'relation', '')}" if getattr(rt, "relation", "") else "")
+                        for rt in (getattr(rel_meta.get(rname), "directly_related_user_types", []) or [])
+                    )
+                    if rel_meta.get(rname)
+                    else []
+                }
             type_defs.append({"type": getattr(td, "type", ""), "relations": relations})
         return {"types": type_defs, "model_id": getattr(model, "id", "")}
     except Exception as exc:

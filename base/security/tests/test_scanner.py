@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from guardrails_core.scanner import (
     redact_patterns,
     scan_and_filter_texts,
@@ -24,12 +23,11 @@ from guardrails_core.scanner import (
 )
 from guardrails_core.schemas import EventType
 
-_VECTORS = json.loads(
-    (Path(__file__).parent / "fixtures" / "scanner_vectors.json").read_text()
-)
+_VECTORS = json.loads((Path(__file__).parent / "fixtures" / "scanner_vectors.json").read_text())
 
 
 # ---- Shared-fixture driven tests (parity with TS) --------------------------
+
 
 class TestScanTextFixtures:
     @pytest.mark.parametrize("vec", _VECTORS["scan_text"], ids=lambda v: v["label"])
@@ -67,6 +65,7 @@ class TestRedactFixtures:
 
 
 # ---- Python-specific tests (event types, latency, messages) -----------------
+
 
 class TestScanText:
     def test_system_override_event_type(self):

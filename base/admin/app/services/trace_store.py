@@ -95,9 +95,7 @@ async def list_traces(
                     >= min_hallucinated_urls
                 )
             if decision_path:
-                q = q.where(
-                    Trace.full_record["decision_ledger"][0]["path"].astext == decision_path
-                )
+                q = q.where(Trace.full_record["decision_ledger"][0]["path"].astext == decision_path)
 
             count_q = select(func.count()).select_from(q.subquery())
             total = (await session.execute(count_q)).scalar_one()
@@ -131,9 +129,7 @@ async def get_trace_chain(trace_id: str, limit: int = 200) -> dict[str, Any] | N
     """Return the causal chain for a trace (root/parent lineage or conversation fallback)."""
     async with async_session() as session:
         try:
-            base = (
-                await session.execute(select(Trace).where(Trace.trace_id == trace_id))
-            ).scalar_one_or_none()
+            base = (await session.execute(select(Trace).where(Trace.trace_id == trace_id))).scalar_one_or_none()
             if base is None:
                 return None
 
@@ -408,7 +404,9 @@ async def upsert_trace(record: dict[str, Any]) -> None:
             merged_spans = sa.func.coalesce(Trace.full_record["spans"], sa.text("'[]'::jsonb")).op("||")(
                 sa.func.coalesce(stmt.excluded.full_record["spans"], sa.text("'[]'::jsonb")),
             )
-            merged_phase_timings = sa.func.coalesce(Trace.full_record["phase_timings"], sa.text("'{}'::jsonb")).op("||")(
+            merged_phase_timings = sa.func.coalesce(Trace.full_record["phase_timings"], sa.text("'{}'::jsonb")).op(
+                "||"
+            )(
                 sa.func.coalesce(stmt.excluded.full_record["phase_timings"], sa.text("'{}'::jsonb")),
             )
             merged_full = sa.func.jsonb_set(merged_full, sa.text("'{spans}'"), merged_spans, True)
@@ -417,16 +415,20 @@ async def upsert_trace(record: dict[str, Any]) -> None:
                 index_elements=["trace_id"],
                 set_={
                     "total_duration_ms": sa.func.greatest(
-                        Trace.total_duration_ms, stmt.excluded.total_duration_ms,
+                        Trace.total_duration_ms,
+                        stmt.excluded.total_duration_ms,
                     ),
                     "total_tokens": sa.func.greatest(
-                        Trace.total_tokens, stmt.excluded.total_tokens,
+                        Trace.total_tokens,
+                        stmt.excluded.total_tokens,
                     ),
                     "estimated_cost_usd": sa.func.greatest(
-                        Trace.estimated_cost_usd, stmt.excluded.estimated_cost_usd,
+                        Trace.estimated_cost_usd,
+                        stmt.excluded.estimated_cost_usd,
                     ),
                     "actual_cost_usd": sa.func.greatest(
-                        Trace.actual_cost_usd, stmt.excluded.actual_cost_usd,
+                        Trace.actual_cost_usd,
+                        stmt.excluded.actual_cost_usd,
                     ),
                     "conversation_id": sa.func.coalesce(Trace.conversation_id, stmt.excluded.conversation_id),
                     "parent_trace_id": sa.func.coalesce(stmt.excluded.parent_trace_id, Trace.parent_trace_id),
@@ -600,9 +602,7 @@ async def get_decision_analytics(
                 "escalation_rate": round(escalation_count / max(total_with_ledger, 1), 4),
                 "recall": {
                     "routing_distribution": recall_routing,
-                    "bypass_rate": round(
-                        recall_routing.get("bypass", 0) / max(total_with_ledger, 1), 4
-                    ),
+                    "bypass_rate": round(recall_routing.get("bypass", 0) / max(total_with_ledger, 1), 4),
                 },
                 "evidence": {
                     "prefetch_hits": prefetch_hits,

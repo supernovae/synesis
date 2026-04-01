@@ -43,39 +43,63 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 GRAPH_DEFINITION = {
     "nodes": [
         {
-            "id": "entry_pipeline", "label": "Entry Pipeline", "type": "entry",
-            "model_role": "router", "model_served_name": "synesis-router",
+            "id": "entry_pipeline",
+            "label": "Entry Pipeline",
+            "type": "entry",
+            "model_role": "router",
+            "model_served_name": "synesis-router",
             "notes": "Deterministic classifier + LLM frame segmentation",
         },
         {
-            "id": "planner", "label": "Planner", "type": "planning",
-            "model_role": "router", "model_served_name": "synesis-router",
+            "id": "planner",
+            "label": "Planner",
+            "type": "planning",
+            "model_role": "router",
+            "model_served_name": "synesis-router",
         },
         {
-            "id": "plan_gate", "label": "Plan Gate", "type": "planning",
-            "model_role": "router", "model_served_name": "synesis-router",
+            "id": "plan_gate",
+            "label": "Plan Gate",
+            "type": "planning",
+            "model_role": "router",
+            "model_served_name": "synesis-router",
             "notes": "Optional coherence check; mostly deterministic",
         },
         {
-            "id": "router", "label": "Router", "type": "retrieval",
-            "model_role": "router", "model_served_name": "synesis-router",
+            "id": "router",
+            "label": "Router",
+            "type": "retrieval",
+            "model_role": "router",
+            "model_served_name": "synesis-router",
             "notes": "Evidence packet summarization uses synesis-summarizer",
         },
         {
-            "id": "writer", "label": "Writer", "type": "generation",
-            "model_role": "general", "model_served_name": "synesis-general",
+            "id": "writer",
+            "label": "Writer",
+            "type": "generation",
+            "model_role": "general",
+            "model_served_name": "synesis-general",
         },
         {
-            "id": "critic", "label": "Critic", "type": "evaluation",
-            "model_role": "critic", "model_served_name": "synesis-critic",
+            "id": "critic",
+            "label": "Critic",
+            "type": "evaluation",
+            "model_role": "critic",
+            "model_served_name": "synesis-critic",
         },
         {
-            "id": "final_scrubber", "label": "Final Scrubber", "type": "post",
-            "model_role": "general", "model_served_name": "synesis-general",
+            "id": "final_scrubber",
+            "label": "Final Scrubber",
+            "type": "post",
+            "model_role": "general",
+            "model_served_name": "synesis-general",
         },
         {
-            "id": "respond", "label": "Respond", "type": "terminal",
-            "model_role": None, "model_served_name": None,
+            "id": "respond",
+            "label": "Respond",
+            "type": "terminal",
+            "model_role": None,
+            "model_served_name": None,
             "notes": "SSE streaming, no LLM call",
         },
     ],
@@ -114,10 +138,7 @@ async def _load_active_policies() -> dict:
     try:
         async with async_session() as session:
             check = await session.execute(
-                sa_text(
-                    "SELECT EXISTS (SELECT FROM information_schema.tables "
-                    "WHERE table_name = 'model_policies')"
-                )
+                sa_text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'model_policies')")
             )
             if not check.scalar():
                 return {}
@@ -130,13 +151,15 @@ async def _load_active_policies() -> dict:
             policies: dict[str, list[dict]] = {}
             for row in rows:
                 role = row[0]
-                policies.setdefault(role, []).append({
-                    "condition_type": row[1],
-                    "condition_value": row[2],
-                    "model": row[3],
-                    "label": row[4] or "",
-                    "priority": row[5],
-                })
+                policies.setdefault(role, []).append(
+                    {
+                        "condition_type": row[1],
+                        "condition_value": row[2],
+                        "model": row[3],
+                        "label": row[4] or "",
+                        "priority": row[5],
+                    }
+                )
             return policies
     except Exception:
         logger.debug("model_policies load failed (table may not exist)", exc_info=True)

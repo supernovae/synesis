@@ -49,8 +49,10 @@ def record_detection(
 ) -> None:
     if _HAS_PROMETHEUS:
         GUARDRAIL_DETECTIONS.labels(
-            service=service, event_type=event_type,
-            severity=severity, action=action,
+            service=service,
+            event_type=event_type,
+            severity=severity,
+            action=action,
         ).inc()
 
 

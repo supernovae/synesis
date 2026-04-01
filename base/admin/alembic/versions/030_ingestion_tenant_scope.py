@@ -21,17 +21,23 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("ingestion_sources", sa.Column("visibility_scope", sa.String(16), nullable=False, server_default="global"))
+    op.add_column(
+        "ingestion_sources", sa.Column("visibility_scope", sa.String(16), nullable=False, server_default="global")
+    )
     op.add_column("ingestion_sources", sa.Column("org_id", sa.String(64), nullable=False, server_default=""))
     op.add_column("ingestion_sources", sa.Column("tenant_id", sa.String(64), nullable=False, server_default=""))
     op.create_index("ix_ingestion_sources_org_id", "ingestion_sources", ["org_id"])
 
-    op.add_column("ingestion_items", sa.Column("visibility_scope", sa.String(16), nullable=False, server_default="global"))
+    op.add_column(
+        "ingestion_items", sa.Column("visibility_scope", sa.String(16), nullable=False, server_default="global")
+    )
     op.add_column("ingestion_items", sa.Column("org_id", sa.String(64), nullable=False, server_default=""))
     op.add_column("ingestion_items", sa.Column("tenant_id", sa.String(64), nullable=False, server_default=""))
     op.create_index("ix_ingestion_items_org_id", "ingestion_items", ["org_id"])
 
-    op.add_column("ingestion_documents", sa.Column("visibility_scope", sa.String(16), nullable=False, server_default="global"))
+    op.add_column(
+        "ingestion_documents", sa.Column("visibility_scope", sa.String(16), nullable=False, server_default="global")
+    )
     op.add_column("ingestion_documents", sa.Column("org_id", sa.String(64), nullable=False, server_default=""))
     op.add_column("ingestion_documents", sa.Column("tenant_id", sa.String(64), nullable=False, server_default=""))
 

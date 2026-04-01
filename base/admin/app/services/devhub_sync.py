@@ -207,9 +207,7 @@ async def _upsert_item(
     """Create or update a single IngestionItem, returning the action taken."""
     async with async_session() as session:
         existing = (
-            await session.execute(
-                select(IngestionItem).where(IngestionItem.uri == item_fields["uri"])
-            )
+            await session.execute(select(IngestionItem).where(IngestionItem.uri == item_fields["uri"]))
         ).scalar_one_or_none()
 
         if existing:
@@ -255,9 +253,7 @@ async def sync_connector(connector_id: str, dry_run: bool = False) -> SyncResult
 
     async with async_session() as session:
         connector = (
-            await session.execute(
-                select(DevHubConnector).where(DevHubConnector.connector_id == connector_id)
-            )
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not connector:
             raise ValueError(f"Connector {connector_id} not found")
@@ -339,9 +335,7 @@ async def _preview_sync(
         for entity in entities:
             item_fields = _map_entity_to_item_fields(connector, entity)
             existing = (
-                await session.execute(
-                    select(IngestionItem).where(IngestionItem.uri == item_fields["uri"])
-                )
+                await session.execute(select(IngestionItem).where(IngestionItem.uri == item_fields["uri"]))
             ).scalar_one_or_none()
 
             if not existing:
@@ -431,9 +425,7 @@ async def _bridge_governance(
                 description = f"{description}\n\nTemplate parameters: {param_summary}"
 
             existing = (
-                await session.execute(
-                    select(GovernanceClause).where(GovernanceClause.clause_id == clause_id)
-                )
+                await session.execute(select(GovernanceClause).where(GovernanceClause.clause_id == clause_id))
             ).scalar_one_or_none()
 
             if existing:

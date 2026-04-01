@@ -18,6 +18,7 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _fake_user():
     from app.auth import UserInfo
 
@@ -32,6 +33,7 @@ def _fake_user():
 # ---------------------------------------------------------------------------
 # Heuristic engine unit tests
 # ---------------------------------------------------------------------------
+
 
 class TestHeuristicDiscovery:
     """Unit tests for the _run_heuristic_discovery function."""
@@ -114,9 +116,18 @@ class TestHeuristicDiscovery:
 
         result = await _run_heuristic_discovery("https://docs.python.org/3/library/json.html")
         expected_keys = {
-            "url", "handler", "title", "domain", "tags", "config",
-            "risk_flags", "recommended_mode", "notes", "deterministic",
-            "recommendation_reasons", "suggested_corpus_class",
+            "url",
+            "handler",
+            "title",
+            "domain",
+            "tags",
+            "config",
+            "risk_flags",
+            "recommended_mode",
+            "notes",
+            "deterministic",
+            "recommendation_reasons",
+            "suggested_corpus_class",
             "required_missing_fields",
         }
         assert expected_keys.issubset(result.keys())
@@ -125,6 +136,7 @@ class TestHeuristicDiscovery:
 # ---------------------------------------------------------------------------
 # Bootstrap validation tests
 # ---------------------------------------------------------------------------
+
 
 class TestBootstrapValidation:
     """Unit tests for _normalize_bootstrap_meta and the validate logic."""
@@ -197,6 +209,7 @@ class TestBootstrapValidation:
 # Metadata guide tests
 # ---------------------------------------------------------------------------
 
+
 class TestMetadataGuide:
     """Verify the metadata guide endpoint returns expected shape."""
 
@@ -215,6 +228,7 @@ class TestMetadataGuide:
 # Backward compatibility: discover endpoint still works with old shape
 # ---------------------------------------------------------------------------
 
+
 class TestDiscoverBackwardCompat:
     """The existing discover endpoint must still return the original fields."""
 
@@ -231,8 +245,8 @@ class TestDiscoverBackwardCompat:
 # Corpus heuristic mapping tests
 # ---------------------------------------------------------------------------
 
-class TestCorpusHeuristics:
 
+class TestCorpusHeuristics:
     @pytest.mark.asyncio
     async def test_known_coder_domains(self):
         from app.routers.ingestion import _CORPUS_HEURISTICS, _run_heuristic_discovery
@@ -256,8 +270,8 @@ class TestCorpusHeuristics:
 # BatchPreflightRequest dry_run field
 # ---------------------------------------------------------------------------
 
-class TestBatchPreflightDryRun:
 
+class TestBatchPreflightDryRun:
     def test_dry_run_field_default(self):
         from app.routers.ingestion import BatchPreflightRequest
 
@@ -281,8 +295,8 @@ class TestBatchPreflightDryRun:
 # DiscoverPreviewRequest shape
 # ---------------------------------------------------------------------------
 
-class TestDiscoverPreviewRequest:
 
+class TestDiscoverPreviewRequest:
     def test_minimal(self):
         from app.routers.ingestion import DiscoverPreviewRequest
 

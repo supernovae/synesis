@@ -30,8 +30,13 @@ def test_pattern_entry_explicit_defaults():
     from app.db.models import PatternEntry
 
     p = PatternEntry(
-        pattern_id="x", language="go", skill_family="error_handling",
-        code_block="func main() {}", enabled=True, scope="global", usage_count=0,
+        pattern_id="x",
+        language="go",
+        skill_family="error_handling",
+        code_block="func main() {}",
+        enabled=True,
+        scope="global",
+        usage_count=0,
     )
     assert p.enabled is True
     assert p.scope == "global"
@@ -104,9 +109,8 @@ def test_loader_file_not_found():
 
     with pytest.raises(FileNotFoundError):
         import asyncio
-        asyncio.get_event_loop().run_until_complete(
-            load_patterns_from_yaml("/nonexistent/path.yaml")
-        )
+
+        asyncio.get_event_loop().run_until_complete(load_patterns_from_yaml("/nonexistent/path.yaml"))
 
 
 # ── Eval harness extended tests ──────────────────────────────────────────────
@@ -116,10 +120,15 @@ def test_check_expectations_decision_path_warning():
     from app.services.eval_harness import EvalCase, _check_expectations
 
     case = EvalCase(prompt="test", expected_decision_path="deterministic")
-    result = _check_expectations(case, 100, 50, {
-        "choices": [{"message": {"content": "ok"}}],
-        "_decision_path": "inference_first",
-    })
+    result = _check_expectations(
+        case,
+        100,
+        50,
+        {
+            "choices": [{"message": {"content": "ok"}}],
+            "_decision_path": "inference_first",
+        },
+    )
     assert result.decision_path_match is False
     assert any("decision_path mismatch" in w for w in result.warnings)
     assert len(result.failures) == 0
@@ -129,10 +138,15 @@ def test_check_expectations_decision_path_match():
     from app.services.eval_harness import EvalCase, _check_expectations
 
     case = EvalCase(prompt="test", expected_decision_path="deterministic")
-    result = _check_expectations(case, 100, 50, {
-        "choices": [{"message": {"content": "ok"}}],
-        "_decision_path": "deterministic",
-    })
+    result = _check_expectations(
+        case,
+        100,
+        50,
+        {
+            "choices": [{"message": {"content": "ok"}}],
+            "_decision_path": "deterministic",
+        },
+    )
     assert result.decision_path_match is True
     assert len(result.warnings) == 0
 
@@ -141,10 +155,15 @@ def test_check_expectations_language_match():
     from app.services.eval_harness import EvalCase, _check_expectations
 
     case = EvalCase(prompt="test", expected_languages=["go"])
-    result = _check_expectations(case, 100, 50, {
-        "choices": [{"message": {"content": "ok"}}],
-        "_detected_languages": ["go", "python"],
-    })
+    result = _check_expectations(
+        case,
+        100,
+        50,
+        {
+            "choices": [{"message": {"content": "ok"}}],
+            "_detected_languages": ["go", "python"],
+        },
+    )
     assert result.language_match is True
     assert result.actual_languages == ["go", "python"]
 
@@ -153,10 +172,15 @@ def test_check_expectations_language_mismatch():
     from app.services.eval_harness import EvalCase, _check_expectations
 
     case = EvalCase(prompt="test", expected_languages=["rust"])
-    result = _check_expectations(case, 100, 50, {
-        "choices": [{"message": {"content": "ok"}}],
-        "_detected_languages": ["go"],
-    })
+    result = _check_expectations(
+        case,
+        100,
+        50,
+        {
+            "choices": [{"message": {"content": "ok"}}],
+            "_detected_languages": ["go"],
+        },
+    )
     assert result.language_match is False
     assert any("language mismatch" in w for w in result.warnings)
 
@@ -165,10 +189,15 @@ def test_check_expectations_recall_routing():
     from app.services.eval_harness import EvalCase, _check_expectations
 
     case = EvalCase(prompt="test", expected_recall_routing="bypass")
-    result = _check_expectations(case, 100, 50, {
-        "choices": [{"message": {"content": "ok"}}],
-        "_recall_routing": "bypass",
-    })
+    result = _check_expectations(
+        case,
+        100,
+        50,
+        {
+            "choices": [{"message": {"content": "ok"}}],
+            "_recall_routing": "bypass",
+        },
+    )
     assert result.recall_routing_match is True
 
 
@@ -202,9 +231,14 @@ def test_check_expectations_hard_failures():
     from app.services.eval_harness import EvalCase, _check_expectations
 
     case = EvalCase(prompt="test", max_latency_ms=50, max_tokens=10)
-    result = _check_expectations(case, 100, 50, {
-        "choices": [{"message": {"content": "ok"}}],
-    })
+    result = _check_expectations(
+        case,
+        100,
+        50,
+        {
+            "choices": [{"message": {"content": "ok"}}],
+        },
+    )
     assert len(result.failures) == 2
     assert any("latency" in f for f in result.failures)
     assert any("tokens" in f for f in result.failures)
@@ -233,9 +267,7 @@ def test_bootstrap_required_fields():
         data = yaml.safe_load(yf.read_text())
         for i, entry in enumerate(data.get("patterns", [])):
             for field in required:
-                assert entry.get(field), (
-                    f"{yf.name} pattern[{i}] missing or empty '{field}'"
-                )
+                assert entry.get(field), f"{yf.name} pattern[{i}] missing or empty '{field}'"
 
 
 def test_bootstrap_no_duplicate_pattern_ids():
