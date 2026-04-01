@@ -158,6 +158,6 @@
 ### Phase 20: TBD
 
 - Scalability residuals (Redis scaling, PgBouncer, Postgres scaling) — user-driven separate phase
-- Yarn normalizer Tier C (small-LLM fallback) — same admin pattern when needed
 - Model A/B testing
-- `maxEffectiveTools` schema pruning
+- Tune Tier C `coder-normalizer` model choices by environment (latency/cost/accuracy)
+- Expand tool schema pruning heuristics with request/task-aware ranking signals

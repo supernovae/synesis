@@ -1,7 +1,12 @@
 import type { AppConfig } from "../config.js";
 import { ArtifactStore } from "../state/artifact-store.js";
 import { applyAdmissionPolicy } from "./admission-policy.js";
-import { normalizeValidationOutput } from "./normalizer.js";
+import {
+  normalizeValidationOutput,
+  normalizeValidationOutputWithTierC,
+  type TierCFallbackContext,
+  type TierCFallbackResult,
+} from "./normalizer.js";
 
 export interface MessageLike {
   role: string;
@@ -18,6 +23,10 @@ export interface NormalizationStats {
   artifactHandleCount: number;
   admissionDroppedCount: number;
   normalizedMessageCount: number;
+  tierCAttemptCount: number;
+  tierCSuccessCount: number;
+  tierCFallbackCount: number;
+  tierCErrorCount: number;
 }
 
 export interface NormalizationResult {
@@ -44,7 +53,11 @@ export class ValidationNormalizationService {
     tokensSavedEstimateTotal: 0,
     artifactHandleCount: 0,
     admissionDroppedCount: 0,
-    normalizedMessageCount: 0
+    normalizedMessageCount: 0,
+    tierCAttemptCount: 0,
+    tierCSuccessCount: 0,
+    tierCFallbackCount: 0,
+    tierCErrorCount: 0,
   };
 
   constructor(
@@ -90,6 +103,72 @@ export class ValidationNormalizationService {
       };
     });
 
+    return { messages: out, normalizedCount };
+  }
+
+  async normalizeMessagesAsync(
+    messages: MessageLike[],
+    tierCFallback?: (ctx: TierCFallbackContext) => Promise<TierCFallbackResult | null>,
+  ): Promise<NormalizationResult> {
+    let normalizedCount = 0;
+    const out: MessageLike[] = [];
+    for (const m of messages) {
+      if (typeof m.content !== "string" || !this.shouldNormalize(m.name, m.content)) {
+        out.push(m);
+        continue;
+      }
+      const input = {
+        toolName: m.name,
+        rawOutput: m.content,
+        maxFindings: this.config.SYNESIS_YARN_VALIDATION_MAX_FINDINGS,
+        maxExcerptChars: 280,
+      };
+      let envelope;
+      if (this.config.SYNESIS_YARN_VALIDATION_TIER_C_ENABLED && tierCFallback) {
+        this.stats.tierCAttemptCount += 1;
+        try {
+          const base = normalizeValidationOutput(input);
+          envelope = await normalizeValidationOutputWithTierC(input, {
+            enabled: true,
+            fallback: tierCFallback,
+          });
+          if (envelope.summary !== base.summary) {
+            this.stats.tierCSuccessCount += 1;
+          } else {
+            this.stats.tierCFallbackCount += 1;
+          }
+        } catch {
+          this.stats.tierCErrorCount += 1;
+          envelope = normalizeValidationOutput(input);
+        }
+      } else {
+        envelope = normalizeValidationOutput(input);
+      }
+      const decision = applyAdmissionPolicy(
+        envelope,
+        m.content,
+        {
+          maxRawChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+          maxFindings: this.config.SYNESIS_YARN_VALIDATION_MAX_FINDINGS,
+          includeRaw: this.config.SYNESIS_YARN_VALIDATION_INCLUDE_RAW,
+        },
+        this.artifactStore,
+      );
+
+      this.stats.rawCharsTotal += envelope.rawChars;
+      this.stats.normalizedCharsTotal += decision.contentForModel.length;
+      this.stats.findingsTotal += envelope.findings.length;
+      this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(m.content) - estimateTokens(decision.contentForModel));
+      this.stats.admissionDroppedCount += decision.droppedChars > 0 ? 1 : 0;
+      this.stats.artifactHandleCount += decision.usedArtifactHandle ? 1 : 0;
+      this.stats.normalizedMessageCount += 1;
+      normalizedCount += 1;
+
+      out.push({
+        ...m,
+        content: decision.contentForModel,
+      });
+    }
     return { messages: out, normalizedCount };
   }
 

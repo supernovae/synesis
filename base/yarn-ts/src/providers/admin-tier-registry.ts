@@ -49,6 +49,20 @@ export interface TierConfig {
   pricingSource: PricingSource;
 }
 
+export interface RoleAssignmentConfig {
+  role: string;
+  assigned: boolean;
+  backendModel: string;
+  baseUrl: string;
+  apiKey: string;
+  provider: string;
+}
+
+export interface TierRegistrySnapshot {
+  tiers: TierConfig[];
+  roleAssignments: RoleAssignmentConfig[];
+}
+
 export const ROLE_TO_TIER: Record<string, TierId> = {
   "coder-pulse": "synesis-pulse",
   "coder-core": "synesis-core",
@@ -80,7 +94,7 @@ export function resolveTierRates(
   return { rates: { ...FALLBACK_BASE_RATES }, pricingSource: "fallback_base" };
 }
 
-export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]> {
+export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<TierRegistrySnapshot> {
   const hasToken = Boolean(config.SYNESIS_INTERNAL_SERVICE_TOKEN);
   const rolesPath = hasToken ? "/api/v1/models/roles/internal" : "/api/v1/models/roles";
   const costsPath = hasToken ? "/api/v1/models/costs/active/internal" : "/api/v1/models/costs/active";
@@ -108,9 +122,9 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
     costByRole.set(row.role, row);
   }
   const out: TierConfig[] = [];
+  const roleAssignments: RoleAssignmentConfig[] = [];
   for (const row of payload.roles) {
-    const tierId = ROLE_TO_TIER[row.role];
-    if (!tierId || !row.assigned) {
+    if (!row.assigned) {
       continue;
     }
     const provider = (row.provider ?? "").toLowerCase();
@@ -118,6 +132,18 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
     const endpoint = (row.endpoint ?? "").trim() || String(lp.api_base ?? "").trim() || PROVIDER_BASE_URLS[provider] || config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL;
     const keyEnv = (row.api_key_env ?? "").trim();
     const apiKey = (keyEnv ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
+    roleAssignments.push({
+      role: row.role,
+      assigned: true,
+      backendModel: row.model ?? "",
+      baseUrl: endpoint,
+      apiKey,
+      provider,
+    });
+    const tierId = ROLE_TO_TIER[row.role];
+    if (!tierId) {
+      continue;
+    }
     const cost = costByRole.get(row.role);
     const registryRates: PricingRates = {
       input_per_million: Number(cost?.input_per_million ?? 0),
@@ -142,5 +168,10 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
       pricingSource,
     });
   }
-  return out;
+  return { tiers: out, roleAssignments };
+}
+
+export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]> {
+  const snapshot = await fetchTierRegistrySnapshot(config);
+  return snapshot.tiers;
 }

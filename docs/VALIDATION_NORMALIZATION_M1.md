@@ -27,10 +27,27 @@ The normalizer follows a strict tiered resolution order, biasing for determinist
 | **A** | Structured format parser (SARIF, JUnit, Checkstyle, JSON) | Tool emits machine-readable output |
 | **B** | Deterministic line-regex parser | Plain-text with known patterns (tsc, ruff, eslint, pytest, mypy, terraform) |
 | **Enrichment** | Error family classification + root cause + suggested action | Applied to all findings from Tier A and B |
-| **C** | Small LLM fallback *(future)* | Messy/unknown formats needing interpretation |
+| **C** | Small LLM fallback (admin-configured role) | Messy/unknown formats needing interpretation |
 | **D** | Generic single-finding fallback | First line of raw output when nothing else matches |
 
-The rule: **if the field can be extracted mechanically, do not use an LLM.**
+The rule: **if the field can be extracted mechanically, do not use an LLM.** Tier C is only used when deterministic parsing falls back to a generic finding.
+
+## Tier C runtime behavior
+
+Tier C runs only when all conditions are true:
+
+- `SYNESIS_YARN_VALIDATION_TIER_C_ENABLED=true`
+- deterministic parsing produced a generic fallback finding (no structured location/rule)
+- a model is assigned to the Admin role `coder-normalizer`
+
+The fallback parser uses a strict JSON output contract with:
+
+- short timeout
+- bounded input chars
+- bounded finding count
+- hard fallback to deterministic Tier D on any error or malformed JSON
+
+This keeps Tier C fast and safe: if it fails, normal behavior continues.
 
 ## Deterministic enrichment engine
 
@@ -176,6 +193,24 @@ Added to `base/yarn-ts/src/config.ts`:
 - `SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS`
 - `SYNESIS_YARN_VALIDATION_MAX_FINDINGS`
 - `SYNESIS_YARN_VALIDATION_INCLUDE_RAW`
+- `SYNESIS_YARN_VALIDATION_TIER_C_ENABLED`
+- `SYNESIS_YARN_VALIDATION_TIER_C_ROLE` (default: `coder-normalizer`)
+- `SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS`
+- `SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS`
+- `SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS`
+
+### Recommended Tier C model profile
+
+Use a fast, non-thinking extraction model (not an agentic planner model):
+
+- Groq `llama-3.1-8b-instant` for lowest latency API fallback
+- xAI/OpenRouter `grok-4-fast` for stronger robustness with slightly higher cost
+- Local vLLM 7B-14B instruct model when you want cluster-local fallback behavior
+
+Recommended defaults for this role:
+
+- temperature: `0.0-0.2`
+- max tokens: low (the fallback returns compact JSON only)
 
 ## Test coverage
 

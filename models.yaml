@@ -106,6 +106,13 @@ roles:
     pvc_subpath: "coder-horizon-model"
     deployment_name: "synesis-coder-horizon"
 
+  coder-normalizer:
+    description: "Validation normalizer Tier C — fast small model for structured extraction fallback when deterministic parsers miss"
+    default_model: "Qwen/Qwen2.5-3B-Instruct"
+    served_model_name: "synesis-normalizer"
+    service_name: "synesis-normalizer"
+    namespace: "synesis-models"
+
   critic:
     description: "Deep reasoning — critic node evaluates drafts"
     default_model: "RedHatAI/DeepSeek-R1-Distill-Qwen-32B-FP8-dynamic"

@@ -1137,6 +1137,17 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_PATTERN_RECALL_ENABLED          "false"
     _flag SYNESIS_YARN_PATTERN_USAGE_FEEDBACK_ENABLED  "false"
 
+    # ── Phase 19b: Validation Tier C + Tool Schema Pruning ──
+    _flag SYNESIS_YARN_VALIDATION_TIER_C_ENABLED       "false"
+    _flag SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED     "true"
+
+    # Non-boolean tuning knobs (do not force true under FULL mode)
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_ROLE" "${SYNESIS_YARN_VALIDATION_TIER_C_ROLE:-coder-normalizer}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS" "${SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS:-1500}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS" "${SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS:-8000}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS" "${SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS:-8}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE" "${SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE:-0}" "$container"
+
     # ── Content Dispatch ──
     _flag SYNESIS_YARN_CONTENT_DISPATCH_ENABLED        "true"
 
@@ -2035,7 +2046,7 @@ patch_yarn_debug_and_streams
 log ""
 log "Patching Yarn feature flags (Phases 7–19, post-apply)..."
 if is_true "${SYNESIS_YARN_FULL_FEATURES:-false}"; then
-    log "  SYNESIS_YARN_FULL_FEATURES=true — enabling ALL gated features"
+    log "  SYNESIS_YARN_FULL_FEATURES=true — enabling ALL gated features (including Tier C validation fallback)"
 fi
 patch_yarn_feature_flags
 

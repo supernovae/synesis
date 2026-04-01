@@ -38,6 +38,14 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_VALIDATION_TIER_C_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_VALIDATION_TIER_C_ROLE: z.string().default("coder-normalizer"),
+  SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS: z.coerce.number().default(1500),
+  SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS: z.coerce.number().default(8000),
+  SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS: z.coerce.number().default(8),
   SYNESIS_YARN_REDUCERS_ENABLED: z
     .string()
     .optional()
@@ -209,6 +217,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE: z.coerce.number().default(0),
 
   // Trust / injection scan
   SYNESIS_YARN_TRUST_PACKET_ENABLED: z

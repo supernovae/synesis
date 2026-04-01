@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { normalizeValidationOutput } from "../src/validation/normalizer.js";
+import {
+  normalizeValidationOutput,
+  normalizeValidationOutputWithTierC,
+} from "../src/validation/normalizer.js";
 
 describe("normalizeValidationOutput", () => {
   /* ── Tier B: line-regex parsers ─────────────────────────────── */
@@ -279,5 +282,33 @@ describe("normalizeValidationOutput", () => {
     expect(out.summary).toContain('findings="1"');
     expect(out.summary).toContain("Root cause:");
     expect(out.summary).toContain("Action:");
+  });
+
+  it("uses Tier C fallback when deterministic output is generic", async () => {
+    const out = await normalizeValidationOutputWithTierC(
+      {
+        toolName: "unknown",
+        rawOutput: "Validation failed for src/foo.ts at line 9: expected ';'",
+        maxFindings: 5,
+        maxExcerptChars: 200,
+      },
+      {
+        enabled: true,
+        fallback: async () => ({
+          findings: [
+            {
+              family: "generic",
+              severity: "error",
+              file: "src/foo.ts",
+              line: 9,
+              message: "Expected semicolon",
+            },
+          ],
+        }),
+      },
+    );
+    expect(out.findings[0].file).toBe("src/foo.ts");
+    expect(out.findings[0].line).toBe(9);
+    expect(out.summary).toContain("src/foo.ts:9");
   });
 });

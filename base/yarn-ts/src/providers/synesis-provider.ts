@@ -47,4 +47,27 @@ export class SynesisProviderRegistry {
   getTierConfig(modelId: string): TierConfig | undefined {
     return this.tierMap.get(modelId);
   }
+
+  resolveAdHoc(
+    modelId: string,
+    backendModel: string,
+    baseUrl: string,
+    apiKey: string,
+  ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
+    const upstream = createOpenAI({
+      baseURL: baseUrl,
+      apiKey,
+    });
+    const provider = customProvider({
+      languageModels: {
+        [modelId]: upstream.chat(backendModel),
+      },
+    });
+    const adapter = resolveAdapter(backendModel, baseUrl);
+    return {
+      model: provider.languageModel(modelId),
+      resolvedModelId: modelId,
+      adapter,
+    };
+  }
 }

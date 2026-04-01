@@ -9,6 +9,24 @@ import { tryStructuredParse } from "./parsers/index.js";
 import { enrichFindings } from "./enrichment.js";
 import { getLanguagePackRegistry } from "../language-packs/index.js";
 
+export interface TierCFallbackContext {
+  family: ValidationFamily;
+  toolName?: string;
+  rawOutput: string;
+  maxFindings: number;
+  maxExcerptChars: number;
+}
+
+export interface TierCFallbackResult {
+  family?: ValidationFamily;
+  findings: ValidationFinding[];
+}
+
+export interface TierCNormalizationOptions {
+  enabled: boolean;
+  fallback?: (ctx: TierCFallbackContext) => Promise<TierCFallbackResult | null>;
+}
+
 /* ── Tier B: line-regex patterns for plain-text tool output ───── */
 
 const TS_LINE = /^(.+?)\((\d+),(\d+)\):\s*error\s+TS\d+:\s*(.+)$/;
@@ -268,4 +286,61 @@ export function normalizeValidationOutput(input: ValidationNormalizerInput): Val
     truncated: false,
     summary
   };
+}
+
+function shouldTryTierCFallback(input: ValidationNormalizerInput, envelope: ValidationEnvelope): boolean {
+  if (!input.rawOutput.trim()) return false;
+  if (envelope.family !== "generic") return false;
+  if (envelope.findings.length !== 1) return false;
+  const f = envelope.findings[0];
+  // Tier C is only useful when deterministic extraction failed to get structure.
+  if (f.file || f.line || f.column || f.ruleId) return false;
+  return true;
+}
+
+export async function normalizeValidationOutputWithTierC(
+  input: ValidationNormalizerInput,
+  options: TierCNormalizationOptions,
+): Promise<ValidationEnvelope> {
+  const base = normalizeValidationOutput(input);
+  if (!options.enabled || !options.fallback) return base;
+  if (!shouldTryTierCFallback(input, base)) return base;
+
+  try {
+    const tierC = await options.fallback({
+      family: base.family,
+      toolName: input.toolName,
+      rawOutput: input.rawOutput,
+      maxFindings: input.maxFindings,
+      maxExcerptChars: input.maxExcerptChars,
+    });
+    if (!tierC || !Array.isArray(tierC.findings) || tierC.findings.length === 0) {
+      return base;
+    }
+    const fallbackFamily = tierC.family ?? base.family;
+    const normalizedFindings = tierC.findings
+      .slice(0, input.maxFindings)
+      .map((f) => ({
+        ...f,
+        family: f.family ?? fallbackFamily,
+        message: String(f.message ?? "").trim(),
+      }))
+      .filter((f) => f.message.length > 0);
+    if (normalizedFindings.length === 0) {
+      return base;
+    }
+    const enriched = enrichFindings(normalizedFindings);
+    const summary = buildSummary(fallbackFamily, enriched, "text");
+    return {
+      family: fallbackFamily,
+      outputFormat: "text",
+      findings: enriched,
+      rawChars: input.rawOutput.length,
+      normalizedChars: summary.length,
+      truncated: false,
+      summary,
+    };
+  } catch {
+    return base;
+  }
 }

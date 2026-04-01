@@ -18,7 +18,10 @@ import {
   type ClaudeMessagesRequest,
   type OpenAIChatCompletionRequest
 } from "./schemas.js";
-import { fetchTierConfigs } from "./providers/admin-tier-registry.js";
+import {
+  fetchTierRegistrySnapshot,
+  type RoleAssignmentConfig,
+} from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry } from "./providers/synesis-provider.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import { SessionStore, type SessionRecord } from "./state/session-store.js";
@@ -61,6 +64,10 @@ import {
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
+import {
+  extractToolSchemaName,
+  pruneToolSchemas,
+} from "./compat/tool-schema-pruning.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
@@ -80,6 +87,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { EnrichmentPool } from "./workers/pool.js";
+import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 
 type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
@@ -109,6 +117,91 @@ function updateTracePromptMetadata(state: SessionState, latestUserText: string):
   if (!getMetadataString(state.record.metadata, "trace_root_prompt")) {
     state.record.metadata.trace_root_prompt = latest;
   }
+}
+
+function extractRecentToolNames(messages: Array<{ role: string; content: unknown }>): string[] {
+  const names: string[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m || typeof m !== "object") continue;
+    const row = m as Record<string, unknown>;
+    const toolCalls = row.tool_calls;
+    if (Array.isArray(toolCalls)) {
+      for (const tc of toolCalls) {
+        if (!tc || typeof tc !== "object") continue;
+        const fn = (tc as Record<string, unknown>).function;
+        if (fn && typeof fn === "object") {
+          const n = (fn as Record<string, unknown>).name;
+          if (typeof n === "string" && n.trim()) names.push(n.trim());
+        }
+      }
+    }
+  }
+  return names;
+}
+
+function extractRequestedToolNames(userText: string, tools: unknown[]): string[] {
+  const t = userText.toLowerCase();
+  if (!t.trim()) return [];
+  const requested: string[] = [];
+  for (const tool of tools) {
+    const name = extractToolSchemaName(tool);
+    if (!name) continue;
+    const norm = name.toLowerCase();
+    if (t.includes(norm) || t.includes(`tool ${norm}`) || t.includes(`use ${norm}`)) {
+      requested.push(name);
+    }
+  }
+  return requested;
+}
+
+function resolveToolSchemaBudget(adapterMaxEffectiveTools: number | undefined): number {
+  if (!config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED) return 0;
+  const override = config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE;
+  const adapterLimit = adapterMaxEffectiveTools ?? 0;
+  if (override > 0 && adapterLimit > 0) return Math.min(override, adapterLimit);
+  if (override > 0) return override;
+  return adapterLimit;
+}
+
+function parseTierCFallbackJson(raw: string, maxFindings: number): TierCFallbackResult | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const findingsRaw = (parsed as Record<string, unknown>).findings;
+  if (!Array.isArray(findingsRaw) || findingsRaw.length === 0) return null;
+  const findings = findingsRaw
+    .slice(0, maxFindings)
+    .map((f) => {
+      if (!f || typeof f !== "object") return null;
+      const row = f as Record<string, unknown>;
+      const message = String(row.message ?? "").trim();
+      if (!message) return null;
+      const severityRaw = String(row.severity ?? "error").toLowerCase();
+      const severity: "error" | "warning" | "info" =
+        severityRaw === "warning" || severityRaw === "info" ? severityRaw : "error";
+      return {
+        family: "generic" as const,
+        severity,
+        file: typeof row.file === "string" ? row.file : undefined,
+        line: typeof row.line === "number" ? row.line : undefined,
+        column: typeof row.column === "number" ? row.column : undefined,
+        ruleId: typeof row.ruleId === "string" ? row.ruleId : undefined,
+        excerpt: typeof row.excerpt === "string" ? row.excerpt : undefined,
+        message,
+      };
+    })
+    .filter((f): f is NonNullable<typeof f> => Boolean(f));
+  if (findings.length === 0) return null;
+  return { findings };
 }
 
 interface RequestDiagnostic {
@@ -153,6 +246,11 @@ const toolArgHardeningStats = {
   validationFailedCount: 0,
   qwenParserMismatchSuspectCount: 0,
 };
+const toolSchemaPruningStats = {
+  requestsConsidered: 0,
+  requestsPruned: 0,
+  toolsPrunedTotal: 0,
+};
 
 function pushDiagnostic(d: RequestDiagnostic): void {
   diagnosticRing.push(d);
@@ -181,6 +279,7 @@ const securityIngestConfig = {
   adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
 };
 const tierRegistry = new SynesisProviderRegistry();
+const roleAssignmentRegistry = new Map<string, RoleAssignmentConfig>();
 const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS, config.SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS);
 const sessions = new Map<string, SessionState>();
 const sessionStore = new SessionStore(config);
@@ -604,11 +703,15 @@ function injectSessionContext(
 
 async function refreshTierRegistry(): Promise<void> {
   try {
-    const tiers = await fetchTierConfigs(config);
-    tierRegistry.updateTiers(tiers);
-    if (tiers.length > 0) {
-      app.log.info({ tiers: tiers.map((t) => t.id) }, "tier_registry_refreshed");
-      for (const t of tiers) {
+    const snapshot = await fetchTierRegistrySnapshot(config);
+    tierRegistry.updateTiers(snapshot.tiers);
+    roleAssignmentRegistry.clear();
+    for (const role of snapshot.roleAssignments) {
+      roleAssignmentRegistry.set(role.role, role);
+    }
+    if (snapshot.tiers.length > 0) {
+      app.log.info({ tiers: snapshot.tiers.map((t) => t.id), auxiliaryRoles: snapshot.roleAssignments.length }, "tier_registry_refreshed");
+      for (const t of snapshot.tiers) {
         if (!t.apiKey?.trim()) {
           app.log.warn(
             { tier: t.id, baseUrl: t.baseUrl, backendModel: t.backendModel },
@@ -639,6 +742,53 @@ async function refreshTierRegistry(): Promise<void> {
     }
   } catch (error) {
     app.log.warn({ error }, "tier_registry_refresh_failed");
+  }
+}
+
+async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<TierCFallbackResult | null> {
+  if (!config.SYNESIS_YARN_VALIDATION_TIER_C_ENABLED) return null;
+  const role = config.SYNESIS_YARN_VALIDATION_TIER_C_ROLE;
+  const assigned = roleAssignmentRegistry.get(role);
+  if (!assigned?.assigned || !assigned.backendModel) return null;
+
+  const rawOutput = ctx.rawOutput.slice(0, Math.max(1000, config.SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS));
+  const findingsTarget = Math.max(1, Math.min(ctx.maxFindings, config.SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS));
+  try {
+    const { model } = tierRegistry.resolveAdHoc(
+      `synesis-tierc-${role}`,
+      assigned.backendModel,
+      assigned.baseUrl,
+      assigned.apiKey,
+    );
+    const result = await generateText({
+      model: model as never,
+      maxOutputTokens: 700,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You extract validation findings from noisy tool output.",
+            "Return strict JSON only with this shape:",
+            '{"findings":[{"severity":"error|warning|info","file":"optional","line":0,"column":0,"ruleId":"optional","message":"required","excerpt":"optional"}]}',
+            `Return at most ${findingsTarget} findings.`,
+            "Do not include markdown, prose, or code fences.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: [
+            `Tool: ${ctx.toolName ?? "unknown"}`,
+            `Family hint: ${ctx.family}`,
+            "Output:",
+            rawOutput,
+          ].join("\n\n"),
+        },
+      ] as never,
+      abortSignal: AbortSignal.timeout(Math.max(300, config.SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS)),
+    });
+    return parseTierCFallbackJson(result.text, findingsTarget);
+  } catch {
+    return null;
   }
 }
 
@@ -1378,6 +1528,7 @@ app.get("/health/telemetry", async (req, reply) => {
     validationNormalization: validationNormalization.getStats(),
     toolResultReduction: toolResultReduction.getStats(),
     toolArgHardening: { ...toolArgHardeningStats },
+    toolSchemaPruning: { ...toolSchemaPruningStats },
     workingFrame: workingFrameService.getStats(),
     projectManifest: projectManifestService.getStats(),
     deterministicPolicy: policyEngine.getStats(),
@@ -1569,7 +1720,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
         toolResultReduction.reduceMessages(request.messages as never),
       );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
-  const normalizedOpenAI = validationNormalization.normalizeMessages(reducedOpenAI.messages as never);
+  const normalizedOpenAI = await validationNormalization.normalizeMessagesAsync(
+    reducedOpenAI.messages as never,
+    runValidationTierCFallback,
+  );
   const adapterProfile = clientAdapterPacks.resolve(
     String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
@@ -1879,10 +2033,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const { resolved, messages } = resolveResult;
   const { adapter } = resolved;
-  const sdkTools = openAIToolsToSDK(normalizedRequest.tools);
+  const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
+  const toolBudget = resolveToolSchemaBudget(adapter.maxEffectiveTools);
+  const prunedTools = pruneToolSchemas(
+    rawTools,
+    toolBudget,
+    extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+    extractRequestedToolNames(String(latestUserText?.content ?? ""), rawTools),
+  );
+  toolSchemaPruningStats.requestsConsidered += 1;
+  if (prunedTools.pruned) {
+    toolSchemaPruningStats.requestsPruned += 1;
+    toolSchemaPruningStats.toolsPrunedTotal += prunedTools.prunedCount;
+  }
+  const effectiveTools = prunedTools.tools;
+  const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
-  const modelToolPrompt = adapter.toolSystemPrompt?.(((normalizedRequest.tools as unknown[]) ?? []).length);
+  const modelToolPrompt = adapter.toolSystemPrompt?.(effectiveTools.length);
   const modelMessages = modelToolPrompt
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
     : messages;
@@ -2010,7 +2178,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     pushDiagnostic({
       timestamp: Date.now(), sessionKey, path: "/v1/chat/completions", requestId: reqId,
       ...msgCounts,
-      toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
+      toolDefinitionCount: effectiveTools.length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
       reducedToolResults: reducedOpenAI.reducedCount,
@@ -2192,7 +2360,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   pushDiagnostic({
     timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)", requestId: reqId,
     ...oaiStreamMsgCounts,
-    toolDefinitionCount: (normalizedRequest.tools as unknown[] ?? []).length,
+    toolDefinitionCount: effectiveTools.length,
     artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
     knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
     reducedToolResults: reducedOpenAI.reducedCount,
@@ -2281,7 +2449,10 @@ app.post("/v1/messages", async (req, reply) => {
     : toolSearchResult.tools;
 
   const claudeToolResultCount = (body.messages as Array<{ role: string }>).filter((m) => m.role === "tool_result" || m.role === "tool").length;
-  const normalizedFromClaude = validationNormalization.normalizeMessages(openAIMessages as never);
+  const normalizedFromClaude = await validationNormalization.normalizeMessagesAsync(
+    openAIMessages as never,
+    runValidationTierCFallback,
+  );
 
   debugProtocolLog(app.log as never, traceReqId, "/v1/messages", {
     model: body.model,
@@ -2604,11 +2775,25 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const { resolved, messages } = claudeResolveResult;
   const { adapter: claudeAdapter } = resolved;
-  const sdkTools = claudeToolsToSDK(processedTools as never);
+  const claudeRawTools = (processedTools as unknown[]) ?? [];
+  const claudeToolBudget = resolveToolSchemaBudget(claudeAdapter.maxEffectiveTools);
+  const prunedClaudeTools = pruneToolSchemas(
+    claudeRawTools,
+    claudeToolBudget,
+    extractRecentToolNames(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>),
+    extractRequestedToolNames(String(latestClaudeUser?.content ?? ""), claudeRawTools),
+  );
+  toolSchemaPruningStats.requestsConsidered += 1;
+  if (prunedClaudeTools.pruned) {
+    toolSchemaPruningStats.requestsPruned += 1;
+    toolSchemaPruningStats.toolsPrunedTotal += prunedClaudeTools.prunedCount;
+  }
+  const effectiveClaudeTools = prunedClaudeTools.tools;
+  const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
 
-  const claudeModelToolPrompt = claudeAdapter.toolSystemPrompt?.(((body.tools as unknown[]) ?? []).length);
+  const claudeModelToolPrompt = claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length);
   const claudeModelMessages = claudeModelToolPrompt
     ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)
     : messages;
@@ -2890,7 +3075,7 @@ app.post("/v1/messages", async (req, reply) => {
     pushDiagnostic({
       timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)", requestId: reqId,
       ...claudeStreamMsgCounts,
-      toolDefinitionCount: (body.tools as unknown[] ?? []).length,
+      toolDefinitionCount: effectiveClaudeTools.length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
       reducedToolResults: claudeToolResultCount,
@@ -3003,7 +3188,7 @@ app.post("/v1/messages", async (req, reply) => {
   pushDiagnostic({
     timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages", requestId: reqId,
     ...claudeNonStreamMsgCounts,
-    toolDefinitionCount: (body.tools as unknown[] ?? []).length,
+    toolDefinitionCount: effectiveClaudeTools.length,
     artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
     knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
     reducedToolResults: claudeToolResultCount,

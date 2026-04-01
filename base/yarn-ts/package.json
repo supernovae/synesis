@@ -13,6 +13,7 @@
     "verify:live": "tsx scripts/live-verify.ts",
     "verify:live:full": "SYNESIS_VERIFY_MODE=full tsx scripts/live-verify.ts",
     "verify:ab": "tsx scripts/ab-reducer-compare.ts",
+    "verify:tiers": "tsx scripts/tier-compare.ts",
     "scaffold:reducer": "tsx scripts/scaffold-reducer.ts"
   },
   "dependencies": {

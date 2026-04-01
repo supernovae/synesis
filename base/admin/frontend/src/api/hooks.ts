@@ -1984,6 +1984,19 @@ export interface YarnIntelligence {
 
 export interface YarnRuntimeTelemetry {
   timestamp: number;
+  validationNormalization?: {
+    rawCharsTotal: number;
+    normalizedCharsTotal: number;
+    findingsTotal: number;
+    tokensSavedEstimateTotal: number;
+    artifactHandleCount: number;
+    admissionDroppedCount: number;
+    normalizedMessageCount: number;
+    tierCAttemptCount?: number;
+    tierCSuccessCount?: number;
+    tierCFallbackCount?: number;
+    tierCErrorCount?: number;
+  };
   toolResultReduction?: {
     rawCharsTotal: number;
     reducedCharsTotal: number;
@@ -2004,6 +2017,11 @@ export interface YarnRuntimeTelemetry {
     totalCharsBefore: number;
     totalCharsAfter: number;
     compactionFailures: number;
+  };
+  toolSchemaPruning?: {
+    requestsConsidered: number;
+    requestsPruned: number;
+    toolsPrunedTotal: number;
   };
 }
 

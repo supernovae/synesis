@@ -26,6 +26,11 @@ function makeConfig(): AppConfig {
     SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS: 1000,
     SYNESIS_YARN_VALIDATION_MAX_FINDINGS: 20,
     SYNESIS_YARN_VALIDATION_INCLUDE_RAW: false,
+    SYNESIS_YARN_VALIDATION_TIER_C_ENABLED: true,
+    SYNESIS_YARN_VALIDATION_TIER_C_ROLE: "coder-normalizer",
+    SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS: 1500,
+    SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS: 8000,
+    SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS: 8,
     SYNESIS_YARN_REDUCERS_ENABLED: true,
     SYNESIS_YARN_REDUCER_DISABLED_FAMILIES: "",
     SYNESIS_YARN_REDUCER_MIN_CONFIDENCE: 0.6,
@@ -33,7 +38,9 @@ function makeConfig(): AppConfig {
     SYNESIS_YARN_WORKING_FRAME_ENABLED: true,
     SYNESIS_YARN_PROJECT_MANIFEST_ENABLED: true,
     SYNESIS_YARN_FRAME_MAX_FILES: 12,
-    SYNESIS_YARN_PERSIST_USAGE_TO_DB: true
+    SYNESIS_YARN_PERSIST_USAGE_TO_DB: true,
+    SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED: true,
+    SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE: 0,
   };
 }
 
@@ -55,5 +62,28 @@ describe("ValidationNormalizationService", () => {
     expect(stats.rawCharsTotal).toBe(raw.length);
     expect(stats.findingsTotal).toBeGreaterThan(0);
     expect(stats.tokensSavedEstimateTotal).toBeGreaterThanOrEqual(0);
+  });
+
+  it("supports Tier C async fallback path", async () => {
+    const svc = new ValidationNormalizationService(makeConfig());
+    const out = await svc.normalizeMessagesAsync(
+      [{ role: "tool", name: "unknown", content: "failed at src/a.ts line 4" }],
+      async () => ({
+        findings: [
+          {
+            family: "generic",
+            severity: "error",
+            file: "src/a.ts",
+            line: 4,
+            message: "Validation failed",
+          },
+        ],
+      }),
+    );
+    expect(out.normalizedCount).toBe(1);
+    expect(String(out.messages[0].content)).toContain("src/a.ts:4");
+    const stats = svc.getStats();
+    expect(stats.tierCAttemptCount).toBe(1);
+    expect(stats.tierCSuccessCount).toBe(1);
   });
 });

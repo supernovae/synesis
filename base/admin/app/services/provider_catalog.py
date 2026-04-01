@@ -93,6 +93,7 @@ KNOWN_ROLES = (
     "coder-core",
     "coder-horizon",
     "coder-compaction",
+    "coder-normalizer",
     "summarizer",
     "indexer-enrich",
 )
@@ -108,6 +109,7 @@ ROLE_DESCRIPTIONS = {
     "coder-core": "Balanced coder tier — multi-step agentic tasks, default for IDE sessions (maps to Claude Sonnet class)",
     "coder-horizon": "Deep reasoning coder tier — architecture decisions, complex debugging (maps to Claude Opus class)",
     "coder-compaction": "Context compaction — small fast model for sawtooth trajectory summarization in Yarn coder sessions",
+    "coder-normalizer": "Validation normalizer Tier C — fast small model for structured extraction fallback when deterministic parsers miss",
     "summarizer": "Pivot history summarization — router evidence compression",
     "indexer-enrich": "Indexer chunk enrichment — small model for structured metadata extraction during corpus ingestion",
 }
@@ -120,6 +122,7 @@ ROLE_SERVED_NAMES = {
     "coder-core": "synesis-core",
     "coder-horizon": "synesis-horizon",
     "coder-compaction": "synesis-compaction",
+    "coder-normalizer": "synesis-normalizer",
 }
 
 
