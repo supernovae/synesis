@@ -117,8 +117,8 @@ def _mock_all(monkeypatch):
 
 @pytest.fixture()
 def client():
-    from app.main import app
     from app.auth import create_token
+    from app.main import app
 
     token = create_token("smoke-tester", "platform_admin")
     headers = {"Authorization": f"Bearer {token}"}
