@@ -289,6 +289,38 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
 
+  // Tool call collapsing (Synesis batch tools; opt-in client + /v1/coder/tool-collapse/plan)
+  SYNESIS_YARN_TOOL_COLLAPSE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS: z.coerce.number().default(100),
+  SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST: z
+    .string()
+    .default(
+      "^npm test$|^pnpm test$|^yarn test$|^pytest\\s|^go test\\s|^cargo test\\s",
+    ),
+
+  // Dedupe layer (exact + segment semantic + response cache; runs before linear collapse when enabled)
+  SYNESIS_YARN_DEDUPE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() === "true"),
+  SYNESIS_YARN_DEDUPE_CACHE_MAX: z.coerce.number().default(512),
+  SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS: z.coerce.number().default(4096),
+
+  // Tool prefix cache (LRU tool results after collapse; wraps executor only)
+  SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() === "true"),
+  SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRIES: z.coerce.number().default(512),
+  SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES: z.coerce.number().default(262_144),
+
   // Debug / trace
   SYNESIS_YARN_DEBUG_PROTOCOL: z
     .string()

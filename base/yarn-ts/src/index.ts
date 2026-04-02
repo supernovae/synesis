@@ -47,6 +47,14 @@ import { critiquStructure as manifestCritique } from "./manifest/structural-crit
 import { buildVerificationPlan, formatVerificationPlanBlock } from "./verification/planner.js";
 import { VerificationLoopTracker } from "./verification/loop-tracker.js";
 import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
+import { DedupeLayer } from "./dedupe/DedupeLayer.js";
+import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
+import {
+  registerToolCollapseRoutes,
+  ToolCallInterceptor,
+  planToSyntheticToolCalls,
+  defaultShellAllowlistFromEnv,
+} from "./tool-collapse/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
 import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
@@ -272,6 +280,27 @@ const app = Fastify({
   logger: { level: config.LOG_LEVEL },
   forceCloseConnections: "idle"
 });
+
+const yarnDedupeLayer =
+  config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED && config.SYNESIS_YARN_DEDUPE_ENABLED
+    ? new DedupeLayer({
+        maxCacheEntries: config.SYNESIS_YARN_DEDUPE_CACHE_MAX,
+        maxSearchQueryChars: config.SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS,
+        log: (e) =>
+          app.log.info(
+            { kind: e.kind, msg: e.message, toolCallIds: e.toolCallIds, detail: e.detail },
+            "yarn_dedupe",
+          ),
+      })
+    : null;
+
+const yarnToolPrefixCache =
+  config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED && config.SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED
+    ? new ToolPrefixCache({
+        maxEntries: config.SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRIES,
+        maxEntryBytes: config.SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES,
+      })
+    : null;
 const promRegistry = new Registry();
 const svcMetrics = createServiceMetrics("yarn", promRegistry);
 const traceEmitterConfig = {
@@ -1708,6 +1737,12 @@ await registerMcpRoutes(app, {
   authResolver,
   enabled: config.SYNESIS_YARN_MCP_TOOLS_ENABLED,
 });
+await registerToolCollapseRoutes(app, {
+  authResolver,
+  config,
+  dedupeLayer: yarnDedupeLayer,
+  toolPrefixCache: yarnToolPrefixCache,
+});
 
 // --- OpenAI chat completions ---
 app.post("/v1/chat/completions", async (req, reply) => {
@@ -2198,7 +2233,42 @@ app.post("/v1/chat/completions", async (req, reply) => {
     otelSpan.end();
 
     const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-    const externalToolCalls = toolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+    let externalToolCalls = toolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+    if (
+      config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED &&
+      config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM &&
+      String(req.headers["x-synesis-tool-collapse"] ?? "") === "apply" &&
+      externalToolCalls.length > 1
+    ) {
+      const wsHeader = req.headers["x-synesis-workspace-root"];
+      const workspaceRoot = typeof wsHeader === "string" && wsHeader.trim() ? wsHeader.trim() : null;
+      const allowlist = defaultShellAllowlistFromEnv(config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST);
+      const collapseInterceptor = new ToolCallInterceptor({
+        workspaceRoot,
+        shellAllowlist: allowlist,
+        strictValidation: true,
+        execute: false,
+        executor: null,
+        dedupeLayer: yarnDedupeLayer,
+        toolPrefixCache: yarnToolPrefixCache,
+        log: ({ msg, data }) => app.log.info({ msg, ...data }, "tool_collapse_non_stream"),
+      });
+      const parsedCalls = externalToolCalls.map((tc) => ({
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        input: tc.input,
+      }));
+      const collapseResult = await collapseInterceptor.processImmediate(parsedCalls);
+      if (collapseResult.validated.ok && collapseResult.usedCollapse) {
+        const synthetic = planToSyntheticToolCalls(collapseResult.plan);
+        externalToolCalls = synthetic.map((s) => ({
+          toolCallId: s.toolCallId,
+          toolName: s.toolName,
+          input: s.input,
+        }));
+        app.log.info({ from: parsedCalls.length, to: synthetic.length, reqId }, "tool_collapse_rewrite_non_stream");
+      }
+    }
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
     session.history.push({ role: "assistant", content: finalResult.text });
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);

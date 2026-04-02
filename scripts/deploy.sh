@@ -34,6 +34,14 @@ set -euo pipefail
 #     yarn_sessions / yarn_usage_log rows to appear in Admin → Yarn.
 #   - Optional: SYNESIS_PAT_PEPPER on yarn-ts must match admin when using HMAC PAT hashing.
 #
+# Yarn tool call collapsing (docs/YARN_TOOL_COLLAPSE.md):
+#   - SYNESIS_YARN_TOOL_COLLAPSE_ENABLED (default true via deploy.sh patch) — exposes POST /v1/coder/tool-collapse/plan.
+#   - SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM (default false) — rewrite non-stream completions to synesis_* tools;
+#     requires client support + x-synesis-workspace-root + x-synesis-tool-collapse: apply.
+#   - SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS, SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST (optional override).
+#   - SYNESIS_YARN_DEDUPE_ENABLED (default true), SYNESIS_YARN_DEDUPE_CACHE_MAX, SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS.
+#   - SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED (default true), MAX_ENTRIES, MAX_ENTRY_BYTES.
+#
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
 #   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
@@ -1072,6 +1080,43 @@ patch_yarn_debug_and_streams() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS" "${SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS:-30000}" "$container"
 }
 
+# Tool call collapsing: batch/dedupe model tool rounds (see docs/YARN_TOOL_COLLAPSE.md).
+patch_yarn_tool_collapse_envs() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+    local container="yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    local collapse_enabled="${SYNESIS_YARN_TOOL_COLLAPSE_ENABLED:-true}"
+    local collapse_rewrite="${SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM:-false}"
+    local collapse_debounce="${SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS:-100}"
+
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_COLLAPSE_ENABLED" "$collapse_enabled" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM" "$collapse_rewrite" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS" "$collapse_debounce" "$container"
+
+    local dedupe_enabled="${SYNESIS_YARN_DEDUPE_ENABLED:-true}"
+    local dedupe_cache_max="${SYNESIS_YARN_DEDUPE_CACHE_MAX:-512}"
+    local dedupe_query_max="${SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS:-4096}"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_DEDUPE_ENABLED" "$dedupe_enabled" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_DEDUPE_CACHE_MAX" "$dedupe_cache_max" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS" "$dedupe_query_max" "$container"
+
+    local pcache_enabled="${SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED:-true}"
+    local pcache_entries="${SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRIES:-512}"
+    local pcache_bytes="${SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES:-262144}"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED" "$pcache_enabled" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRIES" "$pcache_entries" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES" "$pcache_bytes" "$container"
+
+    if [[ -n "${SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST:-}" ]]; then
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST" "${SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST}" "$container"
+    fi
+}
+
 # Patch all Yarn feature flags (Phases 7–19).
 # Each flag defaults to the value in config.ts but can be overridden by the
 # corresponding shell env var when running deploy.sh.
@@ -1155,6 +1200,12 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_TRUST_PACKET_ENABLED            "true"
     _flag SYNESIS_YARN_INJECTION_SCAN_ENABLED          "true"
     _flag SYNESIS_YARN_SECURITY_INGEST_ENABLED         "true"
+
+    # ── Tool call collapse (plan API + optional non-stream rewrite) ──
+    _flag SYNESIS_YARN_TOOL_COLLAPSE_ENABLED           "true"
+    _flag SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM "false"
+    _flag SYNESIS_YARN_DEDUPE_ENABLED                  "true"
+    _flag SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED       "true"
 }
 
 # Ensure MCP-TS has the internal service token and admin DB URL.
@@ -2067,6 +2118,10 @@ patch_yarn_reducer_envs
 log ""
 log "Patching Yarn debug protocol and stream admission (post-apply)..."
 patch_yarn_debug_and_streams
+
+log ""
+log "Patching Yarn tool-collapse envs (post-apply)..."
+patch_yarn_tool_collapse_envs
 
 log ""
 log "Patching Yarn feature flags (Phases 7–19, post-apply)..."

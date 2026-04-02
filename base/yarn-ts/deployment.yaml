@@ -93,6 +93,25 @@ spec:
             # ── Debug protocol ──
             - name: SYNESIS_YARN_DEBUG_PROTOCOL
               value: "true"
+            # ── Tool call collapsing (API always useful; rewrite is opt-in per client headers) ──
+            - name: SYNESIS_YARN_TOOL_COLLAPSE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM
+              value: "false"
+            - name: SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS
+              value: "100"
+            - name: SYNESIS_YARN_DEDUPE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_DEDUPE_CACHE_MAX
+              value: "512"
+            - name: SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS
+              value: "4096"
+            - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRIES
+              value: "512"
+            - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES
+              value: "262144"
             # ── OTEL (optional — no-op until endpoint is set) ──
             - name: SYNESIS_YARN_OTEL_ENABLED
               value: "false"
