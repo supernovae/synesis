@@ -135,8 +135,13 @@ compile_one() {
     fi
 
     log "Compiling $name ($dir/requirements.txt)"
-    uv pip compile "$src" "${args[@]}" -o "$out" 2>&1 \
-        || die "Failed to compile $name"
+    # Compile to a temp file: `uv pip compile -o` against an existing lockfile
+    # reuses that file as constraints, so in-place writes never fully refresh.
+    local tmp
+    tmp="$(mktemp)"
+    uv pip compile "$src" "${args[@]}" -o "$tmp" 2>&1 \
+        || { rm -f "$tmp"; die "Failed to compile $name"; }
+    mv "$tmp" "$out"
 
     log "  -> $dir/requirements.lock"
 }
