@@ -46,10 +46,6 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    ignore:
-      # mcp-ts stays on zod v3 until migrated; rest of monorepo uses zod 4.
-      - dependency-name: "zod"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "pip"
     directory: "/base/admin"

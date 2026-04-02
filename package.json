@@ -6,6 +6,7 @@
     "base/yarn-ts"
   ],
   "overrides": {
-    "axios": "1.14.0"
+    "axios": "1.14.0",
+    "zod": "4.3.6"
   }
 }

@@ -1,0 +1,29 @@
+---
+description: Align npm dependency versions across Synesis TS packages; avoid stale majors for familiarity
+alwaysApply: true
+---
+
+# npm / TypeScript dependency consistency
+
+## Goals
+
+- **One behavioral baseline** for shared libraries (Zod, Vitest, TypeScript, Fastify, etc.) so services and packages do not drift silently.
+- Prefer **current stable** releases and fix code when upgrading—not permanent shims or “known old” stacks because a model or doc example used an older API.
+- Stay off **bleeding edge** (alphas, same-day majors): use widely adopted minors/patches and respect peer dependency ranges.
+
+## Canonical sources of truth
+
+1. **Workspace root** [`package.json`](package.json): `workspaces` + **`overrides`** for security and cross-workspace pins (e.g. `axios`, `zod`). When changing a pinned override, update **every** `package.json` that declares that package and refresh **all** affected `package-lock.json` files.
+2. **Node services + shared libraries** — align declared ranges with [`base/planner-ts/package.json`](base/planner-ts/package.json) and [`packages/*/package.json`](packages/): **`zod` ^4.3.x**, **`typescript` ^6.0.x**, **`vitest` ^4.1.x**, **`tsx` ^4.21.x**, **`@types/node` ^25.5.x**, **`fastify` ^5.8.x** (when used).
+3. **`base/mcp-ts`** is **not** an npm workspace member; it still uses the **same** shared versions as planner/yarn for overlapping deps. Run `npm install` there after changing those ranges so [`base/mcp-ts/package-lock.json`](base/mcp-ts/package-lock.json) stays honest.
+4. **Admin SPA** [`base/admin/frontend/package.json`](base/admin/frontend/package.json): Vite/React stack may differ, but **TypeScript** should stay compatible with the rest of the repo when peers allow (e.g. `typescript-eslint` must declare support for the chosen TypeScript major). Vite projects need [`src/vite-env.d.ts`](base/admin/frontend/src/vite-env.d.ts) with `/// <reference types="vite/client" />` for CSS imports under strict TS.
+
+## Do not
+
+- Introduce **Zod 3** or other **superseded majors** on new code paths “for familiarity.”
+- Add a second lockfile strategy (e.g. duplicate conflicting ranges) without updating the canonical package + lockfiles above.
+
+## When editing dependencies
+
+- Compare against **planner-ts** first; bump **mcp-ts** and **packages/** to match for shared names.
+- After edits: `npm install` at repo root (workspaces) and separately under **`base/mcp-ts`** and **`base/admin/frontend`** where those trees keep their own locks; run **`npm test`** / **`npm run build`** for touched apps.
