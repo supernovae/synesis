@@ -63,6 +63,7 @@ import {
   parseSessionExecutionContext,
   resolveWorkspaceRootForCollapse,
 } from "./adapters/client-adapter-packs.js";
+import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
@@ -258,6 +259,7 @@ let DIAGNOSTIC_RING_MAX = 20;
 const toolArgHardeningStats = {
   normalizedPathCount: 0,
   projectRootConstrainedCount: 0,
+  blockedBashPathDriftCount: 0,
   remappedArgsCount: 0,
   repairedWriteCount: 0,
   repairedBashCount: 0,
@@ -865,12 +867,19 @@ async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<Ti
 
 import type { ModelAdapter } from "./providers/model-adapter.js";
 import {
-  constrainFileToolPathToProjectRoot,
-  normalizeFileToolArgs,
   repairBashToolCall,
   repairWriteToolCall,
-  validateToolArgs,
 } from "./providers/model-adapter.js";
+import { governToolCall } from "./path-governance/tool-call-governance.js";
+import {
+  buildWorkspaceHandshakeBashCommand,
+  contextFromSessionMetadata,
+  extractClaudeToolResult,
+  extractOpenAIToolResult,
+  hasBashTool,
+  makeWorkspaceHandshakeToolCallId,
+  parseWorkspaceContextOutput,
+} from "./session/workspace-context-handshake.js";
 
 type ResolveResult =
   | { ok: true; resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
@@ -1205,6 +1214,185 @@ function toolLoopSoftFailMessage(decision: PolicyDecision): string {
     reason,
     "If you want me to continue, share one adjustment (for example: install missing local tools, choose a different command, or confirm a narrower fix strategy) and I will resume from here."
   ].join(" ");
+}
+
+type HandshakeStatus = "pending" | "ready" | "unavailable";
+type SessionPathHints = {
+  projectRoot: string | null;
+  shellCwd: string | null;
+  platform?: string;
+  osVersion?: string;
+  shell?: string;
+  gitSummary?: string;
+  clientModelLabel?: string;
+  knowledgeCutoff?: string;
+};
+
+function getHandshakeStatus(meta: Record<string, unknown>): HandshakeStatus | "" {
+  const s = String(meta.workspace_context_status ?? "").trim();
+  return s === "pending" || s === "ready" || s === "unavailable" ? s : "";
+}
+
+function getHandshakeAttempts(meta: Record<string, unknown>): number {
+  const n = Number(meta.workspace_context_attempts ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function mergeSessionPathHints(base: SessionPathHints, state: SessionState): SessionPathHints {
+  const fromSession = contextFromSessionMetadata(state.record.metadata);
+  if (!fromSession) return base;
+  return {
+    ...base,
+    projectRoot: base.projectRoot ?? fromSession.projectRoot,
+    shellCwd: base.shellCwd ?? fromSession.cwd,
+    shell: base.shell ?? fromSession.shell,
+    platform: base.platform ?? fromSession.os,
+    osVersion: base.osVersion ?? fromSession.arch,
+  };
+}
+
+function setSessionWorkspaceContext(
+  state: SessionState,
+  status: HandshakeStatus,
+  reqId: string,
+  details?: { toolCallId?: string; reason?: string; cwd?: string; projectRoot?: string; shell?: string; os?: string; arch?: string },
+): void {
+  state.record.metadata.workspace_context_status = status;
+  state.record.metadata.workspace_context_updated_at = Date.now();
+  if (details?.toolCallId) {
+    state.record.metadata.workspace_context_tool_call_id = details.toolCallId;
+  }
+  if (details?.reason) {
+    state.record.metadata.workspace_context_reason = details.reason.slice(0, 300);
+  }
+  if (details?.cwd) state.record.metadata.workspace_context_cwd = details.cwd;
+  if (details?.projectRoot) state.record.metadata.workspace_context_project_root = details.projectRoot;
+  if (details?.shell) state.record.metadata.workspace_context_shell = details.shell;
+  if (details?.os) state.record.metadata.workspace_context_os = details.os;
+  if (details?.arch) state.record.metadata.workspace_context_arch = details.arch;
+  state.record.metadata.last_trace_id = reqId;
+}
+
+function shouldStartWorkspaceHandshake(
+  state: SessionState,
+  pathCtx: SessionPathHints,
+): boolean {
+  if (!config.SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED) return false;
+  if (pathCtx.projectRoot || pathCtx.shellCwd) return false;
+  const status = getHandshakeStatus(state.record.metadata);
+  if (status === "ready" || status === "pending") return false;
+  return getHandshakeAttempts(state.record.metadata) < Math.max(1, config.SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS);
+}
+
+function sendOpenAIWorkspaceHandshake(
+  reply: import("fastify").FastifyReply,
+  requestId: string,
+  model: string,
+  stream: boolean,
+  toolCallId: string,
+): import("fastify").FastifyReply {
+  const input = {
+    command: buildWorkspaceHandshakeBashCommand(),
+    description: "Initializing workspace context (read-only): cwd/project root/shell/os",
+  };
+  if (!stream) {
+    return reply.send({
+      id: requestId,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [{
+        index: 0,
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [{
+            id: toolCallId,
+            type: "function",
+            function: { name: "Bash", arguments: JSON.stringify(input) },
+          }],
+        },
+        finish_reason: "tool_calls",
+      }],
+    });
+  }
+
+  const ts = Math.floor(Date.now() / 1000);
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  safeWrite(reply.raw, `data: ${JSON.stringify({
+    id: requestId,
+    object: "chat.completion.chunk",
+    created: ts,
+    model,
+    choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: toolCallId, type: "function", function: { name: "Bash", arguments: JSON.stringify(input) } }] }, finish_reason: null }],
+  })}\n\n`);
+  safeWrite(reply.raw, `data: ${JSON.stringify({
+    id: requestId,
+    object: "chat.completion.chunk",
+    created: ts,
+    model,
+    choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+  })}\n\n`);
+  safeWrite(reply.raw, "data: [DONE]\n\n");
+  safeEnd(reply.raw);
+  return reply;
+}
+
+function sendClaudeWorkspaceHandshake(
+  reply: import("fastify").FastifyReply,
+  model: string,
+  stream: boolean,
+  toolCallId: string,
+): import("fastify").FastifyReply {
+  const input = {
+    command: buildWorkspaceHandshakeBashCommand(),
+    description: "Initializing workspace context (read-only): cwd/project root/shell/os",
+  };
+  if (!stream) {
+    return reply.send({
+      id: `msg_${crypto.randomUUID()}`,
+      type: "message",
+      role: "assistant",
+      model,
+      content: [{ type: "tool_use", id: toolCallId, name: "Bash", input }],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 0, output_tokens: 0 },
+    });
+  }
+
+  const msgId = `msg_${crypto.randomUUID()}`;
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  safeSse(reply, "message_start", {
+    type: "message_start",
+    message: { id: msgId, type: "message", role: "assistant", model, content: [] },
+  });
+  safeSse(reply, "content_block_start", {
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "tool_use", id: toolCallId, name: "Bash" },
+  });
+  safeSse(reply, "content_block_delta", {
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "input_json_delta", partial_json: JSON.stringify(input) },
+  });
+  safeSse(reply, "content_block_stop", { type: "content_block_stop", index: 0 });
+  safeSse(reply, "message_delta", {
+    type: "message_delta",
+    delta: { stop_reason: "tool_use" },
+    usage: { input_tokens: 0, output_tokens: 0 },
+  });
+  safeSse(reply, "message_stop", { type: "message_stop" });
+  safeEnd(reply.raw);
+  return reply;
 }
 
 function sendOpenAISoftFail(
@@ -1824,6 +2012,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     clientAdapterPacks.toSystemBlock(adapterProfile),
     req.headers as Record<string, string | string[] | undefined>,
     oaiBodyMeta,
+    String((req.headers["x-synesis-client"] as string | undefined) ?? ""),
   );
   const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
@@ -1850,6 +2039,56 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const session = await getSessionState(sessionKey, identity);
   if (latestUserText && typeof latestUserText.content === "string") {
     updateTracePromptMetadata(session, latestUserText.content);
+  }
+  const pendingWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
+  const workspaceStatus = getHandshakeStatus(session.record.metadata);
+  if (workspaceStatus === "pending" && pendingWorkspaceToolId) {
+    const toolResult = extractOpenAIToolResult(request.messages as Array<{ role: string; tool_call_id?: string; content?: unknown }>, pendingWorkspaceToolId);
+    if (toolResult !== null) {
+      const parsedCtx = parseWorkspaceContextOutput(toolResult);
+      if (parsedCtx) {
+        setSessionWorkspaceContext(session, "ready", oaiTraceReqId, {
+          toolCallId: pendingWorkspaceToolId,
+          cwd: parsedCtx.cwd,
+          projectRoot: parsedCtx.projectRoot,
+          shell: parsedCtx.shell,
+          os: parsedCtx.os,
+          arch: parsedCtx.arch,
+        });
+        recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_ready", "workspace-handshake", "Initializing workspace context completed", oaiTraceReqId);
+      } else {
+        setSessionWorkspaceContext(session, "unavailable", oaiTraceReqId, {
+          toolCallId: pendingWorkspaceToolId,
+          reason: "workspace context parse failed",
+        });
+        recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (parse failure)", oaiTraceReqId);
+      }
+    } else {
+      setSessionWorkspaceContext(session, "unavailable", oaiTraceReqId, {
+        toolCallId: pendingWorkspaceToolId,
+        reason: "workspace context tool result not returned",
+      });
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (tool result missing/denied)", oaiTraceReqId);
+    }
+  }
+  const effectiveOaiPathCtx = mergeSessionPathHints(oaiPathCtx, session);
+  const effectiveOaiAdapterBlock = (() => {
+    const ctxBlock = toSessionExecutionContextSystemBlock(effectiveOaiPathCtx);
+    if (!ctxBlock) return adapterBlock;
+    return `${clientAdapterPacks.toSystemBlock(adapterProfile)}\n\n${ctxBlock}`;
+  })();
+  if (shouldStartWorkspaceHandshake(session, effectiveOaiPathCtx)) {
+    if (!hasBashTool(request.tools as unknown[] | undefined)) {
+      setSessionWorkspaceContext(session, "unavailable", oaiTraceReqId, { reason: "Bash tool not available for workspace handshake" });
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (Bash tool missing)", oaiTraceReqId);
+    } else {
+      const toolCallId = makeWorkspaceHandshakeToolCallId();
+      session.record.metadata.workspace_context_attempts = getHandshakeAttempts(session.record.metadata) + 1;
+      setSessionWorkspaceContext(session, "pending", oaiTraceReqId, { toolCallId, reason: "Initializing workspace context" });
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_init", "workspace-handshake", "Initializing workspace context", oaiTraceReqId);
+      await casSessionSave(session);
+      return sendOpenAIWorkspaceHandshake(reply, oaiTraceReqId, request.model, !!request.stream, toolCallId);
+    }
   }
 
   const oaiRecallDecision = toolResultReduction.getLastRecallDecision();
@@ -2010,9 +2249,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiEnriched = enrichWithFrameAndManifest(
     normalizedOpenAI.messages as never,
     sessionKey,
-    adapterBlock,
+    effectiveOaiAdapterBlock,
     oaiPromptContext,
-    { projectRoot: oaiPathCtx.projectRoot, shellCwd: oaiPathCtx.shellCwd },
+    { projectRoot: effectiveOaiPathCtx.projectRoot, shellCwd: effectiveOaiPathCtx.shellCwd },
   );
   let oaiEnrichedMsgs = oaiEnriched.messages as Array<{ role: string; content: unknown }>;
 
@@ -2257,7 +2496,37 @@ app.post("/v1/chat/completions", async (req, reply) => {
     otelSpan.end();
 
     const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-    let externalToolCalls = toolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+    let externalToolCalls = toolCalls
+      .filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME)
+      .map((tc) => {
+        const rawInput =
+          typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
+            ? (tc.input as Record<string, unknown>)
+            : {};
+        const governed = governToolCall({
+          toolName: tc.toolName,
+          input: rawInput,
+          projectRoot: effectiveOaiPathCtx.projectRoot,
+          shellCwd: effectiveOaiPathCtx.shellCwd,
+          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+        });
+        if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
+        if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
+        if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
+        if (governed.validationMissing.length > 0) {
+          toolArgHardeningStats.validationFailedCount += 1;
+          app.log.warn(
+            { reqId, toolName: governed.toolName, missing: governed.validationMissing },
+            "tool_args_validation_failed",
+          );
+        }
+        return {
+          toolCallId: tc.toolCallId,
+          toolName: governed.toolName,
+          input: governed.input,
+        };
+      });
     if (
       config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED &&
       config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM &&
@@ -2417,15 +2686,48 @@ app.post("/v1/chat/completions", async (req, reply) => {
           let argsStr = typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {});
           const rawArgsLen = argsStr.length;
           if (adapter.normalizeToolCallArgs) argsStr = adapter.normalizeToolCallArgs(argsStr);
+          const parsedInput =
+            typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
+              ? (tc.input as Record<string, unknown>)
+              : (() => {
+                  try {
+                    const parsed = JSON.parse(argsStr) as unknown;
+                    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+                      ? (parsed as Record<string, unknown>)
+                      : {};
+                  } catch {
+                    return {};
+                  }
+                })();
+          const governed = governToolCall({
+            toolName: tc.toolName ?? "",
+            input: parsedInput,
+            projectRoot: effectiveOaiPathCtx.projectRoot,
+            shellCwd: effectiveOaiPathCtx.shellCwd,
+            enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+            blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+          });
+          if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
+          if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
+          if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
+          if (governed.validationMissing.length > 0) {
+            toolArgHardeningStats.validationFailedCount += 1;
+            app.log.warn(
+              { reqId, toolName: governed.toolName, missing: governed.validationMissing },
+              "tool_args_validation_failed",
+            );
+          }
+          argsStr = JSON.stringify(governed.input);
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
             app.log.debug({
-              reqId, toolName: tc.toolName, toolCallId: tc.toolCallId,
+              reqId, toolName: governed.toolName, toolCallId: tc.toolCallId,
               argsLen: rawArgsLen, normalized: argsStr.length !== rawArgsLen,
               adapterFamily: adapter.family,
             }, "tool_call_streamed");
           }
           const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
           if (existing) {
+            existing.name = governed.toolName;
             safeWrite(reply.raw, `data: ${JSON.stringify({
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
               choices: [{ index: 0, delta: { tool_calls: [{ index: existing.index, function: { arguments: argsStr } }] }, finish_reason: null }]
@@ -2433,7 +2735,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           } else {
             safeWrite(reply.raw, `data: ${JSON.stringify({
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-              choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: argsStr } }] }, finish_reason: null }]
+              choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: governed.toolName, arguments: argsStr } }] }, finish_reason: null }]
             })}\n\n`);
           }
         }
@@ -2630,6 +2932,7 @@ app.post("/v1/messages", async (req, reply) => {
     clientAdapterPacks.toSystemBlock(claudeAdapterProfile),
     req.headers as Record<string, string | string[] | undefined>,
     body.metadata ?? null,
+    String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
   );
   const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
@@ -2649,6 +2952,56 @@ app.post("/v1/messages", async (req, reply) => {
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
   if (latestClaudeUser && typeof latestClaudeUser.content === "string") {
     updateTracePromptMetadata(session, latestClaudeUser.content);
+  }
+  const pendingClaudeWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
+  const claudeWorkspaceStatus = getHandshakeStatus(session.record.metadata);
+  if (claudeWorkspaceStatus === "pending" && pendingClaudeWorkspaceToolId) {
+    const toolResult = extractClaudeToolResult(body.messages as Array<{ role: string; content: unknown }>, pendingClaudeWorkspaceToolId);
+    if (toolResult !== null) {
+      const parsedCtx = parseWorkspaceContextOutput(toolResult);
+      if (parsedCtx) {
+        setSessionWorkspaceContext(session, "ready", traceReqId, {
+          toolCallId: pendingClaudeWorkspaceToolId,
+          cwd: parsedCtx.cwd,
+          projectRoot: parsedCtx.projectRoot,
+          shell: parsedCtx.shell,
+          os: parsedCtx.os,
+          arch: parsedCtx.arch,
+        });
+        recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_ready", "workspace-handshake", "Initializing workspace context completed", traceReqId);
+      } else {
+        setSessionWorkspaceContext(session, "unavailable", traceReqId, {
+          toolCallId: pendingClaudeWorkspaceToolId,
+          reason: "workspace context parse failed",
+        });
+        recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (parse failure)", traceReqId);
+      }
+    } else {
+      setSessionWorkspaceContext(session, "unavailable", traceReqId, {
+        toolCallId: pendingClaudeWorkspaceToolId,
+        reason: "workspace context tool result not returned",
+      });
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (tool result missing/denied)", traceReqId);
+    }
+  }
+  const effectiveClaudePathCtx = mergeSessionPathHints(claudePathCtx, session);
+  const effectiveClaudeAdapterBlock = (() => {
+    const ctxBlock = toSessionExecutionContextSystemBlock(effectiveClaudePathCtx);
+    if (!ctxBlock) return claudeAdapterBlock;
+    return `${clientAdapterPacks.toSystemBlock(claudeAdapterProfile)}\n\n${ctxBlock}`;
+  })();
+  if (shouldStartWorkspaceHandshake(session, effectiveClaudePathCtx)) {
+    if (!hasBashTool(body.tools as unknown[] | undefined)) {
+      setSessionWorkspaceContext(session, "unavailable", traceReqId, { reason: "Bash tool not available for workspace handshake" });
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (Bash tool missing)", traceReqId);
+    } else {
+      const toolCallId = makeWorkspaceHandshakeToolCallId();
+      session.record.metadata.workspace_context_attempts = getHandshakeAttempts(session.record.metadata) + 1;
+      setSessionWorkspaceContext(session, "pending", traceReqId, { toolCallId, reason: "Initializing workspace context" });
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_init", "workspace-handshake", "Initializing workspace context", traceReqId);
+      await casSessionSave(session);
+      return sendClaudeWorkspaceHandshake(reply, body.model, !!body.stream, toolCallId);
+    }
   }
 
   const claudeRecallDecision = toolResultReduction.getLastRecallDecision();
@@ -2809,9 +3162,9 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeEnriched = enrichWithFrameAndManifest(
     normalizedFromClaude.messages as never,
     claudeSessionKey,
-    claudeAdapterBlock,
+    effectiveClaudeAdapterBlock,
     claudePromptContext,
-    { projectRoot: claudePathCtx.projectRoot, shellCwd: claudePathCtx.shellCwd },
+    { projectRoot: effectiveClaudePathCtx.projectRoot, shellCwd: effectiveClaudePathCtx.shellCwd },
   );
   let enrichedClaudeMsgs = claudeEnriched.messages as Array<{ role: string; content: unknown }>;
 
@@ -3096,22 +3449,6 @@ app.post("/v1/messages", async (req, reply) => {
           }
 
           let emitToolName = buf?.toolName ?? tcFull.toolName ?? "";
-          const pathNorm = normalizeFileToolArgs(emitToolName, finalInput);
-          if (pathNorm.normalized) {
-            finalInput = pathNorm.input;
-            toolArgHardeningStats.normalizedPathCount += 1;
-          }
-          if (config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE) {
-            const rootClamp = constrainFileToolPathToProjectRoot(claudePathCtx.projectRoot, emitToolName, finalInput);
-            if (rootClamp.constrained) {
-              finalInput = rootClamp.input;
-              toolArgHardeningStats.projectRootConstrainedCount += 1;
-              app.log.info(
-                { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
-                "file_tool_path_constrained_to_project_root",
-              );
-            }
-          }
 
           // Adapter-neutral: detect malformed Write content and rewrite as Bash heredoc
           const repair = repairWriteToolCall(emitToolName, finalInput);
@@ -3138,15 +3475,40 @@ app.post("/v1/messages", async (req, reply) => {
             );
           }
 
-          const validation = validateToolArgs(emitToolName, finalInput);
-          if (!validation.valid) {
+          const governed = governToolCall({
+            toolName: emitToolName,
+            input: finalInput,
+            projectRoot: effectiveClaudePathCtx.projectRoot,
+            shellCwd: effectiveClaudePathCtx.shellCwd,
+            enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+            blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+          });
+          emitToolName = governed.toolName;
+          finalInput = governed.input;
+          if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
+          if (governed.constrainedToRoot) {
+            toolArgHardeningStats.projectRootConstrainedCount += 1;
+            app.log.info(
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              "file_tool_path_constrained_to_project_root",
+            );
+          }
+          if (governed.blockedBashDrift) {
+            toolArgHardeningStats.blockedBashPathDriftCount += 1;
+            app.log.warn(
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              "bash_path_drift_blocked",
+            );
+          }
+
+          if (governed.validationMissing.length > 0) {
             requestToolValidationFailures += 1;
             toolArgHardeningStats.validationFailedCount += 1;
             app.log.warn(
               {
                 reqId: traceReqId,
                 toolName: emitToolName,
-                missing: validation.missing,
+                missing: governed.validationMissing,
                 argsPreview: JSON.stringify(finalInput).slice(0, 220),
               },
               "tool_args_validation_failed",
@@ -3341,7 +3703,37 @@ app.post("/v1/messages", async (req, reply) => {
     allToolCalls = allToolCalls.filter((tc) => tc.toolName !== KNOWLEDGE_TOOL_NAME);
   }
 
-  const externalClaudeToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME && tc.toolName !== KNOWLEDGE_TOOL_NAME);
+  const externalClaudeToolCalls = allToolCalls
+    .filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME && tc.toolName !== KNOWLEDGE_TOOL_NAME)
+    .map((tc) => {
+      const rawInput =
+        typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
+          ? (tc.input as Record<string, unknown>)
+          : {};
+      const governed = governToolCall({
+        toolName: tc.toolName,
+        input: rawInput,
+        projectRoot: effectiveClaudePathCtx.projectRoot,
+        shellCwd: effectiveClaudePathCtx.shellCwd,
+        enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+        blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+      });
+      if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
+      if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
+      if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
+      if (governed.validationMissing.length > 0) {
+        toolArgHardeningStats.validationFailedCount += 1;
+        app.log.warn(
+          { reqId, toolName: governed.toolName, missing: governed.validationMissing },
+          "tool_args_validation_failed",
+        );
+      }
+      return {
+        toolCallId: tc.toolCallId,
+        toolName: governed.toolName,
+        input: governed.input,
+      };
+    });
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   const stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";

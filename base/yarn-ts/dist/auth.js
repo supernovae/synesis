@@ -4,7 +4,14 @@ export class AuthResolver {
     pool;
     pepper;
     constructor(config) {
-        this.pool = config.SYNESIS_YARN_ADMIN_DB_URL ? new Pool({ connectionString: config.SYNESIS_YARN_ADMIN_DB_URL }) : null;
+        this.pool = config.SYNESIS_YARN_ADMIN_DB_URL
+            ? new Pool({
+                connectionString: config.SYNESIS_YARN_ADMIN_DB_URL,
+                max: config.SYNESIS_YARN_AUTH_POOL_MAX,
+                idleTimeoutMillis: config.SYNESIS_YARN_DB_POOL_IDLE_MS,
+                connectionTimeoutMillis: config.SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS,
+            })
+            : null;
         this.pepper = config.SYNESIS_PAT_PEPPER;
     }
     async resolve(authorizationHeader) {
@@ -18,6 +25,7 @@ export class AuthResolver {
         return {
             userId: "bearer-user",
             orgId: "",
+            tenantIds: [],
             role: "user",
             authMethod: "bearer",
             tokenScopes: []
@@ -31,6 +39,15 @@ export class AuthResolver {
         if (scopes.some((s) => allowedPrefixes.some((p) => s.startsWith(p))))
             return;
         throw new Error("Insufficient scope for coder access");
+    }
+    getPoolStats() {
+        if (!this.pool)
+            return { totalCount: 0, idleCount: 0, waitingCount: 0 };
+        return {
+            totalCount: this.pool.totalCount,
+            idleCount: this.pool.idleCount,
+            waitingCount: this.pool.waitingCount,
+        };
     }
     async close() {
         await this.pool?.end();
@@ -56,7 +73,7 @@ export class AuthResolver {
             return null;
         const tokenHash = this.hashPat(token);
         const result = await this.pool.query(`
-      SELECT user_id, org_id, role, scopes
+      SELECT user_id, org_id, tenant_ids, role, scopes, username
       FROM personal_access_tokens
       WHERE token_hash = $1
         AND revoked = false
@@ -66,12 +83,22 @@ export class AuthResolver {
         if (result.rowCount === 0)
             return null;
         const row = result.rows[0];
+        const orgId = (row.org_id ?? "").trim();
+        const tenantIds = (row.tenant_ids ?? []).map((t) => String(t).trim().slice(0, 64)).filter(Boolean).slice(0, 50);
+        if (tenantIds.length > 0 && !orgId)
+            return null;
+        // Fire-and-forget last_used update
+        this.pool
+            .query("UPDATE personal_access_tokens SET last_used_at = now() WHERE token_hash = $1", [tokenHash])
+            .catch(() => { });
         return {
             userId: row.user_id,
-            orgId: row.org_id ?? "",
+            orgId,
+            tenantIds,
             role: row.role ?? "user",
             authMethod: "pat",
-            tokenScopes: row.scopes ?? ["model:readonly"]
+            tokenScopes: row.scopes ?? ["model:readonly"],
+            displayName: row.username || undefined
         };
     }
 }

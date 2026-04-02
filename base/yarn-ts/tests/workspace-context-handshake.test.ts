@@ -1,0 +1,72 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildWorkspaceHandshakeBashCommand,
+  extractClaudeToolResult,
+  extractOpenAIToolResult,
+  hasBashTool,
+  parseWorkspaceContextOutput,
+} from "../src/session/workspace-context-handshake.js";
+
+describe("workspace-context-handshake", () => {
+  it("builds a read-only probe command", () => {
+    const cmd = buildWorkspaceHandshakeBashCommand();
+    expect(cmd).toContain("pwd");
+    expect(cmd).toContain("git rev-parse --show-toplevel");
+    expect(cmd).toContain("uname -s");
+    expect(cmd).not.toContain("rm ");
+    expect(cmd).not.toContain("mv ");
+  });
+
+  it("parses marker payload", () => {
+    const raw = [
+      "noise",
+      "SYNESIS_WORKSPACE_CONTEXT_V1",
+      "cwd=/Users/me/repo",
+      "project_root=/Users/me/repo",
+      "shell=/bin/zsh",
+      "os=Darwin",
+      "arch=arm64",
+    ].join("\n");
+    const parsed = parseWorkspaceContextOutput(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.cwd).toBe("/Users/me/repo");
+    expect(parsed?.projectRoot).toBe("/Users/me/repo");
+    expect(parsed?.shell).toBe("/bin/zsh");
+  });
+
+  it("extracts OpenAI tool result by tool_call_id", () => {
+    const result = extractOpenAIToolResult(
+      [
+        { role: "user", content: "hi" },
+        { role: "tool", tool_call_id: "abc", content: "SYNESIS_WORKSPACE_CONTEXT_V1\ncwd=/x\nproject_root=/x" },
+      ],
+      "abc",
+    );
+    expect(result).toContain("SYNESIS_WORKSPACE_CONTEXT_V1");
+  });
+
+  it("extracts Claude tool_result by tool_use_id", () => {
+    const result = extractClaudeToolResult(
+      [
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "abc",
+              content: "SYNESIS_WORKSPACE_CONTEXT_V1\ncwd=/x\nproject_root=/x",
+            },
+          ],
+        },
+      ],
+      "abc",
+    );
+    expect(result).toContain("SYNESIS_WORKSPACE_CONTEXT_V1");
+  });
+
+  it("detects Bash tool in OpenAI and Anthropic schemas", () => {
+    expect(hasBashTool([{ name: "Bash" }])).toBe(true);
+    expect(hasBashTool([{ type: "function", function: { name: "Bash" } }])).toBe(true);
+    expect(hasBashTool([{ name: "Read" }])).toBe(false);
+  });
+});

@@ -40,9 +40,13 @@ Resolution order: `synesis_project_root` → `x-synesis-project-root` → `x-syn
 ## Yarn-ts behavior
 
 - When any field resolves non-empty, yarn-ts appends `<SESSION_EXECUTION_CONTEXT>…</SESSION_EXECUTION_CONTEXT>` after `<CLIENT_ADAPTER>` (replacing the legacy standalone `<WORKSPACE_ROOT>` block).
-- Path policy lines (no nested duplicate folder names, file tools relative to `project_root`, shell `cd` semantics) are included when `project_root` is set.
+- Path policy lines (no nested duplicate folder names, file tools relative to `project_root`, shell `cd` semantics) are included when `project_root` is set. When only `shell_cwd` is set (no `project_root`), yarn-ts still adds a short duplicate-segment warning.
+- For Anthropic `/v1/messages`, if **no** session fields resolve and `x-synesis-client` is `claude-code` (the default when the header is omitted), yarn-ts appends a `<PATH_HYGIENE>` fallback so models still see cwd/nesting/rm-safety nudges until a proxy or hook adds real roots.
 - Optional env `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME=true` (default): `project_root` / `shell_cwd` are also echoed inside `<WORKING_FRAME>` when provided.
-- Optional env `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE=true` (default **false**): Read/Write/Edit/Update `file_path` values are constrained to resolve under `project_root` on the Claude streaming path (string prefix check after `path.resolve`).
+- Optional env `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE=true` (default **true**): Read/Write/Edit/Update `file_path` values are constrained to resolve under `project_root` (or `shell_cwd` when `project_root` is absent) across coder routes (string prefix check after `path.resolve`).
+- Optional env `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED=true` (default **true**): blocks risky `mkdir && cd` duplicate-segment drift by rewriting the Bash call to a safe error command.
+- Optional env `SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED=true` (deploy default): when `project_root`/`shell_cwd` are missing on first turn, yarn can emit a transparent read-only initialization tool call (`Bash`) to capture `cwd`, inferred `project_root`, `shell`, and `os` anchors. This data is used only for path-governance safety and adapter context.
+- Optional env `SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS` (default `1`): limits handshake retries per session before fallback.
 
 ## Client implementation notes
 

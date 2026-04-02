@@ -4,6 +4,7 @@ import {
   ClientAdapterPacks,
   parseSessionExecutionContext,
 } from "../src/adapters/client-adapter-packs.js";
+import { toSessionExecutionContextSystemBlock } from "../src/adapters/session-execution-context.js";
 
 describe("ClientAdapterPacks", () => {
   it("resolves IDE clients to ide mode by default", () => {
@@ -49,10 +50,29 @@ describe("ClientAdapterPacks", () => {
 });
 
 describe("appendPathContextToAdapterBlock", () => {
-  it("passes through when no path context", () => {
+  it("passes through when no path context and no claude-code hint", () => {
     expect(
       appendPathContextToAdapterBlock("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>", {}, null),
     ).toBe("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>");
+    expect(
+      appendPathContextToAdapterBlock("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>", {}, null, "cursor"),
+    ).toBe("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>");
+  });
+
+  it("appends PATH_HYGIENE when claude-code hint and no session context", () => {
+    const out = appendPathContextToAdapterBlock("base", {}, null, "claude-code");
+    expect(out).toContain("base");
+    expect(out).toContain("<PATH_HYGIENE>");
+    expect(out).toContain("aws-cost-calculator/aws-cost-calculator");
+  });
+
+  it("shell_cwd without project_root includes duplicate-segment warning", () => {
+    const block = toSessionExecutionContextSystemBlock({
+      projectRoot: null,
+      shellCwd: "/Users/me/aws-cost-calculator",
+    });
+    expect(block).toContain("shell_cwd=");
+    expect(block).toContain("aws-cost-calculator/aws-cost-calculator");
   });
 
   it("appends SESSION_EXECUTION_CONTEXT when workspace root header set", () => {

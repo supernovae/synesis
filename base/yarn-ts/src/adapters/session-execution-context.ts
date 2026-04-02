@@ -124,6 +124,11 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     lines.push(
       "shell_cwd is the current task directory on the client when provided; prefer editing within the existing tree under project_root when both are set.",
     );
+    if (!ctx.projectRoot) {
+      lines.push(
+        "Without project_root: do not mkdir && cd into a subfolder that repeats the last path segment of shell_cwd (e.g. avoid aws-cost-calculator/aws-cost-calculator). Add go.mod, main.go, etc. at shell_cwd when it is already the project root.",
+      );
+    }
   }
   if (ctx.platform) lines.push(`platform=${ctx.platform}`);
   if (ctx.osVersion) lines.push(`os_version=${ctx.osVersion}`);
@@ -136,16 +141,42 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
 }
 
 /**
+ * When no SESSION_EXECUTION_CONTEXT (client sent no roots/cwd), still nudge Claude Code–style agents
+ * that commonly hit duplicate-segment paths. Stock Claude Code does not send synesis headers by default.
+ */
+function pathHygieneFallbackBlock(): string {
+  return [
+    "<PATH_HYGIENE>",
+    "No project_root or shell_cwd was provided by the client. Infer the workspace from the user's task and the first successful pwd in Bash; default to staying in that directory for new files.",
+    "Do not mkdir && cd into a nested folder whose name repeats the current directory (e.g. aws-cost-calculator/aws-cost-calculator). If you are already inside the project folder, create the Go module and sources there.",
+    "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",
+    "Before rm or other destructive commands, list the target path and confirm; avoid guessing with wildcards on project trees.",
+    "</PATH_HYGIENE>",
+  ].join("\n");
+}
+
+function shouldAppendPathHygieneFallback(coderClientHint: string | null | undefined): boolean {
+  const c = (coderClientHint ?? "").trim().toLowerCase();
+  return c === "claude-code" || c.includes("claude-code");
+}
+
+/**
  * Append client adapter block with optional SESSION_EXECUTION_CONTEXT (unified; replaces legacy WORKSPACE_ROOT-only block).
+ * @param coderClientHint optional `x-synesis-client` value; when it names claude-code and no session block was built, appends PATH_HYGIENE fallback.
  */
 export function appendPathContextToAdapterBlock(
   adapterBlock: string,
   headers: Record<string, string | string[] | undefined>,
   metadata?: Record<string, unknown> | null,
+  coderClientHint?: string | null,
 ): string {
   const ctx = parseSessionExecutionContext(headers, metadata);
   const block = toSessionExecutionContextSystemBlock(ctx);
-  return block ? `${adapterBlock}\n\n${block}` : adapterBlock;
+  if (block) return `${adapterBlock}\n\n${block}`;
+  if (shouldAppendPathHygieneFallback(coderClientHint)) {
+    return `${adapterBlock}\n\n${pathHygieneFallbackBlock()}`;
+  }
+  return adapterBlock;
 }
 
 /** Effective workspace root for tool-collapse path validation (metadata + headers). */

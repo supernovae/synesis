@@ -333,11 +333,24 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
-  // When true, clamp Read/Write/Edit/Update file_path to project_root (Claude streaming path)
+  // When true, clamp Read/Write/Edit/Update file_path to project_root/shell_cwd anchor across coder routes.
   SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE: z
     .string()
     .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // When true, block risky mkdir/cd duplicate-segment drift by rewriting Bash to a safe error command.
+  SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // Workspace context handshake (synthetic first tool call).
+  SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED: z
+    .string()
+    .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS: z.coerce.number().default(1),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

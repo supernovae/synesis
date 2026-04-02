@@ -41,6 +41,9 @@ set -euo pipefail
 #   - SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS, SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST (optional override).
 #   - SYNESIS_YARN_DEDUPE_ENABLED (default true), SYNESIS_YARN_DEDUPE_CACHE_MAX, SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS.
 #   - SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED (default true), MAX_ENTRIES, MAX_ENTRY_BYTES.
+#   - SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE (default true via deploy.sh patch) — strict file path clamp to project_root/shell_cwd anchor.
+#   - SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED (default true via deploy.sh patch) — block risky mkdir/cd duplicate-segment drift.
+#   - SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED (default true via deploy.sh patch) — synthetic read-only first tool call to discover cwd/project_root/os/shell when hints are missing.
 #
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
@@ -1117,6 +1120,54 @@ patch_yarn_tool_collapse_envs() {
     fi
 }
 
+# Strict path-governance defaults (fix-forward): no legacy wandering behavior.
+patch_yarn_path_governance_envs() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+    local container="yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE" "${SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED" "${SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME" "${SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS:-1}" "$container"
+}
+
+verify_yarn_path_governance_envs() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return 0
+    fi
+
+    local ok="true"
+    _require_env() {
+        local env_name="$1"
+        local expected="$2"
+        local current
+        current=$(oc get deployment "$deploy" -n "$ns" \
+            -o "jsonpath={.spec.template.spec.containers[?(@.name=='yarn')].env[?(@.name=='$env_name')].value}" \
+            2>/dev/null || true)
+        if [[ "$current" != "$expected" ]]; then
+            log "ERROR: $ns/$deploy requires $env_name=$expected (found '${current:-<unset>}')"
+            ok="false"
+        fi
+    }
+
+    _require_env "SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE" "${SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE:-true}"
+    _require_env "SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED" "${SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED:-true}"
+    _require_env "SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME" "${SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME:-true}"
+    _require_env "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED:-true}"
+    _require_env "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS:-1}"
+
+    [[ "$ok" == "true" ]]
+}
+
 # Patch all Yarn feature flags (Phases 7–19).
 # Each flag defaults to the value in config.ts but can be overridden by the
 # corresponding shell env var when running deploy.sh.
@@ -2124,11 +2175,22 @@ log "Patching Yarn tool-collapse envs (post-apply)..."
 patch_yarn_tool_collapse_envs
 
 log ""
+log "Patching Yarn strict path-governance envs (post-apply)..."
+patch_yarn_path_governance_envs
+
+log ""
 log "Patching Yarn feature flags (Phases 7–19, post-apply)..."
 if is_true "${SYNESIS_YARN_FULL_FEATURES:-false}"; then
     log "  SYNESIS_YARN_FULL_FEATURES=true — enabling ALL gated features (including Tier C validation fallback)"
 fi
 patch_yarn_feature_flags
+
+log ""
+log "Validating Yarn strict path-governance envs (post-apply)..."
+if ! verify_yarn_path_governance_envs; then
+    log "ERROR: strict Yarn path-governance env validation failed."
+    exit 1
+fi
 
 log ""
 log "Patching MCP-TS service envs (post-apply)..."
@@ -2271,6 +2333,10 @@ wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
 wait_for_deployment synesis-yarn synesis-mcp-ts
 wait_for_deployment synesis-yarn synesis-yarn
+if ! verify_yarn_path_governance_envs; then
+    log "ERROR: strict Yarn path-governance env validation failed after rollout."
+    exit 1
+fi
 wait_for_deployment synesis-authz openfga
 wait_for_deployment synesis-webui open-webui
 

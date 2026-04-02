@@ -25,8 +25,13 @@ export const ClaudeMessagesRequestSchema = z.object({
     model: z.string(),
     max_tokens: z.number(),
     messages: z.array(ClaudeMessageSchema),
+    system: z.union([z.string(), z.array(z.any())]).optional(),
     stream: z.boolean().optional().default(false),
     tools: z.array(z.any()).optional(),
     tool_choice: z.any().optional(),
-    thinking: z.any().optional()
+    thinking: z.any().optional(),
+    temperature: z.number().optional(),
+    top_p: z.number().optional(),
+    stop_sequences: z.array(z.string()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional()
 }).passthrough();

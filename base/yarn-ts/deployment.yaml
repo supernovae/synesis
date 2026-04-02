@@ -93,6 +93,17 @@ spec:
             # ── Debug protocol ──
             - name: SYNESIS_YARN_DEBUG_PROTOCOL
               value: "true"
+            # ── Path governance (strict fix-forward defaults) ──
+            - name: SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE
+              value: "true"
+            - name: SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME
+              value: "true"
+            - name: SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS
+              value: "1"
             # ── Tool call collapsing (API always useful; rewrite is opt-in per client headers) ──
             - name: SYNESIS_YARN_TOOL_COLLAPSE_ENABLED
               value: "true"

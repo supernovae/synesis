@@ -1,5 +1,6 @@
 import { customProvider } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
+import { resolveAdapter } from "./model-adapter.js";
 export class SynesisProviderRegistry {
     tierMap = new Map();
     updateTiers(tiers) {
@@ -27,12 +28,34 @@ export class SynesisProviderRegistry {
         });
         const provider = customProvider({
             languageModels: {
-                [selected.id]: upstream(selected.backendModel)
+                [selected.id]: upstream.chat(selected.backendModel)
             }
         });
+        const adapter = resolveAdapter(selected.backendModel, selected.baseUrl);
         return {
             model: provider.languageModel(selected.id),
-            resolvedModelId: selected.id
+            resolvedModelId: selected.id,
+            adapter
+        };
+    }
+    getTierConfig(modelId) {
+        return this.tierMap.get(modelId);
+    }
+    resolveAdHoc(modelId, backendModel, baseUrl, apiKey) {
+        const upstream = createOpenAI({
+            baseURL: baseUrl,
+            apiKey,
+        });
+        const provider = customProvider({
+            languageModels: {
+                [modelId]: upstream.chat(backendModel),
+            },
+        });
+        const adapter = resolveAdapter(backendModel, baseUrl);
+        return {
+            model: provider.languageModel(modelId),
+            resolvedModelId: modelId,
+            adapter,
         };
     }
 }
