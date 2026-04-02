@@ -18,7 +18,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@langchain/core": "^1.1.36",
     "@langchain/langgraph": "^1.2.6",
-    "@openfga/sdk": "^0.9.1",
+    "@openfga/sdk": "^0.9.4",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.57.2",
     "@opentelemetry/resources": "^1.30.1",
