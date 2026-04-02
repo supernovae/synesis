@@ -5,23 +5,51 @@ updates:
     schedule:
       interval: "weekly"
 
+  # npm was added after axios supply-chain work; the first weekly run opens many PRs
+  # because versions were never previously tracked—not a Node/npm regression.
+  # Groups bundle minor+patch to cut noise; majors stay separate for review.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 8
+    groups:
+      npm-root-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "npm"
     directory: "/base/admin/frontend"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 8
+    groups:
+      admin-frontend-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "npm"
     directory: "/base/mcp-ts"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 8
+    groups:
+      mcp-ts-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # mcp-ts stays on zod v3 until migrated; rest of monorepo uses zod 4.
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "pip"
     directory: "/base/admin"
