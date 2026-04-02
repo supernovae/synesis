@@ -28,7 +28,7 @@
     "@synesis/context-trust": "*",
     "@synesis/manifest": "*",
     "@synesis/telemetry": "*",
-    "ai": "^6.0.138",
+    "ai": "^6.0.143",
     "fastify": "^5.8.4",
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",
