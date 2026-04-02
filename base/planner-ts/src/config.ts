@@ -124,6 +124,11 @@ const EnvSchema = z.object({
   SYNESIS_INJECTION_ACTION: z
     .enum(["reduce", "block", "log"])
     .default("reduce"),
+  /** When true, `reduce` / `block` apply only if scanUserInput reports ≥2 pattern hits (fewer false positives for single quoted phrases). Default preserves legacy behavior. */
+  SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
 
   // --- Frame extraction ---
   SYNESIS_GLINER_SERVICE_URL: z.string().default(""),

@@ -4,12 +4,11 @@ import type { UnifiedResult } from "../src/retrieval/types.js";
 
 function makeResult(overrides: Partial<UnifiedResult> = {}): UnifiedResult {
   return {
-    id: "test-1",
+    retrieval_source: "rag",
+    source_url: "https://example.com",
+    title: "Test",
     text: "chunk text",
     score: 1.0,
-    source: "rag" as const,
-    uri: "https://example.com",
-    title: "Test",
     authority: "community",
     ...overrides,
   };
@@ -106,8 +105,8 @@ describe("freshnessBoost", () => {
   it("preserves relative order when all have same freshness", () => {
     const ts = nowEpochSec - 3600;
     const results = [
-      makeResult({ id: "a", score: 0.9, effective_at_epoch: ts }),
-      makeResult({ id: "b", score: 0.7, effective_at_epoch: ts }),
+      makeResult({ score: 0.9, effective_at_epoch: ts }),
+      makeResult({ score: 0.7, effective_at_epoch: ts }),
     ];
     const boosted = freshnessBoost(results, 0.1);
     expect(boosted[0].score).toBeGreaterThan(boosted[1].score);

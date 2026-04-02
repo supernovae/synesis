@@ -3,7 +3,7 @@
 Inline tests validate Python-specific features (event_type enums, latency,
 scan_messages, batch helpers). The shared JSON fixture suite at
 tests/fixtures/scanner_vectors.json is consumed by **both** this file and
-the TS scanner tests (planner-ts/tests/scanner.test.ts) so that Tier-1,
+the TS scanner tests (planner-ts and @synesis/context-trust vitest) so that Tier-1,
 Tier-2, output, and redact patterns stay in sync across runtimes.
 """
 

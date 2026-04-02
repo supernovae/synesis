@@ -165,6 +165,9 @@ jobs:
         working-directory: base/planner-ts
         run: npx vitest run
 
+      - name: Context-trust shared fixtures + package tests
+        run: npm run test -w packages/synesis-context-trust
+
   hadolint:
     name: Dockerfile Lint
     runs-on: ubuntu-latest

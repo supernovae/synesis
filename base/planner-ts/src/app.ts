@@ -49,6 +49,7 @@ import {
 } from "./streaming/sse.js";
 import { describePhase } from "./streaming/phases.js";
 import type { GraphState } from "./state/types.js";
+import { shouldApplyUserInjectionMitigation } from "@synesis/context-trust";
 import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scanner.js";
 import { FailureStore } from "./diagnostics/failure-store.js";
 import { DependencyHealthMonitor } from "./diagnostics/health-monitor.js";
@@ -426,12 +427,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
       injectionDetected = detected;
       injectionScanResult = details;
 
-      if (detected && config.SYNESIS_INJECTION_ACTION === "block") {
+      const applyMitigation = shouldApplyUserInjectionMitigation(
+        injectionScanResult.patterns_found,
+        config.SYNESIS_INJECTION_ACTION,
+        config.SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL,
+      );
+      if (detected && config.SYNESIS_INJECTION_ACTION === "block" && applyMitigation) {
         const err = new Error("Suspicious content detected. If this was unintentional, rephrase your message and try again.");
         (err as Error & { statusCode?: number }).statusCode = 400;
         throw err;
       }
-      if (detected && config.SYNESIS_INJECTION_ACTION === "reduce" && taskText) {
+      if (detected && config.SYNESIS_INJECTION_ACTION === "reduce" && applyMitigation && taskText) {
         taskText = redactPatterns(taskText);
       }
     }

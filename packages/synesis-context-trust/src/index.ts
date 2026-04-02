@@ -42,6 +42,16 @@ export {
 } from "./scanner.js";
 
 export {
+  sanitizePlanStepAction,
+  MAX_PLAN_STEP_ACTION_CHARS,
+} from "./plan-step-sanitizer.js";
+
+export {
+  shouldApplyUserInjectionMitigation,
+  type InjectionContentAction,
+} from "./injection-mitigation.js";
+
+export {
   TRUST_POLICY,
   TRUST_POLICY_COMPACT,
   SANDWICH_REMINDER,

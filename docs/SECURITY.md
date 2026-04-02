@@ -83,7 +83,7 @@ flowchart TD
     RAG -->|"TrustPacketV1 + attribution"| Pipeline
     WEB -->|"scanWebContent() + TrustPacketV1"| Pipeline
     MCP -->|"TrustPacketV1 + attribution"| Pipeline
-    STEP -->|"sanitizeStepAction()"| Pipeline
+    STEP -->|"sanitizePlanStepAction()"| Pipeline
     Pipeline -->|"trust policy in system prompt"| LLM["LLM Invocation"]
 ```
 
@@ -102,18 +102,36 @@ Canonical TS implementation: `@synesis/context-trust` (`packages/synesis-context
 
 Scan points:
 
-| Function | Where | Runtime |
-|----------|-------|---------|
-| `scanUserInput()` | API entry (user messages + history) | planner-ts |
-| `scanWebContent()` | After web fetch in retrieval | planner-ts |
-| `scanText()` / `scanWebContent()` | User + tool messages in transcript pipeline | yarn-ts |
-| `scan_chunk_text()` | Index-time ingestion | indexer (Python) |
-| `scanModelOutput()` | Final assistant content | planner-ts |
+| Function | Where | Pattern scope on that text | Runtime |
+|----------|-------|------------------------------|---------|
+| `scanUserInput()` | API entry: latest user message + prior **user** turns only | **Core (Tier 1)** via `scanText` — not WEB tier, no base64/confusable pass on chat | planner-ts |
+| `scanWebContent()` | After web fetch in retrieval | **Core + WEB (Tier 1–2)**, confusable normalization, base64 probe | planner-ts |
+| `scanText()` / `scanWebContent()` | User + tool messages in transcript pipeline | Yarn config chooses path; can apply web-tier scanning where enabled | yarn-ts |
+| `scan_chunk_text()` | Index-time ingestion | Aligned with guardrails scanner tiers | indexer (Python) |
+| `scanModelOutput()` | Final (and streamed) assistant content | **Output (Tier 3)** compliance patterns | planner-ts |
+
+**Operator note:** Do not assume “full” web-tier scanning on planner chat messages. Indirect/obfuscated payloads in user text rely on core patterns unless content has gone through `scanWebContent()` (e.g. fetched pages).
 
 Configuration:
 
-- **Planner:** `SYNESIS_INJECTION_SCAN_ENABLED` (default `true`), `SYNESIS_INJECTION_ACTION` (`reduce` | `block` | `log`)
+- **Planner:** `SYNESIS_INJECTION_SCAN_ENABLED` (default `true`), `SYNESIS_INJECTION_ACTION` (`reduce` | `block` | `log`), `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL` (default `false`)
 - **Yarn:** `SYNESIS_YARN_INJECTION_SCAN_ENABLED` (default `true`), `SYNESIS_YARN_INJECTION_SCAN_ACTION` (`log` | `reduce` | `block`), `SYNESIS_YARN_SECURITY_INGEST_ENABLED` (default `true`)
+
+#### Planner: `SYNESIS_INJECTION_ACTION` and false positives
+
+Regex scanning is fast but coarse. Core phrases such as “ignore previous instructions” also appear in **benign** text: security homework, quoting an attack, release notes, or test fixtures. With **`SYNESIS_INJECTION_ACTION=reduce`** (default), matching substrings in the **latest user message** are replaced with `[REDACTED]`, which can surprise users who were only *discussing* injections.
+
+| Action | Behavior |
+|--------|----------|
+| **`reduce`** | On detection (subject to dual-signal gate below), redact matching substrings in the task text shown to the graph. Strong default for untrusted chat. |
+| **`block`** | HTTP 400 with a generic message — use when no user-visible redaction is acceptable. Still subject to the dual-signal gate when enabled. |
+| **`log`** | Scan runs and telemetry/ingest can record `injection_detected`, but the message text is **not** redacted and not blocked. Prefer for tenants focused on research, education, or internal red-team benches where false positives are costly. |
+
+**Dual-signal mitigation (`SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL=true`):** `reduce` and `block` apply only when `scanUserInput` aggregates **at least two** pattern hits across the latest user message and prior user history (each distinct matched pattern from the core scanner contributes). A single phrase match still sets `injection_detected` for observability but avoids destructive action — useful when users often quote one injection line in isolation. This is **not** a guarantee of benign intent; it trades false positives for slightly higher risk on single-line attacks.
+
+**Examples that may match core patterns:** “Explain why an attacker might say *ignore all previous instructions*”, pasted JSON with `[INST]`, or docs that say “override your instructions”. Use **`log`**, **dual-signal**, or both if those flows are common for your org.
+
+See also: [Optional second-stage PI scorer](./PLANNER_PROMPT_INJECTION_SCORER.md) (design only; not on the hot path by default).
 
 ### Layer 2: Trust Delimiters (Spotlighting)
 
@@ -166,7 +184,7 @@ These are rendered via `authorityDatamark()` and appear inside the trust packet 
 
 ### Layer 6: State Sanitization
 
-- **Step action sanitization** (`sanitizeStepAction()`): Plan-generated step actions truncated to 300 chars and scanned for injection patterns before inclusion in the writer outline.
+- **Step action sanitization** (`sanitizePlanStepAction()` from `@synesis/context-trust`, re-exported as `sanitizeStepAction` in planner): Plan-generated step actions truncated to 300 chars and redacted with the **same** core patterns as `redactPatterns()` / `scanText()` so the plan→writer path cannot drift from the shared scanner.
 - **Persona detection** (`detectPersona()`): Extracted persona labels capped at 40 characters and rejected if they match stopwords.
 - **Content sanitization** (`sanitize()`): Strips fake control tokens (`[INST]`, `<|im_start|>`, etc.), truncates, and computes `imperative_likelihood` score.
 
@@ -255,6 +273,7 @@ Domain filtering is supported via the `domain` query parameter.
 ## Known Limitations
 
 - **Pattern-based scanning is not exhaustive.** Novel injection techniques can bypass regex patterns. Defense-in-depth (multiple layers) mitigates this.
+- **Core user-message scanning can false-positive on discussion or quotes.** Mitigations: `SYNESIS_INJECTION_ACTION=log`, `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL=true`, or accepting occasional `[REDACTED]` in `reduce` mode (see Layer 1 table above).
 - **Trust policies depend on model compliance.** Smaller or less instruction-tuned models may not reliably follow trust policy directives. Use models with strong instruction-following capabilities.
 - **Sandwich defense effectiveness varies by model.** Most effective with models that attend well to recent context.
 - **Index-time scanning does not cover all obfuscation.** Sophisticated attacks using steganography or semantic-level injection may not be caught by regex patterns alone.
@@ -268,6 +287,8 @@ Domain filtering is supported via the `domain` query parameter.
 |------|---------|
 | `packages/synesis-context-trust/src/trust-packet.ts` | `TrustPacketV1`, `AttributionV1` Zod schemas, serialization, builder functions |
 | `packages/synesis-context-trust/src/scanner.ts` | Pattern scanner (Tier 1 + 2 + 3) |
+| `packages/synesis-context-trust/src/plan-step-sanitizer.ts` | Truncate + `redactPatterns` for planner step actions |
+| `packages/synesis-context-trust/src/injection-mitigation.ts` | Dual-signal gating helper for planner `reduce` / `block` |
 | `packages/synesis-context-trust/src/normalizer.ts` | Confusable normalization + base64 probing |
 | `packages/synesis-context-trust/src/content-sanitizer.ts` | Content sanitization + imperative likelihood |
 | `packages/synesis-context-trust/src/operational-policy.ts` | Trust policy text, sandwich reminder, datamark helpers |
@@ -280,7 +301,7 @@ Domain filtering is supported via the `domain` query parameter.
 |------|---------|
 | `base/planner-ts/src/security/trust-prompts.ts` | Re-exports from `@synesis/context-trust` (evidence helpers, policy text) |
 | `base/planner-ts/src/security/scanner.ts` | Re-exports scanner from `@synesis/context-trust` |
-| `base/planner-ts/src/security/step-sanitizer.ts` | Step action truncation + injection redaction |
+| `base/planner-ts/src/security/step-sanitizer.ts` | Re-exports `sanitizePlanStepAction` / `sanitizeStepAction` from `@synesis/context-trust` |
 | `base/planner-ts/src/nodes/writer-compose.ts` | Writer trust policy + JSON trust packets + sandwich + datamarks |
 | `base/planner-ts/src/nodes/llm-planner.ts` | Planner trust policy |
 | `base/planner-ts/src/nodes/critic-evaluator.ts` | Critic trust policy + citation enforcement |
