@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-PYTHON_VERSION="3.11"
+PYTHON_VERSION="3.12"
 PLATFORM="x86_64-unknown-linux-gnu"
 
 CHECK_ONLY=false

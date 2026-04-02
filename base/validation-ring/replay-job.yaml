@@ -18,7 +18,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: replay
-          image: registry.access.redhat.com/ubi9/python-311:latest
+          image: registry.access.redhat.com/ubi10/python-312-minimal:latest
           command:
             - /bin/bash
             - -c

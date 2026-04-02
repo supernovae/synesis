@@ -52,7 +52,7 @@ Deterministic controls prevent style drift, decision oscillation, and grounding 
 
 ## 6. Code Style
 
-Python 3.11+, Pytest, Ruff. Use `patch_ops` for multi-file edits to maintain Two-Phase Commit.
+Python 3.12+, Pytest, Ruff. Use `patch_ops` for multi-file edits to maintain Two-Phase Commit.
 
 ## Adding New Protocols
 

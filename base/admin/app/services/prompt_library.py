@@ -234,7 +234,7 @@ async def get_prompt_snapshot(service: str) -> dict:
                 await session.execute(
                     select(PromptProfile).where(
                         PromptProfile.service == svc,
-                        PromptProfile.enabled == True,  # noqa: E712
+                        PromptProfile.enabled == True,
                     )
                 )
             )
@@ -246,7 +246,7 @@ async def get_prompt_snapshot(service: str) -> dict:
                 await session.execute(
                     select(PromptAssignment).where(
                         PromptAssignment.service == svc,
-                        PromptAssignment.enabled == True,  # noqa: E712
+                        PromptAssignment.enabled == True,
                     )
                 )
             )

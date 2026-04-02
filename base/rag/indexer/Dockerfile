@@ -1,49 +1,68 @@
-# Debian exception: Playwright + Chromium shared libraries require Debian packages
-# unavailable on UBI. Python 3.11 matches fleet standard.
-FROM python:3.11-slim
+# UBI 10 minimal + Playwright/Crawl4AI headless Chromium.
+#
+# Playwright ships as a **PyPI** package (`playwright`); its CLI embeds Node for
+# `playwright install chromium`. On UBI, `playwright install-deps` only prints
+# Ubuntu `apt-get` commands (unsupported OS fallback) — it does **not** run dnf.
+# We install equivalent Chromium shared-library RPMs via microdnf instead.
+FROM registry.access.redhat.com/ubi10/python-312-minimal:latest
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-# System deps: git + Chromium shared libraries required by Playwright.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+USER 0
+
+# Shared libs for Playwright's bundled Chromium (mapped from Playwright's Ubuntu 24.04 dep set).
+RUN microdnf install -y \
+        alsa-lib \
+        atk \
+        at-spi2-atk \
+        at-spi2-core \
+        cairo \
+        cups-libs \
+        dbus-libs \
+        default-fonts-core-sans \
+        fontconfig \
+        freetype \
         git \
-        libasound2t64 \
-        libatk-bridge2.0-0 \
-        libatk1.0-0 \
-        libcairo2 \
-        libcups2 \
-        libdbus-1-3 \
-        libdrm2 \
-        libgbm1 \
-        libglib2.0-0 \
-        libnspr4 \
-        libnss3 \
-        libpango-1.0-0 \
-        libpangocairo-1.0-0 \
-        libx11-6 \
-        libxcb1 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxext6 \
-        libxfixes3 \
-        libxkbcommon0 \
-        libxrandr2 \
-        xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
+        glib2 \
+        google-noto-sans-vf-fonts \
+        langpacks-fonts-en \
+        liberation-mono-fonts \
+        libdrm \
+        libX11 \
+        libxcb \
+        libXcomposite \
+        libXdamage \
+        libXext \
+        libXfixes \
+        libxkbcommon \
+        libXrandr \
+        mesa-dri-drivers \
+        mesa-filesystem \
+        mesa-libgbm \
+        nspr \
+        nss \
+        nss-util \
+        pango \
+        xorg-x11-fonts-misc \
+        xorg-x11-fonts-Type1 \
+    && microdnf clean all
 
 WORKDIR /app
 
 COPY images/base-api/synesis-telemetry/ /tmp/synesis-telemetry/
-RUN uv pip install --system --no-cache /tmp/synesis-telemetry/ && rm -rf /tmp/synesis-telemetry/
+# Install into the S2I interpreter at /opt/app-root/bin/python (not /usr/local — that
+# interpreter is not the default `python` on this image).
+RUN uv pip install --system --python /opt/app-root/bin/python --no-cache /tmp/synesis-telemetry/ \
+    && rm -rf /tmp/synesis-telemetry/
 
 COPY rag/indexer/requirements.lock .
-RUN uv pip install --system --no-cache --require-hashes -r requirements.lock \
-    && uv pip uninstall --system unclecode-litellm 2>/dev/null || true
+RUN uv pip install --system --python /opt/app-root/bin/python --no-cache --require-hashes -r requirements.lock \
+    && uv pip uninstall --system --python /opt/app-root/bin/python unclecode-litellm 2>/dev/null || true
 
 # Download Chromium for Playwright (used by crawl4ai web_page handler).
 # PLAYWRIGHT_BROWSERS_PATH must be readable by the arbitrary UID at runtime.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
-RUN playwright install chromium \
+RUN /opt/app-root/bin/python -m playwright install chromium \
     && chmod -R 755 /opt/pw-browsers
 
 COPY rag/indexer/app/ /app/app/

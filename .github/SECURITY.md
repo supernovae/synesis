@@ -68,7 +68,7 @@ All Synesis service images install Python dependencies from **`requirements.lock
 1. **Version pinning** -- every transitive dependency is resolved to an exact version, eliminating silent upgrades between builds.
 2. **SHA-256 hash verification** -- Dockerfiles use `uv pip install --require-hashes`, which rejects any package whose content hash does not match the lockfile. Even if a PyPI package is republished with identical version but tampered content, the build will fail.
 
-Lockfiles are compiled for **Python 3.11** on **linux/x86_64** (the production image target). A central script manages all lockfiles:
+Lockfiles are compiled for **Python 3.12** on **linux/x86_64** (the production image target). A central script manages all lockfiles:
 
 ```bash
 ./scripts/lock-deps.sh               # recompile all lockfiles

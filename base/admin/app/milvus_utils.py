@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
 logger = logging.getLogger("synesis.admin.milvus_utils")
 
@@ -19,9 +19,6 @@ _CONNECTION_DEAD_MARKERS = (
     "connection reset by peer",
     "failed to connect to all addresses",
 )
-
-T = TypeVar("T")
-
 
 def is_connection_dead(exc: BaseException) -> bool:
     msg = (getattr(exc, "message", None) or str(exc)).lower()
@@ -81,7 +78,7 @@ class ResilientMilvusClient:
             return None
 
 
-def with_retry(
+def with_retry[T](
     resilient: ResilientMilvusClient,
     fn: Callable[..., T],
     *args: Any,

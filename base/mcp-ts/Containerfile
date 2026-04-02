@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/nodejs-22:latest AS builder
+FROM registry.access.redhat.com/ubi10/nodejs-24:latest AS builder
 
 USER 0
 WORKDIR /opt/app-root/src
@@ -12,7 +12,7 @@ COPY src/ src/
 RUN npx tsc
 RUN npm prune --omit=dev
 
-FROM registry.access.redhat.com/ubi9/nodejs-22-minimal:latest
+FROM registry.access.redhat.com/ubi10/nodejs-24-minimal:latest
 
 USER 1001
 WORKDIR /opt/app-root/src

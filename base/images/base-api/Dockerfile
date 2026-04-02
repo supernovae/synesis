@@ -1,11 +1,11 @@
-FROM registry.access.redhat.com/ubi9/python-311:latest
+FROM registry.access.redhat.com/ubi10/python-312-minimal:latest
 
-LABEL org.opencontainers.image.description="Synesis base API image — FastAPI, uvicorn, pydantic, httpx, numpy"
+LABEL org.opencontainers.image.description="Synesis base API image — FastAPI, uvicorn, pydantic, httpx, numpy (UBI 10, Python 3.12 minimal)"
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 USER 0
-RUN dnf install -y git && dnf clean all
+RUN microdnf install -y git && microdnf clean all
 
 RUN uv venv --python /opt/app-root/bin/python /opt/app-root/venv
 
