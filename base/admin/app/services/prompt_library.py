@@ -289,14 +289,24 @@ async def seed_default_prompt_profiles() -> int:
     inserted = 0
     async with async_session() as session:
         seeds = [
-            ("yarn", YARN_BASE_PROFILE_NAME, "Yarn default base contract", YARN_BASE_PROMPT),
+            (
+                "yarn",
+                YARN_BASE_PROFILE_NAME,
+                "Yarn: default catch-all system prompt (IDE agent baseline for this service).",
+                YARN_BASE_PROMPT,
+            ),
             (
                 "yarn",
                 YARN_QWEN_PROFILE_NAME,
-                "Yarn Qwen coder overlay (operational non-lazy guidance)",
+                "Yarn: overlay for model_family qwen3-coder (stricter operational / anti-lazy contract).",
                 YARN_QWEN_PROMPT,
             ),
-            ("planner", PLANNER_BASE_PROFILE_NAME, "Planner default base contract", PLANNER_BASE_PROMPT),
+            (
+                "planner",
+                PLANNER_BASE_PROFILE_NAME,
+                "Planner (planner-ts): default catch-all system prompt (Synesis Planner planning persona).",
+                PLANNER_BASE_PROMPT,
+            ),
         ]
         by_name: dict[str, PromptProfile] = {}
         for service, name, description, content in seeds:

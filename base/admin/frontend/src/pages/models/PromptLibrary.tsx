@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import {
   useCreatePromptProfile,
@@ -14,6 +14,10 @@ type Service = "yarn" | "planner";
 type TargetType = "default" | "tier" | "role" | "model_family" | "node";
 
 const TARGET_TYPE_OPTIONS: TargetType[] = ["default", "tier", "role", "model_family", "node"];
+
+function serviceHeadingLabel(s: Service): string {
+  return s === "yarn" ? "Yarn" : "Planner (planner-ts)";
+}
 
 export default function PromptLibrary() {
   const [service, setService] = useState<Service>("yarn");
@@ -50,6 +54,34 @@ export default function PromptLibrary() {
     setContent("");
   };
 
+  const resetAssignmentForm = () => {
+    setAssignTargetType("default");
+    setAssignTargetValue("*");
+    setAssignProfileId(0);
+  };
+
+  const isEditorDirty = useCallback(() => {
+    if (editId) {
+      const p = profiles.find((row) => row.id === editId);
+      if (!p) return true;
+      return name !== p.name || description !== p.description || content !== p.content;
+    }
+    return name.trim() !== "" || description.trim() !== "" || content.trim() !== "";
+  }, [editId, profiles, name, description, content]);
+
+  const switchService = (next: Service) => {
+    if (next === service) return;
+    if (isEditorDirty()) {
+      const ok = window.confirm(
+        "You have unsaved changes in the profile editor. Switch anyway? Your edits will be discarded.",
+      );
+      if (!ok) return;
+    }
+    setService(next);
+    resetEditor();
+    resetAssignmentForm();
+  };
+
   const saveProfile = () => {
     const payload = { service, name: name.trim(), description: description.trim(), content };
     if (!payload.name || !payload.content.trim()) return;
@@ -82,24 +114,38 @@ export default function PromptLibrary() {
     });
   };
 
+  const scopeLabel = serviceHeadingLabel(service);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Prompt Library</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Manage base and overlay prompts for Yarn and Planner model behavior tuning.
+          Each tab is a separate service scope: Yarn
+          (IDE agent) vs Planner (planner-ts planning step). Profile names use{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">&lt;service&gt;-default-base</code> for
+          the catch-all default in that scope—so{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">yarn-default-base</code> and{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">planner-default-base</code> are the same
+          pattern; &quot;planner&quot; in the name is the service, not a mistake. Yarn also ships extra overlays (e.g. coder
+          models) beside that default.
+        </p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          Switching Yarn / Planner clears the profile editor and assignment form; unsaved profile edits prompt before discard.
         </p>
       </div>
 
       <div className="flex items-center gap-2">
         <button
-          onClick={() => setService("yarn")}
+          type="button"
+          onClick={() => switchService("yarn")}
           className={`rounded px-3 py-1.5 text-sm ${service === "yarn" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}
         >
           Yarn
         </button>
         <button
-          onClick={() => setService("planner")}
+          type="button"
+          onClick={() => switchService("planner")}
           className={`rounded px-3 py-1.5 text-sm ${service === "planner" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}
         >
           Planner
@@ -111,7 +157,7 @@ export default function PromptLibrary() {
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-            {editId ? "Edit prompt profile" : "Create prompt profile"}
+            {editId ? "Edit prompt profile" : "Create prompt profile"} — {scopeLabel}
           </h2>
           <div className="mt-3 space-y-3">
             <label className="block text-xs text-gray-600 dark:text-gray-400">
@@ -159,7 +205,7 @@ export default function PromptLibrary() {
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Assignments</h2>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Assignments — {scopeLabel}</h2>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             <select
               value={assignTargetType}
@@ -228,7 +274,9 @@ export default function PromptLibrary() {
       </div>
 
       <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Profiles ({profiles.length})</h2>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+          Profiles — {scopeLabel} ({profiles.length})
+        </h2>
         <div className="mt-3 space-y-2">
           {profiles.map((p) => (
             <div key={p.id} className="rounded border border-gray-200 p-3 dark:border-gray-700">
