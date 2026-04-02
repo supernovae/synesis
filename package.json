@@ -4,5 +4,8 @@
     "packages/*",
     "base/planner-ts",
     "base/yarn-ts"
-  ]
+  ],
+  "overrides": {
+    "axios": "1.14.0"
+  }
 }

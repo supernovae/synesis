@@ -205,6 +205,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: workspace-root
+            dir: .
           - name: admin-frontend
             dir: base/admin/frontend
           - name: mcp-ts
@@ -299,6 +301,25 @@ jobs:
             exit 1
           fi
           echo "No compromised LiteLLM indicators found."
+
+      - name: Check for compromised axios npm artifacts (Mar 2026 supply chain)
+        run: |
+          echo "=== Scanning lockfiles for axios 1.14.1 / 0.30.4 / plain-crypto-js 4.2.1 IOCs ==="
+          FOUND=0
+          for pattern in \
+            'axios/-/axios-1\.14\.1\.tgz' \
+            'axios/-/axios-0\.30\.4\.tgz' \
+            'plain-crypto-js/-/plain-crypto-js-4\.2\.1\.tgz'; do
+            if grep -rn --include='package-lock.json' -E "$pattern" . 2>/dev/null; then
+              echo "::error::Compromised axios / plain-crypto-js IOC detected: $pattern"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            echo "::error::Axios supply-chain IOC check FAILED — see above."
+            exit 1
+          fi
+          echo "No compromised axios / plain-crypto-js indicators found."
 
       - name: Check for mutable LiteLLM image tags
         run: |

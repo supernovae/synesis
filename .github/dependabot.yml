@@ -5,6 +5,24 @@ updates:
     schedule:
       interval: "weekly"
 
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "npm"
+    directory: "/base/admin/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "npm"
+    directory: "/base/mcp-ts"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
   - package-ecosystem: "pip"
     directory: "/base/admin"
     schedule:
