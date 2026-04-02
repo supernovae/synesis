@@ -40,19 +40,32 @@ spec:
           resources:
             requests:
               cpu: "2"
-              memory: 3Gi
+              memory: 4Gi
             limits:
               cpu: "4"
-              memory: 4Gi
+              memory: 8Gi
+          # Binds immediately; model loads in background — do not use /health for liveness
+          # or the old pattern (load-before-bind) will restart the pod during HF download.
           livenessProbe:
             httpGet:
-              path: /health
+              path: /live
               port: http
-            initialDelaySeconds: 60
+            initialDelaySeconds: 10
             periodSeconds: 30
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Long window for first model pull + load without failing liveness (disabled until startupProbe completes).
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 15
+            failureThreshold: 80
+            timeoutSeconds: 5
