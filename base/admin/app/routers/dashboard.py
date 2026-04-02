@@ -43,18 +43,14 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
     st = scope.get("scope_tenant_id", "") or ""
 
     ts_coro = trace_store.get_trace_stats(scope_user_id=su, scope_org_id=so, scope_tenant_id=st)
-    pl_coro = aggregate_planner_usage_24h_for_dashboard(
-        scope_user_id=su, scope_org_id=so, scope_tenant_id=st
-    )
+    pl_coro = aggregate_planner_usage_24h_for_dashboard(scope_user_id=su, scope_org_id=so, scope_tenant_id=st)
 
     async def _yarn_24h():
         if role < Role.org_admin:
             return None
         yarn_org = so if role < Role.platform_admin else ""
         try:
-            return await yarn_service.get_yarn_overview(
-                since_hours=24, scope_user_id="", scope_org_id=yarn_org
-            )
+            return await yarn_service.get_yarn_overview(since_hours=24, scope_user_id="", scope_org_id=yarn_org)
         except Exception:
             logger.warning("dashboard_yarn_overview_failed", exc_info=True)
             return None

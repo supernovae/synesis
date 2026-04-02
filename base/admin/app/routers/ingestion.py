@@ -1066,7 +1066,11 @@ async def purge_pending_ingestion_items(
             cutoff = now - timedelta(minutes=release_stale_running_minutes)
             res = await session.execute(
                 update(IngestionItem)
-                .where(IngestionItem.status == "running", IngestionItem.started_at.is_not(None), IngestionItem.started_at < cutoff)
+                .where(
+                    IngestionItem.status == "running",
+                    IngestionItem.started_at.is_not(None),
+                    IngestionItem.started_at < cutoff,
+                )
                 .values(
                     status="pending",
                     started_at=None,
@@ -1132,10 +1136,7 @@ async def claim_item(
         (
             (IngestionItem.status == "failed")
             & (IngestionItem.retry_count < IngestionItem.max_retries)
-            & (
-                IngestionItem.completed_at
-                <= text("NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0))")
-            )
+            & (IngestionItem.completed_at <= text("NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0))"))
         ),
     )
     filter_parts: list[Any] = [status_clause]
@@ -1615,10 +1616,12 @@ class ResetCatalogRequest(BaseModel):
 
     confirm: str = Field(
         ...,
-        description='Must be DELETE_SYNESIS_CATALOG or DELETE_MILVUS_SCHEMA (after trim)',
+        description="Must be DELETE_SYNESIS_CATALOG or DELETE_MILVUS_SCHEMA (after trim)",
     )
     reset_queue: bool = Field(True, description="Reset ingestion items to pending")
-    recreate_now: bool = Field(True, description="Immediately recreate collection from admin at expected schema version")
+    recreate_now: bool = Field(
+        True, description="Immediately recreate collection from admin at expected schema version"
+    )
 
 
 @router.post("/milvus/reset-catalog")

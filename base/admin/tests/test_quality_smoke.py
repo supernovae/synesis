@@ -21,19 +21,6 @@ from fastapi.testclient import TestClient
 # ---------------------------------------------------------------------------
 
 
-def _fake_user():
-    from app.auth import UserInfo
-
-    return UserInfo(
-        user_id="smoke-tester",
-        username="smoke-tester",
-        email="smoke@test.local",
-        role="admin",
-        org_id="",
-        org_name="",
-    )
-
-
 class _FakeScalar:
     """Minimal stand-in for SQLAlchemy scalar results."""
 
@@ -91,9 +78,11 @@ async def _fake_async_session():
 
 @pytest.fixture(autouse=True)
 def _mock_all(monkeypatch):
-    """Patch auth, DB, Milvus, and HTTP-calling services."""
-    monkeypatch.setattr("app.auth.get_current_user", lambda: _fake_user())
-    monkeypatch.setattr("app.auth.require_admin", lambda: _fake_user())
+    """Patch DB, Milvus, and HTTP-calling services.
+
+    Auth is handled via ``dependency_overrides`` on the ``client`` fixture (monkeypatching
+    ``get_current_user`` breaks FastAPI Depends resolution).
+    """
     monkeypatch.setattr("app.db.engine.async_session", _fake_async_session)
     # Some routers import async_session directly at module import time; patch those
     # aliases too so this smoke suite is stable regardless of import order.

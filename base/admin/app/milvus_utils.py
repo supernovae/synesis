@@ -20,6 +20,7 @@ _CONNECTION_DEAD_MARKERS = (
     "failed to connect to all addresses",
 )
 
+
 def is_connection_dead(exc: BaseException) -> bool:
     msg = (getattr(exc, "message", None) or str(exc)).lower()
     return any(marker in msg for marker in _CONNECTION_DEAD_MARKERS)

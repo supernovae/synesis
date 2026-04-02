@@ -27,6 +27,7 @@ test_outputs_*/
 
 # Virtual environments
 .venv/
+.admin-ci-venv/
 .test-venv/
 venv/
 scripts/.venv/

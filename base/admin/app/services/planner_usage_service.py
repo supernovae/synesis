@@ -194,7 +194,9 @@ async def planner_usage_time_series(
                     bucket_col,
                     func.count().label("requests"),
                     func.coalesce(
-                        func.sum(PlannerUsageLog.tokens_in + PlannerUsageLog.tokens_out + PlannerUsageLog.tokens_cached),
+                        func.sum(
+                            PlannerUsageLog.tokens_in + PlannerUsageLog.tokens_out + PlannerUsageLog.tokens_cached
+                        ),
                         0,
                     ).label("total_tokens"),
                     func.coalesce(func.sum(PlannerUsageLog.estimated_cost_usd), 0).label("estimated_cost_usd"),

@@ -907,7 +907,9 @@ class PromptAssignment(Base):
     service: Mapped[str] = mapped_column(String(32), nullable=False, default="yarn")
     target_type: Mapped[str] = mapped_column(String(32), nullable=False, default="default")
     target_value: Mapped[str] = mapped_column(String(128), nullable=False, default="*")
-    profile_id: Mapped[int] = mapped_column(Integer, ForeignKey("prompt_profiles.id", ondelete="CASCADE"), nullable=False)
+    profile_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("prompt_profiles.id", ondelete="CASCADE"), nullable=False
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     updated_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
