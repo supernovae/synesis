@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClientAdapterPacks } from "../src/adapters/client-adapter-packs.js";
+import { appendWorkspaceRootAdapterBlock, ClientAdapterPacks } from "../src/adapters/client-adapter-packs.js";
 
 describe("ClientAdapterPacks", () => {
   it("resolves IDE clients to ide mode by default", () => {
@@ -41,5 +41,20 @@ describe("ClientAdapterPacks", () => {
     expect(s.byMode.ide).toBe(1);
     expect(s.byMode.cli).toBe(1);
     expect(s.byMode.mcp_native).toBe(1);
+  });
+});
+
+describe("appendWorkspaceRootAdapterBlock", () => {
+  it("passes through when header missing", () => {
+    expect(appendWorkspaceRootAdapterBlock("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>", undefined)).toBe(
+      "<CLIENT_ADAPTER>x</CLIENT_ADAPTER>",
+    );
+  });
+
+  it("appends WORKSPACE_ROOT when header set", () => {
+    const out = appendWorkspaceRootAdapterBlock("base", "/Users/me/calc");
+    expect(out).toContain("base");
+    expect(out).toContain("<WORKSPACE_ROOT>");
+    expect(out).toContain("path=/Users/me/calc");
   });
 });

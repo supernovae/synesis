@@ -90,3 +90,27 @@ export class ClientAdapterPacks {
     return { ...this.stats, byMode: { ...this.stats.byMode } };
   }
 }
+
+/**
+ * When the client sends the absolute workspace root (header `x-synesis-workspace-root`),
+ * append a short system hint so models anchor paths and avoid nested duplicate directories.
+ * Does nothing if the header is missing or empty.
+ */
+export function appendWorkspaceRootAdapterBlock(
+  adapterBlock: string,
+  workspaceRootHeader: string | string[] | undefined,
+): string {
+  const raw = Array.isArray(workspaceRootHeader) ? workspaceRootHeader[0] : workspaceRootHeader;
+  const r = typeof raw === "string" ? raw.trim() : "";
+  if (!r) return adapterBlock;
+  const ws = [
+    "<WORKSPACE_ROOT>",
+    `path=${r}`,
+    "Synesis reports the client's workspace root above.",
+    "Create new work under this root; do not nest multiple directories with the same name (e.g. avoid proj/proj/proj).",
+    "If the workspace is empty, add files at the root (e.g. go.mod, main.go) instead of mkdir && cd into repeated path segments.",
+    "Shell cd only affects Bash; keep Read/Write/Edit paths relative to the workspace root.",
+    "</WORKSPACE_ROOT>",
+  ].join("\n");
+  return `${adapterBlock}\n\n${ws}`;
+}

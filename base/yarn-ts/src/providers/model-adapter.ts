@@ -127,6 +127,10 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "Do NOT use absolute paths like `/home/user/...`. The user's OS may not be Linux.",
       "For file tools, do NOT prefix with the repository/workspace folder name.",
       "Shell `cd` usage does not change file-tool root semantics; keep file paths workspace-relative.",
+      "",
+      "## Directories (avoid getting lost):",
+      "Do not `mkdir` and `cd` into a folder that repeats the project name multiple times (e.g. `aws-cost-calculator/aws-cost-calculator/...`).",
+      "If the workspace is empty or you are already at the project root, create files there (`main.go`, `go.mod`) instead of nesting duplicate path segments.",
     ].join("\n");
   }
 
@@ -345,11 +349,18 @@ export function normalizeWorkspaceRelativeFilePath(filePath: string): string {
   p = normalizeHallucinatedLinuxWritePath(p);
 
   const parts = p.split("/").filter((s) => s.length > 0);
-  if (parts.length >= 2 && parts[0] === parts[1] && parts[0] !== "." && parts[0] !== "..") {
+  let guard = 0;
+  while (
+    parts.length >= 2 &&
+    parts[0] === parts[1] &&
+    parts[0] !== "." &&
+    parts[0] !== ".." &&
+    guard < 32
+  ) {
     parts.shift();
-    p = parts.join("/");
+    guard += 1;
   }
-  return p;
+  return parts.join("/");
 }
 
 function shellEscape(s: string): string {

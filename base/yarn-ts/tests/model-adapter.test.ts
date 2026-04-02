@@ -329,6 +329,14 @@ describe("normalizeWorkspaceRelativeFilePath", () => {
     expect(normalizeWorkspaceRelativeFilePath("rosa-cost-calculator/rosa-cost-calculator/internal/main.go"))
       .toBe("rosa-cost-calculator/internal/main.go");
   });
+
+  it("collapses multiply duplicated leading segment", () => {
+    expect(
+      normalizeWorkspaceRelativeFilePath(
+        "aws-cost-calculator/aws-cost-calculator/aws-cost-calculator/main.go",
+      ),
+    ).toBe("aws-cost-calculator/main.go");
+  });
 });
 
 describe("normalizeFileToolArgs", () => {

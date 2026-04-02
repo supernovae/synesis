@@ -57,7 +57,7 @@ import {
 } from "./tool-collapse/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
-import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
+import { appendWorkspaceRootAdapterBlock, ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
@@ -1801,7 +1801,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
   );
-  const adapterBlock = clientAdapterPacks.toSystemBlock(adapterProfile);
+  const adapterBlock = appendWorkspaceRootAdapterBlock(
+    clientAdapterPacks.toSystemBlock(adapterProfile),
+    req.headers["x-synesis-workspace-root"],
+  );
   const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
 
@@ -2596,7 +2599,10 @@ app.post("/v1/messages", async (req, reply) => {
     String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
   );
-  const claudeAdapterBlock = clientAdapterPacks.toSystemBlock(claudeAdapterProfile);
+  const claudeAdapterBlock = appendWorkspaceRootAdapterBlock(
+    clientAdapterPacks.toSystemBlock(claudeAdapterProfile),
+    req.headers["x-synesis-workspace-root"],
+  );
   const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
   const claudeClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
