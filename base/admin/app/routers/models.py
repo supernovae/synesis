@@ -174,7 +174,7 @@ async def create_prompts_profile(
     user: UserInfo = Depends(require_platform_admin),
 ):
     try:
-        out = await create_prompt_profile(data, actor=user.email)
+        out = await create_prompt_profile(data, actor=user.email or user.username)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     await record_admin_audit(
@@ -194,7 +194,7 @@ async def update_prompts_profile(
     user: UserInfo = Depends(require_platform_admin),
 ):
     try:
-        out = await update_prompt_profile(profile_id, data, actor=user.email)
+        out = await update_prompt_profile(profile_id, data, actor=user.email or user.username)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     if out is None:
@@ -241,7 +241,7 @@ async def put_prompts_assignment(
     user: UserInfo = Depends(require_platform_admin),
 ):
     try:
-        out = await upsert_prompt_assignment(data, actor=user.email)
+        out = await upsert_prompt_assignment(data, actor=user.email or user.username)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     await record_admin_audit(
@@ -1447,11 +1447,11 @@ async def put_role_policies(
                 session.add(policy)
 
     await record_admin_audit(
-        user_email=user.email,
+        user=user,
         action="model_policy_updated",
-        resource_type="model_policy",
-        resource_id=role,
-        detail={"rules_count": len(rules)},
+        status="success",
+        summary=f"Updated model policies for role {role}",
+        detail={"resource_type": "model_policy", "resource_id": role, "rules_count": len(rules)},
     )
     return {"role": role, "rules_count": len(rules), "preview": _preview_policy(rules)}
 
@@ -1471,10 +1471,11 @@ async def delete_role_policies(
                 {"role": role},
             )
     await record_admin_audit(
-        user_email=user.email,
+        user=user,
         action="model_policy_deleted",
-        resource_type="model_policy",
-        resource_id=role,
+        status="success",
+        summary=f"Deleted model policies for role {role}",
+        detail={"resource_type": "model_policy", "resource_id": role},
     )
     return {"role": role, "deleted": True}
 

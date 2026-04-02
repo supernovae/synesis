@@ -48,6 +48,7 @@ class UserInfo(BaseModel):
     username: str
     role: str
     user_id: str = ""  # Keycloak sub or PAT user id
+    email: str = ""  # Keycloak email claim (empty for PATs); used for audit / prompt_library.updated_by
     org_id: str = ""  # primary Keycloak organization ID
     org_name: str = ""  # primary organization display name
     org_roles: list[str] = []  # roles within the organization
@@ -135,6 +136,7 @@ def _verify_keycloak_token(token: str, *, requested_org_id: str = "") -> UserInf
         username=username,
         role=role,
         user_id=payload.get("sub", ""),
+        email=str(payload.get("email", "") or "").strip()[:256],
         org_id=org_id,
         org_name=org_name,
         org_roles=org_roles,
@@ -189,6 +191,7 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
             username=pat.username,
             role=pat.role,
             user_id=pat.user_id,
+            email="",
             org_id=org_id,
             tenant_ids=tenant_ids,
             token_scopes=scopes,
