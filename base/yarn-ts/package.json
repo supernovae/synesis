@@ -17,7 +17,7 @@
     "scaffold:reducer": "tsx scripts/scaffold-reducer.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.48",
+    "@ai-sdk/openai": "^3.0.49",
     "@openfga/sdk": "^0.9.1",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
