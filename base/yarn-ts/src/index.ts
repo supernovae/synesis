@@ -57,7 +57,12 @@ import {
 } from "./tool-collapse/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
-import { appendWorkspaceRootAdapterBlock, ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
+import {
+  appendPathContextToAdapterBlock,
+  ClientAdapterPacks,
+  parseSessionExecutionContext,
+  resolveWorkspaceRootForCollapse,
+} from "./adapters/client-adapter-packs.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
@@ -252,6 +257,7 @@ const diagnosticRing: RequestDiagnostic[] = [];
 let DIAGNOSTIC_RING_MAX = 20;
 const toolArgHardeningStats = {
   normalizedPathCount: 0,
+  projectRootConstrainedCount: 0,
   remappedArgsCount: 0,
   repairedWriteCount: 0,
   repairedBashCount: 0,
@@ -414,6 +420,7 @@ function enrichWithFrameAndManifest(
   sessionKey: string,
   adapterBlock?: string,
   promptContext?: { tier?: string; role?: string; modelFamily?: string; node?: string },
+  pathHints?: { projectRoot: string | null; shellCwd: string | null } | null,
 ): EnrichResult {
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
@@ -430,6 +437,11 @@ function enrichWithFrameAndManifest(
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
 
+  const wfPathHints =
+    config.SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME && pathHints
+      ? { projectRoot: pathHints.projectRoot, shellCwd: pathHints.shellCwd }
+      : null;
+
   if (config.SYNESIS_YARN_WORKING_FRAME_ENABLED) {
     if (config.SYNESIS_YARN_MANIFEST_TEMPLATES_ENABLED) {
       const latestUser = [...out].reverse().find((m) => m.role === "user");
@@ -441,7 +453,7 @@ function enrichWithFrameAndManifest(
         const frame = workingFrameService.build(out);
         detectedPhase = phaseFromFrame(frame.currentPhase);
         detectedGoal = frame.goal;
-        volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
+        volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame, wfPathHints) });
       } else {
         const template = manifestGetTemplate(classification.projectKind);
         const filePaths = (allText.match(FILE_RE_GLOBAL) ?? []).map((f: string) => f.trim());
@@ -472,13 +484,13 @@ function enrichWithFrameAndManifest(
           : richFrame.phase === "explore" ? "explore"
           : "implementation";
         detectedGoal = richFrame.currentGoal;
-        volatileBlocks.push({ role: "system", content: workingFrameService.toRichSystemBlock(richFrame) });
+        volatileBlocks.push({ role: "system", content: workingFrameService.toRichSystemBlock(richFrame, wfPathHints) });
       }
     } else {
       const frame = workingFrameService.build(out);
       detectedPhase = phaseFromFrame(frame.currentPhase);
       detectedGoal = frame.goal;
-      volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
+      volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame, wfPathHints) });
     }
   }
 
@@ -853,6 +865,7 @@ async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<Ti
 
 import type { ModelAdapter } from "./providers/model-adapter.js";
 import {
+  constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
   repairBashToolCall,
   repairWriteToolCall,
@@ -1801,9 +1814,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
     String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
   );
-  const adapterBlock = appendWorkspaceRootAdapterBlock(
+  const oaiBodyMetaRaw = (request as Record<string, unknown>).metadata;
+  const oaiBodyMeta =
+    oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
+      ? (oaiBodyMetaRaw as Record<string, unknown>)
+      : null;
+  const oaiPathCtx = parseSessionExecutionContext(req.headers as Record<string, string | string[] | undefined>, oaiBodyMeta);
+  const adapterBlock = appendPathContextToAdapterBlock(
     clientAdapterPacks.toSystemBlock(adapterProfile),
-    req.headers["x-synesis-workspace-root"],
+    req.headers as Record<string, string | string[] | undefined>,
+    oaiBodyMeta,
   );
   const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
@@ -1992,6 +2012,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sessionKey,
     adapterBlock,
     oaiPromptContext,
+    { projectRoot: oaiPathCtx.projectRoot, shellCwd: oaiPathCtx.shellCwd },
   );
   let oaiEnrichedMsgs = oaiEnriched.messages as Array<{ role: string; content: unknown }>;
 
@@ -2243,8 +2264,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       String(req.headers["x-synesis-tool-collapse"] ?? "") === "apply" &&
       externalToolCalls.length > 1
     ) {
-      const wsHeader = req.headers["x-synesis-workspace-root"];
-      const workspaceRoot = typeof wsHeader === "string" && wsHeader.trim() ? wsHeader.trim() : null;
+      const workspaceRoot = resolveWorkspaceRootForCollapse(
+        req.headers as Record<string, string | string[] | undefined>,
+        oaiBodyMeta,
+      );
       const allowlist = defaultShellAllowlistFromEnv(config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST);
       const collapseInterceptor = new ToolCallInterceptor({
         workspaceRoot,
@@ -2599,9 +2622,14 @@ app.post("/v1/messages", async (req, reply) => {
     String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
   );
-  const claudeAdapterBlock = appendWorkspaceRootAdapterBlock(
+  const claudePathCtx = parseSessionExecutionContext(
+    req.headers as Record<string, string | string[] | undefined>,
+    body.metadata ?? null,
+  );
+  const claudeAdapterBlock = appendPathContextToAdapterBlock(
     clientAdapterPacks.toSystemBlock(claudeAdapterProfile),
-    req.headers["x-synesis-workspace-root"],
+    req.headers as Record<string, string | string[] | undefined>,
+    body.metadata ?? null,
   );
   const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
@@ -2783,6 +2811,7 @@ app.post("/v1/messages", async (req, reply) => {
     claudeSessionKey,
     claudeAdapterBlock,
     claudePromptContext,
+    { projectRoot: claudePathCtx.projectRoot, shellCwd: claudePathCtx.shellCwd },
   );
   let enrichedClaudeMsgs = claudeEnriched.messages as Array<{ role: string; content: unknown }>;
 
@@ -3071,6 +3100,17 @@ app.post("/v1/messages", async (req, reply) => {
           if (pathNorm.normalized) {
             finalInput = pathNorm.input;
             toolArgHardeningStats.normalizedPathCount += 1;
+          }
+          if (config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE) {
+            const rootClamp = constrainFileToolPathToProjectRoot(claudePathCtx.projectRoot, emitToolName, finalInput);
+            if (rootClamp.constrained) {
+              finalInput = rootClamp.input;
+              toolArgHardeningStats.projectRootConstrainedCount += 1;
+              app.log.info(
+                { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+                "file_tool_path_constrained_to_project_root",
+              );
+            }
           }
 
           // Adapter-neutral: detect malformed Write content and rewrite as Bash heredoc

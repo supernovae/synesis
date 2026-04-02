@@ -1,3 +1,5 @@
+import path from "node:path";
+
 /**
  * Model-specific adapters for upstream LLM behavioral differences.
  *
@@ -292,6 +294,40 @@ export function normalizeFileToolArgs(
     return { input, normalized: false };
   }
   return { input: { ...input, file_path: normalizedPath }, normalized: true };
+}
+
+/**
+ * When project_root is known (client-provided absolute path), ensure file_path resolves under it.
+ * Outside paths are clamped to basename under root (best-effort). Uses path.resolve string rules only.
+ */
+export function constrainFileToolPathToProjectRoot(
+  projectRoot: string | null | undefined,
+  toolName: string,
+  input: Record<string, unknown>,
+): { input: Record<string, unknown>; constrained: boolean } {
+  if (!projectRoot?.trim()) return { input, constrained: false };
+  if (!["Write", "Read", "Edit", "Update"].includes(toolName)) return { input, constrained: false };
+  const fp = input.file_path;
+  if (typeof fp !== "string" || !fp.trim()) return { input, constrained: false };
+
+  const root = path.resolve(projectRoot.trim());
+  const raw = fp.trim();
+  const resolved = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
+  const rel = path.relative(root, resolved);
+  const inside =
+    rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  if (inside) {
+    const normalizedRel = (rel || ".").split(path.sep).join("/");
+    const prev = raw.replace(/\\/g, "/");
+    if (normalizedRel === prev) return { input, constrained: false };
+    return { input: { ...input, file_path: normalizedRel }, constrained: true };
+  }
+  const base = path.basename(resolved);
+  const clamped =
+    base && base !== "." && base !== ".."
+      ? base.split(path.sep).join("/")
+      : "file";
+  return { input: { ...input, file_path: clamped }, constrained: true };
 }
 
 export function validateToolArgs(

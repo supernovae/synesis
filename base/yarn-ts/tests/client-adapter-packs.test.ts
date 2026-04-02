@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { appendWorkspaceRootAdapterBlock, ClientAdapterPacks } from "../src/adapters/client-adapter-packs.js";
+import {
+  appendPathContextToAdapterBlock,
+  ClientAdapterPacks,
+  parseSessionExecutionContext,
+} from "../src/adapters/client-adapter-packs.js";
 
 describe("ClientAdapterPacks", () => {
   it("resolves IDE clients to ide mode by default", () => {
@@ -44,17 +48,25 @@ describe("ClientAdapterPacks", () => {
   });
 });
 
-describe("appendWorkspaceRootAdapterBlock", () => {
-  it("passes through when header missing", () => {
-    expect(appendWorkspaceRootAdapterBlock("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>", undefined)).toBe(
-      "<CLIENT_ADAPTER>x</CLIENT_ADAPTER>",
-    );
+describe("appendPathContextToAdapterBlock", () => {
+  it("passes through when no path context", () => {
+    expect(
+      appendPathContextToAdapterBlock("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>", {}, null),
+    ).toBe("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>");
   });
 
-  it("appends WORKSPACE_ROOT when header set", () => {
-    const out = appendWorkspaceRootAdapterBlock("base", "/Users/me/calc");
+  it("appends SESSION_EXECUTION_CONTEXT when workspace root header set", () => {
+    const out = appendPathContextToAdapterBlock("base", { "x-synesis-workspace-root": "/Users/me/calc" }, null);
     expect(out).toContain("base");
-    expect(out).toContain("<WORKSPACE_ROOT>");
-    expect(out).toContain("path=/Users/me/calc");
+    expect(out).toContain("<SESSION_EXECUTION_CONTEXT>");
+    expect(out).toContain("project_root=/Users/me/calc");
+  });
+
+  it("prefers metadata synesis_project_root over header", () => {
+    const ctx = parseSessionExecutionContext(
+      { "x-synesis-workspace-root": "/hdr" },
+      { synesis_project_root: "/meta" },
+    );
+    expect(ctx.projectRoot).toBe("/meta");
   });
 });

@@ -51,6 +51,7 @@ Use these terms in user docs and product-facing setup instructions.
 
 ## Client-specific docs
 
+- [Session execution context (workspace root, shell cwd, optional metadata)](SESSION_EXECUTION_CONTEXT.md)
 - [Claude Code on coder frontend](CLAUDECODE.md)
 - [Planner OpenAI compatibility](../PLANNER_OPENAI_COMPATIBILITY.md)
 - [Yarn runtime details](../YARN_RUNTIME.md)

@@ -4,6 +4,7 @@ import {
   Qwen3CoderAdapter,
   GenericOpenAIAdapter,
   DeepSeekAdapter,
+  constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
   validateToolArgs,
   repairWriteToolCall,
@@ -336,6 +337,25 @@ describe("normalizeWorkspaceRelativeFilePath", () => {
         "aws-cost-calculator/aws-cost-calculator/aws-cost-calculator/main.go",
       ),
     ).toBe("aws-cost-calculator/main.go");
+  });
+});
+
+describe("constrainFileToolPathToProjectRoot", () => {
+  it("passes through without project root", () => {
+    const r = constrainFileToolPathToProjectRoot(null, "Read", { file_path: "../x.go" });
+    expect(r.constrained).toBe(false);
+    expect(r.input.file_path).toBe("../x.go");
+  });
+
+  it("leaves in-repo relative paths unchanged", () => {
+    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Read", { file_path: "pkg/a.go" });
+    expect(r.constrained).toBe(false);
+  });
+
+  it("clamps paths outside project root to basename", () => {
+    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Read", { file_path: "../../etc/passwd" });
+    expect(r.constrained).toBe(true);
+    expect(r.input.file_path).toBe("passwd");
   });
 });
 

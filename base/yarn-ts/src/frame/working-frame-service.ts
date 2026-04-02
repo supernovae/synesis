@@ -33,6 +33,12 @@ export interface ManifestContext {
   comparison?: ManifestComparison;
 }
 
+/** Optional client-provided anchors (see SESSION_EXECUTION_CONTEXT). */
+export interface WorkingFramePathHints {
+  projectRoot?: string | null;
+  shellCwd?: string | null;
+}
+
 const FILE_RE = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
 
 function asText(content: unknown): string {
@@ -174,30 +180,45 @@ export class WorkingFrameService {
   }
 
   /** Emit a compact system block — adapts density to frame type. */
-  toSystemBlock(frame: WorkingFrame): string {
-    return [
-      "<WORKING_FRAME>",
+  toSystemBlock(frame: WorkingFrame, pathHints?: WorkingFramePathHints | null): string {
+    const lines = ["<WORKING_FRAME>"];
+    if (pathHints?.projectRoot?.trim()) {
+      lines.push(`project_root=${pathHints.projectRoot.trim()}`);
+    }
+    if (pathHints?.shellCwd?.trim()) {
+      lines.push(`shell_cwd=${pathHints.shellCwd.trim()}`);
+    }
+    lines.push(
       `goal=${frame.goal}`,
       `current_phase=${frame.currentPhase}`,
       `active_files=${frame.activeFiles.join(",") || "none"}`,
       `pending_checks=${frame.pendingChecks.join(",") || "none"}`,
       `constraints=${frame.constraints.join(" | ") || "none"}`,
       `open_decisions=${frame.openDecisions.join(" | ") || "none"}`,
-      "</WORKING_FRAME>"
-    ].join("\n");
+      "</WORKING_FRAME>",
+    );
+    return lines.join("\n");
   }
 
   /** Emit a rich system block for medium/large tasks with manifest context. */
-  toRichSystemBlock(frame: RichWorkingFrame): string {
+  toRichSystemBlock(frame: RichWorkingFrame, pathHints?: WorkingFramePathHints | null): string {
     const lines = [
       "<WORKING_FRAME>",
+    ];
+    if (pathHints?.projectRoot?.trim()) {
+      lines.push(`project_root=${pathHints.projectRoot.trim()}`);
+    }
+    if (pathHints?.shellCwd?.trim()) {
+      lines.push(`shell_cwd=${pathHints.shellCwd.trim()}`);
+    }
+    lines.push(
       `goal=${frame.currentGoal}`,
       `phase=${frame.phase}`,
       `complexity=${frame.complexity}`,
       `plan_required=${frame.planRequired}`,
       `domain=${frame.domain || "none"}`,
       `relevant_files=${frame.relevantFiles.join(",") || "none"}`,
-    ];
+    );
     if (frame.relevantManifestFacts.length > 0) {
       lines.push(`manifest_facts=${frame.relevantManifestFacts.join(" | ")}`);
     }

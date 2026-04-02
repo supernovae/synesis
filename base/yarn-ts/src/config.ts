@@ -325,7 +325,19 @@ const EnvSchema = z.object({
   SYNESIS_YARN_DEBUG_PROTOCOL: z
     .string()
     .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true")
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+
+  // Session execution context — project_root / shell_cwd in WORKING_FRAME
+  SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // When true, clamp Read/Write/Edit/Update file_path to project_root (Claude streaming path)
+  SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

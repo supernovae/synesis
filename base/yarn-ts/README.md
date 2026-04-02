@@ -27,6 +27,8 @@ The service listens on `0.0.0.0:8000` by default.
 - `SYNESIS_YARN_TIER_POLL_INTERVAL`
 - `SYNESIS_YARN_OPENAI_COMPAT_BASE_URL`
 - `SYNESIS_YARN_OPENAI_COMPAT_API_KEY`
+- `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME` (default `true`) — include client `project_root` / `shell_cwd` in `<WORKING_FRAME>` when sent; see `docs/clients/SESSION_EXECUTION_CONTEXT.md`.
+- `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE` (default `false`) — clamp file-tool paths to `project_root` on Claude streaming responses when root is known.
 
 ## Current Scope
 

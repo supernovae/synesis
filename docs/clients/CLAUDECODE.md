@@ -81,6 +81,34 @@ For Claude requests, conversation identity resolves in this order:
 
 If none are provided, requests share a user+client scoped session.
 
+## Workspace and execution context (optional)
+
+Yarn-ts can merge structured **project** and **shell** paths into the model context so tiers (for example Qwen3) anchor file tools. Full field names and precedence are in [SESSION_EXECUTION_CONTEXT.md](SESSION_EXECUTION_CONTEXT.md).
+
+**Headers (HTTP)**
+
+| Header | Meaning |
+|--------|---------|
+| `x-synesis-project-root` | Repository / workspace root (absolute path on the client) |
+| `x-synesis-workspace-root` | Same as `x-synesis-project-root` (backward compatible) |
+| `x-synesis-shell-cwd` | Current task directory (often `pwd`) |
+
+**Anthropic `metadata` (same keys, snake_case)**
+
+- `synesis_project_root`, `synesis_shell_cwd`
+- Optional: `synesis_runtime` (`platform`, `os_version`, `shell`), `synesis_git_summary`, `synesis_client_model_label`, `synesis_knowledge_cutoff`
+
+Claude Code does **not** send these by default. Use a [Claude Code hook](https://code.claude.com/docs/en/hooks) or a small reverse proxy in front of `ANTHROPIC_BASE_URL` to attach headers or merge `metadata` on each `POST /v1/messages` (for example set `x-synesis-project-root` from `git rev-parse --show-toplevel` and `x-synesis-shell-cwd` from `pwd`).
+
+**Server-side**
+
+- `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME` (default `true`): echo `project_root` / `shell_cwd` inside `<WORKING_FRAME>` when provided.
+- `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE` (default `false`): on the Claude **streaming** path, clamp Read/Write/Edit/Update `file_path` to resolve under `project_root` when it is known.
+
+## Bash and directory containment
+
+Yarn-ts does **not** execute tools; it only returns tool calls to the client. **Hard** rules on `cd`, destructive `rm`, or leaving the repo must be enforced on the machine that runs tools—for example a `PreToolUse` hook in Claude Code that blocks or rewrites commands. See the [hooks reference](https://code.claude.com/docs/en/hooks).
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
@@ -92,6 +120,7 @@ If none are provided, requests share a user+client scoped session.
 
 ## Related docs
 
+- [Session execution context contract](SESSION_EXECUTION_CONTEXT.md)
 - [Client setup overview](CLIENTS.md)
 - [Claude compatibility design note](../claude_code_compat.md)
 - [Yarn TS runtime](../YARN_RUNTIME.md)

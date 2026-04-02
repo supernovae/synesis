@@ -34,7 +34,7 @@ If you do **not** implement synthetics, keep rewrite off and use the **plan API*
 When enabled **and** the client opts in per request:
 
 1. Header `x-synesis-tool-collapse: apply`
-2. Header `x-synesis-workspace-root: <absolute workspace path>` (required for path validation)
+2. A resolved workspace root for path validation: `x-synesis-project-root`, legacy `x-synesis-workspace-root`, and/or OpenAI body `metadata.synesis_project_root` (same precedence as [SESSION_EXECUTION_CONTEXT.md](clients/SESSION_EXECUTION_CONTEXT.md))
 3. More than one external tool call in the completion
 
 Yarn may replace multiple calls with fewer **`synesis_*`** calls. Arguments include `_synesis_original_tool_call_ids` for tracing and fan-out.

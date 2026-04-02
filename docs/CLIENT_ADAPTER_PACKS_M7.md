@@ -73,6 +73,16 @@ pattern matching in `modeForClient()`.
   `GET /v1/adapter-packs` endpoint.
 - `getStats()` exposes resolution counts by mode for `/health/telemetry`.
 
+### Session execution context (shipped)
+
+[base/yarn-ts/src/adapters/session-execution-context.ts](../base/yarn-ts/src/adapters/session-execution-context.ts)
+
+- `parseSessionExecutionContext(headers, metadata?)` resolves `project_root` (from `synesis_project_root` metadata, then `x-synesis-project-root`, then legacy `x-synesis-workspace-root`) and `shell_cwd` (metadata or `x-synesis-shell-cwd`), plus optional runtime/git/model labels.
+- `appendPathContextToAdapterBlock(adapterBlock, headers, metadata?)` appends `<SESSION_EXECUTION_CONTEXT>...</SESSION_EXECUTION_CONTEXT>` after `<CLIENT_ADAPTER>` when any field is set (replaces the older standalone `<WORKSPACE_ROOT>` block).
+- `resolveWorkspaceRootForCollapse(headers, metadata?)` feeds the same resolved root into tool-collapse path validation on OpenAI non-stream rewrites.
+
+Contract: [docs/clients/SESSION_EXECUTION_CONTEXT.md](clients/SESSION_EXECUTION_CONTEXT.md).
+
 ### Known clients
 
 ```

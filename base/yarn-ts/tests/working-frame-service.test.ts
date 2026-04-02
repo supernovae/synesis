@@ -22,4 +22,15 @@ describe("WorkingFrameService", () => {
     expect(block).toContain("<WORKING_FRAME>");
     expect(block).toContain("current_phase=");
   });
+
+  it("includes project_root and shell_cwd when path hints provided", () => {
+    const svc = new WorkingFrameService(8);
+    const frame = svc.build([{ role: "user", content: "Do the task." }]);
+    const block = svc.toSystemBlock(frame, {
+      projectRoot: "/Users/me/repo",
+      shellCwd: "/Users/me/repo/sub",
+    });
+    expect(block).toContain("project_root=/Users/me/repo");
+    expect(block).toContain("shell_cwd=/Users/me/repo/sub");
+  });
 });
