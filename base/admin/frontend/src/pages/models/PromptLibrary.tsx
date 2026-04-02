@@ -133,6 +133,15 @@ export default function PromptLibrary() {
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
           Switching Yarn / Planner clears the profile editor and assignment form; unsaved profile edits prompt before discard.
         </p>
+        {service === "planner" && (
+          <p className="mt-2 text-sm text-amber-900 dark:text-amber-100/90">
+            <span className="font-medium">Planner tab:</span> Assigned profiles are{" "}
+            <strong>appended after</strong> the built-in planner system text (JSON schema, trust rules,
+            taxonomy). They do not replace it. Use profiles for tone and model-family habits (e.g. Kimi);
+            avoid asking for prose or markdown answers — the pipeline requires parseable JSON. The server
+            also appends a final JSON-only reminder after all profiles.
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

@@ -46,6 +46,19 @@ export interface LlmPlannerResult {
 const PLANNER_CAP_HARD_CEILING = 4096;
 
 /**
+ * Always appended after composePlannerPrompt() so Prompt Library profiles
+ * (style, Kimi tweaks, etc.) are never the last instruction — models often weigh
+ * recency heavily; this re-anchors JSON-only output.
+ */
+const PLANNER_JSON_FOOTER = [
+  "---",
+  "FINAL OUTPUT (non-negotiable): Your entire assistant message must be one JSON object only.",
+  "No markdown code fences, no text before or after the JSON.",
+  "Keys: steps (array of { id: number, action: string, dependencies?: number[] }),",
+  "open_questions (string[]), assumptions (string[]), confidence (number 0..1), reasoning (string).",
+].join("\n");
+
+/**
  * Adaptive planner output budget.
  *
  * Raises the base cap for high-difficulty and complex/chaotic Cynefin tasks
@@ -293,12 +306,13 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       taxonomyAppend,
       decompositionBlock,
     ].filter(Boolean).join("\n");
-    const composedSystemPrompt = composePlannerPrompt(plannerSystemPrompt, {
+    const composed = composePlannerPrompt(plannerSystemPrompt, {
       tier: state.model_tier,
       role: "router",
       node: "planner",
       model: plannerModel,
-    }).content;
+    });
+    const composedSystemPrompt = `${composed.content}\n\n${PLANNER_JSON_FOOTER}`;
     const plannerMessages = [
       {
         role: "system" as const,
