@@ -6,7 +6,7 @@ Status updates from the LLM (e.g. "Analyzing request…", "Gathering evidence…
 
 ## Problem
 
-When Open WebUI or another client connects to the Planner via HAProxy/LiteLLM:
+When Open WebUI or another client connects to the Planner (directly or via a reverse proxy such as HAProxy/OpenShift Route):
 
 1. The Planner streams SSE or chunked HTTP to the client.
 2. Intermediate proxies may buffer responses until a threshold (e.g. 4KB) or until the request completes.
@@ -57,12 +57,12 @@ backend synesis_planner
     http-response set-header X-Accel-Buffering no
 ```
 
-### 4. LiteLLM proxy
+### 4. LiteLLM (only if WebUI is pointed at the gateway)
 
-If using LiteLLM in front of the Planner, ensure it does not buffer:
+If you **reconfigure** Open WebUI to call **LiteLLM** instead of planner-ts, ensure the proxy does not buffer SSE:
 
 - Check `litellm_settings` for streaming-related options.
-- Prefer passing the Planner URL through and letting LiteLLM proxy streams without buffering.
+- Default Synesis WebUI wiring does **not** use LiteLLM on this hop.
 
 ### 5. Direct Planner connection (bypass proxies)
 

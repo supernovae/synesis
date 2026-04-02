@@ -30,4 +30,4 @@ The probe validates:
 
 ## Open WebUI
 
-Chat in Open WebUI goes to **LiteLLM**, not directly to the planner. Model names in the picker come from LiteLLM (plus registry). WebUI feature flags (`ENABLE_IMAGE_GENERATION`, `ENABLE_RAG_WEB_SEARCH`, …) control **Open WebUI’s** features, not Synesis router web search inside the pipeline. See comments in `base/webui/deployment.yaml`.
+Chat in Open WebUI goes to **planner-ts** by default (`OPENAI_API_BASE_URL` in `base/webui/deployment.yaml`). Model names in the picker come from **planner-ts** `/v1/models`. WebUI feature flags (`ENABLE_IMAGE_GENERATION`, `ENABLE_RAG_WEB_SEARCH`, …) control **Open WebUI’s** features, not Synesis router web search inside the pipeline.

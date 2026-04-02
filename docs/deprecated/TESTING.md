@@ -64,7 +64,7 @@ python3 scripts/synesis_openai_capability_probe.py --strict
 
 ## 4. OpenAI-shaped API — what the **general LLM** and **Yarn coder** fronts need
 
-Open WebUI (and similar clients) talk to **LiteLLM → planner** for the main chat UX. **IDE / coder** clients talk to **Yarn** (`synesis-yarn`). Below: minimum surface area, current status, and how we treat gaps.
+Open WebUI (and similar clients) talk to **planner-ts** for the main chat UX (default `OPENAI_API_BASE_URL`). **IDE / coder** clients talk to **Yarn** (`synesis-yarn`). Below: minimum surface area, current status, and how we treat gaps.
 
 Legend: **Yes** = implemented and should have contract tests; **Partial** = subset or quirks documented; **No** = not implemented — clients must not rely on it (return **404** for unknown routes; use **501** only if we add an explicit stub endpoint).
 
@@ -79,7 +79,7 @@ Legend: **Yes** = implemented and should have contract tests; **Partial** = subs
 | `model` id aliases | Yes — `Synesis`, `Synesis Thinking`, `synesis-agent`, etc. | Yes — `synesis-yarn` | Normalization tests (planner) |
 | Auth | Bearer + PAT `syn-…` + trusted gateway headers | Bearer: PAT or Keycloak JWT (see Yarn middleware) | PAT tests planner; Yarn auth tests |
 
-### 4.2 General LLM (planner) — Open WebUI / LiteLLM path
+### 4.2 General LLM (planner) — Open WebUI → planner-ts path
 
 | Capability | Status | Action if missing |
 |------------|--------|-------------------|

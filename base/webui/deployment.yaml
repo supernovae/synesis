@@ -86,7 +86,7 @@ spec:
             # V3: Synesis Auto = default planner-ts tier.
             # Other selectable tiers are exposed from planner-ts /v1/models.
             # Synesis Thinking = writer thinking param;
-            # synesis-thinking = R1 optional; Synesis Coder / synesis-yarn = IDE. From LiteLLM /v1/models.
+            # synesis-thinking = R1 optional; Synesis Coder / synesis-yarn = IDE. Listed via planner-ts /v1/models.
             - name: DEFAULT_MODELS
               value: "Synesis Auto"
             - name: ENABLE_OLLAMA_API
@@ -107,7 +107,7 @@ spec:
               value: "false"
             - name: ENABLE_COMMUNITY_SHARING
               value: "false"
-            # Forward X-OpenWebUI-* / org headers to LiteLLM → planner for trusted identity.
+            # Forward X-OpenWebUI-* / org headers to the OpenAI API base (planner-ts) for trusted identity.
             - name: ENABLE_FORWARD_USER_INFO_HEADERS
               value: "true"
             - name: SAFE_MODE

@@ -135,6 +135,12 @@ export function shouldClarify(state: GraphState, plan: PlannerOutput): boolean {
   const iteration = state.iteration_count ?? 0;
   if (iteration > 0) return false;
 
+  // Clarification follow-ups are separate HTTP requests; iteration_count is not
+  // carried across turns, so the iteration guard alone cannot prevent a second
+  // clarification. After the user answers, proceed (even if the planner LLM
+  // output is still unparseable — parse fallback must not re-prompt forever).
+  if (state.user_answer_to_clarification?.trim()) return false;
+
   const frameCoherence = state.domain_profile?.frameCoherence ?? "focused";
   const difficulty = state.difficulty ?? 0.3;
   const confidence = plan.confidence;

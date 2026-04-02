@@ -1,6 +1,6 @@
 # Open WebUI
 
-Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. In the dev (small) profile, it connects directly to the Synesis planner; in staging/prod it can route through LiteLLM.
+Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. **Default manifests** point Open WebUI’s `OPENAI_API_BASE_URL` at **planner-ts** (`synesis-planner-ts:8080/v1`), not at LiteLLM. **LiteLLM** (gateway) is used **upstream** of the pipeline for model routing when configured there — it is **not** the normal hop between Open WebUI and planner unless you deliberately repoint WebUI’s connection in Admin → Settings.
 
 Synesis ships a thin child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.12`) that injects a branded light/dark theme via `/static/custom.css`. The theme is baked into the image — no manual CSS paste is required.
 
@@ -72,7 +72,7 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 | `WEBUI_AUTH` | `true` | Require login (first user becomes admin) |
 | `ENABLE_SIGNUP` | `true` | Allow new user registration |
 | `DEFAULT_MODELS` | `Synesis Auto` | Pre-selected model tier for new conversations |
-| `ENABLE_OLLAMA_API` | `false` | Disabled — all inference goes through planner/LiteLLM |
+| `ENABLE_OLLAMA_API` | `false` | Disabled — chat goes through planner-ts; planner reaches upstream models per its own config (often LiteLLM or direct vLLM) |
 
 ## Resource Requirements
 
@@ -85,7 +85,7 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 ## Network Policy
 
-Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planner (`synesis-planner-ts:8080`), plus DNS. In the dev overlay, traffic goes directly to the planner (bypasses LiteLLM). It has no access to Milvus, sandbox, or external internet.
+Open WebUI egress is open by policy; **by default** it only needs the **planner-ts** API (`synesis-planner-ts:8080`). Admins who repoint WebUI at the LiteLLM gateway would use `synesis-gateway:4000` instead. WebUI has no access to Milvus, sandbox, or the rest of the data plane unless you add routes.
 
 ## Theme
 
@@ -155,7 +155,7 @@ oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=100
 
 ### "Connection error" / "OpenAIException" for synesis-agent
 
-The dev overlay includes `openwebui-direct-planner.yaml`, which points Open WebUI directly at the planner. Redeploy and Open WebUI will talk to the planner without LiteLLM.
+The dev overlay includes `openwebui-direct-planner.yaml`, which pins Open WebUI at planner-ts (same default as `base/webui/deployment.yaml`). Use it when you want to force in-cluster planner URL after overlay experiments.
 
 See [OPENWEBUI_ADMIN_GUIDE.md](OPENWEBUI_ADMIN_GUIDE.md) for admin dashboard import and feedback plugin setup.
 

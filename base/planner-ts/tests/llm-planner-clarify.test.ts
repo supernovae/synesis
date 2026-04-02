@@ -57,4 +57,28 @@ describe("llm planner clarify-first parity", () => {
 
     expect(shouldClarify(state, plan)).toBe(false);
   });
+
+  it("does not clarify again on a clarification follow-up turn (iteration still 0)", () => {
+    const state: GraphState = {
+      task_description: "Original request:\n...\nClarification response:\nAWS, 500 concurrent users",
+      difficulty: 0.75,
+      iteration_count: 0,
+      user_answer_to_clarification: "AWS, 500 concurrent users",
+      domain_profile: {
+        domains: [{ key: "software_architecture", weight: 0.8 }],
+        frameCoherence: "diffuse",
+      },
+      taxonomy_metadata: { output_controls: { clarify_first: true } },
+    };
+
+    const plan = {
+      steps: [{ id: 1, action: "Provide architecture design", dependencies: [] }],
+      open_questions: ["Which cloud provider?"],
+      assumptions: [],
+      confidence: 0.4,
+      reasoning: "needs clarification",
+    };
+
+    expect(shouldClarify(state, plan)).toBe(false);
+  });
 });
