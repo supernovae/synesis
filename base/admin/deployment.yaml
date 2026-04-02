@@ -67,12 +67,9 @@ spec:
                   name: synesis-admin-db-url
                   key: admin-url
                   optional: true
-            - name: SYNESIS_JWT_SECRET
-              value: "synesis-dev-secret-change-me"
             # ── Keycloak OIDC ──
             # Must match Keycloak Route host + realm (see base/keycloak/keycloak.yaml).
-            # If empty, admin falls back to legacy users admin/viewer only — a kustomize
-            # re-apply would wipe deploy.sh patches, so the issuer is set in Git.
+            # Required for browser login; PATs (syn-...) work for API/script auth regardless.
             - name: SYNESIS_KEYCLOAK_ISSUER_URL
               value: "https://synesis-auth.apps.openshiftdemo.dev/realms/synesis"
             # Empty: Keycloak tokens use aud=account, not client_id — verifying aud breaks login.

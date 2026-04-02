@@ -121,12 +121,15 @@ def _mock_all(monkeypatch):
 
 @pytest.fixture()
 def client():
-    from app.auth import create_token
+    from app.auth import UserInfo, get_current_user
     from app.main import app
 
-    token = create_token("smoke-tester", "platform_admin")
-    headers = {"Authorization": f"Bearer {token}"}
-    return TestClient(app, raise_server_exceptions=False, headers=headers)
+    async def _override_user() -> UserInfo:
+        return UserInfo(username="smoke-tester", role="platform_admin", user_id="smoke-tester")
+
+    app.dependency_overrides[get_current_user] = _override_user
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 # ---------------------------------------------------------------------------

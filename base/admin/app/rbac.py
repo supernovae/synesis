@@ -38,7 +38,7 @@ class Role(IntEnum):
     platform_admin = 30
 
 
-# Map string role labels (from Keycloak / PAT / legacy JWT) to enum values.
+# Map string role labels (from Keycloak / PAT) to enum values.
 _ROLE_MAP: dict[str, Role] = {
     "platform_admin": Role.platform_admin,
     "admin": Role.platform_admin,

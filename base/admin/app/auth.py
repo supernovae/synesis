@@ -1,16 +1,18 @@
 """Keycloak OIDC + Personal Access Token authentication.
 
 Validates bearer tokens against Keycloak JWKS (RS256) or looks up
-Personal Access Tokens (PATs) in the admin database.  Falls back to
-legacy local users when SYNESIS_KEYCLOAK_ISSUER_URL is not set, to
-allow development without a running Keycloak instance.
+Personal Access Tokens (PATs) in the admin database.
+
+There is no local username/password or HS256 "dev" JWT path — configure
+``SYNESIS_KEYCLOAK_ISSUER_URL`` for interactive login, or use PATs (``syn-...``)
+for scripts and automation.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import jwt
 from fastapi import Depends, HTTPException, Request
@@ -39,46 +41,18 @@ def _get_jwks_client() -> jwt.PyJWKClient:
     return _jwks_client
 
 
-# ── Legacy local auth (fallback when Keycloak is not configured) ─────────────
-
-SECRET_KEY = os.getenv("SYNESIS_JWT_SECRET", "synesis-dev-secret-change-me")
-TOKEN_EXPIRY_HOURS = int(os.getenv("SYNESIS_TOKEN_EXPIRY_HOURS", "24"))
-
-_LEGACY_USERS: dict[str, dict] = {
-    "admin": {
-        "password": os.getenv("SYNESIS_ADMIN_PASSWORD", "admin"),
-        "role": "platform_admin",
-    },
-    "viewer": {
-        "password": os.getenv("SYNESIS_VIEWER_PASSWORD", "viewer"),
-        "role": "readonly",
-    },
-}
-
-
 # ── Data models ──────────────────────────────────────────────────────────────
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
 
 class UserInfo(BaseModel):
     username: str
     role: str
-    user_id: str = ""  # Keycloak sub or legacy username
+    user_id: str = ""  # Keycloak sub or PAT user id
     org_id: str = ""  # primary Keycloak organization ID
     org_name: str = ""  # primary organization display name
     org_roles: list[str] = []  # roles within the organization
     tenant_ids: list[str] = []  # PAT tenant scopes (JWT usually empty)
     token_scopes: list[str] = []  # PAT scopes (empty for JWT sessions)
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserInfo
 
 
 # ── Token verification ───────────────────────────────────────────────────────
@@ -175,13 +149,13 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
     if not token.startswith("syn-"):
         return None
 
+    from sqlalchemy import select, update
+
     from .db.engine import async_session
     from .db.models import PersonalAccessToken
     from .pat_crypto import hash_token
 
     token_hash = hash_token(token)
-
-    from sqlalchemy import select, update
 
     async with async_session() as session:
         stmt = select(PersonalAccessToken).where(
@@ -221,16 +195,6 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         )
 
 
-def _verify_legacy_token(token: str) -> UserInfo:
-    """Verify a locally-issued HS256 JWT (fallback for dev without Keycloak)."""
-    payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-    return UserInfo(
-        username=payload["sub"],
-        role=payload["role"],
-        user_id=payload["sub"],
-    )
-
-
 # ── FastAPI dependencies ─────────────────────────────────────────────────────
 
 _bearer = HTTPBearer(auto_error=False)
@@ -253,7 +217,7 @@ async def get_current_user(
     except Exception:
         logger.debug("pat_lookup_failed", exc_info=True)
 
-    # 2. Try Keycloak JWKS validation
+    # 2. Keycloak JWKS validation
     if KEYCLOAK_ISSUER:
         try:
             requested_org_id = (
@@ -265,13 +229,14 @@ async def get_current_user(
         except jwt.InvalidTokenError as err:
             raise HTTPException(status_code=401, detail="Invalid token") from err
 
-    # 3. Fallback to legacy local JWT
-    try:
-        return _verify_legacy_token(token)
-    except jwt.ExpiredSignatureError as err:
-        raise HTTPException(status_code=401, detail="Token expired") from err
-    except jwt.InvalidTokenError as err:
-        raise HTTPException(status_code=401, detail="Invalid token") from err
+    # 3. No Keycloak — PAT-only (already tried above)
+    raise HTTPException(
+        status_code=401,
+        detail=(
+            "Authentication requires Keycloak (set SYNESIS_KEYCLOAK_ISSUER_URL) or a "
+            "Personal Access Token (syn-...). Local JWT login has been removed."
+        ),
+    )
 
 
 async def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:
@@ -281,32 +246,3 @@ async def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:
     if resolve_role(user) < Role.platform_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
-
-
-# ── Legacy login (only available when Keycloak is NOT configured) ────────────
-
-
-def create_token(username: str, role: str) -> str:
-    payload = {
-        "sub": username,
-        "role": role,
-        "exp": datetime.now(UTC) + timedelta(hours=TOKEN_EXPIRY_HOURS),
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
-
-
-def authenticate(username: str, password: str) -> TokenResponse:
-    """Local password authentication — disabled when Keycloak is active."""
-    if KEYCLOAK_ISSUER:
-        raise HTTPException(
-            status_code=400,
-            detail="Local login is disabled. Use Keycloak SSO to authenticate.",
-        )
-    entry = _LEGACY_USERS.get(username)
-    if not entry or entry["password"] != password:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_token(username, entry["role"])
-    return TokenResponse(
-        access_token=token,
-        user=UserInfo(username=username, role=entry["role"], user_id=username),
-    )

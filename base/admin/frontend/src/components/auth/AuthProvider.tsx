@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import axios from "axios";
-import type { User, AuthResponse, OidcConfig } from "../../types";
+import type { User, OidcConfig } from "../../types";
 import { AuthContext } from "./authContext";
 
 const TOKEN_KEY = "synesis_token";
@@ -161,14 +161,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const { data } = await axios.post<AuthResponse>("/api/v1/auth/login", {
-      username,
-      password,
-    });
-    persistTokens(data.access_token);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    setAuth({ user: data.user, token: data.access_token });
+  const login = useCallback(async (_username: string, _password: string) => {
+    throw new Error(
+      "Local login was removed. Configure Keycloak (SYNESIS_KEYCLOAK_ISSUER_URL) or use a PAT.",
+    );
   }, []);
 
   const loginWithOidc = useCallback(async () => {

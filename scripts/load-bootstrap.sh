@@ -9,9 +9,7 @@ set -euo pipefail
 #   ./scripts/load-bootstrap.sh [OPTIONS]
 #
 # Options:
-#   -u, --username   Admin username           (default: admin, or $SYNESIS_ADMIN_USER)
-#   -p, --password   Admin password           (default: admin, or $SYNESIS_ADMIN_PASSWORD)
-#   -t, --token      Bearer token             (or $SYNESIS_ADMIN_TOKEN — skips /auth/login)
+#   -t, --token      Bearer token (required unless SYNESIS_ADMIN_TOKEN is set)
 #   -a, --admin-url  Admin service base URL   (default: $SYNESIS_ADMIN_URL or https://synesis-admin.apps.openshiftdemo.dev)
 #   -d, --dir        Bootstrap corpus dir     (default: bootstrap/corpus)
 #   -s, --status     Status override          (default: pending)
@@ -19,27 +17,15 @@ set -euo pipefail
 #   --dry-run        Print commands without executing
 #   -h, --help       Show this help
 #
-# Keycloak: /api/v1/auth/login (username/password) is disabled. Use -t / SYNESIS_ADMIN_TOKEN with
-#   a Personal Access Token from the admin UI (syn-...) or a Keycloak access_token for synesis-admin.
-#   Uploads still use Authorization: Bearer — same as before; only how you obtain the token changes.
+# Authentication: POST /api/v1/auth/login (username/password) was removed from the admin API.
+# Use a Personal Access Token (syn-...) from Admin → Personal Access Tokens, or a Keycloak
+# access_token for the synesis-admin client. See docs/admin/KEYCLOAK_BOOTSTRAP.md
 #
 # Examples:
-#   # Default (public route)
+#   export SYNESIS_ADMIN_TOKEN='syn-...'
 #   ./scripts/load-bootstrap.sh
 #
-#   # With explicit credentials: use straight SINGLE QUOTES '...' around the password
-#   # (not backticks `...` — those run a command, not quoting — and not bare text with !)
-#   ./scripts/load-bootstrap.sh -u admin -p 's3cret'
-#   # Or use an env var (no shell interpolation in the value if you export carefully):
-#   export SYNESIS_ADMIN_PASSWORD='your$Complex!Pass'
-#   ./scripts/load-bootstrap.sh
-#
-#   # Keycloak / PAT (no local login on the admin API)
-#   export SYNESIS_ADMIN_TOKEN='syn-...'   # created in Admin → Personal Access Tokens
-#   ./scripts/load-bootstrap.sh
-#
-#   # Local development
-#   ./scripts/load-bootstrap.sh -a http://localhost:8000
+#   ./scripts/load-bootstrap.sh -t 'syn-...' -a http://localhost:8000
 #
 #   # In-cluster URL
 #   ./scripts/load-bootstrap.sh -a http://synesis-admin.synesis-admin.svc:8080
@@ -49,9 +35,6 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 ADMIN_URL="${SYNESIS_ADMIN_URL:-https://synesis-admin.apps.openshiftdemo.dev}"
-USERNAME="${SYNESIS_ADMIN_USER:-admin}"
-PASSWORD="${SYNESIS_ADMIN_PASSWORD:-admin}"
-# Pre-seed from env; -t/--token overrides when parsing (last flag wins if passed multiple times).
 ADMIN_TOKEN="${SYNESIS_ADMIN_TOKEN:-}"
 CORPUS_DIR="bootstrap/corpus"
 STATUS_OVERRIDE="pending"
@@ -65,15 +48,6 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -u|--username)
-      [[ $# -lt 2 ]] && { echo "ERROR: $1 requires a value (e.g. -u 'you@example.com')." >&2; exit 1; }
-      USERNAME="$2"; shift 2 ;;
-    -p|--password)
-      [[ $# -lt 2 ]] && {
-        echo "ERROR: -p requires a password value. Use single quotes, not backticks: -p 'your!pass'" >&2
-        exit 1
-      }
-      PASSWORD="$2"; shift 2 ;;
     -t|--token)
       [[ $# -lt 2 ]] && { echo "ERROR: $1 requires a token value (use single quotes if needed)." >&2; exit 1; }
       ADMIN_TOKEN="$2"; shift 2 ;;
@@ -96,50 +70,16 @@ done
 ADMIN_URL="${ADMIN_URL%/}"
 
 # ---------------------------------------------------------------------------
-# 1. Bearer token — supplied directly (Keycloak / PAT) or from legacy /auth/login
-# Wrong password or bad URL exits here (exit 1) before any corpus uploads — one
-# login attempt when using -u/-p, so we do not hammer bootstrap on bad creds.
+# 1. Bearer token (PAT syn-... or Keycloak access_token)
 # ---------------------------------------------------------------------------
-if [[ -n "${ADMIN_TOKEN}" ]]; then
-  TOKEN="${ADMIN_TOKEN}"
-  echo "Using bearer token from -t / SYNESIS_ADMIN_TOKEN (skipping POST .../auth/login)."
-else
-  echo "Authenticating as '${USERNAME}' against ${ADMIN_URL} ..."
-
-  # JSON-encode credentials so passwords with quotes, backslashes, or Unicode are safe.
-  LOGIN_JSON=$(
-    _LB_USER="$USERNAME" _LB_PASS="$PASSWORD" python3 -c '
-import json, os
-print(json.dumps({
-    "username": os.environ["_LB_USER"],
-    "password": os.environ["_LB_PASS"],
-}))
-'
-  ) || { echo "ERROR: Could not build login JSON." >&2; exit 1; }
-
-  TOKEN_RESPONSE=$(curl -sf -X POST "${ADMIN_URL}/api/v1/auth/login" \
-    -H "Content-Type: application/json" \
-    -d "${LOGIN_JSON}" 2>&1) || {
-    echo "ERROR: Authentication failed. Check URL, username, and password." >&2
-    echo "Response: ${TOKEN_RESPONSE}" >&2
-    if echo "${TOKEN_RESPONSE}" | grep -qiE 'disabled|keycloak|sso|Local login'; then
-      echo "" >&2
-      echo "This admin API uses Keycloak: username/password login at /api/v1/auth/login is disabled." >&2
-      echo "Use a Personal Access Token (Admin UI) or Keycloak access_token, e.g.:" >&2
-      echo "  export SYNESIS_ADMIN_TOKEN='syn-...'" >&2
-      echo "  $0 -a '${ADMIN_URL}'   # or: $0 -t 'syn-...'" >&2
-    fi
-    exit 1
-  }
-
-  TOKEN=$(echo "${TOKEN_RESPONSE}" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || {
-    echo "ERROR: Could not parse access_token from response." >&2
-    echo "Response: ${TOKEN_RESPONSE}" >&2
-    exit 1
-  }
-
-  echo "Authenticated. Token acquired (legacy login)."
+if [[ -z "${ADMIN_TOKEN}" ]]; then
+  echo "ERROR: SYNESIS_ADMIN_TOKEN or -t/--token is required." >&2
+  echo "The admin API no longer provides POST /api/v1/auth/login (username/password)." >&2
+  echo "Use a Personal Access Token from the admin UI or a Keycloak token. See docs/admin/KEYCLOAK_BOOTSTRAP.md" >&2
+  exit 1
 fi
+TOKEN="${ADMIN_TOKEN}"
+echo "Using bearer token from -t / SYNESIS_ADMIN_TOKEN."
 
 # ---------------------------------------------------------------------------
 # 2. Discover corpus files

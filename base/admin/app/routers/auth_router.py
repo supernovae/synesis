@@ -7,14 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ..auth import (
-    KEYCLOAK_ISSUER,
-    LoginRequest,
-    TokenResponse,
-    UserInfo,
-    authenticate,
-    get_current_user,
-)
+from ..auth import KEYCLOAK_ISSUER, UserInfo, get_current_user
 
 logger = logging.getLogger("synesis.auth.router")
 
@@ -36,12 +29,6 @@ class OidcRefreshRequest(BaseModel):
     refresh_token: str = Field(..., min_length=1)
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest):
-    """Local login — disabled when Keycloak is configured."""
-    return authenticate(req.username, req.password)
-
-
 @router.get("/me", response_model=UserInfo)
 async def me(user: UserInfo = Depends(get_current_user)):
     return user
@@ -51,8 +38,8 @@ async def me(user: UserInfo = Depends(get_current_user)):
 async def oidc_config():
     """Return OIDC configuration for the frontend to discover Keycloak.
 
-    When Keycloak is not configured, returns enabled=false so the frontend
-    knows to show the legacy username/password form.
+    When Keycloak is not configured, returns enabled=false — the UI shows
+    setup instructions (no local password login).
     """
     if not KEYCLOAK_ISSUER:
         return {"enabled": False}

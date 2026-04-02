@@ -181,6 +181,12 @@ Deploy via the OpenShift AI dashboard (Model Hub, `hf://`, or OCI) or use the pi
 ./scripts/deploy.sh prod      # Production (HA, PDBs)
 ```
 
+### 4b. First Synesis Admin login (Keycloak)
+
+There is **no** built-in Synesis username/password. After Keycloak and realm **`synesis`** are up, create at least one user **in realm `synesis`**, assign the **`synesis-admin`** realm role, align **`synesis-admin`** client redirect URIs with your admin URL, and set **`SYNESIS_KEYCLOAK_ISSUER_URL`** on the admin deployment. Then open the admin SPA and sign in via OIDC.
+
+Step-by-step: **[docs/admin/KEYCLOAK_BOOTSTRAP.md](docs/admin/KEYCLOAK_BOOTSTRAP.md)**.
+
 ### 5. Deploy the indexer
 
 Run after `deploy.sh` so Milvus and embedder are healthy first. A single queue-driven CronJob processes all pending items from the admin database:
@@ -193,11 +199,14 @@ Run after `deploy.sh` so Milvus and embedder are healthy first. A single queue-d
 Add content via the admin UI (RAG Pipeline > Ingestion Queue) or import bootstrap data:
 
 ```bash
+# TOKEN = Personal Access Token (syn-...) or Keycloak access token — see KEYCLOAK_BOOTSTRAP.md
 for f in bootstrap/corpus/*.yaml; do
   curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/bootstrap \
     -F "file=@$f" -H "Authorization: Bearer $TOKEN"
 done
 ```
+
+Or use `./scripts/load-bootstrap.sh` with `SYNESIS_ADMIN_TOKEN` set.
 
 ### 6. Connect your tools
 

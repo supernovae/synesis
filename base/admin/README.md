@@ -7,6 +7,7 @@ FastAPI backend (`app/`) + Vite React SPA (`frontend/`) for operating Synesis: m
 | Area | Purpose |
 |------|---------|
 | `/api/v1/*` | JSON API (authenticated; admin routes use `require_admin` where needed) |
+| Auth | Keycloak OIDC (`SYNESIS_KEYCLOAK_ISSUER_URL`, realm **`synesis`**) + PATs (`syn-...`); no local `/api/v1/auth/login` — first-time operator steps: [docs/admin/KEYCLOAK_BOOTSTRAP.md](../../docs/admin/KEYCLOAK_BOOTSTRAP.md) |
 | `/api/docs`, `/api/openapi.json`, `/api/redoc` | Swagger UI, OpenAPI schema, and ReDoc (same origin as the SPA) |
 | `frontend/src/router.tsx` | Client routes |
 | `frontend/src/api/hooks.ts` | TanStack Query hooks for API access |
@@ -35,5 +36,6 @@ If you run **`oc apply -k base/admin`** without going through deploy, the live D
 
 ## Related docs
 
+- [docs/admin/KEYCLOAK_BOOTSTRAP.md](../../docs/admin/KEYCLOAK_BOOTSTRAP.md) — install order: `master` admin → user in **`synesis`** realm → **`synesis-admin`** role → first UI login → PATs.
 - [docs/admin/TODO.md](../../docs/admin/TODO.md) — backlog, API explorer, future admin MCP.
 - [`.cursor/rules/admin-ui.mdc`](../../.cursor/rules/admin-ui.mdc) — Cursor guidance for this UI.

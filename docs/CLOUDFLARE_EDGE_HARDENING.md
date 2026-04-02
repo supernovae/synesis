@@ -83,7 +83,6 @@ Create rate limiting rules for:
 
 - `POST /api/v1/auth/oauth/token`
 - `POST /api/v1/auth/oauth/refresh`
-- `POST /api/v1/auth/login` (if legacy login is enabled)
 
 Suggested starting threshold:
 
