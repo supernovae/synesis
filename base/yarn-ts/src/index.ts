@@ -31,6 +31,12 @@ import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
+import {
+  buildChecklistFromPrompt,
+  evaluateRequirementCoverage,
+  summarizeMissingCoverage,
+  type RequirementChecklist,
+} from "./validation/requirement-coverage.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
@@ -133,6 +139,125 @@ function updateTracePromptMetadata(state: SessionState, latestUserText: string):
   if (!getMetadataString(state.record.metadata, "trace_root_prompt")) {
     state.record.metadata.trace_root_prompt = latest;
   }
+}
+
+function buildRequirementChecklistSnapshot(checklist: RequirementChecklist): Record<string, unknown> {
+  return {
+    version: checklist.version,
+    sourceHash: checklist.sourceHash,
+    sourcePreview: checklist.sourcePreview,
+    updatedAt: Date.now(),
+    must: checklist.must.map((r) => ({ id: r.id, title: r.title })),
+    should: checklist.should.map((r) => ({ id: r.id, title: r.title })),
+  };
+}
+
+function refreshRequirementChecklist(state: SessionState): RequirementChecklist | null {
+  const rootPrompt = getMetadataString(state.record.metadata, "trace_root_prompt");
+  if (!rootPrompt) return null;
+  const sourceHash = hashTextSignal(rootPrompt);
+  if (!sourceHash) return null;
+  const checklist = buildChecklistFromPrompt(rootPrompt, sourceHash);
+  state.record.metadata.requirement_checklist = buildRequirementChecklistSnapshot(checklist);
+  return checklist;
+}
+
+function getChecklistSourceHash(meta: Record<string, unknown>): string {
+  const row = meta.requirement_checklist;
+  if (!row || typeof row !== "object") return "";
+  const value = (row as Record<string, unknown>).sourceHash;
+  return typeof value === "string" ? value : "";
+}
+
+function buildCompletionGapMessage(missingSummary: string): string {
+  return [
+    "Partial completion detected. I have not yet implemented all required request items.",
+    "",
+    "Missing requirements:",
+    missingSummary,
+    "",
+    "Next step: continue implementation to close these gaps (instead of marking the task done).",
+  ].join("\n");
+}
+
+type CompletionGateOutcome = {
+  finalText: string;
+  applied: boolean;
+  missingMust: number;
+  missingShould: number;
+};
+
+function applyCompletionGate(
+  checklist: RequirementChecklist | null,
+  originalText: string,
+  evidenceParts: string[],
+): CompletionGateOutcome {
+  if (!config.SYNESIS_YARN_COMPLETION_GATE_ENABLED || !checklist) {
+    return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
+  }
+  if (checklist.must.length === 0 && checklist.should.length === 0) {
+    return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
+  }
+  const evidence = evidenceParts.filter(Boolean).join("\n");
+  const report = evaluateRequirementCoverage(checklist, evidence);
+  if (report.missingMust.length === 0) {
+    return {
+      finalText: originalText,
+      applied: false,
+      missingMust: 0,
+      missingShould: report.missingShould.length,
+    };
+  }
+  const summary = summarizeMissingCoverage(report);
+  const replacement = config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL
+    ? [
+        "Completion blocked: required items are still missing.",
+        "",
+        "Missing requirements:",
+        summary,
+        "",
+        "Continue implementation before declaring completion.",
+      ].join("\n")
+    : buildCompletionGapMessage(summary);
+  return {
+    finalText: replacement,
+    applied: true,
+    missingMust: report.missingMust.length,
+    missingShould: report.missingShould.length,
+  };
+}
+
+function completionCriticBlock(checklist: RequirementChecklist): string {
+  const must = checklist.must.map((m) => `- ${m.title}`).join("\n");
+  const should = checklist.should.map((m) => `- ${m.title}`).join("\n");
+  const sections = [
+    "<COMPLETION_CRITIC>",
+    "Before claiming completion, verify requested capability coverage.",
+    "If any must-have item is not implemented yet, do not claim done; explicitly state partial completion and continue implementation.",
+    "Must-have checklist:",
+    must || "- (none detected)",
+  ];
+  if (should) {
+    sections.push("Should-have checklist:", should);
+  }
+  sections.push("</COMPLETION_CRITIC>");
+  return sections.join("\n");
+}
+
+function appendCriticBlock(
+  messages: Array<{ role: string; content: unknown }>,
+  checklist: RequirementChecklist | null,
+): Array<{ role: string; content: unknown }> {
+  if (!checklist || (checklist.must.length === 0 && checklist.should.length === 0)) return messages;
+  const block = completionCriticBlock(checklist);
+  const next = [...messages];
+  const sysIdx = next.findIndex((m) => m.role === "system" && typeof m.content === "string");
+  if (sysIdx >= 0) {
+    next[sysIdx] = { ...next[sysIdx], content: `${String(next[sysIdx].content)}\n\n${block}` };
+  } else {
+    next.unshift({ role: "system", content: block });
+  }
+  return next;
 }
 
 function extractRecentToolNames(messages: Array<{ role: string; content: unknown }>): string[] {
@@ -252,6 +377,11 @@ interface RequestDiagnostic {
   requestId?: string;
   promptProfileIds?: number[];
   promptProfileHashes?: string[];
+  completionGateApplied?: boolean;
+  missingMustRequirements?: number;
+  missingShouldRequirements?: number;
+  requirementChecklistMust?: number;
+  requirementChecklistShould?: number;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -1854,6 +1984,8 @@ app.get("/health/telemetry", async (req, reply) => {
       patternRecall: config.SYNESIS_YARN_PATTERN_RECALL_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
+      completionGate: config.SYNESIS_YARN_COMPLETION_GATE_ENABLED,
+      completionGateHardFail: config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL,
       decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
       sensemaking: config.SYNESIS_YARN_SENSEMAKING_ENABLED,
       diagnosticPersistence: config.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED,
@@ -2037,8 +2169,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
   if (latestUserText && typeof latestUserText.content === "string") {
     updateTracePromptMetadata(session, latestUserText.content);
+  }
+  const oaiRequirementChecklist = refreshRequirementChecklist(session);
+  if (oaiRequirementChecklist && oaiRequirementChecklist.sourceHash !== priorOaiChecklistHash) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "requirements_checklist",
+      "completion-gate",
+      `Checklist initialized (must=${oaiRequirementChecklist.must.length}, should=${oaiRequirementChecklist.should.length})`,
+      oaiTraceReqId,
+    );
   }
   const pendingWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
   const workspaceStatus = getHandshakeStatus(session.record.metadata);
@@ -2253,7 +2398,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiPromptContext,
     { projectRoot: effectiveOaiPathCtx.projectRoot, shellCwd: effectiveOaiPathCtx.shellCwd },
   );
-  let oaiEnrichedMsgs = oaiEnriched.messages as Array<{ role: string; content: unknown }>;
+  let oaiEnrichedMsgs = appendCriticBlock(
+    oaiEnriched.messages as Array<{ role: string; content: unknown }>,
+    oaiRequirementChecklist,
+  );
 
   let oaiSensemakingResult: SensemakingResult | undefined;
   if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
@@ -2565,7 +2713,43 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
     }
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
-    session.history.push({ role: "assistant", content: finalResult.text });
+    let finalAssistantText = finalResult.text;
+    let oaiGateApplied = false;
+    let oaiMissingMust = 0;
+    let oaiMissingShould = 0;
+    if (finishReason === "stop") {
+      const gate = applyCompletionGate(oaiRequirementChecklist, finalAssistantText, [
+        finalAssistantText,
+        getMetadataString(session.record.metadata, "trace_root_prompt"),
+        getMetadataString(session.record.metadata, "latest_user_prompt"),
+      ]);
+      finalAssistantText = gate.finalText;
+      oaiGateApplied = gate.applied;
+      oaiMissingMust = gate.missingMust;
+      oaiMissingShould = gate.missingShould;
+      if (gate.applied) {
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "completion_gap",
+          "completion-gate",
+          `Missing must-have requirements (${gate.missingMust})`,
+          reqId,
+        );
+      } else if (oaiRequirementChecklist) {
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "completion_pass",
+          "completion-gate",
+          "No missing must-have requirements detected",
+          reqId,
+        );
+      }
+    }
+    session.history.push({ role: "assistant", content: finalAssistantText });
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     const oaiLatency = Date.now() - started;
     const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
@@ -2614,9 +2798,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
       evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
       promptProfileIds: oaiEnriched.promptProfileIds,
       promptProfileHashes: oaiEnriched.promptProfileHashes,
+      completionGateApplied: oaiGateApplied || undefined,
+      missingMustRequirements: oaiMissingMust || undefined,
+      missingShouldRequirements: oaiMissingShould || undefined,
+      requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
+      requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
     });
 
-    const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
+    const message: Record<string, unknown> = { role: "assistant", content: finalAssistantText };
     if (externalToolCalls.length > 0) {
       message.tool_calls = sdkToolCallsToOpenAI(externalToolCalls);
     }
@@ -2664,17 +2853,30 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   let finishReason = "stop";
   const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
+  const pendingTextDeltas: string[] = [];
+  let oaiStreamGateApplied = false;
+  let oaiStreamMissingMust = 0;
+  let oaiStreamMissingShould = 0;
+
+  const flushOpenAIText = (text: string): void => {
+    if (!text) return;
+    safeWrite(reply.raw, `data: ${JSON.stringify({
+      id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
+      choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
+    })}\n\n`);
+  };
 
   try {
     for await (const part of streamed.fullStream) {
       const ts = Math.floor(Date.now() / 1000);
       if (part.type === "text-delta") {
-        safeWrite(reply.raw, `data: ${JSON.stringify({
-          id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-          choices: [{ index: 0, delta: { content: (part as unknown as { text: string }).text ?? "" }, finish_reason: null }]
-        })}\n\n`);
+        pendingTextDeltas.push((part as unknown as { text: string }).text ?? "");
       } else if (part.type === "tool-call" || part.type === "tool-input-start") {
         const tc = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
+        if (pendingTextDeltas.length > 0) {
+          flushOpenAIText(pendingTextDeltas.join(""));
+          pendingTextDeltas.length = 0;
+        }
         if (part.type === "tool-input-start") {
           pendingToolCalls.push({ index: pendingToolCalls.length, id: tc.toolCallId ?? "", name: tc.toolName ?? "", args: "" });
           safeWrite(reply.raw, `data: ${JSON.stringify({
@@ -2771,6 +2973,41 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   otelStreamSpan.end();
 
+  if (finishReason !== "tool_calls" && pendingTextDeltas.length > 0) {
+    const rawText = pendingTextDeltas.join("");
+    const gate = applyCompletionGate(oaiRequirementChecklist, rawText, [
+      rawText,
+      getMetadataString(session.record.metadata, "trace_root_prompt"),
+      getMetadataString(session.record.metadata, "latest_user_prompt"),
+    ]);
+    oaiStreamGateApplied = gate.applied;
+    oaiStreamMissingMust = gate.missingMust;
+    oaiStreamMissingShould = gate.missingShould;
+    if (gate.applied) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "completion_gap",
+        "completion-gate",
+        `Missing must-have requirements (${gate.missingMust})`,
+        reqId,
+      );
+    } else if (oaiRequirementChecklist) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "completion_pass",
+        "completion-gate",
+        "No missing must-have requirements detected",
+        reqId,
+      );
+    }
+    flushOpenAIText(gate.finalText);
+    pendingTextDeltas.length = 0;
+  }
+
   safeWrite(reply.raw, `data: ${JSON.stringify({
     id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
     choices: [{ index: 0, delta: {}, finish_reason: finishReason }]
@@ -2783,6 +3020,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
   try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
   try { streamedText = await streamed.text; } catch { /* stream aborted */ }
   if (streamedText) {
+    if (oaiStreamGateApplied && finishReason !== "tool_calls") {
+      const gate = applyCompletionGate(oaiRequirementChecklist, streamedText, [
+        streamedText,
+        getMetadataString(session.record.metadata, "trace_root_prompt"),
+        getMetadataString(session.record.metadata, "latest_user_prompt"),
+      ]);
+      streamedText = gate.finalText;
+      oaiStreamMissingMust = gate.missingMust;
+      oaiStreamMissingShould = gate.missingShould;
+    }
     session.history.push({ role: "assistant", content: streamedText });
   }
   const oaiStreamLatency = Date.now() - started;
@@ -2831,6 +3078,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
     evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
     promptProfileIds: oaiEnriched.promptProfileIds,
     promptProfileHashes: oaiEnriched.promptProfileHashes,
+      completionGateApplied: oaiStreamGateApplied || undefined,
+      missingMustRequirements: oaiStreamMissingMust || undefined,
+      missingShouldRequirements: oaiStreamMissingShould || undefined,
+      requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
+      requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
   });
   return reply;
 });
@@ -2950,8 +3202,21 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  const priorClaudeChecklistHash = getChecklistSourceHash(session.record.metadata);
   if (latestClaudeUser && typeof latestClaudeUser.content === "string") {
     updateTracePromptMetadata(session, latestClaudeUser.content);
+  }
+  const claudeRequirementChecklist = refreshRequirementChecklist(session);
+  if (claudeRequirementChecklist && claudeRequirementChecklist.sourceHash !== priorClaudeChecklistHash) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "requirements_checklist",
+      "completion-gate",
+      `Checklist initialized (must=${claudeRequirementChecklist.must.length}, should=${claudeRequirementChecklist.should.length})`,
+      traceReqId,
+    );
   }
   const pendingClaudeWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
   const claudeWorkspaceStatus = getHandshakeStatus(session.record.metadata);
@@ -3166,7 +3431,10 @@ app.post("/v1/messages", async (req, reply) => {
     claudePromptContext,
     { projectRoot: effectiveClaudePathCtx.projectRoot, shellCwd: effectiveClaudePathCtx.shellCwd },
   );
-  let enrichedClaudeMsgs = claudeEnriched.messages as Array<{ role: string; content: unknown }>;
+  let enrichedClaudeMsgs = appendCriticBlock(
+    claudeEnriched.messages as Array<{ role: string; content: unknown }>,
+    claudeRequirementChecklist,
+  );
 
   let claudeSensemakingResult: SensemakingResult | undefined;
   if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
@@ -3370,6 +3638,10 @@ app.post("/v1/messages", async (req, reply) => {
     let blockIdx = 0;
     let inTextBlock = false;
     let stopReason = "end_turn";
+    let claudeStreamGateApplied = false;
+    let claudeStreamMissingMust = 0;
+    let claudeStreamMissingShould = 0;
+    const pendingClaudeTextDeltas: string[] = [];
     const pendingClaudeToolIds = new Set<string>();
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
@@ -3382,21 +3654,32 @@ app.post("/v1/messages", async (req, reply) => {
       );
     let requestToolValidationFailures = 0;
     let requestToolRepairs = 0;
+    const flushClaudeTextBlock = (text: string): void => {
+      if (!text) return;
+      safeSse(reply, "content_block_start", {
+        type: "content_block_start",
+        index: blockIdx,
+        content_block: { type: "text", text: "" },
+      });
+      safeSse(reply, "content_block_delta", {
+        type: "content_block_delta",
+        index: blockIdx,
+        delta: { type: "text_delta", text },
+      });
+      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+      blockIdx++;
+      inTextBlock = false;
+    };
 
     try {
       for await (const part of streamed.fullStream) {
         if (part.type === "text-delta") {
           const delta = (part as unknown as { text?: string }).text ?? "";
-          if (!inTextBlock) {
-            safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
-            inTextBlock = true;
-          }
-          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: delta } });
+          pendingClaudeTextDeltas.push(delta);
         } else if (part.type === "reasoning-start") {
-          if (inTextBlock) {
-            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-            blockIdx++;
-            inTextBlock = false;
+          if (pendingClaudeTextDeltas.length > 0) {
+            flushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
+            pendingClaudeTextDeltas.length = 0;
           }
           const text = (part as unknown as { text?: string }).text ?? "";
           safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "thinking", thinking: "" } });
@@ -3415,10 +3698,9 @@ app.post("/v1/messages", async (req, reply) => {
             pendingClaudeToolIds.add(tc.toolCallId ?? "");
             continue;
           }
-          if (inTextBlock) {
-            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-            blockIdx++;
-            inTextBlock = false;
+          if (pendingClaudeTextDeltas.length > 0) {
+            flushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
+            pendingClaudeTextDeltas.length = 0;
           }
           // Buffer tool input for normalization instead of streaming immediately.
           // We emit the start + deltas + stop together in tool-call handler after remapping.
@@ -3576,6 +3858,41 @@ app.post("/v1/messages", async (req, reply) => {
     }
     claudeStreamSpan.end();
 
+    if (stopReason !== "tool_use" && pendingClaudeTextDeltas.length > 0) {
+      const rawText = pendingClaudeTextDeltas.join("");
+      const gate = applyCompletionGate(claudeRequirementChecklist, rawText, [
+        rawText,
+        getMetadataString(session.record.metadata, "trace_root_prompt"),
+        getMetadataString(session.record.metadata, "latest_user_prompt"),
+      ]);
+      claudeStreamGateApplied = gate.applied;
+      claudeStreamMissingMust = gate.missingMust;
+      claudeStreamMissingShould = gate.missingShould;
+      if (gate.applied) {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "completion_gap",
+          "completion-gate",
+          `Missing must-have requirements (${gate.missingMust})`,
+          traceReqId,
+        );
+      } else if (claudeRequirementChecklist) {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "completion_pass",
+          "completion-gate",
+          "No missing must-have requirements detected",
+          traceReqId,
+        );
+      }
+      flushClaudeTextBlock(gate.finalText);
+      pendingClaudeTextDeltas.length = 0;
+    }
+
     if (inTextBlock) {
       safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
     }
@@ -3593,6 +3910,16 @@ app.post("/v1/messages", async (req, reply) => {
     let claudeStreamedText = "";
     try { claudeStreamedText = await streamed.text; } catch { /* stream aborted */ }
     if (claudeStreamedText) {
+      if (claudeStreamGateApplied && stopReason !== "tool_use") {
+        const gate = applyCompletionGate(claudeRequirementChecklist, claudeStreamedText, [
+          claudeStreamedText,
+          getMetadataString(session.record.metadata, "trace_root_prompt"),
+          getMetadataString(session.record.metadata, "latest_user_prompt"),
+        ]);
+        claudeStreamedText = gate.finalText;
+        claudeStreamMissingMust = gate.missingMust;
+        claudeStreamMissingShould = gate.missingShould;
+      }
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
     const claudeStreamLatency = Date.now() - started;
@@ -3641,6 +3968,11 @@ app.post("/v1/messages", async (req, reply) => {
       evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
       promptProfileIds: claudeEnriched.promptProfileIds,
       promptProfileHashes: claudeEnriched.promptProfileHashes,
+      completionGateApplied: claudeStreamGateApplied || undefined,
+      missingMustRequirements: claudeStreamMissingMust || undefined,
+      missingShouldRequirements: claudeStreamMissingShould || undefined,
+      requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
+      requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
     });
     return reply;
   }
@@ -3737,8 +4069,44 @@ app.post("/v1/messages", async (req, reply) => {
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   const stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
-  if (result.text) {
-    session.history.push({ role: "assistant", content: result.text });
+  let finalClaudeText = result.text ?? "";
+  let claudeGateApplied = false;
+  let claudeMissingMust = 0;
+  let claudeMissingShould = 0;
+  if (stopReason === "end_turn") {
+    const gate = applyCompletionGate(claudeRequirementChecklist, finalClaudeText, [
+      finalClaudeText,
+      getMetadataString(session.record.metadata, "trace_root_prompt"),
+      getMetadataString(session.record.metadata, "latest_user_prompt"),
+    ]);
+    finalClaudeText = gate.finalText;
+    claudeGateApplied = gate.applied;
+    claudeMissingMust = gate.missingMust;
+    claudeMissingShould = gate.missingShould;
+    if (gate.applied) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "completion_gap",
+        "completion-gate",
+        `Missing must-have requirements (${gate.missingMust})`,
+        reqId,
+      );
+    } else if (claudeRequirementChecklist) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "completion_pass",
+        "completion-gate",
+        "No missing must-have requirements detected",
+        reqId,
+      );
+    }
+  }
+  if (finalClaudeText) {
+    session.history.push({ role: "assistant", content: finalClaudeText });
   }
   const claudeNonStreamLatency = Date.now() - started;
   const claudeNonStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
@@ -3786,14 +4154,19 @@ app.post("/v1/messages", async (req, reply) => {
     evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
     promptProfileIds: claudeEnriched.promptProfileIds,
     promptProfileHashes: claudeEnriched.promptProfileHashes,
+    completionGateApplied: claudeGateApplied || undefined,
+    missingMustRequirements: claudeMissingMust || undefined,
+    missingShouldRequirements: claudeMissingShould || undefined,
+    requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
+    requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
   });
 
   const content: Array<Record<string, unknown>> = [];
   if (reasoning) {
     content.push({ type: "thinking", thinking: reasoning });
   }
-  if (result.text) {
-    content.push({ type: "text", text: result.text });
+  if (finalClaudeText) {
+    content.push({ type: "text", text: finalClaudeText });
   }
   if (externalClaudeToolCalls.length > 0) {
     for (const tc of sdkToolCallsToClaude(externalClaudeToolCalls)) {

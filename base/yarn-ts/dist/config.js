@@ -180,6 +180,15 @@ const EnvSchema = z.object({
         .transform((v) => (v ?? "false").toLowerCase() === "true"),
     SYNESIS_YARN_VERIFICATION_MAX_ROUNDS: z.coerce.number().default(3),
     SYNESIS_YARN_VERIFICATION_BUDGET_MS: z.coerce.number().default(30_000),
+    // Completion fidelity gate — avoid claiming completion while must-have requirements are missing.
+    SYNESIS_YARN_COMPLETION_GATE_ENABLED: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "false").toLowerCase() === "true"),
+    SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "false").toLowerCase() === "true"),
     // Decision matrix — evidence-aware four-path routing (Phase 8)
     SYNESIS_YARN_DECISION_MATRIX_ENABLED: z
         .string()

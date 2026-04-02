@@ -93,6 +93,12 @@ spec:
             # ── Debug protocol ──
             - name: SYNESIS_YARN_DEBUG_PROTOCOL
               value: "true"
+            - name: SYNESIS_YARN_VERIFICATION_PLAN_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_COMPLETION_GATE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL
+              value: "false"
             # ── Path governance (strict fix-forward defaults) ──
             - name: SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE
               value: "true"
