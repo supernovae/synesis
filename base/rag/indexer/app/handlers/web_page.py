@@ -462,23 +462,31 @@ def _extract_child_urls(
     children: list[str] = []
     max_per_page = 30
 
+    base_url = getattr(result, "url", "") or ""
     for link in internal_links[:max_per_page]:
         href = link if isinstance(link, str) else getattr(link, "href", "")
         if not href:
             continue
+        href = href.strip()
+        if href.startswith(("javascript:", "mailto:", "tel:", "#")):
+            continue
 
-        canonical = normalize_url(href)
+        absolute = urljoin(base_url, href)
+        parsed = urlparse(absolute)
+        if parsed.scheme not in ("http", "https"):
+            continue
+
+        canonical = normalize_url(absolute)
         if canonical in visited:
             continue
 
-        parsed = urlparse(href)
         if parsed.hostname and parsed.hostname.lower() != seed_host.lower():
             continue
 
-        passes, _reason = url_passes_filter(href, policy, seed_host=seed_host)
+        passes, _reason = url_passes_filter(absolute, policy, seed_host=seed_host)
         if not passes:
             continue
 
-        children.append(href)
+        children.append(absolute)
 
     return children[:25]

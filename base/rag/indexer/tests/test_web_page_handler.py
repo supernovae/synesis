@@ -110,3 +110,21 @@ def test_extract_child_urls_falls_back_to_html_anchors():
     assert "https://gobyexample.com/if-else" in children
     assert "https://gobyexample.com/for" in children
     assert all("external.example.com" not in c for c in children)
+
+
+def test_extract_child_urls_normalizes_relative_internal_links():
+    result = SimpleNamespace(
+        url="https://gobyexample.com/",
+        links=SimpleNamespace(internal=["http-client", "/for", "mailto:test@example.com"]),
+        html="",
+    )
+    policy = GatePolicy(allowed_prefixes=["https://gobyexample.com/"])
+    children = web_page._extract_child_urls(
+        result,
+        seed_host="gobyexample.com",
+        policy=policy,
+        visited=set(),
+    )
+    assert "https://gobyexample.com/http-client" in children
+    assert "https://gobyexample.com/for" in children
+    assert all(not c.startswith("mailto:") for c in children)
