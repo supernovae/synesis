@@ -243,3 +243,35 @@ export function claudeMessagesToOpenAI(messages, reduceToolResult) {
     }
     return out;
 }
+/**
+ * Some models emit legacy inline tool-call markup in plain text, e.g.
+ * <function=Glob>
+ * <parameter=pattern>
+ * ** / *   (without spaces)
+ * Parse this format so callers can recover a structured tool call instead of
+ * surfacing raw gibberish to the end user.
+ */
+export function parseLegacyInlineToolCall(text) {
+    const raw = String(text ?? "");
+    const fnMatch = raw.match(/<function=([A-Za-z0-9_.-]+)>/i);
+    if (!fnMatch)
+        return null;
+    const toolName = fnMatch[1]?.trim();
+    if (!toolName)
+        return null;
+    const afterFn = raw.slice((fnMatch.index ?? 0) + fnMatch[0].length);
+    const input = {};
+    const paramRe = /<parameter=([A-Za-z0-9_.-]+)>\s*([\s\S]*?)(?=<parameter=[A-Za-z0-9_.-]+>|$)/gi;
+    let m = null;
+    while ((m = paramRe.exec(afterFn)) !== null) {
+        const key = String(m[1] ?? "").trim();
+        let val = String(m[2] ?? "").trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+        }
+        if (key)
+            input[key] = val;
+    }
+    const cleanText = raw.replace(/<function=[A-Za-z0-9_.-]+>[\s\S]*$/i, "").trim();
+    return { toolName, input, cleanText };
+}
