@@ -19,6 +19,7 @@ from collections import deque
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from ..crawl_config import effective_crawl_config
 from ..chunking import heading_aware_split
 from ..content_gate import (
     GatePolicy,
@@ -116,11 +117,14 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
         logger.error("crawl4ai not installed. Run: pip install crawl4ai")
         return []
 
-    max_pages = max(1, int(config.get("max_pages", 80)))
-    discovery = (config.get("discovery") or "sitemap_first").lower()
+    crawl_cfg = effective_crawl_config(config)
+    max_pages = int(crawl_cfg["max_pages"])
+    discovery = str(crawl_cfg["discovery"])
+    follow_links = bool(config.get("follow_links", True))
+    max_depth = int(crawl_cfg["max_depth"])
     respect_robots = bool(config.get("respect_robots", True))
     user_agent = (config.get("user_agent") or DEFAULT_USER_AGENT).strip()
-    min_interval = float(config.get("min_request_interval", 0.35))
+    min_interval = float(crawl_cfg["min_request_interval"])
 
     rinfo = await asyncio.to_thread(fetch_robots_info, seed_url)
     robots_delay = crawl_delay_seconds(user_agent, rinfo) if respect_robots else 0.0
@@ -143,7 +147,7 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
                 if guess not in sitemap_seeds:
                     sitemap_seeds.append(guess)
 
-        max_sm = int(config.get("max_sitemap_expand", 24))
+        max_sm = int(crawl_cfg["max_sitemap_expand"])
         urls_to_fetch = await asyncio.to_thread(
             collect_urls_from_sitemaps,
             seed_url,
@@ -180,13 +184,38 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
             rinfo,
             max_pages,
         )
-        if pages:
+        if pages and (
+            discovery == "sitemap_only"
+            or not follow_links
+            or max_depth <= 0
+            or len(pages) >= max_pages
+        ):
             return pages
+        if pages and discovery == "sitemap_first":
+            # Sitemap can be sparse (or absent) on some docs sites. In sitemap_first mode,
+            # expand with BFS to honor max_depth when sitemap coverage is thin.
+            logger.info(
+                "web_page_sitemap_expand_bfs seed=%s sitemap_pages=%d max_depth=%d max_pages=%d",
+                seed_url,
+                len(pages),
+                max_depth,
+                max_pages,
+            )
+            bfs_pages = await _crawl_bfs(
+                seed_url,
+                follow_links,
+                max_depth,
+                policy,
+                user_agent,
+                pause,
+                respect_robots,
+                rinfo,
+                max_pages,
+            )
+            return _merge_pages_by_url(pages, bfs_pages, max_pages=max_pages)
         if discovery == "sitemap_only":
             return []
 
-    follow_links = bool(config.get("follow_links", True))
-    max_depth = max(0, int(config.get("max_depth", 4)))
     return await _crawl_bfs(
         seed_url,
         follow_links,
@@ -209,6 +238,28 @@ def _dedupe_preserve_order(urls: list[str]) -> list[str]:
             continue
         seen.add(c)
         out.append(u)
+    return out
+
+
+def _merge_pages_by_url(
+    primary: list[dict[str, str]],
+    secondary: list[dict[str, str]],
+    *,
+    max_pages: int,
+) -> list[dict[str, str]]:
+    """Merge page lists by canonical URL, preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for page in primary + secondary:
+        url = page.get("url", "")
+        canon = normalize_url(url) if url else ""
+        key = canon or url
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(page)
+        if len(out) >= max_pages:
+            break
     return out
 
 

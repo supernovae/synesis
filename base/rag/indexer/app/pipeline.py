@@ -20,6 +20,7 @@ from typing import Any
 from synesis_telemetry import get_logger
 
 from .content_gate import GatePolicy, score_chunk
+from .crawl_config import effective_crawl_config
 from .embed_client import EmbedClient
 from .enrichment import enrich_chunks_bulk
 from .gatekeeper import entities_to_json, labels_for_document, section_outline_to_json
@@ -52,11 +53,10 @@ def _indexer_stats_from_fetch(
     if handler_type != "web_page":
         return meta
     cfg = source_config.get("config")
-    if not isinstance(cfg, dict):
-        cfg = {}
-    meta["planned_max_pages"] = max(1, int(cfg.get("max_pages", 80)))
-    meta["planned_max_depth"] = max(0, int(cfg.get("max_depth", 4)))
-    meta["discovery"] = str(cfg.get("discovery") or "sitemap_first").lower()
+    crawl_cfg = effective_crawl_config(cfg if isinstance(cfg, dict) else {})
+    meta["planned_max_pages"] = int(crawl_cfg["max_pages"])
+    meta["planned_max_depth"] = int(crawl_cfg["max_depth"])
+    meta["discovery"] = str(crawl_cfg["discovery"])
     depths = [d.metadata["crawl_depth"] for d in documents if isinstance(d.metadata.get("crawl_depth"), int)]
     if depths:
         meta["max_depth_reached"] = max(depths)
