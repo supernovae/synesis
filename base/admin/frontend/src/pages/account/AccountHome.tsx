@@ -19,12 +19,20 @@ function keycloakAccountUrl(): string {
   return `${window.location.origin.replace("synesis-admin", "synesis-auth")}/realms/synesis/account`;
 }
 
+function hostUrl(host: string): string {
+  return `${window.location.protocol}//${host}`;
+}
+
 function openWebUiUrl(): string {
-  return window.location.origin.replace("synesis-admin", "synesis-webui");
+  return hostUrl("chat.kybern.dev");
+}
+
+function openAiApiUrl(): string {
+  return hostUrl("api.kybern.dev");
 }
 
 function yarnUrl(): string {
-  return window.location.origin.replace("synesis-admin", "synesis-yarn");
+  return hostUrl("coder.kybern.dev");
 }
 
 export default function AccountHome() {
@@ -34,6 +42,7 @@ export default function AccountHome() {
 
   const kcUrl = keycloakAccountUrl();
   const webUiUrl = openWebUiUrl();
+  const openAiUrl = openAiApiUrl();
   const yarnBase = yarnUrl();
   const claudeEnvSnippet = `export ANTHROPIC_BASE_URL="${yarnBase}"
 export ANTHROPIC_AUTH_TOKEN="<your-synesis-pat>"
@@ -236,7 +245,7 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
                 <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
@@ -261,6 +270,33 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
               >
                 {copiedKey === "webui" ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                 {copiedKey === "webui" ? "Copied" : "Copy URL"}
+              </button>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                <Globe className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                OpenAI API
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                OpenAI-compatible API endpoint for Synesis clients.
+              </p>
+              <a
+                href={openAiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 break-all text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+              >
+                {openAiUrl}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <button
+                onClick={() => copyText("openai-api", openAiUrl)}
+                className="mt-2 inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                type="button"
+              >
+                {copiedKey === "openai-api" ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                {copiedKey === "openai-api" ? "Copied" : "Copy URL"}
               </button>
             </div>
 
