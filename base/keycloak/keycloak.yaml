@@ -34,7 +34,7 @@ spec:
       key: password
 
   hostname:
-    hostname: synesis-auth.apps.openshiftdemo.dev
+    hostname: auth.kybern.dev
 
   http:
     httpEnabled: true

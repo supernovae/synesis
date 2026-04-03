@@ -164,8 +164,10 @@ spec:
         standardFlowEnabled: true
         directAccessGrantsEnabled: false
         redirectUris:
+          - "https://chat.kybern.dev/*"
           - "https://synesis.apps.openshiftdemo.dev/*"
         webOrigins:
+          - "https://chat.kybern.dev"
           - "https://synesis.apps.openshiftdemo.dev"
         defaultClientScopes:
           - openid
@@ -175,7 +177,7 @@ spec:
           - synesis-organization
         attributes:
           pkce.code.challenge.method: S256
-          post.logout.redirect.uris: "https://synesis.apps.openshiftdemo.dev/*"
+          post.logout.redirect.uris: "https://chat.kybern.dev/* https://synesis.apps.openshiftdemo.dev/*"
       - clientId: synesis-admin
         name: "Synesis Admin Dashboard"
         enabled: true
@@ -183,8 +185,10 @@ spec:
         standardFlowEnabled: true
         directAccessGrantsEnabled: false
         redirectUris:
+          - "https://admin.kybern.dev/*"
           - "https://synesis-admin.apps.openshiftdemo.dev/*"
         webOrigins:
+          - "https://admin.kybern.dev"
           - "https://synesis-admin.apps.openshiftdemo.dev"
         defaultClientScopes:
           - openid
@@ -194,7 +198,7 @@ spec:
           - synesis-organization
         attributes:
           pkce.code.challenge.method: S256
-          post.logout.redirect.uris: "https://synesis-admin.apps.openshiftdemo.dev/*"
+          post.logout.redirect.uris: "https://admin.kybern.dev/* https://synesis-admin.apps.openshiftdemo.dev/*"
       - clientId: synesis-api
         name: "Synesis API (service-to-service)"
         enabled: true

@@ -19,15 +19,12 @@ spec:
       containers:
         - name: cloudflared
           image: cloudflare/cloudflared:latest
-          command:
-            - /bin/sh
-            - -ec
           args:
-            - |
-              if [ -n "${TUNNEL_TOKEN:-}" ]; then
-                exec cloudflared tunnel --no-autoupdate --config /etc/cloudflared/config/config.yaml run --token "${TUNNEL_TOKEN}"
-              fi
-              exec cloudflared tunnel --no-autoupdate --config /etc/cloudflared/config/config.yaml run
+            - tunnel
+            - --no-autoupdate
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            - run
           env:
             - name: TUNNEL_TOKEN
               valueFrom:

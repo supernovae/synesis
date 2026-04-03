@@ -539,6 +539,28 @@ oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}{"\n"}'
 oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}{"\n"}'
 ```
 
+Canonical OIDC validation for kybern auth pivot:
+
+```bash
+# Admin API must advertise kybern issuer (drives browser login redirect target).
+curl -sS https://admin.kybern.dev/api/v1/auth/oidc-config | jq -r '.issuer'
+# Expected: https://auth.kybern.dev/realms/synesis
+
+# Keycloak discovery issuer must also be kybern.
+curl -sS https://auth.kybern.dev/realms/synesis/.well-known/openid-configuration | jq -r '.issuer'
+# Expected: https://auth.kybern.dev/realms/synesis
+
+# Optional: verify token iss claim from a login token.
+TOKEN="<paste-jwt-here>"
+python - <<'PY'
+import base64, json, os
+t = os.environ["TOKEN"].split(".")[1]
+t += "=" * (-len(t) % 4)
+print(json.loads(base64.urlsafe_b64decode(t))["iss"])
+PY
+# Expected: https://auth.kybern.dev/realms/synesis
+```
+
 Behavior:
 
 - Reconciles `synesis-edge/cloudflared-credentials` secret.

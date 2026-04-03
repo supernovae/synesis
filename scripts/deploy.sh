@@ -1511,9 +1511,14 @@ ensure_keycloak() {
         KEYCLOAK_ADMIN_PASS="$kc_pass"
     fi
 
-    # Patch admin deployment with Keycloak issuer URL
+    # Patch admin + yarn with canonical Keycloak issuer URL.
+    # Prefer explicit public host envs for Cloudflare cutovers.
     local kc_host
-    kc_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || echo "synesis-auth.apps.openshiftdemo.dev")
+    kc_host="${SYNESIS_KEYCLOAK_PUBLIC_HOST:-${SYNESIS_CF_AUTH_HOST:-}}"
+    if [[ -z "$kc_host" ]]; then
+        kc_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    fi
+    kc_host="${kc_host:-auth.kybern.dev}"
     local issuer_url="https://${kc_host}/realms/synesis"
     _patch_deployment_env "synesis-admin" "synesis-admin" "SYNESIS_KEYCLOAK_ISSUER_URL" "$issuer_url" "admin"
     _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_KEYCLOAK_ISSUER_URL" "$issuer_url" "yarn"

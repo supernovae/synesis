@@ -71,7 +71,7 @@ spec:
             # Must match Keycloak Route host + realm (see base/keycloak/keycloak.yaml).
             # Required for browser login; PATs (syn-...) work for API/script auth regardless.
             - name: SYNESIS_KEYCLOAK_ISSUER_URL
-              value: "https://synesis-auth.apps.openshiftdemo.dev/realms/synesis"
+              value: "https://auth.kybern.dev/realms/synesis"
             # Empty: Keycloak tokens use aud=account, not client_id — verifying aud breaks login.
             # Binding to our OAuth client is done via the azp claim (see auth.py).
             - name: SYNESIS_KEYCLOAK_AUDIENCE

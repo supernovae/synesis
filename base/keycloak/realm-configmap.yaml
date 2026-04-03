@@ -210,9 +210,11 @@ data:
           "standardFlowEnabled": true,
           "directAccessGrantsEnabled": false,
           "redirectUris": [
+            "https://chat.kybern.dev/*",
             "https://synesis.apps.openshiftdemo.dev/*"
           ],
           "webOrigins": [
+            "https://chat.kybern.dev",
             "https://synesis.apps.openshiftdemo.dev"
           ],
           "defaultClientScopes": [
@@ -224,7 +226,7 @@ data:
           ],
           "attributes": {
             "pkce.code.challenge.method": "S256",
-            "post.logout.redirect.uris": "https://synesis.apps.openshiftdemo.dev/*"
+            "post.logout.redirect.uris": "https://chat.kybern.dev/* https://synesis.apps.openshiftdemo.dev/*"
           }
         },
         {
@@ -235,9 +237,11 @@ data:
           "standardFlowEnabled": true,
           "directAccessGrantsEnabled": false,
           "redirectUris": [
+            "https://admin.kybern.dev/*",
             "https://synesis-admin.apps.openshiftdemo.dev/*"
           ],
           "webOrigins": [
+            "https://admin.kybern.dev",
             "https://synesis-admin.apps.openshiftdemo.dev"
           ],
           "defaultClientScopes": [
@@ -249,7 +253,7 @@ data:
           ],
           "attributes": {
             "pkce.code.challenge.method": "S256",
-            "post.logout.redirect.uris": "https://synesis-admin.apps.openshiftdemo.dev/*"
+            "post.logout.redirect.uris": "https://admin.kybern.dev/* https://synesis-admin.apps.openshiftdemo.dev/*"
           }
         },
         {

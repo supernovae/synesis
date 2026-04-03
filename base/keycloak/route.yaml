@@ -11,7 +11,7 @@ metadata:
   annotations:
     haproxy.router.openshift.io/timeout: 60s
 spec:
-  host: synesis-auth.apps.openshiftdemo.dev
+  host: auth.kybern.dev
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
