@@ -3,7 +3,7 @@ import { shouldClarify } from "../src/nodes/llm-planner.js";
 import type { GraphState } from "../src/state/types.js";
 
 describe("llm planner clarify-first parity", () => {
-  it("clarifies architecture prompts with generic cloud/model ambiguity", () => {
+  it("clarifies when ambiguity scorer reports material gaps", () => {
     const state: GraphState = {
       task_description: "Design a cloud architecture for our AI platform and model routing.",
       difficulty: 0.72,
@@ -31,8 +31,19 @@ describe("llm planner clarify-first parity", () => {
       confidence: 0.79,
       reasoning: "initial plan",
     };
+    const ambiguity = {
+      ambiguity_level: 0.8,
+      can_proceed_without_clarification: false,
+      material_gaps: [{
+        missing_information: "target deployment environment",
+        impact_on_outcome: "changes implementation guidance and risk profile",
+        suggested_question: "Which environment should this target?",
+      }],
+      clarification_questions: ["Which environment should this target?"],
+      rationale: "Environment drives architecture choices.",
+    };
 
-    expect(shouldClarify(state, plan)).toBe(true);
+    expect(shouldClarify(state, plan, ambiguity)).toBe(true);
   });
 
   it("does not clarify again after first iteration", () => {
@@ -55,7 +66,17 @@ describe("llm planner clarify-first parity", () => {
       reasoning: "needs clarification",
     };
 
-    expect(shouldClarify(state, plan)).toBe(false);
+    expect(shouldClarify(state, plan, {
+      ambiguity_level: 0.9,
+      can_proceed_without_clarification: false,
+      material_gaps: [{
+        missing_information: "cloud provider",
+        impact_on_outcome: "affects concrete implementation",
+        suggested_question: "Which cloud provider?",
+      }],
+      clarification_questions: ["Which cloud provider?"],
+      rationale: "Material ambiguity remains.",
+    })).toBe(false);
   });
 
   it("does not clarify again on a clarification follow-up turn (iteration still 0)", () => {
@@ -79,6 +100,16 @@ describe("llm planner clarify-first parity", () => {
       reasoning: "needs clarification",
     };
 
-    expect(shouldClarify(state, plan)).toBe(false);
+    expect(shouldClarify(state, plan, {
+      ambiguity_level: 0.85,
+      can_proceed_without_clarification: false,
+      material_gaps: [{
+        missing_information: "exact scale target",
+        impact_on_outcome: "changes architecture profile",
+        suggested_question: "What scale target should I optimize for?",
+      }],
+      clarification_questions: ["What scale target should I optimize for?"],
+      rationale: "Material ambiguity remains but user already answered a clarification turn.",
+    })).toBe(false);
   });
 });

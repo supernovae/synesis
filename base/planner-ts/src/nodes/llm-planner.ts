@@ -37,10 +37,28 @@ const PlannerOutputSchema = z.object({
 
 type PlannerOutput = z.infer<typeof PlannerOutputSchema>;
 
+const AmbiguityAssessmentSchema = z.object({
+  ambiguity_level: z.number().min(0).max(1).optional().default(0),
+  can_proceed_without_clarification: z.boolean().optional().default(true),
+  material_gaps: z.array(z.object({
+    missing_information: z.string(),
+    impact_on_outcome: z.string(),
+    suggested_question: z.string().optional().default(""),
+  })).optional().default([]),
+  clarification_questions: z.array(z.string()).optional().default([]),
+  rationale: z.string().optional().default(""),
+});
+
+type AmbiguityAssessment = z.infer<typeof AmbiguityAssessmentSchema>;
+
 export interface LlmPlannerResult {
   plan: PlannerOutput;
   usage: LlmUsage;
   effectiveMaxTokens: number;
+  ambiguity_assessment?: AmbiguityAssessment;
+  ambiguity_scorer_latency_ms?: number;
+  ambiguity_scorer_error?: string;
+  ambiguity_decision_reason?: string;
 }
 
 const PLANNER_CAP_HARD_CEILING = 4096;
@@ -78,66 +96,91 @@ export function computeAdaptivePlannerCap(baseCap: number, state: GraphState): n
 }
 
 const WAIVER_PATTERNS = /\b(proceed|go\s*ahead|just\s*(do|answer)\s*it|use\s*(the\s*)?assumptions|skip\s*clarif|continue|let'?s\s*go)\b/i;
-const ARCH_SIGNALS = /\b(architect|infrastructure|deploy|production|scale|cluster|kubernetes|k8s|microservice|platform|system design|saas|paas)\b/i;
-const CLOUD_GENERIC = /\bcloud\b/i;
-const CLOUD_SPECIFIC = /\b(aws|amazon|azure|gcp|google cloud|oci|oracle cloud|digitalocean|hetzner|linode|on-prem|on premise|self-hosted)\b/i;
-const MODEL_GENERIC = /\b(model|llm|language model|embedding model|ai model|foundation model|chat model)\b/i;
-const MODEL_SPECIFIC = /\b(gpt-4|claude|gemini|llama|mistral|qwen|deepseek|open.?source|proprietary|frontier|openai|anthropic|hugging.?face|vllm|ollama|openrouter)\b/i;
-const SCALE_SIGNALS = /\b(concurrent|concurrency|throughput|rps|requests per|users|traffic|load|qps|tps|scale to)\b/i;
-const CLOUD_PROVIDER_INTENT =
-  /\b(cloud|provider|cloud-agnostic|aws|amazon web services|gcp|google cloud|azure(?!\s*ad)|azure cloud|oci|oracle cloud|digitalocean|linode|hetzner|on-prem|on premise|self-hosted)\b/i;
-const IDENTITY_INTENT = /\b(identity|auth|authentication|oidc|oauth|okta|azure ad|entra|sso|idp)\b/i;
-const KUBERNETES_INTENT = /\b(kubernetes|k8s|cluster|eks|aks|gke|openshift)\b/i;
-const MODEL_INTENT =
-  /\b(model|llm|embedding|inference|open-weight|hosted api|vllm|ollama|openrouter|anthropic|openai|gemini|claude|llama|mistral|qwen)\b/i;
-const SCALE_INTENT = /\b(scale|concurrent|concurrency|users|traffic|throughput|rps|qps|tps|latency|sla)\b/i;
 
 export function isClarificationWaiver(text: string): boolean {
   return WAIVER_PATTERNS.test(text.trim());
 }
 
-function buildAmbiguityCorpus(state: GraphState): string {
-  const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
-  const goals = Array.isArray(taskFrame.goals) ? taskFrame.goals.map(String).join(" ") : "";
-  const tasks = Array.isArray(taskFrame.tasks)
-    ? taskFrame.tasks
-        .map((t) => (t && typeof t === "object" ? String((t as Record<string, unknown>).description ?? "") : ""))
-        .join(" ")
-    : "";
-  const mainQuestion = String(taskFrame.main_question ?? "");
-  const constraints = Array.isArray(taskFrame.global_constraints)
-    ? taskFrame.global_constraints.map(String).join(" ")
-    : "";
-  return `${mainQuestion} ${goals} ${tasks} ${constraints} ${(state.task_description ?? "")}`.trim();
-}
-
-/**
- * Ports the Python planner's targeted ambiguity probes (cloud/model/scale)
- * to preserve clarify-first behavior for architecture/system-design prompts.
- */
-function detectActionableAmbiguities(state: GraphState): string[] {
-  const difficulty = state.difficulty ?? 0;
-  if (difficulty < 0.45) return [];
-  const corpus = buildAmbiguityCorpus(state);
-  if (!ARCH_SIGNALS.test(corpus)) return [];
-
-  const probes: string[] = [];
-  if (CLOUD_GENERIC.test(corpus) && !CLOUD_SPECIFIC.test(corpus)) {
-    probes.push(
-      "You mention cloud but not a specific provider. Do you prefer AWS, Azure, GCP, on-prem, or should I keep it cloud-agnostic?",
-    );
+async function runAmbiguityScorer(
+  state: GraphState,
+  plannerPlan: PlannerOutput,
+): Promise<{ assessment?: AmbiguityAssessment; latencyMs?: number; error?: string }> {
+  const cfg = loadConfig();
+  if (!cfg.SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_ENABLED) {
+    return {};
   }
-  if (MODEL_GENERIC.test(corpus) && !MODEL_SPECIFIC.test(corpus)) {
-    probes.push(
-      "You reference AI/LLM models but not a model strategy. Should this target self-hosted open-weight models, hosted APIs, or both?",
-    );
+  const model = cfg.SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL
+    || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+    || "synesis-general";
+  const started = Date.now();
+  try {
+    const messages = [
+      {
+        role: "system" as const,
+        content: [
+          "You are Synesis Ambiguity Scorer.",
+          "Return JSON only.",
+          "Assess whether ambiguity is material to action quality.",
+          "Do not over-ask; prefer 1-3 high-impact clarification questions.",
+          "Schema:",
+          "{ ambiguity_level: number 0..1, can_proceed_without_clarification: boolean, material_gaps: [{ missing_information: string, impact_on_outcome: string, suggested_question?: string }], clarification_questions: string[], rationale: string }",
+        ].join("\n"),
+      },
+      {
+        role: "user" as const,
+        content: JSON.stringify({
+          task_description: state.task_description ?? "",
+          recent_messages: (state.messages ?? [])
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .slice(-6)
+            .map((m) => ({ role: m.role, content: m.content.slice(0, 500) })),
+          planner_open_questions: plannerPlan.open_questions,
+          planner_assumptions: plannerPlan.assumptions,
+          planner_confidence: plannerPlan.confidence,
+          frame_coherence: state.domain_profile?.frameCoherence ?? "focused",
+          difficulty: state.difficulty ?? 0.3,
+        }),
+      },
+    ];
+    const result = await chatCompletion({
+      model,
+      temperature: 0,
+      max_tokens: cfg.SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MAX_TOKENS,
+      pricingRates: state.pricing_rates_by_role?.router,
+      request_id: state.run_id,
+      authz_trace_id: state.authz_trace_id,
+      traceparent: state.traceparent,
+      messages,
+      response_format: { type: "json_object" },
+    });
+    const parsed = validateWithRepair(result.content, AmbiguityAssessmentSchema);
+    const trimmedQuestions = parsed.clarification_questions
+      .map((q) => q.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    const trimmedGaps = parsed.material_gaps.slice(0, 5).map((g) => ({
+      missing_information: g.missing_information.trim(),
+      impact_on_outcome: g.impact_on_outcome.trim(),
+      suggested_question: g.suggested_question.trim(),
+    }));
+    return {
+      assessment: {
+        ...parsed,
+        clarification_questions: trimmedQuestions,
+        material_gaps: trimmedGaps,
+      },
+      latencyMs: Date.now() - started,
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    process.stderr.write(JSON.stringify({
+      level: 30,
+      msg: "ambiguity scorer unavailable; using planner-only epistemic checks",
+      error: detail,
+      time: Date.now(),
+    }) + "\n");
+    return { error: detail, latencyMs: Date.now() - started };
   }
-  if (!SCALE_SIGNALS.test(corpus)) {
-    probes.push(
-      "What scale are you targeting (for example team size, concurrent users, or request volume)? This materially changes architecture choices.",
-    );
-  }
-  return probes.slice(0, 3);
 }
 
 function isStructuredOutputCompatibilityError(detail: string): boolean {
@@ -151,7 +194,12 @@ function isStructuredOutputCompatibilityError(detail: string): boolean {
   );
 }
 
-export function shouldClarify(state: GraphState, plan: PlannerOutput): boolean {
+export function shouldClarify(
+  state: GraphState,
+  plan: PlannerOutput,
+  ambiguity?: AmbiguityAssessment,
+  threshold = 0.58,
+): boolean {
   const iteration = state.iteration_count ?? 0;
   if (iteration > 0) return false;
 
@@ -165,17 +213,19 @@ export function shouldClarify(state: GraphState, plan: PlannerOutput): boolean {
   const difficulty = state.difficulty ?? 0.3;
   const confidence = plan.confidence;
   const openQCount = plan.open_questions.length;
+  const ambiguityLevel = ambiguity?.ambiguity_level ?? 0;
+  const materialGapCount = ambiguity?.material_gaps.length ?? 0;
+  const canProceed = ambiguity?.can_proceed_without_clarification ?? true;
 
   const taxonomy = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
   const controls = (taxonomy.output_controls ?? {}) as Record<string, unknown>;
   const clarifyFirst = Boolean(controls.clarify_first);
-  const targetedAmbiguities = detectActionableAmbiguities(state);
 
-  if (frameCoherence === "diffuse" && difficulty >= 0.4) return true;
-  if (confidence < 0.5 && openQCount >= 1) return true;
-  if (targetedAmbiguities.length > 0) return true;
-  if (clarifyFirst && difficulty >= 0.4 && openQCount >= 1) return true;
-  if (clarifyFirst && openQCount >= 2 && difficulty >= 0.4) return true;
+  if (frameCoherence === "diffuse" && difficulty >= 0.4 && (openQCount >= 1 || materialGapCount >= 1)) return true;
+  if (!canProceed && materialGapCount >= 1) return true;
+  if (ambiguityLevel >= threshold && materialGapCount >= 1) return true;
+  if (confidence < 0.5 && (openQCount >= 1 || materialGapCount >= 1)) return true;
+  if (clarifyFirst && difficulty >= 0.4 && (openQCount >= 1 || materialGapCount >= 1)) return true;
 
   return false;
 }
@@ -183,15 +233,18 @@ export function shouldClarify(state: GraphState, plan: PlannerOutput): boolean {
 function buildClarificationQuestion(
   state: GraphState,
   plan: PlannerOutput,
+  ambiguity?: AmbiguityAssessment,
 ): { question: string; options: string[] } {
-  const task = state.task_description ?? "your request";
   const profile = state.domain_profile;
   const frameDesc = profile
     ? profile.domains.slice(0, 3).map((d) => d.key.replace(/_/g, " ")).join(", ")
     : "general";
 
-  const questions = plan.open_questions.slice(0, 3);
-  const targeted = detectActionableAmbiguities(state);
+  const suggestedByGap = (ambiguity?.material_gaps ?? [])
+    .map((g) => g.suggested_question)
+    .filter(Boolean);
+  const questions = plan.open_questions.slice(0, 5);
+  const scorerQuestions = ambiguity?.clarification_questions ?? [];
   const assumptions = plan.assumptions.slice(0, 3);
 
   const parts: string[] = [
@@ -199,7 +252,15 @@ function buildClarificationQuestion(
     "",
   ];
 
-  const allQuestions = dedupeClarificationQuestions([...questions, ...targeted]).slice(0, 4);
+  const allQuestions = dedupeClarificationQuestions([
+    ...questions,
+    ...scorerQuestions,
+    ...suggestedByGap,
+  ]).slice(0, 3);
+
+  if (allQuestions.length === 0 && (ambiguity?.material_gaps.length ?? 0) > 0) {
+    allQuestions.push("Could you clarify the highest-priority constraints that should drive the approach?");
+  }
   if (allQuestions.length > 0) {
     for (let i = 0; i < allQuestions.length; i++) {
       parts.push(`${i + 1}. ${allQuestions[i]}`);
@@ -223,16 +284,6 @@ function buildClarificationQuestion(
   ];
 
   return { question: parts.join("\n"), options };
-}
-
-function inferClarificationIntent(question: string): string | undefined {
-  const q = question.toLowerCase();
-  if (IDENTITY_INTENT.test(q)) return "identity_provider";
-  if (CLOUD_PROVIDER_INTENT.test(q)) return "cloud_provider";
-  if (KUBERNETES_INTENT.test(q)) return "kubernetes_posture";
-  if (MODEL_INTENT.test(q)) return "model_strategy";
-  if (SCALE_INTENT.test(q)) return "scale_target";
-  return undefined;
 }
 
 function normalizeQuestion(question: string): string {
@@ -260,19 +311,15 @@ function lexicalNearDuplicate(a: string, b: string): boolean {
   }
   const union = as.size + bs.size - intersection;
   const jaccard = union > 0 ? intersection / union : 0;
-  return jaccard >= 0.72;
+  return jaccard >= 0.5;
 }
 
 function dedupeClarificationQuestions(input: string[]): string[] {
   const out: string[] = [];
-  const seenIntents = new Set<string>();
   for (const q of input) {
     if (!q?.trim()) continue;
-    const intent = inferClarificationIntent(q);
-    if (intent && seenIntents.has(intent)) continue;
     if (out.some((existing) => lexicalNearDuplicate(existing, q))) continue;
     out.push(q);
-    if (intent) seenIntents.add(intent);
   }
   return out;
 }
@@ -434,16 +481,41 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     process.stderr.write(JSON.stringify({ level: 40, msg: "planner output parse failed, using deterministic fallback", error: detail, raw_snippet: result.content.slice(0, 300), time: Date.now() }) + "\n");
     const parseFallbackPlan = {
       steps: [{ id: 1, action: `Answer: ${task}`, dependencies: [] }],
-      open_questions: detectActionableAmbiguities(state),
+      open_questions: [],
       assumptions: ["LLM returned unparseable plan — using deterministic plan"],
       confidence: 0.45,
       reasoning: `Parse failed: ${detail}`,
     };
+    const ambiguity = await runAmbiguityScorer(state, parseFallbackPlan);
+    const ambiguityThreshold = plannerCfg.SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD;
+    const clarify = shouldClarify(state, parseFallbackPlan, ambiguity.assessment, ambiguityThreshold);
+    const decisionReason = clarify
+      ? "clarify:parse-fallback-epistemic-ambiguity"
+      : "proceed:parse-fallback-low-material-ambiguity";
+    process.stderr.write(JSON.stringify({
+      level: 30,
+      msg: "planner ambiguity decision",
+      decision: clarify ? "clarify" : "proceed",
+      reason: decisionReason,
+      ambiguity_level: ambiguity.assessment?.ambiguity_level ?? null,
+      material_gaps: ambiguity.assessment?.material_gaps.length ?? 0,
+      can_proceed_without_clarification: ambiguity.assessment?.can_proceed_without_clarification ?? null,
+      scorer_latency_ms: ambiguity.latencyMs ?? null,
+      time: Date.now(),
+    }) + "\n");
 
-    if (shouldClarify(state, parseFallbackPlan)) {
-      const clarification = buildClarificationQuestion(state, parseFallbackPlan);
+    if (clarify) {
+      const clarification = buildClarificationQuestion(state, parseFallbackPlan, ambiguity.assessment);
       return {
-        result: { plan: parseFallbackPlan, usage: result.usage, effectiveMaxTokens },
+        result: {
+          plan: parseFallbackPlan,
+          usage: result.usage,
+          effectiveMaxTokens,
+          ambiguity_assessment: ambiguity.assessment,
+          ambiguity_scorer_latency_ms: ambiguity.latencyMs,
+          ambiguity_scorer_error: ambiguity.error,
+          ambiguity_decision_reason: decisionReason,
+        },
         clarification,
       };
     }
@@ -453,14 +525,43 @@ export async function runLlmPlanner(state: GraphState): Promise<{
         plan: { ...parseFallbackPlan, open_questions: [] },
         usage: result.usage,
         effectiveMaxTokens,
+        ambiguity_assessment: ambiguity.assessment,
+        ambiguity_scorer_latency_ms: ambiguity.latencyMs,
+        ambiguity_scorer_error: ambiguity.error,
+        ambiguity_decision_reason: decisionReason,
       },
     };
   }
 
-  const planResult: LlmPlannerResult = { plan: parsed, usage: result.usage, effectiveMaxTokens };
+  const ambiguity = await runAmbiguityScorer(state, parsed);
+  const ambiguityThreshold = plannerCfg.SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD;
+  const clarify = shouldClarify(state, parsed, ambiguity.assessment, ambiguityThreshold);
+  const decisionReason = clarify
+    ? "clarify:epistemic-material-ambiguity"
+    : "proceed:sufficiently-specified";
+  process.stderr.write(JSON.stringify({
+    level: 30,
+    msg: "planner ambiguity decision",
+    decision: clarify ? "clarify" : "proceed",
+    reason: decisionReason,
+    ambiguity_level: ambiguity.assessment?.ambiguity_level ?? null,
+    material_gaps: ambiguity.assessment?.material_gaps.length ?? 0,
+    can_proceed_without_clarification: ambiguity.assessment?.can_proceed_without_clarification ?? null,
+    scorer_latency_ms: ambiguity.latencyMs ?? null,
+    time: Date.now(),
+  }) + "\n");
+  const planResult: LlmPlannerResult = {
+    plan: parsed,
+    usage: result.usage,
+    effectiveMaxTokens,
+    ambiguity_assessment: ambiguity.assessment,
+    ambiguity_scorer_latency_ms: ambiguity.latencyMs,
+    ambiguity_scorer_error: ambiguity.error,
+    ambiguity_decision_reason: decisionReason,
+  };
 
-  if (shouldClarify(state, parsed)) {
-    const clarification = buildClarificationQuestion(state, parsed);
+  if (clarify) {
+    const clarification = buildClarificationQuestion(state, parsed, ambiguity.assessment);
     return { result: planResult, clarification };
   }
 

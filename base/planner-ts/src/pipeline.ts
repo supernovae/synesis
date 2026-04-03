@@ -230,6 +230,10 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
         open_questions: result.plan.open_questions,
         assumptions: result.plan.assumptions,
         clarification_question: clarification.question,
+        ambiguity_assessment: result.ambiguity_assessment,
+        ambiguity_scorer_latency_ms: result.ambiguity_scorer_latency_ms,
+        ambiguity_scorer_error: result.ambiguity_scorer_error,
+        ambiguity_decision_reason: result.ambiguity_decision_reason,
         ...budgetSpanMetadata(effectiveCap, result.usage),
       },
     });
@@ -267,6 +271,10 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
       steps_count: result.plan.steps.length,
       open_questions: result.plan.open_questions,
       assumptions: result.plan.assumptions,
+      ambiguity_assessment: result.ambiguity_assessment,
+      ambiguity_scorer_latency_ms: result.ambiguity_scorer_latency_ms,
+      ambiguity_scorer_error: result.ambiguity_scorer_error,
+      ambiguity_decision_reason: result.ambiguity_decision_reason,
       ...budgetSpanMetadata(effectiveCap, result.usage),
     },
   });
