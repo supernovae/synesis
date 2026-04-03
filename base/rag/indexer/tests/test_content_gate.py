@@ -208,6 +208,21 @@ class TestPageScoring:
         score = score_page(features, policy)
         assert score >= 0.5
 
+    def test_code_first_example_page_not_over_penalized_for_short_text(self, policy):
+        features = PageFeatures(
+            url_path="/examples/for-loop",
+            title="Go by Example: For",
+            headings=["For", "Code", "Output"],
+            word_count=85,
+            code_block_count=3,
+            heading_count=3,
+            internal_link_count=8,
+            total_link_count=10,
+            text_sample="A short explanation with runnable code snippets and output.",
+        )
+        score = score_page(features, policy)
+        assert score >= 0.35
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Doc-Type Classification

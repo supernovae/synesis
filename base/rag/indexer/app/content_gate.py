@@ -483,6 +483,8 @@ def score_page(features: PageFeatures, policy: GatePolicy) -> float:
 
     if features.code_block_count > 0:
         score += 0.10
+    if features.code_block_count >= 2:
+        score += 0.05
 
     if 200 <= features.word_count <= 10000:
         score += 0.15
@@ -490,7 +492,12 @@ def score_page(features: PageFeatures, policy: GatePolicy) -> float:
         score += 0.05
 
     if features.word_count < 100:
-        score -= 0.15
+        # Code-first reference/example pages are often intentionally terse.
+        # Penalize short pages less aggressively when they contain runnable code.
+        if features.code_block_count > 0:
+            score -= 0.05
+        else:
+            score -= 0.15
 
     if features.total_link_count > 0:
         doc_link_ratio = features.internal_link_count / features.total_link_count
@@ -503,6 +510,20 @@ def score_page(features: PageFeatures, policy: GatePolicy) -> float:
             score -= 0.10
 
     text_lower = features.text_sample.lower()
+    headings_lower = " ".join(h.lower() for h in features.headings)
+    title_lower = features.title.lower()
+    path_lower = features.url_path.lower()
+    if (
+        features.code_block_count > 0
+        and (
+            "example" in title_lower
+            or "example" in headings_lower
+            or "example" in path_lower
+            or "sample" in title_lower
+            or "snippet" in title_lower
+        )
+    ):
+        score += 0.20
     marketing_hits = sum(1 for p in policy.marketing_phrases if p in text_lower)
     if marketing_hits >= 3:
         score -= 0.20
