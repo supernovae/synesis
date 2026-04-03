@@ -1,0 +1,47 @@
+{
+  "model": "gpt-4.1",
+  "stream": false,
+  "messages": [
+    { "role": "system", "content": "You are a coding assistant." },
+    { "role": "user", "content": "Search for TODO in src" },
+    {
+      "role": "assistant",
+      "content": "I'll run a search.",
+      "tool_calls": [
+        {
+          "id": "call_cursor_1",
+          "type": "function",
+          "function": {
+            "name": "search_code",
+            "arguments": "{\"pattern\":\"TODO\",\"path\":\"src\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_cursor_1",
+      "name": "search_code",
+      "content": "src/main.ts:10:// TODO"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "search_code",
+        "description": "Search code with ripgrep",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": { "type": "string" },
+            "path": { "type": "string" }
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto"
+}
+

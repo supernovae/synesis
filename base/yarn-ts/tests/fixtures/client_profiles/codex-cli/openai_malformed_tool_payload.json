@@ -1,0 +1,45 @@
+{
+  "model": "o4-mini",
+  "stream": false,
+  "messages": [
+    { "role": "user", "content": "List files in src" },
+    {
+      "role": "assistant",
+      "content": "Running list_dir",
+      "tool_calls": [
+        {
+          "id": "",
+          "type": "function",
+          "function": {
+            "name": "list_dir"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "list_dir",
+      "content": "src/main.ts\nsrc/util.ts"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "list_dir",
+        "description": "List directory entries",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" }
+          }
+        }
+      }
+    }
+  ],
+  "tool_choice": {
+    "type": "function",
+    "function": { "name": "list_dir" }
+  }
+}
+
