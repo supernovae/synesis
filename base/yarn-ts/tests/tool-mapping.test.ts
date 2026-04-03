@@ -6,7 +6,8 @@ import {
   sdkToolCallsToOpenAI,
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
-  sanitizeToolCalls
+  sanitizeToolCalls,
+  parseLegacyInlineToolCall
 } from "../src/tool-mapping.js";
 
 describe("openAIToolsToSDK", () => {
@@ -262,5 +263,21 @@ describe("sanitizeToolCalls", () => {
     ];
     const result = sanitizeToolCalls(msgs as never);
     expect(result[1].tool_call_id).toBe("existing_id");
+  });
+});
+
+describe("parseLegacyInlineToolCall", () => {
+  it("parses legacy function/parameter markup", () => {
+    const parsed = parseLegacyInlineToolCall(
+      "I'll explore first.\n<function=Glob>\n<parameter=pattern>\n**/*",
+    );
+    expect(parsed).toBeDefined();
+    expect(parsed?.toolName).toBe("Glob");
+    expect(parsed?.input).toEqual({ pattern: "**/*" });
+    expect(parsed?.cleanText).toContain("I'll explore first.");
+  });
+
+  it("returns null when no legacy function markup is present", () => {
+    expect(parseLegacyInlineToolCall("normal assistant text")).toBeNull();
   });
 });
