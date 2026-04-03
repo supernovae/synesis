@@ -176,9 +176,37 @@ function isLikelyQuizOptionAnswer(answer: string): boolean {
 }
 
 function hasMultipleChoiceOptions(text: string): boolean {
-  const optionMatches = text.match(/\b([A-D])[\)\.\:]\s+/gi) ?? [];
+  const optionMatches = text.match(/\b([A-D]|[1-4])[\)\.\:]\s*/gi) ?? [];
   const unique = new Set(optionMatches.map((m) => m.trim().charAt(0).toUpperCase()));
   return unique.size >= 2;
+}
+
+function findLatestUserTurnWithPreviousAssistant(
+  messages: Array<{ role: string; content?: string | null }>,
+): { latestUserContent?: string; previousAssistantContent?: string } {
+  let latestUserIndex = -1;
+  for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+    const message = messages[idx];
+    if (message.role === "user" && typeof message.content === "string") {
+      latestUserIndex = idx;
+      break;
+    }
+  }
+  if (latestUserIndex < 0) return {};
+
+  for (let idx = latestUserIndex - 1; idx >= 0; idx -= 1) {
+    const message = messages[idx];
+    if (message.role === "assistant" && typeof message.content === "string") {
+      return {
+        latestUserContent: messages[latestUserIndex]?.content ?? "",
+        previousAssistantContent: message.content,
+      };
+    }
+  }
+
+  return {
+    latestUserContent: messages[latestUserIndex]?.content ?? "",
+  };
 }
 
 function buildQuizFollowupTask(
@@ -444,24 +472,18 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const pendingClarification = await sessionManager.consumePendingClarification(sessionKey);
     let mergedTaskText = taskText;
-    const messageTail = optimized.messages;
-    const lastMessage = messageTail[messageTail.length - 1];
-    const prevAssistant = [...messageTail]
-      .reverse()
-      .find((m, idx) => idx > 0 && m.role === "assistant" && typeof m.content === "string");
+    const { latestUserContent, previousAssistantContent } = findLatestUserTurnWithPreviousAssistant(requestBody.messages);
     const applyQuizFollowupMerge = Boolean(
-      lastMessage?.role === "user"
-      && typeof lastMessage.content === "string"
-      && isLikelyQuizOptionAnswer(lastMessage.content)
-      && prevAssistant
-      && typeof prevAssistant.content === "string"
-      && hasMultipleChoiceOptions(prevAssistant.content),
+      latestUserContent
+      && isLikelyQuizOptionAnswer(latestUserContent)
+      && previousAssistantContent
+      && hasMultipleChoiceOptions(previousAssistantContent),
     );
     const applyPendingClarification = Boolean(
       pendingClarification && isLikelyClarificationAnswer(taskText, pendingClarification),
     );
-    if (applyQuizFollowupMerge && prevAssistant && typeof prevAssistant.content === "string") {
-      mergedTaskText = buildQuizFollowupTask(taskText, prevAssistant.content);
+    if (applyQuizFollowupMerge && previousAssistantContent) {
+      mergedTaskText = buildQuizFollowupTask(taskText, previousAssistantContent);
     } else if (applyPendingClarification && pendingClarification?.originalTaskDescription) {
       const originalTask = pendingClarification.originalTaskDescription.trim();
       const answer = taskText.trim();

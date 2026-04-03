@@ -691,7 +691,7 @@ export async function directStreamPipeline(
     },
   });
 
-  if (!state.task_is_trivial && state.rag_mode !== "disabled") {
+  if (state.plan_required === true || (!state.task_is_trivial && state.rag_mode !== "disabled")) {
     return input;
   }
 
