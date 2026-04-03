@@ -33,6 +33,14 @@ spec:
       ports:
         - port: 8000
           protocol: TCP
+    # Cloudflared tunnel ingress (edge namespace)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-edge
+      ports:
+        - port: 8000
+          protocol: TCP
     # Prometheus scrape
     - from:
         - namespaceSelector:

@@ -24,6 +24,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: synesis-webui
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-edge
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: synesis-mcp
