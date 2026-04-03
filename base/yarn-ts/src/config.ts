@@ -241,6 +241,19 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE: z.coerce.number().default(0),
+  SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP: z.coerce.number().default(8),
 
   // Trust / injection scan
   SYNESIS_YARN_TRUST_PACKET_ENABLED: z

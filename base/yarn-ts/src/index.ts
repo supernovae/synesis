@@ -297,10 +297,32 @@ function extractRequestedToolNames(userText: string, tools: unknown[]): string[]
   return requested;
 }
 
-function resolveToolSchemaBudget(adapterMaxEffectiveTools: number | undefined): number {
+function isOpenClawProfile(profile: { family?: string }): boolean {
+  return profile.family === "openclaw";
+}
+
+function isWriteCapableToolName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n === "write"
+    || n === "edit"
+    || n === "update"
+    || n === "write_file"
+    || n === "apply_patch"
+    || n === "git_add_guarded"
+    || n === "git_commit_guarded"
+    || n === "format_code";
+}
+
+function resolveToolSchemaBudget(
+  adapterMaxEffectiveTools: number | undefined,
+  profileToolBudgetCap: number | undefined,
+): number {
   if (!config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED) return 0;
   const override = config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE;
-  const adapterLimit = adapterMaxEffectiveTools ?? 0;
+  let adapterLimit = adapterMaxEffectiveTools ?? 0;
+  if (profileToolBudgetCap && profileToolBudgetCap > 0) {
+    adapterLimit = adapterLimit > 0 ? Math.min(adapterLimit, profileToolBudgetCap) : profileToolBudgetCap;
+  }
   if (override > 0 && adapterLimit > 0) return Math.min(override, adapterLimit);
   if (override > 0) return override;
   return adapterLimit;
@@ -402,6 +424,10 @@ const toolSchemaPruningStats = {
   requestsConsidered: 0,
   requestsPruned: 0,
   toolsPrunedTotal: 0,
+};
+const openClawProfileStats = {
+  requestsObserved: 0,
+  strictGovernanceRewrites: 0,
 };
 
 function pushDiagnostic(d: RequestDiagnostic): void {
@@ -1934,6 +1960,7 @@ app.get("/health/telemetry", async (req, reply) => {
     toolResultReduction: toolResultReduction.getStats(),
     toolArgHardening: { ...toolArgHardeningStats },
     toolSchemaPruning: { ...toolSchemaPruningStats },
+    openClawProfile: { ...openClawProfileStats },
     workingFrame: workingFrameService.getStats(),
     projectManifest: projectManifestService.getStats(),
     deterministicPolicy: policyEngine.getStats(),
@@ -2084,6 +2111,9 @@ getToolRegistry().setTimeoutMs(config.SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS);
 await registerMcpRoutes(app, {
   authResolver,
   enabled: config.SYNESIS_YARN_MCP_TOOLS_ENABLED,
+  openClawProfileEnabled: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED,
+  openClawMcpAllowlistEnabled: config.SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED,
+  openClawStrictGovernanceEnabled: config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED,
 });
 await registerToolCollapseRoutes(app, {
   authResolver,
@@ -2149,6 +2179,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
   );
+  const openClawStrictGovernance =
+    config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED
+    && config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED
+    && isOpenClawProfile(adapterProfile);
+  if (isOpenClawProfile(adapterProfile)) {
+    openClawProfileStats.requestsObserved += 1;
+  }
   const oaiBodyMetaRaw = (request as Record<string, unknown>).metadata;
   const oaiBodyMeta =
     oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
@@ -2546,7 +2583,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const { resolved, messages } = resolveResult;
   const { adapter } = resolved;
   const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
-  const toolBudget = resolveToolSchemaBudget(adapter.maxEffectiveTools);
+  const toolBudget = resolveToolSchemaBudget(
+    adapter.maxEffectiveTools,
+    config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(adapterProfile)
+      ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
+      : adapterProfile.features.toolSchemaBudgetCap,
+  );
   const prunedTools = pruneToolSchemas(
     rawTools,
     toolBudget,
@@ -2673,6 +2715,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           shellCwd: effectiveOaiPathCtx.shellCwd,
           enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
           blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+          strictBashBlock: openClawStrictGovernance,
+          blockWriteCapableTools: openClawStrictGovernance,
         });
         if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
         if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
@@ -2683,6 +2727,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
             { reqId, toolName: governed.toolName, missing: governed.validationMissing },
             "tool_args_validation_failed",
           );
+        }
+        if (openClawStrictGovernance && isWriteCapableToolName(tc.toolName) && governed.toolName === "Bash") {
+          openClawProfileStats.strictGovernanceRewrites += 1;
         }
         return {
           toolCallId: tc.toolCallId,
@@ -2738,12 +2785,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
           shellCwd: effectiveOaiPathCtx.shellCwd,
           enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
           blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+          strictBashBlock: openClawStrictGovernance,
+          blockWriteCapableTools: openClawStrictGovernance,
         });
         externalToolCalls = [{
           toolCallId: `legacy_${Date.now().toString(36)}`,
           toolName: legacyGoverned.toolName,
           input: legacyGoverned.input,
         }];
+        if (openClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
+          openClawProfileStats.strictGovernanceRewrites += 1;
+        }
         finalAssistantText = parsedLegacy.cleanText;
         app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_non_stream");
       }
@@ -2947,6 +2999,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
             shellCwd: effectiveOaiPathCtx.shellCwd,
             enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
             blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+            strictBashBlock: openClawStrictGovernance,
+            blockWriteCapableTools: openClawStrictGovernance,
           });
           if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
           if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
@@ -2957,6 +3011,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
               { reqId, toolName: governed.toolName, missing: governed.validationMissing },
               "tool_args_validation_failed",
             );
+          }
+          if (openClawStrictGovernance && isWriteCapableToolName(tc.toolName ?? "") && governed.toolName === "Bash") {
+            openClawProfileStats.strictGovernanceRewrites += 1;
           }
           argsStr = JSON.stringify(governed.input);
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
@@ -3023,6 +3080,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         shellCwd: effectiveOaiPathCtx.shellCwd,
         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+        strictBashBlock: openClawStrictGovernance,
+        blockWriteCapableTools: openClawStrictGovernance,
       });
       if (parsedLegacy.cleanText) {
         const guarded = applyMarkdownGuardrail(
@@ -3035,6 +3094,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
         choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `legacy_${Date.now().toString(36)}`, type: "function", function: { name: legacyGoverned.toolName, arguments: JSON.stringify(legacyGoverned.input) } }] }, finish_reason: null }],
       })}\n\n`);
+      if (openClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
+        openClawProfileStats.strictGovernanceRewrites += 1;
+      }
       finishReason = "tool_calls";
       pendingTextDeltas.length = 0;
       app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_stream");
@@ -3251,6 +3313,13 @@ app.post("/v1/messages", async (req, reply) => {
     String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
   );
+  const claudeOpenClawStrictGovernance =
+    config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED
+    && config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED
+    && isOpenClawProfile(claudeAdapterProfile);
+  if (isOpenClawProfile(claudeAdapterProfile)) {
+    openClawProfileStats.requestsObserved += 1;
+  }
   const claudePathCtx = parseSessionExecutionContext(
     req.headers as Record<string, string | string[] | undefined>,
     body.metadata ?? null,
@@ -3645,7 +3714,12 @@ app.post("/v1/messages", async (req, reply) => {
   const { resolved, messages } = claudeResolveResult;
   const { adapter: claudeAdapter } = resolved;
   const claudeRawTools = (processedTools as unknown[]) ?? [];
-  const claudeToolBudget = resolveToolSchemaBudget(claudeAdapter.maxEffectiveTools);
+  const claudeToolBudget = resolveToolSchemaBudget(
+    claudeAdapter.maxEffectiveTools,
+    config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(claudeAdapterProfile)
+      ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
+      : claudeAdapterProfile.features.toolSchemaBudgetCap,
+  );
   const prunedClaudeTools = pruneToolSchemas(
     claudeRawTools,
     claudeToolBudget,
@@ -3839,6 +3913,8 @@ app.post("/v1/messages", async (req, reply) => {
             shellCwd: effectiveClaudePathCtx.shellCwd,
             enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
             blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+            strictBashBlock: claudeOpenClawStrictGovernance,
+            blockWriteCapableTools: claudeOpenClawStrictGovernance,
           });
           emitToolName = governed.toolName;
           finalInput = governed.input;
@@ -3870,6 +3946,9 @@ app.post("/v1/messages", async (req, reply) => {
               },
               "tool_args_validation_failed",
             );
+          }
+          if (claudeOpenClawStrictGovernance && isWriteCapableToolName(emitToolName) && governed.toolName === "Bash") {
+            openClawProfileStats.strictGovernanceRewrites += 1;
           }
 
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
@@ -4132,6 +4211,8 @@ app.post("/v1/messages", async (req, reply) => {
         shellCwd: effectiveClaudePathCtx.shellCwd,
         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+        strictBashBlock: claudeOpenClawStrictGovernance,
+        blockWriteCapableTools: claudeOpenClawStrictGovernance,
       });
       if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
       if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
@@ -4142,6 +4223,9 @@ app.post("/v1/messages", async (req, reply) => {
           { reqId, toolName: governed.toolName, missing: governed.validationMissing },
           "tool_args_validation_failed",
         );
+      }
+      if (claudeOpenClawStrictGovernance && isWriteCapableToolName(tc.toolName) && governed.toolName === "Bash") {
+        openClawProfileStats.strictGovernanceRewrites += 1;
       }
       return {
         toolCallId: tc.toolCallId,

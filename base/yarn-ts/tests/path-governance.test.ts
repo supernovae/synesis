@@ -97,4 +97,17 @@ describe("governToolCall", () => {
     expect(out.toolName).toBe("read_file");
     expect(out.normalizedPath).toBe(true);
   });
+
+  it("blocks write-capable tools when strict profile is enabled", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: { file_path: "main.go", content: "package main" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      blockWriteCapableTools: true,
+    });
+    expect(out.toolName).toBe("Bash");
+    expect(String(out.input.command)).toContain("blocked write-capable tool");
+  });
 });

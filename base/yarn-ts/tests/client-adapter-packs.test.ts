@@ -11,6 +11,7 @@ describe("ClientAdapterPacks", () => {
     const packs = new ClientAdapterPacks();
     const p = packs.resolve("cursor");
     expect(p.mode).toBe("ide");
+    expect(p.family).toBe("default");
     expect(p.workflow).toBe("mixed");
   });
 
@@ -34,6 +35,18 @@ describe("ClientAdapterPacks", () => {
     const block = packs.toSystemBlock(p);
     expect(block).toContain("<CLIENT_ADAPTER>");
     expect(block).toContain("client=claude-code");
+    expect(block).toContain("family=default");
+  });
+
+  it("resolves openclaw variants to openclaw family features", () => {
+    const packs = new ClientAdapterPacks();
+    const p = packs.resolve("openclaw-desktop");
+    expect(p.family).toBe("openclaw");
+    expect(p.features.strictWriteToolGovernance).toBe(true);
+    expect(p.features.toolSchemaBudgetCap).toBe(8);
+    const block = packs.toSystemBlock(p);
+    expect(block).toContain("family=openclaw");
+    expect(block).toContain("strict_write_tool_governance=true");
   });
 
   it("tracks stats by mode", () => {

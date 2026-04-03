@@ -1237,6 +1237,9 @@ patch_yarn_feature_flags() {
     # ── Phase 19b: Validation Tier C + Tool Schema Pruning ──
     _flag SYNESIS_YARN_VALIDATION_TIER_C_ENABLED       "false"
     _flag SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED     "true"
+    _flag SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED        "true"
+    _flag SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED  "true"
+    _flag SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED "true"
 
     # Non-boolean tuning knobs (do not force true under FULL mode)
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_ROLE" "${SYNESIS_YARN_VALIDATION_TIER_C_ROLE:-coder-normalizer}" "$container"
@@ -1244,6 +1247,7 @@ patch_yarn_feature_flags() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS" "${SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS:-8000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS" "${SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS:-8}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE" "${SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE:-0}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP" "${SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP:-8}" "$container"
 
     # ── Content Dispatch ──
     _flag SYNESIS_YARN_CONTENT_DISPATCH_ENABLED        "true"
@@ -1258,6 +1262,24 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM "false"
     _flag SYNESIS_YARN_DEDUPE_ENABLED                  "true"
     _flag SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED       "true"
+}
+
+# Ensure planner-ts guardrails/clarification flags are explicitly enabled.
+patch_planner_feature_flags() {
+    local ns="synesis-planner"
+    local deploy="synesis-planner-ts"
+    local container="planner-ts"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_ENABLED" "${SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_ENABLED:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL" "${SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL:-synesis-general}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MAX_TOKENS" "${SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MAX_TOKENS:-350}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD" "${SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD:-0.58}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED" "${SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT" "${SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT:-true}" "$container"
 }
 
 # Ensure MCP-TS has the internal service token and admin DB URL.
@@ -2185,6 +2207,10 @@ if is_true "${SYNESIS_YARN_FULL_FEATURES:-false}"; then
     log "  SYNESIS_YARN_FULL_FEATURES=true — enabling ALL gated features (including Tier C validation fallback)"
 fi
 patch_yarn_feature_flags
+
+log ""
+log "Patching planner-ts feature flags (post-apply)..."
+patch_planner_feature_flags
 
 log ""
 log "Validating Yarn strict path-governance envs (post-apply)..."

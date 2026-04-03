@@ -2,12 +2,15 @@ export type InteractionMode = "ide" | "cli" | "background" | "mcp_native";
 
 export interface AdapterPackProfile {
   client: string;
+  family: "default" | "openclaw";
   mode: InteractionMode;
   workflow: "planning" | "implementation" | "validation" | "mixed";
   features: {
     prefersConciseErrors: boolean;
     prefersArtifactHandles: boolean;
     prefersDeterministicPolicy: boolean;
+    strictWriteToolGovernance: boolean;
+    toolSchemaBudgetCap?: number;
   };
 }
 
@@ -20,6 +23,15 @@ function normalizeClientName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+function isOpenClawClientName(client: string): boolean {
+  const c = normalizeClientName(client);
+  return c.includes("openclaw")
+    || c.includes("open-claw")
+    || c.includes("claw/")
+    || c.startsWith("claw-")
+    || c.endsWith("-claw");
+}
+
 function modeForClient(client: string): InteractionMode {
   const c = normalizeClientName(client);
   if (c.includes("codex") || c.includes("cli")) return "cli";
@@ -30,6 +42,8 @@ function modeForClient(client: string): InteractionMode {
 
 const KNOWN_CLIENTS = [
   "claude-code",
+  "openclaw",
+  "openclaw-derivative",
   "cursor",
   "vscode-copilot",
   "windsurf",
@@ -49,18 +63,22 @@ export class ClientAdapterPacks {
   resolve(clientName: string, requestedMode?: string): AdapterPackProfile {
     const normalizedClient = normalizeClientName(clientName || "unknown");
     const mode = (requestedMode as InteractionMode) || modeForClient(normalizedClient);
+    const openClaw = isOpenClawClientName(normalizedClient);
     this.stats.resolutions += 1;
     this.stats.byMode[mode] += 1;
 
     const workflow = mode === "background" ? "planning" : mode === "cli" ? "validation" : "mixed";
     return {
       client: normalizedClient,
+      family: openClaw ? "openclaw" : "default",
       mode,
       workflow,
       features: {
         prefersConciseErrors: true,
         prefersArtifactHandles: mode !== "ide",
-        prefersDeterministicPolicy: true
+        prefersDeterministicPolicy: true,
+        strictWriteToolGovernance: openClaw,
+        toolSchemaBudgetCap: openClaw ? 8 : undefined,
       }
     };
   }
@@ -77,11 +95,13 @@ export class ClientAdapterPacks {
     return [
       "<CLIENT_ADAPTER>",
       `client=${profile.client}`,
+      `family=${profile.family}`,
       `mode=${profile.mode}`,
       `workflow=${profile.workflow}`,
       `prefers_concise_errors=${profile.features.prefersConciseErrors}`,
       `prefers_artifact_handles=${profile.features.prefersArtifactHandles}`,
       `prefers_deterministic_policy=${profile.features.prefersDeterministicPolicy}`,
+      `strict_write_tool_governance=${profile.features.strictWriteToolGovernance}`,
       "</CLIENT_ADAPTER>"
     ].join("\n");
   }

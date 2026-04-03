@@ -15,6 +15,7 @@ export interface GovernToolCallOptions {
   blockBashPathDrift: boolean;
   strictBashBlock?: boolean;
   strictValidationBlock?: boolean;
+  blockWriteCapableTools?: boolean;
 }
 
 export interface GovernedToolCall {
@@ -50,6 +51,17 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
       out.input = rootClamp.input;
       out.constrainedToRoot = true;
     }
+  }
+
+  if (opts.blockWriteCapableTools && isWriteCapableTool(logicalName)) {
+    const msg = `Synesis Yarn blocked write-capable tool '${logicalName}' for this client safety profile.`;
+    out.toolName = "Bash";
+    out.input = {
+      command: `echo ${shellEscape(msg)} >&2; exit 2`,
+      description: "Blocked write-capable tool for safety profile",
+    };
+    out.blockedBashDrift = true;
+    return out;
   }
 
   if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
@@ -89,6 +101,12 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     }
   }
   return out;
+}
+
+function isWriteCapableTool(logicalName: string): boolean {
+  return logicalName === "Write"
+    || logicalName === "Edit"
+    || logicalName === "Update";
 }
 
 function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | null): string | null {
