@@ -406,6 +406,13 @@ class TestPageEvaluation:
         )
         assert not verdict.should_follow_children
 
+    def test_curated_seed_can_follow_even_when_low_quality(self):
+        html = "<html><head><title>Blog</title></head><body><p>Short index page.</p></body></html>"
+        policy = GatePolicy(allowed_prefixes=["https://go.dev/blog/"], max_depth=4, follow_threshold=0.95)
+        verdict = evaluate_page("https://go.dev/blog/", html, policy, depth=0)
+        assert verdict.doc_type == "blog"
+        assert verdict.should_follow_children
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Chunk Quality Scoring (Layer 2 — Universal)

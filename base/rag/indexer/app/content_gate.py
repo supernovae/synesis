@@ -522,7 +522,7 @@ def score_page(features: PageFeatures, policy: GatePolicy) -> float:
 # Layer 1: Doc-type classification
 # ═══════════════════════════════════════════════════════════════════════
 
-DOC_TYPE_FOLLOWABLE: frozenset[str] = frozenset({"reference", "how_to", "tutorial", "explanation", "framework"})
+DOC_TYPE_FOLLOWABLE: frozenset[str] = frozenset({"reference", "how_to", "tutorial", "explanation", "framework", "blog"})
 
 
 def classify_doc_type(
@@ -608,7 +608,12 @@ def evaluate_page(
         should_index = False
         rejection_reason = "community/forum content excluded"
 
-    should_follow = quality >= policy.follow_threshold and doc_type in DOC_TYPE_FOLLOWABLE and depth < policy.max_depth
+    # Seed pages for curated prefixes should still be traversable even when
+    # their index/list page quality is low, because child pages often contain
+    # the actual high-signal content.
+    is_curated_seed = bool(policy.allowed_prefixes and _url_matches_any_allowed_prefix(url, policy.allowed_prefixes))
+    follow_quality_ok = quality >= policy.follow_threshold or (is_curated_seed and depth == 0)
+    should_follow = follow_quality_ok and doc_type in DOC_TYPE_FOLLOWABLE and depth < policy.max_depth
 
     return PageVerdict(
         url=url,
