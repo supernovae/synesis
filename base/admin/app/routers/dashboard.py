@@ -4,7 +4,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
 from ..auth import UserInfo, get_current_user
@@ -38,11 +38,14 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
     role = resolve_role(_user)
     scope = trace_scope_filters(_user)
     is_admin = role >= Role.platform_admin
+    can_view_traces = role >= Role.org_admin
     su = scope.get("user_id", "") or ""
     so = scope.get("org_id", "") or ""
     st = scope.get("scope_tenant_id", "") or ""
 
-    ts_coro = trace_store.get_trace_stats(scope_user_id=su, scope_org_id=so, scope_tenant_id=st)
+    ts_coro = None
+    if can_view_traces:
+        ts_coro = trace_store.get_trace_stats(scope_user_id=su, scope_org_id=so, scope_tenant_id=st)
     pl_coro = aggregate_planner_usage_24h_for_dashboard(scope_user_id=su, scope_org_id=so, scope_tenant_id=st)
 
     async def _yarn_24h():
@@ -69,7 +72,7 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             _safe(probe_all(), "probe_all", []),
             _safe(prom.get_cache_metrics(), "cache_metrics", {}),
             _safe(prom.fetch_planner_metrics(), "planner_metrics", {}),
-            _safe(ts_coro, "trace_stats", {}),
+            _safe(ts_coro, "trace_stats", {}) if ts_coro is not None else {},
             _safe(get_cost_summary(), "cost_summary", {}),
             _safe(get_role_assignments(), "role_assignments", []),
             _safe(pl_coro, "planner_usage_24h", {}),
@@ -77,11 +80,18 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
         )
     else:
         services, cache, raw, cost_estimate, roles = [], {}, {}, {}, []
-        ts, pl_24, yarn_24 = await asyncio.gather(
-            _safe(ts_coro, "trace_stats", {}),
-            _safe(pl_coro, "planner_usage_24h", {}),
-            _safe(_yarn_24h(), "yarn_24h", None),
-        )
+        if ts_coro is not None:
+            ts, pl_24, yarn_24 = await asyncio.gather(
+                _safe(ts_coro, "trace_stats", {}),
+                _safe(pl_coro, "planner_usage_24h", {}),
+                _safe(_yarn_24h(), "yarn_24h", None),
+            )
+        else:
+            pl_24, yarn_24 = await asyncio.gather(
+                _safe(pl_coro, "planner_usage_24h", {}),
+                _safe(_yarn_24h(), "yarn_24h", None),
+            )
+            ts = {}
 
     assigned = sum(1 for r in (roles or []) if r.get("assigned"))
     healthy = sum(1 for s in (services or []) if isinstance(s, dict) and s.get("status") == "ok")
@@ -96,11 +106,11 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
         "services": services or [],
         "metrics": {
             "total_requests": int(total_requests),
-            "error_rate": (ts or {}).get("error_rate", 0),
-            "avg_latency_ms": (ts or {}).get("avg_duration_ms", 0),
+            "error_rate": (ts or {}).get("error_rate", 0) if can_view_traces else 0,
+            "avg_latency_ms": (ts or {}).get("avg_duration_ms", 0) if can_view_traces else 0,
             "cache_hit_rate": (cache or {}).get("hit_rate", 0),
             "active_models": assigned,
-            "traces_24h": (ts or {}).get("total_traces_24h", 0),
+            "traces_24h": (ts or {}).get("total_traces_24h", 0) if can_view_traces else 0,
             # Pipeline metering (planner_usage_log), not provider invoice
             "pipeline_usage_estimated_spend_24h_usd": round(pipe_spend, 4),
             "yarn_usage_estimated_spend_24h_usd": round(yarn_spend, 4),
@@ -177,6 +187,8 @@ async def _db_counts() -> dict:
 @router.get("/quality-wiring")
 async def quality_wiring(_user: UserInfo = Depends(get_current_user)):
     """Diagnostic view: is every quality feedback loop source actually populated?"""
+    if resolve_role(_user) < Role.org_admin:
+        raise HTTPException(status_code=403, detail="Requires org_admin role or higher")
     milvus_ok, db = await asyncio.gather(
         _safe(_milvus_ok(), "milvus_check", False),
         _safe(_db_counts(), "db_counts", {}),

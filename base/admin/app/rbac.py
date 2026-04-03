@@ -8,8 +8,8 @@ Roles (highest → lowest privilege):
                        user management, all traces/metrics across the system.
     org_admin       –  Read/manage traces, usage, and settings scoped to the
                        user's Keycloak organization.
-    user            –  Read own traces, create/revoke own PATs, use the
-                       assistant scoped to own data.
+    user            –  Self-service account features and support assistant.
+                       Does not include trace visibility.
     readonly        –  Read-only access to own data and public health endpoints.
 
 Keycloak mapping:

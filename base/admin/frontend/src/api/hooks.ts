@@ -1533,6 +1533,17 @@ export function useAssistantChat() {
   });
 }
 
+export function useSupportAssistantChat() {
+  return useMutation<
+    { response: string; tokens: number; model: string; tool_rounds?: number },
+    Error,
+    { message: string; context?: string }
+  >({
+    mutationFn: (data) =>
+      client.post("/assistant/support/chat", data).then((r) => r.data),
+  });
+}
+
 // --- Settings ---
 
 interface SystemConfigData {

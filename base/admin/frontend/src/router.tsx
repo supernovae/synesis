@@ -56,6 +56,7 @@ const ErrorLog = lazy(() => import("./pages/observability/ErrorLog"));
 const ErrorDetail = lazy(() => import("./pages/observability/ErrorDetail"));
 
 const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
+const SupportAssistant = lazy(() => import("./pages/assistant/SupportAssistant"));
 const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
 const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
@@ -133,8 +134,22 @@ export const router = createBrowserRouter([
       { path: "pipeline/critic", element: <CriticAnalytics /> },
       { path: "pipeline/conflict-groups", element: <ConflictGroups /> },
 
-      { path: "traces", element: <TraceList /> },
-      { path: "traces/:traceId", element: <TraceDetail /> },
+      {
+        path: "traces",
+        element: (
+          <RequireRole role="admin">
+            <TraceList />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "traces/:traceId",
+        element: (
+          <RequireRole role="admin">
+            <TraceDetail />
+          </RequireRole>
+        ),
+      },
 
       { path: "integrations/mcp", element: <McpTools /> },
       { path: "integrations/search", element: <WebSearch /> },
@@ -176,7 +191,16 @@ export const router = createBrowserRouter([
       { path: "account/usage", element: <AccountUsage /> },
       { path: "account/organization", element: <Organization /> },
 
-      { path: "assistant", element: <AdminAssistant /> },
+      {
+        path: "assistant/admin",
+        element: (
+          <RequireRole role="admin">
+            <AdminAssistant />
+          </RequireRole>
+        ),
+      },
+      { path: "assistant/support", element: <SupportAssistant /> },
+      { path: "assistant", element: <Navigate to="/assistant/support" replace /> },
       { path: "settings", element: <SystemConfig /> },
       {
         path: "settings/provider-keys",

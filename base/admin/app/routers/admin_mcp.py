@@ -32,7 +32,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_traces",
         "description": "List recent traces with optional filters. Scoped to the caller's role.",
-        "min_role": Role.user,
+        "min_role": Role.org_admin,
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -46,7 +46,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_trace",
         "description": "Get full detail for a single trace by ID. Scoped to the caller's role.",
-        "min_role": Role.user,
+        "min_role": Role.org_admin,
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -58,13 +58,13 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "trace_stats",
         "description": "Aggregate trace statistics (last 24h). Scoped to the caller's role.",
-        "min_role": Role.user,
+        "min_role": Role.org_admin,
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "usage_summary",
         "description": "Pre-aggregated usage/cost summary. Scoped to the caller's role.",
-        "min_role": Role.user,
+        "min_role": Role.org_admin,
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -284,11 +284,21 @@ def visible_tools_for_role(role: Role) -> list[dict[str, Any]]:
     return _visible_tools(role)
 
 
-def openai_function_tools_for_role(role: Role) -> list[dict[str, Any]]:
-    """OpenAI/LiteLLM ``tools`` entries (function calling) for the given role."""
+def openai_function_tools_for_role(
+    role: Role,
+    *,
+    allowed_tool_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """OpenAI/LiteLLM ``tools`` entries (function calling) for the given role.
+
+    ``allowed_tool_names`` can be used to enforce a stricter profile (e.g. support
+    assistant) while still honoring role-based minimums.
+    """
     out: list[dict[str, Any]] = []
     for t in _TOOLS:
         if role < t["min_role"]:
+            continue
+        if allowed_tool_names is not None and t["name"] not in allowed_tool_names:
             continue
         schema = t.get("inputSchema") or {"type": "object", "properties": {}}
         out.append(

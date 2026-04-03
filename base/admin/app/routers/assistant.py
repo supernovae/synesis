@@ -7,11 +7,11 @@ import logging
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..auth import UserInfo, get_current_user
 from ..deps import ASSISTANT_MODEL, LITELLM_MASTER_KEY, LITELLM_URL
-from ..rbac import can_access_trace, resolve_role
+from ..rbac import Role, can_access_trace, resolve_role
 from ..services import trace_store
 from .admin_mcp import invoke_mcp_tool_for_chat, openai_function_tools_for_role
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 
 MAX_ASSISTANT_TOOL_ROUNDS = 8
 
-SYSTEM_PROMPT = """You are the Synesis Admin Assistant. You help operators understand
+ADMIN_SYSTEM_PROMPT = """You are the Synesis Admin Assistant. You help operators understand
 system behavior, analyze traces, debug issues, and tune configuration.
 Be concise and actionable. When analyzing data provided in context,
 cite specific numbers and suggest next steps.
@@ -33,6 +33,22 @@ When the user asks about current costs, usage, health, or live data, call the
 appropriate tools instead of guessing. Prefer ``unified_usage_snapshot`` for
 cost/spend questions when a broad picture is needed, and ``usage_summary`` for
 lighter trace-only data."""
+
+SUPPORT_SYSTEM_PROMPT = """You are the Synesis Support Assistant. You help authenticated
+users with account-safe guidance, usage questions, and product assistance.
+You do not perform admin operations, trace analysis, or privileged diagnostics.
+Be concise, practical, and explicit about any limits.
+
+When usage or account metrics are needed, call user-safe tools instead of guessing."""
+
+SUPPORT_ALLOWED_TOOL_NAMES = {
+    "service_health",
+    "list_models",
+    "unified_usage_snapshot",
+    "synesis_search",
+    "synesis_classify_intent",
+    "synesis_retrieval_gaps",
+}
 
 
 def _trace_context_text(trace: dict, span_index: int | None = None) -> str:
@@ -99,10 +115,11 @@ def _message_content_text(msg: dict[str, Any]) -> str | None:
     return str(c)
 
 
-@router.post("/chat")
-async def assistant_chat(
+async def _assistant_chat_impl(
     data: dict = Body(...),
     _user: UserInfo = Depends(get_current_user),
+    *,
+    support_mode: bool,
 ):
     """Send a message to the LLM. Optionally pass trace_id (and span_index) to load trace as context.
 
@@ -117,7 +134,9 @@ async def assistant_chat(
     if not user_message:
         return {"error": "message is required"}
 
-    if trace_id:
+    if trace_id and support_mode:
+        context = (context or "") + "\n\n(trace_id context is only available in Admin Assistant mode.)"
+    elif trace_id:
         record = await trace_store.get_trace(trace_id)
         if record and not can_access_trace(_user, record):
             record = None
@@ -128,14 +147,20 @@ async def assistant_chat(
     elif context:
         pass  # use provided context
 
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": SUPPORT_SYSTEM_PROMPT if support_mode else ADMIN_SYSTEM_PROMPT}
+    ]
     if context:
         messages.append({"role": "user", "content": f"Context:\n{context}\n\n---\n\n{user_message}"})
     else:
         messages.append({"role": "user", "content": user_message})
 
     role = resolve_role(_user)
-    tools = openai_function_tools_for_role(role)
+    tools = (
+        openai_function_tools_for_role(role, allowed_tool_names=SUPPORT_ALLOWED_TOOL_NAMES)
+        if support_mode
+        else openai_function_tools_for_role(role)
+    )
     tool_rounds = 0
     total_usage_tokens = 0
     last_model = ASSISTANT_MODEL
@@ -253,3 +278,25 @@ async def assistant_chat(
             "model": "",
             "tool_rounds": tool_rounds,
         }
+
+
+@router.post("/chat")
+async def assistant_chat(
+    data: dict = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Admin assistant chat endpoint (org_admin+)."""
+    if resolve_role(_user) < Role.org_admin:
+        raise HTTPException(status_code=403, detail="Admin assistant requires org_admin role or higher")
+    return await _assistant_chat_impl(data=data, _user=_user, support_mode=False)
+
+
+@router.post("/support/chat")
+async def support_assistant_chat(
+    data: dict = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Support assistant endpoint for authenticated user context."""
+    if resolve_role(_user) < Role.user:
+        raise HTTPException(status_code=403, detail="Authentication required")
+    return await _assistant_chat_impl(data=data, _user=_user, support_mode=True)

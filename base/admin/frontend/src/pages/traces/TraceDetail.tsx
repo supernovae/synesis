@@ -511,7 +511,7 @@ function TraceAssistantPanel({
       .filter(Boolean)
       .join("\n");
 
-    navigate("/assistant", { state: { context: contextPayload } });
+    navigate("/assistant/admin", { state: { context: contextPayload } });
   };
 
   // Fullscreen overlay vs inline panel

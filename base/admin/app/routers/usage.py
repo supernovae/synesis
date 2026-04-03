@@ -46,7 +46,7 @@ def _normalize_usage_summary(pl: dict, trace_fb: dict | None) -> dict:
     return out
 
 
-async def _build_usage_summary(user: UserInfo, since_hours: int) -> dict:
+async def _build_usage_summary(user: UserInfo, since_hours: int, *, allow_trace_fallback: bool = True) -> dict:
     scope = trace_scope_filters(user)
     su = scope.get("user_id", "") or ""
     so = scope.get("org_id", "") or ""
@@ -57,12 +57,14 @@ async def _build_usage_summary(user: UserInfo, since_hours: int) -> dict:
         scope_org_id=so,
         scope_tenant_id=st,
     )
-    tr = await aggregate_traces_period(
-        since_hours=since_hours,
-        scope_user_id=su,
-        scope_org_id=so,
-        scope_tenant_id=st,
-    )
+    tr = None
+    if allow_trace_fallback:
+        tr = await aggregate_traces_period(
+            since_hours=since_hours,
+            scope_user_id=su,
+            scope_org_id=so,
+            scope_tenant_id=st,
+        )
     return _normalize_usage_summary(pl, tr)
 
 
@@ -100,7 +102,7 @@ async def usage_summary(
 ):
     """Aggregated usage totals (planner_usage_log; trace fallback)."""
     _ensure_org_observability(_user)
-    return await _build_usage_summary(_user, since_hours)
+    return await _build_usage_summary(_user, since_hours, allow_trace_fallback=True)
 
 
 @router.get("/me/summary")
@@ -111,7 +113,7 @@ async def usage_me_summary(
     """Same usage totals as /summary for any authenticated user (self scope)."""
     if resolve_role(user) < Role.user:
         raise HTTPException(status_code=403, detail="Authentication required")
-    return await _build_usage_summary(user, since_hours)
+    return await _build_usage_summary(user, since_hours, allow_trace_fallback=False)
 
 
 @router.get("/me/series")
@@ -134,12 +136,7 @@ async def usage_me_series(
     )
     if pl_series and sum(b.get("requests", 0) for b in pl_series) > 0:
         return pl_series
-    return await trace_time_series(
-        since_hours=since_hours,
-        scope_user_id=su,
-        scope_org_id=so,
-        scope_tenant_id=st,
-    )
+    return []
 
 
 @router.get("/summary-unified")

@@ -1,4 +1,4 @@
-"""Unified usage summary (planner_usage_log + Yarn; traces optional fallback)."""
+"""Unified usage summary (planner_usage_log + optional admin-only trace fallback + Yarn)."""
 
 from __future__ import annotations
 
@@ -64,12 +64,14 @@ async def get_summary_unified(
         scope_org_id=scope_org_id,
         scope_tenant_id=scope_tenant_id,
     )
-    trace_fb = await aggregate_traces_period(
-        since_hours=since_hours,
-        scope_user_id=scope_user_id,
-        scope_org_id=scope_org_id,
-        scope_tenant_id=scope_tenant_id,
-    )
+    trace_fb = None
+    if role >= Role.org_admin:
+        trace_fb = await aggregate_traces_period(
+            since_hours=since_hours,
+            scope_user_id=scope_user_id,
+            scope_org_id=scope_org_id,
+            scope_tenant_id=scope_tenant_id,
+        )
     pipe = _normalize_pipeline_block(since_hours=since_hours, primary=primary, trace_fallback=trace_fb)
 
     out: dict[str, Any] = {
@@ -112,7 +114,7 @@ async def get_summary_unified(
         "total_estimated_usd": round(pipeline_est + yarn_cost, 4),
         "total_actual_usd": round(pipeline_act, 4),
         "effective_total_usd": round(max(pipeline_act, pipeline_est) + yarn_cost, 4),
-        "note": "Pipeline = planner_usage_log (or trace fallback); Yarn = yarn_usage_log. No double-count.",
+        "note": "Pipeline = planner_usage_log (admin-only trace fallback); Yarn = yarn_usage_log. No double-count.",
     }
 
     if role >= Role.platform_admin:

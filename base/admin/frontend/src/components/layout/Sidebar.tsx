@@ -136,7 +136,7 @@ const navigation: NavItem[] = [
   {
     label: "Tracing",
     icon: ScanSearch,
-    minRole: "user",
+    minRole: "org_admin",
     children: [
       { label: "Activity Log", path: "/traces" },
     ],
@@ -169,7 +169,8 @@ const navigation: NavItem[] = [
       { label: "Errors", path: "/observability/errors" },
     ],
   },
-  { label: "Assistant", icon: Bot, path: "/assistant", minRole: "user" },
+  { label: "Admin Assistant", icon: Bot, path: "/assistant/admin", minRole: "org_admin" },
+  { label: "Support Assistant", icon: Bot, path: "/assistant/support", minRole: "user" },
   {
     label: "Account",
     icon: User,
