@@ -306,7 +306,9 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
                 Coder API (Yarn)
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                Claude-compatible endpoint for coding agents and IDE integrations.
+                Claude-compatible endpoint for coding agents and IDE integrations,
+                including Roo, VS Code extensions, OpenCode, OpenClaw, and other
+                OpenAI-compatible clients.
               </p>
               <a
                 href={yarnBase}
@@ -331,7 +333,7 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
           <div className="mt-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                Claude Code environment setup
+                Client environment setup (Claude Code example)
               </h3>
               <button
                 onClick={() => copyText("claude-env", claudeEnvSnippet)}
@@ -343,7 +345,8 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
               </button>
             </div>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-              Use your Synesis PAT (coder scope) and point Claude to the Yarn API.
+              Use your Synesis PAT (coder scope) and point your client/agent to the
+              Coder API. The snippet below shows a Claude Code example.
               Synesis maps Claude model families to tiers:
               <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">haiku -&gt; synesis-pulse</code>
               <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">sonnet -&gt; synesis-core</code>
