@@ -12,6 +12,7 @@ Recommended host split:
 - `admin.<your-domain>` -> Synesis admin UI/API
 - `chat.<your-domain>` -> Open WebUI
 - `auth.<your-domain>` -> Keycloak
+- `coder.<your-domain>` -> Synesis Yarn UI/API
 
 Keep internal-only services private (no public DNS/route):
 
@@ -141,10 +142,10 @@ Use this as a final pre-exposure runbook.
      - `oc get secret synesis-internal-service-auth -n synesis-admin`
      - `oc get secret synesis-internal-service-auth -n synesis-planner`
      - `oc get secret synesis-internal-service-auth -n synesis-rag`
-2. **Confirm no internal services are publicly routed**
+2. **Confirm no internal-only services are publicly routed**
    - Check routes:
-     - `oc get route -A | rg "planner|yarn|embedder|keyword|preprocess|spam"`
-   - Expect only intended public hosts (`api`, `admin`, `chat`, `auth`).
+     - `oc get route -A | rg "planner|embedder|keyword|preprocess|spam"`
+   - Expect only intended public hosts (`api`, `admin`, `chat`, `auth`, `coder`).
 3. **Enable Cloudflare baseline controls**
    - DNS proxied, `Full (strict)`, WAF managed rules, bot protection, HTTPS redirect.
 4. **Apply Cloudflare custom WAF rules**
@@ -177,6 +178,7 @@ These examples follow the route naming convention currently used in this repo:
 - `synesis-admin.apps.<cluster-domain>`
 - `synesis-auth.apps.<cluster-domain>`
 - `synesis.apps.<cluster-domain>` (Open WebUI default route)
+- `synesis-yarn.apps.<cluster-domain>` (Yarn route, if explicitly assigned)
 
 Use your real cluster domain in place of `<cluster-domain>`.
 
@@ -186,6 +188,7 @@ Use your real cluster domain in place of `<cluster-domain>`.
 - Admin: `synesis-admin.apps.<cluster-domain>`
 - Auth: `synesis-auth.apps.<cluster-domain>`
 - Chat/WebUI: `synesis.apps.<cluster-domain>`
+- Coder/Yarn: `synesis-yarn.apps.<cluster-domain>`
 
 ### Example WAF custom rules
 
@@ -265,6 +268,7 @@ For stronger origin protection, run `cloudflared` in-cluster and route traffic t
    - `synesis-admin.synesis-admin.svc.cluster.local:8080`
    - `open-webui.synesis-webui.svc.cluster.local:8080`
    - `synesis-keycloak-service.synesis-auth.svc.cluster.local:8080`
+   - `synesis-yarn.synesis-yarn.svc.cluster.local:8000`
 3. Create Cloudflare DNS records as proxied CNAMEs pointing to `<tunnel-uuid>.cfargotunnel.com`.
 4. Apply WAF/Access/rate-limit policies on those public hostnames.
 
@@ -282,6 +286,8 @@ ingress:
     service: http://open-webui.synesis-webui.svc.cluster.local:8080
   - hostname: auth.example.com
     service: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080
+  - hostname: coder.example.com
+    service: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000
   - service: http_status:404
 ```
 
@@ -290,7 +296,7 @@ ingress:
 For each public hostname:
 
 - Type: `CNAME`
-- Name: `api` / `admin` / `chat` / `auth`
+- Name: `api` / `admin` / `chat` / `auth` / `coder`
 - Target: `<tunnel-uuid>.cfargotunnel.com`
 - Proxy status: `Proxied` (orange cloud)
 
@@ -302,6 +308,7 @@ You can keep short public names while preserving internal service naming:
 
 - Public: `api.example.com` -> Tunnel -> `litellm-proxy.synesis-gateway.svc...`
 - Public: `admin.example.com` -> Tunnel -> `synesis-admin.synesis-admin.svc...`
+- Public: `coder.example.com` -> Tunnel -> `synesis-yarn.synesis-yarn.svc...`
 
 This avoids exposing long service/route hostnames externally and decouples public DNS from cluster internals.
 
@@ -320,6 +327,7 @@ With tunnel hostnames in place:
 3. Test expected 404 from tunnel fallback rule on unknown host/path.
 4. Verify Access challenge appears for admin hostname.
 5. Verify blocked internal control-plane paths still return blocked/challenged at edge.
+6. Verify existing `*.apps.openshiftdemo.dev` route hosts still answer during staged cutover (fallback only).
 
 ## Appendix: `cloudflared` Kubernetes/OpenShift Template
 
@@ -366,6 +374,8 @@ data:
         service: http://open-webui.synesis-webui.svc.cluster.local:8080
       - hostname: auth.example.com
         service: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080
+      - hostname: coder.example.com
+        service: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000
       - service: http_status:404
 ---
 apiVersion: apps/v1
@@ -437,6 +447,7 @@ Create proxied CNAMEs:
 - `admin.example.com` -> `<tunnel-uuid>.cfargotunnel.com`
 - `chat.example.com` -> `<tunnel-uuid>.cfargotunnel.com`
 - `auth.example.com` -> `<tunnel-uuid>.cfargotunnel.com`
+- `coder.example.com` -> `<tunnel-uuid>.cfargotunnel.com`
 
 ### 4) Basic verification
 
@@ -472,6 +483,7 @@ Optional hostname overrides (otherwise derived from existing Routes):
 - `SYNESIS_CF_ADMIN_HOST`
 - `SYNESIS_CF_CHAT_HOST`
 - `SYNESIS_CF_AUTH_HOST`
+- `SYNESIS_CF_CODER_HOST`
 
 Example:
 
@@ -480,6 +492,41 @@ SYNESIS_ENABLE_CLOUDFLARED=true \
 SYNESIS_CF_TUNNEL_NAME=synesis-prod \
 SYNESIS_CF_TUNNEL_CREDENTIALS_FILE="$HOME/.cloudflared/synesis-prod.json" \
 ./scripts/deploy.sh api
+```
+
+Kybern domain cutover with OpenShift route fallback preserved:
+
+```bash
+SYNESIS_ENABLE_CLOUDFLARED=true \
+SYNESIS_VERIFY_CLOUDFLARED=true \
+SYNESIS_CF_TUNNEL_NAME=kybern-prod \
+SYNESIS_CF_TUNNEL_CREDENTIALS_FILE="$HOME/.cloudflared/kybern-prod.json" \
+SYNESIS_CF_API_HOST=api.kybern.dev \
+SYNESIS_CF_ADMIN_HOST=admin.kybern.dev \
+SYNESIS_CF_CHAT_HOST=chat.kybern.dev \
+SYNESIS_CF_AUTH_HOST=auth.kybern.dev \
+SYNESIS_CF_CODER_HOST=coder.kybern.dev \
+./scripts/deploy.sh api
+```
+
+Post-deploy non-breaking verification sequence:
+
+```bash
+./scripts/verify-cloudflared.sh --check-hosts
+
+# Cloudflare-facing hosts
+curl -Ik https://api.kybern.dev/v1/models
+curl -Ik https://admin.kybern.dev/api/v1/health
+curl -Ik https://chat.kybern.dev
+curl -Ik https://auth.kybern.dev/realms/synesis/.well-known/openid-configuration
+curl -Ik https://coder.kybern.dev/health
+
+# Keep existing OpenShift routes available as fallback during rollout
+oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.host}{"\n"}'
+oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}{"\n"}'
+oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}{"\n"}'
+oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}{"\n"}'
+oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}{"\n"}'
 ```
 
 Behavior:

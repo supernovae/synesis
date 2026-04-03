@@ -329,16 +329,18 @@ ensure_cloudflared_tunnel() {
         log "Using existing cloudflared credentials secret: $ns/$secret_name"
     fi
 
-    local api_host admin_host chat_host auth_host
+    local api_host admin_host chat_host auth_host coder_host
     api_host="${SYNESIS_CF_API_HOST:-$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
     admin_host="${SYNESIS_CF_ADMIN_HOST:-$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
     chat_host="${SYNESIS_CF_CHAT_HOST:-$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
     auth_host="${SYNESIS_CF_AUTH_HOST:-$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
+    coder_host="${SYNESIS_CF_CODER_HOST:-$(oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
 
     api_host="${api_host:-synesis-api.apps.openshiftdemo.dev}"
     admin_host="${admin_host:-synesis-admin.apps.openshiftdemo.dev}"
     chat_host="${chat_host:-synesis.apps.openshiftdemo.dev}"
     auth_host="${auth_host:-synesis-auth.apps.openshiftdemo.dev}"
+    coder_host="${coder_host:-synesis-yarn.apps.openshiftdemo.dev}"
 
     local cfg_tmp
     cfg_tmp="$(mktemp)"
@@ -354,6 +356,8 @@ ingress:
     service: http://open-webui.synesis-webui.svc.cluster.local:8080
   - hostname: ${auth_host}
     service: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080
+  - hostname: ${coder_host}
+    service: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000
   - service: http_status:404
 EOF
 
@@ -380,6 +384,7 @@ EOF
     log "  Admin: $admin_host"
     log "  Chat:  $chat_host"
     log "  Auth:  $auth_host"
+    log "  Coder: $coder_host"
 }
 
 verify_cloudflared_tunnel() {
