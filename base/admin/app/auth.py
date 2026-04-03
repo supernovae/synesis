@@ -24,6 +24,9 @@ logger = logging.getLogger("synesis.auth")
 # ── Keycloak configuration ───────────────────────────────────────────────────
 
 KEYCLOAK_ISSUER = os.getenv("SYNESIS_KEYCLOAK_ISSUER_URL", "")
+# Optional internal issuer/JWKS base used only for server-side key fetches.
+# Keep KEYCLOAK_ISSUER as the public issuer for JWT claim validation.
+KEYCLOAK_INTERNAL_ISSUER = os.getenv("SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL", "")
 # Keycloak access tokens usually have aud="account", not the OAuth client_id.
 # Leave empty to skip aud verification; use SYNESIS_KEYCLOAK_EXPECTED_AZP instead.
 KEYCLOAK_AUDIENCE = os.getenv("SYNESIS_KEYCLOAK_AUDIENCE", "")
@@ -35,7 +38,8 @@ _jwks_client: jwt.PyJWKClient | None = None
 def _get_jwks_client() -> jwt.PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
-        jwks_url = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/certs"
+        jwks_base = (KEYCLOAK_INTERNAL_ISSUER or KEYCLOAK_ISSUER).rstrip("/")
+        jwks_url = f"{jwks_base}/protocol/openid-connect/certs"
         _jwks_client = jwt.PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=300)
         logger.info("jwks_client_initialized", extra={"jwks_url": jwks_url})
     return _jwks_client
