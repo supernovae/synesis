@@ -134,6 +134,31 @@ export class StablePrefixService {
     };
   }
 
+  resolveBlocksForContext(
+    promptSnapshot: PromptSnapshotLike | null | undefined,
+    promptContext?: PromptCompositionContext,
+  ): { blocks: string[]; profileIds: number[]; profileHashes: string[] } {
+    return this.resolvePromptBlocks(promptSnapshot, promptContext);
+  }
+
+  resolveNodePromptBlock(
+    promptSnapshot: PromptSnapshotLike | null | undefined,
+    nodeName: string,
+  ): { block: string | null; profileId?: number; profileHash?: string } {
+    if (!promptSnapshot || !Array.isArray(promptSnapshot.profiles) || !Array.isArray(promptSnapshot.assignments)) {
+      return { block: null };
+    }
+    const profileById = new Map<number, PromptProfileLike>();
+    for (const p of promptSnapshot.profiles) profileById.set(p.id, p);
+    const match = promptSnapshot.assignments.find(
+      (a) => a.target_type === "node" && a.target_value === nodeName,
+    );
+    if (!match) return { block: null };
+    const profile = profileById.get(match.profile_id);
+    if (!profile || !profile.content.trim()) return { block: null };
+    return { block: profile.content, profileId: profile.id, profileHash: profile.content_hash };
+  }
+
   evictSession(sessionKey: string): void {
     this.sessionPrefixCache.delete(sessionKey);
   }

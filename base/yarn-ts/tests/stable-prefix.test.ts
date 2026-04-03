@@ -82,4 +82,16 @@ describe("StablePrefixService", () => {
     expect(result.promptProfileIds).toEqual([]);
     expect(result.promptProfileHashes).toEqual([]);
   });
+
+  it("resolves a node-targeted prompt block for response style", () => {
+    const svc = new StablePrefixService();
+    const snapshot = {
+      profiles: [{ id: 9, content: "style override block", content_hash: "h9" }],
+      assignments: [{ target_type: "node", target_value: "response_style", profile_id: 9 }],
+    };
+    const result = svc.resolveNodePromptBlock(snapshot, "response_style");
+    expect(result.block).toBe("style override block");
+    expect(result.profileId).toBe(9);
+    expect(result.profileHash).toBe("h9");
+  });
 });

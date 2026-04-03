@@ -189,6 +189,14 @@ const EnvSchema = z.object({
         .string()
         .optional()
         .transform((v) => (v ?? "false").toLowerCase() === "true"),
+    // Response style flavor — markdown guidance + optional guardrail normalization.
+    SYNESIS_YARN_RESPONSE_STYLE_MODE: z
+        .enum(["off", "guidance", "guardrail"])
+        .default("guidance"),
+    SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "true").toLowerCase() !== "false"),
     // Decision matrix — evidence-aware four-path routing (Phase 8)
     SYNESIS_YARN_DECISION_MATRIX_ENABLED: z
         .string()

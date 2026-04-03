@@ -39,7 +39,8 @@ import { toSessionExecutionContextSystemBlock } from "./adapters/session-executi
 import { StablePrefixService } from "./context/stable-prefix.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
-import { openAIToolsToSDK, claudeToolsToSDK, mapToolChoice, sdkToolCallsToOpenAI, sdkToolCallsToClaude, claudeMessagesToOpenAI, openAIMessagesToModelMessages, sanitizeToolCalls } from "./tool-mapping.js";
+import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
+import { openAIToolsToSDK, claudeToolsToSDK, mapToolChoice, parseLegacyInlineToolCall, sdkToolCallsToOpenAI, sdkToolCallsToClaude, claudeMessagesToOpenAI, openAIMessagesToModelMessages, sanitizeToolCalls } from "./tool-mapping.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
@@ -488,6 +489,15 @@ function enrichWithFrameAndManifest(messages, sessionKey, adapterBlock, promptCo
                 volatileBlocks.push({ role: "system", content: vBlock });
             }
         }
+    }
+    const responseStyleOverride = stablePrefixService.resolveNodePromptBlock(promptSnapshotRegistry, "response_style").block ?? undefined;
+    const responseStyleBlock = buildResponseStyleBlock({
+        mode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+        allowMermaid: config.SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID,
+        adminOverride: responseStyleOverride,
+    });
+    if (responseStyleBlock) {
+        volatileBlocks.push({ role: "system", content: responseStyleBlock });
     }
     const enriched = [
         { role: "system", content: systemPrefix },
@@ -2270,8 +2280,29 @@ app.post("/v1/chat/completions", async (req, reply) => {
                 app.log.info({ from: parsedCalls.length, to: synthetic.length, reqId }, "tool_collapse_rewrite_non_stream");
             }
         }
-        const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
         let finalAssistantText = finalResult.text;
+        if (externalToolCalls.length === 0 && finalAssistantText) {
+            const parsedLegacy = parseLegacyInlineToolCall(finalAssistantText);
+            if (parsedLegacy) {
+                const legacyGoverned = governToolCall({
+                    toolName: parsedLegacy.toolName,
+                    input: parsedLegacy.input,
+                    projectRoot: effectiveOaiPathCtx.projectRoot,
+                    shellCwd: effectiveOaiPathCtx.shellCwd,
+                    enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+                    blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+                });
+                externalToolCalls = [{
+                        toolCallId: `legacy_${Date.now().toString(36)}`,
+                        toolName: legacyGoverned.toolName,
+                        input: legacyGoverned.input,
+                    }];
+                finalAssistantText = parsedLegacy.cleanText;
+                app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_non_stream");
+            }
+        }
+        const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
+        finalAssistantText = applyMarkdownGuardrail(finalAssistantText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
         let oaiGateApplied = false;
         let oaiMissingMust = 0;
         let oaiMissingShould = 0;
@@ -2513,22 +2544,47 @@ app.post("/v1/chat/completions", async (req, reply) => {
     otelStreamSpan.end();
     if (finishReason !== "tool_calls" && pendingTextDeltas.length > 0) {
         const rawText = pendingTextDeltas.join("");
-        const gate = applyCompletionGate(oaiRequirementChecklist, rawText, [
-            rawText,
-            getMetadataString(session.record.metadata, "trace_root_prompt"),
-            getMetadataString(session.record.metadata, "latest_user_prompt"),
-        ]);
-        oaiStreamGateApplied = gate.applied;
-        oaiStreamMissingMust = gate.missingMust;
-        oaiStreamMissingShould = gate.missingShould;
-        if (gate.applied) {
-            recordSessionEvent(sessionKey, identity.userId, identity.orgId, "completion_gap", "completion-gate", `Missing must-have requirements (${gate.missingMust})`, reqId);
+        const parsedLegacy = parseLegacyInlineToolCall(rawText);
+        if (parsedLegacy) {
+            const legacyGoverned = governToolCall({
+                toolName: parsedLegacy.toolName,
+                input: parsedLegacy.input,
+                projectRoot: effectiveOaiPathCtx.projectRoot,
+                shellCwd: effectiveOaiPathCtx.shellCwd,
+                enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+                blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+            });
+            if (parsedLegacy.cleanText) {
+                const guarded = applyMarkdownGuardrail(parsedLegacy.cleanText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
+                flushOpenAIText(guarded);
+            }
+            safeWrite(reply.raw, `data: ${JSON.stringify({
+                id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
+                choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `legacy_${Date.now().toString(36)}`, type: "function", function: { name: legacyGoverned.toolName, arguments: JSON.stringify(legacyGoverned.input) } }] }, finish_reason: null }],
+            })}\n\n`);
+            finishReason = "tool_calls";
+            pendingTextDeltas.length = 0;
+            app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_stream");
         }
-        else if (oaiRequirementChecklist) {
-            recordSessionEvent(sessionKey, identity.userId, identity.orgId, "completion_pass", "completion-gate", "No missing must-have requirements detected", reqId);
+        else {
+            const gate = applyCompletionGate(oaiRequirementChecklist, rawText, [
+                rawText,
+                getMetadataString(session.record.metadata, "trace_root_prompt"),
+                getMetadataString(session.record.metadata, "latest_user_prompt"),
+            ]);
+            oaiStreamGateApplied = gate.applied;
+            oaiStreamMissingMust = gate.missingMust;
+            oaiStreamMissingShould = gate.missingShould;
+            if (gate.applied) {
+                recordSessionEvent(sessionKey, identity.userId, identity.orgId, "completion_gap", "completion-gate", `Missing must-have requirements (${gate.missingMust})`, reqId);
+            }
+            else if (oaiRequirementChecklist) {
+                recordSessionEvent(sessionKey, identity.userId, identity.orgId, "completion_pass", "completion-gate", "No missing must-have requirements detected", reqId);
+            }
+            const guarded = applyMarkdownGuardrail(gate.finalText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
+            flushOpenAIText(guarded);
+            pendingTextDeltas.length = 0;
         }
-        flushOpenAIText(gate.finalText);
-        pendingTextDeltas.length = 0;
     }
     safeWrite(reply.raw, `data: ${JSON.stringify({
         id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
@@ -2547,6 +2603,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     catch { /* stream aborted */ }
     if (streamedText) {
+        const parsedLegacy = parseLegacyInlineToolCall(streamedText);
+        if (parsedLegacy)
+            streamedText = parsedLegacy.cleanText;
         if (oaiStreamGateApplied && finishReason !== "tool_calls") {
             const gate = applyCompletionGate(oaiRequirementChecklist, streamedText, [
                 streamedText,
@@ -2557,6 +2616,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             oaiStreamMissingMust = gate.missingMust;
             oaiStreamMissingShould = gate.missingShould;
         }
+        streamedText = applyMarkdownGuardrail(streamedText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
         session.history.push({ role: "assistant", content: streamedText });
     }
     const oaiStreamLatency = Date.now() - started;
@@ -3284,7 +3344,8 @@ app.post("/v1/messages", async (req, reply) => {
             else if (claudeRequirementChecklist) {
                 recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "completion_pass", "completion-gate", "No missing must-have requirements detected", traceReqId);
             }
-            flushClaudeTextBlock(gate.finalText);
+            const guarded = applyMarkdownGuardrail(gate.finalText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
+            flushClaudeTextBlock(guarded);
             pendingClaudeTextDeltas.length = 0;
         }
         if (inTextBlock) {
@@ -3318,6 +3379,7 @@ app.post("/v1/messages", async (req, reply) => {
                 claudeStreamMissingMust = gate.missingMust;
                 claudeStreamMissingShould = gate.missingShould;
             }
+            claudeStreamedText = applyMarkdownGuardrail(claudeStreamedText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
             session.history.push({ role: "assistant", content: claudeStreamedText });
         }
         const claudeStreamLatency = Date.now() - started;
@@ -3483,6 +3545,7 @@ app.post("/v1/messages", async (req, reply) => {
             recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "completion_pass", "completion-gate", "No missing must-have requirements detected", reqId);
         }
     }
+    finalClaudeText = applyMarkdownGuardrail(finalClaudeText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
     if (finalClaudeText) {
         session.history.push({ role: "assistant", content: finalClaudeText });
     }

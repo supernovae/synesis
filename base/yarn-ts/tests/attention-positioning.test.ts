@@ -54,6 +54,16 @@ describe("AttentionPositioningService", () => {
     expect(result.beginBlockCount).toBe(2);
   });
 
+  it("places response style block at the beginning", () => {
+    const s = svc();
+    const msgs = [
+      { role: "user", content: "hello" },
+      { role: "system", content: "<RESPONSE_STYLE>use headings</RESPONSE_STYLE>" },
+    ];
+    const result = s.position(msgs);
+    expect((result.messages[0].content as string)).toContain("<RESPONSE_STYLE>");
+  });
+
   it("preserves conversation order in the middle", () => {
     const s = svc();
     const msgs = [

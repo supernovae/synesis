@@ -35,7 +35,8 @@ function isSystemBlock(content: unknown): boolean {
     str.includes("<PROJECT_MANIFEST>") ||
     str.includes("<CLIENT_ADAPTER>") ||
     str.includes("<ARCHITECTURAL_STATE>") ||
-    str.includes("<SESSION_CONTINUITY>")
+    str.includes("<SESSION_CONTINUITY>") ||
+    str.includes("<RESPONSE_STYLE>")
   );
 }
 
@@ -53,6 +54,9 @@ function classifyBlock(content: string): ContextBlock {
     return { role: "system", content, priority: "low", placement: "any" };
   }
   if (content.includes("<CLIENT_ADAPTER>")) {
+    return { role: "system", content, priority: "medium", placement: "begin" };
+  }
+  if (content.includes("<RESPONSE_STYLE>")) {
     return { role: "system", content, priority: "medium", placement: "begin" };
   }
   return { role: "system", content, priority: "medium", placement: "any" };

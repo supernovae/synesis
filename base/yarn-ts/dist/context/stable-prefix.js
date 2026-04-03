@@ -77,6 +77,24 @@ export class StablePrefixService {
             promptProfileHashes: promptBlocks.profileHashes,
         };
     }
+    resolveBlocksForContext(promptSnapshot, promptContext) {
+        return this.resolvePromptBlocks(promptSnapshot, promptContext);
+    }
+    resolveNodePromptBlock(promptSnapshot, nodeName) {
+        if (!promptSnapshot || !Array.isArray(promptSnapshot.profiles) || !Array.isArray(promptSnapshot.assignments)) {
+            return { block: null };
+        }
+        const profileById = new Map();
+        for (const p of promptSnapshot.profiles)
+            profileById.set(p.id, p);
+        const match = promptSnapshot.assignments.find((a) => a.target_type === "node" && a.target_value === nodeName);
+        if (!match)
+            return { block: null };
+        const profile = profileById.get(match.profile_id);
+        if (!profile || !profile.content.trim())
+            return { block: null };
+        return { block: profile.content, profileId: profile.id, profileHash: profile.content_hash };
+    }
     evictSession(sessionKey) {
         this.sessionPrefixCache.delete(sessionKey);
     }

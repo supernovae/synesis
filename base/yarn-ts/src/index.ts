@@ -73,6 +73,7 @@ import { toSessionExecutionContextSystemBlock } from "./adapters/session-executi
 import { StablePrefixService } from "./context/stable-prefix.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
+import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
 import {
   openAIToolsToSDK,
   claudeToolsToSDK,
@@ -646,6 +647,19 @@ function enrichWithFrameAndManifest(
         volatileBlocks.push({ role: "system", content: vBlock });
       }
     }
+  }
+
+  const responseStyleOverride = stablePrefixService.resolveNodePromptBlock(
+    promptSnapshotRegistry,
+    "response_style",
+  ).block ?? undefined;
+  const responseStyleBlock = buildResponseStyleBlock({
+    mode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+    allowMermaid: config.SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID,
+    adminOverride: responseStyleOverride,
+  });
+  if (responseStyleBlock) {
+    volatileBlocks.push({ role: "system", content: responseStyleBlock });
   }
 
   const enriched: Array<{ role: string; content: unknown }> = [
@@ -2735,6 +2749,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
     }
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
+    finalAssistantText = applyMarkdownGuardrail(
+      finalAssistantText,
+      config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+    );
     let oaiGateApplied = false;
     let oaiMissingMust = 0;
     let oaiMissingShould = 0;
@@ -3006,7 +3024,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
       });
-      if (parsedLegacy.cleanText) flushOpenAIText(parsedLegacy.cleanText);
+      if (parsedLegacy.cleanText) {
+        const guarded = applyMarkdownGuardrail(
+          parsedLegacy.cleanText,
+          config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+        );
+        flushOpenAIText(guarded);
+      }
       safeWrite(reply.raw, `data: ${JSON.stringify({
         id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
         choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `legacy_${Date.now().toString(36)}`, type: "function", function: { name: legacyGoverned.toolName, arguments: JSON.stringify(legacyGoverned.input) } }] }, finish_reason: null }],
@@ -3044,7 +3068,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
           reqId,
         );
       }
-      flushOpenAIText(gate.finalText);
+      const guarded = applyMarkdownGuardrail(
+        gate.finalText,
+        config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+      );
+      flushOpenAIText(guarded);
       pendingTextDeltas.length = 0;
     }
   }
@@ -3073,6 +3101,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       oaiStreamMissingMust = gate.missingMust;
       oaiStreamMissingShould = gate.missingShould;
     }
+    streamedText = applyMarkdownGuardrail(
+      streamedText,
+      config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+    );
     session.history.push({ role: "assistant", content: streamedText });
   }
   const oaiStreamLatency = Date.now() - started;
@@ -3932,7 +3964,11 @@ app.post("/v1/messages", async (req, reply) => {
           traceReqId,
         );
       }
-      flushClaudeTextBlock(gate.finalText);
+      const guarded = applyMarkdownGuardrail(
+        gate.finalText,
+        config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+      );
+      flushClaudeTextBlock(guarded);
       pendingClaudeTextDeltas.length = 0;
     }
 
@@ -3963,6 +3999,10 @@ app.post("/v1/messages", async (req, reply) => {
         claudeStreamMissingMust = gate.missingMust;
         claudeStreamMissingShould = gate.missingShould;
       }
+      claudeStreamedText = applyMarkdownGuardrail(
+        claudeStreamedText,
+        config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+      );
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
     const claudeStreamLatency = Date.now() - started;
@@ -4148,6 +4188,10 @@ app.post("/v1/messages", async (req, reply) => {
       );
     }
   }
+  finalClaudeText = applyMarkdownGuardrail(
+    finalClaudeText,
+    config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+  );
   if (finalClaudeText) {
     session.history.push({ role: "assistant", content: finalClaudeText });
   }

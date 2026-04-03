@@ -19,6 +19,8 @@ describe("loadConfig", () => {
     expect(config.SYNESIS_YARN_REDUCER_PROFILE).toBe("balanced");
     expect(config.SYNESIS_YARN_COMPLETION_GATE_ENABLED).toBe(false);
     expect(config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL).toBe(false);
+    expect(config.SYNESIS_YARN_RESPONSE_STYLE_MODE).toBe("guidance");
+    expect(config.SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID).toBe(true);
   });
 
   it("defaults SYNESIS_YARN_SESSION_TTL_MS to 14400000 (4 hours)", () => {

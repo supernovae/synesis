@@ -99,6 +99,11 @@ spec:
               value: "true"
             - name: SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL
               value: "false"
+            # ── Markdown response style ──
+            - name: SYNESIS_YARN_RESPONSE_STYLE_MODE
+              value: "guidance"
+            - name: SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID
+              value: "true"
             # ── Path governance (strict fix-forward defaults) ──
             - name: SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE
               value: "true"
