@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import type { GraphState } from "../state/types.js";
+import { enforceMermaidHygiene } from "../security/mermaid-guard.js";
+import { loadConfig } from "../config.js";
 
 export type ValidationResult = { passed: boolean; violations: string[] };
 
@@ -75,6 +77,24 @@ export function validateCitationPreservation(state: GraphState): ValidationResul
   for (const citation of citations) {
     if (citation.length < 4) continue;
     if (!draft.includes(citation)) violations.push(`citation_dropped: ${citation.slice(0, 60)}`);
+  }
+  return { passed: violations.length === 0, violations };
+}
+
+export function validateMermaidSyntax(state: GraphState): ValidationResult {
+  const cfg = loadConfig();
+  if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED) {
+    return { passed: true, violations: [] };
+  }
+  const draft = state.generated_code ?? "";
+  if (!draft.includes("```mermaid")) return { passed: true, violations: [] };
+
+  const guard = enforceMermaidHygiene(draft);
+  const violations: string[] = [];
+  if (cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT) {
+    for (const v of guard.violations) {
+      violations.push(`mermaid:${v.code} ${v.detail}`);
+    }
   }
   return { passed: violations.length === 0, violations };
 }

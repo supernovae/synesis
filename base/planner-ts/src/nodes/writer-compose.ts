@@ -27,6 +27,7 @@ import {
 import { getWorkerPersonaBlock } from "../taxonomy/vertical-prompts.js";
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 import { composePlannerPrompt } from "../prompt-composer.js";
+import { enforceMermaidHygiene } from "../security/mermaid-guard.js";
 
 export interface WriterResult {
   content: string;
@@ -118,6 +119,15 @@ function buildAssumptionInstructions(state: GraphState): string {
   return rules.join("\n");
 }
 
+const MERMAID_RULES = [
+  "MERMAID OUTPUT RULES (apply only when emitting a ```mermaid block):",
+  "- Use IDs with letters/numbers/underscore only (no spaces in node IDs).",
+  "- If node labels contain parentheses, brackets, commas, colons, or slashes, wrap the label in double quotes.",
+  "- If edge labels contain special characters (including parentheses/brackets), wrap edge labels in double quotes inside pipes.",
+  "- Do not emit Mermaid directives: click, style, classDef.",
+  "- Prefer: subgraph id [Label] syntax with stable IDs.",
+].join("\n");
+
 export function buildWriterMessages(state: GraphState): ChatMessage[] {
   const task = state.task_description ?? "No task provided";
   const planBlock = renderPlanContext(state);
@@ -130,6 +140,7 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     "Never emit headings like 'Plan:', 'Evidence:', 'Answer:', 'Draft Response', or similar meta-sections unless the user explicitly asks for that format.",
     "If the prompt is a follow-up request (e.g., 'more detail', 'expand', 'clarify'), extend the answer with new detail instead of repeating prior wording verbatim.",
     "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - url].",
+    MERMAID_RULES,
     "",
     TRUST_POLICY,
   ];
@@ -230,8 +241,14 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
       traceparent: state.traceparent,
       messages: buildWriterMessages(state),
     });
+    const cfg = loadConfig();
+    const content = result.content.trim() || fallback;
+    if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED) {
+      return { content, usage: result.usage };
+    }
+    const guarded = enforceMermaidHygiene(content);
     return {
-      content: result.content.trim() || fallback,
+      content: guarded.content,
       usage: result.usage,
     };
   } catch (err) {
@@ -270,8 +287,14 @@ export async function composeWriterDraftStream(
       },
       onDelta,
     );
+    const cfg = loadConfig();
+    const content = result.content.trim() || fallback;
+    if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED) {
+      return { content, usage: result.usage };
+    }
+    const guarded = enforceMermaidHygiene(content);
     return {
-      content: result.content.trim() || fallback,
+      content: guarded.content,
       usage: result.usage,
     };
   } catch (err) {

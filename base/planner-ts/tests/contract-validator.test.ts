@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   annotateViolations,
   fingerprintDraft,
+  validateMermaidSyntax,
   validateCitationPreservation,
   validateDecisionDrift,
   validateStyleCompliance
@@ -85,5 +86,21 @@ describe("contract validators", () => {
   it("fingerprints deterministically", () => {
     expect(fingerprintDraft("abc")).toBe(fingerprintDraft("abc"));
     expect(fingerprintDraft("abc")).not.toBe(fingerprintDraft("abcd"));
+  });
+
+  it("flags forbidden Mermaid directives when strict guard is enabled", () => {
+    process.env.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED = "true";
+    process.env.SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT = "true";
+    const result = validateMermaidSyntax({
+      generated_code: [
+        "```mermaid",
+        "graph TD",
+        "A[Start] --> B[End]",
+        "style A fill:#fff",
+        "```",
+      ].join("\n"),
+    });
+    expect(result.passed).toBe(false);
+    expect(result.violations.some((v) => v.includes("mermaid_forbidden_directive"))).toBe(true);
   });
 });

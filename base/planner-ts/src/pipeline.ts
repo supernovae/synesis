@@ -4,6 +4,7 @@ import { classifyEntry } from "./nodes/entry-classifier.js";
 import {
   annotateViolations,
   fingerprintDraft,
+  validateMermaidSyntax,
   validateCitationPreservation,
   validateDecisionDrift,
   validateStyleCompliance
@@ -513,7 +514,7 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
 export const writerNode = validatedNode(
   writerNodeCore,
   [],
-  [validateStyleCompliance],
+  [validateStyleCompliance, validateMermaidSyntax],
   {
     onPostViolations: (result, violations) => ({
       ...result,
@@ -528,10 +529,12 @@ export async function writerNodeStreaming(
 ): Promise<GraphState> {
   const result = await writerNodeStreamingCore(state, onDelta);
   const styleCheck = validateStyleCompliance(result);
-  if (styleCheck.violations.length > 0) {
+  const mermaidCheck = validateMermaidSyntax(result);
+  const violations = [...styleCheck.violations, ...mermaidCheck.violations];
+  if (violations.length > 0) {
     return {
       ...result,
-      _validation_warnings: [...(result._validation_warnings ?? []), ...styleCheck.violations],
+      _validation_warnings: [...(result._validation_warnings ?? []), ...violations],
     };
   }
   return result;
@@ -539,8 +542,8 @@ export async function writerNodeStreaming(
 
 export const criticNode = validatedNode(
   criticNodeCore,
-  [validateStyleCompliance, validateDecisionDrift, validateCitationPreservation],
-  [validateStyleCompliance, validateDecisionDrift, validateCitationPreservation],
+  [validateStyleCompliance, validateMermaidSyntax, validateDecisionDrift, validateCitationPreservation],
+  [validateStyleCompliance, validateMermaidSyntax, validateDecisionDrift, validateCitationPreservation],
   {
     onPostViolations: (result, violations) => {
       const citationsDropped = violations.some((violation) => violation.startsWith("citation_dropped"));

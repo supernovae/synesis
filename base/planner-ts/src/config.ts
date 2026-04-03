@@ -116,6 +116,16 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
+  // --- Mermaid guardrails ---
+  SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
   // --- Injection scanning ---
   SYNESIS_INJECTION_SCAN_ENABLED: z
     .string()

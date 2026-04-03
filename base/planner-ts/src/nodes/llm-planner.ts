@@ -84,6 +84,13 @@ const CLOUD_SPECIFIC = /\b(aws|amazon|azure|gcp|google cloud|oci|oracle cloud|di
 const MODEL_GENERIC = /\b(model|llm|language model|embedding model|ai model|foundation model|chat model)\b/i;
 const MODEL_SPECIFIC = /\b(gpt-4|claude|gemini|llama|mistral|qwen|deepseek|open.?source|proprietary|frontier|openai|anthropic|hugging.?face|vllm|ollama|openrouter)\b/i;
 const SCALE_SIGNALS = /\b(concurrent|concurrency|throughput|rps|requests per|users|traffic|load|qps|tps|scale to)\b/i;
+const CLOUD_PROVIDER_INTENT =
+  /\b(cloud|provider|cloud-agnostic|aws|amazon web services|gcp|google cloud|azure(?!\s*ad)|azure cloud|oci|oracle cloud|digitalocean|linode|hetzner|on-prem|on premise|self-hosted)\b/i;
+const IDENTITY_INTENT = /\b(identity|auth|authentication|oidc|oauth|okta|azure ad|entra|sso|idp)\b/i;
+const KUBERNETES_INTENT = /\b(kubernetes|k8s|cluster|eks|aks|gke|openshift)\b/i;
+const MODEL_INTENT =
+  /\b(model|llm|embedding|inference|open-weight|hosted api|vllm|ollama|openrouter|anthropic|openai|gemini|claude|llama|mistral|qwen)\b/i;
+const SCALE_INTENT = /\b(scale|concurrent|concurrency|users|traffic|throughput|rps|qps|tps|latency|sla)\b/i;
 
 export function isClarificationWaiver(text: string): boolean {
   return WAIVER_PATTERNS.test(text.trim());
@@ -192,11 +199,7 @@ function buildClarificationQuestion(
     "",
   ];
 
-  // Deduplicate: parse-fallback path puts targeted ambiguities into open_questions,
-  // so merging them again would produce duplicates.
-  const seen = new Set(questions);
-  const uniqueTargeted = targeted.filter((q) => !seen.has(q));
-  const allQuestions = [...questions, ...uniqueTargeted].slice(0, 4);
+  const allQuestions = dedupeClarificationQuestions([...questions, ...targeted]).slice(0, 4);
   if (allQuestions.length > 0) {
     for (let i = 0; i < allQuestions.length; i++) {
       parts.push(`${i + 1}. ${allQuestions[i]}`);
@@ -220,6 +223,58 @@ function buildClarificationQuestion(
   ];
 
   return { question: parts.join("\n"), options };
+}
+
+function inferClarificationIntent(question: string): string | undefined {
+  const q = question.toLowerCase();
+  if (IDENTITY_INTENT.test(q)) return "identity_provider";
+  if (CLOUD_PROVIDER_INTENT.test(q)) return "cloud_provider";
+  if (KUBERNETES_INTENT.test(q)) return "kubernetes_posture";
+  if (MODEL_INTENT.test(q)) return "model_strategy";
+  if (SCALE_INTENT.test(q)) return "scale_target";
+  return undefined;
+}
+
+function normalizeQuestion(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/^[\d\-\)\.\s]+/, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function lexicalNearDuplicate(a: string, b: string): boolean {
+  const na = normalizeQuestion(a);
+  const nb = normalizeQuestion(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.includes(nb) || nb.includes(na)) return true;
+
+  const as = new Set(na.split(" ").filter((t) => t.length > 2));
+  const bs = new Set(nb.split(" ").filter((t) => t.length > 2));
+  if (as.size === 0 || bs.size === 0) return false;
+  let intersection = 0;
+  for (const token of as) {
+    if (bs.has(token)) intersection += 1;
+  }
+  const union = as.size + bs.size - intersection;
+  const jaccard = union > 0 ? intersection / union : 0;
+  return jaccard >= 0.72;
+}
+
+function dedupeClarificationQuestions(input: string[]): string[] {
+  const out: string[] = [];
+  const seenIntents = new Set<string>();
+  for (const q of input) {
+    if (!q?.trim()) continue;
+    const intent = inferClarificationIntent(q);
+    if (intent && seenIntents.has(intent)) continue;
+    if (out.some((existing) => lexicalNearDuplicate(existing, q))) continue;
+    out.push(q);
+    if (intent) seenIntents.add(intent);
+  }
+  return out;
 }
 
 export async function runLlmPlanner(state: GraphState): Promise<{
