@@ -45,7 +45,7 @@ def _fetch_xml(client: httpx.Client, url: str, timeout: float) -> str | None:
 
 
 def _parse_sitemap_xml(xml_text: str) -> tuple[list[str], list[str]]:
-    """Return (nested_sitemap_urls, page_urls)."""
+    """Return (nested_sitemap_urls, page_urls) from sitemap/RSS/Atom XML."""
     nested: list[str] = []
     pages: list[str] = []
     try:
@@ -77,6 +77,26 @@ def _parse_sitemap_xml(xml_text: str) -> tuple[list[str], list[str]]:
                     break
             if loc:
                 pages.append(loc)
+    elif root_tag == "rss":
+        # RSS 2.0 feeds: <rss><channel><item><link>...</link></item></channel></rss>
+        channel = root.find("channel")
+        if channel is not None:
+            for item in channel.findall("item"):
+                link = item.find("link")
+                if link is not None and link.text:
+                    pages.append(link.text.strip())
+    elif root_tag == "feed":
+        # Atom feeds: <feed><entry><link href="..."/></entry></feed>
+        for entry in root:
+            if _local_tag(entry) != "entry":
+                continue
+            for link in entry:
+                if _local_tag(link) != "link":
+                    continue
+                href = (link.attrib or {}).get("href", "").strip()
+                if href:
+                    pages.append(href)
+                    break
     return nested, pages
 
 

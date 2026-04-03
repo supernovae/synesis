@@ -13,7 +13,7 @@ from app.handlers import web_page
 async def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: pytest.MonkeyPatch):
     seed = "https://example.com/docs"
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-    monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: object())
+    monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: SimpleNamespace(sitemap_urls=[]))
     monkeypatch.setattr(web_page, "crawl_delay_seconds", lambda _ua, _rinfo: 0.0)
     monkeypatch.setattr(
         web_page,
@@ -56,7 +56,7 @@ async def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: 
 async def test_sitemap_only_does_not_expand_with_bfs(monkeypatch: pytest.MonkeyPatch):
     seed = "https://example.com/docs"
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-    monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: object())
+    monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: SimpleNamespace(sitemap_urls=[]))
     monkeypatch.setattr(web_page, "crawl_delay_seconds", lambda _ua, _rinfo: 0.0)
     monkeypatch.setattr(
         web_page,

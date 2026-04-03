@@ -139,6 +139,7 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
     discovery = str(crawl_cfg["discovery"])
     follow_links = bool(config.get("follow_links", True))
     max_depth = int(crawl_cfg["max_depth"])
+    max_links_per_page = int(crawl_cfg["max_links_per_page"])
     respect_robots = bool(config.get("respect_robots", True))
     user_agent = (config.get("user_agent") or DEFAULT_USER_AGENT).strip()
     min_interval = float(crawl_cfg["min_request_interval"])
@@ -159,10 +160,24 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
         parsed = urlparse(seed_url)
         if parsed.scheme and parsed.netloc:
             base = f"{parsed.scheme}://{parsed.netloc}"
-            for tail in ("sitemap.xml", "sitemap_index.xml", "sitemap-index.xml"):
+            for tail in (
+                "sitemap.xml",
+                "sitemap_index.xml",
+                "sitemap-index.xml",
+                "feed.xml",
+                "feed.atom",
+                "atom.xml",
+                "rss.xml",
+            ):
                 guess = urljoin(base + "/", tail)
                 if guess not in sitemap_seeds:
                     sitemap_seeds.append(guess)
+            seed_base = seed_url if seed_url.endswith("/") else f"{seed_url}/"
+            # Blog/news docs often expose feed endpoints even without a sitemap.
+            for tail in ("feed.atom", "feed.xml", "atom.xml", "rss.xml", "index.xml"):
+                for guess in (urljoin(seed_base, tail), urljoin(base + "/", tail)):
+                    if guess not in sitemap_seeds:
+                        sitemap_seeds.append(guess)
 
         max_sm = int(crawl_cfg["max_sitemap_expand"])
         urls_to_fetch = await asyncio.to_thread(
@@ -228,6 +243,7 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
                 respect_robots,
                 rinfo,
                 max_pages,
+                max_links_per_page,
             )
             return _merge_pages_by_url(pages, bfs_pages, max_pages=max_pages)
         if discovery == "sitemap_only":
@@ -243,6 +259,7 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
         respect_robots,
         rinfo,
         max_pages,
+        max_links_per_page,
     )
 
 
@@ -359,6 +376,7 @@ async def _crawl_bfs(
     respect_robots: bool,
     rinfo: Any,
     max_pages: int,
+    max_links_per_page: int,
 ) -> list[dict[str, str]]:
     from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 
@@ -431,7 +449,7 @@ async def _crawl_bfs(
             if verdict and not verdict.should_follow_children:
                 continue
 
-            child_urls = _extract_child_urls(result, seed_host, policy, visited)
+            child_urls = _extract_child_urls(result, seed_host, policy, visited, max_links_per_page=max_links_per_page)
             for child in child_urls:
                 queue.append((child, depth + 1))
 
@@ -443,6 +461,8 @@ def _extract_child_urls(
     seed_host: str,
     policy: GatePolicy,
     visited: set[str],
+    *,
+    max_links_per_page: int = 80,
 ) -> list[str]:
     """Extract and filter child URLs from a crawl result."""
     internal_links = []
@@ -460,7 +480,7 @@ def _extract_child_urls(
             internal_links = [urljoin(base_url, href) for href in parser.hrefs]
 
     children: list[str] = []
-    max_per_page = 30
+    max_per_page = max(1, max_links_per_page)
 
     base_url = getattr(result, "url", "") or ""
     for link in internal_links[:max_per_page]:
@@ -489,4 +509,4 @@ def _extract_child_urls(
 
         children.append(absolute)
 
-    return children[:25]
+    return children[:max_per_page]
