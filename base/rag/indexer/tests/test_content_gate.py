@@ -121,14 +121,19 @@ class TestUrlFilter:
         assert not ok
         assert "allowed prefix" in reason
 
-    def test_blog_blocked_by_default(self, policy):
-        ok, _ = url_passes_filter("https://example.com/blog/post-1", policy)
-        assert not ok
+    def test_allowed_prefix_overrides_blog_signal(self):
+        policy = GatePolicy(allowed_prefixes=["https://go.dev/blog/"])
+        ok, _ = url_passes_filter("https://go.dev/blog/go1.22", policy)
+        assert ok
 
-    def test_blog_allowed_when_configured(self):
-        policy = GatePolicy(allow_blog=True)
+    def test_blog_allowed_by_default(self, policy):
         ok, _ = url_passes_filter("https://example.com/blog/post-1", policy)
         assert ok
+
+    def test_blog_can_be_blocked_when_disabled(self):
+        policy = GatePolicy(allow_blog=False)
+        ok, _ = url_passes_filter("https://example.com/blog/post-1", policy)
+        assert not ok
 
     def test_blocked_prefix_override(self):
         policy = GatePolicy(blocked_prefixes=["/internal/"])

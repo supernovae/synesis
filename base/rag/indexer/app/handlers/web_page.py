@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -38,6 +39,22 @@ from . import register
 from .base import Chunk, RawDocument
 
 logger = logging.getLogger("synesis.indexer.handler.web_page")
+
+
+class _AnchorHrefParser(HTMLParser):
+    """Minimal HTML anchor parser for fallback link extraction."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        for key, value in attrs:
+            if key.lower() == "href" and value:
+                self.hrefs.append(value.strip())
+                break
 
 
 @register
@@ -428,10 +445,20 @@ def _extract_child_urls(
     visited: set[str],
 ) -> list[str]:
     """Extract and filter child URLs from a crawl result."""
-    if not result.links:
-        return []
+    internal_links = []
+    if getattr(result, "links", None):
+        internal_links = getattr(result.links, "internal", []) or []
+    if not internal_links:
+        html = getattr(result, "html", "") or ""
+        if html:
+            parser = _AnchorHrefParser()
+            try:
+                parser.feed(html)
+            except Exception:
+                parser.hrefs = []
+            base_url = getattr(result, "url", "") or ""
+            internal_links = [urljoin(base_url, href) for href in parser.hrefs]
 
-    internal_links = getattr(result.links, "internal", []) or []
     children: list[str] = []
     max_per_page = 30
 

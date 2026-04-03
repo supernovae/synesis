@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from types import SimpleNamespace
 
 import pytest
 
@@ -85,3 +86,27 @@ async def test_sitemap_only_does_not_expand_with_bfs(monkeypatch: pytest.MonkeyP
 
     assert len(pages) == 1
     assert pages[0]["url"] == seed
+
+
+def test_extract_child_urls_falls_back_to_html_anchors():
+    result = SimpleNamespace(
+        url="https://gobyexample.com/",
+        links=None,
+        html=(
+            '<html><body>'
+            '<a href="/if-else">If Else</a>'
+            '<a href="/for">For</a>'
+            '<a href="https://external.example.com/x">External</a>'
+            "</body></html>"
+        ),
+    )
+    policy = GatePolicy(allowed_prefixes=["https://gobyexample.com/"])
+    children = web_page._extract_child_urls(
+        result,
+        seed_host="gobyexample.com",
+        policy=policy,
+        visited=set(),
+    )
+    assert "https://gobyexample.com/if-else" in children
+    assert "https://gobyexample.com/for" in children
+    assert all("external.example.com" not in c for c in children)

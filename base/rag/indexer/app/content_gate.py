@@ -69,8 +69,6 @@ BLOCK_PATH_SIGNALS: list[str] = [
     "/legal",
     "/cookies",
     "/support/tickets",
-    "/blog",
-    "/news",
     "/case-study",
     "/case-studies",
     "/webinar",
@@ -249,7 +247,7 @@ class GatePolicy:
     follow_threshold: float = 0.45
     marketing_phrases: list[str] = field(default_factory=lambda: list(MARKETING_PHRASES))
     epistemic_phrases: list[str] = field(default_factory=lambda: list(EPISTEMIC_PHRASES))
-    allow_blog: bool = False
+    allow_blog: bool = True
     allowed_hosts: list[str] = field(default_factory=list)
     allowed_prefixes: list[str] = field(default_factory=list)
     blocked_prefixes: list[str] = field(default_factory=list)
@@ -368,19 +366,25 @@ def url_passes_filter(
         if path.endswith(ext):
             return False, f"blocked extension: {ext}"
 
+    explicit_prefix_match = False
     if policy.allowed_prefixes:
-        if not _url_matches_any_allowed_prefix(url, policy.allowed_prefixes):
+        explicit_prefix_match = _url_matches_any_allowed_prefix(url, policy.allowed_prefixes)
+        if not explicit_prefix_match:
             return False, f"not under allowed prefix: {url[:120]}"
 
     for bp in policy.blocked_prefixes:
         if path.startswith(bp):
             return False, f"blocked prefix: {bp}"
 
-    for sig in policy.block_path_signals:
-        if sig in path:
-            if policy.allow_blog and sig in ("/blog", "/news"):
-                continue
-            return False, f"blocked path signal: {sig}"
+    if not policy.allow_blog and ("/blog" in path or "/news" in path):
+        return False, "blog/news blocked by policy"
+
+    # Explicit allowlist prefixes are curator-selected scope and should take
+    # precedence over broad denylist path signals like "/blog".
+    if not explicit_prefix_match:
+        for sig in policy.block_path_signals:
+            if sig in path:
+                return False, f"blocked path signal: {sig}"
 
     return True, ""
 
