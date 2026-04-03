@@ -290,8 +290,12 @@ ensure_cloudflared_tunnel() {
     local configmap_name="cloudflared-config"
     local deploy_name="cloudflared"
     local tunnel_name="${SYNESIS_CF_TUNNEL_NAME:-synesis}"
+    local tunnel_token="${SYNESIS_CF_TUNNEL_TOKEN:-}"
     local creds_file="${SYNESIS_CF_TUNNEL_CREDENTIALS_FILE:-}"
     local creds_json="${SYNESIS_CF_TUNNEL_CREDENTIALS_JSON:-}"
+    local use_token="false"
+    local existing_token=""
+    local existing_creds=""
 
     if [[ ! -d "$kustomize_dir" ]]; then
         log "WARNING: cloudflared base not found at $kustomize_dir"
@@ -300,8 +304,18 @@ ensure_cloudflared_tunnel() {
 
     oc create namespace "$ns" 2>/dev/null || true
 
-    # Credentials secret
-    if [[ -n "$creds_json" ]]; then
+    existing_token="$(oc get secret "$secret_name" -n "$ns" -o jsonpath='{.data.token}' 2>/dev/null || true)"
+    existing_creds="$(oc get secret "$secret_name" -n "$ns" -o jsonpath='{.data.credentials\.json}' 2>/dev/null || true)"
+
+    # Credentials/token secret
+    if [[ -n "$tunnel_token" ]]; then
+        use_token="true"
+        log "Reconciling cloudflared token from SYNESIS_CF_TUNNEL_TOKEN..."
+        oc create secret generic "$secret_name" \
+            -n "$ns" \
+            --from-literal=token="$tunnel_token" \
+            --dry-run=client -o yaml | oc apply -f -
+    elif [[ -n "$creds_json" ]]; then
         log "Reconciling cloudflared credentials from SYNESIS_CF_TUNNEL_CREDENTIALS_JSON..."
         oc create secret generic "$secret_name" \
             -n "$ns" \
@@ -318,15 +332,23 @@ ensure_cloudflared_tunnel() {
             log "WARNING: SYNESIS_CF_TUNNEL_CREDENTIALS_FILE not found: $creds_file"
             return 1
         fi
+    elif [[ -n "$existing_token" ]]; then
+        use_token="true"
+        log "Using existing cloudflared token secret: $ns/$secret_name"
+    elif [[ -n "$existing_creds" ]]; then
+        log "Using existing cloudflared credentials secret: $ns/$secret_name"
     elif ! oc get secret "$secret_name" -n "$ns" &>/dev/null; then
-        log "WARNING: cloudflared credentials missing."
+        log "WARNING: cloudflared token/credentials missing."
         log "  Set one of:"
+        log "    SYNESIS_CF_TUNNEL_TOKEN=<cloudflare-zero-trust-token>"
         log "    SYNESIS_CF_TUNNEL_CREDENTIALS_JSON='{\"AccountTag\":\"...\",\"TunnelSecret\":\"...\",\"TunnelID\":\"...\"}'"
         log "    SYNESIS_CF_TUNNEL_CREDENTIALS_FILE=/path/to/credentials.json"
         log "  Or pre-create secret: $ns/$secret_name"
         return 1
     else
-        log "Using existing cloudflared credentials secret: $ns/$secret_name"
+        log "WARNING: existing $ns/$secret_name has no token or credentials.json key"
+        log "  Expected one of secret keys: token, credentials.json"
+        return 1
     fi
 
     local api_host admin_host chat_host auth_host coder_host
@@ -344,12 +366,16 @@ ensure_cloudflared_tunnel() {
 
     local cfg_tmp
     cfg_tmp="$(mktemp)"
+    local creds_line=""
+    if [[ "$use_token" != "true" ]]; then
+        creds_line="credentials-file: /etc/cloudflared/credentials/credentials.json"
+    fi
     cat > "$cfg_tmp" <<EOF
 tunnel: ${tunnel_name}
-credentials-file: /etc/cloudflared/credentials/credentials.json
+${creds_line}
 ingress:
   - hostname: ${api_host}
-    service: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000
+    service: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
   - hostname: ${admin_host}
     service: http://synesis-admin.synesis-admin.svc.cluster.local:8080
   - hostname: ${chat_host}
@@ -385,6 +411,11 @@ EOF
     log "  Chat:  $chat_host"
     log "  Auth:  $auth_host"
     log "  Coder: $coder_host"
+    if [[ "$use_token" == "true" ]]; then
+        log "  Auth mode: token (SYNESIS_CF_TUNNEL_TOKEN)"
+    else
+        log "  Auth mode: credentials.json"
+    fi
 }
 
 verify_cloudflared_tunnel() {

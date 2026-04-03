@@ -8,7 +8,7 @@ It complements in-cluster controls (NetworkPolicy, service auth tokens, RBAC). K
 
 Recommended host split:
 
-- `api.<your-domain>` -> Synesis gateway (`/v1/*`)
+- `api.<your-domain>` -> Synesis planner-ts (`/v1/*`)
 - `admin.<your-domain>` -> Synesis admin UI/API
 - `chat.<your-domain>` -> Open WebUI
 - `auth.<your-domain>` -> Keycloak
@@ -264,7 +264,7 @@ For stronger origin protection, run `cloudflared` in-cluster and route traffic t
 
 1. Deploy `cloudflared` in cluster (or per environment namespace).
 2. Configure tunnel ingress to internal services:
-   - `litellm-proxy.synesis-gateway.svc.cluster.local:4000`
+   - `synesis-planner-ts.synesis-planner.svc.cluster.local:8080`
    - `synesis-admin.synesis-admin.svc.cluster.local:8080`
    - `open-webui.synesis-webui.svc.cluster.local:8080`
    - `synesis-keycloak-service.synesis-auth.svc.cluster.local:8080`
@@ -279,7 +279,7 @@ tunnel: synesis-prod
 credentials-file: /etc/cloudflared/credentials/credentials.json
 ingress:
   - hostname: api.example.com
-    service: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000
+    service: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
   - hostname: admin.example.com
     service: http://synesis-admin.synesis-admin.svc.cluster.local:8080
   - hostname: chat.example.com
@@ -306,7 +306,7 @@ Cloudflare supports CNAME flattening at apex, so `example.com` can also point to
 
 You can keep short public names while preserving internal service naming:
 
-- Public: `api.example.com` -> Tunnel -> `litellm-proxy.synesis-gateway.svc...`
+- Public: `api.example.com` -> Tunnel -> `synesis-planner-ts.synesis-planner.svc...`
 - Public: `admin.example.com` -> Tunnel -> `synesis-admin.synesis-admin.svc...`
 - Public: `coder.example.com` -> Tunnel -> `synesis-yarn.synesis-yarn.svc...`
 
@@ -367,7 +367,7 @@ data:
     credentials-file: /etc/cloudflared/credentials/credentials.json
     ingress:
       - hostname: api.example.com
-        service: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000
+        service: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
       - hostname: admin.example.com
         service: http://synesis-admin.synesis-admin.svc.cluster.local:8080
       - hostname: chat.example.com
@@ -474,6 +474,7 @@ Enable with env vars:
 - `SYNESIS_VERIFY_CLOUDFLARED=true` (optional; run post-deploy verification and fail deploy on mismatch)
 - `SYNESIS_CF_TUNNEL_NAME=<your tunnel name>`
 - One of:
+  - `SYNESIS_CF_TUNNEL_TOKEN=<cloudflare-zero-trust-token>`
   - `SYNESIS_CF_TUNNEL_CREDENTIALS_JSON='{"AccountTag":"...","TunnelSecret":"...","TunnelID":"..."}'`
   - `SYNESIS_CF_TUNNEL_CREDENTIALS_FILE=/path/to/credentials.json`
 
@@ -490,6 +491,15 @@ Example:
 ```bash
 SYNESIS_ENABLE_CLOUDFLARED=true \
 SYNESIS_CF_TUNNEL_NAME=synesis-prod \
+SYNESIS_CF_TUNNEL_TOKEN="<token-from-zero-trust-ui>" \
+./scripts/deploy.sh api
+```
+
+Credentials-file mode (also supported):
+
+```bash
+SYNESIS_ENABLE_CLOUDFLARED=true \
+SYNESIS_CF_TUNNEL_NAME=synesis-prod \
 SYNESIS_CF_TUNNEL_CREDENTIALS_FILE="$HOME/.cloudflared/synesis-prod.json" \
 ./scripts/deploy.sh api
 ```
@@ -500,7 +510,7 @@ Kybern domain cutover with OpenShift route fallback preserved:
 SYNESIS_ENABLE_CLOUDFLARED=true \
 SYNESIS_VERIFY_CLOUDFLARED=true \
 SYNESIS_CF_TUNNEL_NAME=kybern-prod \
-SYNESIS_CF_TUNNEL_CREDENTIALS_FILE="$HOME/.cloudflared/kybern-prod.json" \
+SYNESIS_CF_TUNNEL_TOKEN="<token-from-zero-trust-ui>" \
 SYNESIS_CF_API_HOST=api.kybern.dev \
 SYNESIS_CF_ADMIN_HOST=admin.kybern.dev \
 SYNESIS_CF_CHAT_HOST=chat.kybern.dev \
@@ -534,6 +544,7 @@ Behavior:
 - Reconciles `synesis-edge/cloudflared-credentials` secret.
 - Renders and applies `synesis-edge/cloudflared-config` from current route hosts.
 - Applies `base/edge/cloudflared` deployment.
+- Supports both token mode (`SYNESIS_CF_TUNNEL_TOKEN`) and credentials-file mode.
 - Rolls `cloudflared` only when config/credentials hash changes.
 
 Verify helper:
