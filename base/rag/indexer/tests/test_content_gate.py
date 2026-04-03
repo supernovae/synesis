@@ -428,7 +428,7 @@ class TestPageEvaluation:
         assert verdict.doc_type == "blog"
         assert verdict.should_follow_children
 
-    def test_curated_hub_page_can_follow_when_quality_is_low(self):
+    def test_curated_scope_page_can_follow_when_quality_is_low(self):
         html = """<html><head><title>Blog Archive</title></head><body>
         <p>Archive.</p>
         <a href="/blog/a">a</a><a href="/blog/b">b</a><a href="/blog/c">c</a><a href="/blog/d">d</a>

@@ -24,12 +24,14 @@ items:
   config:
     discovery: sitemap_first
     follow_links: true
-    max_depth: 4
-    max_pages: 80
+    max_depth: 7
+    max_pages: 260
+    max_sitemap_expand: 180
+    max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
     allowed_prefixes:
-    - https://go.dev/ref/spec
+    - https://go.dev/ref/
 - uri: https://go.dev/doc/effective_go
   handler: web_page
   title: Effective Go
@@ -54,12 +56,14 @@ items:
   config:
     discovery: sitemap_first
     follow_links: true
-    max_depth: 4
-    max_pages: 80
+    max_depth: 7
+    max_pages: 260
+    max_sitemap_expand: 180
+    max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
     allowed_prefixes:
-    - https://go.dev/doc/effective_go
+    - https://go.dev/doc/
 - uri: https://pkg.go.dev/std
   handler: web_page
   title: Go Standard Library (root)
@@ -84,12 +88,14 @@ items:
   config:
     discovery: sitemap_first
     follow_links: true
-    max_depth: 4
-    max_pages: 80
+    max_depth: 6
+    max_pages: 300
+    max_sitemap_expand: 400
+    max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
     allowed_prefixes:
-    - https://pkg.go.dev/std
+    - https://pkg.go.dev/
 - uri: https://golangci-lint.run/
   handler: web_page
   title: golangci-lint Documentation
@@ -145,12 +151,14 @@ items:
   config:
     discovery: sitemap_first
     follow_links: true
-    max_depth: 4
-    max_pages: 80
+    max_depth: 7
+    max_pages: 260
+    max_sitemap_expand: 220
+    max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
     allowed_prefixes:
-    - https://go.dev/ref/mod
+    - https://go.dev/ref/
 - uri: https://go.dev/doc/tutorial/
   handler: web_page
   title: Go Tutorials
@@ -206,12 +214,14 @@ items:
   config:
     discovery: sitemap_first
     follow_links: true
-    max_depth: 4
-    max_pages: 80
+    max_depth: 6
+    max_pages: 220
+    max_sitemap_expand: 400
+    max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
     allowed_prefixes:
-    - https://pkg.go.dev/testing
+    - https://pkg.go.dev/
 - uri: https://go.dev/blog/
   handler: web_page
   title: The Go Blog
@@ -328,12 +338,14 @@ items:
   config:
     discovery: sitemap_first
     follow_links: true
-    max_depth: 4
-    max_pages: 80
+    max_depth: 6
+    max_pages: 220
+    max_sitemap_expand: 400
+    max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
     allowed_prefixes:
-    - https://pkg.go.dev/cmd/go
+    - https://pkg.go.dev/
 - uri: https://go.dev/doc/comment
   handler: web_page
   title: Go Doc Comments
