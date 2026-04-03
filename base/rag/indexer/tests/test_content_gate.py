@@ -428,6 +428,17 @@ class TestPageEvaluation:
         assert verdict.doc_type == "blog"
         assert verdict.should_follow_children
 
+    def test_curated_hub_page_can_follow_when_quality_is_low(self):
+        html = """<html><head><title>Blog Archive</title></head><body>
+        <p>Archive.</p>
+        <a href="/blog/a">a</a><a href="/blog/b">b</a><a href="/blog/c">c</a><a href="/blog/d">d</a>
+        <a href="/blog/e">e</a><a href="/blog/f">f</a><a href="/blog/g">g</a><a href="/blog/h">h</a>
+        </body></html>"""
+        policy = GatePolicy(allowed_prefixes=["https://go.dev/blog/"], max_depth=4, follow_threshold=0.95)
+        verdict = evaluate_page("https://go.dev/blog/archive", html, policy, depth=1)
+        assert not verdict.should_index
+        assert verdict.should_follow_children
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Chunk Quality Scoring (Layer 2 — Universal)

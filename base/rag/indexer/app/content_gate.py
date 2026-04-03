@@ -629,11 +629,18 @@ def evaluate_page(
         should_index = False
         rejection_reason = "community/forum content excluded"
 
+    # Curated scopes often contain low-text navigation pages that should not be
+    # indexed, but should still fan out to high-signal children.
+    is_curated_scope = bool(policy.allowed_prefixes and _url_matches_any_allowed_prefix(url, policy.allowed_prefixes))
+    is_curated_hub = bool(
+        is_curated_scope
+        and depth > 0
+        and features.internal_link_count >= 8
+    )
     # Seed pages for curated prefixes should still be traversable even when
     # their index/list page quality is low, because child pages often contain
     # the actual high-signal content.
-    is_curated_seed = bool(policy.allowed_prefixes and _url_matches_any_allowed_prefix(url, policy.allowed_prefixes))
-    follow_quality_ok = quality >= policy.follow_threshold or (is_curated_seed and depth == 0)
+    follow_quality_ok = quality >= policy.follow_threshold or (is_curated_scope and depth == 0) or is_curated_hub
     should_follow = follow_quality_ok and doc_type in DOC_TYPE_FOLLOWABLE and depth < policy.max_depth
 
     return PageVerdict(
