@@ -105,15 +105,78 @@ export const router = createBrowserRouter([
       { index: true, element: <SmartLanding /> },
       { path: "dashboard", element: <Dashboard /> },
 
-      { path: "models", element: <ModelRegistry /> },
-      { path: "models/overview", element: <ModelsCostsOverview /> },
-      { path: "models/costs", element: <CostTracker /> },
-      { path: "models/performance", element: <ModelPerformance /> },
-      { path: "models/providers", element: <ProviderManagement /> },
-      { path: "models/serving", element: <ServingManagement /> },
-      { path: "models/policies", element: <ModelPolicies /> },
-      { path: "models/effort-routing", element: <EffortRoutingPreview /> },
-      { path: "models/prompts", element: <PromptLibrary /> },
+      {
+        path: "models",
+        element: (
+          <RequireRole role="admin">
+            <ModelRegistry />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/overview",
+        element: (
+          <RequireRole role="admin">
+            <ModelsCostsOverview />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/costs",
+        element: (
+          <RequireRole role="admin">
+            <CostTracker />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/performance",
+        element: (
+          <RequireRole role="admin">
+            <ModelPerformance />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/providers",
+        element: (
+          <RequireRole role="admin">
+            <ProviderManagement />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/serving",
+        element: (
+          <RequireRole role="admin">
+            <ServingManagement />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/policies",
+        element: (
+          <RequireRole role="admin">
+            <ModelPolicies />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/effort-routing",
+        element: (
+          <RequireRole role="admin">
+            <EffortRoutingPreview />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "models/prompts",
+        element: (
+          <RequireRole role="admin">
+            <PromptLibrary />
+          </RequireRole>
+        ),
+      },
 
       { path: "rag/corpus", element: <CorpusOverview /> },
       { path: "rag/quality", element: <QualityDashboard /> },

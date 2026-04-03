@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select, text
 
-from ..auth import UserInfo, get_current_user
+from ..auth import UserInfo
 from ..db.engine import async_session
 from ..db.models import ModelPolicy, Trace
 from ..deps import PLANNER_URL
@@ -68,19 +68,19 @@ def _reconcile_audit_status(rec_sum: dict | None, rec_err: str | None) -> tuple[
 
 
 @router.get("/")
-async def list_models(_user: UserInfo = Depends(get_current_user)):
+async def list_models(_user: UserInfo = Depends(require_org_admin)):
     return {"roles": await get_role_assignments()}
 
 
 @router.get("/topology")
-async def model_topology(_user: UserInfo = Depends(get_current_user)):
+async def model_topology(_user: UserInfo = Depends(require_org_admin)):
     from ..services.model_registry import get_model_topology
 
     return await get_model_topology()
 
 
 @router.get("/pipeline-services")
-async def pipeline_services(_user: UserInfo = Depends(get_current_user)):
+async def pipeline_services(_user: UserInfo = Depends(require_org_admin)):
     """Operational visibility for ingestion-adjacent model/services."""
     targets = [
         ("router_model", os.getenv("SYNESIS_ROUTER_MODEL_URL", "")),
@@ -147,7 +147,7 @@ async def pipeline_services(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/roles")
-async def list_role_assignments(_user: UserInfo = Depends(get_current_user)):
+async def list_role_assignments(_user: UserInfo = Depends(require_org_admin)):
     """Active model assignment per canonical role."""
     return {"roles": await get_role_assignments()}
 
@@ -163,7 +163,7 @@ async def list_role_assignments_internal(
 @router.get("/prompts/profiles")
 async def list_prompts_profiles(
     service: str | None = Query(None),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
 ):
     return {"profiles": await list_prompt_profiles(service=service)}
 
@@ -230,7 +230,7 @@ async def delete_prompts_profile(
 @router.get("/prompts/assignments")
 async def list_prompts_assignments(
     service: str | None = Query(None),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
 ):
     return {"assignments": await list_prompt_assignments(service=service)}
 
@@ -390,7 +390,7 @@ async def remove_role_assignment(
 @router.get("/roles/{role}/history")
 async def role_history(
     role: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     days: int = Query(90, ge=1, le=365),
 ):
     """Historical model assignments for a role."""
@@ -403,7 +403,7 @@ async def role_history(
 
 
 @router.get("/deployments")
-async def list_deployments(_user: UserInfo = Depends(get_current_user)):
+async def list_deployments(_user: UserInfo = Depends(require_org_admin)):
     deployments = await get_model_deployments()
     return {"deployments": deployments}
 
@@ -776,7 +776,7 @@ def _pricing_by_role_from_active_rows(
 
 
 @router.get("/costs/active")
-async def active_costs(_user: UserInfo = Depends(get_current_user)):
+async def active_costs(_user: UserInfo = Depends(require_org_admin)):
     """Rate configuration for active role assignments only."""
     return {"roles": await _build_active_cost_rows()}
 
@@ -790,7 +790,7 @@ async def active_costs_internal(
 
 
 @router.get("/costs")
-async def model_costs(_user: UserInfo = Depends(get_current_user)):
+async def model_costs(_user: UserInfo = Depends(require_org_admin)):
     costs = await get_cost_estimates()
     return {"roles": costs}
 
@@ -1304,7 +1304,7 @@ def _internal_service_token() -> str:
 @router.post("/effort/recommend")
 async def preview_effort_recommendation(
     req: EffortRecommendationPreviewRequest,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
 ):
     """Proxy planner /v1/effort/recommend for admin tuning UI."""
     prompt = (req.prompt or "").strip()
@@ -1342,7 +1342,7 @@ async def preview_effort_recommendation(
 
 
 @router.get("/policies")
-async def list_model_policies(_user: UserInfo = Depends(get_current_user)):
+async def list_model_policies(_user: UserInfo = Depends(require_org_admin)):
     """All active model policies grouped by role."""
     try:
         async with async_session() as session:
@@ -1377,7 +1377,7 @@ async def list_model_policies(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/policies/{role}")
-async def get_role_policies(role: str, _user: UserInfo = Depends(get_current_user)):
+async def get_role_policies(role: str, _user: UserInfo = Depends(require_org_admin)):
     """Ordered rules for one role."""
     if role not in KNOWN_ROLES:
         raise HTTPException(404, f"Unknown role: {role}")

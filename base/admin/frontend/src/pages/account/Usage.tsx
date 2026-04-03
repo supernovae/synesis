@@ -2,9 +2,7 @@ import { useState } from "react";
 import { useUsageMeSummary, useUsageMeSeries, useYarnUserUsage } from "../../api/hooks";
 import type { UsageTimeSeriesEntry } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
-import EmptyState from "../../components/common/EmptyState";
-import { Coins, Clock, Zap, AlertTriangle, Hash, Sparkles } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Coins, Clock, Zap, AlertTriangle, Hash } from "lucide-react";
 import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
 
 const PERIOD_OPTIONS = [
@@ -27,6 +25,44 @@ function fmtBucket(iso: string): string {
   }
 }
 
+type UsageSummarySectionProps = {
+  title: string;
+  subtitle: string;
+  requests: number;
+  tokens: number;
+  costUsd: number;
+  avgLatencyMs: number;
+  details?: string;
+};
+
+function UsageSummarySection({
+  title,
+  subtitle,
+  requests,
+  tokens,
+  costUsd,
+  avgLatencyMs,
+  details,
+}: UsageSummarySectionProps) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h2>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <MetricCard label="Requests" value={requests.toLocaleString()} icon={Hash} />
+        <MetricCard label="Tokens" value={fmtTokens(tokens)} icon={Zap} />
+        <MetricCard label="Cost" value={fmtCost(costUsd)} icon={Coins} />
+        <MetricCard label="Avg Latency" value={fmtDurationMs(avgLatencyMs)} icon={Clock} />
+      </div>
+      {details ? (
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">{details}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Usage() {
   const [period, setPeriod] = useState(24);
   const { data: summary, isLoading: summaryLoading } = useUsageMeSummary(period);
@@ -37,6 +73,31 @@ export default function Usage() {
 
   const loading = summaryLoading || seriesLoading;
   const bucketRows: UsageTimeSeriesEntry[] = series ?? [];
+  const plannerRequests = summary?.trace_count ?? 0;
+  const plannerTokens = summary?.total_tokens ?? 0;
+  const plannerCost = summary?.estimated_cost_usd ?? 0;
+  const plannerLatency = summary?.avg_duration_ms ?? 0;
+  const plannerErrors = summary?.error_count ?? 0;
+  const plannerHasData = plannerRequests > 0;
+
+  const coderRequests = yarnUsage?.total_requests ?? 0;
+  const coderTokens = (yarnUsage?.tokens_in ?? 0) + (yarnUsage?.tokens_out ?? 0);
+  const coderCost = yarnUsage?.cost_usd ?? 0;
+  const coderLatency = yarnUsage?.avg_latency_ms ?? 0;
+  const coderCached = yarnUsage?.tokens_cached ?? 0;
+  const coderErrors = yarnUsage?.errors ?? 0;
+  const coderEscalations = yarnUsage?.escalations ?? 0;
+  const coderHasData = coderRequests > 0;
+
+  const totalRequests = plannerRequests + coderRequests;
+  const totalTokens = plannerTokens + coderTokens;
+  const totalCost = plannerCost + coderCost;
+  const totalLatency =
+    totalRequests > 0
+      ? (plannerLatency * plannerRequests + coderLatency * coderRequests) / totalRequests
+      : 0;
+  const totalHasData = totalRequests > 0;
+
   const hasCostVariance =
     summary && summary.actual_cost_usd > 0 && summary.estimated_cost_usd > 0;
 
@@ -48,13 +109,7 @@ export default function Usage() {
             Usage
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Pipeline usage from{" "}
-            <span className="font-medium text-gray-700 dark:text-gray-300">planner_usage_log</span>{" "}
-            (PII-minimal metering); trace aggregates may be used as fallback. Yarn / IDE is separate — see{" "}
-            <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-              Models &amp; Costs overview
-            </Link>
-            .
+            Planner and Coder usage for your account over the selected period.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
@@ -74,58 +129,69 @@ export default function Usage() {
         </div>
       </div>
 
-      {loading && !summary ? (
+      {loading && !summary && !yarnUsage ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading usage data…</p>
-      ) : !summary || summary.trace_count === 0 ? (
-        <EmptyState
-          title="No usage data for this period"
-          description="Run planner requests after metering is enabled, or check org scope. Totals come from planner_usage_log with trace fallback."
-        />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard
-              label="Total Requests"
-              value={summary.trace_count.toLocaleString()}
-              icon={Hash}
-              subtitle={`past ${period}h`}
-            />
-            <MetricCard
-              label="Total Tokens"
-              value={fmtTokens(summary.total_tokens)}
-              icon={Zap}
-            />
-            <MetricCard
-              label="Estimated Cost"
-              value={fmtCost(summary.estimated_cost_usd)}
-              icon={Coins}
-              subtitle={
-                hasCostVariance
-                  ? `actual: ${fmtCost(summary.actual_cost_usd)}`
-                  : summary.source === "planner_usage_log"
-                    ? "estimated · planner_usage_log"
-                    : "estimated · pipeline traces (fallback)"
+          <div className="grid gap-4 xl:grid-cols-3">
+            <UsageSummarySection
+              title="Planner Usage"
+              subtitle={plannerHasData ? `past ${period}h` : "no data"}
+              requests={plannerRequests}
+              tokens={plannerTokens}
+              costUsd={plannerCost}
+              avgLatencyMs={plannerLatency}
+              details={
+                plannerHasData
+                  ? plannerErrors > 0
+                    ? `${plannerErrors} errors`
+                    : summary?.source === "planner_usage_log"
+                      ? "metered from planner usage logs"
+                      : undefined
+                  : "No planner usage recorded for this period."
               }
             />
-            <MetricCard
-              label="Avg Latency"
-              value={fmtDurationMs(summary.avg_duration_ms)}
-              icon={Clock}
-              subtitle={
-                summary.error_count > 0
-                  ? `${summary.error_count} errors`
-                  : undefined
+            <UsageSummarySection
+              title="Coder Usage"
+              subtitle={coderHasData ? `past ${period}h` : "no data"}
+              requests={coderRequests}
+              tokens={coderTokens}
+              costUsd={coderCost}
+              avgLatencyMs={coderLatency}
+              details={
+                coderHasData
+                  ? [
+                      coderCached > 0 ? `${fmtTokens(coderCached)} cached` : null,
+                      coderErrors > 0 ? `${coderErrors} errors` : null,
+                      coderEscalations > 0 ? `${coderEscalations} escalations` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "Coder metering data is available."
+                  : "No coder usage recorded for this period."
+              }
+            />
+            <UsageSummarySection
+              title="Total Usage"
+              subtitle={totalHasData ? `past ${period}h` : "no data"}
+              requests={totalRequests}
+              tokens={totalTokens}
+              costUsd={totalCost}
+              avgLatencyMs={totalLatency}
+              details={
+                totalHasData
+                  ? `Combined planner + coder totals`
+                  : "No planner or coder usage recorded for this period."
               }
             />
           </div>
 
-          {summary.note && (
+          {summary?.note && (
             <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-              {summary.note}
+              {summary?.note}
             </div>
           )}
 
-          {hasCostVariance && (
+          {plannerHasData && hasCostVariance && summary && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
@@ -147,7 +213,7 @@ export default function Usage() {
             </div>
           )}
 
-          {bucketRows.length > 0 && (
+          {bucketRows.length > 0 ? (
             <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
@@ -202,68 +268,15 @@ export default function Usage() {
                 </div>
               )}
             </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+              No planner time-series buckets for this period.
+            </div>
           )}
         </>
       )}
-
-      {/* Yarn Agent Consumption */}
-      <div className="border-t border-gray-200 pt-8 dark:border-gray-700">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-violet-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Yarn Agent Usage
-          </h2>
-        </div>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Token consumption and performance from the Yarn coding agent
-        </p>
-      </div>
-
-      {yarnLoading ? (
-        <div className="h-28 animate-pulse rounded-lg bg-gray-100" />
-      ) : !yarnUsage || yarnUsage.total_requests === 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-white p-6 text-center dark:border-gray-700 dark:bg-gray-900">
-          <Sparkles className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            No Yarn agent usage recorded for this period
-          </p>
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard
-            label="Yarn Requests"
-            value={yarnUsage.total_requests.toLocaleString()}
-            icon={Hash}
-          />
-          <MetricCard
-            label="Tokens Used"
-            value={fmtTokens(yarnUsage.tokens_in + yarnUsage.tokens_out)}
-            icon={Zap}
-            subtitle={`${fmtTokens(yarnUsage.tokens_in)} in · ${fmtTokens(yarnUsage.tokens_out)} out`}
-          />
-          <MetricCard
-            label="Yarn Cost"
-            value={fmtCost(yarnUsage.cost_usd)}
-            icon={Coins}
-            subtitle={
-              yarnUsage.tokens_cached > 0
-                ? `${fmtTokens(yarnUsage.tokens_cached)} cached`
-                : undefined
-            }
-          />
-          <MetricCard
-            label="Avg Latency"
-            value={fmtDurationMs(yarnUsage.avg_latency_ms)}
-            icon={Clock}
-            subtitle={
-              yarnUsage.errors > 0
-                ? `${yarnUsage.errors} errors · ${yarnUsage.escalations} escalations`
-                : yarnUsage.escalations > 0
-                  ? `${yarnUsage.escalations} escalations`
-                  : undefined
-            }
-          />
-        </div>
+      {yarnLoading && !yarnUsage && (
+        <div className="h-24 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       )}
     </div>
   );
