@@ -11,6 +11,9 @@ const USER_KEY = "synesis_user";
 const ID_TOKEN_KEY = "synesis_id_token";
 const POST_LOGOUT_FLAG = "synesis_post_logout";
 const OIDC_STATE_KEY = "synesis_oidc_state";
+const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
+const OIDC_ISSUER_CACHE_KEY = "synesis_oidc_issuer";
+const OIDC_CLIENT_ID_CACHE_KEY = "synesis_oidc_client_id";
 
 function loadPersistedAuth(): { user: User | null; token: string | null } {
   try {
@@ -156,7 +159,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     axios
       .get<OidcConfig>("/api/v1/auth/oidc-config")
-      .then(({ data }) => setOidcConfig(data))
+      .then(({ data }) => {
+        setOidcConfig(data);
+        if (data?.enabled && data.issuer && data.client_id) {
+          sessionStorage.setItem(OIDC_ISSUER_CACHE_KEY, data.issuer);
+          sessionStorage.setItem(OIDC_CLIENT_ID_CACHE_KEY, data.client_id);
+        }
+      })
       .catch(() => setOidcConfig({ enabled: false }))
       .finally(() => setLoading(false));
   }, []);
@@ -193,25 +202,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [oidcConfig]);
 
   const logout = useCallback(() => {
-    const issuer = oidcConfig?.issuer?.replace(/\/$/, "");
-    const clientId = oidcConfig?.client_id;
-    const oidcEnabled = oidcConfig?.enabled ?? false;
+    const issuer =
+      oidcConfig?.issuer?.replace(/\/$/, "") ||
+      sessionStorage.getItem(OIDC_ISSUER_CACHE_KEY)?.replace(/\/$/, "") ||
+      "";
+    const clientId =
+      oidcConfig?.client_id || sessionStorage.getItem(OIDC_CLIENT_ID_CACHE_KEY) || "";
+    const oidcEnabled = Boolean((oidcConfig?.enabled ?? true) && issuer && clientId);
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
     const idToken = localStorage.getItem(ID_TOKEN_KEY);
-    if (oidcEnabled) {
-      sessionStorage.setItem(POST_LOGOUT_FLAG, "1");
-    }
+    // Always require manual OIDC re-entry after logout to prevent SSO loops.
+    sessionStorage.setItem(POST_LOGOUT_FLAG, "1");
+    sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
     clearPersistedAuth();
     setAuth({ user: null, token: null });
 
     const loginUrl = `${window.location.origin}/login`;
-    if (oidcEnabled && issuer && clientId) {
-      const redirectUri = encodeURIComponent(loginUrl);
-      let logoutUrl = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${redirectUri}&client_id=${encodeURIComponent(clientId)}`;
+    if (oidcEnabled) {
+      const params = new URLSearchParams({
+        post_logout_redirect_uri: loginUrl,
+      });
       if (idToken) {
-        logoutUrl += `&id_token_hint=${encodeURIComponent(idToken)}`;
+        params.set("id_token_hint", idToken);
+      } else {
+        params.set("client_id", clientId);
       }
+      const logoutUrl = `${issuer}/protocol/openid-connect/logout?${params.toString()}`;
       window.location.assign(logoutUrl);
       return;
     }
