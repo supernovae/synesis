@@ -3,6 +3,8 @@ import { useAuth } from "./useAuth";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 
+const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
+
 interface Props {
   children: ReactNode;
   role?: "admin" | "readonly";
@@ -14,9 +16,16 @@ export default function RequireRole({ children, role }: Props) {
   const redirecting = useRef(false);
 
   const oidcEnabled = oidcConfig?.enabled ?? false;
+  const suppressAutoOidc = sessionStorage.getItem(SUPPRESS_AUTO_KEY) === "1";
 
   useEffect(() => {
-    if (!loading && !isAuthenticated && oidcEnabled && !redirecting.current) {
+    if (
+      !loading &&
+      !isAuthenticated &&
+      oidcEnabled &&
+      !suppressAutoOidc &&
+      !redirecting.current
+    ) {
       redirecting.current = true;
       const current = location.pathname + location.search;
       if (current && current !== "/login" && current !== "/callback") {
@@ -24,7 +33,7 @@ export default function RequireRole({ children, role }: Props) {
       }
       loginWithOidc();
     }
-  }, [loading, isAuthenticated, oidcEnabled, loginWithOidc, location]);
+  }, [loading, isAuthenticated, oidcEnabled, suppressAutoOidc, loginWithOidc, location]);
 
   if (loading) {
     return null;
@@ -32,6 +41,9 @@ export default function RequireRole({ children, role }: Props) {
 
   if (!isAuthenticated) {
     if (oidcEnabled) {
+      if (suppressAutoOidc) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+      }
       return null;
     }
     return <Navigate to="/login" state={{ from: location }} replace />;

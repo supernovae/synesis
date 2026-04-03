@@ -1,9 +1,22 @@
 import { useAuth } from "../../components/auth/useAuth";
 import { Building2, Users, Mail, ExternalLink } from "lucide-react";
 
+function keycloakAccountUrl(issuer?: string): string {
+  const normalizedIssuer = (issuer || "").replace(/\/$/, "");
+  if (normalizedIssuer && normalizedIssuer.includes("/realms/")) {
+    return `${normalizedIssuer}/account`;
+  }
+
+  const authHost = window.location.hostname
+    .replace(/^admin\./, "auth.")
+    .replace(/^synesis-admin\./, "synesis-auth.")
+    .replace("synesis-admin", "synesis-auth");
+  return `${window.location.protocol}//${authHost}/realms/synesis/account`;
+}
+
 export default function Organization() {
-  const { user } = useAuth();
-  const keycloakAccountUrl = `${window.location.origin.replace("synesis-admin", "synesis-auth")}/realms/synesis/account`;
+  const { user, oidcConfig } = useAuth();
+  const accountUrl = keycloakAccountUrl(oidcConfig?.issuer);
 
   if (!user) return null;
 
@@ -105,7 +118,7 @@ export default function Organization() {
 
           <div className="mt-6 border-t border-gray-100 pt-4 dark:border-gray-800">
             <a
-              href={keycloakAccountUrl}
+              href={accountUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"

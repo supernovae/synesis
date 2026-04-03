@@ -15,8 +15,17 @@ import {
 } from "lucide-react";
 
 /** Keycloak Account Console — password, email, 2FA (realm synesis). */
-function keycloakAccountUrl(): string {
-  return `${window.location.origin.replace("synesis-admin", "synesis-auth")}/realms/synesis/account`;
+function keycloakAccountUrl(issuer?: string): string {
+  const normalizedIssuer = (issuer || "").replace(/\/$/, "");
+  if (normalizedIssuer && normalizedIssuer.includes("/realms/")) {
+    return `${normalizedIssuer}/account`;
+  }
+
+  const authHost = window.location.hostname
+    .replace(/^admin\./, "auth.")
+    .replace(/^synesis-admin\./, "synesis-auth.")
+    .replace("synesis-admin", "synesis-auth");
+  return `${window.location.protocol}//${authHost}/realms/synesis/account`;
 }
 
 function hostUrl(host: string): string {
@@ -36,11 +45,11 @@ function yarnUrl(): string {
 }
 
 export default function AccountHome() {
-  const { user } = useAuth();
+  const { user, oidcConfig } = useAuth();
   if (!user) return null;
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const kcUrl = keycloakAccountUrl();
+  const kcUrl = keycloakAccountUrl(oidcConfig?.issuer);
   const webUiUrl = openWebUiUrl();
   const openAiUrl = openAiApiUrl();
   const yarnBase = yarnUrl();
