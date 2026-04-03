@@ -51,8 +51,10 @@ export default function AccountHome() {
 
   const kcUrl = keycloakAccountUrl(oidcConfig?.issuer);
   const webUiUrl = openWebUiUrl();
-  const openAiUrl = openAiApiUrl();
+  const openAiBase = openAiApiUrl();
+  const openAiUrl = `${openAiBase}/v1`;
   const yarnBase = yarnUrl();
+  const yarnApiUrl = `${yarnBase}/v1`;
   const claudeEnvSnippet = `export ANTHROPIC_BASE_URL="${yarnBase}"
 export ANTHROPIC_AUTH_TOKEN="<your-synesis-pat>"
 export ENABLE_TOOL_SEARCH=true
@@ -320,16 +322,16 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
                 OpenAI-compatible clients.
               </p>
               <a
-                href={yarnBase}
+                href={yarnApiUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-1.5 break-all text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
               >
-                {yarnBase}
+                {yarnApiUrl}
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
               <button
-                onClick={() => copyText("yarn-api", yarnBase)}
+                onClick={() => copyText("yarn-api", yarnApiUrl)}
                 className="mt-2 inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
                 type="button"
               >
@@ -356,6 +358,10 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
               Use your Synesis PAT (coder scope) and point your client/agent to the
               Coder API. The snippet below shows a Claude Code example.
+              Some clients append <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">/v1</code>{" "}
+              automatically, so if requests fail check for a double suffix like{" "}
+              <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">/v1/v1</code>{" "}
+              and remove one.
               Synesis maps Claude model families to tiers:
               <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">haiku -&gt; synesis-pulse</code>
               <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">sonnet -&gt; synesis-core</code>
