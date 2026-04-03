@@ -3,11 +3,26 @@ import { classifyProjectTool } from "./handlers/classify-project.js";
 import { inspectRepoTool } from "./handlers/inspect-repo.js";
 import { scaffoldTool } from "./handlers/scaffold.js";
 import { compareManifestTool } from "./handlers/compare-manifest.js";
+import { applyPatchTool, formatCodeTool, getRuntimeContextTool, gitAddGuardedTool, gitCommitGuardedTool, gitDiffTool, gitStatusTool, listDirTool, readFileTool, runBuildTool, runLintTool, runTestTool, searchCodeTool, writeFileTool, } from "./handlers/coding-tools.js";
 const registry = new McpToolRegistry();
 registry.register(classifyProjectTool);
 registry.register(inspectRepoTool);
 registry.register(scaffoldTool);
 registry.register(compareManifestTool);
+registry.register(getRuntimeContextTool);
+registry.register(listDirTool);
+registry.register(readFileTool);
+registry.register(writeFileTool);
+registry.register(applyPatchTool);
+registry.register(searchCodeTool);
+registry.register(runTestTool);
+registry.register(runBuildTool);
+registry.register(gitStatusTool);
+registry.register(runLintTool);
+registry.register(formatCodeTool);
+registry.register(gitDiffTool);
+registry.register(gitAddGuardedTool);
+registry.register(gitCommitGuardedTool);
 export function getToolRegistry() {
     return registry;
 }

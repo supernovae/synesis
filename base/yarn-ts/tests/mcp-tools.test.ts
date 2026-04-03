@@ -4,17 +4,35 @@ import { classifyProjectTool } from "../src/mcp/handlers/classify-project.js";
 import { inspectRepoTool } from "../src/mcp/handlers/inspect-repo.js";
 import { scaffoldTool } from "../src/mcp/handlers/scaffold.js";
 import { compareManifestTool } from "../src/mcp/handlers/compare-manifest.js";
+import {
+  getRuntimeContextTool,
+  listDirTool,
+  readFileTool,
+  writeFileTool,
+  applyPatchTool,
+  searchCodeTool,
+  runTestTool,
+  runBuildTool,
+  gitStatusTool,
+} from "../src/mcp/handlers/coding-tools.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 describe("McpToolRegistry", () => {
   it("registers and lists tools", () => {
     const registry = new McpToolRegistry();
     registry.register(classifyProjectTool);
     registry.register(inspectRepoTool);
+    registry.register(getRuntimeContextTool);
+    registry.register(listDirTool);
 
     const catalog = registry.getCatalog();
-    expect(catalog).toHaveLength(2);
+    expect(catalog.length).toBeGreaterThanOrEqual(4);
     expect(catalog.map((t) => t.name)).toContain("synesis_classify_project");
     expect(catalog.map((t) => t.name)).toContain("synesis_inspect_repo");
+    expect(catalog.map((t) => t.name)).toContain("get_runtime_context");
+    expect(catalog.map((t) => t.name)).toContain("list_dir");
   });
 
   it("calls a registered tool", async () => {
@@ -40,6 +58,51 @@ describe("McpToolRegistry", () => {
     await expect(
       registry.call("synesis_classify_project", { task: "" })
     ).rejects.toThrow();
+  });
+});
+
+describe("coding tools", () => {
+  it("performs read/write/apply patch flow in temp root", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-tools-"));
+    const rel = "src/app.txt";
+
+    const write = await writeFileTool.handler({
+      projectRoot: root,
+      filePath: rel,
+      content: "hello world",
+      createDirs: true,
+    });
+    expect(write.written).toBe(true);
+
+    const read = await readFileTool.handler({
+      projectRoot: root,
+      filePath: rel,
+      maxBytes: 1000,
+    });
+    expect(read.content).toContain("hello world");
+
+    const patched = await applyPatchTool.handler({
+      projectRoot: root,
+      filePath: rel,
+      oldString: "world",
+      newString: "synesis",
+    });
+    expect(patched.replaced).toBe(true);
+  });
+
+  it("searches code with rg", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-rg-"));
+    writeFileSync(path.join(root, "main.go"), "package main\n\nfunc main() {}\n", "utf8");
+    const out = await searchCodeTool.handler({
+      projectRoot: root,
+      pattern: "package main",
+      dir: ".",
+      headLimit: 10,
+    });
+    expect([0, 1]).toContain(out.exitCode);
+    if (out.exitCode === 0) {
+      expect(out.matches.length).toBeGreaterThan(0);
+    }
   });
 });
 

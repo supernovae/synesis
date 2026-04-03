@@ -47,7 +47,7 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
     });
     expect(out.blockedBashDrift).toBe(true);
-    expect(String(out.input.command)).toContain("blocked risky shell path drift");
+    expect(String(out.input.command)).toContain("blocked unsafe shell command");
   });
 
   it("does not block benign bash command", () => {
@@ -60,5 +60,41 @@ describe("governToolCall", () => {
     });
     expect(out.blockedBashDrift).toBe(false);
     expect(out.validationMissing).toEqual([]);
+  });
+
+  it("blocks dangerous rm -rf shell command", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "rm -rf Users" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.blockedBashDrift).toBe(true);
+    expect(String(out.input.command)).toContain("blocked unsafe shell command");
+  });
+
+  it("blocks cd commands in strict mode", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "cd src && go test ./..." },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.blockedBashDrift).toBe(true);
+    expect(String(out.input.command)).toContain("cd is disallowed");
+  });
+
+  it("normalizes alias tool names for validation without renaming output tool", () => {
+    const out = governToolCall({
+      toolName: "read_file",
+      input: { file_path: "repo/repo/main.go" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.toolName).toBe("read_file");
+    expect(out.normalizedPath).toBe(true);
   });
 });

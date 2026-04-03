@@ -45,8 +45,7 @@ Resolution order: `synesis_project_root` → `x-synesis-project-root` → `x-syn
 - Optional env `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME=true` (default): `project_root` / `shell_cwd` are also echoed inside `<WORKING_FRAME>` when provided.
 - Optional env `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE=true` (default **true**): Read/Write/Edit/Update `file_path` values are constrained to resolve under `project_root` (or `shell_cwd` when `project_root` is absent) across coder routes (string prefix check after `path.resolve`).
 - Optional env `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED=true` (default **true**): blocks risky `mkdir && cd` duplicate-segment drift by rewriting the Bash call to a safe error command.
-- Optional env `SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED=true` (deploy default): when `project_root`/`shell_cwd` are missing on first turn, yarn can emit a transparent read-only initialization tool call (`Bash`) to capture `cwd`, inferred `project_root`, `shell`, and `os` anchors. This data is used only for path-governance safety and adapter context.
-- Optional env `SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS` (default `1`): limits handshake retries per session before fallback.
+- Synthetic workspace handshake is disabled in fix-forward strict mode. Clients should provide `project_root` and `shell_cwd` anchors directly via headers or metadata on every request.
 
 ## Client implementation notes
 

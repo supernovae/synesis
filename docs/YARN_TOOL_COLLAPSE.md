@@ -4,6 +4,10 @@ Synesis Yarn can **batch, dedupe, and merge** adjacent tool calls from the model
 
 Implementation: [`base/yarn-ts/src/tool-collapse/`](../base/yarn-ts/src/tool-collapse/).
 
+## Canonical safe toolset
+
+Yarn fix-forward strict mode prefers canonical safe coding tools (`read_file`, `write_file`, `apply_patch`, `search_code`, `run_test`, `run_build`, `run_lint`, `format_code`, `git_status`) while preserving client protocol compatibility. Collapse logic includes aliases from Claude/Cursor/Codex-style tool names and normalizes them before batching.
+
 ## Do clients have to implement `synesis_*` tools?
 
 **It depends which path you use.**

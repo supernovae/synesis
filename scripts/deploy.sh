@@ -43,7 +43,7 @@ set -euo pipefail
 #   - SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED (default true), MAX_ENTRIES, MAX_ENTRY_BYTES.
 #   - SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE (default true via deploy.sh patch) — strict file path clamp to project_root/shell_cwd anchor.
 #   - SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED (default true via deploy.sh patch) — block risky mkdir/cd duplicate-segment drift.
-#   - SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED (default true via deploy.sh patch) — synthetic read-only first tool call to discover cwd/project_root/os/shell when hints are missing.
+#   - Workspace handshake disabled in strict fix-forward mode; clients must send project_root/shell_cwd anchors.
 #
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
@@ -1133,8 +1133,6 @@ patch_yarn_path_governance_envs() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE" "${SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED" "${SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME" "${SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME:-true}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED:-true}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS:-1}" "$container"
 }
 
 verify_yarn_path_governance_envs() {
@@ -1162,8 +1160,6 @@ verify_yarn_path_governance_envs() {
     _require_env "SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE" "${SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE:-true}"
     _require_env "SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED" "${SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED:-true}"
     _require_env "SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME" "${SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME:-true}"
-    _require_env "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED:-true}"
-    _require_env "SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS" "${SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS:-1}"
 
     [[ "$ok" == "true" ]]
 }

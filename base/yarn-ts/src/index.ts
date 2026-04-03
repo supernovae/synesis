@@ -1407,11 +1407,11 @@ function shouldStartWorkspaceHandshake(
   state: SessionState,
   pathCtx: SessionPathHints,
 ): boolean {
-  if (!config.SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED) return false;
-  if (pathCtx.projectRoot || pathCtx.shellCwd) return false;
-  const status = getHandshakeStatus(state.record.metadata);
-  if (status === "ready" || status === "pending") return false;
-  return getHandshakeAttempts(state.record.metadata) < Math.max(1, config.SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS);
+  void state;
+  void pathCtx;
+  // Fix-forward policy: synthetic workspace handshake is disabled globally.
+  // Context anchors must come from headers/metadata only.
+  return false;
 }
 
 function sendOpenAIWorkspaceHandshake(

@@ -30,8 +30,7 @@ The service listens on `0.0.0.0:8000` by default.
 - `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME` (default `true`) — include client `project_root` / `shell_cwd` in `<WORKING_FRAME>` when sent; see `docs/clients/SESSION_EXECUTION_CONTEXT.md`.
 - `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE` (default `true`) — clamp file-tool paths to `project_root` (or `shell_cwd` fallback) across coder routes.
 - `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED` (default `true`) — block risky `mkdir && cd` duplicate-segment drift by rewriting the Bash tool call to a safe failure.
-- `SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED` (default `false`, enabled via `deploy.sh`) — on first turn with missing path hints, emit a transparent read-only `Bash` tool call to initialize workspace context (`cwd`, `project_root`, `shell`, `os`).
-- `SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS` (default `1`) — maximum synthetic handshake retries per session.
+- Synthetic workspace handshake is disabled in fix-forward strict mode; provide `project_root` / `shell_cwd` through headers or request metadata for deterministic path anchoring.
 
 ## Current Scope
 

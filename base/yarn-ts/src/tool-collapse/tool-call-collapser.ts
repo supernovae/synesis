@@ -10,6 +10,7 @@ import type {
   RunTestsCollapsed,
   ToolKind,
 } from "./types.js";
+import { normalizeToolAlias } from "../tool-aliases.js";
 
 /** Tools Yarn owns server-side — never merge with client file ops. */
 export const NEVER_COLLAPSE_NAMES = new Set<string>([
@@ -19,14 +20,17 @@ export const NEVER_COLLAPSE_NAMES = new Set<string>([
 
 const READ_ALIASES = new Set([
   "read_file",
+  "read",
   "filesystem_read_file",
   "view_file",
   "readfile",
 ]);
 
 const SEARCH_ALIASES = new Set([
-  "codebase_search",
+  "search_code",
   "grep",
+  "rg",
+  "codebase_search",
   "ripgrep",
   "workspace_search",
   "semantic_search",
@@ -35,6 +39,8 @@ const SEARCH_ALIASES = new Set([
 
 const PATCH_ALIASES = new Set([
   "apply_patch",
+  "update",
+  "edit",
   "str_replace_editor",
   "search_replace",
   "edit_file",
@@ -42,6 +48,10 @@ const PATCH_ALIASES = new Set([
 ]);
 
 const RUN_ALIASES = new Set([
+  "run_test",
+  "run_build",
+  "run_lint",
+  "format_code",
   "run_terminal_cmd",
   "execute_command",
   "run_tests",
@@ -49,12 +59,8 @@ const RUN_ALIASES = new Set([
   "bash",
 ]);
 
-function normName(name: string): string {
-  return name.trim().toLowerCase().replace(/-/g, "_");
-}
-
 export function classifyTool(name: string): ToolKind {
-  const n = normName(name);
+  const n = normalizeToolAlias(name);
   if (READ_ALIASES.has(n)) return "read_file";
   if (SEARCH_ALIASES.has(n)) return "search";
   if (PATCH_ALIASES.has(n)) return "apply_patch";

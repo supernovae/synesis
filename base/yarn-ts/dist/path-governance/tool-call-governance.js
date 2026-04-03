@@ -1,6 +1,8 @@
 import path from "node:path";
 import { constrainFileToolPathToProjectRoot, normalizeFileToolArgs, validateToolArgs, } from "../providers/model-adapter.js";
+import { canonicalValidationToolName } from "../tool-aliases.js";
 export function governToolCall(opts) {
+    const logicalName = canonicalValidationToolName(opts.toolName);
     const out = {
         toolName: opts.toolName,
         input: { ...opts.input },
@@ -9,20 +11,20 @@ export function governToolCall(opts) {
         blockedBashDrift: false,
         validationMissing: [],
     };
-    const pathNorm = normalizeFileToolArgs(out.toolName, out.input);
+    const pathNorm = normalizeFileToolArgs(logicalName, out.input);
     if (pathNorm.normalized) {
         out.input = pathNorm.input;
         out.normalizedPath = true;
     }
     const anchorRoot = resolvedAnchorRoot(opts.projectRoot, opts.shellCwd);
     if (opts.enforcePathRoot && anchorRoot) {
-        const rootClamp = constrainFileToolPathToProjectRoot(anchorRoot, out.toolName, out.input);
+        const rootClamp = constrainFileToolPathToProjectRoot(anchorRoot, logicalName, out.input);
         if (rootClamp.constrained) {
             out.input = rootClamp.input;
             out.constrainedToRoot = true;
         }
     }
-    if (opts.blockBashPathDrift && out.toolName === "Bash") {
+    if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
         const command = out.input.command;
         if (typeof command === "string" && command.trim()) {
             const drift = detectBashPathDrift(command, opts.shellCwd);
@@ -34,11 +36,28 @@ export function governToolCall(opts) {
                 };
                 out.blockedBashDrift = true;
             }
+            const dangerous = detectDangerousBash(command);
+            if (dangerous) {
+                const msg = `Synesis Yarn blocked unsafe shell command: ${dangerous.reason}. Use safe structured tools from project root.`;
+                out.input = {
+                    command: `echo ${shellEscape(msg)} >&2; exit 2`,
+                    description: "Blocked unsafe shell command",
+                };
+                out.blockedBashDrift = true;
+            }
         }
     }
-    const validation = validateToolArgs(out.toolName, out.input);
+    const validation = validateToolArgs(logicalName, out.input);
     if (!validation.valid) {
         out.validationMissing = validation.missing;
+        if (opts.strictValidationBlock !== false) {
+            const msg = `Synesis Yarn blocked invalid tool arguments for ${out.toolName}: missing ${validation.missing.join(", ")}`;
+            out.toolName = "Bash";
+            out.input = {
+                command: `echo ${shellEscape(msg)} >&2; exit 2`,
+                description: "Blocked invalid tool arguments",
+            };
+        }
     }
     return out;
 }
@@ -68,6 +87,22 @@ function detectBashPathDrift(command, shellCwd) {
         if (hasDuplicateAdjacentSegment(target)) {
             return { reason: `cd target '${target}' contains duplicated adjacent segments` };
         }
+    }
+    return null;
+}
+function detectDangerousBash(command) {
+    const c = command.trim().toLowerCase();
+    if (/(^|[;&|]\s*|\s+)cd\s+/.test(c)) {
+        return { reason: "cd is disallowed in strict mode" };
+    }
+    if (/\brm\s+-rf\s+/.test(c)) {
+        return { reason: "rm -rf is disallowed" };
+    }
+    if (/\bgit\s+clean\s+-f/.test(c)) {
+        return { reason: "git clean -f is disallowed" };
+    }
+    if (/\bmkfs\b|\bdd\s+if=|\bshutdown\b|\breboot\b/.test(c)) {
+        return { reason: "destructive system command detected" };
     }
     return null;
 }

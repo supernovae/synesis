@@ -286,7 +286,7 @@ const EnvSchema = z.object({
     SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS: z.coerce.number().default(100),
     SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST: z
         .string()
-        .default("^npm test$|^pnpm test$|^yarn test$|^pytest\\s|^go test\\s|^cargo test\\s"),
+        .default("^npm test$|^pnpm test$|^yarn test$|^pytest\\s|^go test\\s|^cargo test\\s|^npm run build$|^pnpm build$|^yarn build$|^go build\\s|^cargo build\\s|^npm run lint$|^pnpm lint$|^yarn lint$|^ruff check\\s|^npm run format$|^pnpm format$|^yarn format$|^ruff format\\s"),
     // Dedupe layer (exact + segment semantic + response cache; runs before linear collapse when enabled)
     SYNESIS_YARN_DEDUPE_ENABLED: z
         .string()

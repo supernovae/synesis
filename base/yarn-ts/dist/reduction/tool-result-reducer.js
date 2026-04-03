@@ -396,6 +396,9 @@ export class ToolResultReductionService {
             this._verificationToolNames = getVerificationToolNames(getLanguagePackRegistry());
         }
         const lower = toolName.toLowerCase();
+        if (lower.includes("run_test") || lower.includes("run_build") || lower.includes("run_lint")) {
+            return true;
+        }
         for (const vt of this._verificationToolNames) {
             if (lower.includes(vt))
                 return true;

@@ -1,3 +1,4 @@
+import { normalizeToolAlias } from "../tool-aliases.js";
 /** Tools Yarn owns server-side — never merge with client file ops. */
 export const NEVER_COLLAPSE_NAMES = new Set([
     "synesis_artifact_retrieve",
@@ -5,13 +6,16 @@ export const NEVER_COLLAPSE_NAMES = new Set([
 ]);
 const READ_ALIASES = new Set([
     "read_file",
+    "read",
     "filesystem_read_file",
     "view_file",
     "readfile",
 ]);
 const SEARCH_ALIASES = new Set([
-    "codebase_search",
+    "search_code",
     "grep",
+    "rg",
+    "codebase_search",
     "ripgrep",
     "workspace_search",
     "semantic_search",
@@ -19,23 +23,26 @@ const SEARCH_ALIASES = new Set([
 ]);
 const PATCH_ALIASES = new Set([
     "apply_patch",
+    "update",
+    "edit",
     "str_replace_editor",
     "search_replace",
     "edit_file",
     "replace",
 ]);
 const RUN_ALIASES = new Set([
+    "run_test",
+    "run_build",
+    "run_lint",
+    "format_code",
     "run_terminal_cmd",
     "execute_command",
     "run_tests",
     "shell",
     "bash",
 ]);
-function normName(name) {
-    return name.trim().toLowerCase().replace(/-/g, "_");
-}
 export function classifyTool(name) {
-    const n = normName(name);
+    const n = normalizeToolAlias(name);
     if (READ_ALIASES.has(n))
         return "read_file";
     if (SEARCH_ALIASES.has(n))
