@@ -1,8 +1,10 @@
 /**
  * ACP agent that forwards prompt turns to the Synesis Yarn HTTP API (OpenAI chat completions).
  * Session execution context comes from ACP initialize (clientInfo, _meta) and newSession (cwd, workspace).
+ * Tool calls returned by the model are executed on the ACP client (fs + terminal) and fed back in-loop.
  * @see https://agentclientprotocol.com/
  */
+import path from "node:path";
 import type {
   Agent,
   AgentSideConnection,
@@ -41,6 +43,7 @@ interface SessionData {
 
 const META_MAX = 500;
 const ACP_META_JSON_MAX = 2048;
+const MAX_TOOL_ROUNDS = 32;
 
 function envBaseUrl(): string {
   const u = (process.env.SYNESIS_YARN_URL ?? process.env.SYNESIS_CODER_URL ?? "http://127.0.0.1:8000").trim();
@@ -84,6 +87,36 @@ export function mapCoderToolNameToAcpKind(name: string): ToolKind {
 
 /** @deprecated Use mapCoderToolNameToAcpKind */
 export const mapAnthropicToolNameToAcpKind = mapCoderToolNameToAcpKind;
+
+/** Resolve relative coder paths using session metadata anchors (for ACP fs RPC). */
+export function resolvePathForAcp(filePath: string, meta: Record<string, unknown>): string {
+  const fp = filePath.trim();
+  if (!fp) return fp;
+  if (path.isAbsolute(fp)) return fp;
+  const root = meta.synesis_project_root;
+  const cwd = meta.synesis_shell_cwd;
+  if (typeof root === "string" && root) return path.resolve(root, fp);
+  if (typeof cwd === "string" && cwd) return path.resolve(cwd, fp);
+  return path.resolve(fp);
+}
+
+function parseToolArguments(argumentsJson: string | undefined): Record<string, unknown> {
+  if (!argumentsJson || !argumentsJson.trim()) return {};
+  try {
+    const v = JSON.parse(argumentsJson) as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function shellInvocation(command: string, cwd?: string | null): { command: string; args?: string[]; cwd?: string | null } {
+  const c = command.trim();
+  if (process.platform === "win32") {
+    return { command: "cmd.exe", args: ["/c", c], cwd: cwd ?? undefined };
+  }
+  return { command: "/bin/bash", args: ["-lc", c], cwd: cwd ?? undefined };
+}
 
 interface InitBridgeContext {
   clientLabel?: string;
@@ -264,6 +297,122 @@ export class SynesisYarnAcpAgent implements Agent {
     const base = envBaseUrl();
     const model = envModel();
 
+    let modelCalls = 0;
+    while (true) {
+      if (modelCalls >= MAX_TOOL_ROUNDS) {
+        throw new Error(
+          `synesis-yarn-acp: exceeded ${MAX_TOOL_ROUNDS} /v1/chat/completions calls in one ACP prompt (tool loop)`,
+        );
+      }
+      modelCalls += 1;
+
+      const msg = await this.fetchChatCompletion(session, token, base, model);
+      if (!msg) {
+        break;
+      }
+
+      const text = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : "";
+      const toolCalls = msg.tool_calls ?? [];
+
+      if (text) {
+        await this.emitTextChunks(params.sessionId, text);
+      }
+
+      for (const tc of toolCalls) {
+        const id = tc.id;
+        const name = tc.function?.name ?? "";
+        if (!id || !name) continue;
+        let rawInput: unknown = {};
+        try {
+          rawInput = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+        } catch {
+          rawInput = { _raw: tc.function?.arguments ?? "" };
+        }
+        const n: SessionNotification = {
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: id,
+            title: name,
+            kind: mapCoderToolNameToAcpKind(name),
+            status: "pending",
+            rawInput,
+          },
+        };
+        await this.connection.sessionUpdate(n);
+      }
+
+      if (toolCalls.length === 0) {
+        if (text) {
+          session.messages.push({ role: "assistant", content: text });
+        }
+        break;
+      }
+
+      session.messages.push({
+        role: "assistant",
+        content: text || null,
+        tool_calls: toolCalls,
+      });
+
+      for (const tc of toolCalls) {
+        const id = tc.id;
+        const name = tc.function?.name ?? "";
+        const input = parseToolArguments(tc.function?.arguments);
+        await this.connection.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: id,
+            status: "in_progress",
+            title: name,
+          },
+        });
+        let resultText: string;
+        try {
+          resultText = await this.executeSynesisToolOnAcpClient(params.sessionId, session, name, input);
+        } catch (err) {
+          resultText = JSON.stringify({
+            error: true,
+            message: err instanceof Error ? err.message : String(err),
+            tool: name,
+          });
+        }
+        await this.connection.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: id,
+            status: "completed",
+            title: name,
+            rawOutput: resultText,
+          },
+        });
+        session.messages.push({
+          role: "tool",
+          tool_call_id: id,
+          name,
+          content: resultText,
+        });
+      }
+    }
+
+    return { stopReason: "end_turn" };
+  }
+
+  private async fetchChatCompletion(
+    session: SessionData,
+    token: string,
+    base: string,
+    model: string,
+  ): Promise<{
+    content?: string | null;
+    tool_calls?: Array<{
+      id: string;
+      type?: string;
+      function?: { name: string; arguments: string };
+    }>;
+  } | null> {
     const body: Record<string, unknown> = {
       model,
       max_tokens: 32_768,
@@ -300,56 +449,83 @@ export class SynesisYarnAcpAgent implements Agent {
             function?: { name: string; arguments: string };
           }>;
         };
-        finish_reason?: string;
       }>;
     };
 
-    const choice = json.choices?.[0];
-    const msg = choice?.message;
-    if (!msg) {
-      return { stopReason: "end_turn" };
-    }
+    return json.choices?.[0]?.message ?? null;
+  }
 
-    const text = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : "";
-    if (text) {
-      await this.emitTextChunks(params.sessionId, text);
-    }
-
-    const toolCalls = msg.tool_calls ?? [];
-    for (const tc of toolCalls) {
-      const id = tc.id;
-      const name = tc.function?.name ?? "";
-      if (!id || !name) continue;
-      let rawInput: unknown = {};
-      try {
-        rawInput = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
-      } catch {
-        rawInput = { _raw: tc.function?.arguments ?? "" };
+  /**
+   * Run Synesis tool names against the ACP client's fs + terminal capabilities.
+   */
+  private async executeSynesisToolOnAcpClient(
+    sessionId: string,
+    session: SessionData,
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<string> {
+    const meta = session.requestMetadata;
+    switch (toolName) {
+      case "Read": {
+        const fp = input.file_path ?? input.path;
+        if (typeof fp !== "string" || !fp.trim()) {
+          return JSON.stringify({ error: "Read: missing file_path" });
+        }
+        const abs = resolvePathForAcp(fp, meta);
+        const r = await this.connection.readTextFile({ sessionId, path: abs });
+        return r.content;
       }
-      const n: SessionNotification = {
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: "tool_call",
-          toolCallId: id,
-          title: name,
-          kind: mapCoderToolNameToAcpKind(name),
-          status: "pending",
-          rawInput,
-        },
-      };
-      await this.connection.sessionUpdate(n);
+      case "Write": {
+        const fp = input.file_path ?? input.path;
+        const content = input.content;
+        if (typeof fp !== "string" || !fp.trim()) {
+          return JSON.stringify({ error: "Write: missing file_path" });
+        }
+        if (typeof content !== "string") {
+          return JSON.stringify({ error: "Write: content must be a string" });
+        }
+        const abs = resolvePathForAcp(fp, meta);
+        await this.connection.writeTextFile({ sessionId, path: abs, content });
+        return JSON.stringify({ ok: true, path: abs, bytes: Buffer.byteLength(content, "utf8") });
+      }
+      case "Bash": {
+        const cmd = input.command;
+        if (typeof cmd !== "string" || !cmd.trim()) {
+          return JSON.stringify({ error: "Bash: missing command" });
+        }
+        const cwdRaw = input.cwd;
+        const cwd =
+          typeof cwdRaw === "string" && cwdRaw.trim()
+            ? resolvePathForAcp(cwdRaw, meta)
+            : typeof meta.synesis_shell_cwd === "string"
+              ? meta.synesis_shell_cwd
+              : null;
+        const sh = shellInvocation(cmd, cwd);
+        const handle = await this.connection.createTerminal({
+          sessionId,
+          command: sh.command,
+          ...(sh.args ? { args: sh.args } : {}),
+          cwd: sh.cwd ?? undefined,
+        });
+        try {
+          const exitRes = await handle.waitForExit();
+          const out = await handle.currentOutput();
+          return JSON.stringify({
+            stdout: out.output,
+            exit_code: exitRes.exitCode ?? null,
+            truncated: out.truncated,
+          });
+        } finally {
+          await handle.release();
+        }
+      }
+      default:
+        return JSON.stringify({
+          error: true,
+          message: `synesis-yarn-acp does not execute tool "${toolName}" on the ACP client yet. Supported: Read, Write, Bash.`,
+          tool: toolName,
+        });
     }
-
-    const assistantMsg: OaiChatMessage = {
-      role: "assistant",
-      content: text || null,
-      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-    };
-    if (text || toolCalls.length > 0) {
-      session.messages.push(assistantMsg);
-    }
-
-    return { stopReason: "end_turn" };
   }
 
   private async emitTextChunks(sessionId: string, text: string): Promise<void> {
