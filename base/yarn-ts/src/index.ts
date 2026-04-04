@@ -3003,11 +3003,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     for await (const part of streamed.fullStream) {
       const ts = Math.floor(Date.now() / 1000);
       if (part.type === "text-delta") {
-        pendingTextDeltas.push((part as unknown as { text: string }).text ?? "");
+        const td = (part as unknown as { text: string }).text ?? "";
+        pendingTextDeltas.push(td);
+        flushOpenAIText(td);
       } else if (part.type === "tool-call" || part.type === "tool-input-start") {
         const tc = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
         if (pendingTextDeltas.length > 0) {
-          flushOpenAIText(pendingTextDeltas.join(""));
           pendingTextDeltas.length = 0;
         }
         if (part.type === "tool-input-start") {
@@ -3177,7 +3178,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
         gate.finalText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
       );
-      flushOpenAIText(guarded);
+      if (rawText.length === 0) {
+        flushOpenAIText(guarded);
+      } else if (guarded !== rawText) {
+        if (guarded.startsWith(rawText)) {
+          flushOpenAIText(guarded.slice(rawText.length));
+        } else {
+          flushOpenAIText(guarded);
+        }
+      }
       pendingTextDeltas.length = 0;
     }
   }
@@ -3832,6 +3841,8 @@ app.post("/v1/messages", async (req, reply) => {
 
     let blockIdx = 0;
     let inTextBlock = false;
+    let claudeStreamingTextOpen = false;
+    let claudeToolBlockStartedOnStream = false;
     let stopReason = "end_turn";
     let claudeStreamGateApplied = false;
     let claudeStreamMissingMust = 0;
@@ -3849,6 +3860,32 @@ app.post("/v1/messages", async (req, reply) => {
       );
     let requestToolValidationFailures = 0;
     let requestToolRepairs = 0;
+    const emitClaudeTextDelta = (delta: string): void => {
+      if (!delta) return;
+      if (!claudeStreamingTextOpen) {
+        safeSse(reply, "content_block_start", {
+          type: "content_block_start",
+          index: blockIdx,
+          content_block: { type: "text", text: "" },
+        });
+        claudeStreamingTextOpen = true;
+        inTextBlock = true;
+      }
+      safeSse(reply, "content_block_delta", {
+        type: "content_block_delta",
+        index: blockIdx,
+        delta: { type: "text_delta", text: delta },
+      });
+    };
+
+    const closeClaudeStreamingTextBlock = (): void => {
+      if (!claudeStreamingTextOpen) return;
+      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+      blockIdx++;
+      claudeStreamingTextOpen = false;
+      inTextBlock = false;
+    };
+
     const flushClaudeTextBlock = (text: string): void => {
       if (!text) return;
       safeSse(reply, "content_block_start", {
@@ -3871,9 +3908,10 @@ app.post("/v1/messages", async (req, reply) => {
         if (part.type === "text-delta") {
           const delta = (part as unknown as { text?: string }).text ?? "";
           pendingClaudeTextDeltas.push(delta);
+          emitClaudeTextDelta(delta);
         } else if (part.type === "reasoning-start") {
           if (pendingClaudeTextDeltas.length > 0) {
-            flushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
+            closeClaudeStreamingTextBlock();
             pendingClaudeTextDeltas.length = 0;
           }
           const text = (part as unknown as { text?: string }).text ?? "";
@@ -3894,11 +3932,16 @@ app.post("/v1/messages", async (req, reply) => {
             continue;
           }
           if (pendingClaudeTextDeltas.length > 0) {
-            flushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
+            closeClaudeStreamingTextBlock();
             pendingClaudeTextDeltas.length = 0;
           }
-          // Buffer tool input for normalization instead of streaming immediately.
-          // We emit the start + deltas + stop together in tool-call handler after remapping.
+          // Show tool_use immediately; stream partial_json deltas while buffering for governance.
+          safeSse(reply, "content_block_start", {
+            type: "content_block_start",
+            index: blockIdx,
+            content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" },
+          });
+          claudeToolBlockStartedOnStream = true;
           claudeToolBuffer.set(tc.toolCallId ?? "", { toolName: tc.toolName ?? "", toolCallId: tc.toolCallId ?? "", chunks: [] });
           stopReason = "tool_use";
         } else if (part.type === "tool-input-delta") {
@@ -3907,7 +3950,13 @@ app.post("/v1/messages", async (req, reply) => {
           if (pendingClaudeToolIds.has(tdId)) continue;
           const buf = claudeToolBuffer.get(tdId);
           if (buf) {
-            buf.chunks.push(td.inputTextDelta ?? "");
+            const piece = td.inputTextDelta ?? "";
+            buf.chunks.push(piece);
+            safeSse(reply, "content_block_delta", {
+              type: "content_block_delta",
+              index: blockIdx,
+              delta: { type: "input_json_delta", partial_json: piece },
+            });
           } else {
             safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
           }
@@ -4007,15 +4056,37 @@ app.post("/v1/messages", async (req, reply) => {
             }, "claude_tool_call_streamed");
           }
 
-          // Emit buffered tool call: start + single delta with normalized JSON + stop
           const toolCallId = tcFull.toolCallId ?? "";
-          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
           const normalizedJson = JSON.stringify(finalInput);
-          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: normalizedJson } });
-          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-          blockIdx++;
-          claudeToolBuffer.delete(toolCallId);
-          stopReason = "tool_use";
+          const rawJoined = buf?.chunks.join("") ?? "";
+
+          if (claudeToolBlockStartedOnStream) {
+            if (normalizedJson !== rawJoined) {
+              app.log.warn(
+                {
+                  reqId: traceReqId,
+                  toolName: emitToolName,
+                  toolCallId,
+                  rawLen: rawJoined.length,
+                  normalizedLen: normalizedJson.length,
+                },
+                "claude_tool_stream_governed_mismatch: streamed tool JSON differs from governed output; client may show pre-governance args",
+              );
+            }
+            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+            blockIdx++;
+            claudeToolBuffer.delete(toolCallId);
+            claudeToolBlockStartedOnStream = false;
+            stopReason = "tool_use";
+          } else {
+            // Fallback: no tool-input-start on stream (emit full block once).
+            safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
+            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: normalizedJson } });
+            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+            blockIdx++;
+            claudeToolBuffer.delete(toolCallId);
+            stopReason = "tool_use";
+          }
         }
       }
       if (
@@ -4042,8 +4113,9 @@ app.post("/v1/messages", async (req, reply) => {
       claudeStreamSpan.setStatus("error", sanitizeUpstreamError(streamErr));
       app.log.error({ err: streamErr, reqId: traceReqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
       recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "stream_error", "streamText", detail.slice(0, 500), traceReqId, { model: resolved.resolvedModelId });
-      if (!inTextBlock) {
+      if (!claudeStreamingTextOpen) {
         safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
+        claudeStreamingTextOpen = true;
         inTextBlock = true;
       }
       safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: `\n\n[Upstream provider error — retrying may help]` } });
@@ -4094,13 +4166,24 @@ app.post("/v1/messages", async (req, reply) => {
         gate.finalText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
       );
-      flushClaudeTextBlock(guarded);
+      if (claudeStreamingTextOpen) {
+        if (guarded !== rawText) {
+          if (guarded.startsWith(rawText)) {
+            emitClaudeTextDelta(guarded.slice(rawText.length));
+          } else {
+            closeClaudeStreamingTextBlock();
+            flushClaudeTextBlock(guarded);
+          }
+        } else {
+          closeClaudeStreamingTextBlock();
+        }
+      } else {
+        flushClaudeTextBlock(guarded);
+      }
       pendingClaudeTextDeltas.length = 0;
     }
 
-    if (inTextBlock) {
-      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-    }
+    closeClaudeStreamingTextBlock();
 
     let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
     try { usage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
