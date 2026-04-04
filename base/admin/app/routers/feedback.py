@@ -382,15 +382,22 @@ async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
             resp.raise_for_status()
             items = resp.json()
     except httpx.HTTPStatusError as exc:
+        err_body = (exc.response.text or "")[:500]
         logger.warning(
             "openwebui_sync_http status=%s body=%s",
             exc.response.status_code,
-            (exc.response.text or "")[:200],
+            err_body[:200],
         )
-        raise HTTPException(
-            status_code=502,
-            detail=f"Open WebUI export failed: HTTP {exc.response.status_code}",
-        ) from exc
+        detail = f"Open WebUI export failed: HTTP {exc.response.status_code}"
+        if exc.response.status_code == 403 and "API key" in err_body and "not enabled" in err_body:
+            detail += (
+                ". Open WebUI rejected the sk- API key: set ENABLE_API_KEYS=true on the "
+                "open-webui Deployment and rollout restart, or use a JWT from POST /api/v1/auths/signin "
+                "instead of an API key."
+            )
+        elif exc.response.status_code in (401, 403):
+            detail += f" — {err_body[:300]}"
+        raise HTTPException(status_code=502, detail=detail) from exc
     except Exception as exc:
         logger.warning("openwebui_sync_error error=%s", str(exc)[:120])
         raise HTTPException(status_code=502, detail=f"Open WebUI sync failed: {exc!s}") from exc
