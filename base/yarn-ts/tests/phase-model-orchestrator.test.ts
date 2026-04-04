@@ -49,4 +49,28 @@ describe("PhaseModelOrchestrator", () => {
     expect(s.decisions).toBe(2);
     expect(s.pulseCount + s.coreCount + s.horizonCount).toBe(2);
   });
+
+  it("routes planning phase to horizon on legacy path when planningUseHorizon is default", () => {
+    const o = new PhaseModelOrchestrator();
+    const d = o.decide({
+      requestedModel: "claude-sonnet-4-5",
+      latestUserText: "outline next steps only",
+      workingPhase: "planning",
+      riskProfile: "standard",
+    });
+    expect(d.tier).toBe("synesis-horizon");
+    expect(d.reasons).toContain("planning_horizon");
+  });
+
+  it("keeps planning on core when planningUseHorizon is false and no complex keywords", () => {
+    const o = new PhaseModelOrchestrator();
+    const d = o.decide({
+      requestedModel: "claude-sonnet-4-5",
+      latestUserText: "outline next steps only",
+      workingPhase: "planning",
+      riskProfile: "standard",
+      planningUseHorizon: false,
+    });
+    expect(d.tier).toBe("synesis-core");
+  });
 });

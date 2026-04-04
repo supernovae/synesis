@@ -17,6 +17,8 @@ export interface OrchestratorContext {
   requestedModel: string;
   latestUserText: string;
   workingPhase?: WorkflowPhase;
+  /** When false, planning phase uses keyword-based horizon only (legacy). Default: treat as true (all planning → horizon in inference path). */
+  planningUseHorizon?: boolean;
   riskProfile?: "low" | "standard" | "high";
   evidence?: EvidenceSignals;
   decisionMatrixEnabled?: boolean;
@@ -155,7 +157,7 @@ export class PhaseModelOrchestrator {
     let uncertaintyFraming: string | undefined;
 
     if (ctx.decisionMatrixEnabled && hasEvidenceSignals(ev)) {
-      const result = this.classifyDecisionPath(ev, ctx.riskProfile ?? "standard", phase, ctx.latestUserText, th);
+      const result = this.classifyDecisionPath(ev, ctx.riskProfile ?? "standard", phase, ctx.latestUserText, th, ctx);
       decisionPath = result.path;
       tier = result.tier;
       uncertaintyFraming = result.uncertaintyFraming;
@@ -234,6 +236,7 @@ export class PhaseModelOrchestrator {
     phase: WorkflowPhase,
     userText: string,
     th: DecisionMatrixThresholds,
+    ctx: OrchestratorContext,
   ): { path: DecisionPath; tier: EffortTier; reasons: string[]; uncertaintyFraming?: string } {
     const recallConf = ev.recallConfidence ?? 0;
     const evidConf = ev.evidenceConfidence ?? 0;
@@ -288,6 +291,9 @@ export class PhaseModelOrchestrator {
     } else if (phase === "validation") {
       tier = "synesis-pulse";
       reasons.push("validation_fast_path");
+    } else if (phase === "planning" && ctx.planningUseHorizon !== false) {
+      tier = "synesis-horizon";
+      reasons.push("planning_horizon");
     } else if (
       phase === "planning" &&
       /\b(complex|multi|migration|critical|security)\b/i.test(userText)
@@ -314,6 +320,9 @@ export class PhaseModelOrchestrator {
     }
     if (ctx.riskProfile === "low" && phase === "validation") {
       return { tier: "synesis-pulse", reasons: ["low_risk_validation"] };
+    }
+    if (phase === "planning" && ctx.planningUseHorizon !== false) {
+      return { tier: "synesis-horizon", reasons: ["planning_horizon"] };
     }
     if (
       phase === "planning" &&

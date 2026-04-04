@@ -38,6 +38,11 @@ import {
   type RequirementChecklist,
 } from "./validation/requirement-coverage.js";
 import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
+import {
+  mergeSynesisClarificationFromRequestMetadata,
+  parseSynesisClarificationRound,
+} from "./validation/clarification-schema.js";
+import { parseOrchestratorPhaseHeader } from "./validation/orchestrator-phase.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
@@ -189,6 +194,29 @@ type CompletionGateOutcome = {
   missingMust: number;
   missingShould: number;
 };
+
+function applyClarificationRoundResponseHeader(
+  reply: { header: (k: string, v: string) => unknown },
+  recordMetadata: Record<string, unknown>,
+): void {
+  const parsed = parseSynesisClarificationRound(recordMetadata.synesis_clarification_round);
+  if (parsed) {
+    reply.header("X-Synesis-Clarification-Round", JSON.stringify(parsed));
+  }
+}
+
+function sseHeadersWithClarification(recordMetadata: Record<string, unknown>): Record<string, string> {
+  const h: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  };
+  const parsed = parseSynesisClarificationRound(recordMetadata.synesis_clarification_round);
+  if (parsed) {
+    h["X-Synesis-Clarification-Round"] = JSON.stringify(parsed);
+  }
+  return h;
+}
 
 function applyCompletionGate(
   checklist: RequirementChecklist | null,
@@ -2037,6 +2065,7 @@ app.get("/health/telemetry", async (req, reply) => {
       completionGate: config.SYNESIS_YARN_COMPLETION_GATE_ENABLED,
       completionGateHardFail: config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL,
       completionGateSkipClarification: config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION,
+      planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
       decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
       sensemaking: config.SYNESIS_YARN_SENSEMAKING_ENABLED,
       diagnosticPersistence: config.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED,
@@ -2230,6 +2259,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
   if (latestUserText && typeof latestUserText.content === "string") {
     updateTracePromptMetadata(session, latestUserText.content);
@@ -2303,7 +2333,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiPreFrame = config.SYNESIS_YARN_WORKING_FRAME_ENABLED
     ? workingFrameService.build(normalizedOpenAI.messages as never)
     : undefined;
-  const oaiWorkingPhase: WorkflowPhase | undefined = oaiPreFrame ? phaseFromFrame(oaiPreFrame.currentPhase) : undefined;
+  const oaiOrchestratorPhaseOverride = parseOrchestratorPhaseHeader(
+    String(req.headers["x-synesis-orchestrator-phase"] ?? ""),
+  );
+  const oaiWorkingPhase: WorkflowPhase | undefined =
+    oaiOrchestratorPhaseOverride ?? (oaiPreFrame ? phaseFromFrame(oaiPreFrame.currentPhase) : undefined);
   const oaiWorkingFrameGoal: string | undefined = oaiPreFrame?.goal;
 
   let oaiPrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
@@ -2354,6 +2388,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     requestedModel: request.model,
     latestUserText: String(latestUserText?.content ?? ""),
     workingPhase: oaiWorkingPhase,
+    planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
     riskProfile: preManifest.riskProfile,
     decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
     evidence: {
@@ -2910,6 +2945,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (externalToolCalls.length > 0) {
       message.tool_calls = sdkToolCallsToOpenAI(externalToolCalls);
     }
+    applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return reply.send({
       id: reqId,
       object: "chat.completion",
@@ -2946,11 +2982,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
     ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
   });
-  reply.raw.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive"
-  });
+  reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
 
   let finishReason = "stop";
   const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
@@ -3358,6 +3390,7 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);
   const priorClaudeChecklistHash = getChecklistSourceHash(session.record.metadata);
   if (latestClaudeUser && typeof latestClaudeUser.content === "string") {
     updateTracePromptMetadata(session, latestClaudeUser.content);
@@ -3431,7 +3464,11 @@ app.post("/v1/messages", async (req, reply) => {
   const claudePreFrame = config.SYNESIS_YARN_WORKING_FRAME_ENABLED
     ? workingFrameService.build(normalizedFromClaude.messages as never)
     : undefined;
-  const claudeWorkingPhase: WorkflowPhase | undefined = claudePreFrame ? phaseFromFrame(claudePreFrame.currentPhase) : undefined;
+  const claudeOrchestratorPhaseOverride = parseOrchestratorPhaseHeader(
+    String(req.headers["x-synesis-orchestrator-phase"] ?? ""),
+  );
+  const claudeWorkingPhase: WorkflowPhase | undefined =
+    claudeOrchestratorPhaseOverride ?? (claudePreFrame ? phaseFromFrame(claudePreFrame.currentPhase) : undefined);
   const claudeWorkingFrameGoal: string | undefined = claudePreFrame?.goal;
 
   let claudePrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
@@ -3475,6 +3512,7 @@ app.post("/v1/messages", async (req, reply) => {
     requestedModel: body.model,
     latestUserText: String(latestClaudeUser?.content ?? ""),
     workingPhase: claudeWorkingPhase,
+    planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
     riskProfile: claudeManifest.riskProfile,
     decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
     evidence: {
@@ -3788,11 +3826,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
       ...(providerOptions ? { providerOptions: providerOptions as never } : {})
     });
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive"
-    });
+    reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
     const msgId = `msg_${crypto.randomUUID()}`;
     safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [] } });
 
@@ -4363,6 +4397,7 @@ app.post("/v1/messages", async (req, reply) => {
     content.push({ type: "text", text: "" });
   }
 
+  applyClarificationRoundResponseHeader(reply, session.record.metadata);
   return reply.send({
     id: `msg_${crypto.randomUUID()}`,
     type: "message",

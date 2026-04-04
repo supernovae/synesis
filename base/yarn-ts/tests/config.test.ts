@@ -20,6 +20,7 @@ describe("loadConfig", () => {
     expect(config.SYNESIS_YARN_COMPLETION_GATE_ENABLED).toBe(false);
     expect(config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL).toBe(false);
     expect(config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION).toBe(true);
+    expect(config.SYNESIS_YARN_PLANNING_USE_HORIZON).toBe(true);
     expect(config.SYNESIS_YARN_RESPONSE_STYLE_MODE).toBe("guidance");
     expect(config.SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID).toBe(true);
   });

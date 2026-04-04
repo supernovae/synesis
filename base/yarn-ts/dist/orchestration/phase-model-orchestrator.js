@@ -86,7 +86,7 @@ export class PhaseModelOrchestrator {
         let decisionPath;
         let uncertaintyFraming;
         if (ctx.decisionMatrixEnabled && hasEvidenceSignals(ev)) {
-            const result = this.classifyDecisionPath(ev, ctx.riskProfile ?? "standard", phase, ctx.latestUserText, th);
+            const result = this.classifyDecisionPath(ev, ctx.riskProfile ?? "standard", phase, ctx.latestUserText, th, ctx);
             decisionPath = result.path;
             tier = result.tier;
             uncertaintyFraming = result.uncertaintyFraming;
@@ -166,7 +166,7 @@ export class PhaseModelOrchestrator {
     /**
      * Evidence-aware four-path classification (Decision Policy Matrix).
      */
-    classifyDecisionPath(ev, riskProfile, phase, userText, th) {
+    classifyDecisionPath(ev, riskProfile, phase, userText, th, ctx) {
         const recallConf = ev.recallConfidence ?? 0;
         const evidConf = ev.evidenceConfidence ?? 0;
         const recallRoute = ev.recallRouting;
@@ -215,6 +215,10 @@ export class PhaseModelOrchestrator {
             tier = "synesis-pulse";
             reasons.push("validation_fast_path");
         }
+        else if (phase === "planning" && ctx.planningUseHorizon !== false) {
+            tier = "synesis-horizon";
+            reasons.push("planning_horizon");
+        }
         else if (phase === "planning" &&
             /\b(complex|multi|migration|critical|security)\b/i.test(userText)) {
             tier = "synesis-horizon";
@@ -233,6 +237,9 @@ export class PhaseModelOrchestrator {
         }
         if (ctx.riskProfile === "low" && phase === "validation") {
             return { tier: "synesis-pulse", reasons: ["low_risk_validation"] };
+        }
+        if (phase === "planning" && ctx.planningUseHorizon !== false) {
+            return { tier: "synesis-horizon", reasons: ["planning_horizon"] };
         }
         if (phase === "planning" &&
             /\b(complex|multi|migration|critical|security)\b/i.test(ctx.latestUserText)) {

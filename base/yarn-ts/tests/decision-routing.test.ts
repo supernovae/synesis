@@ -501,7 +501,7 @@ describe("PhaseModelOrchestrator — Decision Routing (Phase 8)", () => {
         latestUserText: "plan the complex multi-service migration",
       }));
       expect(d.tier).toBe("synesis-horizon");
-      expect(d.reasons).toContain("complex_planning");
+      expect(d.reasons.some((r) => r === "planning_horizon" || r === "complex_planning")).toBe(true);
     });
   });
 

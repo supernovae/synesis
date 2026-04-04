@@ -209,6 +209,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Route planning-phase sessions to synesis-horizon (inference path). Default true. Set false for keyword-only horizon on planning. */
+  SYNESIS_YARN_PLANNING_USE_HORIZON: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
   // Response style flavor — markdown guidance + optional guardrail normalization.
   SYNESIS_YARN_RESPONSE_STYLE_MODE: z

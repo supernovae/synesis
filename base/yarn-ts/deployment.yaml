@@ -101,6 +101,8 @@ spec:
               value: "false"
             - name: SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION
               value: "true"
+            - name: SYNESIS_YARN_PLANNING_USE_HORIZON
+              value: "true"
             # ── Markdown response style ──
             - name: SYNESIS_YARN_RESPONSE_STYLE_MODE
               value: "guidance"
