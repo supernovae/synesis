@@ -4,6 +4,7 @@ import {
   extractClaudeToolResult,
   extractOpenAIToolResult,
   hasBashTool,
+  lastToolUseIdFromClaudeMessages,
   parseWorkspaceContextOutput,
 } from "../src/session/workspace-context-handshake.js";
 
@@ -43,6 +44,22 @@ describe("workspace-context-handshake", () => {
       "abc",
     );
     expect(result).toContain("SYNESIS_WORKSPACE_CONTEXT_V1");
+  });
+
+  it("returns most recent tool_use_id even when last user message is plain text", () => {
+    const id = lastToolUseIdFromClaudeMessages([
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "toolu_old", name: "Read", input: { path: "x" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_old", content: "ok" }],
+      },
+      { role: "user", content: "follow-up without tool_result in this turn" },
+    ]);
+    expect(id).toBe("toolu_old");
   });
 
   it("extracts Claude tool_result by tool_use_id", () => {

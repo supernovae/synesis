@@ -84,6 +84,28 @@ export function extractOpenAIToolResult(
   return JSON.stringify(row.content);
 }
 
+/**
+ * Most recent `tool_use_id` from Claude-style user content blocks (for policy / progress keys).
+ * Walks messages newest-first so a trailing user text message does not hide the latest tool result.
+ */
+export function lastToolUseIdFromClaudeMessages(
+  messages: Array<{ role: string; content: unknown }>,
+): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+    const blocks = msg.content as Array<Record<string, unknown>>;
+    for (let j = blocks.length - 1; j >= 0; j -= 1) {
+      const b = blocks[j];
+      if (!b || typeof b !== "object") continue;
+      if (b.type !== "tool_result") continue;
+      const id = b.tool_use_id;
+      if (typeof id === "string" && id.length > 0) return id;
+    }
+  }
+  return "";
+}
+
 export function extractClaudeToolResult(
   messages: Array<{ role: string; content: unknown }>,
   toolCallId: string,

@@ -1118,6 +1118,7 @@ import {
   extractClaudeToolResult,
   extractOpenAIToolResult,
   hasBashTool,
+  lastToolUseIdFromClaudeMessages,
   makeWorkspaceHandshakeToolCallId,
   parseWorkspaceContextOutput,
 } from "./session/workspace-context-handshake.js";
@@ -2524,8 +2525,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     tools: request.tools as unknown[],
     repeatAttempt: {
       action: "chat_completion",
-      args: { model: request.model, lastToolId: oaiLastToolId },
-      fsFingerprint: oaiLastToolId || "none"
+      args: { model: request.model, lastToolId: oaiLastToolId, messageCount: request.messages.length },
+      fsFingerprint: `${oaiLastToolId || "none"}:${request.messages.length}`,
     },
     sessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -3702,11 +3703,9 @@ app.post("/v1/messages", async (req, reply) => {
   }
   session.record.lastTier = claudeOrchestration.tier;
 
-  const claudeLastToolUseId = [...(body.messages as Array<{ role: string; content: unknown }>)]
-    .reverse()
-    .flatMap((m) => Array.isArray(m.content) ? m.content : [])
-    .find((b: Record<string, unknown>) => b.type === "tool_result")
-    ?.tool_use_id as string ?? "";
+  const claudeLastToolUseId = lastToolUseIdFromClaudeMessages(
+    body.messages as Array<{ role: string; content: unknown }>,
+  );
   const latestClaudeUserHash = hashTextSignal(latestClaudeUser?.content ?? "");
   if (session.awaitingToolLoopUserAck) {
     if (latestClaudeUserHash && latestClaudeUserHash !== session.toolLoopAckAnchorUserHash) {
@@ -3729,8 +3728,9 @@ app.post("/v1/messages", async (req, reply) => {
     tools: (body.tools as unknown[]) ?? [],
     repeatAttempt: {
       action: "claude_messages",
-      args: { model: body.model, lastToolUseId: claudeLastToolUseId },
-      fsFingerprint: claudeLastToolUseId || "none"
+      args: { model: body.model, lastToolUseId: claudeLastToolUseId, messageCount: body.messages.length },
+      // Include transcript length so tool loops advance the fingerprint even if tool_use_id extraction fails.
+      fsFingerprint: `${claudeLastToolUseId || "none"}:${body.messages.length}`,
     },
     sessionKey: claudeSessionKey,
     sessionTokensIn: session.record.totalTokensIn,
