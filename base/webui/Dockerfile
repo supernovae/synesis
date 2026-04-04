@@ -12,3 +12,6 @@ FROM ghcr.io/open-webui/open-webui:v0.8.12
 COPY overrides/middleware.py /app/backend/open_webui/utils/middleware.py
 
 COPY synesis-theme.css /app/build/static/custom.css
+
+COPY synesis-fix-user-models.py /opt/synesis/synesis-fix-user-models.py
+RUN chmod +x /opt/synesis/synesis-fix-user-models.py

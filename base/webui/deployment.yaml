@@ -177,7 +177,17 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 5
+              periodSeconds: 5
+          # Backfill SQLite user.settings when ui.models is empty or ui.pinnedModels was never set
+          # (DEFAULT_PINNED_MODELS only applies to new accounts upstream). Inherits DEFAULT_* env.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    nohup python3 /opt/synesis/synesis-fix-user-models.py >> /tmp/synesis-fix-user-models.log 2>&1 &
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
