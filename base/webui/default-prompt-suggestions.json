@@ -1,0 +1,93 @@
+[
+  {
+    "title": [
+      "Help me study",
+      "vocabulary for a college entrance exam"
+    ],
+    "content": "Help me study vocabulary: write a sentence for me to fill in the blank, and I'll try to pick the correct option."
+  },
+  {
+    "title": [
+      "Give me ideas",
+      "for what to do with my kids' art"
+    ],
+    "content": "What are 5 creative things I could do with my kids' art? I don't want to throw them away, but it's also so much clutter."
+  },
+  {
+    "title": [
+      "Tell me a fun fact",
+      "about the Roman Empire"
+    ],
+    "content": "Tell me a random fun fact about the Roman Empire"
+  },
+  {
+    "title": [
+      "Show me a code snippet",
+      "of a website's sticky header"
+    ],
+    "content": "Show me a code snippet of a website's sticky header in CSS and JavaScript."
+  },
+  {
+    "title": [
+      "Explain options trading",
+      "if I'm familiar with buying and selling stocks"
+    ],
+    "content": "Explain options trading in simple terms if I'm familiar with buying and selling stocks."
+  },
+  {
+    "title": [
+      "Overcome procrastination",
+      "give me tips"
+    ],
+    "content": "Could you start by asking me about instances when I procrastinate the most and then give me some suggestions to overcome it?"
+  },
+  {
+    "title": [
+      "Steer Through Complexity",
+      "Make sense of messy systems, constraints, and tradeoffs."
+    ],
+    "content": "Help me navigate a complex technical or organizational problem.\nStart by synthesizing the situation into:\n1. what is known,\n2. what is uncertain,\n3. likely governing constraints,\n4. risks or hidden failure modes,\n5. the most grounded next steps.\n\nUse retrieved knowledge when relevant, especially for cloud architecture, AI/ML platforms, system design, platform engineering, Kubernetes/OpenShift, and Go services.\nDo not jump straight to a solution if the frame is weak.\nReflect the problem back clearly, challenge weak assumptions, and propose an actionable path."
+  },
+  {
+    "title": [
+      "Synthesize a Grounded Plan",
+      "Turn rough ideas into practical execution plans."
+    ],
+    "content": "Take my idea, request, or problem and turn it into a grounded plan.\n\nStructure the answer as:\n- objective\n- current context\n- assumptions\n- dependencies\n- risks\n- phased plan\n- immediate next action\n\nUse retrieved knowledge when appropriate from architecture, cloud, AI/ML, Golang, and platform engineering material.\nPrefer concrete steps over generic advice.\nIf the request is ambiguous, surface the ambiguity explicitly and produce the best grounded version of the plan anyway."
+  },
+  {
+    "title": [
+      "From Ambiguity to Architecture",
+      "Shape vague concepts into clear technical designs."
+    ],
+    "content": "Help turn this vague concept into a workable architecture.\n\nPlease:\n- clarify the likely problem being solved,\n- identify system boundaries,\n- describe major components,\n- define interfaces and responsibilities,\n- call out tradeoffs and constraints,\n- suggest an implementation path,\n- note where evidence from retrieved knowledge supports the design.\n\nBias toward practical architecture for cloud platforms, AI/ML systems, developer platforms, backend systems, and distributed services.\nIf relevant, include Kubernetes, OpenShift, APIs, RAG pipelines, model serving, orchestration, data flow, and operational concerns."
+  },
+  {
+    "title": [
+      "Joint Cognition Mode",
+      "Think with me, not just for me."
+    ],
+    "content": "Act as a joint cognitive system for this task.\n\nWork with me as a reflective technical thinking partner:\n- restate the problem clearly,\n- surface what I may be missing,\n- identify assumptions and blind spots,\n- challenge weak reasoning,\n- bring in grounded knowledge where relevant,\n- help converge toward a strong next move.\n\nFavor collaboration over one-shot answers.\nIf the topic touches AI, ML, cloud, architecture, Golang, platform engineering, RAG, or systems design, use relevant retrieved knowledge and explain why it matters."
+  },
+  {
+    "title": [
+      "Find the Signal",
+      "Separate what matters from noise, hype, and confusion."
+    ],
+    "content": "Analyze this situation and help me find the signal.\n\nBreak it down into:\n- durable facts,\n- assumptions,\n- noise or distraction,\n- real technical or organizational risks,\n- the most important leverage points,\n- what decision should be made next.\n\nUse retrieved knowledge when available, especially for system architecture, cloud platforms, AI/ML, RAG, developer tools, and backend systems.\nPrefer grounded analysis over hype.\nBe explicit about uncertainty."
+  },
+  {
+    "title": [
+      "Ground, Reflect, Act",
+      "Use evidence, context, and feedback to move forward."
+    ],
+    "content": "Help me move from uncertainty to action using evidence and reflection.\n\nRespond in three parts:\n1. Ground: summarize relevant facts, context, and retrieved knowledge.\n2. Reflect: identify tradeoffs, weak assumptions, and system dynamics.\n3. Act: recommend concrete next steps with rationale.\n\nPrioritize architecture, cloud-native systems, AI/ML platforms, RAG, model serving, Golang services, and operational reality when relevant.\nAvoid generic output. Make the advice specific and useful."
+  },
+  {
+    "title": [
+      "Build the Frame First",
+      "Define the problem before rushing into implementation."
+    ],
+    "content": "Before solving this, help me build the right frame.\n\nIdentify:\n- the real problem,\n- the desired outcome,\n- relevant context,\n- constraints,\n- stakeholders or affected systems,\n- key tradeoffs,\n- success and failure conditions.\n\nThen propose the best next step or design direction.\nUse retrieved knowledge if relevant to architecture, AI systems, cloud platforms, developer experience, Golang, or system design.\nDo not oversimplify a complex situation just to make it look clean."
+  }
+]

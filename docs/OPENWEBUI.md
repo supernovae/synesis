@@ -73,6 +73,7 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 | `ENABLE_SIGNUP` | `true` | Allow new user registration |
 | `DEFAULT_MODELS` | `Synesis Auto` | Default chat model (tier “Auto”); IDs match planner-ts |
 | `DEFAULT_PINNED_MODELS` | `Synesis Auto,Synesis Pulse,…` | Pinned tiers in the model selector for new accounts |
+| `DEFAULT_PROMPT_SUGGESTIONS` | (ConfigMap) | JSON array of new-chat prompt suggestion cards (`title` = two-line label, `content` = prompt text). Synesis merges upstream Open WebUI defaults with platform-specific prompts in [`base/webui/default-prompt-suggestions.json`](../base/webui/default-prompt-suggestions.json); injected via `open-webui-default-prompts` ConfigMap. |
 | `ENABLE_PERSISTENT_CONFIG` | `false` | Use Deployment env for defaults; otherwise Open WebUI stores first-boot config in SQLite and ignores later env changes (same class of issue as OAuth) |
 | `ENABLE_FOLLOW_UP_GENERATION` | `false` | Disables task-model follow-up “chips” after each assistant message (avoids extra LLM calls and trace noise); default upstream is on |
 | `ENABLE_TITLE_GENERATION` | `false` | Disables task-model chat title generation (avoids an extra LLM call); Open WebUI falls back to its default heading from the first message text |

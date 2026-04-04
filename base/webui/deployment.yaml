@@ -96,6 +96,12 @@ spec:
             # PersistentConfig (incl. default model / pinned models) otherwise freezes in SQLite on first boot.
             - name: ENABLE_PERSISTENT_CONFIG
               value: "false"
+            # Merged pool: Open WebUI upstream defaults + Synesis platform prompts (see default-prompt-suggestions.json).
+            - name: DEFAULT_PROMPT_SUGGESTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: open-webui-default-prompts
+                  key: default-prompt-suggestions.json
             - name: ENABLE_OLLAMA_API
               value: "false"
             - name: WEBUI_NAME

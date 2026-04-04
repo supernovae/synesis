@@ -2,6 +2,13 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: synesis-webui
 
+configMapGenerator:
+  - name: open-webui-default-prompts
+    files:
+      - default-prompt-suggestions.json
+    options:
+      disableNameSuffixHash: true
+
 resources:
   - namespace.yaml
   # webui-api-key: managed only by deploy.sh — applying sk-synesis-change-me
