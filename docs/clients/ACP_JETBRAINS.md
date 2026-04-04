@@ -33,7 +33,7 @@ In the JetBrains settings for **external agent** or **ACP** (wording varies by p
 
 ## Experience
 
-- Chat and inline prompts go to Yarn via the Messages API; responses stream as ACP notifications.
+- Chat and inline prompts go to Yarn via **`POST /v1/chat/completions`** (same core API as other coder clients); assistant text is delivered as ACP notifications.
 - **Tool execution** is handled by the JetBrains side per ACP; ensure allowed tools match your org policy.
 - For **HTTPS-only** setups (no ACP), point the built-in HTTP client at the same base URL as [CLAUDECODE.md](CLAUDECODE.md).
 

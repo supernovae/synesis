@@ -49,6 +49,7 @@ Resolution order: `synesis_project_root` → `x-synesis-project-root` → `x-syn
 
 ## Client implementation notes
 
+- **ACP bridge (`synesis-yarn-acp`):** uses **`POST /v1/chat/completions`** with OpenAI body **`metadata`** (no extra headers required). It sets **`synesis_shell_cwd`** from the ACP session **`cwd`**, **`synesis_project_root`** from the first **`additionalDirectories`** entry or **`cwd`**, **`synesis_client_model_label`** from **`initialize.clientInfo`**, and merges supported **`_meta`** hints (`platform`, `os`, `os_version`, `shell`, nested `synesis_runtime`, optional `synesis_git_summary`) into the same keys as table-driven clients. Request header **`x-synesis-client`: `synesis-acp`** identifies the bridge in logs and adapter resolution.
 - **Claude Code:** the stock CLI does not add these fields. Typical pattern: a **small reverse proxy** in front of `ANTHROPIC_BASE_URL` that copies the upstream request and adds `x-synesis-project-root` / `x-synesis-shell-cwd` from the machine environment (or from a sidecar file updated by a [SessionStart hook](https://code.claude.com/docs/en/hooks)). See [CLAUDECODE.md](CLAUDECODE.md) for Bash containment (`PreToolUse`).
 - **Other IDEs:** the same header/metadata names apply; many stacks use a small reverse proxy in front of the OpenAI or Anthropic base URL.
 

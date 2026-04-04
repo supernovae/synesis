@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { mapAnthropicToolNameToAcpKind } from "../src/acp/synesis-yarn-acp-agent.js";
+import { mapAnthropicToolNameToAcpKind, mapCoderToolNameToAcpKind } from "../src/acp/synesis-yarn-acp-agent.js";
 
 describe("ACP tool kind mapping", () => {
-  it("maps common coder tool names", () => {
-    expect(mapAnthropicToolNameToAcpKind("Bash")).toBe("execute");
+  it("maps common coder tool names (OpenAI / shared tool names)", () => {
+    expect(mapCoderToolNameToAcpKind("Bash")).toBe("execute");
+    expect(mapCoderToolNameToAcpKind("Read")).toBe("read");
+    expect(mapCoderToolNameToAcpKind("Write")).toBe("edit");
+    expect(mapCoderToolNameToAcpKind("custom_tool")).toBe("other");
     expect(mapAnthropicToolNameToAcpKind("Read")).toBe("read");
-    expect(mapAnthropicToolNameToAcpKind("Write")).toBe("edit");
-    expect(mapAnthropicToolNameToAcpKind("custom_tool")).toBe("other");
   });
 });

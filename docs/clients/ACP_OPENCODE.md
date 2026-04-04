@@ -32,7 +32,7 @@ Replace the URL with your real coder HTTPS origin (no `/v1` suffix).
 
 ## Experience
 
-- OpenCode drives the session; the bridge maps ACP `prompt` to Yarn `POST /v1/messages` and streams assistant output.
+- OpenCode drives the session; the bridge maps ACP `prompt` to Yarn `POST /v1/chat/completions` and streams assistant text to the ACP client as chunks.
 - **Tools**: Model-proposed tools appear as ACP `tool_call` updates; OpenCode must execute and return results according to its ACP flow.
 - For HTTP-based OpenCode profiles (if supported), you can alternatively point at `https://coder.example.com` with Anthropic-compatible headers — see [CLAUDECODE.md](CLAUDECODE.md) for header patterns.
 

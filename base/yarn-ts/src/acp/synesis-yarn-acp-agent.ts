@@ -1,5 +1,6 @@
 /**
- * ACP agent that forwards prompt turns to the Synesis Yarn HTTP API (Anthropic Messages).
+ * ACP agent that forwards prompt turns to the Synesis Yarn HTTP API (OpenAI chat completions).
+ * Session execution context comes from ACP initialize (clientInfo, _meta) and newSession (cwd, workspace).
  * @see https://agentclientprotocol.com/
  */
 import type {
@@ -18,12 +19,28 @@ import type {
 } from "@agentclientprotocol/sdk";
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 
-type YarnMessage = { role: "user" | "assistant"; content: unknown };
+/** OpenAI-format messages we keep in-session (matches yarn-ts /v1/chat/completions). */
+export interface OaiChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: string | null;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type?: string;
+    function?: { name: string; arguments: string };
+  }>;
+}
 
 interface SessionData {
-  messages: YarnMessage[];
+  messages: OaiChatMessage[];
   conversationId: string;
+  /** Merged into every POST body `metadata` for session execution context + ACP hints. */
+  requestMetadata: Record<string, unknown>;
 }
+
+const META_MAX = 500;
+const ACP_META_JSON_MAX = 2048;
 
 function envBaseUrl(): string {
   const u = (process.env.SYNESIS_YARN_URL ?? process.env.SYNESIS_CODER_URL ?? "http://127.0.0.1:8000").trim();
@@ -38,6 +55,11 @@ function envModel(): string {
   return (process.env.SYNESIS_YARN_MODEL ?? "synesis-core").trim();
 }
 
+function truncate(s: string, max: number): string {
+  const t = s.trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
 function blocksToUserText(blocks: ContentBlock[]): string {
   const lines: string[] = [];
   for (const b of blocks) {
@@ -48,7 +70,10 @@ function blocksToUserText(blocks: ContentBlock[]): string {
   return lines.join("\n\n").trim();
 }
 
-export function mapAnthropicToolNameToAcpKind(name: string): ToolKind {
+/**
+ * Map Yarn / OpenAI tool names to ACP ToolKind for UI hints.
+ */
+export function mapCoderToolNameToAcpKind(name: string): ToolKind {
   const n = name.toLowerCase();
   if (n.includes("bash") || n.includes("shell") || n.includes("exec")) return "execute";
   if (n.includes("read") || n.includes("file")) return "read";
@@ -57,15 +82,133 @@ export function mapAnthropicToolNameToAcpKind(name: string): ToolKind {
   return "other";
 }
 
+/** @deprecated Use mapCoderToolNameToAcpKind */
+export const mapAnthropicToolNameToAcpKind = mapCoderToolNameToAcpKind;
+
+interface InitBridgeContext {
+  clientLabel?: string;
+  clientName?: string;
+  clientVersion?: string;
+}
+
+function parseInitializeContext(params: InitializeRequest): InitBridgeContext {
+  const ci = params.clientInfo;
+  const name = typeof ci?.name === "string" && ci.name.trim() ? ci.name.trim() : undefined;
+  const version = typeof ci?.version === "string" && ci.version.trim() ? ci.version.trim() : undefined;
+  const clientLabel =
+    name && version ? `${name}/${version}` : name ?? version ?? undefined;
+  return { clientLabel, clientName: name, clientVersion: version };
+}
+
+/**
+ * Merge ACP `_meta` hints into Synesis `metadata` fields consumed by
+ * parseSessionExecutionContext / prompt chain (synesis_runtime, git summary, etc.).
+ */
+function applyAcpMetaHints(target: Record<string, unknown>, meta: Record<string, unknown> | null | undefined): void {
+  if (!meta || typeof meta !== "object") return;
+
+  const rtExisting =
+    target.synesis_runtime && typeof target.synesis_runtime === "object" && target.synesis_runtime !== null
+      ? { ...(target.synesis_runtime as Record<string, unknown>) }
+      : {};
+
+  const pick = (k: string, dest: "platform" | "os_version" | "shell") => {
+    const v = meta[k];
+    if (typeof v === "string" && v.trim()) rtExisting[dest] = v.trim();
+  };
+  pick("platform", "platform");
+  pick("os", "platform");
+  pick("os_version", "os_version");
+  pick("shell", "shell");
+
+  const nested = meta.synesis_runtime;
+  if (nested && typeof nested === "object" && nested !== null) {
+    for (const [k, v] of Object.entries(nested as Record<string, unknown>)) {
+      if (typeof v === "string" && v.trim()) rtExisting[k] = v.trim();
+    }
+  }
+
+  if (Object.keys(rtExisting).length > 0) {
+    target.synesis_runtime = rtExisting;
+  }
+
+  const git = meta.synesis_git_summary ?? meta.git_summary;
+  if (typeof git === "string" && git.trim()) {
+    target.synesis_git_summary = truncate(git, META_MAX);
+  }
+
+  const cutoff = meta.synesis_knowledge_cutoff ?? meta.knowledge_cutoff;
+  if (typeof cutoff === "string" && cutoff.trim()) {
+    target.synesis_knowledge_cutoff = truncate(cutoff, 128);
+  }
+}
+
+/** Safe, bounded JSON snapshot for observability (no secrets). */
+function compactAcpMetaForAudit(meta: Record<string, unknown> | null | undefined): string | undefined {
+  if (!meta || typeof meta !== "object") return undefined;
+  try {
+    const keys = Object.keys(meta).filter((k) => !/token|secret|password|key/i.test(k));
+    const slim: Record<string, unknown> = {};
+    for (const k of keys.slice(0, 32)) {
+      const v = meta[k];
+      if (typeof v === "string") slim[k] = truncate(v, 200);
+      else if (typeof v === "number" || typeof v === "boolean") slim[k] = v;
+      else if (v === null) slim[k] = null;
+    }
+    const s = JSON.stringify(slim);
+    return s.length <= ACP_META_JSON_MAX ? s : `${s.slice(0, ACP_META_JSON_MAX - 1)}…`;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildRequestMetadata(
+  init: InitBridgeContext,
+  initMeta: InitializeRequest["_meta"],
+  ns: NewSessionRequest,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+
+  if (init.clientLabel) out.synesis_client_model_label = truncate(init.clientLabel, 256);
+  if (init.clientName) out.synesis_acp_client_name = truncate(init.clientName, 128);
+  if (init.clientVersion) out.synesis_acp_client_version = truncate(init.clientVersion, 64);
+
+  applyAcpMetaHints(out, initMeta as Record<string, unknown> | null | undefined);
+  applyAcpMetaHints(out, ns._meta as Record<string, unknown> | null | undefined);
+
+  const cwd = typeof ns.cwd === "string" && ns.cwd.trim() ? ns.cwd.trim() : "";
+  const extra = ns.additionalDirectories?.filter((d) => typeof d === "string" && d.trim()) ?? [];
+  if (cwd) out.synesis_shell_cwd = cwd;
+  const projectRoot = extra[0] ?? (cwd || undefined);
+  if (projectRoot) out.synesis_project_root = projectRoot;
+
+  const mcp = ns.mcpServers ?? [];
+  out.synesis_acp_session = {
+    additional_directory_count: extra.length,
+    mcp_server_count: mcp.length,
+  };
+
+  const initAudit = compactAcpMetaForAudit(initMeta as Record<string, unknown> | undefined);
+  const sessAudit = compactAcpMetaForAudit(ns._meta as Record<string, unknown> | undefined);
+  if (initAudit) out.synesis_acp_initialize_meta_json = initAudit;
+  if (sessAudit) out.synesis_acp_new_session_meta_json = sessAudit;
+
+  return out;
+}
+
 export class SynesisYarnAcpAgent implements Agent {
   private readonly connection: AgentSideConnection;
   private readonly sessions = new Map<string, SessionData>();
+  private initBridge: InitBridgeContext = {};
+  private initMeta: InitializeRequest["_meta"];
 
   constructor(connection: AgentSideConnection) {
     this.connection = connection;
   }
 
-  async initialize(_params: InitializeRequest): Promise<InitializeResponse> {
+  async initialize(params: InitializeRequest): Promise<InitializeResponse> {
+    this.initBridge = parseInitializeContext(params);
+    this.initMeta = params._meta;
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: {
@@ -89,9 +232,13 @@ export class SynesisYarnAcpAgent implements Agent {
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const sessionId = crypto.randomUUID();
     const conversationId = `acp_${sessionId}`;
+    const requestMetadata = buildRequestMetadata(this.initBridge, this.initMeta, params);
+    requestMetadata.synesis_conversation_id = conversationId;
+
     this.sessions.set(sessionId, {
       messages: [],
       conversationId,
+      requestMetadata,
     });
     return { sessionId };
   }
@@ -117,62 +264,89 @@ export class SynesisYarnAcpAgent implements Agent {
     const base = envBaseUrl();
     const model = envModel();
 
-    const res = await fetch(`${base}/v1/messages`, {
+    const body: Record<string, unknown> = {
+      model,
+      max_tokens: 32_768,
+      messages: session.messages,
+      stream: false,
+      conversation_id: session.conversationId,
+      metadata: { ...session.requestMetadata },
+    };
+
+    const res = await fetch(`${base}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        "anthropic-version": "2023-06-01",
         "x-synesis-client": "synesis-acp",
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: 32_768,
-        messages: session.messages,
-        metadata: {
-          synesis_conversation_id: session.conversationId,
-        },
-        stream: false,
-      }),
+      body: JSON.stringify(body),
       signal: this.connection.signal,
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      throw new Error(`Yarn Messages API ${res.status}: ${errText.slice(0, 500)}`);
+      throw new Error(`Yarn OpenAI API ${res.status}: ${errText.slice(0, 500)}`);
     }
 
-    const body = (await res.json()) as {
-      content?: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>;
+    const json = (await res.json()) as {
+      choices?: Array<{
+        message?: {
+          role?: string;
+          content?: string | null;
+          tool_calls?: Array<{
+            id: string;
+            type?: string;
+            function?: { name: string; arguments: string };
+          }>;
+        };
+        finish_reason?: string;
+      }>;
     };
 
-    const content = body.content ?? [];
-    const assistantBlocks: unknown[] = [];
-
-    for (const block of content) {
-      if (block.type === "text" && block.text) {
-        assistantBlocks.push(block);
-        await this.emitTextChunks(params.sessionId, block.text);
-      } else if (block.type === "tool_use" && block.id && block.name) {
-        assistantBlocks.push(block);
-        const toolCallId = block.id;
-        const n: SessionNotification = {
-          sessionId: params.sessionId,
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId,
-            title: block.name,
-            kind: mapAnthropicToolNameToAcpKind(block.name),
-            status: "pending",
-            rawInput: block.input ?? {},
-          },
-        };
-        await this.connection.sessionUpdate(n);
-      }
+    const choice = json.choices?.[0];
+    const msg = choice?.message;
+    if (!msg) {
+      return { stopReason: "end_turn" };
     }
 
-    if (assistantBlocks.length > 0) {
-      session.messages.push({ role: "assistant", content: assistantBlocks });
+    const text = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : "";
+    if (text) {
+      await this.emitTextChunks(params.sessionId, text);
+    }
+
+    const toolCalls = msg.tool_calls ?? [];
+    for (const tc of toolCalls) {
+      const id = tc.id;
+      const name = tc.function?.name ?? "";
+      if (!id || !name) continue;
+      let rawInput: unknown = {};
+      try {
+        rawInput = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+      } catch {
+        rawInput = { _raw: tc.function?.arguments ?? "" };
+      }
+      const n: SessionNotification = {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: id,
+          title: name,
+          kind: mapCoderToolNameToAcpKind(name),
+          status: "pending",
+          rawInput,
+        },
+      };
+      await this.connection.sessionUpdate(n);
+    }
+
+    const assistantMsg: OaiChatMessage = {
+      role: "assistant",
+      content: text || null,
+      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+    };
+    if (text || toolCalls.length > 0) {
+      session.messages.push(assistantMsg);
     }
 
     return { stopReason: "end_turn" };

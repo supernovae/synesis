@@ -1,6 +1,6 @@
 # Agent Client Protocol (ACP) with Synesis
 
-This document describes the **Synesis ACP bridge** (`synesis-yarn-acp`): a small process that speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over **stdio** (JSON-RPC) and forwards work to the **Synesis coder frontend** (`yarn-ts`) over **HTTPS** using the Anthropic Messages API (`POST /v1/messages`).
+This document describes the **Synesis ACP bridge** (`synesis-yarn-acp`): a small process that speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over **stdio** (JSON-RPC) and forwards work to the **Synesis coder frontend** (`yarn-ts`) over **HTTPS** using the **OpenAI-compatible** API (`POST /v1/chat/completions`) — the same core surface as other IDE integrations. The Anthropic Messages route (`POST /v1/messages`) remains for **Claude Code** and other Anthropic-shaped clients only.
 
 ## When to use ACP vs HTTPS
 
@@ -47,9 +47,10 @@ The process reads/writes **NDJSON** on stdin/stdout per the ACP TypeScript SDK.
 
 ## Behavior
 
-- **Sessions**: Each ACP session maps to a Yarn conversation id via `metadata.synesis_conversation_id`.
-- **Prompts**: User text is forwarded; assistant **text** is streamed in chunks as ACP `agent_message_chunk` notifications.
-- **Tool calls**: Model `tool_use` blocks are surfaced as ACP `tool_call` updates. **Tool execution** is still performed by the **client** (editor); the next turn should supply tool results per your editor’s ACP flow. Full tool-loop parity with Claude Code over HTTP may require additional work.
+- **Sessions**: Each ACP session maps to a Yarn conversation id via body `conversation_id` and `metadata.synesis_conversation_id`.
+- **Execution context (first-class)**: On `initialize`, the bridge records **clientInfo** (name/version) and merges safe hints from **`_meta`** into Yarn `metadata` (for example `synesis_runtime.platform` / `os_version` / `shell`, `synesis_git_summary`). On **`newSession`**, it maps **`cwd`** → `synesis_shell_cwd`, **`additionalDirectories[0]`** (or `cwd`) → `synesis_project_root`, and records MCP server / extra-root **counts** under `synesis_acp_session` (no secrets). See [SESSION_EXECUTION_CONTEXT.md](SESSION_EXECUTION_CONTEXT.md).
+- **Prompts**: User text is appended to an OpenAI-style message list; each turn calls **`POST /v1/chat/completions`** with `stream: false`. Assistant **text** is replayed to the ACP client as `agent_message_chunk` notifications.
+- **Tool calls**: OpenAI `tool_calls` from the response are surfaced as ACP `tool_call` updates. **Tool execution** is still performed by the **client** (editor); the next turn should supply tool results per your editor’s ACP flow. Full tool-loop parity (tool messages in history) may require follow-up work.
 
 ## Per-editor setup
 
