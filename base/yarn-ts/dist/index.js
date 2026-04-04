@@ -14,6 +14,7 @@ import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
 import { buildChecklistFromPrompt, evaluateRequirementCoverage, summarizeMissingCoverage, } from "./validation/requirement-coverage.js";
+import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
@@ -109,14 +110,18 @@ function buildCompletionGapMessage(missingSummary) {
         "Next step: continue implementation to close these gaps (instead of marking the task done).",
     ].join("\n");
 }
-function applyCompletionGate(checklist, originalText, evidenceParts) {
+function applyCompletionGate(checklist, originalText, traceRootPrompt, latestUserPrompt) {
     if (!config.SYNESIS_YARN_COMPLETION_GATE_ENABLED || !checklist) {
         return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
     }
     if (checklist.must.length === 0 && checklist.should.length === 0) {
         return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
     }
-    const evidence = evidenceParts.filter(Boolean).join("\n");
+    if (config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION &&
+        looksLikeClarificationTurnAssistantMessage(originalText)) {
+        return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
+    }
+    const evidence = [traceRootPrompt, latestUserPrompt, originalText].filter(Boolean).join("\n");
     const report = evaluateRequirementCoverage(checklist, evidence);
     if (report.missingMust.length === 0) {
         return {
@@ -212,11 +217,28 @@ function extractRequestedToolNames(userText, tools) {
     }
     return requested;
 }
-function resolveToolSchemaBudget(adapterMaxEffectiveTools) {
+function isOpenClawProfile(profile) {
+    return profile.family === "openclaw";
+}
+function isWriteCapableToolName(name) {
+    const n = name.trim().toLowerCase();
+    return n === "write"
+        || n === "edit"
+        || n === "update"
+        || n === "write_file"
+        || n === "apply_patch"
+        || n === "git_add_guarded"
+        || n === "git_commit_guarded"
+        || n === "format_code";
+}
+function resolveToolSchemaBudget(adapterMaxEffectiveTools, profileToolBudgetCap) {
     if (!config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED)
         return 0;
     const override = config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE;
-    const adapterLimit = adapterMaxEffectiveTools ?? 0;
+    let adapterLimit = adapterMaxEffectiveTools ?? 0;
+    if (profileToolBudgetCap && profileToolBudgetCap > 0) {
+        adapterLimit = adapterLimit > 0 ? Math.min(adapterLimit, profileToolBudgetCap) : profileToolBudgetCap;
+    }
     if (override > 0 && adapterLimit > 0)
         return Math.min(override, adapterLimit);
     if (override > 0)
@@ -286,6 +308,10 @@ const toolSchemaPruningStats = {
     requestsConsidered: 0,
     requestsPruned: 0,
     toolsPrunedTotal: 0,
+};
+const openClawProfileStats = {
+    requestsObserved: 0,
+    strictGovernanceRewrites: 0,
 };
 function pushDiagnostic(d) {
     diagnosticRing.push(d);
@@ -1587,6 +1613,7 @@ app.get("/health/telemetry", async (req, reply) => {
         toolResultReduction: toolResultReduction.getStats(),
         toolArgHardening: { ...toolArgHardeningStats },
         toolSchemaPruning: { ...toolSchemaPruningStats },
+        openClawProfile: { ...openClawProfileStats },
         workingFrame: workingFrameService.getStats(),
         projectManifest: projectManifestService.getStats(),
         deterministicPolicy: policyEngine.getStats(),
@@ -1654,6 +1681,7 @@ app.get("/health/telemetry", async (req, reply) => {
             verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
             completionGate: config.SYNESIS_YARN_COMPLETION_GATE_ENABLED,
             completionGateHardFail: config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL,
+            completionGateSkipClarification: config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION,
             decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
             sensemaking: config.SYNESIS_YARN_SENSEMAKING_ENABLED,
             diagnosticPersistence: config.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED,
@@ -1732,6 +1760,9 @@ getToolRegistry().setTimeoutMs(config.SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS);
 await registerMcpRoutes(app, {
     authResolver,
     enabled: config.SYNESIS_YARN_MCP_TOOLS_ENABLED,
+    openClawProfileEnabled: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED,
+    openClawMcpAllowlistEnabled: config.SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED,
+    openClawStrictGovernanceEnabled: config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED,
 });
 await registerToolCollapseRoutes(app, {
     authResolver,
@@ -1781,6 +1812,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const toolResultCount = request.messages.filter((m) => m.role === "tool").length;
     const normalizedOpenAI = await validationNormalization.normalizeMessagesAsync(reducedOpenAI.messages, runValidationTierCFallback);
     const adapterProfile = clientAdapterPacks.resolve(String(req.headers["x-synesis-client"] ?? "unknown"), String(req.headers["x-synesis-mode"] ?? ""));
+    const openClawStrictGovernance = config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED
+        && config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED
+        && isOpenClawProfile(adapterProfile);
+    if (isOpenClawProfile(adapterProfile)) {
+        openClawProfileStats.requestsObserved += 1;
+    }
     const oaiBodyMetaRaw = request.metadata;
     const oaiBodyMeta = oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
         ? oaiBodyMetaRaw
@@ -2114,7 +2151,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const { resolved, messages } = resolveResult;
     const { adapter } = resolved;
     const rawTools = (normalizedRequest.tools ?? []);
-    const toolBudget = resolveToolSchemaBudget(adapter.maxEffectiveTools);
+    const toolBudget = resolveToolSchemaBudget(adapter.maxEffectiveTools, config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(adapterProfile)
+        ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
+        : adapterProfile.features.toolSchemaBudgetCap);
     const prunedTools = pruneToolSchemas(rawTools, toolBudget, extractRecentToolNames(normalizedRequest.messages), extractRequestedToolNames(String(latestUserText?.content ?? ""), rawTools));
     toolSchemaPruningStats.requestsConsidered += 1;
     if (prunedTools.pruned) {
@@ -2231,6 +2270,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
                 shellCwd: effectiveOaiPathCtx.shellCwd,
                 enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
                 blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+                strictBashBlock: openClawStrictGovernance,
+                blockWriteCapableTools: openClawStrictGovernance,
             });
             if (governed.normalizedPath)
                 toolArgHardeningStats.normalizedPathCount += 1;
@@ -2241,6 +2282,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
             if (governed.validationMissing.length > 0) {
                 toolArgHardeningStats.validationFailedCount += 1;
                 app.log.warn({ reqId, toolName: governed.toolName, missing: governed.validationMissing }, "tool_args_validation_failed");
+            }
+            if (openClawStrictGovernance && isWriteCapableToolName(tc.toolName) && governed.toolName === "Bash") {
+                openClawProfileStats.strictGovernanceRewrites += 1;
             }
             return {
                 toolCallId: tc.toolCallId,
@@ -2291,12 +2335,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
                     shellCwd: effectiveOaiPathCtx.shellCwd,
                     enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
                     blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+                    strictBashBlock: openClawStrictGovernance,
+                    blockWriteCapableTools: openClawStrictGovernance,
                 });
                 externalToolCalls = [{
                         toolCallId: `legacy_${Date.now().toString(36)}`,
                         toolName: legacyGoverned.toolName,
                         input: legacyGoverned.input,
                     }];
+                if (openClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
+                    openClawProfileStats.strictGovernanceRewrites += 1;
+                }
                 finalAssistantText = parsedLegacy.cleanText;
                 app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_non_stream");
             }
@@ -2307,11 +2356,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         let oaiMissingMust = 0;
         let oaiMissingShould = 0;
         if (finishReason === "stop") {
-            const gate = applyCompletionGate(oaiRequirementChecklist, finalAssistantText, [
-                finalAssistantText,
-                getMetadataString(session.record.metadata, "trace_root_prompt"),
-                getMetadataString(session.record.metadata, "latest_user_prompt"),
-            ]);
+            const gate = applyCompletionGate(oaiRequirementChecklist, finalAssistantText, getMetadataString(session.record.metadata, "trace_root_prompt"), getMetadataString(session.record.metadata, "latest_user_prompt"));
             finalAssistantText = gate.finalText;
             oaiGateApplied = gate.applied;
             oaiMissingMust = gate.missingMust;
@@ -2477,6 +2522,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
                         shellCwd: effectiveOaiPathCtx.shellCwd,
                         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
                         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+                        strictBashBlock: openClawStrictGovernance,
+                        blockWriteCapableTools: openClawStrictGovernance,
                     });
                     if (governed.normalizedPath)
                         toolArgHardeningStats.normalizedPathCount += 1;
@@ -2487,6 +2534,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
                     if (governed.validationMissing.length > 0) {
                         toolArgHardeningStats.validationFailedCount += 1;
                         app.log.warn({ reqId, toolName: governed.toolName, missing: governed.validationMissing }, "tool_args_validation_failed");
+                    }
+                    if (openClawStrictGovernance && isWriteCapableToolName(tc.toolName ?? "") && governed.toolName === "Bash") {
+                        openClawProfileStats.strictGovernanceRewrites += 1;
                     }
                     argsStr = JSON.stringify(governed.input);
                     if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
@@ -2553,6 +2603,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
                 shellCwd: effectiveOaiPathCtx.shellCwd,
                 enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
                 blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+                strictBashBlock: openClawStrictGovernance,
+                blockWriteCapableTools: openClawStrictGovernance,
             });
             if (parsedLegacy.cleanText) {
                 const guarded = applyMarkdownGuardrail(parsedLegacy.cleanText, config.SYNESIS_YARN_RESPONSE_STYLE_MODE);
@@ -2562,16 +2614,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
                 id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
                 choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `legacy_${Date.now().toString(36)}`, type: "function", function: { name: legacyGoverned.toolName, arguments: JSON.stringify(legacyGoverned.input) } }] }, finish_reason: null }],
             })}\n\n`);
+            if (openClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
+                openClawProfileStats.strictGovernanceRewrites += 1;
+            }
             finishReason = "tool_calls";
             pendingTextDeltas.length = 0;
             app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_stream");
         }
         else {
-            const gate = applyCompletionGate(oaiRequirementChecklist, rawText, [
-                rawText,
-                getMetadataString(session.record.metadata, "trace_root_prompt"),
-                getMetadataString(session.record.metadata, "latest_user_prompt"),
-            ]);
+            const gate = applyCompletionGate(oaiRequirementChecklist, rawText, getMetadataString(session.record.metadata, "trace_root_prompt"), getMetadataString(session.record.metadata, "latest_user_prompt"));
             oaiStreamGateApplied = gate.applied;
             oaiStreamMissingMust = gate.missingMust;
             oaiStreamMissingShould = gate.missingShould;
@@ -2607,11 +2658,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         if (parsedLegacy)
             streamedText = parsedLegacy.cleanText;
         if (oaiStreamGateApplied && finishReason !== "tool_calls") {
-            const gate = applyCompletionGate(oaiRequirementChecklist, streamedText, [
-                streamedText,
-                getMetadataString(session.record.metadata, "trace_root_prompt"),
-                getMetadataString(session.record.metadata, "latest_user_prompt"),
-            ]);
+            const gate = applyCompletionGate(oaiRequirementChecklist, streamedText, getMetadataString(session.record.metadata, "trace_root_prompt"), getMetadataString(session.record.metadata, "latest_user_prompt"));
             streamedText = gate.finalText;
             oaiStreamMissingMust = gate.missingMust;
             oaiStreamMissingShould = gate.missingShould;
@@ -2742,6 +2789,12 @@ app.post("/v1/messages", async (req, reply) => {
         toolSearchStripped: toolSearchResult.strippedDeferredCount,
     });
     const claudeAdapterProfile = clientAdapterPacks.resolve(String(req.headers["x-synesis-client"] ?? "claude-code"), String(req.headers["x-synesis-mode"] ?? ""));
+    const claudeOpenClawStrictGovernance = config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED
+        && config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED
+        && isOpenClawProfile(claudeAdapterProfile);
+    if (isOpenClawProfile(claudeAdapterProfile)) {
+        openClawProfileStats.requestsObserved += 1;
+    }
     const claudePathCtx = parseSessionExecutionContext(req.headers, body.metadata ?? null);
     const claudeAdapterBlock = appendPathContextToAdapterBlock(clientAdapterPacks.toSystemBlock(claudeAdapterProfile), req.headers, body.metadata ?? null, String(req.headers["x-synesis-client"] ?? "claude-code"));
     const latestClaudeUser = [...normalizedFromClaude.messages].reverse().find((m) => m.role === "user");
@@ -3071,7 +3124,9 @@ app.post("/v1/messages", async (req, reply) => {
     const { resolved, messages } = claudeResolveResult;
     const { adapter: claudeAdapter } = resolved;
     const claudeRawTools = processedTools ?? [];
-    const claudeToolBudget = resolveToolSchemaBudget(claudeAdapter.maxEffectiveTools);
+    const claudeToolBudget = resolveToolSchemaBudget(claudeAdapter.maxEffectiveTools, config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(claudeAdapterProfile)
+        ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
+        : claudeAdapterProfile.features.toolSchemaBudgetCap);
     const prunedClaudeTools = pruneToolSchemas(claudeRawTools, claudeToolBudget, extractRecentToolNames(normalizedFromClaude.messages), extractRequestedToolNames(String(latestClaudeUser?.content ?? ""), claudeRawTools));
     toolSchemaPruningStats.requestsConsidered += 1;
     if (prunedClaudeTools.pruned) {
@@ -3252,6 +3307,8 @@ app.post("/v1/messages", async (req, reply) => {
                         shellCwd: effectiveClaudePathCtx.shellCwd,
                         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
                         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+                        strictBashBlock: claudeOpenClawStrictGovernance,
+                        blockWriteCapableTools: claudeOpenClawStrictGovernance,
                     });
                     emitToolName = governed.toolName;
                     finalInput = governed.input;
@@ -3274,6 +3331,9 @@ app.post("/v1/messages", async (req, reply) => {
                             missing: governed.validationMissing,
                             argsPreview: JSON.stringify(finalInput).slice(0, 220),
                         }, "tool_args_validation_failed");
+                    }
+                    if (claudeOpenClawStrictGovernance && isWriteCapableToolName(emitToolName) && governed.toolName === "Bash") {
+                        openClawProfileStats.strictGovernanceRewrites += 1;
                     }
                     if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
                         app.log.debug({
@@ -3330,11 +3390,7 @@ app.post("/v1/messages", async (req, reply) => {
         claudeStreamSpan.end();
         if (stopReason !== "tool_use" && pendingClaudeTextDeltas.length > 0) {
             const rawText = pendingClaudeTextDeltas.join("");
-            const gate = applyCompletionGate(claudeRequirementChecklist, rawText, [
-                rawText,
-                getMetadataString(session.record.metadata, "trace_root_prompt"),
-                getMetadataString(session.record.metadata, "latest_user_prompt"),
-            ]);
+            const gate = applyCompletionGate(claudeRequirementChecklist, rawText, getMetadataString(session.record.metadata, "trace_root_prompt"), getMetadataString(session.record.metadata, "latest_user_prompt"));
             claudeStreamGateApplied = gate.applied;
             claudeStreamMissingMust = gate.missingMust;
             claudeStreamMissingShould = gate.missingShould;
@@ -3370,11 +3426,7 @@ app.post("/v1/messages", async (req, reply) => {
         catch { /* stream aborted */ }
         if (claudeStreamedText) {
             if (claudeStreamGateApplied && stopReason !== "tool_use") {
-                const gate = applyCompletionGate(claudeRequirementChecklist, claudeStreamedText, [
-                    claudeStreamedText,
-                    getMetadataString(session.record.metadata, "trace_root_prompt"),
-                    getMetadataString(session.record.metadata, "latest_user_prompt"),
-                ]);
+                const gate = applyCompletionGate(claudeRequirementChecklist, claudeStreamedText, getMetadataString(session.record.metadata, "trace_root_prompt"), getMetadataString(session.record.metadata, "latest_user_prompt"));
                 claudeStreamedText = gate.finalText;
                 claudeStreamMissingMust = gate.missingMust;
                 claudeStreamMissingShould = gate.missingShould;
@@ -3504,6 +3556,8 @@ app.post("/v1/messages", async (req, reply) => {
             shellCwd: effectiveClaudePathCtx.shellCwd,
             enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
             blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+            strictBashBlock: claudeOpenClawStrictGovernance,
+            blockWriteCapableTools: claudeOpenClawStrictGovernance,
         });
         if (governed.normalizedPath)
             toolArgHardeningStats.normalizedPathCount += 1;
@@ -3514,6 +3568,9 @@ app.post("/v1/messages", async (req, reply) => {
         if (governed.validationMissing.length > 0) {
             toolArgHardeningStats.validationFailedCount += 1;
             app.log.warn({ reqId, toolName: governed.toolName, missing: governed.validationMissing }, "tool_args_validation_failed");
+        }
+        if (claudeOpenClawStrictGovernance && isWriteCapableToolName(tc.toolName) && governed.toolName === "Bash") {
+            openClawProfileStats.strictGovernanceRewrites += 1;
         }
         return {
             toolCallId: tc.toolCallId,
@@ -3529,11 +3586,7 @@ app.post("/v1/messages", async (req, reply) => {
     let claudeMissingMust = 0;
     let claudeMissingShould = 0;
     if (stopReason === "end_turn") {
-        const gate = applyCompletionGate(claudeRequirementChecklist, finalClaudeText, [
-            finalClaudeText,
-            getMetadataString(session.record.metadata, "trace_root_prompt"),
-            getMetadataString(session.record.metadata, "latest_user_prompt"),
-        ]);
+        const gate = applyCompletionGate(claudeRequirementChecklist, finalClaudeText, getMetadataString(session.record.metadata, "trace_root_prompt"), getMetadataString(session.record.metadata, "latest_user_prompt"));
         finalClaudeText = gate.finalText;
         claudeGateApplied = gate.applied;
         claudeMissingMust = gate.missingMust;

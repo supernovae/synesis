@@ -189,6 +189,11 @@ const EnvSchema = z.object({
         .string()
         .optional()
         .transform((v) => (v ?? "false").toLowerCase() === "true"),
+    /** When true (default), do not replace assistant text with partial-completion message during clarification-style turns. */
+    SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "true").toLowerCase() !== "false"),
     // Response style flavor — markdown guidance + optional guardrail normalization.
     SYNESIS_YARN_RESPONSE_STYLE_MODE: z
         .enum(["off", "guidance", "guardrail"])
@@ -223,6 +228,19 @@ const EnvSchema = z.object({
         .optional()
         .transform((v) => (v ?? "true").toLowerCase() !== "false"),
     SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE: z.coerce.number().default(0),
+    SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+    SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "false").toLowerCase() === "true"),
+    SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED: z
+        .string()
+        .optional()
+        .transform((v) => (v ?? "false").toLowerCase() === "true"),
+    SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP: z.coerce.number().default(8),
     // Trust / injection scan
     SYNESIS_YARN_TRUST_PACKET_ENABLED: z
         .string()

@@ -4,6 +4,37 @@ import { inspectRepoTool } from "./handlers/inspect-repo.js";
 import { scaffoldTool } from "./handlers/scaffold.js";
 import { compareManifestTool } from "./handlers/compare-manifest.js";
 import { applyPatchTool, formatCodeTool, getRuntimeContextTool, gitAddGuardedTool, gitCommitGuardedTool, gitDiffTool, gitStatusTool, listDirTool, readFileTool, runBuildTool, runLintTool, runTestTool, searchCodeTool, writeFileTool, } from "./handlers/coding-tools.js";
+const OPENCLAW_MCP_ALLOWLIST = new Set([
+    "get_runtime_context",
+    "list_dir",
+    "read_file",
+    "search_code",
+    "run_test",
+    "run_build",
+    "run_lint",
+    "git_status",
+    "git_diff",
+]);
+const OPENCLAW_WRITE_CAPABLE_TOOLS = new Set([
+    "write_file",
+    "apply_patch",
+    "format_code",
+    "git_add_guarded",
+    "git_commit_guarded",
+]);
+export function isOpenClawClientHeader(raw) {
+    const v = String(raw ?? "").trim().toLowerCase();
+    if (!v)
+        return false;
+    return v.includes("openclaw")
+        || v.includes("open-claw")
+        || v.includes("claw/")
+        || v.startsWith("claw-")
+        || v.endsWith("-claw");
+}
+export function filterMcpCatalogForOpenClaw(catalog) {
+    return catalog.filter((t) => OPENCLAW_MCP_ALLOWLIST.has(t.name));
+}
 const registry = new McpToolRegistry();
 registry.register(classifyProjectTool);
 registry.register(inspectRepoTool);
@@ -56,9 +87,22 @@ export async function registerMcpRoutes(app, opts) {
         const user = await resolveUser(req, reply);
         if (!user)
             return;
+        const openClawClient = opts.openClawProfileEnabled
+            && isOpenClawClientHeader(req.headers["x-synesis-client"]);
+        const catalog = registry.getCatalog();
+        const tools = openClawClient && opts.openClawMcpAllowlistEnabled
+            ? filterMcpCatalogForOpenClaw(catalog)
+            : catalog;
+        if (openClawClient && opts.openClawMcpAllowlistEnabled) {
+            app.log.info({ userId: user.userId, originalCount: catalog.length, filteredCount: tools.length }, "mcp_tools_catalog_filtered_openclaw");
+        }
         return reply.send({
-            tools: registry.getCatalog(),
-            meta: { userId: user.userId, toolCount: registry.getCatalog().length },
+            tools,
+            meta: {
+                userId: user.userId,
+                toolCount: tools.length,
+                filteredForOpenClaw: openClawClient && opts.openClawMcpAllowlistEnabled,
+            },
         });
     });
     app.post("/v1/mcp/tools/call", async (req, reply) => {
@@ -69,6 +113,26 @@ export async function registerMcpRoutes(app, opts) {
         if (!body?.name) {
             return reply.code(400).send({
                 error: { type: "invalid_request", message: "Missing tool name" },
+            });
+        }
+        const openClawClient = opts.openClawProfileEnabled
+            && isOpenClawClientHeader(req.headers["x-synesis-client"]);
+        if (openClawClient && opts.openClawMcpAllowlistEnabled && !OPENCLAW_MCP_ALLOWLIST.has(body.name)) {
+            app.log.warn({ userId: user.userId, tool: body.name }, "mcp_tool_blocked_openclaw_allowlist");
+            return reply.code(403).send({
+                error: {
+                    type: "forbidden_tool",
+                    message: `Tool '${body.name}' is not available for OpenClaw profile`,
+                },
+            });
+        }
+        if (openClawClient && opts.openClawStrictGovernanceEnabled && OPENCLAW_WRITE_CAPABLE_TOOLS.has(body.name)) {
+            app.log.warn({ userId: user.userId, tool: body.name }, "mcp_tool_blocked_openclaw_strict_write");
+            return reply.code(403).send({
+                error: {
+                    type: "forbidden_tool",
+                    message: `Write-capable MCP tool '${body.name}' is blocked for OpenClaw safety profile`,
+                },
             });
         }
         const start = performance.now();

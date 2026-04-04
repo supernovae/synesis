@@ -24,6 +24,16 @@ export function governToolCall(opts) {
             out.constrainedToRoot = true;
         }
     }
+    if (opts.blockWriteCapableTools && isWriteCapableTool(logicalName)) {
+        const msg = `Synesis Yarn blocked write-capable tool '${logicalName}' for this client safety profile.`;
+        out.toolName = "Bash";
+        out.input = {
+            command: `echo ${shellEscape(msg)} >&2; exit 2`,
+            description: "Blocked write-capable tool for safety profile",
+        };
+        out.blockedBashDrift = true;
+        return out;
+    }
     if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
         const command = out.input.command;
         if (typeof command === "string" && command.trim()) {
@@ -60,6 +70,11 @@ export function governToolCall(opts) {
         }
     }
     return out;
+}
+function isWriteCapableTool(logicalName) {
+    return logicalName === "Write"
+        || logicalName === "Edit"
+        || logicalName === "Update";
 }
 function resolvedAnchorRoot(projectRoot, shellCwd) {
     const root = (projectRoot ?? "").trim();

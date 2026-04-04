@@ -99,6 +99,8 @@ spec:
               value: "true"
             - name: SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL
               value: "false"
+            - name: SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION
+              value: "true"
             # ── Markdown response style ──
             - name: SYNESIS_YARN_RESPONSE_STYLE_MODE
               value: "guidance"

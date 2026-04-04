@@ -37,6 +37,7 @@ import {
   summarizeMissingCoverage,
   type RequirementChecklist,
 } from "./validation/requirement-coverage.js";
+import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
@@ -192,7 +193,8 @@ type CompletionGateOutcome = {
 function applyCompletionGate(
   checklist: RequirementChecklist | null,
   originalText: string,
-  evidenceParts: string[],
+  traceRootPrompt: string,
+  latestUserPrompt: string,
 ): CompletionGateOutcome {
   if (!config.SYNESIS_YARN_COMPLETION_GATE_ENABLED || !checklist) {
     return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
@@ -200,7 +202,13 @@ function applyCompletionGate(
   if (checklist.must.length === 0 && checklist.should.length === 0) {
     return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
   }
-  const evidence = evidenceParts.filter(Boolean).join("\n");
+  if (
+    config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION &&
+    looksLikeClarificationTurnAssistantMessage(originalText)
+  ) {
+    return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
+  }
+  const evidence = [traceRootPrompt, latestUserPrompt, originalText].filter(Boolean).join("\n");
   const report = evaluateRequirementCoverage(checklist, evidence);
   if (report.missingMust.length === 0) {
     return {
@@ -2028,6 +2036,7 @@ app.get("/health/telemetry", async (req, reply) => {
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
       completionGate: config.SYNESIS_YARN_COMPLETION_GATE_ENABLED,
       completionGateHardFail: config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL,
+      completionGateSkipClarification: config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION,
       decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
       sensemaking: config.SYNESIS_YARN_SENSEMAKING_ENABLED,
       diagnosticPersistence: config.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED,
@@ -2809,11 +2818,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     let oaiMissingMust = 0;
     let oaiMissingShould = 0;
     if (finishReason === "stop") {
-      const gate = applyCompletionGate(oaiRequirementChecklist, finalAssistantText, [
+      const gate = applyCompletionGate(
+        oaiRequirementChecklist,
         finalAssistantText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
-      ]);
+      );
       finalAssistantText = gate.finalText;
       oaiGateApplied = gate.applied;
       oaiMissingMust = gate.missingMust;
@@ -3101,11 +3111,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
       pendingTextDeltas.length = 0;
       app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_stream");
     } else {
-      const gate = applyCompletionGate(oaiRequirementChecklist, rawText, [
+      const gate = applyCompletionGate(
+        oaiRequirementChecklist,
         rawText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
-      ]);
+      );
       oaiStreamGateApplied = gate.applied;
       oaiStreamMissingMust = gate.missingMust;
       oaiStreamMissingShould = gate.missingShould;
@@ -3154,11 +3165,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const parsedLegacy = parseLegacyInlineToolCall(streamedText);
     if (parsedLegacy) streamedText = parsedLegacy.cleanText;
     if (oaiStreamGateApplied && finishReason !== "tool_calls") {
-      const gate = applyCompletionGate(oaiRequirementChecklist, streamedText, [
+      const gate = applyCompletionGate(
+        oaiRequirementChecklist,
         streamedText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
-      ]);
+      );
       streamedText = gate.finalText;
       oaiStreamMissingMust = gate.missingMust;
       oaiStreamMissingShould = gate.missingShould;
@@ -4014,11 +4026,12 @@ app.post("/v1/messages", async (req, reply) => {
 
     if (stopReason !== "tool_use" && pendingClaudeTextDeltas.length > 0) {
       const rawText = pendingClaudeTextDeltas.join("");
-      const gate = applyCompletionGate(claudeRequirementChecklist, rawText, [
+      const gate = applyCompletionGate(
+        claudeRequirementChecklist,
         rawText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
-      ]);
+      );
       claudeStreamGateApplied = gate.applied;
       claudeStreamMissingMust = gate.missingMust;
       claudeStreamMissingShould = gate.missingShould;
@@ -4069,11 +4082,12 @@ app.post("/v1/messages", async (req, reply) => {
     try { claudeStreamedText = await streamed.text; } catch { /* stream aborted */ }
     if (claudeStreamedText) {
       if (claudeStreamGateApplied && stopReason !== "tool_use") {
-        const gate = applyCompletionGate(claudeRequirementChecklist, claudeStreamedText, [
+        const gate = applyCompletionGate(
+          claudeRequirementChecklist,
           claudeStreamedText,
           getMetadataString(session.record.metadata, "trace_root_prompt"),
           getMetadataString(session.record.metadata, "latest_user_prompt"),
-        ]);
+        );
         claudeStreamedText = gate.finalText;
         claudeStreamMissingMust = gate.missingMust;
         claudeStreamMissingShould = gate.missingShould;
@@ -4241,11 +4255,12 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeMissingMust = 0;
   let claudeMissingShould = 0;
   if (stopReason === "end_turn") {
-    const gate = applyCompletionGate(claudeRequirementChecklist, finalClaudeText, [
+    const gate = applyCompletionGate(
+      claudeRequirementChecklist,
       finalClaudeText,
       getMetadataString(session.record.metadata, "trace_root_prompt"),
       getMetadataString(session.record.metadata, "latest_user_prompt"),
-    ]);
+    );
     finalClaudeText = gate.finalText;
     claudeGateApplied = gate.applied;
     claudeMissingMust = gate.missingMust;

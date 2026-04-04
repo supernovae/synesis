@@ -204,6 +204,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  /** When true (default), do not replace assistant text with partial-completion message during clarification-style turns. */
+  SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
   // Response style flavor — markdown guidance + optional guardrail normalization.
   SYNESIS_YARN_RESPONSE_STYLE_MODE: z

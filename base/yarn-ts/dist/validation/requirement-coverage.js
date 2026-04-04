@@ -35,7 +35,15 @@ function normalizeClause(raw) {
     clause = clause.replace(/^to\s+/i, "").replace(/\s+/g, " ").trim();
     return clause;
 }
-function tokenize(text) {
+/** Terms extracted from checklist clause titles (no arbitrary cap). */
+function tokenizeClauseTerms(text) {
+    return collectFilteredTokens(text);
+}
+/** Full token set for coverage evidence (no cap; clarification threads can be long). */
+function tokenizeEvidence(text) {
+    return new Set(collectFilteredTokens(text));
+}
+function collectFilteredTokens(text) {
     const words = text
         .toLowerCase()
         .replace(/[^a-z0-9\s]/g, " ")
@@ -57,7 +65,7 @@ function tokenize(text) {
         seen.add(c);
         deduped.push(c);
     }
-    return deduped.slice(0, 10);
+    return deduped;
 }
 function priorityForClause(raw) {
     if (/\b(optional|nice to have|if possible|could)\b/i.test(raw))
@@ -80,7 +88,7 @@ export function buildChecklistFromPrompt(prompt, sourceHash) {
         if (seenTitles.has(titleKey))
             continue;
         seenTitles.add(titleKey);
-        const coverageTerms = tokenize(title);
+        const coverageTerms = tokenizeClauseTerms(title);
         if (coverageTerms.length === 0)
             continue;
         const minimumTermMatches = Math.max(1, Math.min(2, Math.ceil(coverageTerms.length * 0.34)));
@@ -105,7 +113,7 @@ export function buildChecklistFromPrompt(prompt, sourceHash) {
 }
 export function evaluateRequirementCoverage(checklist, evidenceText) {
     const text = evidenceText.toLowerCase().replace(/\s+/g, " ").trim();
-    const evidenceTokens = new Set(tokenize(text));
+    const evidenceTokens = tokenizeEvidence(text);
     const matched = new Set();
     const covered = (item) => {
         if (item.coverageTerms.length === 0)

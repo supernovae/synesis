@@ -44,4 +44,13 @@ describe("requirement coverage", () => {
     );
     expect(report.missingMust.length).toBeLessThan(2);
   });
+
+  it("evaluates full evidence text so root prompt terms are not starved by long assistant filler", () => {
+    const checklist = buildChecklistFromPrompt(prompt, "abc123");
+    const filler = Array.from({ length: 80 }, (_, i) => `word${i}stuff`).join(" ");
+    const evidenceOrderedLikeGate = [prompt, "user answered question one about credentials.", filler].join("\n");
+    const report = evaluateRequirementCoverage(checklist, evidenceOrderedLikeGate);
+    const missingAws = report.missingMust.filter((m) => m.title.toLowerCase().includes("aws"));
+    expect(missingAws.length).toBe(0);
+  });
 });
