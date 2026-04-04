@@ -19,6 +19,30 @@ vi.mock("../src/llm/client.js", async () => {
   };
 });
 
+/** Avoid writer fast path + low difficulty so parse-fallback clarification runs (planner → respond). */
+vi.mock("../src/nodes/entry-classifier.js", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/nodes/entry-classifier.js")>();
+  return {
+    ...mod,
+    classifyEntry: async (state: Parameters<typeof mod.classifyEntry>[0]) => {
+      const res = await mod.classifyEntry(state);
+      const prevControls = (res.taxonomy_metadata?.output_controls ?? {}) as Record<string, boolean>;
+      return {
+        ...res,
+        task_is_trivial: false,
+        plan_required: true,
+        next_node: "planner",
+        difficulty: Math.max(res.difficulty ?? 0, 0.75),
+        rag_mode: "normal",
+        taxonomy_metadata: {
+          ...res.taxonomy_metadata,
+          output_controls: { ...prevControls, clarify_first: true },
+        },
+      };
+    },
+  };
+});
+
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 

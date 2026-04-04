@@ -199,6 +199,7 @@ export function shouldClarify(
   plan: PlannerOutput,
   ambiguity?: AmbiguityAssessment,
   threshold = 0.58,
+  options?: { parseFallback?: boolean },
 ): boolean {
   const iteration = state.iteration_count ?? 0;
   if (iteration > 0) return false;
@@ -226,6 +227,9 @@ export function shouldClarify(
   if (ambiguityLevel >= threshold && materialGapCount >= 1) return true;
   if (confidence < 0.5 && (openQCount >= 1 || materialGapCount >= 1)) return true;
   if (clarifyFirst && difficulty >= 0.4 && (openQCount >= 1 || materialGapCount >= 1)) return true;
+  // JSON repair failed: we have a synthetic low-confidence plan and often no scorer gaps;
+  // still ask before routing to writer when difficulty is non-trivial.
+  if (options?.parseFallback && difficulty >= 0.4 && confidence < 0.5) return true;
 
   return false;
 }
@@ -488,7 +492,9 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     };
     const ambiguity = await runAmbiguityScorer(state, parseFallbackPlan);
     const ambiguityThreshold = plannerCfg.SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD;
-    const clarify = shouldClarify(state, parseFallbackPlan, ambiguity.assessment, ambiguityThreshold);
+    const clarify = shouldClarify(state, parseFallbackPlan, ambiguity.assessment, ambiguityThreshold, {
+      parseFallback: true,
+    });
     const decisionReason = clarify
       ? "clarify:parse-fallback-epistemic-ambiguity"
       : "proceed:parse-fallback-low-material-ambiguity";
