@@ -18,6 +18,7 @@ packages/*/dist/
 # TypeScript service build output
 base/mcp-ts/dist/
 base/planner-ts/dist/
+base/yarn-ts/dist/
 
 # KFP compiled pipeline artifacts
 pipelines/*.yaml
