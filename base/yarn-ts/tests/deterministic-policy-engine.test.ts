@@ -271,4 +271,20 @@ describe("DeterministicPolicyEngine", () => {
       expect(out.matchedRules).toContain("allow");
     }
   });
+
+  it("isolates repeat counters per sessionKey (same fingerprint, different sessions)", () => {
+    const engine = new DeterministicPolicyEngine();
+    const repeatAttempt = {
+      action: "claude_messages",
+      args: { model: "synesis-core", lastToolUseId: "", messageCount: 1 },
+      fsFingerprint: "none:1",
+    };
+    for (let i = 0; i < 5; i += 1) {
+      const out = engine.evaluate({ sessionKey: "sess-a", repeatAttempt });
+      expect(out.allow).toBe(true);
+    }
+    const otherSession = engine.evaluate({ sessionKey: "sess-b", repeatAttempt });
+    expect(otherSession.allow).toBe(true);
+    expect(otherSession.matchedRules).toContain("allow");
+  });
 });

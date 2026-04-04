@@ -81,8 +81,8 @@ function extractToolName(tool: ToolLike): string | undefined {
   return undefined;
 }
 
-function hashAttempt(action: string, args: unknown, fsFingerprint: string): string {
-  return crypto.createHash("sha256").update(JSON.stringify([action, args, fsFingerprint])).digest("hex");
+function hashAttempt(sessionKey: string, action: string, args: unknown, fsFingerprint: string): string {
+  return crypto.createHash("sha256").update(JSON.stringify([sessionKey, action, args, fsFingerprint])).digest("hex");
 }
 
 const MAX_RECENT_EVENTS = 50;
@@ -252,7 +252,8 @@ export class DeterministicPolicyEngine {
     }
 
     if (ctx.repeatAttempt) {
-      const key = hashAttempt(ctx.repeatAttempt.action, ctx.repeatAttempt.args, ctx.repeatAttempt.fsFingerprint);
+      // Scope by session: identical fingerprints from different conversations must not share one counter.
+      const key = hashAttempt(ctx.sessionKey ?? "", ctx.repeatAttempt.action, ctx.repeatAttempt.args, ctx.repeatAttempt.fsFingerprint);
       const existing = this.repeatCounts.get(key);
       const next = (existing?.count ?? 0) + 1;
       this.repeatCounts.set(key, { count: next, lastSeen: Date.now() });
