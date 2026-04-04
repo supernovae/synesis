@@ -114,6 +114,12 @@ spec:
               value: "false"
             - name: ENABLE_COMMUNITY_SHARING
               value: "false"
+            # Task-model follow-up chips after each reply (extra LLM calls; noisy traces). Off for all users.
+            - name: ENABLE_FOLLOW_UP_GENERATION
+              value: "false"
+            # Task-model chat titles (extra LLM call per conversation update). Off — UI uses default heading from first words.
+            - name: ENABLE_TITLE_GENERATION
+              value: "false"
             # Forward X-OpenWebUI-* / org headers to the OpenAI API base (planner-ts) for trusted identity.
             - name: ENABLE_FORWARD_USER_INFO_HEADERS
               value: "true"
