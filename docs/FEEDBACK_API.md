@@ -89,6 +89,21 @@ To show it in Synesis Admin:
 
 Re-run sync after bursts of user feedback when you want the admin list updated (manual sync is the default workflow).
 
+#### Obtaining the token (to export before `./scripts/deploy.sh`)
+
+You do **not** generate this in Synesis Admin — it comes from **Open WebUI**, because synesis-admin is calling **Open WebUI’s** REST API.
+
+**Option A — Open WebUI account API key (best for automation, if enabled)**  
+Open WebUI can issue a user **API key** (often prefixed with `sk-`) used as `Authorization: Bearer` on `/api/v1/...`. It is enabled when **`ENABLE_API_KEYS=true`** in the Open WebUI deployment (see [Open WebUI authentication](https://docs.openwebui.com/features/authentication-access/)). As an **admin**, open the Open Web UI → **user menu → Settings → Account** (wording varies by version) and create or copy the **API key**, or use the API (`GET`/`POST` `/api/v1/auths/api_key` after signing in). Use that string as `SYNESIS_OPENWEBUI_ADMIN_TOKEN`.
+
+**Option B — JWT from sign-in (scriptable)**  
+`POST` to Open WebUI **`/api/v1/auths/signin`** with the admin email/password (JSON body per Open WebUI docs). The response includes a **token**; use it as the Bearer value. Expiry depends on `JWT_EXPIRES_IN` in Open WebUI.
+
+**Option C — Browser session JWT (quick test)**  
+Log in to Open WebUI as an **admin** → browser **DevTools → Network** → trigger any `/api/v1/` request → **Request headers** → copy the value after `Authorization: Bearer `. Session JWTs may expire; prefer Option A for long-lived sync.
+
+Then either `export SYNESIS_OPENWEBUI_ADMIN_TOKEN='…'` and run `./scripts/deploy.sh`, or create the Kubernetes Secret manually (see above).
+
 ## Open WebUI Integration
 
 ### Feedback dashboard (inside Open WebUI)
