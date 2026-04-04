@@ -1130,6 +1130,55 @@ function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   }
 }
 
+/**
+ * Same tool pipeline for OpenAI and Claude: remap param aliases → Write/Bash repairs → governToolCall.
+ * `streamToolName` is optional (Claude streaming may differ from tool-call name for edge cases).
+ */
+function applyAdapterToolHardening(
+  adapter: ModelAdapter,
+  toolNameFromCall: string,
+  input: Record<string, unknown>,
+  streamToolName?: string,
+): {
+  toolName: string;
+  input: Record<string, unknown>;
+  remapped: boolean;
+  repairedWrite: boolean;
+  repairedBash: boolean;
+} {
+  let finalInput = { ...input };
+  let remapped = false;
+  if (adapter.remapToolArgs) {
+    const r = adapter.remapToolArgs(toolNameFromCall, finalInput);
+    finalInput = r.input;
+    remapped = r.remapped;
+  }
+  let emitToolName = (streamToolName ?? toolNameFromCall).trim() || toolNameFromCall;
+
+  let repairedWrite = false;
+  const writeRepair = repairWriteToolCall(emitToolName, finalInput);
+  if (writeRepair) {
+    emitToolName = writeRepair.rewrittenToolName;
+    finalInput = writeRepair.rewrittenInput;
+    repairedWrite = true;
+  }
+
+  let repairedBash = false;
+  const bashRepair = repairBashToolCall(emitToolName, finalInput);
+  if (bashRepair) {
+    finalInput = bashRepair.input;
+    repairedBash = bashRepair.repaired;
+  }
+
+  return {
+    toolName: emitToolName,
+    input: finalInput,
+    remapped,
+    repairedWrite,
+    repairedBash,
+  };
+}
+
 function persistSessionAndUsage(
   state: SessionState,
   requestId: string,
@@ -2784,9 +2833,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
           typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
             ? (tc.input as Record<string, unknown>)
             : {};
+        const hard = applyAdapterToolHardening(adapter, tc.toolName, rawInput);
+        if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+        if (hard.repairedWrite) {
+          toolArgHardeningStats.repairedWriteCount += 1;
+          app.log.warn(
+            {
+              reqId,
+              originalTool: tc.toolName,
+              rewrittenTo: "Bash",
+              filePath: rawInput.file_path ?? rawInput.path,
+            },
+            "write_tool_repaired_to_bash_heredoc",
+          );
+        }
+        if (hard.repairedBash) {
+          toolArgHardeningStats.repairedBashCount += 1;
+          app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
+        }
         const governed = governToolCall({
-          toolName: tc.toolName,
-          input: rawInput,
+          toolName: hard.toolName,
+          input: hard.input,
           projectRoot: effectiveOaiPathCtx.projectRoot,
           shellCwd: effectiveOaiPathCtx.shellCwd,
           enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
@@ -2854,9 +2921,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (externalToolCalls.length === 0 && finalAssistantText) {
       const parsedLegacy = parseLegacyInlineToolCall(finalAssistantText);
       if (parsedLegacy) {
+        const legacyHard = applyAdapterToolHardening(adapter, parsedLegacy.toolName, parsedLegacy.input);
+        if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+        if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
+        if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
         const legacyGoverned = governToolCall({
-          toolName: parsedLegacy.toolName,
-          input: parsedLegacy.input,
+          toolName: legacyHard.toolName,
+          input: legacyHard.input,
           projectRoot: effectiveOaiPathCtx.projectRoot,
           shellCwd: effectiveOaiPathCtx.shellCwd,
           enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
@@ -3022,6 +3093,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let oaiStreamGateApplied = false;
   let oaiStreamMissingMust = 0;
   let oaiStreamMissingShould = 0;
+  let oaiStreamToolRepairs = 0;
+  let oaiStreamValidationFailures = 0;
+  const resolvedTierOaiStream = tierRegistry.getTierConfig(resolved.resolvedModelId);
+  const isLocalLikeOaiStreamBaseUrl =
+    !!resolvedTierOaiStream?.baseUrl
+    && (
+      resolvedTierOaiStream.baseUrl.includes(".svc.cluster.local")
+      || resolvedTierOaiStream.baseUrl.includes("localhost")
+      || resolvedTierOaiStream.baseUrl.includes("127.0.0.1")
+    );
 
   const flushOpenAIText = (text: string): void => {
     if (!text) return;
@@ -3045,10 +3126,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
         }
         if (part.type === "tool-input-start") {
           pendingToolCalls.push({ index: pendingToolCalls.length, id: tc.toolCallId ?? "", name: tc.toolName ?? "", args: "" });
-          safeWrite(reply.raw, `data: ${JSON.stringify({
-            id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-            choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length - 1, id: tc.toolCallId, type: "function", function: { name: tc.toolName, arguments: "" } }] }, finish_reason: null }]
-          })}\n\n`);
         } else if (part.type === "tool-call") {
           finishReason = "tool_calls";
           let argsStr = typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {});
@@ -3067,9 +3144,29 @@ app.post("/v1/chat/completions", async (req, reply) => {
                     return {};
                   }
                 })();
+          const hard = applyAdapterToolHardening(adapter, tc.toolName ?? "", parsedInput);
+          if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+          if (hard.repairedWrite) {
+            toolArgHardeningStats.repairedWriteCount += 1;
+            oaiStreamToolRepairs += 1;
+            app.log.warn(
+              {
+                reqId,
+                originalTool: tc.toolName,
+                rewrittenTo: "Bash",
+                filePath: parsedInput.file_path ?? parsedInput.path,
+              },
+              "write_tool_repaired_to_bash_heredoc",
+            );
+          }
+          if (hard.repairedBash) {
+            toolArgHardeningStats.repairedBashCount += 1;
+            oaiStreamToolRepairs += 1;
+            app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
+          }
           const governed = governToolCall({
-            toolName: tc.toolName ?? "",
-            input: parsedInput,
+            toolName: hard.toolName,
+            input: hard.input,
             projectRoot: effectiveOaiPathCtx.projectRoot,
             shellCwd: effectiveOaiPathCtx.shellCwd,
             enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
@@ -3082,6 +3179,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
           if (governed.validationMissing.length > 0) {
             toolArgHardeningStats.validationFailedCount += 1;
+            oaiStreamValidationFailures += 1;
             app.log.warn(
               { reqId, toolName: governed.toolName, missing: governed.validationMissing },
               "tool_args_validation_failed",
@@ -3116,12 +3214,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
         const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
         const idx = pendingToolCalls.findIndex((p) => p.id === td.toolCallId);
         if (idx >= 0) {
-          safeWrite(reply.raw, `data: ${JSON.stringify({
-            id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-            choices: [{ index: 0, delta: { tool_calls: [{ index: idx, function: { arguments: td.inputTextDelta ?? "" } }] }, finish_reason: null }]
-          })}\n\n`);
+          pendingToolCalls[idx].args += td.inputTextDelta ?? "";
         }
       }
+    }
+    if (
+      adapter.family === "qwen3-coder"
+      && isLocalLikeOaiStreamBaseUrl
+      && oaiStreamValidationFailures > 0
+      && oaiStreamToolRepairs >= 2
+    ) {
+      toolArgHardeningStats.qwenParserMismatchSuspectCount += 1;
+      app.log.warn(
+        {
+          reqId,
+          resolvedModel: resolved.resolvedModelId,
+          baseUrl: resolvedTierOaiStream?.baseUrl,
+          validationFailures: oaiStreamValidationFailures,
+          repairs: oaiStreamToolRepairs,
+        },
+        "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
+      );
     }
   } catch (streamErr) {
     circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
@@ -3148,9 +3261,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const rawText = pendingTextDeltas.join("");
     const parsedLegacy = parseLegacyInlineToolCall(rawText);
     if (parsedLegacy) {
+      const legacyHard = applyAdapterToolHardening(adapter, parsedLegacy.toolName, parsedLegacy.input);
+      if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+      if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
+      if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
       const legacyGoverned = governToolCall({
-        toolName: parsedLegacy.toolName,
-        input: parsedLegacy.input,
+        toolName: legacyHard.toolName,
+        input: legacyHard.input,
         projectRoot: effectiveOaiPathCtx.projectRoot,
         shellCwd: effectiveOaiPathCtx.shellCwd,
         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
@@ -3876,7 +3993,6 @@ app.post("/v1/messages", async (req, reply) => {
     let blockIdx = 0;
     let inTextBlock = false;
     let claudeStreamingTextOpen = false;
-    let claudeToolBlockStartedOnStream = false;
     let stopReason = "end_turn";
     let claudeStreamGateApplied = false;
     let claudeStreamMissingMust = 0;
@@ -3969,13 +4085,6 @@ app.post("/v1/messages", async (req, reply) => {
             closeClaudeStreamingTextBlock();
             pendingClaudeTextDeltas.length = 0;
           }
-          // Show tool_use immediately; stream partial_json deltas while buffering for governance.
-          safeSse(reply, "content_block_start", {
-            type: "content_block_start",
-            index: blockIdx,
-            content_block: { type: "tool_use", id: tc.toolCallId ?? "", name: tc.toolName ?? "" },
-          });
-          claudeToolBlockStartedOnStream = true;
           claudeToolBuffer.set(tc.toolCallId ?? "", { toolName: tc.toolName ?? "", toolCallId: tc.toolCallId ?? "", chunks: [] });
           stopReason = "tool_use";
         } else if (part.type === "tool-input-delta") {
@@ -3984,56 +4093,40 @@ app.post("/v1/messages", async (req, reply) => {
           if (pendingClaudeToolIds.has(tdId)) continue;
           const buf = claudeToolBuffer.get(tdId);
           if (buf) {
-            const piece = td.inputTextDelta ?? "";
-            buf.chunks.push(piece);
-            safeSse(reply, "content_block_delta", {
-              type: "content_block_delta",
-              index: blockIdx,
-              delta: { type: "input_json_delta", partial_json: piece },
-            });
-          } else {
-            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: td.inputTextDelta ?? "" } });
+            buf.chunks.push(td.inputTextDelta ?? "");
           }
         } else if (part.type === "tool-call") {
           const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
           if (tcFull.toolName === ARTIFACT_TOOL_NAME || tcFull.toolName === KNOWLEDGE_TOOL_NAME) continue;
           const buf = claudeToolBuffer.get(tcFull.toolCallId ?? "");
-          let finalInput = (tcFull.input ?? {}) as Record<string, unknown>;
-          let wasRemapped = false;
-
-          if (claudeAdapter.remapToolArgs) {
-            const remap = claudeAdapter.remapToolArgs(tcFull.toolName ?? "", finalInput);
-            finalInput = remap.input;
-            wasRemapped = remap.remapped;
-            if (wasRemapped) toolArgHardeningStats.remappedArgsCount += 1;
-          }
-
-          let emitToolName = buf?.toolName ?? tcFull.toolName ?? "";
-
-          // Adapter-neutral: detect malformed Write content and rewrite as Bash heredoc
-          const repair = repairWriteToolCall(emitToolName, finalInput);
-          if (repair) {
-            emitToolName = repair.rewrittenToolName;
-            finalInput = repair.rewrittenInput;
+          const rawToolInput = (tcFull.input ?? {}) as Record<string, unknown>;
+          const hard = applyAdapterToolHardening(
+            claudeAdapter,
+            tcFull.toolName ?? "",
+            rawToolInput,
+            buf?.toolName,
+          );
+          if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+          if (hard.repairedWrite) {
             toolArgHardeningStats.repairedWriteCount += 1;
             requestToolRepairs += 1;
             app.log.warn({
-              reqId: traceReqId, originalTool: tcFull.toolName,
-              rewrittenTo: repair.rewrittenToolName,
-              filePath: (tcFull.input as Record<string, unknown>)?.file_path ?? (tcFull.input as Record<string, unknown>)?.path,
+              reqId: traceReqId,
+              originalTool: tcFull.toolName,
+              rewrittenTo: "Bash",
+              filePath: rawToolInput.file_path ?? rawToolInput.path,
             }, "write_tool_repaired_to_bash_heredoc");
           }
-
-          const bashRepair = repairBashToolCall(emitToolName, finalInput);
-          if (bashRepair) {
-            finalInput = bashRepair.input;
+          if (hard.repairedBash) {
             toolArgHardeningStats.repairedBashCount += 1;
             requestToolRepairs += 1;
             app.log.warn(
-              { reqId: traceReqId, toolName: emitToolName, bashRepaired: bashRepair.repaired },
+              { reqId: traceReqId, toolName: hard.toolName, bashRepaired: true },
               "bash_tool_args_repaired",
             );
           }
+          let emitToolName = hard.toolName;
+          let finalInput = hard.input;
 
           const governed = governToolCall({
             toolName: emitToolName,
@@ -4076,7 +4169,7 @@ app.post("/v1/messages", async (req, reply) => {
               "tool_args_validation_failed",
             );
           }
-          if (claudeOpenClawStrictGovernance && isWriteCapableToolName(emitToolName) && governed.toolName === "Bash") {
+          if (claudeOpenClawStrictGovernance && isWriteCapableToolName(tcFull.toolName ?? "") && governed.toolName === "Bash") {
             openClawProfileStats.strictGovernanceRewrites += 1;
           }
 
@@ -4085,42 +4178,22 @@ app.post("/v1/messages", async (req, reply) => {
               reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId,
               argsLen: JSON.stringify(finalInput).length,
               argsPreview: JSON.stringify(finalInput).slice(0, 300),
-              remapped: wasRemapped, repaired: !!repair || !!bashRepair,
+              remapped: hard.remapped,
+              repairedWrite: hard.repairedWrite,
+              repairedBash: hard.repairedBash,
               adapterFamily: claudeAdapter.family,
             }, "claude_tool_call_streamed");
           }
 
           const toolCallId = tcFull.toolCallId ?? "";
           const normalizedJson = JSON.stringify(finalInput);
-          const rawJoined = buf?.chunks.join("") ?? "";
 
-          if (claudeToolBlockStartedOnStream) {
-            if (normalizedJson !== rawJoined) {
-              app.log.warn(
-                {
-                  reqId: traceReqId,
-                  toolName: emitToolName,
-                  toolCallId,
-                  rawLen: rawJoined.length,
-                  normalizedLen: normalizedJson.length,
-                },
-                "claude_tool_stream_governed_mismatch: streamed tool JSON differs from governed output; client may show pre-governance args",
-              );
-            }
-            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-            blockIdx++;
-            claudeToolBuffer.delete(toolCallId);
-            claudeToolBlockStartedOnStream = false;
-            stopReason = "tool_use";
-          } else {
-            // Fallback: no tool-input-start on stream (emit full block once).
-            safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
-            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: normalizedJson } });
-            safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-            blockIdx++;
-            claudeToolBuffer.delete(toolCallId);
-            stopReason = "tool_use";
-          }
+          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
+          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: normalizedJson } });
+          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+          blockIdx++;
+          claudeToolBuffer.delete(toolCallId);
+          stopReason = "tool_use";
         }
       }
       if (
@@ -4369,9 +4442,27 @@ app.post("/v1/messages", async (req, reply) => {
         typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
           ? (tc.input as Record<string, unknown>)
           : {};
+      const hard = applyAdapterToolHardening(claudeAdapter, tc.toolName, rawInput);
+      if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+      if (hard.repairedWrite) {
+        toolArgHardeningStats.repairedWriteCount += 1;
+        app.log.warn(
+          {
+            reqId,
+            originalTool: tc.toolName,
+            rewrittenTo: "Bash",
+            filePath: rawInput.file_path ?? rawInput.path,
+          },
+          "write_tool_repaired_to_bash_heredoc",
+        );
+      }
+      if (hard.repairedBash) {
+        toolArgHardeningStats.repairedBashCount += 1;
+        app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
+      }
       const governed = governToolCall({
-        toolName: tc.toolName,
-        input: rawInput,
+        toolName: hard.toolName,
+        input: hard.input,
         projectRoot: effectiveClaudePathCtx.projectRoot,
         shellCwd: effectiveClaudePathCtx.shellCwd,
         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,

@@ -27,6 +27,12 @@ export interface GovernedToolCall {
   validationMissing: string[];
 }
 
+/** One-line JSON on stderr + exit 2 — parseable by agents (schema_version bumps are breaking). */
+export function buildStructuredErrorBashCommand(payload: Record<string, unknown>): string {
+  const json = JSON.stringify(payload);
+  return `printf '%s\\n' ${shellEscape(json)} >&2; exit 2`;
+}
+
 export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   const logicalName = canonicalValidationToolName(opts.toolName);
   const out: GovernedToolCall = {
@@ -54,10 +60,18 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   }
 
   if (opts.blockWriteCapableTools && isWriteCapableTool(logicalName)) {
-    const msg = `Synesis Yarn blocked write-capable tool '${logicalName}' for this client safety profile.`;
+    const message = `Synesis Yarn blocked write-capable tool '${logicalName}' for this client safety profile.`;
     out.toolName = "Bash";
     out.input = {
-      command: `echo ${shellEscape(msg)} >&2; exit 2`,
+      command: buildStructuredErrorBashCommand({
+        synesis_error: true,
+        schema_version: 1,
+        category: "policy",
+        reason: "write_capable_blocked",
+        original_tool: logicalName,
+        message,
+        retryable: false,
+      }),
       description: "Blocked write-capable tool for safety profile",
     };
     out.blockedBashDrift = true;
@@ -69,18 +83,33 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     if (typeof command === "string" && command.trim()) {
       const drift = detectBashPathDrift(command, opts.shellCwd);
       if (drift) {
-        const msg = `Synesis Yarn blocked risky shell path drift: ${drift.reason}. Stay in the current project root and use relative paths.`;
+        const message = `Synesis Yarn blocked risky shell path drift: ${drift.reason}. Stay in the current project root and use relative paths.`;
         out.input = {
-          command: `echo ${shellEscape(msg)} >&2; exit 2`,
+          command: buildStructuredErrorBashCommand({
+            synesis_error: true,
+            schema_version: 1,
+            category: "policy",
+            reason: "bash_path_drift",
+            message,
+            retryable: true,
+          }),
           description: "Blocked risky mkdir/cd path drift",
         };
         out.blockedBashDrift = true;
       }
       const dangerous = detectDangerousBash(command);
       if (dangerous) {
-        const msg = `Synesis Yarn blocked unsafe shell command: ${dangerous.reason}. Use safe structured tools from project root.`;
+        const message = `Synesis Yarn blocked unsafe shell command: ${dangerous.reason}. Use safe structured tools from project root.`;
         out.input = {
-          command: `echo ${shellEscape(msg)} >&2; exit 2`,
+          command: buildStructuredErrorBashCommand({
+            synesis_error: true,
+            schema_version: 1,
+            category: "policy",
+            reason: "unsafe_shell",
+            detail: dangerous.reason,
+            message,
+            retryable: true,
+          }),
           description: "Blocked unsafe shell command",
         };
         out.blockedBashDrift = true;
@@ -92,10 +121,19 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   if (!validation.valid) {
     out.validationMissing = validation.missing;
     if (opts.strictValidationBlock !== false) {
-      const msg = `Synesis Yarn blocked invalid tool arguments for ${out.toolName}: missing ${validation.missing.join(", ")}`;
+      const human = `Synesis Yarn blocked invalid tool arguments for ${out.toolName}: missing ${validation.missing.join(", ")}`;
       out.toolName = "Bash";
       out.input = {
-        command: `echo ${shellEscape(msg)} >&2; exit 2`,
+        command: buildStructuredErrorBashCommand({
+          synesis_error: true,
+          schema_version: 1,
+          category: "validation",
+          original_tool: logicalName,
+          missing: validation.missing,
+          message: human,
+          hint: `Provide required fields (${validation.missing.join(", ")}) using exact parameter names from the tool schema (e.g. file_path and content for Write).`,
+          retryable: true,
+        }),
         description: "Blocked invalid tool arguments",
       };
     }

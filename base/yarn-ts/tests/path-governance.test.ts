@@ -108,6 +108,24 @@ describe("governToolCall", () => {
       blockWriteCapableTools: true,
     });
     expect(out.toolName).toBe("Bash");
+    expect(String(out.input.command)).toContain("write_capable_blocked");
     expect(String(out.input.command)).toContain("blocked write-capable tool");
+  });
+
+  it("emits structured JSON for Write validation failure", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: { file_path: "main.go" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.toolName).toBe("Bash");
+    expect(out.validationMissing).toContain("content");
+    const cmd = String(out.input.command);
+    expect(cmd).toContain("printf");
+    expect(cmd).toContain('"category":"validation"');
+    expect(cmd).toContain('"original_tool":"Write"');
+    expect(cmd).toContain("missing");
   });
 });

@@ -45,6 +45,22 @@ const META_MAX = 500;
 const ACP_META_JSON_MAX = 2048;
 const MAX_TOOL_ROUNDS = 32;
 
+const ACP_USER_ERROR_PREFIX = "[Synesis ACP] ";
+
+type FetchChatCompletionResult =
+  | {
+      ok: true;
+      message: {
+        content?: string | null;
+        tool_calls?: Array<{
+          id: string;
+          type?: string;
+          function?: { name: string; arguments: string };
+        }>;
+      };
+    }
+  | { ok: false; userMessage: string };
+
 function envBaseUrl(): string {
   const u = (process.env.SYNESIS_YARN_URL ?? process.env.SYNESIS_CODER_URL ?? "http://127.0.0.1:8000").trim();
   return u.replace(/\/$/, "");
@@ -279,12 +295,20 @@ export class SynesisYarnAcpAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const token = envToken();
     if (!token) {
-      throw new Error("SYNESIS_YARN_TOKEN or ANTHROPIC_AUTH_TOKEN is required for the Synesis ACP bridge");
+      await this.emitUserVisibleError(
+        params.sessionId,
+        "Set SYNESIS_YARN_TOKEN or ANTHROPIC_AUTH_TOKEN to authenticate to the Synesis coder API.",
+      );
+      return { stopReason: "end_turn" };
     }
 
     const session = this.sessions.get(params.sessionId);
     if (!session) {
-      throw new Error(`Unknown session ${params.sessionId}`);
+      await this.emitUserVisibleError(
+        params.sessionId,
+        `Unknown ACP session. Call newSession before prompt (sessionId was invalid).`,
+      );
+      return { stopReason: "end_turn" };
     }
 
     const userText = blocksToUserText(params.prompt);
@@ -298,53 +322,63 @@ export class SynesisYarnAcpAgent implements Agent {
     const model = envModel();
 
     let modelCalls = 0;
-    while (true) {
-      if (modelCalls >= MAX_TOOL_ROUNDS) {
-        throw new Error(
-          `synesis-yarn-acp: exceeded ${MAX_TOOL_ROUNDS} /v1/chat/completions calls in one ACP prompt (tool loop)`,
-        );
-      }
-      modelCalls += 1;
-
-      const msg = await this.fetchChatCompletion(session, token, base, model);
-      if (!msg) {
-        break;
-      }
-
-      const text = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : "";
-      const toolCalls = msg.tool_calls ?? [];
-
-      if (text) {
-        await this.emitTextChunks(params.sessionId, text);
-      }
-
-      for (const tc of toolCalls) {
-        const id = tc.id;
-        const name = tc.function?.name ?? "";
-        if (!id || !name) continue;
-        let rawInput: unknown = {};
-        try {
-          rawInput = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
-        } catch {
-          rawInput = { _raw: tc.function?.arguments ?? "" };
+    try {
+      while (true) {
+        if (modelCalls >= MAX_TOOL_ROUNDS) {
+          await this.emitUserVisibleError(
+            params.sessionId,
+            `Stopped after ${MAX_TOOL_ROUNDS} coder round-trips (safety limit). Continue in a new message or narrow the task.`,
+          );
+          return { stopReason: "end_turn" };
         }
-        const n: SessionNotification = {
-          sessionId: params.sessionId,
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: id,
-            title: name,
-            kind: mapCoderToolNameToAcpKind(name),
-            status: "pending",
-            rawInput,
-          },
-        };
-        await this.connection.sessionUpdate(n);
-      }
+        modelCalls += 1;
+
+        const fetched = await this.fetchChatCompletion(session, token, base, model);
+        if (!fetched.ok) {
+          await this.emitUserVisibleError(params.sessionId, fetched.userMessage);
+          return { stopReason: "end_turn" };
+        }
+        const msg = fetched.message;
+
+        const text = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : "";
+        const toolCalls = msg.tool_calls ?? [];
+
+        if (text) {
+          await this.emitTextChunks(params.sessionId, text);
+        }
+
+        for (const tc of toolCalls) {
+          const id = tc.id;
+          const name = tc.function?.name ?? "";
+          if (!id || !name) continue;
+          let rawInput: unknown = {};
+          try {
+            rawInput = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+          } catch {
+            rawInput = { _raw: tc.function?.arguments ?? "" };
+          }
+          const n: SessionNotification = {
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: id,
+              title: name,
+              kind: mapCoderToolNameToAcpKind(name),
+              status: "pending",
+              rawInput,
+            },
+          };
+          await this.connection.sessionUpdate(n);
+        }
 
       if (toolCalls.length === 0) {
         if (text) {
           session.messages.push({ role: "assistant", content: text });
+        } else {
+          await this.emitUserVisibleError(
+            params.sessionId,
+            "Coder returned an empty assistant message (no text and no tool calls). Check the model deployment or try again.",
+          );
         }
         break;
       }
@@ -395,6 +429,17 @@ export class SynesisYarnAcpAgent implements Agent {
           content: resultText,
         });
       }
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const isAbort =
+        err instanceof Error && (err.name === "AbortError" || detail.toLowerCase().includes("abort"));
+      await this.emitUserVisibleError(
+        params.sessionId,
+        isAbort
+          ? "Request to the coder was cancelled (disconnected or aborted)."
+          : `Unexpected ACP bridge error: ${detail.slice(0, 800)}`,
+      );
     }
 
     return { stopReason: "end_turn" };
@@ -405,14 +450,7 @@ export class SynesisYarnAcpAgent implements Agent {
     token: string,
     base: string,
     model: string,
-  ): Promise<{
-    content?: string | null;
-    tool_calls?: Array<{
-      id: string;
-      type?: string;
-      function?: { name: string; arguments: string };
-    }>;
-  } | null> {
+  ): Promise<FetchChatCompletionResult> {
     const body: Record<string, unknown> = {
       model,
       max_tokens: 32_768,
@@ -422,23 +460,43 @@ export class SynesisYarnAcpAgent implements Agent {
       metadata: { ...session.requestMetadata },
     };
 
-    const res = await fetch(`${base}/v1/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "x-synesis-client": "synesis-acp",
-      },
-      body: JSON.stringify(body),
-      signal: this.connection.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`Yarn OpenAI API ${res.status}: ${errText.slice(0, 500)}`);
+    let res: Response;
+    try {
+      res = await fetch(`${base}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "x-synesis-client": "synesis-acp",
+        },
+        body: JSON.stringify(body),
+        signal: this.connection.signal,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        ok: false,
+        userMessage: `Network error calling ${base}/v1/chat/completions: ${msg}`,
+      };
     }
 
-    const json = (await res.json()) as {
+    const bodyText = await res.text().catch(() => "");
+    if (!res.ok) {
+      let detail = bodyText.slice(0, 800);
+      try {
+        const j = JSON.parse(bodyText) as { error?: { message?: string }; message?: string };
+        const m = j?.error?.message ?? j?.message;
+        if (typeof m === "string" && m.trim()) detail = m.trim();
+      } catch {
+        /* keep raw slice */
+      }
+      return {
+        ok: false,
+        userMessage: `Coder API HTTP ${res.status}: ${detail}`,
+      };
+    }
+
+    let json: {
       choices?: Array<{
         message?: {
           role?: string;
@@ -451,8 +509,25 @@ export class SynesisYarnAcpAgent implements Agent {
         };
       }>;
     };
+    try {
+      json = JSON.parse(bodyText) as typeof json;
+    } catch {
+      return {
+        ok: false,
+        userMessage: "Coder API returned a non-JSON response (or malformed JSON). Check deployment and proxy configuration.",
+      };
+    }
 
-    return json.choices?.[0]?.message ?? null;
+    const message = json.choices?.[0]?.message;
+    if (!message) {
+      return {
+        ok: false,
+        userMessage:
+          "Coder API returned no choices[0].message (empty completion). Check Yarn logs and model availability.",
+      };
+    }
+
+    return { ok: true, message };
   }
 
   /**
@@ -521,11 +596,22 @@ export class SynesisYarnAcpAgent implements Agent {
       }
       default:
         return JSON.stringify({
+          synesis_error: true,
+          schema_version: 1,
+          category: "acp_unsupported_tool",
           error: true,
           message: `synesis-yarn-acp does not execute tool "${toolName}" on the ACP client yet. Supported: Read, Write, Bash.`,
           tool: toolName,
+          retryable: false,
+          hint: "Use only Read, Write, or Bash for local execution, or ask the model to avoid this tool name.",
         });
     }
+  }
+
+  /** User-visible line in the ACP transcript (not a silent failure). */
+  private async emitUserVisibleError(sessionId: string, message: string): Promise<void> {
+    const text = message.startsWith(ACP_USER_ERROR_PREFIX) ? message : `${ACP_USER_ERROR_PREFIX}${message}`;
+    await this.emitTextChunks(sessionId, text);
   }
 
   private async emitTextChunks(sessionId: string, text: string): Promise<void> {
