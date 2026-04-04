@@ -72,7 +72,7 @@ export default function FeedbackList() {
             Triage chat thumbs and Open WebUI ratings. Route retrieval issues to Retrieval Gaps and source
             recommendations to Curator.
           </p>
-          {error ? (
+          {error && !isLoading ? (
             <p className="mt-2 text-sm text-red-600">{apiErrorMessage(error)}</p>
           ) : null}
         </div>

@@ -66,10 +66,19 @@ def _extract_run_id(obj: Any) -> str | None:
 def _owui_snippets(meta: dict[str, Any], snapshot: dict[str, Any]) -> tuple[str, str]:
     """Best-effort prompt/response text from Open WebUI snapshot (see FeedbackModal.svelte)."""
     try:
-        messages = snapshot.get("chat", {}).get("chat", {}).get("history", {}).get("messages", {})
+        hist = snapshot.get("chat", {}) if isinstance(snapshot.get("chat"), dict) else {}
+        inner = hist.get("chat", {}) if isinstance(hist.get("chat"), dict) else {}
+        messages = inner.get("history", {}).get("messages", {}) if isinstance(inner.get("history"), dict) else {}
+        if not isinstance(messages, dict):
+            messages = {}
         mid = meta.get("message_id")
+        if not mid and isinstance(snapshot.get("message_id"), str):
+            mid = snapshot.get("message_id")
         if not isinstance(messages, dict) or not mid:
-            return "", ""
+            # Fallback: some exports only store flat preview text
+            p = snapshot.get("prompt") or snapshot.get("user_message") or meta.get("prompt")
+            r = snapshot.get("response") or snapshot.get("assistant_message") or meta.get("response")
+            return (str(p or "")[:2000], str(r or "")[:2000])
         msg = messages.get(mid) or {}
         parent_id = msg.get("parentId") or msg.get("parent_id")
         prompt = ""
@@ -82,16 +91,30 @@ def _owui_snippets(meta: dict[str, Any], snapshot: dict[str, Any]) -> tuple[str,
 
 
 def _owui_rating_to_vote(data: dict[str, Any] | None) -> str:
+    """Map Open WebUI evaluation payload to up/down (OWUI versions differ on shape)."""
     if not data:
         return ""
     inner = data.get("details") if isinstance(data.get("details"), dict) else data
-    r = inner.get("rating") if isinstance(inner, dict) else None
+    if not isinstance(inner, dict):
+        inner = data
+    r = inner.get("rating")
     if r is None:
         r = data.get("rating")
-    s = str(r).strip()
+    if isinstance(r, bool):
+        return "up" if r else "down"
+    if isinstance(r, (int, float)):
+        if r > 0:
+            return "up"
+        if r < 0:
+            return "down"
+    s = str(r).strip().lower() if r is not None else ""
     if s in ("1", "1.0") or r == 1:
         return "up"
     if s in ("-1", "-1.0") or r == -1:
+        return "down"
+    if s in ("positive", "up", "like", "thumbs_up", "good"):
+        return "up"
+    if s in ("negative", "down", "dislike", "thumbs_down", "bad"):
         return "down"
     return ""
 
@@ -219,7 +242,7 @@ def _unified_from_openwebui(row: OpenWebUIFeedback) -> dict[str, Any]:
     }
 
 
-@router.get("/")
+@router.get("")
 async def list_feedback(
     _user: UserInfo = Depends(get_current_user),
     vote: str = Query("", description="Filter: up or down"),

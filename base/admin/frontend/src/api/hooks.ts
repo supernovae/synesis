@@ -1188,7 +1188,10 @@ export function useSyncOpenWebUIFeedback() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => client.post("/feedback/sync-openwebui").then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["feedback"] }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["feedback"] });
+      await qc.refetchQueries({ queryKey: ["feedback"] });
+    },
   });
 }
 
