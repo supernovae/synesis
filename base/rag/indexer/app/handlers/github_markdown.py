@@ -6,6 +6,7 @@ then chunks them with heading-aware splitting.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -18,6 +19,9 @@ from .base import Chunk, RawDocument
 logger = get_logger("synesis.indexer.handler.github_markdown")
 
 GITHUB_API = "https://api.github.com"
+_MARKDOWN_EXTS = {".md", ".mdx", ".markdown"}
+_HTML_EXTS = {".html", ".htm"}
+_DOC_EXTS = _MARKDOWN_EXTS | _HTML_EXTS
 
 
 @register
@@ -37,7 +41,12 @@ class GitHubMarkdownHandler:
             logger.error("indexer_handler_config_missing", extra={"handler": "github_markdown", "field": "config.repo"})
             return []
 
-        md_paths = _list_md_files(repo, path, branch, token)
+        # For explicit file paths, avoid recursive tree listing (can be truncated on large repos).
+        explicit_suffix = Path(path).suffix.lower() if path else ""
+        if path and explicit_suffix in _DOC_EXTS:
+            md_paths = [path]
+        else:
+            md_paths = _list_md_files(repo, path, branch, token)
         if not md_paths:
             logger.warning("indexer_github_no_markdown", extra={"repo": repo, "path": path})
             return []
@@ -72,6 +81,12 @@ class GitHubMarkdownHandler:
         else:
             text = doc.content
 
+        file_path = str(doc.metadata.get("path", "")).lower()
+        if file_path.endswith(tuple(_HTML_EXTS)) or ("<html" in text.lower() and "</html>" in text.lower()):
+            from ..extract import html_to_markdown, normalize_doc_markdown
+
+            text = normalize_doc_markdown(html_to_markdown(text))
+
         text_chunks = heading_aware_split(text, document_name=doc.name)
         return [
             Chunk(
@@ -91,6 +106,14 @@ def _list_md_files(
     token: str | None,
 ) -> list[str]:
     """List all .md file paths under a GitHub repo path via the tree API."""
+    # If caller provided an explicit documentation file path, fetch directly.
+    # Recursive tree responses can be truncated for large repos (e.g., golang/go),
+    # which can hide valid files from enumeration.
+    if path:
+        suffix = Path(path).suffix.lower()
+        if suffix in _DOC_EXTS:
+            return [path]
+
     owner, name = repo.split("/", 1)
     url = f"{GITHUB_API}/repos/{owner}/{name}/git/trees/{branch}?recursive=1"
     headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
@@ -107,7 +130,7 @@ def _list_md_files(
         item["path"]
         for item in trees
         if item.get("type") == "blob"
-        and item["path"].endswith(".md")
+        and Path(item["path"]).suffix.lower() in _MARKDOWN_EXTS
         and (not prefix or item["path"].startswith(prefix) or item["path"] == path)
     )
 

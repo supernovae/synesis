@@ -1,7 +1,7 @@
 # Bootstrap corpus — Go language evidence pack
 items:
 - uri: https://go.dev/ref/spec
-  handler: web_page
+  handler: github_markdown
   title: The Go Programming Language Specification
   domain: go
   authority: vetted
@@ -22,17 +22,9 @@ items:
   - go
   constraint_kind: hard
   config:
-    profile: reference
-    discovery: sitemap_first
-    follow_links: true
-    max_depth: 7
-    max_pages: 260
-    max_sitemap_expand: 180
-    max_links_per_page: 120
-    respect_robots: true
-    min_request_interval: 0.4
-    allowed_prefixes:
-    - https://go.dev/ref/
+    repo: golang/go
+    branch: master
+    path: doc/go_spec.html
 - uri: https://go.dev/doc/effective_go
   handler: web_page
   title: Effective Go
@@ -160,7 +152,7 @@ items:
     allowed_prefixes:
     - https://golangci-lint.run/
 - uri: https://go.dev/ref/mod
-  handler: web_page
+  handler: github_markdown
   title: Go Modules Reference
   domain: go
   authority: vetted
@@ -181,17 +173,9 @@ items:
   - go
   constraint_kind: hard
   config:
-    profile: reference
-    discovery: sitemap_first
-    follow_links: true
-    max_depth: 7
-    max_pages: 260
-    max_sitemap_expand: 220
-    max_links_per_page: 120
-    respect_robots: true
-    min_request_interval: 0.4
-    allowed_prefixes:
-    - https://go.dev/ref/
+    repo: golang/website
+    branch: master
+    path: _content/ref/mod.md
 - uri: https://go.dev/doc/tutorial/
   handler: web_page
   title: Go Tutorials
