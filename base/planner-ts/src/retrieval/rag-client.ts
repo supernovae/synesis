@@ -29,7 +29,7 @@ export interface RagClientConfig {
 }
 
 const OUTPUT_FIELDS = [
-  "text", "source", "authority", "origin_type", "domain",
+  "text", "authority", "origin_type", "domain",
   "source_url", "heading_path", "context_prefix", "chunk_summary",
   "document_name", "visibility_scope", "org_id", "tenant_id",
   "acl_mode", "acl_groups",
