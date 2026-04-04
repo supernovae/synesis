@@ -1387,6 +1387,8 @@ patch_planner_feature_flags() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD" "${SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD:-0.58}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED" "${SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT" "${SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT:-true}" "$container"
+    # Writer output: policy target vs effective max_tokens; default audit for telemetry learning (override with enforced if needed).
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE" "${SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE:-audit}" "$container"
 }
 
 # Ensure MCP-TS has the internal service token and admin DB URL.

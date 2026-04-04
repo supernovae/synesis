@@ -102,6 +102,8 @@ spec:
               value: "true"
             - name: SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE
               value: "auto"
+            - name: SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE
+              value: "audit"
             - name: SYNESIS_PLANNER_TS_REDIS_URL
               valueFrom:
                 secretKeyRef:
