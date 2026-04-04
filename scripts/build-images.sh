@@ -89,7 +89,6 @@ BASE_IMAGES=(
 SERVICE_IMAGES=(
     "planner-ts|base/planner-ts/Containerfile|."
     "admin|base/admin/Dockerfile|base/admin"
-    "lsp-gateway|base/lsp/gateway/Dockerfile|base/lsp/gateway"
     "sandbox|base/sandbox/image/Dockerfile|base/sandbox/image"
     "bge-reranker|base/planner/bge-reranker/Dockerfile|base/planner/bge-reranker"
     "indexer|base/rag/indexer/Dockerfile|base"
@@ -191,7 +190,7 @@ for entry in "${IMAGES[@]}"; do
             local_base="${BASE_TAG_MAP[synesis-base-ml]:-$REGISTRY/synesis-base-ml:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        lsp-gateway|sandbox)
+        sandbox)
             local_base="${BASE_TAG_MAP[synesis-base-devtools]:-$REGISTRY/synesis-base-devtools:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

@@ -64,7 +64,6 @@ body:
         - Gateway (LiteLLM)
         - RAG Pipeline
         - Sandbox / Executor
-        - LSP Gateway
         - Model Serving (vLLM)
         - Web UI (Open WebUI)
         - SearXNG (Search)

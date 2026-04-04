@@ -67,12 +67,6 @@ updates:
     open-pull-requests-limit: 3
 
   - package-ecosystem: "pip"
-    directory: "/base/lsp/gateway"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-
-  - package-ecosystem: "pip"
     directory: "/base/rag/indexer"
     schedule:
       interval: "weekly"
@@ -80,15 +74,6 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/base/sandbox/image"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    ignore:
-      - dependency-name: "python"
-        versions: [">=3.14"]
-
-  - package-ecosystem: "docker"
-    directory: "/base/lsp/gateway"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3

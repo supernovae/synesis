@@ -74,15 +74,6 @@ Admin API note:
 | Sandbox Latency | `histogram_quantile(0.95, rate(synesis_sandbox_duration_seconds_bucket[5m]))` | By language |
 | Failure Types | `sum(synesis_sandbox_failures_by_type_total) by (error_type)` | timeout, syntax, runtime, etc. |
 
-### LSP
-
-| Panel | PromQL | Description |
-|-------|--------|-------------|
-| Analysis Latency | `histogram_quantile(0.95, rate(synesis_lsp_analysis_duration_seconds_bucket[5m]))` | By language |
-| Diagnostics by Severity | `rate(synesis_lsp_diagnostics_count[5m])` | error, warning, info counts |
-| Language Usage | `sum(synesis_lsp_analysis_requests_total) by (language)` | Which languages get analyzed |
-| Circuit Breaker State | `synesis_lsp_circuit_breaker_state` | Per-language circuit state |
-
 **Traces (Postgres):** `conversation_id`, `parent_trace_id`, and `root_trace_id` link runs in a chat session. Admin: `GET /api/v1/traces?conversation_id=...` or `DELETE /api/v1/traces/session/{conversation_id}` to purge a session. Do not put raw conversation IDs on Prometheus metric labels.
 
 **Perses:** `PersesDashboard` / `PersesDatasource` for Synesis live in **`synesis-admin`**. COO must reconcile Perses CRs in that namespace (Observe → Dashboards).
@@ -159,7 +150,6 @@ All Synesis components read `SYNESIS_LOG_LEVEL` from the environment:
 - Yarn-ts (`base/yarn-ts/src/index.ts`)
 - Health Monitor (`base/planner/app/health_monitor.py`)
 - MCP-TS Server (`base/mcp-ts/src/index.ts`)
-- LSP Gateway (`base/lsp/gateway/app/main.py`)
 - Admin Service (`base/admin/app/main.py`)
 
 The base deployment YAMLs default to `"info"`. Overlays override per environment using
@@ -181,7 +171,6 @@ This triggers a rolling restart. To revert, redeploy the overlay.
 | synesis-yarn | synesis-yarn | Yarn-ts API `/metrics` | 15s |
 | synesis-health-monitor | synesis-planner | Health monitor `/metrics` | 15s |
 | synesis-gateway | synesis-gateway | LiteLLM proxy `/metrics` | 15s |
-| synesis-lsp-gateway | synesis-lsp | LSP gateway `/metrics` | 15s |
 | synesis-models | synesis-models | All vLLM model pods `/metrics` | 30s |
 
 ## Profile Behavior (small / medium / large)

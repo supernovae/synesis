@@ -213,7 +213,7 @@ additional cost.
 3. **Reserved Instances**: Commit to 1-year pricing for ~34% savings on EC2.
 4. **Spot Instances**: Use for non-GPU workloads (~75% savings).
 5. **Right-size the default pool**: 3 nodes suffice for dev/test.
-6. **Disable optional components**: SearXNG, LSP Gateway, Admin, Warm Pool can
+6. **Disable optional components**: SearXNG, Admin, Warm Pool can
    be disabled to reduce CPU requirements.
 
 *Prices are on-demand in us-east-1 as of February 2026. Verify current rates at

@@ -93,7 +93,7 @@ Per OpenAI agent safety guidance: prompt injection risks increase when untrusted
 
 **Hard guarantees:**
 - Untrusted context **cannot** change routing decisions.
-- Untrusted context **cannot** change tool permissions (what the sandbox/LSP/RAG can do).
+- Untrusted context **cannot** change tool permissions (what the sandbox/RAG can do).
 - Untrusted context **cannot** change schema requirements (output structure).
 - Keep trusted vs untrusted separation strict; routing reads only from parsed node outputs.
 

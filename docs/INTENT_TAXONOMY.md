@@ -12,8 +12,8 @@
 |--------|--------------|-----------------|-----------|
 | **Knowledge & Explanation** | RAG-heavy, clarification if underspecified | Hallucination-sensitive: flag unsourced claims, invented facts | Q&A and explanation need fact-checking |
 | **Writing & Content Creation** | Standard Worker path | Tone-based: voice, audience fit, clarity | Content quality ≠ code correctness |
-| **Code & Technical Implementation** | Default path | Evidence-gated (sandbox/LSP) | Baseline code critic |
-| **Debugging & Error Analysis** | LSP/sandbox evidence first; may short-circuit to LSP | Evidence-heavy: require sandbox/LSP refs for blocking | "Why does it fail?" needs traceability |
+| **Code & Technical Implementation** | Default path | Evidence-gated (sandbox) | Baseline code critic |
+| **Debugging & Error Analysis** | Sandbox evidence first | Evidence-heavy: require sandbox refs for blocking | "Why does it fail?" needs traceability |
 | **Review & Validation** | Stricter path; may force Architect | Stricter critic: block on style, security, edge cases | Review = higher bar than "it runs" |
 | **Planning & Strategy** | Planner path (plan_required) | Decomposition-focused; step verifiability | Atomic steps, verification_command |
 | **Data Transformation & Structuring** | Standard | Schema-enforcing: output shape, type consistency | Parse/convert needs output validation |
@@ -39,7 +39,7 @@
 
 1. **Subtype signals** — e.g. Knowledge can have subtypes: `explanation` vs `factual_qa` (hallucination-sensitive). Both use hallucination-sensitive critic; explanation subtypes get deeper taxonomy steering via `taxonomy_prompt_config.yaml`.
 2. **Intent × Domain** — Personal Guidance + healthcare domain → stronger safety gate (no diagnosis).
-3. **Routing precedence** — Debugging should prefer LSP-on-failure path; Planning forces Planner.
+3. **Routing precedence** — Debugging should prefer sandbox evidence; Planning forces Planner.
 
 ---
 
@@ -61,7 +61,7 @@ intent_classes:
     critic_behavior_block: ""  # default
   debugging:
     critic_behavior_block: |
-      EVIDENCE REQUIRED: Blocking issues MUST cite sandbox or LSP evidence. No speculation.
+      EVIDENCE REQUIRED: Blocking issues MUST cite sandbox evidence. No speculation.
   review:
     critic_behavior_block: |
       STRICT: Block on style violations, security concerns, edge cases. Higher bar than run-only.
@@ -88,7 +88,7 @@ intent_classes:
 
 | Intent | Routing Change |
 |--------|----------------|
-| Debugging | Prefer LSP analyzer when sandbox fails (already: lsp_mode=on_failure) |
+| Debugging | Prefer sandbox logs and failure artifacts when execution fails |
 | Planning | plan_required → Planner (already) |
 | Review | Optionally force Architect persona for strict path |
 | Tool-Orchestrated | Multi-step loop (existing) |

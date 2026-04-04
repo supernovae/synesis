@@ -2,7 +2,7 @@
 # Combined with Domain vertical: critic = base + domain_block + intent_block
 # Intent is orthogonal to domain (Knowledge+medical = hallucination + HIPAA).
 #
-# Routing: Debugging→LSP-on-failure; Planning→Planner; Review→stricter bar.
+# Routing: Debugging→sandbox evidence; Planning→Planner; Review→stricter bar.
 
 intent_classes:
   knowledge:
@@ -17,7 +17,7 @@ intent_classes:
     critic_behavior_block: ""
   debugging:
     critic_behavior_block: |
-      EVIDENCE REQUIRED: Blocking issues MUST cite sandbox or LSP evidence. No speculation.
+      EVIDENCE REQUIRED: Blocking issues MUST cite sandbox evidence. No speculation.
       Fix suggestions must trace to specific failure (line, stage, artifact).
   review:
     critic_behavior_block: |

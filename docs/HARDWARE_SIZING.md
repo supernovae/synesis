@@ -51,7 +51,6 @@ Non-model services (planner, RAG, gateway, admin, etc.) run on standard worker n
 | Milvus (standalone) | 2 cores | 8Gi | Vector database |
 | Embedder | 1 core | 2Gi | Sentence transformer |
 | SearXNG | 250m | 256Mi | Meta-search engine |
-| LSP Gateway | 1 core | 2Gi | 6-language runtimes |
 | Open WebUI | 250m | 512Mi | Chat frontend |
 | Admin Dashboard | 100m | 256Mi | Failure patterns |
 

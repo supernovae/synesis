@@ -22,7 +22,7 @@ Most enterprise AI platforms solve one problem well: a chatbot with RAG, or a co
 |-----------|--------------|
 | **Knowledge Pipeline** | Every chat turn goes through intent classification, domain profiling, structured planning, hybrid retrieval (Milvus + web), evidence-gated writing, and multi-axis critic review — not just "prompt → LLM → response" |
 | **Hybrid RAG** | Dense + sparse vector search (Milvus), web search (SearXNG), RRF merge, cross-encoder reranking, authority-weighted provenance, document freshness scoring, and HITL review queues |
-| **Agentic Coding** | Dedicated coder model with tool-calling, sandbox execution, 6-language LSP diagnostics — IDE-native via MCP and OpenAI-compatible endpoints |
+| **Agentic Coding** | Dedicated coder model with tool-calling, sandbox execution — IDE-native via MCP and OpenAI-compatible endpoints |
 | **MCP Integration** | Domain agents (coding, analysis, compliance) connect to shared organizational intelligence (RAG, taxonomy, quality gates) through MCP tool calls — lightweight agents, shared infrastructure |
 | **Taxonomy-Driven Behavior** | ~190 domain entries configure persona, depth, epistemic guidance, output style, and critic behavior via YAML — no prompt logic hardcoded in nodes |
 | **Trust & Safety** | 9-layer prompt injection defense, unified trust envelopes with attribution metadata, index-time scanning, admin review queues, deterministic policy matrix |
@@ -237,7 +237,7 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 | **Taxonomy-Driven Prompt Shaping** | ~190 domain entries with persona, depth, epistemic guidance, output style — compiled at startup with Pydantic validation | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
 | **Hybrid RAG** | Milvus hybrid search (dense + sparse), RRF merge of RAG + web, cross-encoder reranking, authority-weighted provenance, freshness scoring | [docs/RAG.md](docs/RAG.md) |
 | **Knowledge Indexers** | Queue-driven indexer with handler plugins: code (tree-sitter AST), API specs, docs, license, web pages — content managed via admin UI | [docs/INDEXERS.md](docs/INDEXERS.md) |
-| **Agentic Coding** | Coder model with tool-calling, code sandbox (lint, security scan, execute), 6-language LSP diagnostics | [docs/SANDBOX.md](docs/SANDBOX.md), [docs/LSP.md](docs/LSP.md) |
+| **Agentic Coding** | Coder model with tool-calling, code sandbox (lint, security scan, execute) | [docs/SANDBOX.md](docs/SANDBOX.md) |
 | **Web Search** | Self-hosted SearXNG for live grounding — no API keys, no tracking | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
 | **Trust & Safety** | 9-layer prompt injection defense, TrustPacketV1 envelopes, attribution metadata, HITL review, shared guardrails core | [docs/SECURITY.md](docs/SECURITY.md) |
 | **Admin Operations** | Model registry, provider governance, security console, RAG review with trust/freshness pivots, traces | [base/admin/README.md](base/admin/README.md) |
@@ -265,7 +265,6 @@ synesis/
 │   ├── mcp/                    # MCP server for IDE tool integration
 │   ├── rag/                    # Milvus + embedder + unified catalog + indexers
 │   ├── sandbox/                # Isolated code execution (warm pool + Jobs)
-│   ├── lsp/                    # LSP Intelligence Gateway (6 languages)
 │   ├── search/                 # SearXNG meta-search engine
 │   ├── webui/                  # Open WebUI chat frontend
 │   ├── yarn/                   # Synesis Yarn — OpenAI-compatible IDE/agent runtime
@@ -300,7 +299,6 @@ synesis/
 | [docs/INDEXERS.md](docs/INDEXERS.md) | Queue-driven RAG indexer, handler plugins, v13 schema, trust attribution |
 | [docs/ADMIN_QUALITY_UI.md](docs/ADMIN_QUALITY_UI.md) | Feedback loops, quality signals, HITL review, freshness scoring |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | Code execution sandbox, warm pool, security controls |
-| [docs/LSP.md](docs/LSP.md) | LSP Gateway architecture, supported languages, circuit breakers |
 | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) | SearXNG integration, search profiles, auto-trigger logic |
 | [docs/CONVERSATION_MEMORY.md](docs/CONVERSATION_MEMORY.md) | L1/L2 memory, scope key, Redis pending + pivot archive |
 | [docs/SECURITY.md](docs/SECURITY.md) | Trust envelopes, 9-layer prompt injection defense, attribution, admin review |

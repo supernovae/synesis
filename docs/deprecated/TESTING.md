@@ -108,7 +108,7 @@ Legend: **Yes** = implemented and should have contract tests; **Partial** = subs
 
 ## 5. Other Python services
 
-Admin, indexer, RAG microservices, MCP, LSP gateway: tests run **per component** (see each `base/*/pytest.ini` or `tests/` if present). Security workflow may run scanners over shared paths; **not** all services have full pytest in CI — check the relevant `Containerfile` / README.
+Admin, indexer, RAG microservices, MCP: tests run **per component** (see each `base/*/pytest.ini` or `tests/` if present). Security workflow may run scanners over shared paths; **not** all services have full pytest in CI — check the relevant `Containerfile` / README.
 
 ---
 

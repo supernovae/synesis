@@ -38,7 +38,7 @@ ignore = [
     "S108",   # hardcoded /tmp is fine in containers with emptyDir mounts
     "S110",   # try-except-pass is used intentionally for optional deps
     "S112",   # try-except-continue is used in batch indexers by design
-    "S603",   # subprocess calls are used intentionally in sandbox/LSP
+    "S603",   # subprocess calls are used intentionally in sandbox
     "S607",   # partial executable path is fine in containers
     "B007",   # unused loop variables are acceptable in iteration patterns
     "B008",   # function call in default arg (FastAPI Depends pattern)

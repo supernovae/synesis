@@ -326,7 +326,7 @@ create_namespaces() {
     log "Creating Synesis namespaces..."
     local namespaces=(
         synesis-models synesis-gateway synesis-planner synesis-rag
-        synesis-sandbox synesis-search synesis-lsp synesis-webui
+        synesis-sandbox synesis-search synesis-webui
         synesis-admin synesis-auth
     )
     for ns in "${namespaces[@]}"; do
@@ -385,7 +385,7 @@ configure_ghcr_pull_secrets() {
     log "Creating GHCR pull secrets in Synesis namespaces..."
     local namespaces=(
         synesis-gateway synesis-planner synesis-rag synesis-sandbox
-        synesis-search synesis-lsp synesis-webui synesis-admin synesis-auth
+        synesis-search synesis-webui synesis-admin synesis-auth
     )
     for ns in "${namespaces[@]}"; do
         if oc get namespace "$ns" &>/dev/null; then

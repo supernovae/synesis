@@ -15,7 +15,6 @@ cd "$ROOT"
 
 APP_ROOTS=(
   base/admin/app
-  base/lsp/gateway/app
   base/mcp/app
   base/planner/bge-reranker/app
   base/rag/gliner-service/app

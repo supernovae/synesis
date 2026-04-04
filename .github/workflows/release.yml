@@ -144,10 +144,6 @@ jobs:
             dockerfile: base/admin/Dockerfile
             context: base/admin
             base_arg: synesis-base-api
-          - name: lsp-gateway
-            dockerfile: base/lsp/gateway/Dockerfile
-            context: base/lsp/gateway
-            base_arg: synesis-base-devtools
           - name: sandbox
             dockerfile: base/sandbox/image/Dockerfile
             context: base/sandbox/image
@@ -254,7 +250,6 @@ jobs:
           | synesis-base-ml | \`${REGISTRY}/synesis-base-ml:${VERSION}\` |
           | synesis-base-devtools | \`${REGISTRY}/synesis-base-devtools:${VERSION}\` |
           | admin | \`${REGISTRY}/admin:${VERSION}\` |
-          | lsp-gateway | \`${REGISTRY}/lsp-gateway:${VERSION}\` |
           | sandbox | \`${REGISTRY}/sandbox:${VERSION}\` |
           | bge-reranker | \`${REGISTRY}/bge-reranker:${VERSION}\` |
           | indexer | \`${REGISTRY}/indexer:${VERSION}\` |

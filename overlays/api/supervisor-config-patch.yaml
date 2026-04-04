@@ -73,19 +73,6 @@ data:
           backoff_max_seconds: 5.0
         timeout_seconds: 15
 
-      lsp-gateway:
-        endpoint: "http://lsp-gateway.synesis-lsp.svc:8000"
-        health_path: "/health"
-        circuit_breaker:
-          failure_threshold: 3
-          reset_timeout_seconds: 30
-          half_open_max_requests: 1
-        retry:
-          max_attempts: 1
-          backoff_base_seconds: 1.0
-          backoff_max_seconds: 5.0
-        timeout_seconds: 30
-
     dead_letter:
       enabled: true
       max_queue_size: 1000
@@ -97,4 +84,3 @@ data:
       planner_unavailable: "skip_to_worker"
       critic_unavailable: "skip_critique"
       rag_unavailable: "generate_without_context"
-      lsp_unavailable: "skip_analysis"

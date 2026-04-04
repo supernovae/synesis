@@ -422,7 +422,7 @@ To reach "the 95%" for new verticals:
 Evidence sources are inlined in `decision_summary.py`.
 
 - **Approach:** What we chose to do — e.g. "Quick one-shot answer" (lifestyle easy) vs "12-week training plan" (lifestyle hard); "RAG-grounded answer" (knowledge).
-- **How I got here:** Taxonomy-aware decision summary — code uses lint/sandbox/LSP/strategy; knowledge uses RAG; lifestyle uses RAG and assumptions.
+- **How I got here:** Taxonomy-aware decision summary — code uses lint/sandbox/strategy; knowledge uses RAG; lifestyle uses RAG and assumptions.
 
 Surfaced in respond as **How I got here** (Architect).
 
@@ -432,7 +432,7 @@ Surfaced in respond as **How I got here** (Architect).
 
 The critic follows a **policy engine spec** (`base/planner/critic_policy_spec.json`) that defines:
 
-- **Evidence gating:** Blocking issues MUST cite sandbox or LSP evidence; no speculation.
+- **Evidence gating:** Blocking issues MUST cite sandbox evidence; no speculation.
 - **Monotonic retry:** `state.retry` accumulates failures, decisions, diversification history; never loses prior state.
 - **Fail-fast:** At `max_iterations`, force PASS (degraded).
 - **needs_more_evidence:** Emit retrieval query plan; route to Router; do not call tools.

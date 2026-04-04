@@ -64,7 +64,6 @@ jobs:
       base-ml: ${{ steps.filter.outputs.base-ml }}
       base-devtools: ${{ steps.filter.outputs.base-devtools }}
       admin: ${{ steps.filter.outputs.admin }}
-      lsp-gateway: ${{ steps.filter.outputs.lsp-gateway }}
       sandbox: ${{ steps.filter.outputs.sandbox }}
       bge-reranker: ${{ steps.filter.outputs.bge-reranker }}
       indexer: ${{ steps.filter.outputs.indexer }}
@@ -97,8 +96,6 @@ jobs:
               - 'base/images/base-api/synesis-telemetry/**'
             admin:
               - 'base/admin/**'
-            lsp-gateway:
-              - 'base/lsp/gateway/**'
             sandbox:
               - 'base/sandbox/image/**'
             bge-reranker:
@@ -379,12 +376,6 @@ jobs:
             base_arg: synesis-base-api
             change_key: admin
             base_change_key: base-api
-          - name: lsp-gateway
-            dockerfile: base/lsp/gateway/Dockerfile
-            context: base/lsp/gateway
-            base_arg: synesis-base-devtools
-            change_key: lsp-gateway
-            base_change_key: base-devtools
           - name: sandbox
             dockerfile: base/sandbox/image/Dockerfile
             context: base/sandbox/image

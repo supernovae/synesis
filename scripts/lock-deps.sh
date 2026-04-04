@@ -67,7 +67,6 @@ SERVICES=(
 
     # Standalone (own venv or non-UBI base)
     "indexer|base/rag/indexer|"
-    "lsp-gateway|base/lsp/gateway|"
 )
 
 # Resolve the lockfile path for a named service.

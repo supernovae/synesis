@@ -90,4 +90,4 @@ Scale replicas by patching the `synesis-warm-pool` Deployment in the environment
 
 ---
 
-Back to [README](../README.md) | See also: [LSP Intelligence](LSP.md), [Workflow](WORKFLOW_PLANNER.MD)
+Back to [README](../README.md) | See also: [Workflow](WORKFLOW_PLANNER.MD)

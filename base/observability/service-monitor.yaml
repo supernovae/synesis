@@ -65,20 +65,3 @@ spec:
     - port: http
       interval: 15s
       path: /metrics
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: synesis-lsp-gateway
-  namespace: synesis-lsp
-  labels:
-    app.kubernetes.io/part-of: synesis
-    app.kubernetes.io/component: observability
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: lsp-gateway
-  endpoints:
-    - port: http
-      interval: 15s
-      path: /metrics

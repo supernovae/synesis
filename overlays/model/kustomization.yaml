@@ -47,9 +47,6 @@ images:
   - name: synesis-admin
     newName: ghcr.io/supernovae/synesis/admin
     newTag: latest
-  - name: synesis-lsp-gateway
-    newName: ghcr.io/supernovae/synesis/lsp-gateway
-    newTag: latest
   - name: synesis-sandbox
     newName: ghcr.io/supernovae/synesis/sandbox
     newTag: latest

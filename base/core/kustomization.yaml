@@ -14,7 +14,6 @@ resources:
   - ../observability
   - ../sandbox
   - ../admin
-  - ../lsp
   - ../search
   - ../webui
   - ../keycloak

@@ -2312,7 +2312,7 @@ fi
 # - Set revisionHistoryLimit=2 on Synesis Deployments so new rollouts don't pile up.
 # - Delete old ReplicaSets with 0 replicas so failed or superseded rollouts don't linger.
 # -----------------------------------------------------------------------
-SYNESIS_NAMESPACES=(synesis-gateway synesis-planner synesis-rag synesis-webui synesis-admin synesis-yarn synesis-models synesis-lsp synesis-sandbox synesis-search synesis-authz)
+SYNESIS_NAMESPACES=(synesis-gateway synesis-planner synesis-rag synesis-webui synesis-admin synesis-yarn synesis-models synesis-sandbox synesis-search synesis-authz)
 
 set_revision_history_limit() {
     local ns name
