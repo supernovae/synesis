@@ -71,7 +71,9 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 |---------|---------|-------------|
 | `WEBUI_AUTH` | `true` | Require login (first user becomes admin) |
 | `ENABLE_SIGNUP` | `true` | Allow new user registration |
-| `DEFAULT_MODELS` | `Synesis Auto` | Pre-selected model tier for new conversations |
+| `DEFAULT_MODELS` | `Synesis Auto` | Default chat model (tier “Auto”); IDs match planner-ts |
+| `DEFAULT_PINNED_MODELS` | `Synesis Auto,Synesis Pulse,…` | Pinned tiers in the model selector for new accounts |
+| `ENABLE_PERSISTENT_CONFIG` | `false` | Use Deployment env for defaults; otherwise Open WebUI stores first-boot config in SQLite and ignores later env changes (same class of issue as OAuth) |
 | `ENABLE_OLLAMA_API` | `false` | Disabled — chat goes through planner-ts; planner reaches upstream models per its own config (often LiteLLM or direct vLLM) |
 
 ### Keycloak realm roles (SSO)
@@ -79,6 +81,8 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 Production WebUI uses Keycloak OIDC with **`OAUTH_ALLOWED_ROLES`** (see [`base/webui/deployment.yaml`](../../base/webui/deployment.yaml)): users need the **`synesis-user`** or **`synesis-admin`** **realm role** in the **`synesis`** realm. Self-registration normally assigns **`synesis-user`** via realm default roles; **manually created** users may need **`synesis-user`** assigned in Keycloak. For a concise table (WebUI vs Synesis Admin vs in-app admin), see [KEYCLOAK_BOOTSTRAP.md](admin/KEYCLOAK_BOOTSTRAP.md#realm-roles-open-webui-vs-synesis-admin).
 
 **Pending vs active in Open WebUI:** Open WebUI’s own role for new users is controlled by **`DEFAULT_USER_ROLE`** (`pending`, `user`, or `admin`). Synesis sets **`DEFAULT_USER_ROLE=user`** so users who complete OIDC are not left in **pending** awaiting a WebUI admin—Keycloak has already enforced allowed realm roles. To require manual approval inside Open WebUI anyway, you would set **`DEFAULT_USER_ROLE=pending`** (not recommended when using Keycloak as the gate).
+
+**Default model and tier dropdown:** Planner exposes **`Synesis Auto`**, **`Synesis Pulse`**, **`Synesis Core`**, and **`Synesis Horizon`** (see `base/planner-ts/src/model-tiers.ts`). The WebUI deployment sets **`DEFAULT_MODELS=Synesis Auto`** and **`DEFAULT_PINNED_MODELS`** to those four IDs so new users get **Auto** as the default with the Synesis tiers in the selector. **`ENABLE_PERSISTENT_CONFIG=false`** keeps these defaults driven by the manifest instead of freezing empty defaults in the PVC on first boot (if you still see “select a model” for old accounts, set defaults once in **Admin → Settings** or rely on a fresh user after rollout).
 
 ## Resource Requirements
 

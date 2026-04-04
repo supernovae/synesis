@@ -87,12 +87,15 @@ spec:
               value: "synesis-admin"
             - name: OAUTH_ALLOWED_ROLES
               value: "synesis-user,synesis-admin"
-            # V3: Synesis Auto = default planner-ts tier.
-            # Other selectable tiers are exposed from planner-ts /v1/models.
-            # Synesis Thinking = writer thinking param;
-            # synesis-thinking = R1 optional; Synesis Coder / synesis-yarn = IDE. Listed via planner-ts /v1/models.
+            # V3: Synesis tier IDs must match planner-ts listModelIds / POST model (see model-tiers.ts).
+            # DEFAULT_MODELS = default chat model; DEFAULT_PINNED_MODELS = model selector shortcuts for new users.
             - name: DEFAULT_MODELS
               value: "Synesis Auto"
+            - name: DEFAULT_PINNED_MODELS
+              value: "Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon"
+            # PersistentConfig (incl. default model / pinned models) otherwise freezes in SQLite on first boot.
+            - name: ENABLE_PERSISTENT_CONFIG
+              value: "false"
             - name: ENABLE_OLLAMA_API
               value: "false"
             - name: WEBUI_NAME
