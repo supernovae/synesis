@@ -6,6 +6,7 @@ alwaysApply: false
 
 # Open WebUI routing
 
-- **Chat traffic:** Open WebUI → **planner-ts** (`OPENAI_API_BASE_URL` → planner `/v1`). Do **not** document or imply Open WebUI → LiteLLM → planner as the normal or supported path.
-- **LiteLLM (gateway):** Used by **planner-ts upstream** model calls and by clients that target **`synesis-api`**, not as a hop from the Open WebUI browser to the planner.
-- **Secrets:** `webui-api-key` / `litellm-secrets` alignment is for **Bearer auth to planner-ts** and gateway keys — not “WebUI uses LiteLLM for chat.”
+- **Browser → planner:** Open WebUI → **planner-ts** only (`OPENAI_API_BASE_URL` → planner `/v1`). Do **not** document Open WebUI → LiteLLM → planner (LiteLLM is not between WebUI and planner).
+- **Planner upstream:** planner-ts calls **LiteLLM** for hosted OpenAI-compatible API providers (e.g. OpenRouter) and **vLLM** / InferenceService for self-hosted models — i.e. **Open WebUI → planner → LiteLLM** vs **Open WebUI → planner → vLLM** describes those upstream legs, not a WebUI→LiteLLM hop.
+- **`synesis-api`:** LiteLLM as **entry** for external API clients is separate from the WebUI path.
+- **Secrets:** `webui-api-key` / `litellm-secrets` alignment is **Bearer to planner-ts** and gateway keys — not “WebUI calls LiteLLM for chat.”

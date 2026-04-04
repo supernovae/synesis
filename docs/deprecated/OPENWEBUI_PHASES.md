@@ -12,8 +12,8 @@ How Synesis sends "Analyzing request," "Gathering evidence," "Composing response
 | **Planner-ts** | OpenAI-compatible `/v1` for WebUI; runs LangGraph; streams SSE + final content |
 
 **Request path (Synesis manifests):**
-- **Open WebUI → planner-ts** (`OPENAI_API_BASE_URL` → `synesis-planner-ts:8080/v1`). Open WebUI does not call LiteLLM for chat.
-- **Planner-ts → upstream models** may use LiteLLM, direct InferenceService URLs, or other config — that is separate from the WebUI → planner hop.
+- **Open WebUI → planner-ts** (`OPENAI_API_BASE_URL` → `synesis-planner-ts:8080/v1`). The browser does not call LiteLLM; **planner-ts** does for hosted API routes (e.g. OpenRouter), or talks **vLLM** directly for self-hosted models.
+- **Planner-ts → upstream models** uses LiteLLM and/or vLLM per deployment — separate from the WebUI → planner hop.
 
 ---
 

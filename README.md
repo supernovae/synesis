@@ -99,6 +99,8 @@ flowchart TD
 
 Canonical order: **entry → planner → plan gate → router → writer → (critic or scrubber) → respond**. Clarification and plan-approval prompts return from **respond**; the user's next message resumes via conversation memory. Code execution / patch workflows are **not** on this graph; IDE coding uses the **coder** front door and optional MCP tools.
 
+**Where LiteLLM sits:** Open WebUI talks **only** to planner-ts (left side of the diagram). **Planner-ts** then reaches upstream models through **LiteLLM** when using hosted API providers, or **directly to vLLM** (InferenceService) for self-hosted models — that hop is not shown inside the LangGraph box. Some clients use **synesis-api** (LiteLLM) as their entry to the same pipeline instead of calling planner directly.
+
 ### Key Design Decisions
 
 - **Unified planner-first graph** — every chat turn hits entry → planner → plan gate before retrieval. Plan gate validates the structured plan and can retry the planner with repair feedback. See [docs/WORKFLOW_PLANNER.MD](docs/WORKFLOW_PLANNER.MD).

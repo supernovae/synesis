@@ -1,14 +1,17 @@
 # OpenRouter Deployment
 
-Run Synesis without GPU hardware by routing **upstream** LLM traffic through [OpenRouter.ai](https://openrouter.ai). The LiteLLM gateway proxies those model calls to OpenRouter — **planner-ts** (and Yarn, when configured) talk to LiteLLM for upstream model names. **Open WebUI** calls **planner-ts** only; it does not use LiteLLM for that hop.
+Run Synesis without GPU hardware by routing **upstream** LLM traffic through [OpenRouter.ai](https://openrouter.ai). The LiteLLM gateway proxies those model calls to OpenRouter. **Open WebUI** → **planner-ts** → **LiteLLM** → OpenRouter for that stack: WebUI never talks to LiteLLM directly; planner is what calls LiteLLM for upstream API traffic. **Yarn** (when configured) may follow a similar planner → LiteLLM pattern depending on env.
 
 ## Architecture
 
+Browser traffic is **Open WebUI → planner-ts** only; **planner-ts** then calls **LiteLLM** for upstream OpenRouter API traffic (not the other way around).
+
 ```
 Open WebUI ──► planner-ts ──► LiteLLM Proxy ──► openrouter.ai/api/v1
-                     │              ▲
-                     │              └── OPENROUTER_API_KEY (K8s Secret)
-IDE / Yarn ──────────┴── (call planner or LiteLLM per deployment; not shown)
+                                  ▲
+                                  └── OPENROUTER_API_KEY (K8s Secret)
+
+IDE / Yarn ──► planner and/or gateway (per deployment; not shown)
 ```
 
 The planner env vars (`SYNESIS_ROUTER_MODEL_URL`, etc.) point at the in-cluster LiteLLM service. LiteLLM resolves each `synesis-*` model name to an OpenRouter model path using the API key from a K8s Secret. No vLLM pods, no GPU nodes, no model-serving namespace.

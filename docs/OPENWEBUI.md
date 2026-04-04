@@ -1,6 +1,8 @@
 # Open WebUI
 
-Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. **Manifests set** Open WebUI’s `OPENAI_API_BASE_URL` to **planner-ts** (`synesis-planner-ts:8080/v1`) — the browser talks **only** to the planner on that hop. **LiteLLM** (gateway) is for other clients (for example external tools using `synesis-api`); planner-ts reaches upstream models per its own configuration (often LiteLLM in-cluster), which is **separate** from how Open WebUI connects.
+Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. **Manifests set** Open WebUI’s `OPENAI_API_BASE_URL` to **planner-ts** (`synesis-planner-ts:8080/v1`) — the browser talks **only** to the planner on that hop; LiteLLM is **not** between Open WebUI and planner.
+
+**Upstream from planner-ts** (separate concern): the pipeline calls **LiteLLM** when using hosted OpenAI-compatible API providers (for example OpenRouter via the gateway), and **vLLM** (or other InferenceService endpoints) when using self-hosted models. So the full path is **Open WebUI → planner → LiteLLM** for those API routes, or **Open WebUI → planner → vLLM** when models are served in-cluster. External clients that target **`synesis-api`** hit LiteLLM **before** planner; that is a different entry path than the browser → planner hop above.
 
 Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.12`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
@@ -98,7 +100,7 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 ## Network Policy
 
-Open WebUI egress is open by policy; it only needs the **planner-ts** API (`synesis-planner-ts:8080`). It does not call the LiteLLM gateway for chat. WebUI has no access to Milvus, sandbox, or the rest of the data plane unless you add routes.
+Open WebUI egress is open by policy; it only needs the **planner-ts** API (`synesis-planner-ts:8080`). The WebUI pod does not call LiteLLM — **planner-ts** calls LiteLLM (or vLLM) for upstream model traffic. WebUI has no access to Milvus, sandbox, or the rest of the data plane unless you add routes.
 
 ## Theme
 
