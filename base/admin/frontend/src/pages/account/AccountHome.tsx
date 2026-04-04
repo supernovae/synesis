@@ -46,8 +46,8 @@ function yarnUrl(): string {
 
 export default function AccountHome() {
   const { user, oidcConfig } = useAuth();
-  if (!user) return null;
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  if (!user) return null;
 
   const kcUrl = keycloakAccountUrl(oidcConfig?.issuer);
   const webUiUrl = openWebUiUrl();

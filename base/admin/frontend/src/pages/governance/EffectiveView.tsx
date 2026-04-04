@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Eye, Filter } from "lucide-react";
+import { Eye } from "lucide-react";
 import client from "../../api/client";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 

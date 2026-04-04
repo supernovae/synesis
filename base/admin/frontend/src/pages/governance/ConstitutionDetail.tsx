@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Copy, Plus, Trash2, Pencil } from "lucide-react";
 import client from "../../api/client";
@@ -49,7 +49,6 @@ const KIND_COLORS: Record<string, string> = {
 
 export default function ConstitutionDetail() {
   const { constitutionId } = useParams<{ constitutionId: string }>();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showAddClause, setShowAddClause] = useState(false);
   const [editingClause, setEditingClause] = useState<string | null>(null);

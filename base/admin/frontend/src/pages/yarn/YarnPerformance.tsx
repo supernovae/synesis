@@ -182,7 +182,13 @@ export default function YarnPerformance() {
                   <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v: number) => [`${v.toFixed(1)} ms`, "Avg latency"]} />
+                  <Tooltip
+                    contentStyle={{ fontSize: 12 }}
+                    formatter={(v) => [
+                      v == null ? "" : `${Number(v).toFixed(1)} ms`,
+                      "Avg latency",
+                    ]}
+                  />
                   <Line
                     type="monotone"
                     dataKey="avg_latency_ms"
@@ -218,9 +224,10 @@ export default function YarnPerformance() {
                   />
                   <Tooltip
                     contentStyle={{ fontSize: 12 }}
-                    formatter={(value: number, name: string) => {
-                      if (name === "cost_usd") return [fmtCost(value), "Cost"];
-                      return [fmtTokens(value), name];
+                    formatter={(value, name) => {
+                      const n = Number(value ?? 0);
+                      if (name === "cost_usd") return [fmtCost(n), "Cost"];
+                      return [fmtTokens(n), String(name)];
                     }}
                   />
                   <Area

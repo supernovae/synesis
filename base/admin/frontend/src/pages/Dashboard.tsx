@@ -160,7 +160,7 @@ export default function Dashboard() {
                   width={90}
                   tick={{ fontSize: 11 }}
                 />
-                <Tooltip formatter={(v: number) => `${v.toFixed(0)}ms`} />
+                <Tooltip formatter={(v) => (v == null ? "" : `${Number(v).toFixed(0)}ms`)} />
                 <Bar dataKey="latency" fill="#3b82f6" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -203,7 +203,7 @@ export default function Dashboard() {
             <BarChart data={costData}>
               <XAxis dataKey="role" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => `$${v.toFixed(2)}`} />
+              <Tooltip formatter={(v) => (v == null ? "" : `$${Number(v).toFixed(2)}`)} />
               <Bar dataKey="usd" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

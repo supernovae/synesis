@@ -297,7 +297,7 @@ function WaterfallChart({ spans, traceStart }: { spans: SpanRecord[]; traceStart
             width={100}
           />
           <Tooltip
-            formatter={(v: number) => fmtDuration(v)}
+            formatter={(v) => fmtDuration(Number(v ?? 0))}
             labelFormatter={(l) => `Node: ${l}`}
           />
           <Bar dataKey="duration" radius={[0, 4, 4, 0]}>
@@ -356,7 +356,7 @@ function CriticScoresPanel({ scores }: { scores: Record<string, unknown> }) {
             tick={{ fontSize: 11 }}
             width={75}
           />
-          <Tooltip formatter={(v: number) => v.toFixed(1)} />
+          <Tooltip formatter={(v) => (v == null ? "" : Number(v).toFixed(1))} />
           <Bar dataKey="score" fill="#6366f1" radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>

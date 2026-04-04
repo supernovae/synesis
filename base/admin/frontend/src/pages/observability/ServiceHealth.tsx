@@ -66,7 +66,7 @@ export default function ServiceHealth() {
               <BarChart data={latencyData} layout="vertical">
                 <XAxis type="number" tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => `${v.toFixed(0)}ms`} />
+                <Tooltip formatter={(v) => (v == null ? "" : `${Number(v).toFixed(0)}ms`)} />
                 <Bar dataKey="latency" fill="#3b82f6" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>

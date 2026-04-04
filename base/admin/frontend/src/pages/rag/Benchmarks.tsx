@@ -109,7 +109,7 @@ export default function Benchmarks() {
             <BarChart data={qualityMetrics}>
               <XAxis dataKey="metric" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
               <YAxis domain={[0, 1]} tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => v.toFixed(3)} />
+              <Tooltip formatter={(v) => (v == null ? "" : Number(v).toFixed(3))} />
               <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -122,7 +122,7 @@ export default function Benchmarks() {
             <BarChart data={latencyMetrics}>
               <XAxis dataKey="metric" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => `${v.toFixed(0)}ms`} />
+              <Tooltip formatter={(v) => (v == null ? "" : `${Number(v).toFixed(0)}ms`)} />
               <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

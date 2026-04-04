@@ -174,7 +174,7 @@ export default function ModelPerformance() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="role" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 11 }} label={{ value: "ms", angle: -90, position: "insideLeft" }} />
-                <Tooltip formatter={(v: number) => `${v.toLocaleString()}ms`} />
+                <Tooltip formatter={(v) => (v == null ? "" : `${Number(v).toLocaleString()}ms`)} />
                 <Legend />
                 <Bar dataKey="avg" name="Avg Latency" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="p95" name="p95 Latency" fill="#f59e0b" radius={[4, 4, 0, 0]} />
