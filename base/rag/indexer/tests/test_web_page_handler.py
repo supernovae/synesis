@@ -4,7 +4,6 @@ import importlib.util
 from types import SimpleNamespace
 
 import pytest
-
 from app import extract as extract_mod
 from app.content_gate import GatePolicy
 from app.handlers import web_page
@@ -94,7 +93,7 @@ def test_extract_child_urls_falls_back_to_html_anchors():
         url="https://gobyexample.com/",
         links=None,
         html=(
-            '<html><body>'
+            "<html><body>"
             '<a href="/if-else">If Else</a>'
             '<a href="/for">For</a>'
             '<a href="https://external.example.com/x">External</a>'
@@ -136,7 +135,7 @@ def test_select_markdown_content_prefers_richer_crawler_markdown(monkeypatch: py
     monkeypatch.setattr(extract_mod, "normalize_doc_markdown", lambda md: md)
 
     result = SimpleNamespace(
-        markdown="```\nfmt.Println(\"hi\")\n```\n\nMore text",
+        markdown='```\nfmt.Println("hi")\n```\n\nMore text',
         fit_markdown="",
         cleaned_markdown="",
     )

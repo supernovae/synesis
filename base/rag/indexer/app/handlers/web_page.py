@@ -20,7 +20,6 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-from ..crawl_config import effective_crawl_config
 from ..chunking import heading_aware_split
 from ..content_gate import (
     GatePolicy,
@@ -28,6 +27,7 @@ from ..content_gate import (
     normalize_url,
     url_passes_filter,
 )
+from ..crawl_config import effective_crawl_config
 from ..robots_cache import (
     DEFAULT_USER_AGENT,
     can_fetch,
@@ -221,12 +221,7 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
             rinfo,
             max_pages,
         )
-        if pages and (
-            discovery == "sitemap_only"
-            or not follow_links
-            or max_depth <= 0
-            or len(pages) >= max_pages
-        ):
+        if pages and (discovery == "sitemap_only" or not follow_links or max_depth <= 0 or len(pages) >= max_pages):
             return pages
         if pages and discovery == "sitemap_first":
             # Sitemap can be sparse (or absent) on some docs sites. In sitemap_first mode,

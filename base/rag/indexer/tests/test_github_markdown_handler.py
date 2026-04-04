@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from app.handlers import github_markdown
 from app.handlers.base import RawDocument
 
@@ -54,6 +53,7 @@ def test_list_md_files_keeps_directory_mode_markdown_only(monkeypatch: pytest.Mo
             {"type": "blob", "path": "docs/guide.mdx"},
         ]
     }
+
     def _fake_client(**_kwargs):
         return _FakeClient(payload)
 

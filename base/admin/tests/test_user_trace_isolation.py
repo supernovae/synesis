@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from app.auth import UserInfo, get_current_user
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 def test_quality_wiring_forbidden_for_user():

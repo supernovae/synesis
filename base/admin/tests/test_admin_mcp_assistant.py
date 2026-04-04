@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 from app.auth import UserInfo
 from app.rbac import Role
 from app.routers.admin_mcp import invoke_mcp_tool_for_chat, openai_function_tools_for_role
+from fastapi.testclient import TestClient
 
 
 def test_openai_tools_respects_role_hierarchy():
@@ -31,8 +31,7 @@ def test_openai_tools_respects_role_hierarchy():
 def test_openai_tools_support_allowlist_restricts_outputs():
     allowed = {"service_health", "unified_usage_snapshot"}
     names = {
-        t["function"]["name"]
-        for t in openai_function_tools_for_role(Role.platform_admin, allowed_tool_names=allowed)
+        t["function"]["name"] for t in openai_function_tools_for_role(Role.platform_admin, allowed_tool_names=allowed)
     }
     assert names == allowed
 

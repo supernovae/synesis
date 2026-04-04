@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi.testclient import TestClient
-
 from app.auth import UserInfo, get_current_user
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 def _override_user_with_role(role: str) -> Callable[[], UserInfo]:
