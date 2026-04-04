@@ -30,6 +30,16 @@ import { composePlannerPrompt } from "../prompt-composer.js";
 import { enforceMermaidHygiene } from "../security/mermaid-guard.js";
 import { isMetadataTagsOnlyJson } from "./writer-metadata-guard.js";
 
+/** Chunk size when replaying writer output after mermaid sanitization (streaming path). */
+const WRITER_STREAM_MERMAID_CHUNK_CHARS = 256;
+
+function emitWriterStreamingChunks(text: string, onDelta: (delta: StreamDelta) => void): void {
+  if (!text) return;
+  for (let i = 0; i < text.length; i += WRITER_STREAM_MERMAID_CHUNK_CHARS) {
+    onDelta({ content: text.slice(i, i + WRITER_STREAM_MERMAID_CHUNK_CHARS) });
+  }
+}
+
 export interface WriterResult {
   content: string;
   usage: LlmUsage;
@@ -268,9 +278,10 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
 }
 
 /**
- * Streaming variant — calls onDelta for every token fragment so the SSE layer
- * can forward them to the client in real-time. Returns the same WriterResult
- * when complete so the critic can evaluate the full draft.
+ * Streaming variant — calls onDelta for token fragments so the SSE layer can
+ * forward them to the client. When the mermaid guard is enabled, the LLM stream
+ * is buffered until completion, then sanitized and replayed in chunks; otherwise
+ * raw deltas are forwarded (legacy behavior).
  */
 export async function composeWriterDraftStream(
   state: GraphState,
@@ -283,6 +294,9 @@ export async function composeWriterDraftStream(
   }
 
   try {
+    const cfg = loadConfig();
+    const mermaidGuardEnabled = cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED;
+
     const result = await chatCompletionStream(
       {
         model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
@@ -294,9 +308,16 @@ export async function composeWriterDraftStream(
         traceparent: state.traceparent,
         messages: buildWriterMessages(state),
       },
-      onDelta,
+      (delta) => {
+        if (!mermaidGuardEnabled) {
+          onDelta(delta);
+          return;
+        }
+        if (delta.reasoning_content) {
+          onDelta({ reasoning_content: delta.reasoning_content });
+        }
+      },
     );
-    const cfg = loadConfig();
     let content = result.content.trim() || fallback;
     if (cfg.SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD && isMetadataTagsOnlyJson(content)) {
       process.stderr.write(JSON.stringify({
@@ -305,15 +326,19 @@ export async function composeWriterDraftStream(
         time: Date.now(),
       }) + "\n");
       const repair = `\n\n${fallback}`;
-      onDelta({ content: repair });
+      if (!mermaidGuardEnabled) {
+        onDelta({ content: repair });
+      }
       content = `${content.trim()}${repair}`;
     }
-    if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED) {
+    if (!mermaidGuardEnabled) {
       return { content, usage: result.usage };
     }
     const guarded = enforceMermaidHygiene(content);
+    const finalContent = guarded.content;
+    emitWriterStreamingChunks(finalContent, onDelta);
     return {
-      content: guarded.content,
+      content: finalContent,
       usage: result.usage,
     };
   } catch (err) {

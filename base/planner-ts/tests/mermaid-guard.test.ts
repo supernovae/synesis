@@ -30,6 +30,16 @@ describe("mermaid guard", () => {
     expect(normalized).toContain('A -->|"O(1) lookup"| B');
   });
 
+  it("quotes square-bracket node labels with parentheses and commas (vLLM-style)", () => {
+    const normalized = normalizeMermaidBlock([
+      "graph TD",
+      '        B --> C[Model Server (vLLM, TGI)]',
+      "        D[Vector DB (e.g., Weaviate, Qdrant)] --> C",
+    ].join("\n"));
+    expect(normalized).toContain('C["Model Server (vLLM, TGI)"]');
+    expect(normalized).toContain('D["Vector DB (e.g., Weaviate, Qdrant)"]');
+  });
+
   it("marks forbidden directives as violations", () => {
     const raw = [
       "prefix",

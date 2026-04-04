@@ -18,7 +18,8 @@ export interface MermaidGuardResult {
 }
 
 const MERMAID_FENCE_RE = /```[ \t]*mermaid[^\n]*\n([\s\S]*?)```/gi;
-const SPECIAL_LABEL_CHARS_RE = /[\s()[\]{}:,/]/;
+/** Chars that commonly break flowchart text unless the label is quoted. */
+const SPECIAL_LABEL_CHARS_RE = /[\s()[\]{}:,/&]/;
 const FORBIDDEN_DIRECTIVES_RE = /^[ \t]*(?:click|style|classDef)\b/im;
 const EDGE_LABEL_RE = /\|([^|\n]+)\|/g;
 const NODE_LABEL_RE = /\b([A-Za-z_][A-Za-z0-9_-]*)\[([^\]\n]+)\]/g;
@@ -75,8 +76,9 @@ export function extractMermaidBlocks(text: string): MermaidFence[] {
 
 export function normalizeMermaidBlock(block: string): string {
   let next = block;
-  next = normalizeEdgeLabels(next);
+  // Quote node/subgraph labels before edge labels so `|` inside `[...]` is not mistaken for an edge label.
   next = normalizeNodeLabels(next);
+  next = normalizeEdgeLabels(next);
   next = normalizeSubgraphLabels(next);
   return next;
 }
