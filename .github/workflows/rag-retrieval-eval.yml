@@ -1,0 +1,64 @@
+# Go RAG harness against planner POST /v1/knowledge/search (scripts/rag_retrieval_eval.py).
+#
+# Triggers: manual only + GitHub Release published — not on every PR/commit (cost control).
+#
+# Configure in GitHub (Settings → Secrets and variables → Actions):
+#   Secret  SYNESIS_INTERNAL_SERVICE_TOKEN — same value as synesis-internal-service-auth (not a PAT).
+# Optional repository variable:
+#   SYNESIS_PLANNER_EVAL_URL — planner base URL (default https://api.kybern.dev if unset).
+#
+# Optional: protect the `validation` environment (Settings → Environments) with required reviewers
+# so workflow_dispatch runs only after approval.
+
+name: RAG retrieval eval (Go harness)
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  go-retrieval-eval:
+    name: Go retrieval eval suite
+    runs-on: self-hosted
+    timeout-minutes: 20
+    environment: validation
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install script deps
+        run: pip install httpx pyyaml
+
+      - name: Run harness
+        env:
+          SYNESIS_INTERNAL_SERVICE_TOKEN: ${{ secrets.SYNESIS_INTERNAL_SERVICE_TOKEN }}
+        run: |
+          set -euo pipefail
+          URL="${{ vars.SYNESIS_PLANNER_EVAL_URL }}"
+          if [ -z "${URL}" ]; then
+            URL="https://api.kybern.dev"
+          fi
+          if [ -z "${SYNESIS_INTERNAL_SERVICE_TOKEN:-}" ]; then
+            echo "Missing secret SYNESIS_INTERNAL_SERVICE_TOKEN (internal service token for /v1/knowledge/search)."
+            exit 1
+          fi
+          python3 scripts/rag_retrieval_eval.py \
+            --url "${URL}" \
+            --suite tests/prompts/go_retrieval_eval.yaml \
+            --disable-domain-filter \
+            --top-k 8 \
+            --save-json retrieval-eval-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: rag-retrieval-eval-results
+          path: retrieval-eval-results.json
