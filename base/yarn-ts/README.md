@@ -10,6 +10,11 @@ Node 22 TypeScript orchestration service prototype for replacing Python Yarn.
 - Sawtooth context manager with consolidation and log masking.
 - Repeat-loop hard pivot guard.
 
+## Regression checks (policy + image parity)
+
+- **Unit tests:** from repo root after `npm ci`: `npm test --workspace=base/yarn-ts` (covers deterministic policy, repeat-loop session scoping, etc.).
+- **Same compile order as the production image:** `./scripts/verify-yarn-ts-build-parity.sh` (mirrors `base/yarn-ts/Containerfile`; catches missing workspace packages such as `@synesis/mcp-tools` before Docker).
+
 ## Run Locally
 
 ```bash
