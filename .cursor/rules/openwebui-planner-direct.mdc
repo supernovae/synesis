@@ -1,0 +1,11 @@
+---
+description: Open WebUI connects to planner-ts directly — not via LiteLLM
+globs: docs/**/*.md, README.md, base/webui/**/*.yaml, base/gateway/**/*.yaml, scripts/deploy.sh
+alwaysApply: false
+---
+
+# Open WebUI routing
+
+- **Chat traffic:** Open WebUI → **planner-ts** (`OPENAI_API_BASE_URL` → planner `/v1`). Do **not** document or imply Open WebUI → LiteLLM → planner as the normal or supported path.
+- **LiteLLM (gateway):** Used by **planner-ts upstream** model calls and by clients that target **`synesis-api`**, not as a hop from the Open WebUI browser to the planner.
+- **Secrets:** `webui-api-key` / `litellm-secrets` alignment is for **Bearer auth to planner-ts** and gateway keys — not “WebUI uses LiteLLM for chat.”

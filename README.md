@@ -75,7 +75,7 @@ flowchart TD
         WEB[SearXNG]
     end
 
-    WebUI --> LiteLLM
+    WebUI --> EP
     IDE --> MCP
     IDE -.->|optional: direct coder endpoint| CoderEP[synesis-coder vLLM]
     MCP --> LiteLLM
@@ -212,9 +212,9 @@ Or use `./scripts/load-bootstrap.sh` with `SYNESIS_ADMIN_TOKEN` set.
 
 | Endpoint | URL Pattern | Use Case |
 |----------|------------|----------|
-| **synesis-api** | `https://synesis-api.<cluster>/v1` | Full pipeline via LiteLLM (Open WebUI, API clients) |
+| **synesis-api** | `https://synesis-api.<cluster>/v1` | LiteLLM gateway (external API clients and tools that target the gateway) |
 | **synesis-coder** | `https://synesis-coder.<cluster>/v1` | Direct vLLM coder for Cursor / Claude Code |
-| **synesis-planner-ts** | `https://synesis-planner-ts.<cluster>/v1` | Planner pipeline without LiteLLM |
+| **synesis-planner-ts** | `https://synesis-planner-ts.<cluster>/v1` | Planner pipeline — **Open WebUI** uses this URL directly (not via LiteLLM) |
 | **synesis-admin** | `https://synesis-admin.<cluster>/` | Model Registry, Provider Management, traces, RAG review, security console |
 
 The admin service serves the React SPA and a JSON API under `/api/v1`. **Interactive API docs** (Swagger UI) live at `/api/docs`; OpenAPI JSON at `/api/openapi.json`. Key admin surfaces:
@@ -243,7 +243,7 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 | **Admin Operations** | Model registry, provider governance, security console, RAG review with trust/freshness pivots, traces | [base/admin/README.md](base/admin/README.md) |
 | **Conversation Memory** | L1 in-process turns + pending state; optional Redis L2 for pending checkpoints and pivot archives | [docs/CONVERSATION_MEMORY.md](docs/CONVERSATION_MEMORY.md) |
 | **Observability** | Perses dashboards (COO), Prometheus metrics, per-profile model panels, span-based pipeline tracing | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
-| **Open WebUI** | Themed child image, LiteLLM integration, SSE phase streaming, background critic | [docs/OPENWEBUI.md](docs/OPENWEBUI.md) |
+| **Open WebUI** | Themed child image, direct connection to planner-ts, SSE phase streaming, background critic | [docs/OPENWEBUI.md](docs/OPENWEBUI.md) |
 | **Anti-Oscillation Framework** | Immutable frame, decision ledger, monotonic reducers, deterministic validators, oscillation detection | [docs/WORKFLOW_PLANNER.MD](docs/WORKFLOW_PLANNER.MD) |
 
 ## Project Structure

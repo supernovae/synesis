@@ -57,22 +57,14 @@ backend synesis_planner
     http-response set-header X-Accel-Buffering no
 ```
 
-### 4. LiteLLM (only if WebUI is pointed at the gateway)
+### 4. Direct Planner connection (bypass proxies)
 
-If you **reconfigure** Open WebUI to call **LiteLLM** instead of planner-ts, ensure the proxy does not buffer SSE:
+Synesis Open WebUI is configured to call **planner-ts** directly. For lowest latency and most reliable streaming:
 
-- Check `litellm_settings` for streaming-related options.
-- Default Synesis WebUI wiring does **not** use LiteLLM on this hop.
-
-### 5. Direct Planner connection (bypass proxies)
-
-For lowest latency and most reliable streaming:
-
-- Point Open WebUI directly at the Planner service (e.g. `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1`).
-- Use a route/ingress that does not buffer (or configure buffering off).
+- Use the in-cluster Planner URL (e.g. `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1`) or a route/ingress that does not buffer (or configure buffering off).
 - Avoid HAProxy in the path when possible.
 
-### 6. UDS path
+### 5. UDS path
 
 When Planner and vLLM are co-located with UDS:
 

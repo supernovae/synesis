@@ -14,7 +14,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Admin, planner, yarn, webui, and MCP all call LiteLLM
+    # Admin, planner, yarn, and MCP call LiteLLM (Open WebUI does not — it calls planner-ts directly)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -25,9 +25,6 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: synesis-yarn
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-webui
       ports:
         - port: 4000
           protocol: TCP

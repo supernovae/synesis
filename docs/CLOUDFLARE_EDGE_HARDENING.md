@@ -120,7 +120,7 @@ After rollout, verify:
 1. `GET https://admin.<domain>/metrics` returns blocked/challenged.
 2. `GET https://admin.<domain>/api/docs` is blocked unless intentionally enabled.
 3. `POST https://admin.<domain>/api/v1/ingestion/staged/items/claim-fetch` is blocked at edge.
-4. Planner/Open WebUI identity still works through trusted gateway path.
+4. Planner trusted identity still works (Open WebUI → planner-ts and Yarn → planner preserve forwarded headers as configured).
 5. Rate limits trigger on repeated auth attempts.
 6. Cloudflare security events show expected matches for new rules.
 

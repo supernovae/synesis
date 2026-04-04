@@ -1,22 +1,14 @@
 # OpenRouter Deployment
 
-Run Synesis without GPU hardware by routing **upstream** LLM traffic through [OpenRouter.ai](https://openrouter.ai). The LiteLLM gateway proxies those model calls to OpenRouter — **planner-ts** (and Yarn, when used) still talk to LiteLLM for model names; **Open WebUI** in default manifests talks **directly to planner-ts**, not through LiteLLM on that hop.
+Run Synesis without GPU hardware by routing **upstream** LLM traffic through [OpenRouter.ai](https://openrouter.ai). The LiteLLM gateway proxies those model calls to OpenRouter — **planner-ts** (and Yarn, when configured) talk to LiteLLM for upstream model names. **Open WebUI** calls **planner-ts** only; it does not use LiteLLM for that hop.
 
 ## Architecture
 
 ```
-Open WebUI                          IDE / Yarn (when configured)
-     │                                        │
-     ▼                                        ▼
- planner-ts  ──────►  LiteLLM Proxy  ──── OPENROUTER_API_KEY (K8s Secret)
-                           │
-                           ▼
-                  openrouter.ai/api/v1
-                           │
-              ┌────────────┼────────────────┐
-              ▼            ▼                ▼
-           Qwen3    DeepSeek-R1         Qwen-Coder
-            ...      (critic)            (coder)
+Open WebUI ──► planner-ts ──► LiteLLM Proxy ──► openrouter.ai/api/v1
+                     │              ▲
+                     │              └── OPENROUTER_API_KEY (K8s Secret)
+IDE / Yarn ──────────┴── (call planner or LiteLLM per deployment; not shown)
 ```
 
 The planner env vars (`SYNESIS_ROUTER_MODEL_URL`, etc.) point at the in-cluster LiteLLM service. LiteLLM resolves each `synesis-*` model name to an OpenRouter model path using the API key from a K8s Secret. No vLLM pods, no GPU nodes, no model-serving namespace.
@@ -243,6 +235,6 @@ The self-hosted overlays include `base/model-serving` and point model URLs back 
 | `overlays/openrouter/openrouter-secret.yaml` | K8s Secret template for the OpenRouter API key |
 | `overlays/openrouter/litellm-config-openrouter.yaml` | LiteLLM ConfigMap — maps synesis-* names to OpenRouter paths |
 | `overlays/openrouter/supervisor-config-patch.yaml` | Supervisor health checks — redirected through LiteLLM |
-| `overlays/openrouter/openwebui-direct-planner.yaml` | Open WebUI bypass (talks directly to planner) |
+| `overlays/openrouter/openwebui-direct-planner.yaml` | Pins Open WebUI `OPENAI_API_BASE_URL` to planner-ts (direct; not via LiteLLM) |
 | `models.yaml` (`openrouter_profiles`) | Budget and quality tier model recommendations |
 | `scripts/deploy.sh openrouter` | One-command deploy with interactive key setup |

@@ -5,13 +5,13 @@ These credentials are **created or updated by `./scripts/deploy.sh`** (or the Ad
 | Secret (namespace) | Keys | Purpose |
 |--------------------|------|-----------|
 | `provider-api-keys` (synesis-gateway) | `OPENROUTER_API_KEY`, … | LiteLLM `envFrom` → OpenRouter / other providers |
-| `litellm-secrets` (synesis-gateway) | `master-key` | LiteLLM proxy auth (model mode); shared source for WebUI sync |
-| `webui-api-key` (synesis-webui) | `api-key` | Open WebUI `OPENAI_API_KEY` + `WEBUI_SECRET_KEY` |
+| `litellm-secrets` (synesis-gateway) | `master-key` | LiteLLM proxy auth (model mode); shared source for `webui-api-key` material (Bearer to planner-ts from Open WebUI — not a LiteLLM hop) |
+| `webui-api-key` (synesis-webui) | `api-key` | Open WebUI `OPENAI_API_KEY` + `WEBUI_SECRET_KEY` (planner-ts validates; chat does not go through LiteLLM) |
 
 **Post-apply reconciliation** in `deploy.sh` (after manifest apply):
 
 - `reconcile_provider_api_keys` — heal missing `OPENROUTER_API_KEY`, restart `litellm-proxy`
-- `reconcile_litellm_webui_secrets` — align `webui-api-key` with `litellm-secrets` or generate both; restart `open-webui` if fixed
+- `reconcile_litellm_webui_secrets` — align `webui-api-key` with `litellm-secrets` or generate both; restart `open-webui` if fixed (keys are for planner auth alignment, not WebUI→LiteLLM routing)
 
 **Personal Access Tokens** (`syn-*`) are stored in **Postgres** (`personal_access_tokens`); they are not affected by Kustomize Secret applies.
 

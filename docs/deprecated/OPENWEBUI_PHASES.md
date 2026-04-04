@@ -11,8 +11,8 @@ How Synesis sends "Analyzing request," "Gathering evidence," "Composing response
 | **Open WebUI** | Chat frontend; calls API with `stream: true`, expects SSE |
 | **Planner-ts** | OpenAI-compatible `/v1` for WebUI; runs LangGraph; streams SSE + final content |
 
-**Request path (default Synesis manifests):**
-- **Open WebUI → planner-ts** (`OPENAI_API_BASE_URL` → `synesis-planner-ts:8080/v1`). LiteLLM is **not** between WebUI and planner unless an admin repoints WebUI at the gateway.
+**Request path (Synesis manifests):**
+- **Open WebUI → planner-ts** (`OPENAI_API_BASE_URL` → `synesis-planner-ts:8080/v1`). Open WebUI does not call LiteLLM for chat.
 - **Planner-ts → upstream models** may use LiteLLM, direct InferenceService URLs, or other config — that is separate from the WebUI → planner hop.
 
 ---
@@ -217,7 +217,7 @@ These values are sourced from the SynesisTracer's span-level LLM call records
 (the same aggregation written to the admin Postgres trace) and should match the
 admin trace record.
 
-**Alternate wiring (WebUI → LiteLLM → planner):** If Open WebUI is pointed at LiteLLM and LiteLLM routes the `Synesis` model to planner-ts, LiteLLM should forward SSE chunks as-is. **Default manifests** use WebUI → planner-ts directly. If Open WebUI reports zero tokens after a streamed response, verify the final `data:` line before `[DONE]` by curling the planner directly (see debugging section below).
+If Open WebUI reports zero tokens after a streamed response, verify the final `data:` line before `[DONE]` by curling **planner-ts** directly (see debugging section below).
 
 **`stream_options`:** The planner accepts `stream_options.include_usage` on the
 request for OpenAI-spec compliance, but always includes `usage` on the final
