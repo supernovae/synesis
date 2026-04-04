@@ -2291,6 +2291,32 @@ export function useYarnRuntimeTelemetry() {
   });
 }
 
+export interface YarnReducerTelemetryRollup {
+  reduced_count_delta: number;
+  reducer_failures_delta: number;
+  tokens_saved_estimate_delta: number;
+  fallback_to_artifact_delta: number;
+  lifecycle: Record<string, { success_delta: number; fail_delta: number }>;
+}
+
+export interface YarnReducerTelemetryHistory {
+  since_hours: number;
+  snapshot_count: number;
+  rollup: YarnReducerTelemetryRollup;
+  recent_snapshots: Array<{ captured_at: string | null; payload: Record<string, unknown> }>;
+}
+
+export function useYarnReducerTelemetryHistory(sinceHours: number) {
+  return useQuery<YarnReducerTelemetryHistory>({
+    queryKey: ["yarn", "reducer-telemetry-history", sinceHours],
+    queryFn: () =>
+      client
+        .get("/yarn/reducer-telemetry-history", { params: { since_hours: sinceHours } })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
 export function useYarnSessions(page: number, pageSize: number, activeSinceHours = 168) {
   return useQuery<{ sessions: YarnSessionRow[]; total: number }>({
     queryKey: ["yarn", "sessions", page, pageSize, activeSinceHours],

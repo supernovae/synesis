@@ -5,14 +5,19 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 
 from ..auth import UserInfo, get_current_user
+from ..db.engine import async_session
+from ..db.models import YarnReducerTelemetrySnapshot
 from ..rbac import Role, require_org_admin, resolve_role
 from ..services import yarn_service
 from ..services.health_prober import probe_service
+from ..services.yarn_reducer_history import rollup_reducer_snapshots
 
 logger = logging.getLogger("synesis.admin.yarn")
 
@@ -208,6 +213,43 @@ async def yarn_runtime_telemetry(
     except Exception as exc:
         logger.warning("yarn_runtime_telemetry_proxy_error: %s", str(exc)[:120])
         raise HTTPException(status_code=502, detail="Could not reach Yarn telemetry endpoint")
+
+
+@router.get("/reducer-telemetry-history")
+async def yarn_reducer_telemetry_history(
+    since_hours: int = Query(168, ge=1, le=720),
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Snapshots of Yarn reducer stats written by the admin telemetry scraper (~5 min).
+
+    Rollup sums positive deltas between consecutive snapshots (handles Yarn restarts).
+    """
+    _ = user
+    cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
+    async with async_session() as session:
+        stmt = (
+            select(YarnReducerTelemetrySnapshot)
+            .where(YarnReducerTelemetrySnapshot.captured_at >= cutoff)
+            .order_by(YarnReducerTelemetrySnapshot.captured_at.asc())
+            .limit(4000)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+    serialized = [
+        {
+            "captured_at": r.captured_at.isoformat() if r.captured_at else None,
+            "payload": r.payload,
+        }
+        for r in rows
+    ]
+    rollup = rollup_reducer_snapshots(serialized)
+    return {
+        "since_hours": since_hours,
+        "snapshot_count": len(serialized),
+        "rollup": rollup,
+        "recent_snapshots": serialized[-72:],
+    }
 
 
 @router.get("/language-packs")

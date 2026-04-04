@@ -12,7 +12,7 @@ import re
 from datetime import UTC, datetime
 
 from ..db.engine import async_session
-from ..db.models import CompactionSnapshot, PrefixCacheSnapshot
+from ..db.models import CompactionSnapshot, PrefixCacheSnapshot, YarnReducerTelemetrySnapshot
 from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_TS_URL, YARN_TS_URL, get_http_client
 
 logger = logging.getLogger("synesis.admin.telemetry_scraper")
@@ -122,6 +122,18 @@ async def _persist_prefix_snapshot(
         await session.commit()
 
 
+async def _persist_yarn_reducer_telemetry(trr: dict) -> None:
+    """Persist full toolResultReduction blob for historical pass/fail rollups."""
+    async with async_session() as session:
+        session.add(
+            YarnReducerTelemetrySnapshot(
+                captured_at=datetime.now(UTC),
+                payload=dict(trr),
+            )
+        )
+        await session.commit()
+
+
 async def _persist_compaction_snapshot(
     service: str,
     count: int,
@@ -167,6 +179,16 @@ async def scrape_all() -> dict:
         yarn_health = {}
 
     results = {"planner": {}, "yarn": {}, "errors": []}
+
+    try:
+        if isinstance(yarn_health, dict):
+            trr = yarn_health.get("toolResultReduction")
+            if isinstance(trr, dict) and trr:
+                await _persist_yarn_reducer_telemetry(trr)
+                results["yarn"]["reducer_snapshot"] = True
+    except Exception as exc:
+        results["errors"].append(f"yarn_reducer_telemetry: {exc}")
+        logger.warning("persist_yarn_reducer_telemetry_failed", exc_info=True)
 
     try:
         if planner_metrics:
@@ -227,6 +249,7 @@ async def scrape_all() -> dict:
                 await _persist_compaction_snapshot("yarn", y_compaction, y_comp_chars, 0, detail)
 
             results["yarn"] = {
+                **results["yarn"],
                 "prompt_tokens": y_prompt,
                 "cached_tokens": y_cached,
                 "requests": y_requests,

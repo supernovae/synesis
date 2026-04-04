@@ -953,6 +953,18 @@ class CompactionSnapshot(Base):
     __table_args__ = (Index("ix_compaction_snapshots_svc_ts", "service", captured_at.desc()),)
 
 
+class YarnReducerTelemetrySnapshot(Base):
+    """Point-in-time toolResultReduction stats scraped from Yarn /health/telemetry (~5 min cadence)."""
+
+    __tablename__ = "yarn_reducer_telemetry_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    __table_args__ = (Index("ix_yarn_reducer_telemetry_snapshots_ts", captured_at.desc()),)
+
+
 class AclGroup(Base):
     __tablename__ = "acl_groups"
 
