@@ -1,0 +1,8 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "/Users/example/.claude/projects/demo/transcript.jsonl",
+  "cwd": "/Users/example/src/my-repo/subdir",
+  "hook_event_name": "CwdChanged",
+  "old_cwd": "/Users/example/src/my-repo",
+  "new_cwd": "/Users/example/src/my-repo/subdir"
+}

@@ -109,6 +109,16 @@ Yarn-ts can merge structured **project** and **shell** paths into the model cont
 
 Claude Code does **not** send these by default. Use a [Claude Code hook](https://code.claude.com/docs/en/hooks) or a small reverse proxy in front of `ANTHROPIC_BASE_URL` to attach headers or merge `metadata` on each `POST /v1/messages` (for example set `x-synesis-project-root` from `git rev-parse --show-toplevel` and `x-synesis-shell-cwd` from `pwd`).
 
+### Synesis reference hook and proxy (optional)
+
+The repository ships a copy-paste bundle under **[`clients/claude-code/`](../../clients/claude-code/)** (not under `docs/`, so raw GitHub URLs stay short):
+
+- **`synesis-context-hook.sh`** — runs on **SessionStart** and **CwdChanged**; writes **`.claude/synesis-context.json`** with `synesis_project_root`, `synesis_shell_cwd`, `synesis_runtime`, and optional `synesis_git_summary`. On SessionStart it also adds `additionalContext` for the local model (this does **not** replace Yarn metadata on the wire).
+- **`settings.json.snippet`** — merge into `.claude/settings.json` after installing the script to `.claude/hooks/`.
+- **`synesis-anthropic-proxy.mjs`** — optional local **HTTP** proxy on `127.0.0.1` that reads the sidecar file and **merges** those fields into `metadata` on each `POST /v1/messages` (and `/v1/chat/completions`) before forwarding to your real **`SYNESIS_UPSTREAM`** Yarn URL. Point **`ANTHROPIC_BASE_URL`** at the proxy (keep **`ANTHROPIC_AUTH_TOKEN`** as your Synesis PAT).
+
+Hooks alone cannot set HTTP headers or API `metadata`; the proxy closes the loop for Yarn-ts. Requires **`jq`**. See **[`clients/claude-code/README.md`](../../clients/claude-code/README.md)** for install steps, fixtures, and security notes.
+
 **Server-side**
 
 - `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME` (default `true`): echo `project_root` / `shell_cwd` inside `<WORKING_FRAME>` when provided.
@@ -129,6 +139,7 @@ Yarn-ts does **not** execute tools; it only returns tool calls to the client. **
 
 ## Related docs
 
+- [Synesis Claude Code hook + proxy (repo `clients/claude-code/`)](../../clients/claude-code/README.md)
 - [Session execution context contract](SESSION_EXECUTION_CONTEXT.md)
 - [Client setup overview](CLIENTS.md)
 - [Claude compatibility design note](../claude_code_compat.md)
