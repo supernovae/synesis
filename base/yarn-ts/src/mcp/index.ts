@@ -230,7 +230,23 @@ export async function registerMcpRoutes(
         result = await registry.call(body.name, body.arguments ?? {});
       }
       const elapsed = Math.round(performance.now() - start);
-      app.log.info({ tool: body.name, userId: user.userId, requestId, elapsed_ms: elapsed }, "mcp_tool_call");
+      const runMeta =
+        typeof result === "object" && result !== null && "ok" in result && "exitCode" in result
+          ? {
+              ok: (result as { ok: boolean }).ok,
+              exitCode: (result as { exitCode: number }).exitCode,
+            }
+          : undefined;
+      app.log.info(
+        {
+          tool: body.name,
+          userId: user.userId,
+          requestId,
+          elapsed_ms: elapsed,
+          ...(runMeta ?? {}),
+        },
+        "mcp_tool_call",
+      );
       return reply.send({ result, meta: { tool: body.name, request_id: requestId, elapsed_ms: elapsed } });
     } catch (err) {
       if (err instanceof McpToolNotFoundError) {

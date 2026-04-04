@@ -93,7 +93,7 @@ describe("Verification Plan Formatting", () => {
     expect(block).toContain("synesis_verification_plan");
     expect(block).toContain("typescript");
     expect(block).toContain("[required]");
-    expect(block).toContain("self-repair");
+    expect(block).toContain("errorLines");
   });
 
   it("returns null for empty plan", () => {

@@ -102,7 +102,16 @@ export class ClientAdapterPacks {
       `prefers_artifact_handles=${profile.features.prefersArtifactHandles}`,
       `prefers_deterministic_policy=${profile.features.prefersDeterministicPolicy}`,
       `strict_write_tool_governance=${profile.features.strictWriteToolGovernance}`,
-      "</CLIENT_ADAPTER>"
+      "</CLIENT_ADAPTER>",
+      "",
+      "<SYNESIS_CODER_WORKFLOW>",
+      "phase_order=explore|contract|implement|verify_fast|verify_deep",
+      "- Prefer search_code or synesis_inspect_repo to locate files/symbols, then read_file (optionally startLine/endLine) — avoid huge undirected reads.",
+      "- For Synesis platform APIs, deployment, and conventions: synesis_search / synesis_docs_search before guessing.",
+      "- Ambiguous or multi-step tasks: synesis_classify then synesis_plan before large edits.",
+      "- Verify: run_lint and run_build (verify_fast) before run_test when compile/typecheck applies; fix errorLines/summary from run_* before rerunning.",
+      "- External APIs, money, or compliance: state unknowns and explicit acceptance checks (commands/tests) before implementation.",
+      "</SYNESIS_CODER_WORKFLOW>",
     ].join("\n");
   }
 

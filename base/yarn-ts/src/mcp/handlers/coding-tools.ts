@@ -5,6 +5,11 @@ import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import type { McpToolDefinition } from "../tool-registry.js";
+import {
+  extractDiagnosticLines,
+  MAX_STREAM_CHARS,
+  truncateStream,
+} from "./command-diagnostics.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -183,24 +188,50 @@ export const listDirTool: McpToolDefinition<
 const ReadFileSchema = RootSchema.extend({
   filePath: RelPathSchema,
   maxBytes: z.number().int().min(1).max(MAX_READ_BYTES).default(200_000),
+  /** 1-based inclusive line window; use with search_code hits. Omit to read from file start (still byte-capped). */
+  startLine: z.number().int().min(1).optional(),
+  /** 1-based inclusive end line; defaults to startLine + 199 when startLine is set. */
+  endLine: z.number().int().min(1).optional(),
 });
 export const readFileTool: McpToolDefinition<
   z.infer<typeof ReadFileSchema>,
-  { filePath: string; content: string; truncated: boolean; bytes: number }
+  {
+    filePath: string;
+    content: string;
+    truncated: boolean;
+    bytes: number;
+    lineRange?: { startLine: number; endLine: number };
+  }
 > = {
   name: "read_file",
-  description: "Read a UTF-8 file under project root with byte limits.",
+  description:
+    "Read a UTF-8 file under project root with byte limits. Prefer search_code to find paths first; use optional startLine/endLine (1-based, inclusive) to read a window (~200 lines if endLine omitted) instead of loading huge files from offset 0.",
   inputSchema: ReadFileSchema,
   async handler(input) {
     const abs = resolveInsideRoot(input.projectRoot, input.filePath);
-    const data = await fs.readFile(abs);
-    const truncated = data.byteLength > input.maxBytes;
-    const used = truncated ? data.subarray(0, input.maxBytes) : data;
+    const raw = await fs.readFile(abs, "utf8");
+    let text = raw;
+    let lineRange: { startLine: number; endLine: number } | undefined;
+    if (input.startLine !== undefined) {
+      const lines = raw.split(/\r?\n/);
+      const startIdx = Math.max(0, input.startLine - 1);
+      const lastLineInclusive = input.endLine ?? input.startLine + 199;
+      const endExclusive = Math.min(lines.length, lastLineInclusive);
+      text = lines.slice(startIdx, endExclusive).join("\n");
+      lineRange = {
+        startLine: input.startLine,
+        endLine: Math.max(input.startLine, endExclusive),
+      };
+    }
+    const buf = Buffer.from(text, "utf8");
+    const truncated = buf.byteLength > input.maxBytes;
+    const used = truncated ? buf.subarray(0, input.maxBytes) : buf;
     return {
       filePath: input.filePath,
       content: used.toString("utf8"),
       truncated,
       bytes: used.byteLength,
+      ...(lineRange ? { lineRange } : {}),
     };
   },
 };
@@ -261,7 +292,8 @@ export const searchCodeTool: McpToolDefinition<
   { matches: string[]; exitCode: number; stderr: string }
 > = {
   name: "search_code",
-  description: "Search code with ripgrep under project root using bounded output.",
+  description:
+    "Search code with ripgrep under project root (bounded). Use this to locate symbols before read_file; prefer file:line matches over listing entire directories via shell.",
   inputSchema: SearchCodeSchema,
   async handler(input) {
     const root = path.resolve(input.projectRoot);
@@ -300,11 +332,26 @@ const RunPresetSchema = RootSchema.extend({
   preset: z.string().min(1),
 });
 
+/** Structured result for run_build / run_test / run_lint / format_code (observation contract). */
+export interface RunPresetResult {
+  preset: string;
+  command: string;
+  exitCode: number;
+  ok: boolean;
+  summary: string;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  /** Up to 28 lines of compiler/test diagnostics (from full output before stream truncation). */
+  errorLines: string[];
+}
+
 function makeRunnerTool(
   name: string,
   description: string,
   presets: Record<string, [string, ...string[]]>,
-): McpToolDefinition<z.infer<typeof RunPresetSchema>, { preset: string; command: string; exitCode: number; stdout: string; stderr: string }> {
+): McpToolDefinition<z.infer<typeof RunPresetSchema>, RunPresetResult> {
   return {
     name,
     description,
@@ -315,39 +362,54 @@ function makeRunnerTool(
         throw new Error(`Unknown preset '${input.preset}'. Allowed: ${Object.keys(presets).join(", ")}`);
       }
       const [cmd, ...args] = preset;
-      const result = await runCommand(path.resolve(input.projectRoot), cmd, args);
+      const full = await runCommand(path.resolve(input.projectRoot), cmd, args);
+      const errorLines = extractDiagnosticLines(full.stderr, full.stdout, 28);
+      const out = truncateStream(full.stdout, MAX_STREAM_CHARS);
+      const err = truncateStream(full.stderr, MAX_STREAM_CHARS);
+      const ok = full.exitCode === 0;
+      const summary = ok
+        ? `ok exit=0 preset=${input.preset}`
+        : `failed exit=${full.exitCode} preset=${input.preset} diagnostics=${errorLines.length}`;
       return {
         preset: input.preset,
         command: [cmd, ...args].join(" "),
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
+        exitCode: full.exitCode,
+        ok,
+        summary,
+        stdout: out.text,
+        stderr: err.text,
+        stdoutTruncated: out.truncated,
+        stderrTruncated: err.truncated,
+        errorLines,
       };
     },
   };
 }
 
+const RUNNER_DESC =
+  "Allowlisted preset. Prefer run_lint/run_build before run_test when compile/typecheck is cheap; fix errors in errorLines first. Streams are capped; summary + errorLines are derived from full output.";
+
 export const runTestTool = makeRunnerTool(
   "run_test",
-  "Run tests using allowlisted deterministic command presets.",
+  `Run tests using preset test commands (bounded stdout/stderr + errorLines). ${RUNNER_DESC}`,
   RUN_TEST_PRESETS,
 );
 
 export const runBuildTool = makeRunnerTool(
   "run_build",
-  "Run build using allowlisted deterministic command presets.",
+  `Run compile/build using preset commands (bounded stdout/stderr + errorLines). ${RUNNER_DESC}`,
   RUN_BUILD_PRESETS,
 );
 
 export const runLintTool = makeRunnerTool(
   "run_lint",
-  "Run lint/check using allowlisted deterministic command presets.",
+  `Run lint/static checks using preset commands (bounded stdout/stderr + errorLines). ${RUNNER_DESC}`,
   RUN_LINT_PRESETS,
 );
 
 export const formatCodeTool = makeRunnerTool(
   "format_code",
-  "Run formatter using allowlisted deterministic command presets.",
+  "Run formatter using allowlisted deterministic command presets (bounded stdout/stderr + errorLines).",
   FORMAT_PRESETS,
 );
 

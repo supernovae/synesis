@@ -17,3 +17,7 @@ Use [ACP_SYNESIS.md](ACP_SYNESIS.md) and the per-editor ACP pages (**Zed**, **Je
 ## Cloudflare
 
 See [Cloudflare Edge Hardening](../CLOUDFLARE_EDGE_HARDENING.md) for WAF, tunnels, and HTTPS behavior. ACP subprocesses still call the same **`SYNESIS_YARN_URL`** over HTTPS from your machine.
+
+## Tool results and debugging
+
+Workspace MCP tools such as `run_build`, `run_test`, and `run_lint` return **structured fields** (`summary`, `errorLines`, capped `stdout`/`stderr`) so models can target fixes without pasting full logs. For **complete** command output (e.g. long `go test` traces), rely on the **client transcript** or local terminal where the agent ran the command—server logs may not include every byte of stderr. Use request/correlation IDs from responses when correlating with Yarn logs.

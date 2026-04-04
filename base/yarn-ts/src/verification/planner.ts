@@ -62,6 +62,8 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
     `<synesis_verification_plan languages="${plan.languages.join(",")}" max_rounds="${plan.maxRounds}">`,
     "After making code changes, verify using these commands:",
     "",
+    "Order: run_lint / compile-style checks (run_build or language-specific) before run_test when the project compiles; fix build/type errors before chasing test failures.",
+    "",
   ];
 
   for (const cmd of plan.commands) {
@@ -71,7 +73,7 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
   }
 
   lines.push("");
-  lines.push("If verification finds issues, use the enriched error analysis to self-repair.");
+  lines.push("If verification finds issues, use run_* tool summary and errorLines (plus read_file near reported paths) to self-repair.");
   lines.push("Stop verification after issues stabilize or budget is exhausted.");
   lines.push("</synesis_verification_plan>");
 

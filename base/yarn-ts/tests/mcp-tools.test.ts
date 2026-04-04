@@ -81,6 +81,18 @@ describe("coding tools", () => {
     });
     expect(read.content).toContain("hello world");
 
+    const multiline = Array.from({ length: 30 }, (_, i) => `N${String(i + 1).padStart(2, "0")}`).join("\n");
+    writeFileSync(path.join(root, "lines.txt"), multiline, "utf8");
+    const windowed = await readFileTool.handler({
+      projectRoot: root,
+      filePath: "lines.txt",
+      startLine: 5,
+      maxBytes: 10_000,
+    });
+    expect(windowed.content).toContain("N05");
+    expect(windowed.content).not.toContain("N01");
+    expect(windowed.lineRange).toEqual({ startLine: 5, endLine: 30 });
+
     const patched = await applyPatchTool.handler({
       projectRoot: root,
       filePath: rel,
@@ -103,6 +115,19 @@ describe("coding tools", () => {
     if (out.exitCode === 0) {
       expect(out.matches.length).toBeGreaterThan(0);
     }
+  });
+
+  it("run_build returns summary and errorLines on failure", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-buildfail-"));
+    writeFileSync(path.join(root, "bad.py"), "def broken(\n", "utf8");
+    const out = await runBuildTool.handler({
+      projectRoot: root,
+      preset: "python",
+    });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toContain("failed");
+    expect(out.exitCode).not.toBe(0);
+    expect(Array.isArray(out.errorLines)).toBe(true);
   });
 });
 

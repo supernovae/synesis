@@ -223,6 +223,54 @@ Stage only the files you changed for this task and prepare a commit message. Do 
 
 ---
 
+## Feature-scale canaries (multi-file / plan + verify)
+
+Use these to stress **search → read → implement → verify** (not single-shot codegen). Expect more steps than P1–P10; record tool mix (`search_code`, `synesis_search`, `run_build`, `run_test`) and tokens.
+
+### FB1 — Cross-package API wiring
+
+```text
+Add a small HTTP handler package and a separate config package: the handler must read a setting from env (default provided), return JSON, and include one unit test. Use the workspace language conventions you detect.
+```
+
+**Must pass**
+
+- Multiple files touched with a clear order (inspect/search before bulk write).
+- `run_lint` or compile check before declaring done.
+
+### FB2 — Money-like calculation with explicit checks
+
+```text
+Implement a function that computes a fee from an amount and rate with rounding to cents, and add tests for edge cases (zero, tiny amount, rounding boundary). State rounding rules in a comment.
+```
+
+**Must pass**
+
+- Explicit acceptance: tests run and cover boundaries; no vague “it works.”
+
+### FB3 — Synesis knowledge + workspace
+
+```text
+Use synesis_docs_search or synesis_search for how Synesis expects coder clients to authenticate, then summarize in three bullets. Do not invent URLs.
+```
+
+**Must pass**
+
+- At least one `synesis_*_search` (or equivalent) before answering; no fabricated endpoints.
+
+---
+
+## Metrics for prompt iteration (learning loop)
+
+Track over time (spreadsheet or observability):
+
+- **First-pass verify**: first `run_build` / primary verify succeeds after the first substantive edit (manual or log-derived).
+- **Tokens to green**: input + output tokens until verification stall or user stop.
+- **Platform tool rate**: count of `synesis_search` / `synesis_plan` on complex tasks vs bash-only loops.
+- **Policy friction**: hard policy rejects per session (should stay low).
+
+---
+
 ## Quick scorecard template
 
 ```text
@@ -240,6 +288,9 @@ client: claude-code
   P8:
   P9:
   P10:
+  FB1:
+  FB2:
+  FB3:
 
 client: cursor
   P1:
@@ -252,6 +303,9 @@ client: cursor
   P8:
   P9:
   P10:
+  FB1:
+  FB2:
+  FB3:
 
 client: codex-cli
   P1:
@@ -264,5 +318,8 @@ client: codex-cli
   P8:
   P9:
   P10:
+  FB1:
+  FB2:
+  FB3:
 ```
 

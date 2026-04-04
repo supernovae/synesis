@@ -65,9 +65,9 @@ function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
  */
 export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
   const knowledgeDesc =
-    "RAG retrieval against the Synesis knowledge catalog. Returns ranked chunks with provenance and scores. Uses planner /v1/knowledge/search with your PAT scope.";
+    "RAG: ranked chunks from the Synesis knowledge catalog (provenance + scores). When to use: Synesis-specific behavior, deployment, conventions, or prior art — before inventing patterns from memory. When not to use: generic language tutorials available in the user repo; use workspace search_code/read_file first for project-local code.";
   const knowledgeYarnDesc =
-    "Search the Synesis knowledge catalog for relevant documentation, code examples, language specifications, error catalogs, linter rules, style guides, and architecture patterns. Same behavior as synesis_search.";
+    "Same as synesis_search. Prefer this for documentation-style queries: examples, error catalogs, style, architecture. Pair with workspace tools: search_code → read_file for user code; synesis_* for platform knowledge.";
 
   return [
     {
@@ -82,33 +82,38 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
     },
     {
       name: "synesis_code_search",
-      description: "Search the Synesis code corpus (artifact_kind=code).",
+      description:
+        "RAG over Synesis’s indexed code corpus. When to use: find how Synesis implements a pattern. When not to use: the user’s current workspace — use search_code there instead.",
       inputSchema: zodToJsonSchema(codeSearchInputSchema),
     },
     {
       name: "synesis_docs_search",
-      description: "Search the Synesis documentation corpus (artifact_kind=docs).",
+      description:
+        "RAG over Synesis documentation. When to use: deployment, configuration, operational docs. Not a substitute for workspace inspection on the user’s app.",
       inputSchema: zodToJsonSchema(docsSearchInputSchema),
     },
     {
       name: "synesis_config_search",
       description:
-        "Search the Synesis configuration corpus (artifact_kind=config): YAML, JSON, HCL, Kubernetes, etc.",
+        "RAG over configs (YAML, JSON, K8s, …). When to use: cluster/manifest patterns in Synesis. When not to use: editing the user’s repo without reading it — inspect_repo/read_file first.",
       inputSchema: zodToJsonSchema(configSearchInputSchema),
     },
     {
       name: "synesis_classify",
-      description: "Classify a task description via planner entry classifier (intent, difficulty, taxonomy).",
+      description:
+        "Planner entry classifier (intent, difficulty, taxonomy). When to use: ambiguous or multi-step tasks to choose strategy. When not to use: trivial one-file edits with clear scope.",
       inputSchema: zodToJsonSchema(classifyInputSchema),
     },
     {
       name: "synesis_plan",
-      description: "Generate an execution plan via planner chat completions.",
+      description:
+        "Planner-generated execution plan (chat completions). When to use: complex features, cross-cutting changes, or unclear sequencing. When not to use: after you already have a test-driven checklist and only need implementation.",
       inputSchema: zodToJsonSchema(planInputSchema),
     },
     {
       name: "synesis_critique",
-      description: "Submit code for critic model review.",
+      description:
+        "Critic model review of code. When to use: after tests/build pass for risk/quality pass. Not a substitute for run_lint/run_build/run_test.",
       inputSchema: zodToJsonSchema(critiqueInputSchema),
     },
     {
