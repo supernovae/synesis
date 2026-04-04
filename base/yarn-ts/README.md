@@ -12,8 +12,9 @@ Node 22 TypeScript orchestration service prototype for replacing Python Yarn.
 
 ## Regression checks (policy + image parity)
 
-- **Unit tests:** from repo root after `npm ci`: `npm test --workspace=base/yarn-ts` (covers deterministic policy, repeat-loop session scoping, etc.).
-- **Same compile order as the production image:** `./scripts/verify-yarn-ts-build-parity.sh` (mirrors `base/yarn-ts/Containerfile`; catches missing workspace packages such as `@synesis/mcp-tools` before Docker).
+- **Unit tests:** from repo root after `npm ci`: `npm test --workspace=base/yarn-ts` — includes `tests/deterministic-policy-engine.test.ts` (repeat-loop **sessionKey** scoping), `tests/containerfile-build-parity.test.ts` (Containerfile must build every `@synesis/*` dependency), and the rest of the suite.
+- **Same compile order as the production image:** `./scripts/verify-yarn-ts-build-parity.sh` (mirrors `base/yarn-ts/Containerfile`; catches missing workspace packages before Docker).
+- **ESLint:** not wired for this package; contract tests above cover Dockerfile drift and policy invariants without a custom ESLint plugin.
 
 ## Run Locally
 
