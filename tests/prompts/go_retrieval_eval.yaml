@@ -1,0 +1,53 @@
+name: go_retrieval_eval
+cases:
+  - name: go_spec_type_params
+    query: "In Go, where does the spec define type parameter declarations and constraints?"
+    min_hits: 3
+    domain: go
+    expected_sources_any:
+      - "The Go Programming Language Specification"
+      - "go.dev/ref/spec"
+    expected_text_any:
+      - "Type parameter declarations"
+      - "Type constraints"
+
+  - name: go_mod_replace_directive
+    query: "How does the replace directive work in go.mod?"
+    min_hits: 3
+    domain: go
+    expected_sources_any:
+      - "Go Modules Reference"
+      - "go.dev/ref/mod"
+    expected_text_any:
+      - "replace directive"
+      - "go.mod"
+
+  - name: go_context_cancellation
+    query: "How is context cancellation propagated in net/http handlers?"
+    min_hits: 3
+    domain: go
+    expected_sources_any:
+      - "Go Standard Library Source"
+      - "src/net/http"
+    expected_text_any:
+      - "context"
+
+  - name: go_testing_t_cleanup
+    query: "How does t.Cleanup work in Go tests?"
+    min_hits: 2
+    domain: go
+    expected_sources_any:
+      - "src/testing"
+      - "go testing package"
+    expected_text_any:
+      - "Cleanup"
+
+  - name: go_doc_comments_parser
+    query: "How are Go doc comments parsed in go/doc/comment?"
+    min_hits: 2
+    domain: go
+    expected_sources_any:
+      - "Go Doc Comments Source"
+      - "src/go/doc/comment"
+    expected_text_any:
+      - "Parser"
