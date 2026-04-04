@@ -31,6 +31,18 @@ Synesis maps the Keycloak realm role **`synesis-admin`** to **platform admin** i
 
 If you use **Organizations** in Keycloak (enabled in the realm import), add the user to the appropriate organization and roles there as well; the admin API reads organization claims when present.
 
+### Realm roles (Open WebUI vs Synesis Admin)
+
+Synesis uses **Keycloak realm roles**, not arbitrary “groups,” for browser SSO. The imported realm defines **`synesis-user`**, **`synesis-org-admin`**, and **`synesis-admin`**, and sets **`defaultRoles`** to **`synesis-user`** so self-registered users can use chat without extra assignment.
+
+| Surface | Realm roles that allow access | Notes |
+|--------|-------------------------------|--------|
+| **Open WebUI** (chat) | **`synesis-user`** or **`synesis-admin`** | Deployment sets `OAUTH_ALLOWED_ROLES` to these values. If Keycloak login works but Open WebUI still rejects the user, open **Users → _user_ → Role mapping** in realm **`synesis`** and assign **`synesis-user`**. |
+| **Open WebUI** (in-app admin features) | **`synesis-admin`** | Matches `OAUTH_ADMIN_ROLES` on the WebUI deployment. |
+| **Synesis Admin** (dashboard / API) | **`synesis-admin`** for full platform admin; lesser roles as mapped in the admin API | Same realm role name as WebUI admin; see step 3 above. |
+
+**Manually created** users in Keycloak may not receive **`synesis-user`** automatically. Assign it explicitly if they cannot complete Open WebUI OAuth.
+
 ### 4. Match client redirect URIs and Web origins to your admin URL
 
 Client **`synesis-admin`** must allow your real Synesis Admin URL:

@@ -74,6 +74,10 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 | `DEFAULT_MODELS` | `Synesis Auto` | Pre-selected model tier for new conversations |
 | `ENABLE_OLLAMA_API` | `false` | Disabled — chat goes through planner-ts; planner reaches upstream models per its own config (often LiteLLM or direct vLLM) |
 
+### Keycloak realm roles (SSO)
+
+Production WebUI uses Keycloak OIDC with **`OAUTH_ALLOWED_ROLES`** (see [`base/webui/deployment.yaml`](../../base/webui/deployment.yaml)): users need the **`synesis-user`** or **`synesis-admin`** **realm role** in the **`synesis`** realm. Self-registration normally assigns **`synesis-user`** via realm default roles; **manually created** users may need **`synesis-user`** assigned in Keycloak. For a concise table (WebUI vs Synesis Admin vs in-app admin), see [KEYCLOAK_BOOTSTRAP.md](admin/KEYCLOAK_BOOTSTRAP.md#realm-roles-open-webui-vs-synesis-admin).
+
 ## Resource Requirements
 
 | Environment | CPU Request | Memory | Storage |
