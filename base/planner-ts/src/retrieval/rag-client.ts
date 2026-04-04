@@ -47,6 +47,10 @@ interface MilvusSearchResponse {
   data: Array<Record<string, unknown>>;
 }
 
+// Synesis catalog vector field names in current schema.
+const DENSE_VECTOR_FIELD = "embedding";
+const SPARSE_VECTOR_FIELD = "sparse_text";
+
 function milvusBase(config: RagClientConfig): string {
   return `http://${config.milvusHost}:${config.milvusPort}`;
 }
@@ -60,6 +64,7 @@ async function vectorSearch(
 ): Promise<Array<Record<string, unknown>>> {
   const body: Record<string, unknown> = {
     collectionName: collection,
+    annsField: DENSE_VECTOR_FIELD,
     data: [queryVector],
     limit,
     outputFields: OUTPUT_FIELDS,
@@ -97,8 +102,8 @@ async function hybridSearch(
   const body: Record<string, unknown> = {
     collectionName: collection,
     search: [
-      { data: [queryVector], annsField: "dense_vector", limit: limit * 2 },
-      { data: [queryText], annsField: "sparse_vector", limit: limit * 2 },
+      { data: [queryVector], annsField: DENSE_VECTOR_FIELD, limit: limit * 2 },
+      { data: [queryText], annsField: SPARSE_VECTOR_FIELD, limit: limit * 2 },
     ],
     rerank: { strategy: "rrf", params: { k: config.rrfK } },
     limit,
