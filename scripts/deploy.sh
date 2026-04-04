@@ -43,6 +43,8 @@ set -euo pipefail
 #     or use whatever admin API token your Open WebUI version documents for /api/v1/evaluations/*.
 #     Export SYNESIS_OPENWEBUI_ADMIN_TOKEN before deploy to create/update Secret synesis-openwebui-admin-token
 #     (key: token) in synesis-admin; otherwise create that secret manually or sync returns 400 until configured.
+#   - Post-apply: synesis-admin is rollout-restarted when the secret was created/updated this run or
+#     SYNESIS_OPENWEBUI_ADMIN_TOKEN is set (so optional envFrom picks up the token).
 #   - Trace correlation: deploy the Synesis-built Open WebUI image (middleware patch), not stock upstream only:
 #       ./scripts/build-images.sh --only open-webui --push
 #     Overlays replace ghcr.io/open-webui/open-webui with ghcr.io/.../synesis/open-webui.
@@ -240,15 +242,27 @@ ensure_openwebui_feedback_sync_secret() {
     fi
 }
 
-restart_synesis_admin_if_openwebui_token_configured() {
+# Uses _openwebui_secret_rv_before / _openwebui_secret_rv_after (set around ensure_openwebui_feedback_sync_secret).
+post_apply_restart_synesis_admin_openwebui_feedback() {
     local admin_ns="synesis-admin"
-    if [[ -z "${SYNESIS_OPENWEBUI_ADMIN_TOKEN:-}" ]]; then
+    local secret_name="synesis-openwebui-admin-token"
+    local prior="${_openwebui_secret_rv_before:-}"
+    local post="${_openwebui_secret_rv_after:-}"
+    local want_restart=false
+
+    if [[ -n "${SYNESIS_OPENWEBUI_ADMIN_TOKEN:-}" ]]; then
+        want_restart=true
+    elif [[ -n "$post" && "$prior" != "$post" ]]; then
+        want_restart=true
+    fi
+
+    if [[ "$want_restart" != true ]]; then
         return 0
     fi
     if ! oc get deployment synesis-admin -n "$admin_ns" &>/dev/null; then
         return 0
     fi
-    log "Restarting synesis-admin to pick up synesis-openwebui-admin-token..."
+    log "Restarting synesis-admin to pick up $secret_name (Chat Feedback sync)..."
     oc rollout restart deployment/synesis-admin -n "$admin_ns" 2>/dev/null || true
 }
 
@@ -1926,7 +1940,11 @@ ensure_internal_service_auth
 ensure_webui_key
 ensure_admin_litellm_key
 ensure_planner_litellm_key
+_openwebui_secret_rv_before=$(oc get secret synesis-openwebui-admin-token -n synesis-admin \
+    -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null || true)
 ensure_openwebui_feedback_sync_secret
+_openwebui_secret_rv_after=$(oc get secret synesis-openwebui-admin-token -n synesis-admin \
+    -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null || true)
 
 if [[ "$MODE" == "api" ]]; then
     ensure_openrouter_key
@@ -2344,8 +2362,8 @@ log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
 reconcile_litellm_webui_secrets
 
 log ""
-log "Chat Feedback: reload synesis-admin if Open WebUI admin token was set this run..."
-restart_synesis_admin_if_openwebui_token_configured
+log "Chat Feedback: reload synesis-admin if Open WebUI admin token secret changed..."
+post_apply_restart_synesis_admin_openwebui_feedback
 
 if [[ "$APPLY_OK" == "true" ]]; then
     deploy_litellm_helm
