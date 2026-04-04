@@ -312,6 +312,15 @@ You can keep short public names while preserving internal service naming:
 
 This avoids exposing long service/route hostnames externally and decouples public DNS from cluster internals.
 
+### Coder frontend: HTTPS vs Agent Client Protocol (ACP)
+
+- **Normal IDE traffic** to the coder host (`coder.example.com`) uses **HTTPS** (`POST /v1/messages`, `POST /v1/chat/completions`, SSE). Cloudflare proxying, WAF rules, and rate limits apply to these paths as documented above.
+- **ACP subprocess agents** (for example [`synesis-yarn-acp`](../base/yarn-ts/src/acp/synesis-yarn-acp.ts)) speak **JSON-RPC over stdio** to the editor locally. They do **not** terminate TLS at Cloudflare; they call **`SYNESIS_YARN_URL`** (your `https://coder.example.com`) via the Node `fetch` client. Ensure:
+  - The public hostname resolves and the origin is reachable from the developer machine.
+  - **WAF** rules do not block legitimate `POST` bodies to `/v1/messages` (JSON size, content-type `application/json`).
+  - If you add a **future** WebSocket or alternate JSON-RPC path on the same host, enable **WebSocket** proxying on Cloudflare and raise **proxy/read timeouts** for long agent turns; `cloudflared` ingress must preserve `Upgrade` on that route.
+- **Split horizon:** Edge hardening (Cloudflare + tunnel) protects **browser and IDE HTTPS** clients. **Local ACP** only needs outbound HTTPS to the same `SYNESIS_YARN_URL`.
+
 ### Access + Tunnel (recommended combo)
 
 With tunnel hostnames in place:
