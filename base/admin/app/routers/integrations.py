@@ -14,7 +14,7 @@ from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
 from ..rbac import Role, resolve_role
 from ..routers import admin_mcp
 from ..services import prometheus_client_svc as prom
-from ..services.mcp_client import get_mcp_tools, probe_mcp_health
+from ..services.mcp_client import get_mcp_tools, probe_admin_mcp_health, probe_mcp_health
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 
@@ -30,24 +30,26 @@ async def mcp_tools(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/mcp/health")
 async def mcp_agent_health(_user: UserInfo = Depends(get_current_user)):
-    """Reachability of synesis-mcp (Yarn / IDE agent tools)."""
-    try:
-        await probe_mcp_health()
-        return {"ok": True, "status": "ok"}
-    except Exception:
-        return {"ok": False, "status": "error", "detail": "mcp_health_probe_failed"}
+    """Reachability of synesis-mcp-ts (agent / IDE Streamable MCP)."""
+    return await probe_mcp_health()
+
+
+@router.get("/mcp/admin-mcp-health")
+async def admin_mcp_streamable_health(_user: UserInfo = Depends(get_current_user)):
+    """Reachability of synesis-admin-mcp-ts (Admin MCP, Streamable HTTP)."""
+    return await probe_admin_mcp_health()
 
 
 @router.get("/mcp/admin-catalog")
 async def mcp_admin_tool_catalog(user: UserInfo = Depends(get_current_user)):
-    """Admin MCP (HTTP) tools: full list with required roles for platform admins; otherwise caller-visible subset."""
+    """Admin MCP tools (executed in admin API; MCP transport is synesis-admin-mcp-ts)."""
     role = resolve_role(user)
     if role >= Role.platform_admin:
         return {"tools": admin_mcp.catalog_all_tools(), "scope": "full"}
     return {
         "tools": admin_mcp.visible_tools_for_role(role),
         "scope": "visible",
-        "note": "platform_admin sees all tools with min_role; call via POST /api/v1/mcp/tools/call with Bearer token",
+        "note": "Use synesis-admin-mcp-ts Streamable HTTP (SYNESIS_ADMIN_MCP_URL) with the same Bearer token.",
     }
 
 

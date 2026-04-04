@@ -12,6 +12,7 @@ resources:
   - namespace.yaml
   - deployment.yaml
   - service.yaml
+  - ../admin-mcp-ts
   - route.yaml
   - network-policy.yaml
   # rbac-gateway-secrets.yaml moved to base/gateway/ — it must land in

@@ -17,6 +17,7 @@ packages/*/dist/
 
 # TypeScript service build output
 base/mcp-ts/dist/
+base/admin-mcp-ts/dist/
 base/planner-ts/dist/
 base/yarn-ts/dist/
 

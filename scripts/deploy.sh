@@ -24,7 +24,8 @@ set -euo pipefail
 #         Individual flags (e.g. SYNESIS_YARN_PATTERN_RECALL_ENABLED=false) still take precedence.
 #
 # Yarn (IDE path) and the MCP-TS agent deploy with both api and model overlays
-# (namespaces synesis-yarn). Images: ghcr.io/.../yarn, .../mcp-ts.
+# (namespaces synesis-yarn). Images: ghcr.io/.../yarn-ts, .../mcp-ts (coder MCP).
+# Admin MCP (synesis-admin-mcp-ts) deploys with base/admin (synesis-admin namespace).
 #
 # Yarn → Admin DB (sessions, usage, PAT lookup):
 #   - Secret synesis-admin-db-url in synesis-yarn (keys admin-url, trace-url), same as admin/planner.
@@ -1363,6 +1364,20 @@ patch_mcp_ts_envs() {
     }' >/dev/null 2>&1 || log "WARNING: unable to patch secret-backed envs for $ns/$deploy"
 }
 
+# Optional env patches for synesis-admin-mcp-ts (Streamable Admin MCP; proxies to Admin API).
+patch_admin_mcp_ts_envs() {
+    local ns="synesis-admin"
+    local deploy="synesis-admin-mcp-ts"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    # Keep SYNESIS_ADMIN_API_URL aligned with in-cluster admin Service if deploy.sh overrides admin URL elsewhere.
+    local admin_url="${SYNESIS_ADMIN_INTERNAL_URL:-http://synesis-admin.synesis-admin.svc.cluster.local:8080}"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_ADMIN_API_URL" "$admin_url" "admin-mcp-ts"
+}
+
 # Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
 # Deployments reference this Secret via secretKeyRef — no more inline-env race.
 patch_admin_db_urls() {
@@ -1971,9 +1986,9 @@ check_custom_images() {
     if command -v skopeo &>/dev/null; then
         if ! skopeo inspect --no-tags "docker://$sample_image" &>/dev/null; then
             log "WARNING: skopeo cannot inspect $sample_image (missing image, network, or anonymous auth)."
-            log "  Build/push the admin image (same name build-images uses: REGISTRY/admin:tag):"
-            [[ "$REF_SAFE" != "latest" ]] && log "    ./scripts/build-images.sh --only admin --push --tag $REF_SAFE"
-            log "    ./scripts/build-images.sh --only admin --push"
+            log "  Build/push images (same names build-images.sh uses, e.g. REGISTRY/admin:tag):"
+            [[ "$REF_SAFE" != "latest" ]] && log "    ./scripts/build-images.sh --only admin,mcp-ts,admin-mcp-ts --push --tag $REF_SAFE"
+            log "    ./scripts/build-images.sh --only admin,mcp-ts,admin-mcp-ts --push"
             log "  Private GHCR: skopeo needs registry login (e.g. podman login ghcr.io); the cluster still pulls via imagePullSecrets."
             log "  If the cluster already pulls this image, you can ignore this warning."
             log ""
@@ -2265,6 +2280,10 @@ log "Patching MCP-TS service envs (post-apply)..."
 patch_mcp_ts_envs
 
 log ""
+log "Patching Admin MCP-TS deployment envs (post-apply)..."
+patch_admin_mcp_ts_envs
+
+log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
 reconcile_litellm_webui_secrets
 
@@ -2399,6 +2418,7 @@ wait_for_deployment synesis-rag preprocess-service
 wait_for_deployment synesis-rag spam-service
 wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
+wait_for_deployment synesis-admin synesis-admin-mcp-ts
 wait_for_deployment synesis-yarn synesis-mcp-ts
 wait_for_deployment synesis-yarn synesis-yarn
 if ! verify_yarn_path_governance_envs; then

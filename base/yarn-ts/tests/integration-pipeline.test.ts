@@ -690,10 +690,17 @@ describe("Evidence prefetch pipeline", () => {
   });
 });
 
+const knowledgeDeps = {
+  plannerBaseUrl: "http://planner.test:8080",
+  criticUrl: "http://critic.test/v1",
+  criticModel: "synesis-critic",
+  internalServiceToken: "internal",
+};
+
 describe("Knowledge search tool Claude parity", () => {
   it("injectToolOpenAI and injectToolClaude both add the tool", async () => {
     const { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } = await import("../src/state/knowledge-search.js");
-    const svc = new KnowledgeSearchService("http://mcp:8080");
+    const svc = new KnowledgeSearchService(knowledgeDeps);
 
     const oaiTools = svc.injectToolOpenAI([]);
     expect(oaiTools).toHaveLength(1);
@@ -710,32 +717,36 @@ describe("Knowledge search tool Claude parity", () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          content: [{
-            text: JSON.stringify({
-              results: [{
-                text: "TypeScript error TS2345 explanation",
-                source_url: "https://ts.dev/errors/2345",
-                document_name: "TS Error Catalog",
-                authority: "official",
-                score: 0.92,
-                constraint_kind: "hard",
-                corpus_class: "coder_enriched",
-                scope_tags: ["error-catalog"],
-                language: "typescript",
-                context_prefix: "TypeScript compiler errors",
-                chunk_summary: "TS2345: Argument type mismatch",
-              }],
-              query: "TypeScript error TS2345",
-              total: 1,
-            }),
+          results: [{
+            text: "TypeScript error TS2345 explanation",
+            source_url: "https://ts.dev/errors/2345",
+            document_name: "TS Error Catalog",
+            authority: "official",
+            score: 0.92,
+            constraint_kind: "hard",
+            corpus_class: "coder_enriched",
+            scope_tags: ["error-catalog"],
+            language: "typescript",
+            context_prefix: "TypeScript compiler errors",
+            chunk_summary: "TS2345: Argument type mismatch",
+            content_profile: "",
+            constraint_source: "",
+            constraint_confidence: 0,
+            golden_path_id: "",
+            novel_pattern: false,
           }],
+          query: "TypeScript error TS2345",
+          total: 1,
         }),
         { status: 200 },
       ),
     );
 
-    const svc = new KnowledgeSearchService("http://mcp:8080", "org-1");
-    const result = await svc.resolve({ query: "TypeScript error TS2345" });
+    const svc = new KnowledgeSearchService(knowledgeDeps);
+    const result = await svc.resolve(
+      { query: "TypeScript error TS2345" },
+      { orgId: "org-1", userId: "u1", tenantIds: [], bearerToken: "syn-test" },
+    );
     expect(result.total).toBe(1);
     expect(result.results[0].score).toBe(0.92);
 

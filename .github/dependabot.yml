@@ -47,6 +47,19 @@ updates:
           - "minor"
           - "patch"
 
+  - package-ecosystem: "npm"
+    directory: "/base/admin-mcp-ts"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 8
+    groups:
+      admin-mcp-ts-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "pip"
     directory: "/base/admin"
     schedule:

@@ -180,6 +180,10 @@ jobs:
             dockerfile: base/mcp-ts/Containerfile
             context: .
             base_arg: ""
+          - name: admin-mcp-ts
+            dockerfile: base/admin-mcp-ts/Containerfile
+            context: .
+            base_arg: ""
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile
             context: .

@@ -138,6 +138,28 @@ jobs:
         working-directory: base/mcp-ts
         run: npx vitest run
 
+  admin-mcp-ts-tests:
+    name: Admin MCP-TS typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        working-directory: base/admin-mcp-ts
+        run: npm install
+
+      - name: Typecheck
+        working-directory: base/admin-mcp-ts
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        working-directory: base/admin-mcp-ts
+        run: npx vitest run
+
   planner-ts-tests:
     name: Planner-TS typecheck + tests
     runs-on: ubuntu-latest

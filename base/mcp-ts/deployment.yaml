@@ -25,6 +25,8 @@ spec:
           env:
             - name: PORT
               value: "8100"
+            - name: SYNESIS_MCP_HTTP_PATH
+              value: "/mcp"
             - name: SYNESIS_PLANNER_URL
               value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
             - name: SYNESIS_CRITIC_URL

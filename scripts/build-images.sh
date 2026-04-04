@@ -99,7 +99,8 @@ SERVICE_IMAGES=(
     "spam-service|base/rag/spam-service/Dockerfile|base/rag/spam-service"
     "quality-runner|base/quality-runner/Dockerfile|."
     "open-webui|base/webui/Dockerfile|base/webui"
-    "mcp|base/mcp/Containerfile|."
+    "mcp-ts|base/mcp-ts/Containerfile|."
+    "admin-mcp-ts|base/admin-mcp-ts/Containerfile|."
     "yarn-ts|base/yarn-ts/Containerfile|base"
 )
 
@@ -182,7 +183,7 @@ for entry in "${IMAGES[@]}"; do
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        admin|keyword-service|preprocess-service|quality-runner|mcp)
+        admin|keyword-service|preprocess-service|quality-runner)
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

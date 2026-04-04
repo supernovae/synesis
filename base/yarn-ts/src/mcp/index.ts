@@ -1,4 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import {
+  dispatchSynesisTool,
+  getSynesisPlatformCatalog,
+  SYNESIS_MCP_TOOL_NAMES,
+  type SynesisMcpAuth,
+  type SynesisMcpDeps,
+} from "@synesis/mcp-tools";
 import type { AuthResolver, AuthUser } from "../auth.js";
 import { McpToolRegistry, McpToolNotFoundError, McpToolTimeoutError } from "./tool-registry.js";
 import { classifyProjectTool } from "./handlers/classify-project.js";
@@ -22,12 +29,16 @@ import {
   writeFileTool,
 } from "./handlers/coding-tools.js";
 
+const SYNESIS_PLATFORM_TOOL_SET = new Set<string>(SYNESIS_MCP_TOOL_NAMES);
+
 export interface McpPluginOptions {
   authResolver: AuthResolver;
   enabled: boolean;
   openClawProfileEnabled: boolean;
   openClawMcpAllowlistEnabled: boolean;
   openClawStrictGovernanceEnabled: boolean;
+  /** Same deps as `KnowledgeSearchService` / synesis-mcp-ts — planner + critic URLs for platform tools. */
+  synesisMcpDeps: SynesisMcpDeps;
 }
 
 const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
@@ -40,6 +51,16 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
   "run_lint",
   "git_status",
   "git_diff",
+  /** Read-only Synesis platform tools (same handlers as synesis-mcp-ts). */
+  "synesis_search",
+  "synesis_knowledge_search",
+  "synesis_code_search",
+  "synesis_docs_search",
+  "synesis_config_search",
+  "synesis_cve_check",
+  "synesis_license_check",
+  "synesis_docs_lookup",
+  "synesis_patch_integrity",
 ]);
 
 const OPENCLAW_WRITE_CAPABLE_TOOLS = new Set<string>([
@@ -62,6 +83,21 @@ export function isOpenClawClientHeader(raw: unknown): boolean {
 
 export function filterMcpCatalogForOpenClaw<T extends { name: string }>(catalog: T[]): T[] {
   return catalog.filter((t) => OPENCLAW_MCP_ALLOWLIST.has(t.name));
+}
+
+function extractBearerAuthorization(req: FastifyRequest): string {
+  const raw = req.headers.authorization ?? "";
+  if (!raw.toLowerCase().startsWith("bearer ")) return "";
+  return raw.slice(7).trim();
+}
+
+function synesisAuthForRequest(user: AuthUser, req: FastifyRequest): SynesisMcpAuth {
+  return {
+    bearerToken: extractBearerAuthorization(req),
+    userId: user.userId,
+    orgId: user.orgId,
+    tenantIds: user.tenantIds,
+  };
 }
 
 const registry = new McpToolRegistry();
@@ -123,7 +159,7 @@ export async function registerMcpRoutes(
     if (!user) return;
     const openClawClient = opts.openClawProfileEnabled
       && isOpenClawClientHeader(req.headers["x-synesis-client"]);
-    const catalog = registry.getCatalog();
+    const catalog = [...registry.getCatalog(), ...getSynesisPlatformCatalog()];
     const tools =
       openClawClient && opts.openClawMcpAllowlistEnabled
         ? filterMcpCatalogForOpenClaw(catalog)
@@ -182,7 +218,17 @@ export async function registerMcpRoutes(
       ? requestIdHeader.trim()
       : req.id;
     try {
-      const result = await registry.call(body.name, body.arguments ?? {});
+      let result: unknown;
+      if (SYNESIS_PLATFORM_TOOL_SET.has(body.name)) {
+        result = await dispatchSynesisTool(
+          body.name,
+          (body.arguments ?? {}) as Record<string, unknown>,
+          synesisAuthForRequest(user, req),
+          opts.synesisMcpDeps,
+        );
+      } else {
+        result = await registry.call(body.name, body.arguments ?? {});
+      }
       const elapsed = Math.round(performance.now() - start);
       app.log.info({ tool: body.name, userId: user.userId, requestId, elapsed_ms: elapsed }, "mcp_tool_call");
       return reply.send({ result, meta: { tool: body.name, request_id: requestId, elapsed_ms: elapsed } });
@@ -211,7 +257,7 @@ export async function registerMcpRoutes(
   });
 
   app.log.info(
-    { toolCount: registry.getCatalog().length },
+    { toolCount: registry.getCatalog().length + getSynesisPlatformCatalog().length },
     "mcp_native_tools_registered",
   );
 }

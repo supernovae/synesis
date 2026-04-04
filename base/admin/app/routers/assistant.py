@@ -124,7 +124,7 @@ async def _assistant_chat_impl(
     """Send a message to the LLM. Optionally pass trace_id (and span_index) to load trace as context.
 
     When the model supports function calling, the assistant runs an MCP tool loop
-    (same tools as ``/api/v1/mcp/tools``) under the caller's JWT.
+    (same handlers as Admin MCP / synesis-admin-mcp-ts) under the caller's JWT.
     """
     user_message = data.get("message", "")
     context = data.get("context", "")

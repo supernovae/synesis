@@ -79,6 +79,9 @@ images:
   - name: synesis-mcp-ts
     newName: ghcr.io/supernovae/synesis/mcp-ts
     newTag: latest
+  - name: synesis-admin-mcp-ts
+    newName: ghcr.io/supernovae/synesis/admin-mcp-ts
+    newTag: latest
   - name: ghcr.io/supernovae/synesis/yarn-ts
     newName: ghcr.io/supernovae/synesis/yarn-ts
     newTag: latest

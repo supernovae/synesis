@@ -21,6 +21,7 @@ on:
       - 'base/rag/spam-service/**'
       - 'base/rag/knowledge-base/**'
       - 'base/mcp-ts/**'
+      - 'base/admin-mcp-ts/**'
       - 'base/yarn-ts/**'
       - 'base/planner-ts/**'
       - 'base/security/**'
@@ -74,6 +75,7 @@ jobs:
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
       open-webui: ${{ steps.filter.outputs.open-webui }}
       mcp-ts: ${{ steps.filter.outputs.mcp-ts }}
+      admin-mcp-ts: ${{ steps.filter.outputs.admin-mcp-ts }}
       yarn-ts: ${{ steps.filter.outputs.yarn-ts }}
       planner-ts: ${{ steps.filter.outputs.planner-ts }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
@@ -121,6 +123,10 @@ jobs:
               - 'base/webui/synesis-theme.css'
             mcp-ts:
               - 'base/mcp-ts/**'
+              - 'packages/synesis-mcp-tools/**'
+            admin-mcp-ts:
+              - 'base/admin-mcp-ts/**'
+              - 'base/admin/kustomization.yaml'
             yarn-ts:
               - 'base/yarn-ts/**'
               - 'packages/synesis-telemetry/**'
@@ -435,9 +441,15 @@ jobs:
             base_change_key: ""
           - name: mcp-ts
             dockerfile: base/mcp-ts/Containerfile
-            context: base/mcp-ts
+            context: .
             base_arg: ""
             change_key: mcp-ts
+            base_change_key: ""
+          - name: admin-mcp-ts
+            dockerfile: base/admin-mcp-ts/Containerfile
+            context: .
+            base_arg: ""
+            change_key: admin-mcp-ts
             base_change_key: ""
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile

@@ -18,4 +18,14 @@ describe("OpenClaw MCP profile", () => {
     const filtered = filterMcpCatalogForOpenClaw(catalog);
     expect(filtered.map((t) => t.name)).toEqual(["read_file", "git_status"]);
   });
+
+  it("allows read-only Synesis platform tools but not plan/critique/classify in OpenClaw filter", () => {
+    const catalog = [
+      { name: "synesis_search", description: "" },
+      { name: "synesis_plan", description: "" },
+      { name: "synesis_classify", description: "" },
+    ];
+    const filtered = filterMcpCatalogForOpenClaw(catalog);
+    expect(filtered.map((t) => t.name)).toEqual(["synesis_search"]);
+  });
 });

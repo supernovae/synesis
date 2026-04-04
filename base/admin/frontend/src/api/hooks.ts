@@ -83,6 +83,13 @@ export function useMcpAgentHealth() {
   });
 }
 
+export function useMcpAdminMcpHealth() {
+  return useQuery({
+    queryKey: ["integrations", "mcp", "admin-mcp-health"],
+    queryFn: () => client.get("/integrations/mcp/admin-mcp-health").then((r) => r.data),
+  });
+}
+
 export function useMcpAdminCatalog() {
   return useQuery<{
     tools: Array<{ name: string; description?: string; min_role?: string }>;

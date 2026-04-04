@@ -1,12 +1,12 @@
-"""Admin MCP — expose admin JSON API endpoints as MCP tools.
+"""Admin MCP — tool catalog and execution for the Synesis Admin MCP server (TypeScript).
 
-Provides ``/api/v1/mcp/tools`` (list) and ``/api/v1/mcp/tools/call``
-(execute) with the same JWT / PAT authentication and RBAC model as the
-REST API.  Tool visibility is filtered by the caller's role: platform
-admins see all tools, org admins see org-scoped tools, regular users
-see only their own data tools.
+Tool **handlers** run here (Python). The **MCP protocol** (Streamable HTTP) is served by
+``synesis-admin-mcp-ts``, which authenticates the caller and invokes:
 
-Each tool call is logged to the ``admin_audit_events`` table.
+- ``GET /api/v1/internal/mcp/tools`` — tools visible to the caller's role
+- ``POST /api/v1/internal/mcp/invoke`` — execute a tool (JWT/PAT + RBAC + audit)
+
+Each invocation is logged to ``admin_audit_events``.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from ..services.admin_audit import record_admin_audit
 
 logger = logging.getLogger("synesis.admin.mcp")
 
-router = APIRouter(prefix="/api/v1/mcp", tags=["mcp"])
+internal_router = APIRouter(prefix="/api/v1/internal/mcp", tags=["mcp-internal"])
 
 
 # ── Tool definitions with minimum role ───────────────────────────────────────
@@ -409,61 +409,6 @@ async def invoke_mcp_tool_for_chat(
         return json.dumps({"error": str(exc), "tool": tool_name})
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
-
-
-@router.get("/tools")
-async def list_tools(user: UserInfo = Depends(get_current_user)):
-    """MCP tools/list — returns tools visible to the caller's role."""
-    role = resolve_role(user)
-    return {"tools": _visible_tools(role)}
-
-
-@router.post("/tools/call")
-async def call_tool(
-    body: dict = Body(...),
-    user: UserInfo = Depends(get_current_user),
-):
-    """MCP tools/call — execute a tool by name with RBAC + audit logging."""
-    tool_name = body.get("name", "")
-    try:
-        arguments = _coerce_arguments(body.get("arguments", {}))
-    except HTTPException:
-        raise
-
-    _, handler = _resolve_tool(user, tool_name)
-
-    try:
-        result = await handler(user, arguments)
-
-        await record_admin_audit(
-            action=f"mcp.tool.{tool_name}",
-            status="success",
-            summary=f"MCP tool call: {tool_name}",
-            detail={"arguments": arguments},
-            user=user,
-            source="mcp",
-        )
-
-        if isinstance(result, str):
-            return {"content": [{"type": "text", "text": result}]}
-        return {"content": [{"type": "text", "text": json.dumps(result, default=str)}]}
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.warning("mcp_tool_%s_failed", tool_name, exc_info=True)
-        await record_admin_audit(
-            action=f"mcp.tool.{tool_name}",
-            status="error",
-            summary=f"MCP tool call failed: {tool_name} — {type(exc).__name__}",
-            detail={"arguments": arguments, "error": str(exc)[:500]},
-            user=user,
-            source="mcp",
-        )
-        raise HTTPException(status_code=500, detail=f"Tool '{tool_name}' failed") from exc
-
-
 # ── Tool handlers ────────────────────────────────────────────────────────────
 
 import time
@@ -769,3 +714,47 @@ _HANDLERS: dict[str, Any] = {
     "synesis_classify_intent": _synesis_classify_intent,
     "synesis_retrieval_gaps": _synesis_retrieval_gaps,
 }
+
+
+@internal_router.get("/tools")
+async def internal_list_tools(user: UserInfo = Depends(get_current_user)):
+    """Tools visible to the caller (used by synesis-admin-mcp-ts to build MCP tools/list)."""
+    role = resolve_role(user)
+    return {"tools": _visible_tools(role)}
+
+
+@internal_router.post("/invoke")
+async def internal_invoke(body: dict = Body(...), user: UserInfo = Depends(get_current_user)):
+    """Execute one admin MCP tool (used by synesis-admin-mcp-ts)."""
+    tool_name = body.get("name", "")
+    try:
+        arguments = _coerce_arguments(body.get("arguments", {}))
+    except HTTPException:
+        raise
+
+    _, handler = _resolve_tool(user, tool_name)
+
+    try:
+        result = await handler(user, arguments)
+        await record_admin_audit(
+            action=f"mcp.tool.{tool_name}",
+            status="success",
+            summary=f"MCP tool call: {tool_name}",
+            detail={"arguments": arguments},
+            user=user,
+            source="admin-mcp-ts",
+        )
+        return {"result": result}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("mcp_tool_%s_failed", tool_name, exc_info=True)
+        await record_admin_audit(
+            action=f"mcp.tool.{tool_name}",
+            status="error",
+            summary=f"MCP tool call failed: {tool_name} — {type(exc).__name__}",
+            detail={"arguments": arguments, "error": str(exc)[:500]},
+            user=user,
+            source="admin-mcp-ts",
+        )
+        raise HTTPException(status_code=500, detail=f"Tool '{tool_name}' failed") from exc

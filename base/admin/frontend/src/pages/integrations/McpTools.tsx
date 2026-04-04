@@ -1,4 +1,4 @@
-import { useMcpTools, useMcpAgentHealth, useMcpAdminCatalog } from "../../api/hooks";
+import { useMcpTools, useMcpAgentHealth, useMcpAdminCatalog, useMcpAdminMcpHealth } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import EmptyState from "../../components/common/EmptyState";
 import { CheckCircle2, XCircle, Server, Shield } from "lucide-react";
@@ -6,6 +6,7 @@ import { CheckCircle2, XCircle, Server, Shield } from "lucide-react";
 export default function McpTools() {
   const { data, isLoading } = useMcpTools();
   const { data: health, isLoading: healthLoading } = useMcpAgentHealth();
+  const { data: adminMcpHealth, isLoading: adminMcpHealthLoading } = useMcpAdminMcpHealth();
   const { data: adminCat, isLoading: adminLoading } = useMcpAdminCatalog();
   const tools = data?.tools ?? [];
   const adminTools = adminCat?.tools ?? [];
@@ -15,15 +16,16 @@ export default function McpTools() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">MCP integrations</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Two surfaces: <strong>Agent MCP</strong> (synesis-mcp for Yarn / IDE) and{" "}
-          <strong>Admin MCP</strong> (HTTP tools with the same JWT/PAT and RBAC as the REST API).
+          Two services: <strong>synesis-mcp-ts</strong> (coder / Yarn agent tools — Streamable HTTP, PAT + FGA) and{" "}
+          <strong>synesis-admin-mcp-ts</strong> (Admin console tools — Streamable HTTP, same JWT/PAT and RBAC as the
+          Admin REST API).
         </p>
       </div>
 
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <Server className="h-5 w-5 text-indigo-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Agent MCP (synesis-mcp)</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Agent MCP (synesis-mcp-ts)</h2>
           {healthLoading ? (
             <span className="text-sm text-gray-400">Checking…</span>
           ) : health?.reachable ? (
@@ -38,7 +40,9 @@ export default function McpTools() {
           )}
         </div>
         <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-          Used by Yarn and coding agents. Service URL is configured as <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_MCP_URL</code> (cluster port <strong>8100</strong>).
+          Official MCP Streamable HTTP endpoint. Probe URL comes from <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_MCP_URL</code> (cluster port <strong>8100</strong>). Tool catalog is exposed at{" "}
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /v1/synesis-tools</code> (metadata only); protocol traffic uses the configured <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_MCP_HTTP_PATH</code> (default{" "}
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">/mcp</code>).
         </p>
         {!health?.reachable && health?.error && (
           <p className="mb-4 rounded bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
@@ -50,7 +54,7 @@ export default function McpTools() {
         ) : tools.length === 0 ? (
           <EmptyState
             title="No agent MCP tools"
-            description="synesis-mcp did not return tools — check deployment, network policy, and SYNESIS_MCP_URL (port 8100)."
+            description="Could not load catalog from synesis-mcp-ts — check SYNESIS_MCP_URL, network policy, and that GET /v1/synesis-tools is reachable."
           />
         ) : (
           <DataTable
@@ -65,19 +69,32 @@ export default function McpTools() {
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-        <div className="mb-4 flex items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <Shield className="h-5 w-5 text-violet-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Admin MCP (HTTP)</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Admin MCP (synesis-admin-mcp-ts)</h2>
+          {adminMcpHealthLoading ? (
+            <span className="text-sm text-gray-400">Checking…</span>
+          ) : adminMcpHealth?.reachable ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Reachable
+              {adminMcpHealth.latency_ms != null && ` · ${adminMcpHealth.latency_ms}ms`}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/40 dark:text-red-300">
+              <XCircle className="h-3.5 w-3.5" /> Unreachable
+            </span>
+          )}
         </div>
         <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-          List tools: <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/v1/mcp/tools</code> with{" "}
-          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">Authorization: Bearer &lt;token&gt;</code>.
-          Execute: <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">POST /api/v1/mcp/tools/call</code> with{" "}
-          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">{"{ \"name\": \"...\", \"arguments\": {} }"}</code>.
-          Calls are RBAC-filtered and audited.
+          MCP Streamable HTTP for operators and IDE clients. Probe URL: <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_ADMIN_MCP_URL</code> (port <strong>8102</strong>). Authenticate with the same Bearer token as the Admin API. The server validates the session against{" "}
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/v1/auth/me</code>, loads role-filtered tools from{" "}
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/v1/internal/mcp/tools</code>, and executes via{" "}
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">POST /api/v1/internal/mcp/invoke</code> (audited in admin).
         </p>
-        {adminCat?.scope === "visible" && adminCat.note && (
-          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{adminCat.note}</p>
+        {!adminMcpHealth?.reachable && adminMcpHealth?.error && (
+          <p className="mb-4 rounded bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+            {adminMcpHealth.error}
+          </p>
         )}
         {adminLoading ? (
           <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />

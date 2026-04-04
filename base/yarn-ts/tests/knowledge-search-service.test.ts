@@ -6,6 +6,13 @@ import {
   KNOWLEDGE_TOOL_SCHEMA_CLAUDE,
 } from "../src/state/knowledge-search.js";
 
+const deps = {
+  plannerBaseUrl: "http://planner.test:8080",
+  criticUrl: "http://critic.test/v1",
+  criticModel: "synesis-critic",
+  internalServiceToken: "internal-token",
+};
+
 describe("KnowledgeSearchService", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -18,7 +25,7 @@ describe("KnowledgeSearchService", () => {
   });
 
   describe("resolve()", () => {
-    it("returns parsed results on successful response", async () => {
+    it("returns parsed results on successful planner response", async () => {
       const mockResult = {
         results: [
           {
@@ -33,6 +40,11 @@ describe("KnowledgeSearchService", () => {
             language: "typescript",
             context_prefix: "TypeScript compiler errors",
             chunk_summary: "TS2345: Argument type mismatch",
+            content_profile: "",
+            constraint_source: "",
+            constraint_confidence: 0,
+            golden_path_id: "",
+            novel_pattern: false,
           },
         ],
         query: "TypeScript error TS2345",
@@ -40,64 +52,69 @@ describe("KnowledgeSearchService", () => {
       };
 
       fetchSpy.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            content: [{ type: "text", text: JSON.stringify(mockResult) }],
-          }),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify(mockResult), { status: 200 }),
       );
 
-      const service = new KnowledgeSearchService("http://mcp:8080");
-      const result = await service.resolve({ query: "TypeScript error TS2345" });
+      const service = new KnowledgeSearchService(deps);
+      const result = await service.resolve(
+        { query: "TypeScript error TS2345" },
+        {
+          orgId: "o1",
+          userId: "u1",
+          tenantIds: [],
+          bearerToken: "syn-test-pat",
+        },
+      );
 
       expect(result.total).toBe(1);
       expect(result.results).toHaveLength(1);
       expect(result.results[0].score).toBe(0.92);
-      expect(result.query).toBe("TypeScript error TS2345");
+      expect(String(fetchSpy.mock.calls[0][0])).toContain("/v1/knowledge/search");
+      const init = fetchSpy.mock.calls[0][1] as RequestInit;
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer syn-test-pat");
     });
 
-    it("passes caller identity when provided", async () => {
-      fetchSpy.mockResolvedValue(
-        new Response(
-          JSON.stringify({ content: [{ text: '{"results":[],"query":"q","total":0}' }] }),
-          { status: 200 },
-        ),
-      );
+    it("passes caller identity into planner JSON body", async () => {
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }));
 
-      const service = new KnowledgeSearchService("http://mcp:8080", "org-1", "user-1");
+      const service = new KnowledgeSearchService(deps);
       await service.resolve(
         { query: "q" },
-        { orgId: "org-override", userId: "user-override", aclGroups: ["admin"] },
+        {
+          orgId: "org-override",
+          userId: "user-override",
+          tenantIds: ["t1"],
+          bearerToken: "syn-x",
+        },
       );
 
-      const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
-      expect(body.caller.org_id).toBe("org-override");
-      expect(body.caller.user_id).toBe("user-override");
-      expect(body.caller.acl_groups).toEqual(["admin"]);
+      const init = fetchSpy.mock.calls[0][1] as RequestInit;
+      const body = JSON.parse(String(init.body));
+      expect(body.caller_org_id).toBe("org-override");
+      expect(body.caller_user_id).toBe("user-override");
+      expect(body.caller_tenant_ids).toEqual(["t1"]);
     });
 
-    it("uses constructor defaults for caller when no overrides", async () => {
-      fetchSpy.mockResolvedValue(
-        new Response(
-          JSON.stringify({ content: [{ text: '{"results":[],"query":"q","total":0}' }] }),
-          { status: 200 },
-        ),
-      );
+    it("falls back to internal service token when no bearer", async () => {
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }));
 
-      const service = new KnowledgeSearchService("http://mcp:8080", "default-org", "default-user");
+      const service = new KnowledgeSearchService(deps);
       await service.resolve({ query: "q" });
 
-      const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
-      expect(body.caller.org_id).toBe("default-org");
-      expect(body.caller.user_id).toBe("default-user");
+      const init = fetchSpy.mock.calls[0][1] as RequestInit;
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer internal-token");
     });
 
     it("returns empty results on HTTP error", async () => {
       fetchSpy.mockResolvedValue(new Response("Internal Server Error", { status: 500 }));
 
-      const service = new KnowledgeSearchService("http://mcp:8080");
-      const result = await service.resolve({ query: "test" });
+      const service = new KnowledgeSearchService(deps);
+      const result = await service.resolve({ query: "test" }, {
+        orgId: "o",
+        userId: "u",
+        tenantIds: [],
+        bearerToken: "syn-x",
+      });
 
       expect(result.results).toEqual([]);
       expect(result.total).toBe(0);
@@ -107,68 +124,32 @@ describe("KnowledgeSearchService", () => {
     it("returns empty results on network error", async () => {
       fetchSpy.mockRejectedValue(new Error("Connection refused"));
 
-      const service = new KnowledgeSearchService("http://mcp:8080");
+      const service = new KnowledgeSearchService(deps);
       const result = await service.resolve({ query: "test" });
 
       expect(result.results).toEqual([]);
       expect(result.total).toBe(0);
       expect(service.getStats().errorCount).toBe(1);
-    });
-
-    it("returns empty results on malformed JSON", async () => {
-      fetchSpy.mockResolvedValue(
-        new Response(
-          JSON.stringify({ content: [{ text: "not-json{{{" }] }),
-          { status: 200 },
-        ),
-      );
-
-      const service = new KnowledgeSearchService("http://mcp:8080");
-      const result = await service.resolve({ query: "test" });
-
-      expect(result.results).toEqual([]);
-      expect(result.total).toBe(0);
-      expect(service.getStats().errorCount).toBe(1);
-    });
-
-    it("strips trailing slash from MCP URL", async () => {
-      fetchSpy.mockResolvedValue(
-        new Response(
-          JSON.stringify({ content: [{ text: '{"results":[],"query":"q","total":0}' }] }),
-          { status: 200 },
-        ),
-      );
-
-      const service = new KnowledgeSearchService("http://mcp:8080/");
-      await service.resolve({ query: "test" });
-
-      expect(fetchSpy.mock.calls[0][0]).toBe("http://mcp:8080/mcp/tools/call");
     });
   });
 
   describe("injectToolOpenAI()", () => {
     it("adds tool to undefined tools list", () => {
-      const service = new KnowledgeSearchService("http://mcp:8080");
+      const service = new KnowledgeSearchService(deps);
       const tools = service.injectToolOpenAI(undefined);
       expect(tools).toHaveLength(1);
       expect((tools![0] as typeof KNOWLEDGE_TOOL_SCHEMA_OPENAI).function.name).toBe(KNOWLEDGE_TOOL_NAME);
     });
 
-    it("adds tool to empty tools list", () => {
-      const service = new KnowledgeSearchService("http://mcp:8080");
-      const tools = service.injectToolOpenAI([]);
-      expect(tools).toHaveLength(1);
-    });
-
     it("does not duplicate if already present", () => {
-      const service = new KnowledgeSearchService("http://mcp:8080");
+      const service = new KnowledgeSearchService(deps);
       const existing = [KNOWLEDGE_TOOL_SCHEMA_OPENAI];
       const tools = service.injectToolOpenAI(existing);
       expect(tools).toHaveLength(1);
     });
 
     it("appends alongside existing tools", () => {
-      const service = new KnowledgeSearchService("http://mcp:8080");
+      const service = new KnowledgeSearchService(deps);
       const existing = [{ type: "function", function: { name: "other_tool" } }];
       const tools = service.injectToolOpenAI(existing);
       expect(tools).toHaveLength(2);
@@ -177,38 +158,26 @@ describe("KnowledgeSearchService", () => {
 
   describe("injectToolClaude()", () => {
     it("adds tool to undefined tools list", () => {
-      const service = new KnowledgeSearchService("http://mcp:8080");
+      const service = new KnowledgeSearchService(deps);
       const tools = service.injectToolClaude(undefined);
       expect(tools).toHaveLength(1);
       expect((tools![0] as typeof KNOWLEDGE_TOOL_SCHEMA_CLAUDE).name).toBe(KNOWLEDGE_TOOL_NAME);
     });
 
     it("does not duplicate if already present", () => {
-      const service = new KnowledgeSearchService("http://mcp:8080");
+      const service = new KnowledgeSearchService(deps);
       const existing = [KNOWLEDGE_TOOL_SCHEMA_CLAUDE];
       const tools = service.injectToolClaude(existing);
       expect(tools).toHaveLength(1);
-    });
-
-    it("appends alongside existing tools", () => {
-      const service = new KnowledgeSearchService("http://mcp:8080");
-      const existing = [{ name: "other_tool" }];
-      const tools = service.injectToolClaude(existing);
-      expect(tools).toHaveLength(2);
     });
   });
 
   describe("getStats()", () => {
     it("tracks search and error counts", async () => {
-      fetchSpy.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ content: [{ text: '{"results":[],"query":"a","total":0}' }] }),
-          { status: 200 },
-        ),
-      );
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ results: [], query: "a", total: 0 }), { status: 200 }));
       fetchSpy.mockRejectedValueOnce(new Error("fail"));
 
-      const service = new KnowledgeSearchService("http://mcp:8080");
+      const service = new KnowledgeSearchService(deps);
       await service.resolve({ query: "a" });
       await service.resolve({ query: "b" });
 

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-admin-mcp-ts
+  namespace: synesis-admin
+  labels:
+    app: synesis-admin-mcp-ts
+    app.kubernetes.io/component: admin-mcp
+    app.kubernetes.io/part-of: synesis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synesis-admin-mcp-ts
+  template:
+    metadata:
+      labels:
+        app: synesis-admin-mcp-ts
+    spec:
+      containers:
+        - name: admin-mcp-ts
+          image: synesis-admin-mcp-ts:latest
+          ports:
+            - containerPort: 8102
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8102"
+            - name: SYNESIS_ADMIN_MCP_HTTP_PATH
+              value: "/mcp"
+            - name: SYNESIS_ADMIN_API_URL
+              value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8102
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8102
+            initialDelaySeconds: 10
+            periodSeconds: 30

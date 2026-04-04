@@ -19,7 +19,7 @@ CORE_SERVICES = [
     {"name": "keyword-service", "url": "http://keyword-service.synesis-rag.svc.cluster.local:8080/health"},
     {"name": "lsp-gateway", "url": "http://lsp-gateway.synesis-lsp.svc:8000/health"},
     {"name": "litellm-proxy", "url": "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/health"},
-    {"name": "mcp-server", "url": "http://synesis-mcp.synesis-planner.svc.cluster.local:8080/health"},
+    {"name": "synesis-mcp-ts", "url": "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100/health"},
     {"name": "synesis-yarn", "url": "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/health"},
 ]
 

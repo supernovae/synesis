@@ -136,9 +136,14 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  SYNESIS_YARN_MCP_SERVICE_URL: z.string().default(
-    "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100",
+  /** Planner base URL for knowledge search (shared with synesis-mcp-ts tool handlers). */
+  SYNESIS_YARN_PLANNER_URL: z.string().default(
+    "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",
   ),
+  SYNESIS_YARN_CRITIC_URL: z.string().default(
+    "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1",
+  ),
+  SYNESIS_YARN_CRITIC_MODEL: z.string().default("synesis-critic"),
   SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED: z
     .string()
     .optional()

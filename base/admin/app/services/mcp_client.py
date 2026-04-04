@@ -7,18 +7,19 @@ import time
 
 import httpx
 
-from ..deps import MCP_URL
+from ..deps import ADMIN_MCP_URL, MCP_URL
 
 logger = logging.getLogger("synesis.admin.mcp")
 
 
 async def get_mcp_tools() -> list[dict]:
+    """Catalog from synesis-mcp-ts (Streamable HTTP); public ``GET /v1/synesis-tools``."""
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{MCP_URL.rstrip('/')}/mcp/tools", timeout=5.0)
+            resp = await client.get(f"{MCP_URL.rstrip('/')}/v1/synesis-tools", timeout=5.0)
             resp.raise_for_status()
             data = resp.json()
-            tools = data if isinstance(data, list) else data.get("tools", [])
+            tools = data.get("tools", []) if isinstance(data, dict) else []
             return [
                 {
                     "name": t.get("name", ""),
@@ -33,8 +34,35 @@ async def get_mcp_tools() -> list[dict]:
 
 
 async def probe_mcp_health() -> dict:
-    """GET synesis-mcp /health — reachability for Admin Integrations UI."""
+    """GET synesis-mcp-ts /health — reachability for Admin Integrations UI."""
     url = f"{MCP_URL.rstrip('/')}/health"
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=5.0)
+            ms = round((time.perf_counter() - t0) * 1000, 1)
+            ok = resp.status_code < 400
+            return {
+                "reachable": ok,
+                "status_code": resp.status_code,
+                "latency_ms": ms,
+                "url": url,
+                "error": None if ok else (resp.text or "")[:200],
+            }
+    except Exception as exc:
+        ms = round((time.perf_counter() - t0) * 1000, 1)
+        return {
+            "reachable": False,
+            "status_code": None,
+            "latency_ms": ms,
+            "url": url,
+            "error": str(exc)[:200],
+        }
+
+
+async def probe_admin_mcp_health() -> dict:
+    """GET synesis-admin-mcp-ts /health — Admin MCP (Streamable HTTP) reachability."""
+    url = f"{ADMIN_MCP_URL.rstrip('/')}/health"
     t0 = time.perf_counter()
     try:
         async with httpx.AsyncClient() as client:

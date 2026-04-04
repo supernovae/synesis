@@ -11,7 +11,11 @@
  *   - Language spec / syntax questions
  */
 
-import type { KnowledgeSearchService, KnowledgeSearchResult } from "../state/knowledge-search.js";
+import type {
+  KnowledgeSearchService,
+  KnowledgeSearchResult,
+  KnowledgeResolveContext,
+} from "../state/knowledge-search.js";
 import { getLanguagePackRegistry } from "../language-packs/index.js";
 import type { FastPathPatternDef } from "../language-packs/types.js";
 import { withSpanAsync } from "../telemetry/otel.js";
@@ -188,8 +192,9 @@ async function raceSearch(
   knowledgeService: KnowledgeSearchService,
   searchArgs: Record<string, unknown>,
   timeoutMs: number,
+  resolveContext?: KnowledgeResolveContext,
 ): Promise<KnowledgeSearchResult | null> {
-  const searchPromise = knowledgeService.resolve(searchArgs).catch(() => null);
+  const searchPromise = knowledgeService.resolve(searchArgs, resolveContext).catch(() => null);
   const timeoutPromise = new Promise<null>((resolve) =>
     setTimeout(() => resolve(null), timeoutMs),
   );
@@ -207,6 +212,7 @@ export async function runEvidencePrefetch(
   timeoutMs: number = 200,
   confidenceMin: number = 0.3,
   opts?: Pick<EvidencePrefetchOptions, "retryEnabled" | "retryTimeoutMs">,
+  resolveContext?: KnowledgeResolveContext,
 ): Promise<FastPathResult> {
   return withSpanAsync("yarn.evidence.prefetch", { "yarn.evidence.timeout_ms": timeoutMs }, async () => {
     const t0 = performance.now();
@@ -226,12 +232,12 @@ export async function runEvidencePrefetch(
       top_k: 3,
     };
 
-    let result = await raceSearch(knowledgeService, searchArgs, timeoutMs);
+    let result = await raceSearch(knowledgeService, searchArgs, timeoutMs, resolveContext);
 
     if (result === null && opts?.retryEnabled) {
       _prefetchStats.retries++;
       const retryTimeout = opts.retryTimeoutMs ?? Math.max(Math.floor(timeoutMs / 2), 50);
-      result = await raceSearch(knowledgeService, searchArgs, retryTimeout);
+      result = await raceSearch(knowledgeService, searchArgs, retryTimeout, resolveContext);
     }
 
     const latencyMs = performance.now() - t0;
@@ -372,6 +378,7 @@ export async function runPatternPrefetch(
   knowledgeService: KnowledgeSearchService,
   timeoutMs: number = 200,
   workingPhase?: string,
+  resolveContext?: KnowledgeResolveContext,
 ): Promise<PatternPrefetchResult> {
   return withSpanAsync("yarn.evidence.pattern_prefetch", { "yarn.pattern.timeout_ms": timeoutMs }, async () => {
     const t0 = performance.now();
@@ -391,7 +398,7 @@ export async function runPatternPrefetch(
       top_k: 3,
     };
 
-    const result = await raceSearch(knowledgeService, searchArgs, timeoutMs);
+    const result = await raceSearch(knowledgeService, searchArgs, timeoutMs, resolveContext);
     const latencyMs = performance.now() - t0;
 
     if (result === null) {

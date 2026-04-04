@@ -1,25 +1,31 @@
+# Build from repository root:
+#   podman build -f base/mcp-ts/Containerfile .
 FROM registry.access.redhat.com/ubi10/nodejs-24:latest AS builder
 
 USER 0
 WORKDIR /opt/app-root/src
 
-COPY package.json package-lock.json ./
-# Build requires TypeScript from devDependencies; prune after compile.
-RUN npm ci
+COPY packages/synesis-mcp-tools/package.json packages/synesis-mcp-tools/tsconfig.json ./packages/synesis-mcp-tools/
+COPY packages/synesis-mcp-tools/src ./packages/synesis-mcp-tools/src
+RUN cd packages/synesis-mcp-tools && npm install && npm run build
 
-COPY tsconfig.json ./
-COPY src/ src/
+COPY base/mcp-ts/package.json base/mcp-ts/package-lock.json ./base/mcp-ts/
+COPY base/mcp-ts/tsconfig.json ./base/mcp-ts/
+COPY base/mcp-ts/src ./base/mcp-ts/src
+WORKDIR /opt/app-root/src/base/mcp-ts
+RUN npm ci
 RUN npx tsc
 RUN npm prune --omit=dev
 
 FROM registry.access.redhat.com/ubi10/nodejs-24-minimal:latest
 
 USER 1001
-WORKDIR /opt/app-root/src
+WORKDIR /opt/app-root/src/base/mcp-ts
 
-COPY --from=builder /opt/app-root/src/node_modules ./node_modules
-COPY --from=builder /opt/app-root/src/dist ./dist
-COPY --from=builder /opt/app-root/src/package.json ./
+COPY --from=builder /opt/app-root/src/packages /opt/app-root/src/packages
+COPY --from=builder /opt/app-root/src/base/mcp-ts/node_modules ./node_modules
+COPY --from=builder /opt/app-root/src/base/mcp-ts/dist ./dist
+COPY --from=builder /opt/app-root/src/base/mcp-ts/package.json ./
 
 ENV NODE_ENV=production
 EXPOSE 8100

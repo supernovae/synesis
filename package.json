@@ -6,7 +6,9 @@
   "workspaces": [
     "packages/*",
     "base/planner-ts",
-    "base/yarn-ts"
+    "base/yarn-ts",
+    "base/mcp-ts",
+    "base/admin-mcp-ts"
   ],
   "overrides": {
     "axios": "1.14.0",

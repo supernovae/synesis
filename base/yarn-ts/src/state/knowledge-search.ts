@@ -1,11 +1,10 @@
 /**
- * KnowledgeSearchService — bridges Yarn to MCP-TS for RAG corpus retrieval.
- *
- * Follows the ArtifactRetrievalService pattern:
- *   - injectToolOpenAI/Claude: adds synesis_knowledge_search to the LLM tool list
- *   - resolve(): calls MCP-TS to execute the search
- *   - Can be used in Yarn's server-side tool resolution loop
+ * KnowledgeSearchService — server-side RAG via shared `@synesis/mcp-tools` handlers
+ * (same code path as synesis-mcp-ts MCP tools). Calls planner `POST /v1/knowledge/search`
+ * with the caller's PAT for scope alignment.
  */
+
+import { dispatchSynesisTool, type SynesisMcpDeps, type SynesisMcpAuth } from "@synesis/mcp-tools";
 
 export const KNOWLEDGE_TOOL_NAME = "synesis_knowledge_search";
 
@@ -99,56 +98,62 @@ export interface KnowledgeSearchResult {
   total: number;
 }
 
+/** Identity for planner knowledge/search — must match validated session / PAT. */
+export interface KnowledgeResolveContext {
+  orgId: string;
+  userId: string;
+  tenantIds: string[];
+  /** Raw Bearer token (syn- PAT preferred). When empty, internal service token is used if configured. */
+  bearerToken: string;
+}
+
 export class KnowledgeSearchService {
   private searchCount = 0;
   private errorCount = 0;
 
-  constructor(
-    private readonly mcpServiceUrl: string,
-    private readonly callerOrgId?: string,
-    private readonly callerUserId?: string,
-  ) {}
+  constructor(private readonly deps: SynesisMcpDeps) {}
 
   async resolve(
     args: Record<string, unknown>,
-    callerOverrides?: { orgId?: string; userId?: string; aclGroups?: string[] },
+    context?: KnowledgeResolveContext,
   ): Promise<KnowledgeSearchResult> {
     this.searchCount++;
-    const url = `${this.mcpServiceUrl.replace(/\/$/, "")}/mcp/tools/call`;
+    const bearer =
+      context?.bearerToken?.trim() || this.deps.internalServiceToken?.trim() || "";
+    const auth: SynesisMcpAuth = {
+      bearerToken: bearer,
+      userId: context?.userId ?? "",
+      orgId: context?.orgId ?? "",
+      tenantIds: context?.tenantIds ?? [],
+    };
 
-    const caller: Record<string, unknown> = {};
-    const orgId = callerOverrides?.orgId ?? this.callerOrgId;
-    const userId = callerOverrides?.userId ?? this.callerUserId;
-    if (orgId) caller.org_id = orgId;
-    if (userId) caller.user_id = userId;
-    if (callerOverrides?.aclGroups) caller.acl_groups = callerOverrides.aclGroups;
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "synesis_search",
-          arguments: args,
-          caller: Object.keys(caller).length > 0 ? caller : undefined,
-        }),
-        signal: controller.signal,
-      });
-      if (!resp.ok) {
+      const raw = await dispatchSynesisTool(
+        "synesis_knowledge_search",
+        args,
+        auth,
+        this.deps,
+      );
+      const parsed = raw as Record<string, unknown>;
+      if (parsed && typeof parsed === "object" && "error" in parsed) {
         this.errorCount++;
         return { results: [], query: String(args.query ?? ""), total: 0 };
       }
-      const data = (await resp.json()) as { content?: Array<{ text?: string }> };
-      const text = data.content?.[0]?.text ?? "{}";
-      const parsed = JSON.parse(text) as KnowledgeSearchResult;
-      return parsed;
+      const results = Array.isArray(parsed.results) ? parsed.results : [];
+      const total =
+        typeof parsed.total === "number"
+          ? parsed.total
+          : Array.isArray(results)
+            ? results.length
+            : 0;
+      return {
+        results: results as KnowledgeSearchResult["results"],
+        query: String(parsed.query ?? args.query ?? ""),
+        total,
+      };
     } catch {
       this.errorCount++;
       return { results: [], query: String(args.query ?? ""), total: 0 };
-    } finally {
-      clearTimeout(timer);
     }
   }
 

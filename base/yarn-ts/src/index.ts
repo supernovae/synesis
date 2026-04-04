@@ -45,7 +45,11 @@ import {
 import { parseOrchestratorPhaseHeader } from "./validation/orchestrator-phase.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
-import { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } from "./state/knowledge-search.js";
+import {
+  KnowledgeSearchService,
+  KNOWLEDGE_TOOL_NAME,
+  type KnowledgeResolveContext,
+} from "./state/knowledge-search.js";
 import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, runPatternPrefetch, formatPatternBlock, getPatternPrefetchStats } from "./evidence/fast-path.js";
 import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
@@ -546,7 +550,30 @@ const artifactStore = new ArtifactStore({
   maxPayloadBytes: config.SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES,
 });
 const artifactRetrieval = new ArtifactRetrievalService(artifactStore);
-const knowledgeSearch = new KnowledgeSearchService(config.SYNESIS_YARN_MCP_SERVICE_URL);
+const knowledgeSearch = new KnowledgeSearchService({
+  plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
+  criticUrl: config.SYNESIS_YARN_CRITIC_URL,
+  criticModel: config.SYNESIS_YARN_CRITIC_MODEL,
+  internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
+});
+
+function extractBearerToken(authorizationHeader: string | undefined): string {
+  const raw = authorizationHeader ?? "";
+  if (!raw.toLowerCase().startsWith("bearer ")) return "";
+  return raw.slice(7).trim();
+}
+
+function knowledgeResolveContext(
+  authUser: import("./auth.js").AuthUser,
+  req: { headers: { authorization?: string } },
+): KnowledgeResolveContext {
+  return {
+    orgId: authUser.orgId,
+    userId: authUser.userId,
+    tenantIds: authUser.tenantIds,
+    bearerToken: extractBearerToken(req.headers.authorization),
+  };
+}
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
 const enrichmentPool = new EnrichmentPool(config);
@@ -2152,6 +2179,12 @@ await registerMcpRoutes(app, {
   openClawProfileEnabled: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED,
   openClawMcpAllowlistEnabled: config.SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED,
   openClawStrictGovernanceEnabled: config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED,
+  synesisMcpDeps: {
+    plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
+    criticUrl: config.SYNESIS_YARN_CRITIC_URL,
+    criticModel: config.SYNESIS_YARN_CRITIC_MODEL,
+    internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
+  },
 });
 await registerToolCollapseRoutes(app, {
   authResolver,
@@ -2349,6 +2382,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
         config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
         { retryEnabled: config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED },
+        knowledgeResolveContext(authUser, req),
       );
       if (oaiPrefetchResult.matched) {
         app.log.info({
@@ -2368,6 +2402,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         prefetchText, knowledgeSearch,
         config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
         oaiWorkingPhase,
+        knowledgeResolveContext(authUser, req),
       );
       if (oaiPatternResult.matched) {
         app.log.info({
@@ -2696,10 +2731,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             });
           } else if (ac.toolName === KNOWLEDGE_TOOL_NAME) {
             const inp = ac.input as Record<string, unknown>;
-            const result = await knowledgeSearch.resolve(inp, {
-              orgId: identity.orgId,
-              userId: identity.userId,
-            });
+            const result = await knowledgeSearch.resolve(inp, knowledgeResolveContext(authUser, req));
             toolResults.push({
               type: "tool-result",
               toolCallId: ac.toolCallId,
@@ -3489,6 +3521,7 @@ app.post("/v1/messages", async (req, reply) => {
         config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
         config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
         { retryEnabled: config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED },
+        knowledgeResolveContext(claudeAuthUser, req),
       );
       if (claudePrefetchResult.matched) {
         app.log.info({
@@ -3508,6 +3541,7 @@ app.post("/v1/messages", async (req, reply) => {
         claudePatternText, knowledgeSearch,
         config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
         claudeWorkingPhase,
+        knowledgeResolveContext(claudeAuthUser, req),
       );
     }
   }
@@ -4320,10 +4354,10 @@ app.post("/v1/messages", async (req, reply) => {
   if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
     const knowledgeCalls = allToolCalls.filter((tc) => tc.toolName === KNOWLEDGE_TOOL_NAME);
     for (const kc of knowledgeCalls) {
-      await knowledgeSearch.resolve(kc.input as Record<string, unknown>, {
-        orgId: claudeIdentity.orgId,
-        userId: claudeIdentity.userId,
-      });
+      await knowledgeSearch.resolve(
+        kc.input as Record<string, unknown>,
+        knowledgeResolveContext(claudeAuthUser, req),
+      );
     }
     allToolCalls = allToolCalls.filter((tc) => tc.toolName !== KNOWLEDGE_TOOL_NAME);
   }

@@ -211,6 +211,8 @@ jobs:
             dir: base/admin/frontend
           - name: mcp-ts
             dir: base/mcp-ts
+          - name: admin-mcp-ts
+            dir: base/admin-mcp-ts
     steps:
       - uses: actions/checkout@v6
 

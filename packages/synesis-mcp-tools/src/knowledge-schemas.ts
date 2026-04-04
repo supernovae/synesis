@@ -1,0 +1,23 @@
+import * as z from "zod/v4";
+
+/** Shared search filters (synesis_search and synesis_knowledge_search). */
+export const knowledgeSearchInputSchema = z.object({
+  query: z.string(),
+  top_k: z.number().optional(),
+  language: z.string().optional(),
+  artifact_kind: z.enum(["code", "docs", "config", "api_spec"]).optional(),
+  domain: z.string().optional(),
+  corpus_class: z.string().optional(),
+  constraint_kind: z.string().optional(),
+  scope_tags: z.array(z.string()).optional(),
+  tags: z.string().optional(),
+  content_format: z.string().optional(),
+  repo_path: z.string().optional(),
+  content_profile: z.string().optional(),
+  constraint_source: z.string().optional(),
+  golden_path_id: z.string().optional(),
+});
+
+export const codeSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
+export const docsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
+export const configSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
