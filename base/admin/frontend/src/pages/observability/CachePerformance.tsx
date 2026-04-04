@@ -18,10 +18,34 @@ import type { PrefixCacheServiceMetrics } from "../../types";
 
 const PERIOD_OPTIONS = [
   { label: "1h", hours: 1 },
-  { label: "6h", hours: 6 },
   { label: "24h", hours: 24 },
   { label: "7d", hours: 168 },
+  { label: "30d", hours: 720 },
 ];
+
+function mergeHitRateHistory(
+  snapshots: import("../../types").CacheHistorySnapshot[],
+): { time: string; label: string; planner?: number; yarn?: number }[] {
+  const buckets = new Map<string, { time: string; label: string; planner?: number; yarn?: number }>();
+  for (const s of snapshots) {
+    if (!s.captured_at) continue;
+    const d = new Date(s.captured_at);
+    if (Number.isNaN(d.getTime())) continue;
+    const key = d.toISOString().slice(0, 16);
+    let row = buckets.get(key);
+    if (!row) {
+      row = {
+        time: key,
+        label: d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      };
+      buckets.set(key, row);
+    }
+    const hr = Math.round(s.hit_rate * 100);
+    if (s.service === "planner") row.planner = hr;
+    if (s.service === "yarn") row.yarn = hr;
+  }
+  return Array.from(buckets.values()).sort((a, b) => a.time.localeCompare(b.time));
+}
 
 function PrefixCacheCard({
   label,
@@ -57,8 +81,16 @@ function PrefixCacheCard({
           value={metrics.requests.toLocaleString()}
           icon={Activity}
         />
+        {metrics.estimated_cost_usd != null && metrics.estimated_cost_usd > 0 ? (
+          <MetricCard
+            label="Est. LLM cost (USD)"
+            value={`$${metrics.estimated_cost_usd.toFixed(4)}`}
+            icon={Database}
+          />
+        ) : null}
         <MetricCard
-          label="Est. Savings"
+          label="Cache value (est.)"
+          subtitle="Proxy from cached/total × est. cost"
           value={`$${metrics.estimated_savings_usd.toFixed(4)}`}
           icon={Zap}
         />
@@ -95,24 +127,7 @@ export default function CachePerformance() {
     );
   }
 
-  const chartData = (history?.snapshots ?? []).map((s) => ({
-    time: new Date(s.captured_at).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    service: s.service,
-    hit_rate: Math.round(s.hit_rate * 100),
-    requests: s.requests,
-    savings: s.estimated_savings_usd,
-  }));
-
-  const plannerChart = chartData.filter((d) => d.service === "planner");
-  const yarnChart = chartData.filter((d) => d.service === "yarn");
-  const mergedChart = plannerChart.map((p, i) => ({
-    time: p.time,
-    planner: p.hit_rate,
-    yarn: yarnChart[i]?.hit_rate ?? 0,
-  }));
+  const mergedChart = mergeHitRateHistory(history?.snapshots ?? []);
 
   return (
     <div className="space-y-6">
@@ -121,7 +136,8 @@ export default function CachePerformance() {
           Prefix Cache Performance
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Provider-level prefix cache metrics for Planner and Yarn
+          Prometheus counters from planner-ts and yarn-ts (/metrics), plus live session stats from /health.
+          History below comes from periodic snapshots in Postgres when enabled.
         </p>
       </div>
 
@@ -161,7 +177,7 @@ export default function CachePerformance() {
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={mergedChart}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                 <YAxis
                   domain={[0, 100]}
                   tick={{ fontSize: 11 }}
@@ -204,14 +220,25 @@ export default function CachePerformance() {
                 value={data.redis.status === "connected" ? "Connected" : data.redis.status}
                 icon={Server}
               />
+              {data.redis.configured != null && (
+                <MetricCard
+                  label="Redis configured"
+                  value={data.redis.configured ? "yes" : "no"}
+                  icon={Server}
+                />
+              )}
               {data.redis.total_keys != null && (
                 <MetricCard
-                  label="Total Keys"
+                  label="Active sessions (planner)"
                   value={data.redis.total_keys}
                   icon={Key}
                 />
               )}
             </div>
+            <p className="mt-2 text-xs text-gray-500">
+              “Active sessions” mirrors planner-ts session count (Redis-backed when REDIS_URL is set), not raw
+              Redis DBSIZE.
+            </p>
           </div>
         )}
 
@@ -224,23 +251,51 @@ export default function CachePerformance() {
               {data.sessions.planner && (
                 <>
                   <MetricCard
-                    label="Planner Backend"
+                    label="Planner store"
                     value={data.sessions.planner.backend}
                     icon={Key}
                   />
                   <MetricCard
-                    label="Planner Sessions"
+                    label="Planner sessions"
                     value={data.sessions.planner.count}
                     icon={Database}
                   />
+                  <MetricCard
+                    label="Planner w/ checkpoint"
+                    value={data.sessions.planner.checkpoints}
+                    icon={Activity}
+                  />
+                  {data.sessions.planner.total_history_entries != null ? (
+                    <MetricCard
+                      label="Planner history msgs"
+                      value={data.sessions.planner.total_history_entries}
+                      icon={Activity}
+                    />
+                  ) : null}
                 </>
               )}
               {data.sessions.yarn && (
-                <MetricCard
-                  label="Yarn Active"
-                  value={data.sessions.yarn.active}
-                  icon={Activity}
-                />
+                <>
+                  <MetricCard
+                    label="Yarn active sessions"
+                    value={data.sessions.yarn.active}
+                    icon={Activity}
+                  />
+                  {data.sessions.yarn.total_history_entries != null ? (
+                    <MetricCard
+                      label="Yarn history msgs"
+                      value={data.sessions.yarn.total_history_entries}
+                      icon={Database}
+                    />
+                  ) : null}
+                  {data.sessions.yarn.checkpointed_sessions != null ? (
+                    <MetricCard
+                      label="Yarn checkpointed"
+                      value={data.sessions.yarn.checkpointed_sessions}
+                      icon={Target}
+                    />
+                  ) : null}
+                </>
               )}
             </div>
           </div>

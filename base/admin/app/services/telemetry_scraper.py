@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 
 from ..db.engine import async_session
 from ..db.models import CompactionSnapshot, PrefixCacheSnapshot
-from ..deps import PLANNER_TS_URL, YARN_TS_URL, get_http_client
+from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_TS_URL, YARN_TS_URL, get_http_client
 
 logger = logging.getLogger("synesis.admin.telemetry_scraper")
 
@@ -73,10 +73,13 @@ async def _scrape_metrics(url: str) -> dict[str, float]:
 
 
 async def _scrape_json(url: str, path: str) -> dict:
-    """Scrape a JSON health endpoint."""
+    """Scrape a JSON health endpoint (yarn /health/telemetry requires internal Bearer)."""
+    headers: dict[str, str] = {}
+    if INTERNAL_SERVICE_TOKEN and path != "/health":
+        headers["Authorization"] = f"Bearer {INTERNAL_SERVICE_TOKEN}"
     try:
         client = get_http_client()
-        resp = await client.get(f"{url.rstrip('/')}{path}", timeout=_TIMEOUT)
+        resp = await client.get(f"{url.rstrip('/')}{path}", timeout=_TIMEOUT, headers=headers)
         if resp.status_code != 200:
             return {}
         return resp.json()

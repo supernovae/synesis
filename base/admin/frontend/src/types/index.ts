@@ -524,6 +524,9 @@ export interface PrefixCacheServiceMetrics {
   total_prompt_tokens: number;
   mode?: string;
   requests: number;
+  /** Cumulative estimated LLM cost (USD) from telemetry counters */
+  estimated_cost_usd?: number;
+  /** Rough proxy: fraction of cost attributed to cached prompt tokens */
   estimated_savings_usd: number;
 }
 
@@ -532,13 +535,24 @@ export interface CacheMetrics {
   yarn?: PrefixCacheServiceMetrics;
   redis?: {
     status: string;
+    configured?: boolean;
     used_memory_human?: string;
     keyspace_hit_rate?: number;
     total_keys?: number;
   };
   sessions?: {
-    planner?: { backend: string; count: number; checkpoints: number };
-    yarn?: { active: number; persisted: boolean };
+    planner?: {
+      backend: string;
+      count: number;
+      checkpoints: number;
+      total_history_entries?: number;
+    };
+    yarn?: {
+      active: number;
+      persisted: boolean;
+      total_history_entries?: number;
+      checkpointed_sessions?: number;
+    };
   };
   hit_rate: number;
   exact_hits: number;

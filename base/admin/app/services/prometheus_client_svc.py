@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from ..deps import LITELLM_URL, PLANNER_TS_URL, PLANNER_URL, YARN_TS_URL
+from ..deps import INTERNAL_SERVICE_TOKEN, LITELLM_URL, PLANNER_TS_URL, PLANNER_URL, YARN_TS_URL
 
 logger = logging.getLogger("synesis.admin.prometheus")
 
@@ -68,9 +68,10 @@ def parse_prometheus_text(text: str) -> dict[str, Any]:
             continue
         if labels_str:
             labels = dict(re.findall(r'(\w+)="([^"]*)"', labels_str))
-            key = f"{name}_{labels}" if labels else name
-            metrics[key] = {"value": value, "labels": labels}
+            key = f"{name}{labels_str}"
+            metrics[key] = {"value": value, "labels": labels, "metric": name}
         else:
+            # Unlabeled counters — keep scalar for _find_metric / legacy callers
             metrics[name] = value
     return metrics
 
@@ -92,10 +93,13 @@ async def _fetch_service_metrics(url: str) -> dict[str, Any]:
 
 
 async def _fetch_service_health(url: str, path: str = "/health") -> dict[str, Any]:
-    """Scrape a service's health endpoint."""
+    """Scrape a service's health endpoint (Yarn /health/telemetry requires internal Bearer)."""
+    headers: dict[str, str] = {}
+    if INTERNAL_SERVICE_TOKEN and path != "/health":
+        headers["Authorization"] = f"Bearer {INTERNAL_SERVICE_TOKEN}"
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{url.rstrip('/')}{path}", timeout=3.0)
+            resp = await client.get(f"{url.rstrip('/')}{path}", timeout=3.0, headers=headers)
             resp.raise_for_status()
             data = resp.json()
             return data if isinstance(data, dict) else {}
@@ -103,28 +107,38 @@ async def _fetch_service_health(url: str, path: str = "/health") -> dict[str, An
         return {}
 
 
-def _sum_prefix_cache(raw: dict[str, Any], prefix: str) -> dict[str, float]:
-    """Extract prefix cache token counters from parsed Prometheus metrics."""
+def _aggregate_synesis_service_metrics(raw: dict[str, Any], service: str) -> dict[str, float]:
+    """Sum synesis_{service}_* counters from parsed Prometheus text (labels-aware)."""
+    prefix = f"synesis_{service}"
+    token_m = f"{prefix}_token_total"
+    req_m = f"{prefix}_request_total"
+    est_m = f"{prefix}_cost_estimated_usd_total"
+    act_m = f"{prefix}_cost_actual_usd_total"
     total_in = 0.0
     cached_in = 0.0
     requests = 0.0
     est_cost = 0.0
     act_cost = 0.0
-    for key, val in raw.items():
-        metric_val = (
-            val["value"] if isinstance(val, dict) and "value" in val else val if isinstance(val, (int, float)) else 0
-        )
-        full_name = key if isinstance(key, str) else ""
-        if full_name.startswith(f"{prefix}_token_total"):
-            if "cache_status" in full_name and '"cached"' in full_name:
-                cached_in += float(metric_val)
-            total_in += float(metric_val)
-        elif full_name.startswith(f"{prefix}_request_total"):
-            requests += float(metric_val)
-        elif full_name.startswith(f"{prefix}_cost_estimated_usd_total"):
-            est_cost += float(metric_val)
-        elif full_name.startswith(f"{prefix}_cost_actual_usd_total"):
-            act_cost += float(metric_val)
+    for val in raw.values():
+        if not isinstance(val, dict):
+            continue
+        mname = val.get("metric")
+        if not mname:
+            continue
+        metric_val = float(val.get("value", 0))
+        labels = val.get("labels") if isinstance(val.get("labels"), dict) else {}
+        if mname == token_m:
+            if labels.get("direction") != "in":
+                continue
+            total_in += metric_val
+            if labels.get("cache_status") == "cached":
+                cached_in += metric_val
+        elif mname == req_m:
+            requests += metric_val
+        elif mname == est_m:
+            est_cost += metric_val
+        elif mname == act_m:
+            act_cost += metric_val
     return {
         "total_prompt_tokens": total_in,
         "cached_prompt_tokens": cached_in,
@@ -154,8 +168,8 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
     if isinstance(yarn_health, BaseException):
         yarn_health = {}
 
-    p = _sum_prefix_cache(planner_raw, "synesis_planner")
-    y = _sum_prefix_cache(yarn_raw, "synesis_yarn")
+    p = _aggregate_synesis_service_metrics(planner_raw, "planner")
+    y = _aggregate_synesis_service_metrics(yarn_raw, "yarn")
 
     p_prompt = p["total_prompt_tokens"]
     p_cached = p["cached_prompt_tokens"]
@@ -166,13 +180,20 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
         planner_health.get("llm", {}).get("prefixCacheMode", "auto") if isinstance(planner_health, dict) else "auto"
     )
 
+    # Rough savings proxy: cached prompt tokens avoid full input pricing (provider-dependent).
+    def _savings_proxy(cached: float, prompt: float, cost_usd: float) -> float:
+        if prompt <= 0 or cost_usd <= 0:
+            return 0.0
+        return round(cost_usd * (cached / prompt) * 0.5, 6)
+
     planner_block = {
         "hit_rate": round(p_cached / p_prompt, 4) if p_prompt > 0 else 0.0,
         "cached_prompt_tokens": int(p_cached),
         "total_prompt_tokens": int(p_prompt),
         "mode": planner_mode,
         "requests": int(p["requests"]),
-        "estimated_savings_usd": round(p["estimated_cost_usd"], 6),
+        "estimated_cost_usd": round(p["estimated_cost_usd"], 6),
+        "estimated_savings_usd": _savings_proxy(p_cached, p_prompt, p["estimated_cost_usd"]),
     }
 
     yarn_block = {
@@ -180,7 +201,8 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
         "cached_prompt_tokens": int(y_cached),
         "total_prompt_tokens": int(y_prompt),
         "requests": int(y["requests"]),
-        "estimated_savings_usd": round(y["estimated_cost_usd"], 6),
+        "estimated_cost_usd": round(y["estimated_cost_usd"], 6),
+        "estimated_savings_usd": _savings_proxy(y_cached, y_prompt, y["estimated_cost_usd"]),
     }
 
     total_prompt = p_prompt + y_prompt
@@ -188,25 +210,32 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
 
     redis_info: dict[str, Any] = {}
     if isinstance(planner_health, dict):
+        rh = planner_health.get("redis", {}) or {}
+        ps = planner_health.get("session", {}) or {}
+        active = int(ps.get("activeSessions", ps.get("count", 0)) or 0)
         redis_info = {
-            "status": "connected" if planner_health.get("redis", {}).get("configured") else "not_configured",
+            "status": "connected" if rh.get("configured") else "not_configured",
+            "configured": bool(rh.get("configured")),
+            "total_keys": active,
+            "used_memory_human": rh.get("used_memory_human"),
+            "keyspace_hit_rate": rh.get("keyspace_hit_rate"),
         }
-        session_data = planner_health.get("session", {})
-        if session_data:
-            redis_info["total_keys"] = session_data.get("count", 0)
 
     sessions_info: dict[str, Any] = {}
     if isinstance(planner_health, dict):
-        ps = planner_health.get("session", {})
+        ps = planner_health.get("session", {}) or {}
         sessions_info["planner"] = {
-            "backend": ps.get("backend", "unknown"),
-            "count": ps.get("count", 0),
-            "checkpoints": ps.get("checkpoints", 0),
+            "backend": ps.get("storeBackend", ps.get("backend", "unknown")),
+            "count": int(ps.get("activeSessions", ps.get("count", 0)) or 0),
+            "checkpoints": int(ps.get("checkpointedSessions", ps.get("checkpoints", 0)) or 0),
+            "total_history_entries": int(ps.get("totalHistoryEntries", 0) or 0),
         }
     if isinstance(yarn_health, dict):
-        sc = yarn_health.get("sawtoothContext", {})
+        sc = yarn_health.get("sawtoothContext", {}) or {}
         sessions_info["yarn"] = {
-            "active": sc.get("activeSessionCount", 0),
+            "active": int(sc.get("activeSessionCount", 0) or 0),
+            "total_history_entries": int(sc.get("totalHistoryEntries", 0) or 0),
+            "checkpointed_sessions": int(sc.get("checkpointedSessions", 0) or 0),
             "persisted": True,
         }
 
