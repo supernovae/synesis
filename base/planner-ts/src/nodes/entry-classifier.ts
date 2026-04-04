@@ -3,6 +3,7 @@ import {
   clampBudgetToTierCeiling,
   computeScaledCriticBudget,
   computeScaledWriterBudget,
+  computeWriterEffectiveMaxTokens,
 } from "../budgets.js";
 import { loadConfig } from "../config.js";
 import { resolveTierSettings } from "../model-tiers.js";
@@ -182,12 +183,12 @@ export async function classifyEntry(
   const tierCriticCeiling = state.critic_max_tokens ?? tierCaps.criticMaxTokens;
   const scaledWriter = computeScaledWriterBudget(cfg, difficulty, taskIsTrivial);
   const scaledCritic = computeScaledCriticBudget(cfg, difficulty);
-  const writerTokens = clampBudgetToTierCeiling(scaledWriter, tierWriterCeiling);
+  const writerBudgetTargetBase = clampBudgetToTierCeiling(scaledWriter, tierWriterCeiling);
   const criticTokens = clampBudgetToTierCeiling(scaledCritic, tierCriticCeiling);
 
   const baseExecutionPolicy: Record<string, unknown> = {
     ...policyForEffort(selectedMode, opts.criticBackgroundDefault),
-    scaled_writer_budget: writerTokens,
+    scaled_writer_budget: writerBudgetTargetBase,
     scaled_critic_budget: criticTokens,
   };
   const inputPolicy =
@@ -195,6 +196,14 @@ export async function classifyEntry(
       ? (state.execution_policy as Record<string, unknown>)
       : {};
   const executionPolicy = { ...baseExecutionPolicy, ...inputPolicy };
+
+  const mergedWriterTarget = Number(executionPolicy.scaled_writer_budget ?? writerBudgetTargetBase);
+  const writerBudgetTarget = clampBudgetToTierCeiling(mergedWriterTarget, tierWriterCeiling);
+  const writerMaxEffective = computeWriterEffectiveMaxTokens(cfg, writerBudgetTarget, tierWriterCeiling);
+  const executionPolicyNormalized: Record<string, unknown> = {
+    ...executionPolicy,
+    scaled_writer_budget: writerBudgetTarget,
+  };
 
   const useWriterFastPath =
     !inputPlanRequired && (taskIsTrivial || (ragMode === "disabled" && !planRequired));
@@ -225,10 +234,11 @@ export async function classifyEntry(
     cynefin_domain: cynefinDomain,
     recommended_effort_mode: selectedMode,
     selected_effort_mode: selectedMode,
-    execution_policy: executionPolicy,
-    max_iterations: Number(executionPolicy.max_iterations ?? 3),
-    writer_max_tokens: Number(executionPolicy.scaled_writer_budget ?? state.writer_max_tokens ?? cfg.SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE),
-    critic_max_tokens: Number(executionPolicy.scaled_critic_budget ?? state.critic_max_tokens ?? cfg.SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE),
+    execution_policy: executionPolicyNormalized,
+    max_iterations: Number(executionPolicyNormalized.max_iterations ?? 3),
+    writer_budget_target: writerBudgetTarget,
+    writer_max_tokens: writerMaxEffective,
+    critic_max_tokens: Number(executionPolicyNormalized.scaled_critic_budget ?? state.critic_max_tokens ?? cfg.SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE),
     domain_profile: domainProfile,
     show_assumptions: showAssumptions,
     style_contract_locked: styleContractLocked,

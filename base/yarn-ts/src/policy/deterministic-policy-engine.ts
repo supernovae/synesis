@@ -11,7 +11,12 @@ export interface PolicyContext {
   };
   sessionKey?: string;
   sessionTokensIn?: number;
+  /** Policy soft limit (after governance). Enforced: reject above. Audit: warn above, reject only at hardMaxInputTokens. */
   maxInputTokens?: number;
+  /** Hard safety ceiling on session input tokens — reject above in both modes. */
+  hardMaxInputTokens?: number;
+  /** Default `enforced` — matches legacy single-threshold behavior. */
+  sessionBudgetMode?: "audit" | "enforced";
   consecutiveToolCalls?: number;
   consecutiveToolCallsLimit?: number;
   consecutiveToolCallsPivot?: number;
@@ -36,6 +41,7 @@ export type PolicyEventKind =
   | "pivot_injected"
   | "hard_reject_repeats"
   | "hard_reject_budget"
+  | "session_budget_soft_exceeded"
   | "hard_reject_tool_loop"
   | "patch_first_reject"
   | "rate_limit_reject"
@@ -57,6 +63,7 @@ export interface PolicyEngineStats {
   pivotCount: number;
   hardRejectRepeatCount: number;
   hardRejectBudgetCount: number;
+  softSessionBudgetExceededCount: number;
   hardRejectToolLoopCount: number;
   repeatMapSize: number;
   repeatMapEvictions: number;
@@ -99,6 +106,7 @@ export class DeterministicPolicyEngine {
     pivotCount: 0,
     hardRejectRepeatCount: 0,
     hardRejectBudgetCount: 0,
+    softSessionBudgetExceededCount: 0,
     hardRejectToolLoopCount: 0,
   };
 
@@ -137,23 +145,60 @@ export class DeterministicPolicyEngine {
       }
     }
 
-    const maxTokens = ctx.maxInputTokens ?? 500_000;
-    if (ctx.sessionTokensIn && ctx.sessionTokensIn > maxTokens) {
-      matchedRules.push("session_budget_exceeded");
-      this.stats.rejectedCount += 1;
-      this.stats.hardRejectBudgetCount += 1;
-      this.recordEvent({
-        kind: "hard_reject_budget",
-        sessionKey,
-        detail: `Session exceeded ${maxTokens.toLocaleString()} input token budget (used: ${ctx.sessionTokensIn.toLocaleString()})`,
-        tokensBurned: ctx.sessionTokensIn,
-        timestamp: Date.now()
-      });
-      return {
-        allow: false,
-        rejectReason: `Session token budget exceeded (${ctx.sessionTokensIn.toLocaleString()} / ${maxTokens.toLocaleString()} input tokens). Start a new session.`,
-        matchedRules
-      };
+    const policyLimit = ctx.maxInputTokens ?? 500_000;
+    const hardLimit = ctx.hardMaxInputTokens ?? policyLimit;
+    const mode = ctx.sessionBudgetMode ?? "enforced";
+    const tokensIn = ctx.sessionTokensIn ?? 0;
+    const policyCap = Math.min(policyLimit, hardLimit);
+
+    if (tokensIn > 0) {
+      if (tokensIn > hardLimit) {
+        matchedRules.push("session_budget_exceeded");
+        this.stats.rejectedCount += 1;
+        this.stats.hardRejectBudgetCount += 1;
+        this.recordEvent({
+          kind: "hard_reject_budget",
+          sessionKey,
+          detail: `Session exceeded hard ${hardLimit.toLocaleString()} input token ceiling (used: ${tokensIn.toLocaleString()})`,
+          tokensBurned: tokensIn,
+          timestamp: Date.now()
+        });
+        return {
+          allow: false,
+          rejectReason: `Session token budget exceeded (${tokensIn.toLocaleString()} / ${hardLimit.toLocaleString()} input tokens). Start a new session.`,
+          matchedRules
+        };
+      }
+
+      if (mode === "enforced" && tokensIn > policyCap) {
+        matchedRules.push("session_budget_exceeded");
+        this.stats.rejectedCount += 1;
+        this.stats.hardRejectBudgetCount += 1;
+        this.recordEvent({
+          kind: "hard_reject_budget",
+          sessionKey,
+          detail: `Session exceeded ${policyCap.toLocaleString()} input token budget (used: ${tokensIn.toLocaleString()})`,
+          tokensBurned: tokensIn,
+          timestamp: Date.now()
+        });
+        return {
+          allow: false,
+          rejectReason: `Session token budget exceeded (${tokensIn.toLocaleString()} / ${policyCap.toLocaleString()} input tokens). Start a new session.`,
+          matchedRules
+        };
+      }
+
+      if (mode === "audit" && tokensIn > policyCap) {
+        matchedRules.push("session_budget_soft_exceeded");
+        this.stats.softSessionBudgetExceededCount += 1;
+        this.recordEvent({
+          kind: "session_budget_soft_exceeded",
+          sessionKey,
+          detail: `Session above policy ${policyCap.toLocaleString()} input tokens (used: ${tokensIn.toLocaleString()}) — audit mode allows until hard ${hardLimit.toLocaleString()}`,
+          tokensBurned: tokensIn,
+          timestamp: Date.now()
+        });
+      }
     }
 
     const toolCallsLimit = ctx.consecutiveToolCallsLimit ?? 15;

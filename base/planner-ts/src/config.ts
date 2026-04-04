@@ -40,12 +40,18 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT: z.coerce.number().default(50),
   SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX: z.coerce.number().default(100),
   SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS: z.coerce.number().default(30000),
-  /** Writer: trivial fast-path cap (tokens). */
-  SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET: z.coerce.number().default(768),
+  /** Writer: trivial fast-path policy target (tokens). */
+  SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET: z.coerce.number().default(2048),
   /** Writer: scaled budget at difficulty 0 (tokens). */
   SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE: z.coerce.number().default(2048),
   /** Writer: scaled budget at difficulty 1 before tier clamp (tokens). */
   SYNESIS_PLANNER_TS_WRITER_BUDGET_MAX: z.coerce.number().default(32768),
+  /** `audit`: raise writer `max_tokens` to audit floor while recording policy target; `enforced`: target equals API cap. */
+  SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE: z.enum(["audit", "enforced"]).default("audit"),
+  /** In audit mode, minimum effective writer `max_tokens` (soft floor). */
+  SYNESIS_PLANNER_TS_WRITER_BUDGET_AUDIT_FLOOR: z.coerce.number().default(4096),
+  /** Hard ceiling on writer `max_tokens` regardless of mode (safety). */
+  SYNESIS_PLANNER_TS_WRITER_OUTPUT_SAFETY_CEILING: z.coerce.number().default(32768),
   /** Critic: linear scale base (tokens). */
   SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE: z.coerce.number().default(800),
   /** Critic: linear scale max before global clamp (tokens). */

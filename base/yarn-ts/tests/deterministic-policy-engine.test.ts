@@ -65,11 +65,27 @@ describe("DeterministicPolicyEngine", () => {
     const out = engine.evaluate({
       sessionKey: "test-session",
       sessionTokensIn: 600_000,
-      maxInputTokens: 500_000
+      maxInputTokens: 500_000,
+      hardMaxInputTokens: 2_000_000,
+      sessionBudgetMode: "enforced"
     });
     expect(out.allow).toBe(false);
     expect(out.rejectReason).toContain("Session token budget exceeded");
     expect(out.matchedRules).toContain("session_budget_exceeded");
+  });
+
+  it("audit mode allows above policy soft limit until hard ceiling", () => {
+    const engine = new DeterministicPolicyEngine();
+    const out = engine.evaluate({
+      sessionKey: "audit-session",
+      sessionTokensIn: 600_000,
+      maxInputTokens: 500_000,
+      hardMaxInputTokens: 2_000_000,
+      sessionBudgetMode: "audit"
+    });
+    expect(out.allow).toBe(true);
+    expect(out.matchedRules).toContain("session_budget_soft_exceeded");
+    expect(engine.getStats().softSessionBudgetExceededCount).toBe(1);
   });
 
   it("allows requests within token budget", () => {
@@ -175,7 +191,9 @@ describe("DeterministicPolicyEngine", () => {
     engine.evaluate({
       sessionKey: "sess-1",
       sessionTokensIn: 600_000,
-      maxInputTokens: 500_000
+      maxInputTokens: 500_000,
+      hardMaxInputTokens: 2_000_000,
+      sessionBudgetMode: "enforced"
     });
     const events = engine.getRecentEvents();
     expect(events.length).toBe(1);
@@ -189,7 +207,9 @@ describe("DeterministicPolicyEngine", () => {
     engine.evaluate({
       sessionKey: "s1",
       sessionTokensIn: 600_000,
-      maxInputTokens: 500_000
+      maxInputTokens: 500_000,
+      hardMaxInputTokens: 2_000_000,
+      sessionBudgetMode: "enforced"
     });
     engine.evaluate({
       sessionKey: "s2",

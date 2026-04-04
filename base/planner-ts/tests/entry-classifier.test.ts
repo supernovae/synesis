@@ -9,6 +9,8 @@ describe("entry classifier and effort routing", () => {
     expect(state.task_is_trivial).toBe(true);
     expect(state.next_node).toBe("writer");
     expect(state.rag_mode).toBe("disabled");
+    expect(state.writer_budget_target).toBeDefined();
+    expect(state.writer_max_tokens).toBeGreaterThanOrEqual(state.writer_budget_target ?? 0);
   });
 
   it("routes complex/risky request to planner", async () => {

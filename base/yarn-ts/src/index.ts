@@ -481,6 +481,13 @@ function pushDiagnostic(d: RequestDiagnostic): void {
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
 
 const config = loadConfig();
+
+function clampMaxOutputTokensForSafety(n: number): number {
+  const c = config.SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING;
+  if (!c || c <= 0) return n;
+  return Math.min(n, c);
+}
+
 initFgaClient(config);
 const app = Fastify({
   logger: { level: config.LOG_LEVEL },
@@ -2153,7 +2160,10 @@ app.get("/health/telemetry", async (req, reply) => {
     },
     safetyLimits: {
       hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+      sessionSoftMaxInputTokens: config.SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS,
       sessionMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+      sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
+      maxOutputTokensSafetyCeiling: config.SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING,
       consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
       consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
       stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
@@ -2519,7 +2529,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     },
     sessionKey,
     sessionTokensIn: session.record.totalTokensIn,
-    maxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+    maxInputTokens: config.SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS,
+    hardMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+    sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
@@ -2754,7 +2766,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       finalResult = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
-        maxOutputTokens: orchestration.maxOutputTokens,
+        maxOutputTokens: clampMaxOutputTokensForSafety(orchestration.maxOutputTokens),
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
@@ -2808,7 +2820,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         finalResult = await generateText({
           model: resolved.model as never,
           messages: currentMessages,
-          maxOutputTokens: orchestration.maxOutputTokens,
+          maxOutputTokens: clampMaxOutputTokensForSafety(orchestration.maxOutputTokens),
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
         });
@@ -3080,7 +3092,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const streamed = streamText({
     model: resolved.model as never,
     messages: modelMessages,
-    maxOutputTokens: orchestration.maxOutputTokens,
+    maxOutputTokens: clampMaxOutputTokensForSafety(orchestration.maxOutputTokens),
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
     ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
@@ -3722,7 +3734,9 @@ app.post("/v1/messages", async (req, reply) => {
     },
     sessionKey: claudeSessionKey,
     sessionTokensIn: session.record.totalTokensIn,
-    maxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+    maxInputTokens: config.SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS,
+    hardMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
+    sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
@@ -3979,7 +3993,7 @@ app.post("/v1/messages", async (req, reply) => {
     const streamed = streamText({
       model: resolved.model as never,
       messages: claudeModelMessages,
-      maxOutputTokens: claudeOrchestration.maxOutputTokens,
+      maxOutputTokens: clampMaxOutputTokensForSafety(claudeOrchestration.maxOutputTokens),
       ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
@@ -4392,7 +4406,7 @@ app.post("/v1/messages", async (req, reply) => {
     result = await generateText({
       model: resolved.model as never,
       messages: claudeModelMessages,
-      maxOutputTokens: claudeOrchestration.maxOutputTokens,
+      maxOutputTokens: clampMaxOutputTokensForSafety(claudeOrchestration.maxOutputTokens),
       ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),

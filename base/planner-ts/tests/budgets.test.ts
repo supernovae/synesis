@@ -3,6 +3,7 @@ import {
   clampBudgetToTierCeiling,
   computeScaledCriticBudget,
   computeScaledWriterBudget,
+  computeWriterEffectiveMaxTokens,
   budgetSpanMetadata,
   budgetUtilization,
   writerBudgetSpanMetadata,
@@ -33,6 +34,31 @@ describe("budget scaling (parity with Python config defaults)", () => {
   it("clamps scaled budget to tier ceiling", () => {
     expect(clampBudgetToTierCeiling(50000, 8192)).toBe(8192);
     expect(clampBudgetToTierCeiling(1000, 8192)).toBe(1000);
+  });
+});
+
+describe("computeWriterEffectiveMaxTokens", () => {
+  it("enforced mode uses target capped by safety and tier", () => {
+    const cfg = loadConfig({
+      ...process.env,
+      SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE: "enforced",
+      SYNESIS_PLANNER_TS_WRITER_BUDGET_AUDIT_FLOOR: "4096",
+      SYNESIS_PLANNER_TS_WRITER_OUTPUT_SAFETY_CEILING: "32768",
+    });
+    expect(computeWriterEffectiveMaxTokens(cfg, 2048, 16384)).toBe(2048);
+    expect(computeWriterEffectiveMaxTokens(cfg, 50000, 8192)).toBe(8192);
+  });
+
+  it("audit mode applies floor below tier and safety", () => {
+    const cfg = loadConfig({
+      ...process.env,
+      SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE: "audit",
+      SYNESIS_PLANNER_TS_WRITER_BUDGET_AUDIT_FLOOR: "4096",
+      SYNESIS_PLANNER_TS_WRITER_OUTPUT_SAFETY_CEILING: "32768",
+    });
+    expect(computeWriterEffectiveMaxTokens(cfg, 2048, 32768)).toBe(4096);
+    expect(computeWriterEffectiveMaxTokens(cfg, 2048, 8192)).toBe(4096);
+    expect(computeWriterEffectiveMaxTokens(cfg, 8000, 8192)).toBe(8000);
   });
 });
 

@@ -25,6 +25,7 @@ import { resolveAuthContext } from "./auth/resolver.js";
 import { initFgaClient } from "./auth/openfga-client.js";
 import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
 import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph, streamGraph } from "./graph.js";
@@ -1039,34 +1040,53 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   function buildContextCuration(state: GraphState): Record<string, unknown> | undefined {
     const packets = state.evidence_packets ?? [];
-    if (packets.length === 0 && !state.writer_max_tokens) return undefined;
+    const effective = state.writer_max_tokens ?? 0;
+    const target = state.writer_budget_target ?? effective;
+    if (packets.length === 0 && !effective && !target) return undefined;
+    const cfg = loadConfig();
     const totalSnippets = packets.reduce((s, p) => s + (p.snippets?.length ?? 0), 0);
     const totalChars = packets.reduce((s, p) =>
       s + (p.snippets ?? []).reduce((c, sn) => c + (sn.text?.length ?? 0), 0), 0);
-    const writerBudget = state.writer_max_tokens ?? 0;
     const completionTokens = state.llm_usage?.completion_tokens ?? 0;
-    const utilization = writerBudget > 0 ? completionTokens / writerBudget : 0;
-    const lowUtilization = writerBudget > 0 && utilization < 0.15;
-    const budgetAlert = writerBudget > 0 && utilization > 0.95
-      ? `Writer used ${Math.round(utilization * 100)}% of ${writerBudget} token budget — potential truncation`
-      : undefined;
+    const utilizationVsEffective = effective > 0 ? completionTokens / effective : 0;
+    const utilizationVsTarget = target > 0 ? completionTokens / target : 0;
+    const lowUtilization = effective > 0 && utilizationVsEffective < 0.15;
+    const budgetAlert =
+      effective > 0 && utilizationVsEffective > 0.95
+        ? `Writer used ${Math.round(utilizationVsEffective * 100)}% of ${effective} effective token cap — potential truncation`
+        : undefined;
+    const budgetNote =
+      cfg.SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE === "audit" &&
+      target > 0 &&
+      effective > target &&
+      utilizationVsTarget > 0.95 &&
+      utilizationVsEffective <= 0.95
+        ? `Policy target ${target} tokens fully used; audit floor (${effective}) prevented output truncation`
+        : undefined;
     return {
       packets_in: packets.length,
       packets_kept: packets.length,
       excluded_count: 0,
-      token_budget: writerBudget,
+      budget_mode: cfg.SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE,
+      token_budget_target: target,
+      token_budget_effective: effective,
+      token_budget: effective,
       tokens_used: completionTokens,
-      utilization: Number(utilization.toFixed(4)),
+      utilization: Number(utilizationVsEffective.toFixed(4)),
+      utilization_vs_target: target > 0 ? Number(utilizationVsTarget.toFixed(4)) : undefined,
+      utilization_vs_effective: effective > 0 ? Number(utilizationVsEffective.toFixed(4)) : undefined,
       chars_used: totalChars,
       snippets_total: totalSnippets,
       low_utilization: lowUtilization,
       ...(budgetAlert ? { budget_alert: budgetAlert } : {}),
+      ...(budgetNote ? { budget_note: budgetNote } : {}),
     };
   }
 
   function buildTraceContext(state: GraphState): Record<string, unknown> {
     const ctx: Record<string, unknown> = {};
     if (state.writer_max_tokens) ctx.token_budget_total = state.writer_max_tokens;
+    if (state.writer_budget_target !== undefined) ctx.token_budget_target = state.writer_budget_target;
     if (state.iteration_count !== undefined) ctx.iteration_count = state.iteration_count;
     if (state.max_iterations !== undefined) ctx.max_iterations = state.max_iterations;
     if (state.error) {

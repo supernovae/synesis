@@ -61,6 +61,9 @@ export interface GraphState {
   blocking_issues?: Array<Record<string, unknown>>;
   critic_nonblocking?: Array<Record<string, unknown>>;
   execution_policy?: Record<string, unknown>;
+  /** Policy/scaled writer output budget (tier-clamped); used for utilization_vs_target telemetry. */
+  writer_budget_target?: number;
+  /** Effective `max_tokens` passed to the writer LLM. */
   writer_max_tokens?: number;
   critic_max_tokens?: number;
   generated_code?: string;

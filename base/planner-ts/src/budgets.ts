@@ -38,6 +38,28 @@ export function clampBudgetToTierCeiling(scaled: number, tierCeiling: number): n
   return Math.min(scaled, tierCeiling);
 }
 
+/**
+ * Maps policy target to the writer LLM `max_tokens` (effective cap).
+ * - `enforced`: effective equals target (clamped by tier and safety ceiling).
+ * - `audit`: effective is at least `AUDIT_FLOOR` so low targets do not truncate output,
+ *   while `writer_budget_target` still records the policy intent.
+ */
+export function computeWriterEffectiveMaxTokens(
+  cfg: AppConfig,
+  target: number,
+  tierCeiling: number,
+): number {
+  const safety = Math.min(
+    cfg.SYNESIS_PLANNER_TS_WRITER_OUTPUT_SAFETY_CEILING,
+    tierCeiling,
+  );
+  if (cfg.SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE === "enforced") {
+    return Math.min(Math.max(0, target), safety);
+  }
+  const floored = Math.max(target, cfg.SYNESIS_PLANNER_TS_WRITER_BUDGET_AUDIT_FLOOR);
+  return Math.min(floored, safety);
+}
+
 export function budgetUtilization(completionTokens: number, maxOutputTokens: number): number | undefined {
   if (maxOutputTokens <= 0) return undefined;
   return Number((completionTokens / maxOutputTokens).toFixed(4));

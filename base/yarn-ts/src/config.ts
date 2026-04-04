@@ -85,7 +85,14 @@ const EnvSchema = z.object({
 
   // Safety limits
   SYNESIS_YARN_POLICY_HARD_REJECT_AFTER: z.coerce.number().default(6),
+  /** Policy limit for session input tokens (governance may lower). Enforced mode rejects above this. */
+  SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS: z.coerce.number().default(2_000_000),
+  /** Hard safety ceiling — always reject above this in both modes. */
   SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS: z.coerce.number().default(2_000_000),
+  /** `audit`: warn above policy soft limit but allow until hard max; `enforced`: reject at policy limit. */
+  SYNESIS_YARN_SESSION_BUDGET_MODE: z.enum(["audit", "enforced"]).default("enforced"),
+  /** When > 0, cap `maxOutputTokens` sent to the provider (runaway output safety). 0 = disabled. */
+  SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(0),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(15),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT: z.coerce.number().default(10),
   SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT: z.coerce.number().default(4),
