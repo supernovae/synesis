@@ -2350,6 +2350,7 @@ async def bootstrap_from_yaml(
         "ok": True,
         "added": added,
         "skipped": skipped_total,
+        "upsert": upsert,
         "metadata_warnings": metadata_warnings,
         "total_in_file": len(items_list),
     }

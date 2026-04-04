@@ -48,6 +48,7 @@ export interface RetrievalSettings {
 const MIN_RAG_FOR_GATING = 3;
 const WEB_GRACE_MS = 500;
 const ORIGINAL_WEIGHT = 0.3;
+const CODE_INTENT_RE = /\b(code|coding|implement|implementation|function|method|class|interface|api|snippet|example|debug|bug|compile|syntax|refactor|test)\b/i;
 
 // ---------------------------------------------------------------------------
 // Phase 2: Map to UnifiedResult
@@ -75,6 +76,12 @@ function ragToUnified(results: RagResult[]): UnifiedResult[] {
     content_hash: r.content_hash,
     crawl_timestamp: r.crawl_timestamp,
     effective_at_epoch: r.effective_at_epoch,
+    has_code: r.has_code,
+    code_signal_count: r.code_signal_count,
+    code_density: r.code_density,
+    code_language: r.code_language,
+    artifact_kind: r.artifact_kind,
+    language: r.language,
   }));
 }
 
@@ -157,6 +164,43 @@ function adaptiveTopK(results: UnifiedResult[], maxK: number, gapMultiplier: num
   return capped;
 }
 
+function isCodeIntent(query: string): boolean {
+  return CODE_INTENT_RE.test(query);
+}
+
+function applyCodeBias(results: UnifiedResult[], enabled: boolean): UnifiedResult[] {
+  if (!enabled || results.length === 0) return results;
+  const boosted = results.map((r) => {
+    if (r.retrieval_source !== "rag") return r;
+    if (r.has_code || (r.code_signal_count ?? 0) > 0) {
+      return { ...r, score: r.score * 1.15 };
+    }
+    if ((r.artifact_kind ?? "") === "docs") {
+      return { ...r, score: r.score * 1.03 };
+    }
+    return r;
+  });
+  boosted.sort((a, b) => b.score - a.score);
+  return boosted;
+}
+
+function bucketizeCoderResults(results: UnifiedResult[], topK: number, enabled: boolean): UnifiedResult[] {
+  if (!enabled || results.length === 0) return results;
+  const primaryTarget = Math.max(1, Math.floor(topK * 0.6));
+  const primary = results
+    .filter((r) => r.retrieval_source === "rag" && (r.has_code || (r.code_signal_count ?? 0) > 0))
+    .slice(0, primaryTarget)
+    .map((r) => ({ ...r, evidence_bucket: "primary_code" as const }));
+
+  const primaryKeys = new Set(primary.map((r) => `${r.source_url}|${r.heading_path}|${r.text.slice(0, 120)}`));
+  const supporting = results
+    .filter((r) => !primaryKeys.has(`${r.source_url}|${r.heading_path}|${r.text.slice(0, 120)}`))
+    .slice(0, Math.max(0, topK - primary.length))
+    .map((r) => ({ ...r, evidence_bucket: "supporting_docs" as const }));
+
+  return [...primary, ...supporting];
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3b: Domain policy
 // ---------------------------------------------------------------------------
@@ -220,6 +264,7 @@ export async function retrieveUnified(
   } = request;
 
   const t0 = performance.now();
+  const codeIntent = isCodeIntent(query);
   let ragDegraded = false;
   let webDegraded = false;
   const degradationNotes: string[] = [];
@@ -296,9 +341,11 @@ export async function retrieveUnified(
 
   // Phase 4c: Freshness boost (soft preference)
   merged = freshnessBoost(merged, settings.freshnessWeight);
+  merged = applyCodeBias(merged, codeIntent);
 
   // Phase 5: Adaptive top-k
   let final = adaptiveTopK(merged, topK, settings.adaptiveGapMultiplier);
+  final = bucketizeCoderResults(final, topK, codeIntent);
 
   // Phase 5b–5d: Cohesion lock pipeline
   let cohesionLock: CohesionLockData | null = null;

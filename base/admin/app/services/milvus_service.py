@@ -13,7 +13,7 @@ from ..milvus_utils import with_retry
 
 logger = logging.getLogger("synesis.admin.milvus")
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 def expected_milvus_schema_version() -> int:
@@ -65,6 +65,10 @@ def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[st
         FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
         FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="has_code", dtype=DataType.BOOL),
+        FieldSchema(name="code_signal_count", dtype=DataType.INT64),
+        FieldSchema(name="code_density", dtype=DataType.FLOAT),
+        FieldSchema(name="code_language", dtype=DataType.VARCHAR, max_length=32),
         FieldSchema(name="visibility_scope", dtype=DataType.VARCHAR, max_length=16),
         FieldSchema(name="org_id", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="tenant_id", dtype=DataType.VARCHAR, max_length=64),

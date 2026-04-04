@@ -60,6 +60,9 @@ Version history:
             (links to Backstage/Developer Hub golden path template),
             novel_pattern (bool flag for experimental approaches),
             novel_trace_level (none/basic/enhanced tracing guidance).
+  v14 → v15: Code-first retrieval metadata — adds has_code, code_signal_count,
+            code_density, and code_language fields so coder-facing retrieval can
+            bias toward executable evidence while preserving explanatory context.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -88,7 +91,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -120,6 +123,11 @@ EXPECTED_FIELDS = frozenset(
         "module_path",
         "symbol_name",
         "artifact_kind",
+        # v15 — code-first retrieval metadata
+        "has_code",
+        "code_signal_count",
+        "code_density",
+        "code_language",
         # v10 — multi-tenant isolation
         "visibility_scope",
         "org_id",
@@ -209,6 +217,11 @@ CATALOG_FIELDS = [
     FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
     FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
     FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+    # v15 — code-first retrieval metadata
+    FieldSchema(name="has_code", dtype=DataType.BOOL),
+    FieldSchema(name="code_signal_count", dtype=DataType.INT64),
+    FieldSchema(name="code_density", dtype=DataType.FLOAT),
+    FieldSchema(name="code_language", dtype=DataType.VARCHAR, max_length=32),
     # v10 — multi-tenant isolation (three-tier: global / org / tenant)
     FieldSchema(name="visibility_scope", dtype=DataType.VARCHAR, max_length=16),
     FieldSchema(name="org_id", dtype=DataType.VARCHAR, max_length=64),
@@ -411,6 +424,11 @@ def catalog_entity(
     module_path: str = "",
     symbol_name: str = "",
     artifact_kind: str = "",
+    # v15 — code-first retrieval metadata
+    has_code: bool = False,
+    code_signal_count: int = 0,
+    code_density: float = 0.0,
+    code_language: str = "",
     # v10 — multi-tenant isolation
     visibility_scope: str = "global",
     org_id: str = "",
@@ -485,6 +503,10 @@ def catalog_entity(
         "module_path": _trunc_bytes(module_path or "", 256),
         "symbol_name": _trunc_bytes(symbol_name or "", 128),
         "artifact_kind": (artifact_kind or "")[:32],
+        "has_code": bool(has_code),
+        "code_signal_count": int(code_signal_count),
+        "code_density": float(code_density),
+        "code_language": (code_language or "")[:32],
         "visibility_scope": (visibility_scope or "global")[:16],
         "org_id": _trunc_bytes(org_id or "", 64),
         "tenant_id": _trunc_bytes(tenant_id or "", 64),

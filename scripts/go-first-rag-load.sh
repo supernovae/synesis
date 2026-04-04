@@ -22,6 +22,8 @@ set -euo pipefail
 # - GO_FIRST_RELEASE_STALE_RUNNING_MINUTES=180 (default) — reset stuck running rows before purge
 # - GO_FIRST_QUEUE_DOMAIN=go (default) — indexer only claims this domain (matches lang-go.yaml)
 # - GO_FIRST_QUEUE_MAX_ITEMS — optional cap on items processed per job (digits only)
+# - GO_FIRST_BOOTSTRAP_UPSERT=true (default) — upsert by URI and only requeue changed handler/config
+# - GO_FIRST_FORCE_REQUEUE=false (default) — force requeue all non-running rows in GO_FIRST_QUEUE_DOMAIN
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GO_CORPUS_FILE="${ROOT_DIR}/bootstrap/corpus/lang-go.yaml"
@@ -39,6 +41,8 @@ GO_FIRST_PURGE_PENDING="${GO_FIRST_PURGE_PENDING:-true}"
 GO_FIRST_RELEASE_STALE_RUNNING_MINUTES="${GO_FIRST_RELEASE_STALE_RUNNING_MINUTES:-180}"
 GO_FIRST_QUEUE_DOMAIN="${GO_FIRST_QUEUE_DOMAIN:-go}"
 GO_FIRST_QUEUE_MAX_ITEMS="${GO_FIRST_QUEUE_MAX_ITEMS:-}"
+GO_FIRST_BOOTSTRAP_UPSERT="${GO_FIRST_BOOTSTRAP_UPSERT:-true}"
+GO_FIRST_FORCE_REQUEUE="${GO_FIRST_FORCE_REQUEUE:-false}"
 
 function require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -130,8 +134,12 @@ else
 fi
 
 phase_header "Phase 2: enqueue Go-only corpus"
+bootstrap_upsert="false"
+if [[ "${GO_FIRST_BOOTSTRAP_UPSERT}" == "true" ]]; then
+  bootstrap_upsert="true"
+fi
 bootstrap_code="$(curl -sS -o /tmp/go-first-bootstrap.json -w '%{http_code}' \
-  -X POST "${ADMIN_URL%/}/api/v1/ingestion/bootstrap?status_override=pending&upsert=false" \
+  -X POST "${ADMIN_URL%/}/api/v1/ingestion/bootstrap?status_override=pending&upsert=${bootstrap_upsert}" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -F "file=@${GO_CORPUS_FILE}")"
 if [[ "${bootstrap_code}" != "200" ]]; then
@@ -149,8 +157,85 @@ python3 - <<'PY'
 import json
 from pathlib import Path
 data = json.loads(Path("/tmp/go-first-bootstrap.json").read_text())
-print(f"enqueue_result added={data.get('added', 0)} skipped={data.get('skipped', 0)}")
+print(
+    "enqueue_result "
+    f"added={data.get('added', 0)} "
+    f"skipped={data.get('skipped', 0)} "
+    f"unchanged={data.get('unchanged', 0)} "
+    f"updated_meta={data.get('updated_meta', 0)} "
+    f"requeued={data.get('requeued', 0)} "
+    f"upsert={data.get('upsert', False)}"
+)
 PY
+
+if [[ "${GO_FIRST_FORCE_REQUEUE}" == "true" ]]; then
+  phase_header "Phase 2a: force requeue existing domain rows"
+  log "GO_FIRST_FORCE_REQUEUE=true — requeueing non-running rows for domain=${GO_FIRST_QUEUE_DOMAIN}"
+  ADMIN_URL="${ADMIN_URL}" ADMIN_TOKEN="${ADMIN_TOKEN}" GO_FIRST_QUEUE_DOMAIN="${GO_FIRST_QUEUE_DOMAIN}" python3 - <<'PY'
+import json
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
+
+base = os.environ["ADMIN_URL"].rstrip("/")
+token = os.environ["ADMIN_TOKEN"]
+domain = os.environ["GO_FIRST_QUEUE_DOMAIN"].strip().lower()
+headers = {"Authorization": f"Bearer {token}"}
+
+page = 1
+page_size = 200
+total_seen = 0
+requeued = 0
+skipped_running = 0
+
+while True:
+    qs = urllib.parse.urlencode(
+        {
+            "domain": domain,
+            "page": page,
+            "page_size": page_size,
+        }
+    )
+    req = urllib.request.Request(f"{base}/api/v1/ingestion/items?{qs}", headers=headers, method="GET")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    items = payload.get("items", [])
+    if not items:
+        break
+    for item in items:
+        total_seen += 1
+        item_id = item.get("id")
+        status = str(item.get("status", "")).lower()
+        if not item_id:
+            continue
+        if status == "running":
+            skipped_running += 1
+            continue
+        rq = urllib.request.Request(
+            f"{base}/api/v1/ingestion/items/{item_id}/requeue?reset_retries=true",
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(rq, timeout=30):
+                requeued += 1
+        except urllib.error.HTTPError as e:
+            # Keep going on per-item failures; queue run should still proceed.
+            print(f"requeue_warn item_id={item_id} status={status} http={e.code}")
+    if len(items) < page_size:
+        break
+    page += 1
+
+print(
+    "force_requeue_result "
+    f"domain={domain} "
+    f"seen={total_seen} "
+    f"requeued={requeued} "
+    f"skipped_running={skipped_running}"
+)
+PY
+fi
 
 phase_header "Phase 2b: run queue job and monitor"
 ts="$(date +%s)"

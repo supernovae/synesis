@@ -13,6 +13,7 @@ to bypass, but a loud warning is logged.
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from collections import defaultdict
 from typing import Any
@@ -90,6 +91,10 @@ _CODE_FORMATS = frozenset(
 )
 
 _CONFIG_FORMATS = frozenset({"yaml", "json", "toml", "xml", "hcl", "dockerfile", "make", "protobuf"})
+_CODE_FENCE_RE = re.compile(r"```[\s\S]*?```|~~~[\s\S]*?~~~", re.MULTILINE)
+_INLINE_CODE_RE = re.compile(r"`[^`]+`")
+_CLI_FLAG_RE = re.compile(r"(?:^|\s)--?\w[\w-]*(?:=\S+)?")
+_CODE_TOKEN_RE = re.compile(r"[{}();]|::|->|=>|\bfunc\b|\bclass\b|\binterface\b|\breturn\b|\bimport\b", re.IGNORECASE)
 
 
 def _infer_artifact_kind(handler: str, content_format: str, language: str) -> str:
@@ -118,6 +123,26 @@ def _infer_artifact_kind(handler: str, content_format: str, language: str) -> st
     if fmt in _CONFIG_FORMATS:
         return "config"
     return "docs"
+
+
+def _code_chunk_metrics(text: str) -> tuple[bool, int, float]:
+    """Return (has_code, signal_count, density) for a chunk."""
+    if not text:
+        return False, 0, 0.0
+    signals = 0
+    if _CODE_FENCE_RE.search(text):
+        signals += 2
+    inline_count = len(_INLINE_CODE_RE.findall(text))
+    if inline_count:
+        signals += min(4, inline_count)
+    if _CLI_FLAG_RE.search(text):
+        signals += 1
+    token_hits = len(_CODE_TOKEN_RE.findall(text))
+    if token_hits:
+        signals += 1
+    word_count = max(1, len(text.split()))
+    density = min(1.0, (token_hits + inline_count) / word_count)
+    return signals > 0, signals, float(density)
 
 
 def index_parsed_chunk_pairs(
@@ -302,7 +327,17 @@ def index_parsed_chunk_pairs(
         "docs_skipped": 0,
         "chunks_total": parsed_count,
         "chunks_enriched": 0,
+        "parsed_total": parsed_count,
+        "dedup_skipped": 0,
+        "gate_rejected": 0,
+        "gatekeeper_skipped_docs": 0,
+        "written_total": 0,
     }
+    fetch_meta["parsed_total"] = parsed_count
+    fetch_meta["dedup_skipped"] = 0
+    fetch_meta["gate_rejected"] = 0
+    fetch_meta["gatekeeper_skipped_docs"] = 0
+    fetch_meta["written_total"] = 0
 
     # 3. Deduplicate
     new_chunks: list[tuple[RawDocument, Chunk, str]] = []
@@ -314,6 +349,8 @@ def index_parsed_chunk_pairs(
             seen_cids.add(cid)
 
     if not new_chunks:
+        fetch_meta["semantic_contract"]["dedup_skipped"] = parsed_count
+        fetch_meta["dedup_skipped"] = parsed_count
         logger.info(
             "indexer_all_chunks_skipped",
             extra={"skipped": parsed_count, "source": name},
@@ -352,6 +389,8 @@ def index_parsed_chunk_pairs(
                     reject_samples.append((chunk.text[:120].replace("\n", " "), verdict.rejection_reason))
 
         rejected = len(new_chunks) - len(gated)
+        fetch_meta["semantic_contract"]["gate_rejected"] = rejected
+        fetch_meta["gate_rejected"] = rejected
         if rejected:
             reason_summary = ", ".join(f"{k}:{v}" for k, v in reject_reasons.items())
             logger.info(
@@ -406,6 +445,8 @@ def index_parsed_chunk_pairs(
     new_chunks = filtered
     fetch_meta["semantic_contract"]["docs_total"] = len(by_doc)
     fetch_meta["semantic_contract"]["docs_skipped"] = skipped_docs
+    fetch_meta["semantic_contract"]["gatekeeper_skipped_docs"] = skipped_docs
+    fetch_meta["gatekeeper_skipped_docs"] = skipped_docs
     if skipped_docs:
         logger.info(
             "indexer_gatekeeper_docs_skipped",
@@ -523,6 +564,8 @@ def index_parsed_chunk_pairs(
         module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
         symbol_name = chunk.metadata.get("symbol_name", "")
         artifact_kind = src_artifact_kind or _infer_artifact_kind(handler_type, content_format, language)
+        has_code, code_signal_count, code_density = _code_chunk_metrics(chunk.text)
+        code_language = str(language or content_format or "").strip().lower() if has_code else ""
 
         if chunk_scan == "flagged":
             approval = "pending"
@@ -583,6 +626,10 @@ def index_parsed_chunk_pairs(
                 module_path=module_path,
                 symbol_name=symbol_name,
                 artifact_kind=artifact_kind,
+                has_code=has_code,
+                code_signal_count=code_signal_count,
+                code_density=code_density,
+                code_language=code_language,
                 corpus_class=src_corpus_class,
                 constraint_kind=src_constraint_kind,
                 content_profile=src_content_profile,
@@ -619,6 +666,8 @@ def index_parsed_chunk_pairs(
         )
 
     count = writer.upsert_batch(entities)
+    fetch_meta["semantic_contract"]["written_total"] = count
+    fetch_meta["written_total"] = count
     for _, _, cid in new_chunks:
         existing_ids.add(cid)
 

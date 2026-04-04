@@ -39,6 +39,7 @@ const OUTPUT_FIELDS = [
   "corpus_class", "constraint_kind", "content_profile", "scope_tags",
   "constraint_source", "constraint_confidence", "golden_path_id",
   "novel_pattern", "novel_trace_level",
+  "has_code", "code_signal_count", "code_density", "code_language",
 ];
 
 interface MilvusSearchResponse {
@@ -188,6 +189,10 @@ function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagRe
     golden_path_id: String(row.golden_path_id ?? ""),
     novel_pattern: row.novel_pattern === true || row.novel_pattern === "true",
     novel_trace_level: String(row.novel_trace_level ?? "none"),
+    has_code: row.has_code === true || row.has_code === "true",
+    code_signal_count: Number(row.code_signal_count ?? 0),
+    code_density: Number(row.code_density ?? 0),
+    code_language: String(row.code_language ?? ""),
   };
 }
 

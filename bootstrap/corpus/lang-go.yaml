@@ -22,6 +22,7 @@ items:
   - go
   constraint_kind: hard
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 7
@@ -54,6 +55,7 @@ items:
   - go
   constraint_kind: guiding
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 7
@@ -86,6 +88,7 @@ items:
   - go
   constraint_kind: hard
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 6
@@ -96,6 +99,34 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://pkg.go.dev/
+- uri: https://github.com/golang/go/tree/master/src
+  handler: github_code
+  title: Go Standard Library Source (core slices)
+  domain: go
+  authority: canonical
+  origin_type: curated
+  tags:
+  - go
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - go
+  constraint_kind: hard
+  config:
+    repo: golang/go
+    branch: master
+    paths:
+    - src/context
+    - src/net/http
+    - src/testing
 - uri: https://golangci-lint.run/
   handler: web_page
   title: golangci-lint Documentation
@@ -118,6 +149,7 @@ items:
   - go
   constraint_kind: guiding
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 6
@@ -149,6 +181,7 @@ items:
   - go
   constraint_kind: hard
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 7
@@ -181,6 +214,7 @@ items:
   - go
   constraint_kind: guiding
   config:
+    profile: tutorial
     discovery: sitemap_first
     follow_links: true
     max_depth: 6
@@ -212,6 +246,7 @@ items:
   - go
   constraint_kind: guiding
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 6
@@ -244,6 +279,7 @@ items:
   - go
   constraint_kind: advisory
   config:
+    profile: blog
     discovery: sitemap_first
     follow_links: true
     max_depth: 7
@@ -275,6 +311,7 @@ items:
   - go
   constraint_kind: advisory
   config:
+    profile: tutorial
     discovery: sitemap_first
     follow_links: true
     max_depth: 8
@@ -285,7 +322,7 @@ items:
     allowed_prefixes:
     - https://gobyexample.com/
 - uri: https://github.com/golang/go/wiki/CodeReviewComments
-  handler: web_page
+  handler: github_markdown
   title: Go Code Review Comments
   domain: go
   authority: vetted
@@ -306,14 +343,9 @@ items:
   - go
   constraint_kind: guiding
   config:
-    discovery: sitemap_first
-    follow_links: true
-    max_depth: 4
-    max_pages: 80
-    respect_robots: true
-    min_request_interval: 0.4
-    allowed_prefixes:
-    - https://github.com/golang/go/wiki/
+    repo: golang/go.wiki
+    branch: master
+    path: CodeReviewComments.md
 - uri: https://pkg.go.dev/cmd/go
   handler: web_page
   title: go command documentation
@@ -336,6 +368,7 @@ items:
   - go
   constraint_kind: hard
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 6
@@ -368,6 +401,7 @@ items:
   - go
   constraint_kind: guiding
   config:
+    profile: reference
     discovery: sitemap_first
     follow_links: true
     max_depth: 4
@@ -376,3 +410,30 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://go.dev/doc/comment
+- uri: https://github.com/golang/go/tree/master/src/go/doc/comment
+  handler: github_code
+  title: Go Doc Comments Source
+  domain: go
+  authority: canonical
+  origin_type: curated
+  tags:
+  - go
+  - documentation
+  - comments
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - style-guide
+  - go
+  constraint_kind: hard
+  config:
+    repo: golang/go
+    branch: master
+    paths:
+    - src/go/doc/comment

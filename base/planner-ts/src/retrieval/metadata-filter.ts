@@ -24,6 +24,7 @@ export interface MetadataFilterParams {
   tags?: string;
   content_format?: string;
   repo_path?: string;
+  has_code?: boolean;
 }
 
 function esc(s: string): string {
@@ -51,6 +52,9 @@ export function buildMetadataFilter(params: MetadataFilterParams): string {
   }
   if (params.repo_path) {
     clauses.push(`repo_path == "${sanitize(params.repo_path, 256)}"`);
+  }
+  if (typeof params.has_code === "boolean") {
+    clauses.push(`has_code == ${params.has_code ? "true" : "false"}`);
   }
 
   // v14 first-class columns (equality filters, indexed)

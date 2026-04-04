@@ -20,6 +20,13 @@ export interface UnifiedResult {
   content_hash?: string;
   crawl_timestamp?: number;
   effective_at_epoch?: number;
+  has_code?: boolean;
+  code_signal_count?: number;
+  code_density?: number;
+  code_language?: string;
+  artifact_kind?: string;
+  language?: string;
+  evidence_bucket?: "primary_code" | "supporting_docs";
 }
 
 export interface CohesionLockData {
@@ -116,6 +123,10 @@ export interface RagResult {
   golden_path_id?: string;
   novel_pattern?: boolean;
   novel_trace_level?: string;
+  has_code?: boolean;
+  code_signal_count?: number;
+  code_density?: number;
+  code_language?: string;
 }
 
 /** Authority multipliers applied after reranking (same as Python). */

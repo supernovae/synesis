@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app import extract as extract_mod
 from app.content_gate import GatePolicy
 from app.handlers import web_page
 
@@ -128,3 +129,16 @@ def test_extract_child_urls_normalizes_relative_internal_links():
     assert "https://gobyexample.com/http-client" in children
     assert "https://gobyexample.com/for" in children
     assert all(not c.startswith("mailto:") for c in children)
+
+
+def test_select_markdown_content_prefers_richer_crawler_markdown(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(extract_mod, "html_to_markdown", lambda _html: "short")
+    monkeypatch.setattr(extract_mod, "normalize_doc_markdown", lambda md: md)
+
+    result = SimpleNamespace(
+        markdown="```\nfmt.Println(\"hi\")\n```\n\nMore text",
+        fit_markdown="",
+        cleaned_markdown="",
+    )
+    chosen = web_page._select_markdown_content("<html/>", result)
+    assert chosen.startswith("```")

@@ -297,6 +297,40 @@ def _merge_pages_by_url(
     return out
 
 
+def _markdown_richness_score(md: str) -> tuple[int, int, int]:
+    """Rough quality proxy: prefer code fences, then line count, then char size."""
+    text = md or ""
+    return (text.count("```"), text.count("\n"), len(text))
+
+
+def _select_markdown_content(
+    html: str,
+    result: Any,
+) -> str:
+    """Pick the richer markdown between trafilatura and crawler-native markdown."""
+    from ..extract import html_to_markdown, normalize_doc_markdown
+
+    trafilatura_md = normalize_doc_markdown(html_to_markdown(html))
+    crawl4ai_md_raw = (
+        getattr(result, "markdown", "")
+        or getattr(result, "fit_markdown", "")
+        or getattr(result, "cleaned_markdown", "")
+        or ""
+    )
+    crawl4ai_md = normalize_doc_markdown(str(crawl4ai_md_raw))
+
+    if not trafilatura_md and not crawl4ai_md:
+        return ""
+    if not trafilatura_md:
+        return crawl4ai_md
+    if not crawl4ai_md:
+        return trafilatura_md
+
+    if _markdown_richness_score(crawl4ai_md) > _markdown_richness_score(trafilatura_md):
+        return crawl4ai_md
+    return trafilatura_md
+
+
 async def _fetch_url_list(
     urls: list[str],
     seed_url: str,
@@ -308,8 +342,6 @@ async def _fetch_url_list(
     max_pages: int,
 ) -> list[dict[str, str]]:
     from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
-
-    from ..extract import html_to_markdown, normalize_doc_markdown
 
     seed_host = urlparse(seed_url).hostname or ""
     pages: list[dict[str, str]] = []
@@ -355,12 +387,11 @@ async def _fetch_url_list(
                 )
                 continue
 
-            md = html_to_markdown(html)
+            md = _select_markdown_content(html, result)
             if not md:
                 logger.debug("trafilatura returned empty for %s", url)
                 continue
 
-            md = normalize_doc_markdown(md)
             pages.append({"url": url, "markdown": md, "crawl_depth": depth})
 
     return pages
@@ -379,8 +410,6 @@ async def _crawl_bfs(
     max_links_per_page: int,
 ) -> list[dict[str, str]]:
     from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
-
-    from ..extract import html_to_markdown, normalize_doc_markdown
 
     pages: list[dict[str, str]] = []
     visited: set[str] = set()
@@ -436,12 +465,11 @@ async def _crawl_bfs(
                 )
                 continue
 
-            md = html_to_markdown(html)
+            md = _select_markdown_content(html, result)
             if not md:
                 logger.debug("trafilatura returned empty for %s", url)
                 continue
 
-            md = normalize_doc_markdown(md)
             pages.append({"url": url, "markdown": md, "crawl_depth": depth})
 
             if not follow_links or depth >= max_depth:
