@@ -8,8 +8,42 @@ metadata:
     app.kubernetes.io/part-of: synesis
     app.kubernetes.io/component: search
 data:
+  # Botdetection/limiter config; path matches settings dir (see searx/limiter.py).
+  # https://github.com/searxng/searxng/blob/master/searx/limiter.toml
+  limiter.toml: |
+    [botdetection]
+
+    ipv4_prefix = 32
+    ipv6_prefix = 48
+
+    trusted_proxies = [
+      '127.0.0.0/8',
+      '::1',
+      '10.0.0.0/8',
+      '172.16.0.0/12',
+      '192.168.0.0/16',
+      'fd00::/8',
+    ]
+
+    [botdetection.ip_limit]
+    filter_link_local = false
+    link_token = false
+
+    [botdetection.ip_lists]
+    block_ip = []
+    pass_ip = []
+    pass_searxng_org = true
+
   settings.yml: |
-    use_default_settings: true
+    # Curated engine set only (drops defaults that need Tor / missing modules, etc.).
+    use_default_settings:
+      engines:
+        keep_only:
+          - google
+          - bing
+          - duckduckgo
+          - github
+          - stackoverflow
 
     server:
       secret_key: "synesis-searxng-internal-key"  # SECURITY: Override via overlay for production
@@ -35,29 +69,10 @@ data:
       static_use_hash: true
 
     engines:
-      - name: google
-        engine: google
-        shortcut: g
-        disabled: false
-
-      - name: bing
-        engine: bing
-        shortcut: b
-        disabled: false
-
-      - name: duckduckgo
-        engine: duckduckgo
-        shortcut: ddg
-        disabled: false
-
-      - name: github
-        engine: github
-        shortcut: gh
-        categories: [it, repos]
-        disabled: false
-
+      # SO uses the stackexchange engine + api_site (there is no stackoverflow.py).
       - name: stackoverflow
-        engine: stackoverflow
+        engine: stackexchange
         shortcut: so
+        api_site: "stackoverflow"
         categories: [it, q&a]
         disabled: false

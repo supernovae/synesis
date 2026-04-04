@@ -35,6 +35,10 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+        # Do not set fsGroup/runAsUser here: OpenShift assigns UID/GID from the
+        # namespace range (see base/gateway/helm/values-synesis.yaml). Fixed 977
+        # would often fail scheduling. EmptyDir remains group-writable; entrypoint
+        # may still warn about searxng:searxng — harmless on restricted SCC.
       containers:
         - name: searxng
           image: docker.io/searxng/searxng:latest
@@ -43,6 +47,12 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            # Override K8s service-link injection: a Service named "searxng" sets
+            # SEARXNG_PORT=tcp://<clusterIP>:8080 which Granian cannot parse (see searxng#5934).
+            - name: SEARXNG_PORT
+              value: "8080"
+            - name: GRANIAN_PORT
+              value: "8080"
             - name: SEARXNG_SETTINGS_PATH
               value: "/etc/searxng-config/settings.yml"
           securityContext:
@@ -60,6 +70,9 @@ spec:
             httpGet:
               path: /healthz
               port: http
+              httpHeaders:
+                - name: X-Forwarded-For
+                  value: "127.0.0.1"
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
@@ -67,6 +80,9 @@ spec:
             httpGet:
               path: /healthz
               port: http
+              httpHeaders:
+                - name: X-Forwarded-For
+                  value: "127.0.0.1"
             initialDelaySeconds: 15
             periodSeconds: 15
             failureThreshold: 3
