@@ -23,6 +23,14 @@ describe("loadConfig", () => {
     expect(config.SYNESIS_YARN_PLANNING_USE_HORIZON).toBe(true);
     expect(config.SYNESIS_YARN_RESPONSE_STYLE_MODE).toBe("guidance");
     expect(config.SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID).toBe(true);
+    expect(config.SYNESIS_YARN_CLAUDE_TIER_MAP).toEqual({});
+  });
+
+  it("parses SYNESIS_YARN_CLAUDE_TIER_MAP JSON", () => {
+    const config = loadConfig({
+      SYNESIS_YARN_CLAUDE_TIER_MAP: '{"opus":"synesis-core","bad":"unknown-tier"}',
+    } as never);
+    expect(config.SYNESIS_YARN_CLAUDE_TIER_MAP).toEqual({ opus: "synesis-core" });
   });
 
   it("defaults SYNESIS_YARN_SESSION_TTL_MS to 14400000 (4 hours)", () => {

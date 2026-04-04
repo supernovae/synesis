@@ -9,6 +9,53 @@ const TIER_ORDER = {
     "synesis-core": 1,
     "synesis-horizon": 2,
 };
+const SYNESIS_TIER_IDS = new Set(["synesis-pulse", "synesis-core", "synesis-horizon"]);
+/**
+ * Map client `model` strings (Claude Code wire ids, custom labels, or synesis tier ids)
+ * to an explicit Synesis tier when the user intends a fixed cost/capability band.
+ *
+ * Precedence:
+ * 1. Exact `synesis-pulse` | `synesis-core` | `synesis-horizon`
+ * 2. Substring keys from `extraMap` (SYNESIS_YARN_CLAUDE_TIER_MAP), longest key first
+ * 3. Built-in Claude family substrings: opus → horizon, sonnet → core, haiku → pulse
+ * 4. Word-boundary aliases: tiny/small → pulse, medium/balanced → core, large → horizon
+ */
+export function resolveExplicitTierFromRequestedModel(requestedModel, extraMap = {}) {
+    const raw = (requestedModel ?? "").trim();
+    if (!raw)
+        return null;
+    if (SYNESIS_TIER_IDS.has(raw)) {
+        return { tier: raw, reason: "synesis_exact" };
+    }
+    const m = raw.toLowerCase();
+    const entries = Object.entries(extraMap).filter(([k, v]) => k.trim() && SYNESIS_TIER_IDS.has(v));
+    entries.sort((a, b) => b[0].length - a[0].length);
+    for (const [needle, tier] of entries) {
+        const n = needle.toLowerCase();
+        if (m.includes(n)) {
+            return { tier, reason: "env_map" };
+        }
+    }
+    if (m.includes("opus")) {
+        return { tier: "synesis-horizon", reason: "family_or_alias" };
+    }
+    if (m.includes("sonnet")) {
+        return { tier: "synesis-core", reason: "family_or_alias" };
+    }
+    if (m.includes("haiku")) {
+        return { tier: "synesis-pulse", reason: "family_or_alias" };
+    }
+    if (/\b(tiny|small)\b/.test(m)) {
+        return { tier: "synesis-pulse", reason: "family_or_alias" };
+    }
+    if (/\b(medium|balanced)\b/.test(m)) {
+        return { tier: "synesis-core", reason: "family_or_alias" };
+    }
+    if (/\blarge\b/.test(m)) {
+        return { tier: "synesis-horizon", reason: "family_or_alias" };
+    }
+    return null;
+}
 function detectPhase(text, fallback = "implementation") {
     const t = text.toLowerCase();
     if (/\b(explore|discover|research|investigate|understand)\b/.test(t))
@@ -56,6 +103,7 @@ function buildUncertaintyFraming(evidence, riskProfile) {
     return lines.join("\n");
 }
 export class PhaseModelOrchestrator {
+    claudeTierMap;
     stats = {
         decisions: 0,
         pulseCount: 0,
@@ -71,6 +119,9 @@ export class PhaseModelOrchestrator {
     };
     lastTierBySession = new Map();
     thresholds = { ...DEFAULT_THRESHOLDS };
+    constructor(claudeTierMap = {}) {
+        this.claudeTierMap = claudeTierMap;
+    }
     setThresholds(t) {
         Object.assign(this.thresholds, t);
     }
@@ -101,12 +152,20 @@ export class PhaseModelOrchestrator {
         // Escalation triggers that apply across all paths
         const escalationResult = this.applyEscalationOverrides(tier, ev, ctx.riskProfile ?? "standard", th, reasons);
         tier = escalationResult.tier;
-        // Respect explicit tier unless risk escalation overrides
-        const requested = ctx.requestedModel;
-        if (requested === "synesis-pulse" || requested === "synesis-core" || requested === "synesis-horizon") {
-            if (!(ctx.riskProfile === "high" && requested === "synesis-pulse")) {
-                tier = requested;
-                reasons.push("explicit_requested_tier");
+        // Respect explicit tier (synesis ids, Claude family wire ids, env map) unless risk overrides pulse
+        const resolvedExplicit = resolveExplicitTierFromRequestedModel(ctx.requestedModel, this.claudeTierMap);
+        if (resolvedExplicit) {
+            if (!(ctx.riskProfile === "high" && resolvedExplicit.tier === "synesis-pulse")) {
+                tier = resolvedExplicit.tier;
+                if (resolvedExplicit.reason === "synesis_exact") {
+                    reasons.push("explicit_requested_tier");
+                }
+                else if (resolvedExplicit.reason === "env_map") {
+                    reasons.push("explicit_claude_tier_map");
+                }
+                else {
+                    reasons.push("explicit_claude_family_tier");
+                }
             }
             else {
                 reasons.push("escalated_over_explicit_pulse_due_to_high_risk");

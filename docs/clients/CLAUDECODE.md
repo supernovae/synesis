@@ -48,16 +48,25 @@ Yarn exposes three client-facing coder tiers:
 - `synesis-core` (sonnet-class, default)
 - `synesis-horizon` (opus-class)
 
-Claude family matching:
+**How a request picks a tier** (in order):
 
-- `haiku` -> `synesis-pulse`
-- `sonnet` -> `synesis-core`
-- `opus` -> `synesis-horizon`
+1. **Explicit Synesis tier** — if `model` is exactly `synesis-pulse`, `synesis-core`, or `synesis-horizon`, that tier is used (subject to high-risk rules that block choosing Pulse alone).
+2. **Claude-style model id** — if `model` contains family substrings, Yarn maps it to a tier the same way: `haiku` → Pulse, `sonnet` → Core, `opus` → Horizon. Optional word aliases: `tiny` / `small` → Pulse, `medium` / `balanced` → Core, `large` → Horizon.
+3. **Server map override** — set `SYNESIS_YARN_CLAUDE_TIER_MAP` on Yarn to a JSON object of substring needles → tier (e.g. `{"my-beta":"synesis-pulse"}`). Longer keys win before built-in family rules.
+4. Otherwise **phase and evidence routing** applies (implementation vs planning vs validation, risk, recall, etc.).
+
+For a **fixed** tier name in the Claude Code picker regardless of Anthropic labels, use `ANTHROPIC_CUSTOM_MODEL_OPTION=synesis-core` (or `synesis-pulse` / `synesis-horizon`) as in the quick start.
+
+## Listing models
+
+- **In Claude Code**: use the client’s `/models` **slash command** in the terminal UI. That is not a shell executable; do not run it with Bash.
+- **Over HTTP**: `GET https://<your-coder-host>/v1/models` returns an OpenAI-style list whose `id` values are the three Synesis tier names (discovery does not require auth; `POST /v1/messages` still requires your PAT).
 
 ## Key yarn-ts settings
 
 These are the most relevant runtime controls for Claude Code behavior:
 
+- `SYNESIS_YARN_CLAUDE_TIER_MAP` (optional JSON: substring needle → `synesis-pulse` | `synesis-core` | `synesis-horizon`)
 - `SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE` (`disable` or `passthrough`)
 - `SYNESIS_YARN_SORTED_TOOLS_ENABLED` (default `true`)
 - `SYNESIS_YARN_JITTER_BUFFER_ENABLED` (default `true`)

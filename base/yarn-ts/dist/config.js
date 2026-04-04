@@ -220,6 +220,29 @@ const EnvSchema = z.object({
     SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE: z
         .enum(["disable", "passthrough"])
         .default("disable"),
+    /** Optional JSON object: substring needle → synesis tier (checked before built-in haiku/sonnet/opus rules). */
+    SYNESIS_YARN_CLAUDE_TIER_MAP: z
+        .string()
+        .optional()
+        .transform((v) => {
+        const s = (v ?? "").trim();
+        if (!s)
+            return {};
+        try {
+            const o = JSON.parse(s);
+            const out = {};
+            const valid = new Set(["synesis-pulse", "synesis-core", "synesis-horizon"]);
+            for (const [k, val] of Object.entries(o)) {
+                if (typeof val === "string" && valid.has(val)) {
+                    out[k] = val;
+                }
+            }
+            return out;
+        }
+        catch {
+            return {};
+        }
+    }),
     SYNESIS_YARN_JITTER_BUFFER_ENABLED: z
         .string()
         .optional()

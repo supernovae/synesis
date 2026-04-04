@@ -89,19 +89,19 @@ Yarn routes all model requests through a three-tier abstraction:
 | **Core** | `synesis-core` | `sonnet` | Qwen3-Coder-480B-A35B-Instruct-Turbo |
 | **Horizon** | `synesis-horizon` | `opus` | DeepSeek-R1-0528 |
 
-### Claude Model Resolution
+### Claude model resolution (yarn-ts)
 
-When Claude Code sends a model ID (e.g. `claude-3-5-sonnet-20241022`), the
-`TierRegistry.resolve_claude()` method matches the model family substring to
-the appropriate tier. The mapping is:
+When Claude Code sends a `model` string (e.g. `claude-3-5-sonnet-20241022`),
+`yarn-ts` resolves an **explicit tier hint** in `resolveExplicitTierFromRequestedModel`
+([`phase-model-orchestrator.ts`](../base/yarn-ts/src/orchestration/phase-model-orchestrator.ts))
+before the phase/evidence orchestrator runs:
 
-- Any model containing `haiku` -> **synesis-pulse**
-- Any model containing `sonnet` -> **synesis-core**
-- Any model containing `opus` -> **synesis-horizon**
-- Unmatched models -> default tier (synesis-core)
+- Exact `synesis-pulse` | `synesis-core` | `synesis-horizon` — use that tier (with the same high-risk exception as before for Pulse).
+- Optional `SYNESIS_YARN_CLAUDE_TIER_MAP` — JSON object: substring needle → tier; longest key matches first.
+- Built-in substrings: `haiku` → **synesis-pulse**, `sonnet` → **synesis-core**, `opus` → **synesis-horizon**.
+- Optional aliases (word-boundary): `tiny` / `small` → Pulse, `medium` / `balanced` → Core, `large` → Horizon.
 
-The Claude family map can be overridden via `SYNESIS_YARN_CLAUDE_TIER_MAP`
-(JSON) for custom routing.
+If none of these apply, **PhaseModelOrchestrator** chooses a tier from phase keywords, risk profile, and evidence signals (see `SYNESIS_YARN_DECISION_MATRIX_ENABLED`). Unmatched model ids do not by themselves force a tier; the default path often lands on Core unless phase/risk escalates.
 
 ### Admin as Single Source of Truth
 
@@ -133,13 +133,24 @@ The gateway supports two modes via `SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE`:
 | `disable` (default) | Strip `defer_loading` and `tool_reference` blocks from outbound payloads. All tools loaded eagerly. Clear diagnostic log emitted. |
 | `passthrough` | Preserve all tool-search-related fields. Use when the downstream provider natively supports Anthropic tool search. |
 
-## Agent SDK Parity
+## Agent SDK parity
 
 The Claude Agent SDK "gives you the same tools, agent loop, and context
 management that power Claude Code"
 ([Agent SDK Overview](https://docs.anthropic.com/en/docs/claude-code/sdk)).
-The gateway's Messages API surface is designed to be compatible with both
-Claude Code and Agent SDK clients.
+Yarn’s `POST /v1/messages` surface targets the same wire shape; feature depth varies by item below.
+
+### Messages API — capability matrix (yarn-ts)
+
+| Area | Supported in Yarn | Notes |
+|------|-------------------|--------|
+| Streaming SSE (`message_start`, blocks, `message_stop`) | Yes | See Streaming SSE above |
+| `tools` + `input_schema` | Yes | Converted at provider boundary |
+| `tool_choice` (`auto`, `none`, `any`, `tool`) | Yes | Mapped for upstream |
+| `thinking` / extended thinking | Forwarded | Downstream must support via `providerOptions` |
+| `tool_reference` / `defer_loading` | Toggle | `SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE`: `disable` (strip) or `passthrough` |
+| Prompt caching betas | Partial | Sorted tools + jitter help; full Anthropic cache not replicated |
+| Images / multimodal blocks | Partial | Parsed; end-to-end validation not guaranteed |
 
 ## Observability (yarn-ts)
 
@@ -169,7 +180,7 @@ Request IDs (`x-request-id` or `anthropic-request-id` from client, or generated
 | `SYNESIS_YARN_HORIZON_MODEL` | `deepseek-ai/DeepSeek-R1-0528` | Backend model for Horizon tier |
 | `SYNESIS_YARN_HORIZON_URL` | `""` | Override base URL for Horizon |
 | `SYNESIS_YARN_DEFAULT_TIER` | `synesis-core` | Default tier when model ID is ambiguous |
-| `SYNESIS_YARN_CLAUDE_TIER_MAP` | `""` | JSON override for Claude family-to-tier mapping |
+| `SYNESIS_YARN_CLAUDE_TIER_MAP` | `{}` | JSON object: substring needle → `synesis-pulse` \| `synesis-core` \| `synesis-horizon` (merged before built-in haiku/sonnet/opus rules) |
 | `SYNESIS_YARN_TIER_POLL_INTERVAL` | `60` | Seconds between admin API config polls |
 
 ### Claude Compatibility and Premier Caching (yarn-ts)

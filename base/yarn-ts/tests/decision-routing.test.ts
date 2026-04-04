@@ -9,7 +9,8 @@ import {
 
 function ctx(overrides: Partial<OrchestratorContext> = {}): OrchestratorContext {
   return {
-    requestedModel: "claude-sonnet-4-5",
+    /** Neutral id: not mapped by resolveExplicitTierFromRequestedModel (Claude wire ids map to tiers). */
+    requestedModel: "gpt-4",
     latestUserText: "fix the type error",
     riskProfile: "standard",
     decisionMatrixEnabled: true,
@@ -608,7 +609,7 @@ describe("PhaseModelOrchestrator — Decision Routing (Phase 8)", () => {
   describe("backward compatibility with old tests", () => {
     it("chooses pulse for validation-oriented low-risk tasks", () => {
       const d = orch.decide({
-        requestedModel: "claude-sonnet-4-5",
+        requestedModel: "gpt-4",
         latestUserText: "run tests and validate lint output",
         riskProfile: "low",
       });

@@ -5,7 +5,7 @@ describe("PhaseModelOrchestrator", () => {
   it("chooses pulse for validation-oriented low-risk tasks", () => {
     const o = new PhaseModelOrchestrator();
     const d = o.decide({
-      requestedModel: "claude-sonnet-4-5",
+      requestedModel: "gpt-4",
       latestUserText: "run tests and validate lint output",
       riskProfile: "low"
     });
@@ -53,7 +53,7 @@ describe("PhaseModelOrchestrator", () => {
   it("routes planning phase to horizon on legacy path when planningUseHorizon is default", () => {
     const o = new PhaseModelOrchestrator();
     const d = o.decide({
-      requestedModel: "claude-sonnet-4-5",
+      requestedModel: "gpt-4",
       latestUserText: "outline next steps only",
       workingPhase: "planning",
       riskProfile: "standard",
@@ -65,7 +65,7 @@ describe("PhaseModelOrchestrator", () => {
   it("keeps planning on core when planningUseHorizon is false and no complex keywords", () => {
     const o = new PhaseModelOrchestrator();
     const d = o.decide({
-      requestedModel: "claude-sonnet-4-5",
+      requestedModel: "gpt-4",
       latestUserText: "outline next steps only",
       workingPhase: "planning",
       riskProfile: "standard",

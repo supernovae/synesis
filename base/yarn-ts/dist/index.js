@@ -440,7 +440,7 @@ const streamAdmission = new StreamAdmissionController({
 DIAGNOSTIC_RING_MAX = config.SYNESIS_YARN_DIAGNOSTIC_RING_MAX;
 await initOtel(config);
 startEventLoopMonitor();
-const phaseOrchestrator = new PhaseModelOrchestrator();
+const phaseOrchestrator = new PhaseModelOrchestrator(config.SYNESIS_YARN_CLAUDE_TIER_MAP);
 const sensemakingStats = createEmptySensemakingStats();
 const clientAdapterPacks = new ClientAdapterPacks();
 const stablePrefixService = new StablePrefixService();
