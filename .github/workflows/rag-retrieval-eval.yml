@@ -2,13 +2,11 @@
 #
 # Triggers: manual only + GitHub Release published — not on every PR/commit (cost control).
 #
-# Configure in GitHub (Settings → Secrets and variables → Actions):
-#   Secret  SYNESIS_INTERNAL_SERVICE_TOKEN — same value as synesis-internal-service-auth (not a PAT).
-# Optional repository variable:
-#   SYNESIS_PLANNER_EVAL_URL — planner base URL (default https://api.kybern.dev if unset).
+# Canonical GitHub configuration (Settings → Secrets and variables → Actions):
+#   Secret   SYNESIS_INTERNAL_SERVICE_TOKEN — internal service token (synesis-internal-service-auth), not a PAT.
+#   Variable SYNESIS_PLANNER_EVAL_URL — planner base URL (e.g. https://api.kybern.dev), no trailing /v1 required.
 #
-# Optional: protect the `validation` environment (Settings → Environments) with required reviewers
-# so workflow_dispatch runs only after approval.
+# Optional: protect the `validation` environment with required reviewers for workflow_dispatch.
 
 name: RAG retrieval eval (Go harness)
 
@@ -43,10 +41,11 @@ jobs:
           set -euo pipefail
           URL="${{ vars.SYNESIS_PLANNER_EVAL_URL }}"
           if [ -z "${URL}" ]; then
-            URL="https://api.kybern.dev"
+            echo "Missing repository variable SYNESIS_PLANNER_EVAL_URL."
+            exit 1
           fi
           if [ -z "${SYNESIS_INTERNAL_SERVICE_TOKEN:-}" ]; then
-            echo "Missing secret SYNESIS_INTERNAL_SERVICE_TOKEN (internal service token for /v1/knowledge/search)."
+            echo "Missing secret SYNESIS_INTERNAL_SERVICE_TOKEN."
             exit 1
           fi
           python3 scripts/rag_retrieval_eval.py \

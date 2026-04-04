@@ -1,5 +1,11 @@
 # Manual / scheduled gap report — never blocks merge.
-# Set repository secret SYNESIS_PROBE_PLANNER_URL (and optional SYNESIS_PROBE_TOKEN) to run checks.
+#
+# Canonical GitHub configuration (same as other planner-facing workflows):
+#   Variable SYNESIS_PLANNER_EVAL_URL — planner base URL (e.g. https://api.kybern.dev).
+#   Secret   SYNESIS_INTERNAL_SERVICE_TOKEN — Bearer token for /v1 (internal service token or PAT).
+# Optional:
+#   Variable SYNESIS_YARN_EVAL_URL — Yarn OpenAI-compatible base URL (if you probe Yarn too).
+
 name: OpenAI compat probe (optional)
 
 on:
@@ -16,12 +22,12 @@ jobs:
 
       - name: Run synesis_openai_capability_probe
         env:
-          SYNESIS_PROBE_PLANNER_URL: ${{ secrets.SYNESIS_PROBE_PLANNER_URL }}
-          SYNESIS_PROBE_YARN_URL: ${{ secrets.SYNESIS_PROBE_YARN_URL }}
-          SYNESIS_PROBE_TOKEN: ${{ secrets.SYNESIS_PROBE_TOKEN }}
+          SYNESIS_PROBE_PLANNER_URL: ${{ vars.SYNESIS_PLANNER_EVAL_URL }}
+          SYNESIS_PROBE_YARN_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
+          SYNESIS_PROBE_TOKEN: ${{ secrets.SYNESIS_INTERNAL_SERVICE_TOKEN }}
         run: |
           if [ -z "${SYNESIS_PROBE_PLANNER_URL}" ] && [ -z "${SYNESIS_PROBE_YARN_URL}" ]; then
-            echo "No SYNESIS_PROBE_PLANNER_URL or SYNESIS_PROBE_YARN_URL secret — skipping probe."
+            echo "Set repository variable SYNESIS_PLANNER_EVAL_URL and/or SYNESIS_YARN_EVAL_URL — skipping probe."
             exit 0
           fi
           python3 scripts/synesis_openai_capability_probe.py -o probe-report.json || true
