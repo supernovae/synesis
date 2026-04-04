@@ -67,11 +67,14 @@ describe("SSE conformance", () => {
 
     const chunks = payloads.filter((payload) => payload.object === "chat.completion.chunk");
     expect(chunks.length).toBeGreaterThanOrEqual(1);
-    const finalChunk = chunks[chunks.length - 1] ?? {};
+    const finalChunk =
+      [...chunks].reverse().find((p) => typeof p.usage === "object") ?? chunks[chunks.length - 1] ?? {};
     const choices = Array.isArray(finalChunk.choices) ? (finalChunk.choices as Array<Record<string, unknown>>) : [];
     const firstChoice = choices[0] ?? {};
     expect(firstChoice.finish_reason).toBe("stop");
     expect(typeof finalChunk.usage).toBe("object");
+    expect(typeof finalChunk.run_id).toBe("string");
+    expect(String(finalChunk.run_id).length).toBeGreaterThan(0);
 
     await app.close();
   });

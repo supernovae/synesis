@@ -513,7 +513,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         critique_passes: tierSettings.critiquePasses,
         critic_background: config.SYNESIS_PLANNER_TS_CRITIC_BACKGROUND,
       },
-      run_id: requestBody.conversation_id ?? undefined,
+      run_id: requestBody.conversation_id?.trim() || crypto.randomUUID(),
       traceparent,
       domain_profile: domainProfile,
       injection_detected: injectionDetected,
@@ -1505,6 +1505,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
             estimated_cost_usd: streamUsage.estimated_cost_usd,
             actual_cost_usd: streamUsage.actual_cost_usd,
           },
+          run_id: finalState.run_id,
+          authz_trace_id: finalState.authz_trace_id,
         });
         endSse(reply.raw);
       }

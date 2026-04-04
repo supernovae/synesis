@@ -155,7 +155,7 @@ const navigation: NavItem[] = [
     icon: MessageSquare,
     minRole: "org_admin",
     children: [
-      { label: "RAG Gap Handoff", path: "/feedback" },
+      { label: "Chat Feedback", path: "/feedback" },
     ],
   },
   {

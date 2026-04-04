@@ -23,6 +23,7 @@ spec:
     spec:
       containers:
         - name: open-webui
+          # Overlays (e.g. overlays/api) replace ghcr.io/open-webui/open-webui → synesis/open-webui.
           image: ghcr.io/open-webui/open-webui:v0.8.12
           imagePullPolicy: Always
           ports:

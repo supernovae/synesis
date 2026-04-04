@@ -2,7 +2,7 @@
 
 Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. **Default manifests** point Open WebUI’s `OPENAI_API_BASE_URL` at **planner-ts** (`synesis-planner-ts:8080/v1`), not at LiteLLM. **LiteLLM** (gateway) is used **upstream** of the pipeline for model routing when configured there — it is **not** the normal hop between Open WebUI and planner unless you deliberately repoint WebUI’s connection in Admin → Settings.
 
-Synesis ships a thin child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.12`) that injects a branded light/dark theme via `/static/custom.css`. The theme is baked into the image — no manual CSS paste is required.
+Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.12`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
 ## Zero-Configuration Setup
 
@@ -172,7 +172,7 @@ The dev overlay includes `openwebui-direct-planner.yaml`, which pins Open WebUI 
 
 See [OPENWEBUI_ADMIN_GUIDE.md](OPENWEBUI_ADMIN_GUIDE.md) for admin dashboard import and feedback plugin setup.
 
-**Evaluation / “Submit feedback” in Open WebUI** is stored in Open WebUI’s own database. To see it in **synesis-admin → Feedback**, configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN` on the admin deployment and use **Sync from Open WebUI** (see [FEEDBACK_API.md](FEEDBACK_API.md)).
+**Evaluation / “Submit feedback” in Open WebUI** is stored in Open WebUI’s own database. To see it in **synesis-admin → Chat Feedback**, configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN` on the admin deployment and use **Sync from Open WebUI** (see [FEEDBACK_API.md](FEEDBACK_API.md)). Deploy the Synesis-built `open-webui` image (`./scripts/build-images.sh --only open-webui`) so planner `run_id` is stored on assistant messages for trace correlation after sync.
 
 ---
 

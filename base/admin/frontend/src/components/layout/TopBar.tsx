@@ -33,7 +33,7 @@ const breadcrumbLabels: Record<string, string> = {
   integrations: "Integrations",
   mcp: "MCP Tools",
   search: "Web Search",
-  feedback: "Feedback",
+  feedback: "Chat Feedback",
   observability: "Observability",
   health: "Health",
   cache: "Cache",

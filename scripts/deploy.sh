@@ -35,6 +35,17 @@ set -euo pipefail
 #     yarn_sessions / yarn_usage_log rows to appear in Admin → Yarn.
 #   - Optional: SYNESIS_PAT_PEPPER on yarn-ts must match admin when using HMAC PAT hashing.
 #
+# Admin → Chat Feedback (Open WebUI evaluation sync):
+#   - synesis-admin calls Open WebUI GET /api/v1/evaluations/feedbacks/all/export (see docs/FEEDBACK_API.md).
+#   - Default SYNESIS_OPENWEBUI_URL in base/admin/deployment.yaml points at the in-cluster Service
+#     (open-webui.synesis-webui.svc.cluster.local:8080). Override only if WebUI is reached by a different URL.
+#   - Bearer token: Open WebUI admin JWT. deploy.sh creates Secret synesis-openwebui-admin-token (key: token)
+#     in synesis-admin when SYNESIS_OPENWEBUI_ADMIN_TOKEN is set in the environment for this run.
+#     Otherwise create the secret manually (same name/key) or sync will return 400 until configured.
+#   - Trace correlation: deploy the Synesis-built Open WebUI image (middleware patch), not stock upstream only:
+#       ./scripts/build-images.sh --only open-webui --push
+#     Overlays replace ghcr.io/open-webui/open-webui with ghcr.io/.../synesis/open-webui.
+#
 # Yarn tool call collapsing (docs/YARN_TOOL_COLLAPSE.md):
 #   - SYNESIS_YARN_TOOL_COLLAPSE_ENABLED (default true via deploy.sh patch) — exposes POST /v1/coder/tool-collapse/plan.
 #   - SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM (default false) — rewrite non-stream completions to synesis_* tools;
@@ -195,6 +206,49 @@ ensure_planner_litellm_key() {
         --from-literal=master-key="$LITELLM_KEY" \
         --dry-run=client -o yaml | oc apply -f -
     log "  Key synced to $planner_ns/litellm-secrets"
+}
+
+# -----------------------------------------------------------------------
+# Open WebUI admin token for synesis-admin Chat Feedback sync
+# (POST /api/v1/feedback/sync-openwebui → OWUI evaluations export).
+# Idempotent: only overwrites when SYNESIS_OPENWEBUI_ADMIN_TOKEN is non-empty this run.
+# -----------------------------------------------------------------------
+ensure_openwebui_feedback_sync_secret() {
+    local admin_ns="synesis-admin"
+    local secret_name="synesis-openwebui-admin-token"
+    local key_name="token"
+
+    oc create namespace "$admin_ns" 2>/dev/null || true
+
+    if [[ -n "${SYNESIS_OPENWEBUI_ADMIN_TOKEN:-}" ]]; then
+        log "Syncing Open WebUI admin token to $admin_ns/$secret_name (Chat Feedback → Sync from Open WebUI)..."
+        oc create secret generic "$secret_name" \
+            -n "$admin_ns" \
+            --from-literal="$key_name=$SYNESIS_OPENWEBUI_ADMIN_TOKEN" \
+            --dry-run=client -o yaml | oc apply -f -
+        log "  Secret $secret_name applied (Bearer for OWUI /api/v1/evaluations/*)"
+    else
+        if oc get secret "$secret_name" -n "$admin_ns" &>/dev/null; then
+            log "Chat Feedback: $admin_ns/$secret_name present (sync can authenticate to Open WebUI)"
+        else
+            log "NOTE: Chat Feedback — export not configured until Secret $secret_name exists."
+            log "  Set SYNESIS_OPENWEBUI_ADMIN_TOKEN when running deploy.sh, or:"
+            log "  oc create secret generic $secret_name -n $admin_ns --from-literal=$key_name='<Open WebUI admin JWT>'"
+            log "  Docs: docs/FEEDBACK_API.md"
+        fi
+    fi
+}
+
+restart_synesis_admin_if_openwebui_token_configured() {
+    local admin_ns="synesis-admin"
+    if [[ -z "${SYNESIS_OPENWEBUI_ADMIN_TOKEN:-}" ]]; then
+        return 0
+    fi
+    if ! oc get deployment synesis-admin -n "$admin_ns" &>/dev/null; then
+        return 0
+    fi
+    log "Restarting synesis-admin to pick up synesis-openwebui-admin-token..."
+    oc rollout restart deployment/synesis-admin -n "$admin_ns" 2>/dev/null || true
 }
 
 # -----------------------------------------------------------------------
@@ -1871,6 +1925,7 @@ ensure_internal_service_auth
 ensure_webui_key
 ensure_admin_litellm_key
 ensure_planner_litellm_key
+ensure_openwebui_feedback_sync_secret
 
 if [[ "$MODE" == "api" ]]; then
     ensure_openrouter_key
@@ -2286,6 +2341,10 @@ patch_admin_mcp_ts_envs
 log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
 reconcile_litellm_webui_secrets
+
+log ""
+log "Chat Feedback: reload synesis-admin if Open WebUI admin token was set this run..."
+restart_synesis_admin_if_openwebui_token_configured
 
 if [[ "$APPLY_OK" == "true" ]]; then
     deploy_litellm_helm

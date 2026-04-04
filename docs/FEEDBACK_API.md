@@ -4,7 +4,7 @@ Thumbs up/down for classifier tuning. Store votes with classification context fo
 
 ## Flow
 
-1. **Chat completion** returns `run_id` (in response body; streaming: in SSE chunks)
+1. **Chat completion** returns `run_id` (in response body; streaming: on the final `chat.completion.chunk` alongside `usage`, plus optional `authz_trace_id`)
 2. **Client** (Open WebUI, custom UI) echoes `run_id` when user votes
 3. **POST /v1/feedback** stores vote + associates with run context (classification_reasons, score_breakdown, task_size)
 4. **GET /v1/feedback** lists stored feedback for admin/tuning
@@ -64,10 +64,10 @@ List stored feedback. Query params:
 
 ## Admin UI (`synesis-admin`)
 
-The **Feedback** page calls the planner `GET /v1/feedback` and merges rows with **mirrored Open WebUI evaluation feedback** from Postgres (see below). It expects the planner response shape `{"object":"list","data":[...]}` (not `entries`).
+The **Chat Feedback** page calls the planner `GET /v1/feedback` and merges rows with **mirrored Open WebUI evaluation feedback** from Postgres (see below). It expects the planner response shape `{"object":"list","data":[...]}` (not `entries`).
 
 - **Filters:** source (planner / Open WebUI), rating (up/down), review status (pending / reviewed / closed).
-- **Trace link:** When a `run_id` is present (planner rows always; Open WebUI rows if `run_id` appears anywhere in the stored snapshot/meta JSON), the UI links to `/traces/{run_id}` (same id as the planner pipeline trace).
+- **Trace link:** When a `run_id` is present (planner rows always; Open WebUI rows if `run_id` / `synesis_run_id` appears in the stored snapshot — set by the Synesis Open WebUI image from planner SSE), the UI links to `/traces/{run_id}` (same id as the planner pipeline trace).
 - **Workspace:** Admins can set review status and an internal note (`PATCH /api/v1/feedback/workspace`).
 
 ### Syncing Open WebUI evaluation feedback
@@ -77,11 +77,11 @@ Open WebUI stores “Submit feedback” / evaluation data in **its own** SQLite 
 To show it in Synesis Admin:
 
 1. On **synesis-admin**, set:
-   - `SYNESIS_OPENWEBUI_URL` — public or in-cluster base URL (e.g. `https://synesis.apps...` or `http://open-webui.synesis-webui.svc.cluster.local:8080` depending on your Route/Service).
-   - `SYNESIS_OPENWEBUI_ADMIN_TOKEN` — a **Bearer** token for an Open WebUI **admin** user (JWT from login, or a Personal Access Token if your Open WebUI version accepts it on the export route).
-2. In Admin → **Feedback**, click **Sync from Open WebUI**. This calls Open WebUI `GET /api/v1/evaluations/feedbacks/all/export` and upserts into `openwebui_feedback`.
+   - `SYNESIS_OPENWEBUI_URL` — public or in-cluster base URL (e.g. `https://synesis.apps...` or `http://open-webui.synesis-webui.svc.cluster.local:8080` depending on your Route/Service). The default in `base/admin/deployment.yaml` points at the in-cluster Open WebUI Service.
+   - `SYNESIS_OPENWEBUI_ADMIN_TOKEN` — a **Bearer** token for an Open WebUI **admin** user (JWT from login, or a Personal Access Token if your Open WebUI version accepts it on the export route). Optional: create Secret `synesis-openwebui-admin-token` with key `token` (see deployment env); if unset, sync returns a configure error until set.
+2. In Admin → **Chat Feedback**, click **Sync from Open WebUI**. This calls Open WebUI `GET /api/v1/evaluations/feedbacks/all/export` (falls back to `/api/v1/evaluations/feedbacks/all` if export returns 404) and upserts into `openwebui_feedback`.
 
-Re-run sync periodically or after bursts of user feedback if you want the admin list to stay current.
+Re-run sync after bursts of user feedback when you want the admin list updated (manual sync is the default workflow).
 
 ## Open WebUI Integration
 

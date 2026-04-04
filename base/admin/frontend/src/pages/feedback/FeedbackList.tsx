@@ -67,9 +67,9 @@ export default function FeedbackList() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Feedback</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Chat Feedback</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Planner thumbs and Open WebUI feedback triage. Route retrieval issues to RAG Retrieval Gaps and source
+            Triage chat thumbs and Open WebUI ratings. Route retrieval issues to Retrieval Gaps and source
             recommendations to Curator.
           </p>
           {error ? (
@@ -205,6 +205,17 @@ export default function FeedbackList() {
             {
               key: "model",
               label: "Model",
+            },
+            {
+              key: "message_id",
+              label: "Msg ID",
+              className: "max-w-[8rem] truncate font-mono text-xs",
+              render: (r) => {
+                const mid = String(r.message_id ?? "");
+                if (!mid) return <span className="text-gray-400">—</span>;
+                const short = mid.length > 14 ? `${mid.slice(0, 12)}…` : mid;
+                return <span title={mid}>{short}</span>;
+              },
             },
             {
               key: "run_id",

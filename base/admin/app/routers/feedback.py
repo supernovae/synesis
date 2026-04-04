@@ -47,6 +47,10 @@ def _extract_run_id(obj: Any) -> str | None:
         rid = obj.get("run_id")
         if isinstance(rid, str) and rid.strip():
             return rid.strip()
+        # Open WebUI stores planner trace on assistant message (middleware upsert)
+        syn = obj.get("synesis_run_id")
+        if isinstance(syn, str) and syn.strip():
+            return syn.strip()
         for v in obj.values():
             found = _extract_run_id(v)
             if found:
@@ -177,6 +181,7 @@ def _unified_from_openwebui(row: OpenWebUIFeedback) -> dict[str, Any]:
     prompt, response = _owui_snippets(meta, snapshot)
     vote = _owui_rating_to_vote(data)
     run_id = _extract_run_id(snapshot) or _extract_run_id(meta) or ""
+    ow_message_id = str(meta.get("message_id") or "")
     tags = data.get("tags") if isinstance(data.get("tags"), list) else []
     tags_s = [str(t) for t in tags][:20]
     reason = str(data.get("reason") or "")
@@ -198,7 +203,7 @@ def _unified_from_openwebui(row: OpenWebUIFeedback) -> dict[str, Any]:
         "task_size": "",
         "timestamp": ts_iso,
         "run_id": run_id,
-        "message_id": "",
+        "message_id": ow_message_id,
         "trace_href": f"/traces/{run_id}" if run_id else None,
         "feedback_type": row.feedback_type,
         "reason": reason[:500],
@@ -316,41 +321,7 @@ async def patch_feedback_workspace(
     return {"status": "ok", "subject_key": sk}
 
 
-@router.post("/sync-openwebui")
-async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
-    base = OPENWEBUI_URL.rstrip("/")
-    token = OPENWEBUI_ADMIN_TOKEN
-    if not base or not token:
-        raise HTTPException(
-            status_code=400,
-            detail="Configure SYNESIS_OPENWEBUI_URL and SYNESIS_OPENWEBUI_ADMIN_TOKEN on synesis-admin",
-        )
-    export_url = f"{base}/api/v1/evaluations/feedbacks/all/export"
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.get(
-                export_url,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            resp.raise_for_status()
-            items = resp.json()
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            "openwebui_sync_http status=%s body=%s",
-            exc.response.status_code,
-            (exc.response.text or "")[:200],
-        )
-        raise HTTPException(
-            status_code=502,
-            detail=f"Open WebUI export failed: HTTP {exc.response.status_code}",
-        ) from exc
-    except Exception as exc:
-        logger.warning("openwebui_sync_error error=%s", str(exc)[:120])
-        raise HTTPException(status_code=502, detail=f"Open WebUI sync failed: {exc!s}") from exc
-
-    if not isinstance(items, list):
-        raise HTTPException(status_code=502, detail="Open WebUI export returned unexpected JSON")
-
+async def _upsert_openwebui_feedback_rows(items: list[Any]) -> int:
     n = 0
     async with async_session() as session:
         for row in items:
@@ -382,7 +353,52 @@ async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
                 session.add(blob)
             n += 1
         await session.commit()
+    return n
 
+
+@router.post("/sync-openwebui")
+async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
+    base = OPENWEBUI_URL.rstrip("/")
+    token = OPENWEBUI_ADMIN_TOKEN
+    if not base or not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure SYNESIS_OPENWEBUI_URL and SYNESIS_OPENWEBUI_ADMIN_TOKEN on synesis-admin",
+        )
+    export_url = f"{base}/api/v1/evaluations/feedbacks/all/export"
+    fallback_url = f"{base}/api/v1/evaluations/feedbacks/all"
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.get(
+                export_url,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 404:
+                logger.info("openwebui_sync_fallback export 404, trying /feedbacks/all")
+                resp = await client.get(
+                    fallback_url,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            resp.raise_for_status()
+            items = resp.json()
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "openwebui_sync_http status=%s body=%s",
+            exc.response.status_code,
+            (exc.response.text or "")[:200],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Open WebUI export failed: HTTP {exc.response.status_code}",
+        ) from exc
+    except Exception as exc:
+        logger.warning("openwebui_sync_error error=%s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail=f"Open WebUI sync failed: {exc!s}") from exc
+
+    if not isinstance(items, list):
+        raise HTTPException(status_code=502, detail="Open WebUI export returned unexpected JSON")
+
+    n = await _upsert_openwebui_feedback_rows(items)
     return {"status": "synced", "rows": n}
 
 

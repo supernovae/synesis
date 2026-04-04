@@ -93,16 +93,21 @@ export function writeFinalChunk(
       estimated_cost_usd?: number;
       actual_cost_usd?: number;
     };
+    run_id?: string;
+    authz_trace_id?: string;
   }
 ): void {
-  writeSseData(response, {
+  const body: Record<string, unknown> = {
     id: payload.id,
     object: "chat.completion.chunk",
     created: payload.created,
     model: payload.model,
     choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
     usage: payload.usage
-  });
+  };
+  if (payload.run_id) body.run_id = payload.run_id;
+  if (payload.authz_trace_id) body.authz_trace_id = payload.authz_trace_id;
+  writeSseData(response, body);
 }
 
 export function endSse(response: ServerResponse): void {
