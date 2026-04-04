@@ -50,6 +50,10 @@ spec:
               value: "/app/backend/data/static"
             - name: WEBUI_AUTH
               value: "true"
+            # New accounts (including OIDC): use "user" so Keycloak-approved users are not stuck in
+            # Open WebUI "pending" (default is pending). IdP access is still gated by OAUTH_ALLOWED_ROLES.
+            - name: DEFAULT_USER_ROLE
+              value: "user"
             - name: ENABLE_SIGNUP
               value: "false"
             # Keycloak-only login: hide the local email/password form.

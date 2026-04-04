@@ -78,6 +78,8 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 
 Production WebUI uses Keycloak OIDC with **`OAUTH_ALLOWED_ROLES`** (see [`base/webui/deployment.yaml`](../../base/webui/deployment.yaml)): users need the **`synesis-user`** or **`synesis-admin`** **realm role** in the **`synesis`** realm. Self-registration normally assigns **`synesis-user`** via realm default roles; **manually created** users may need **`synesis-user`** assigned in Keycloak. For a concise table (WebUI vs Synesis Admin vs in-app admin), see [KEYCLOAK_BOOTSTRAP.md](admin/KEYCLOAK_BOOTSTRAP.md#realm-roles-open-webui-vs-synesis-admin).
 
+**Pending vs active in Open WebUI:** Open WebUI’s own role for new users is controlled by **`DEFAULT_USER_ROLE`** (`pending`, `user`, or `admin`). Synesis sets **`DEFAULT_USER_ROLE=user`** so users who complete OIDC are not left in **pending** awaiting a WebUI admin—Keycloak has already enforced allowed realm roles. To require manual approval inside Open WebUI anyway, you would set **`DEFAULT_USER_ROLE=pending`** (not recommended when using Keycloak as the gate).
+
 ## Resource Requirements
 
 | Environment | CPU Request | Memory | Storage |
