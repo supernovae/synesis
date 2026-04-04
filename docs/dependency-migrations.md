@@ -55,6 +55,6 @@ Dashboards (Grafana/Jaeger/Tempo) that filter by **service name** should use `OT
 
 - [OpenTelemetry JS: upgrade to 2.x](https://github.com/open-telemetry/opentelemetry-js/blob/main/doc/upgrade-to-2.x.md)
 
-### Superseded Dependabot PRs
+### Superseded Dependabot PRs (closed)
 
-- #22, #36, #37, #39 — partial / misaligned OTel bumps; supersede by this upgrade (close those PRs once merged).
+- #22, #36, #37, #39 — partial / misaligned OTel bumps; superseded by **PR #44** (merged).
