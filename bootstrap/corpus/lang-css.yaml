@@ -1,0 +1,85 @@
+items:
+- uri: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference
+  handler: web_page
+  title: MDN CSS Reference
+  domain: css
+  authority: vetted
+  origin_type: curated
+  tags:
+  - css
+  - web
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - css
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - language-spec
+  - css
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 6
+    max_pages: 220
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://developer.mozilla.org/en-US/docs/Web/CSS/
+- uri: https://github.com/w3c/csswg-drafts/tree/main
+  handler: github_markdown
+  title: CSS Working Group Draft Specs
+  domain: css
+  authority: canonical
+  origin_type: curated
+  tags:
+  - css
+  - specification
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - css
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - css
+  constraint_kind: hard
+  config:
+    repo: w3c/csswg-drafts
+    branch: main
+    path: .
+- uri: https://github.com/tailwindlabs/tailwindcss/tree/master/src
+  handler: github_code
+  title: Tailwind CSS Source
+  domain: css
+  authority: vetted
+  origin_type: curated
+  tags:
+  - css
+  - tailwind
+  - framework
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - css
+  - javascript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - css
+  constraint_kind: guiding
+  config:
+    repo: tailwindlabs/tailwindcss
+    branch: master
+    paths:
+    - src
+    - packages

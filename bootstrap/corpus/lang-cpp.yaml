@@ -1,0 +1,84 @@
+items:
+- uri: https://en.cppreference.com/w/cpp
+  handler: web_page
+  title: C++ Reference (cppreference)
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - c++
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - cpp
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 6
+    max_pages: 220
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://en.cppreference.com/w/cpp
+- uri: https://github.com/llvm/llvm-project/tree/main/libcxx
+  handler: github_code
+  title: libc++ Source
+  domain: cpp
+  authority: canonical
+  origin_type: curated
+  tags:
+  - cpp
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - cpp
+  constraint_kind: hard
+  config:
+    repo: llvm/llvm-project
+    branch: main
+    paths:
+    - libcxx
+    - clang-tools-extra
+- uri: https://github.com/isocpp/CppCoreGuidelines/tree/master
+  handler: github_markdown
+  title: C++ Core Guidelines Source
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - guidelines
+  - style
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - cpp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - style-guide
+  - cpp
+  constraint_kind: guiding
+  config:
+    repo: isocpp/CppCoreGuidelines
+    branch: master
+    path: .

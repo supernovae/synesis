@@ -308,3 +308,57 @@ items:
     max_pages: 80
     respect_robots: true
     min_request_interval: 0.4
+- uri: https://github.com/nodejs/node/tree/main/lib
+  handler: github_code
+  title: Node.js Runtime Source (lib + docs)
+  domain: javascript
+  authority: canonical
+  origin_type: curated
+  tags:
+  - javascript
+  - nodejs
+  - runtime
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - javascript
+  constraint_kind: hard
+  config:
+    repo: nodejs/node
+    branch: main
+    paths:
+    - lib
+    - doc/api
+- uri: https://github.com/tc39/ecma262/tree/main/spec.html
+  handler: github_markdown
+  title: ECMAScript Spec Source (ECMA-262)
+  domain: javascript
+  authority: canonical
+  origin_type: curated
+  tags:
+  - javascript
+  - ecmascript
+  - specification
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - javascript
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - javascript
+  constraint_kind: hard
+  config:
+    repo: tc39/ecma262
+    branch: main
+    path: spec.html

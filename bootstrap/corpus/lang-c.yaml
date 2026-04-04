@@ -1,0 +1,87 @@
+items:
+- uri: https://en.cppreference.com/w/c
+  handler: web_page
+  title: C Reference (cppreference)
+  domain: c
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - language
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - c
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 90
+  scope_tags:
+  - language-spec
+  - c
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 6
+    max_pages: 220
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://en.cppreference.com/w/c
+- uri: https://github.com/llvm/llvm-project/tree/main/clang/include
+  handler: github_code
+  title: Clang C Frontend Source Headers
+  domain: c
+  authority: canonical
+  origin_type: curated
+  tags:
+  - c
+  - clang
+  - compiler
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - c
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - c
+  constraint_kind: hard
+  config:
+    repo: llvm/llvm-project
+    branch: main
+    paths:
+    - clang/include
+    - clang/lib
+- uri: https://github.com/bminor/musl/tree/master/include
+  handler: github_code
+  title: musl libc Headers and Source
+  domain: c
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - libc
+  - stdlib
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - c
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - c
+  constraint_kind: guiding
+  config:
+    repo: bminor/musl
+    branch: master
+    paths:
+    - include
+    - src

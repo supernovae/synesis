@@ -1,0 +1,84 @@
+items:
+- uri: https://kotlinlang.org/docs/home.html
+  handler: web_page
+  title: Kotlin Documentation
+  domain: kotlin
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - language
+  - docs
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - language-spec
+  - kotlin
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 6
+    max_pages: 220
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://kotlinlang.org/docs/
+- uri: https://github.com/JetBrains/kotlin/tree/master/compiler
+  handler: github_code
+  title: Kotlin Compiler Source
+  domain: kotlin
+  authority: canonical
+  origin_type: curated
+  tags:
+  - kotlin
+  - compiler
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - kotlin
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - kotlin
+  constraint_kind: hard
+  config:
+    repo: JetBrains/kotlin
+    branch: master
+    paths:
+    - compiler
+    - libraries/stdlib
+- uri: https://github.com/Kotlin/kotlinx.coroutines/tree/master/docs
+  handler: github_markdown
+  title: kotlinx.coroutines Docs Source
+  domain: kotlin
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - coroutines
+  - async
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - kotlin
+  artifact_kind: docs
+  content_profile: procedural
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - kotlin
+  constraint_kind: guiding
+  config:
+    repo: Kotlin/kotlinx.coroutines
+    branch: master
+    path: docs

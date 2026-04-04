@@ -1,0 +1,84 @@
+items:
+- uri: https://docs.ruby-lang.org/en/master/
+  handler: web_page
+  title: Ruby Core Documentation
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - stdlib
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - stdlib-reference
+  - ruby
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 6
+    max_pages: 220
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.ruby-lang.org/en/
+- uri: https://github.com/ruby/ruby/tree/master/lib
+  handler: github_code
+  title: Ruby Standard Library Source
+  domain: ruby
+  authority: canonical
+  origin_type: curated
+  tags:
+  - ruby
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - ruby
+  constraint_kind: hard
+  config:
+    repo: ruby/ruby
+    branch: master
+    paths:
+    - lib
+    - doc
+- uri: https://github.com/rubocop/rubocop/tree/master/docs
+  handler: github_markdown
+  title: RuboCop Rules Source Docs
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - rubocop
+  - linter
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - ruby
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - linter-rules
+  - ruby
+  constraint_kind: guiding
+  config:
+    repo: rubocop/rubocop
+    branch: master
+    path: docs

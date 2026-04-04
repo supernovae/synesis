@@ -437,3 +437,31 @@ items:
     branch: master
     paths:
     - src/go/doc/comment
+- uri: https://github.com/golang/tools/tree/master
+  handler: github_code
+  title: Go Tools Source (x/tools)
+  domain: go
+  authority: canonical
+  origin_type: curated
+  tags:
+  - go
+  - tools
+  - analysis
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - go
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - go
+  constraint_kind: guiding
+  config:
+    repo: golang/tools
+    branch: master
+    paths:
+    - gopls
+    - go

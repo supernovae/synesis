@@ -361,3 +361,56 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://rust-lang.github.io/rustfmt/
+- uri: https://github.com/rust-lang/rust/tree/master/library
+  handler: github_code
+  title: Rust Stdlib Source (library)
+  domain: rust
+  authority: canonical
+  origin_type: curated
+  tags:
+  - rust
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - rust
+  constraint_kind: hard
+  config:
+    repo: rust-lang/rust
+    branch: master
+    paths:
+    - library
+    - src/tools/rustdoc
+- uri: https://github.com/rust-lang/rfcs/tree/master/text
+  handler: github_markdown
+  title: Rust RFCs Source Markdown
+  domain: rust
+  authority: canonical
+  origin_type: curated
+  tags:
+  - rust
+  - rfc
+  - specification
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - rust
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - rust
+  constraint_kind: hard
+  config:
+    repo: rust-lang/rfcs
+    branch: master
+    path: text

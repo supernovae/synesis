@@ -451,3 +451,57 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://setuptools.pypa.io/
+- uri: https://github.com/python/cpython/tree/main/Lib
+  handler: github_code
+  title: CPython Standard Library Source
+  domain: python
+  authority: canonical
+  origin_type: curated
+  tags:
+  - python
+  - cpython
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - python
+  constraint_kind: hard
+  config:
+    repo: python/cpython
+    branch: main
+    paths:
+    - Lib
+    - Modules
+- uri: https://github.com/python/peps/tree/main/peps
+  handler: github_markdown
+  title: Python PEPs Source Markdown
+  domain: python
+  authority: canonical
+  origin_type: curated
+  tags:
+  - python
+  - pep
+  - specification
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - python
+  artifact_kind: specification
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - python
+  constraint_kind: hard
+  config:
+    repo: python/peps
+    branch: main
+    path: peps

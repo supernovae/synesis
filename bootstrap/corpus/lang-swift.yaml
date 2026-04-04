@@ -1,0 +1,83 @@
+items:
+- uri: https://www.swift.org/documentation/
+  handler: web_page
+  title: Swift Documentation
+  domain: swift
+  authority: vetted
+  origin_type: curated
+  tags:
+  - swift
+  - language
+  - reference
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - swift
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 60
+  scope_tags:
+  - language-spec
+  - swift
+  constraint_kind: hard
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 6
+    max_pages: 220
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.swift.org/documentation/
+- uri: https://github.com/swiftlang/swift/tree/main/stdlib
+  handler: github_code
+  title: Swift Standard Library Source
+  domain: swift
+  authority: canonical
+  origin_type: curated
+  tags:
+  - swift
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - swift
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - swift
+  constraint_kind: hard
+  config:
+    repo: swiftlang/swift
+    branch: main
+    paths:
+    - stdlib
+    - test
+- uri: https://github.com/swiftlang/swift-book/tree/main/TSPL.docc
+  handler: github_markdown
+  title: The Swift Programming Language Book Source
+  domain: swift
+  authority: canonical
+  origin_type: curated
+  tags:
+  - swift
+  - tutorial
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - swift
+  artifact_kind: tutorial
+  content_profile: conceptual
+  freshness_sla_days: 30
+  scope_tags:
+  - common-patterns
+  - swift
+  constraint_kind: guiding
+  config:
+    repo: swiftlang/swift-book
+    branch: main
+    path: TSPL.docc

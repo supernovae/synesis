@@ -465,3 +465,59 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
+- uri: https://github.com/microsoft/TypeScript/tree/main/src
+  handler: github_code
+  title: TypeScript Compiler Source
+  domain: typescript
+  authority: canonical
+  origin_type: curated
+  tags:
+  - typescript
+  - compiler
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - typescript
+  constraint_kind: hard
+  config:
+    repo: microsoft/TypeScript
+    branch: main
+    paths:
+    - src
+    - tests/cases
+- uri: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types
+  handler: github_code
+  title: DefinitelyTyped Type Definitions
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - typings
+  - ecosystem
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - typescript
+  - javascript
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - typescript
+  constraint_kind: guiding
+  config:
+    repo: DefinitelyTyped/DefinitelyTyped
+    branch: master
+    paths:
+    - types

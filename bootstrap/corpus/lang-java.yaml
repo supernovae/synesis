@@ -362,3 +362,57 @@ items:
     min_request_interval: 0.4
     allowed_prefixes:
     - https://errorprone.info/
+- uri: https://github.com/openjdk/jdk/tree/master/src/java.base
+  handler: github_code
+  title: OpenJDK java.base Source
+  domain: java
+  authority: canonical
+  origin_type: curated
+  tags:
+  - java
+  - jdk
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - java
+  constraint_kind: hard
+  config:
+    repo: openjdk/jdk
+    branch: master
+    paths:
+    - src/java.base
+    - src/java.sql
+- uri: https://github.com/openjdk/jdk/tree/master/doc
+  handler: github_markdown
+  title: OpenJDK Docs Source Markdown
+  domain: java
+  authority: canonical
+  origin_type: curated
+  tags:
+  - java
+  - jdk
+  - docs
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - java
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - java
+  constraint_kind: hard
+  config:
+    repo: openjdk/jdk
+    branch: master
+    path: doc

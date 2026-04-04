@@ -366,3 +366,56 @@ items:
     max_pages: 80
     respect_robots: true
     min_request_interval: 0.4
+- uri: https://github.com/dotnet/runtime/tree/main/src/libraries
+  handler: github_code
+  title: .NET Runtime Libraries Source
+  domain: csharp
+  authority: canonical
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - stdlib
+  - source
+  priority: 1
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: code
+  content_profile: code
+  freshness_sla_days: 30
+  scope_tags:
+  - stdlib-reference
+  - csharp
+  constraint_kind: hard
+  config:
+    repo: dotnet/runtime
+    branch: main
+    paths:
+    - src/libraries
+    - src/tests
+- uri: https://github.com/dotnet/docs/tree/main/docs/csharp
+  handler: github_markdown
+  title: C# Docs Source Markdown
+  domain: csharp
+  authority: canonical
+  origin_type: curated
+  tags:
+  - csharp
+  - docs
+  - source
+  priority: 2
+  corpus_class: coder_enriched
+  languages:
+  - csharp
+  artifact_kind: docs
+  content_profile: reference
+  freshness_sla_days: 30
+  scope_tags:
+  - language-spec
+  - csharp
+  constraint_kind: hard
+  config:
+    repo: dotnet/docs
+    branch: main
+    path: docs/csharp
