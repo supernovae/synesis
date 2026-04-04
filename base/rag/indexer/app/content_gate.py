@@ -251,6 +251,7 @@ class GatePolicy:
     allowed_hosts: list[str] = field(default_factory=list)
     allowed_prefixes: list[str] = field(default_factory=list)
     blocked_prefixes: list[str] = field(default_factory=list)
+    disallow_dotted_first_path_segment: bool = False
     min_chunk_quality: float = 0.25
     min_chunk_words: int = 30
     min_chunk_words_absolute: int = 8
@@ -371,6 +372,11 @@ def url_passes_filter(
         explicit_prefix_match = _url_matches_any_allowed_prefix(url, policy.allowed_prefixes)
         if not explicit_prefix_match:
             return False, f"not under allowed prefix: {url[:120]}"
+
+    if policy.disallow_dotted_first_path_segment:
+        parts = [p for p in path.split("/") if p]
+        if parts and "." in parts[0]:
+            return False, f"blocked dotted first segment: {parts[0]}"
 
     for bp in policy.blocked_prefixes:
         if path.startswith(bp):

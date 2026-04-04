@@ -120,10 +120,15 @@ class WebPageHandler:
         prefixes = config.get("allowed_prefixes")
         if prefixes and isinstance(prefixes, list):
             policy.allowed_prefixes = prefixes
+        blocked_prefixes = config.get("blocked_prefixes")
+        if blocked_prefixes and isinstance(blocked_prefixes, list):
+            policy.blocked_prefixes = blocked_prefixes
         if config.get("allow_blog"):
             policy.allow_blog = True
         if "max_depth" in config and isinstance(config["max_depth"], int):
             policy.max_depth = max(0, int(config["max_depth"]))
+        if "disallow_dotted_first_path_segment" in config:
+            policy.disallow_dotted_first_path_segment = bool(config.get("disallow_dotted_first_path_segment"))
         return policy
 
 

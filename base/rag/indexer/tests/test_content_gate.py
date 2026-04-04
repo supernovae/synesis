@@ -141,6 +141,14 @@ class TestUrlFilter:
         assert not ok
         assert "blocked prefix" in reason
 
+    def test_disallow_dotted_first_path_segment(self):
+        policy = GatePolicy(disallow_dotted_first_path_segment=True)
+        ok_std, _ = url_passes_filter("https://pkg.go.dev/net/http", policy)
+        assert ok_std
+        ok_mod, reason = url_passes_filter("https://pkg.go.dev/41.neocities.org/protobuf", policy)
+        assert not ok_mod
+        assert "dotted first segment" in reason
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Page Quality Scoring

@@ -89,6 +89,7 @@ items:
     max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
+    disallow_dotted_first_path_segment: true
     allowed_prefixes:
     - https://pkg.go.dev/
 - uri: https://github.com/golang/go/tree/master/src
@@ -239,6 +240,7 @@ items:
     max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
+    disallow_dotted_first_path_segment: true
     allowed_prefixes:
     - https://pkg.go.dev/
 - uri: https://go.dev/blog/
@@ -361,6 +363,7 @@ items:
     max_links_per_page: 120
     respect_robots: true
     min_request_interval: 0.4
+    disallow_dotted_first_path_segment: true
     allowed_prefixes:
     - https://pkg.go.dev/
 - uri: https://go.dev/doc/comment
