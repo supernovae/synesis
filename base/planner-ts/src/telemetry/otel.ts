@@ -39,19 +39,21 @@ export async function initOtel(config: AppConfig): Promise<void> {
     const { NodeTracerProvider } = await import("@opentelemetry/sdk-trace-node");
     const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
     const { BatchSpanProcessor } = await import("@opentelemetry/sdk-trace-base");
-    const { Resource } = await import("@opentelemetry/resources");
+    const { resourceFromAttributes } = await import("@opentelemetry/resources");
     const { ATTR_SERVICE_NAME } = await import("@opentelemetry/semantic-conventions");
     const otelApi = await import("@opentelemetry/api");
 
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: config.OTEL_SERVICE_NAME,
     });
     const exporter = new OTLPTraceExporter({
       url: config.OTEL_EXPORTER_OTLP_ENDPOINT,
     });
 
-    const provider = new NodeTracerProvider({ resource });
-    provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+    const provider = new NodeTracerProvider({
+      resource,
+      spanProcessors: [new BatchSpanProcessor(exporter)],
+    });
     provider.register();
 
     const tracer = provider.getTracer(config.OTEL_SERVICE_NAME);

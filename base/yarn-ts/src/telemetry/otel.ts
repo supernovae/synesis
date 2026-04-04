@@ -2,8 +2,7 @@
  * Optional OpenTelemetry bootstrap for TS Yarn.
  *
  * Activated when SYNESIS_YARN_OTEL_ENABLED=true and OTEL_EXPORTER_OTLP_ENDPOINT
- * is set. Uses the OTLP/gRPC exporter and auto-discovers Fastify/HTTP spans
- * through the Node.js auto-instrumentation conventions.
+ * is set. Uses OTLP/HTTP protobuf export (OpenTelemetry JS SDK 2.x).
  *
  * When disabled, `getTracer()` returns the no-op tracer so call-sites can
  * instrument unconditionally without runtime cost.
@@ -20,12 +19,16 @@ export interface OtelTracer {
 export interface OtelSpan {
   setAttribute(key: string, value: string | number | boolean): void;
   setStatus(code: "ok" | "error", message?: string): void;
+  traceparent(): string | undefined;
   end(): void;
 }
 
 const noopSpan: OtelSpan = {
   setAttribute() {},
   setStatus() {},
+  traceparent() {
+    return undefined;
+  },
   end() {},
 };
 
@@ -92,10 +95,10 @@ export async function initOtel(config: AppConfig): Promise<void> {
     const { NodeTracerProvider } = await import("@opentelemetry/sdk-trace-node");
     const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
     const { BatchSpanProcessor } = await import("@opentelemetry/sdk-trace-base");
-    const { Resource } = await import("@opentelemetry/resources");
+    const { resourceFromAttributes } = await import("@opentelemetry/resources");
     const { ATTR_SERVICE_NAME } = await import("@opentelemetry/semantic-conventions");
 
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: config.OTEL_SERVICE_NAME,
     });
 
@@ -103,8 +106,10 @@ export async function initOtel(config: AppConfig): Promise<void> {
       url: config.OTEL_EXPORTER_OTLP_ENDPOINT,
     });
 
-    const provider = new NodeTracerProvider({ resource });
-    provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+    const provider = new NodeTracerProvider({
+      resource,
+      spanProcessors: [new BatchSpanProcessor(exporter)],
+    });
     provider.register();
 
     const otelApi = await import("@opentelemetry/api");
@@ -127,6 +132,12 @@ export async function initOtel(config: AppConfig): Promise<void> {
               code: code === "ok" ? otelApi.SpanStatusCode.OK : otelApi.SpanStatusCode.ERROR,
               message,
             });
+          },
+          traceparent() {
+            const ctx = span.spanContext();
+            if (!ctx?.traceId || !ctx?.spanId) return undefined;
+            const flags = Number(ctx.traceFlags ?? 0).toString(16).padStart(2, "0");
+            return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
           },
           end() {
             span.end();

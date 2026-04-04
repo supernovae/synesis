@@ -148,12 +148,12 @@ Enable diagnostic persistence to Redis and OpenTelemetry tracing.
 | `SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED` | `true` |
 | `SYNESIS_YARN_DIAGNOSTIC_REDIS_TTL_S` | `86400` (default, 24h) |
 | `SYNESIS_YARN_OTEL_ENABLED` | `true` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `<your collector endpoint>` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `<your collector OTLP HTTP URL>` (e.g. `http://otel-collector:4318/v1/traces` — Synesis uses **OTLP/HTTP protobuf** via OpenTelemetry JS SDK 2.x; see [`docs/dependency-migrations.md`](../dependency-migrations.md)) |
 
 ### Health gates
 
 1. `GET /v1/diagnostics/:requestId` returns stored diagnostics for recent requests
-2. Trace spans visible in your OTEL collector (Jaeger/Tempo)
+2. Trace spans visible in your OTEL collector (Jaeger/Tempo) with service name matching `OTEL_SERVICE_NAME`
 3. `diagnosticPersistence` shows `true` in telemetry
 4. Redis memory usage is stable (TTL eviction working)
 5. No performance regression from OTEL span overhead (< 5ms P95 increase)
