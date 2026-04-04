@@ -74,11 +74,17 @@ The **Chat Feedback** page calls the planner `GET /v1/feedback` and merges rows 
 
 Open WebUI stores “Submit feedback” / evaluation data in **its own** SQLite database (`POST /api/v1/evaluations/feedback` — see [Open WebUI evaluations API](https://github.com/open-webui/open-webui/blob/main/src/lib/apis/evaluations/index.ts)). That does **not** call Synesis automatically.
 
+**Not the same as `webui-api-key`:** `./scripts/deploy.sh` syncs **`webui-api-key`** (and related LiteLLM material) so **Open WebUI → planner-ts** chat requests use a shared Bearer key. That key authenticates the **client to the planner**. **`SYNESIS_OPENWEBUI_ADMIN_TOKEN`** is different: it is whatever **Open WebUI’s HTTP API** accepts as an **admin** when **synesis-admin** calls **Open WebUI** at `/api/v1/evaluations/...`. Synesis does not generate or rotate that credential; you supply it (see below).
+
 To show it in Synesis Admin:
 
 1. On **synesis-admin**, set:
    - `SYNESIS_OPENWEBUI_URL` — public or in-cluster base URL (e.g. `https://synesis.apps...` or `http://open-webui.synesis-webui.svc.cluster.local:8080` depending on your Route/Service). The default in `base/admin/deployment.yaml` points at the in-cluster Open WebUI Service.
-   - `SYNESIS_OPENWEBUI_ADMIN_TOKEN` — a **Bearer** token for an Open WebUI **admin** user (JWT from login, or a Personal Access Token if your Open WebUI version accepts it on the export route). Optional: create Secret `synesis-openwebui-admin-token` with key `token` (see deployment env); if unset, sync returns a configure error until set.
+   - `SYNESIS_OPENWEBUI_ADMIN_TOKEN` — **Bearer** value that Open WebUI treats as an **admin** for the evaluations routes. In practice this is usually either:
+     - a **session JWT** from an admin browser session (copy from `Authorization` on a request to `/api/v1/...` in devtools), or  
+     - a **Personal Access Token** (or equivalent) **issued inside Open WebUI** for API access, *if* your Open WebUI version accepts it on `GET /api/v1/evaluations/feedbacks/all/export`.  
+     It is **not** the planner/LiteLLM “API key” env that deploy.sh wires into the WebUI pod.  
+     Optional: create Secret `synesis-openwebui-admin-token` with key `token` (see deployment env); if unset, sync returns a configure error until set.
 2. In Admin → **Chat Feedback**, click **Sync from Open WebUI**. This calls Open WebUI `GET /api/v1/evaluations/feedbacks/all/export` (falls back to `/api/v1/evaluations/feedbacks/all` if export returns 404) and upserts into `openwebui_feedback`.
 
 Re-run sync after bursts of user feedback when you want the admin list updated (manual sync is the default workflow).

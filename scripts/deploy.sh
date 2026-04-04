@@ -39,8 +39,9 @@ set -euo pipefail
 #   - synesis-admin calls Open WebUI GET /api/v1/evaluations/feedbacks/all/export (see docs/FEEDBACK_API.md).
 #   - Default SYNESIS_OPENWEBUI_URL in base/admin/deployment.yaml points at the in-cluster Service
 #     (open-webui.synesis-webui.svc.cluster.local:8080). Override only if WebUI is reached by a different URL.
-#   - Bearer token: deploy.sh does NOT generate this. Sign in to Open WebUI as an admin and use the session JWT,
-#     or use whatever admin API token your Open WebUI version documents for /api/v1/evaluations/*.
+#   - Bearer token (NOT webui-api-key): admin → Open WebUI /api/v1/evaluations/* credentials only.
+#     deploy.sh syncs webui-api-key for Open WebUI → planner chat; it does NOT mint OWUI admin API tokens.
+#     Use an admin session JWT (from browser) or an Open WebUI–issued PAT if your version accepts it on export.
 #     Export SYNESIS_OPENWEBUI_ADMIN_TOKEN before deploy to create/update Secret synesis-openwebui-admin-token
 #     (key: token) in synesis-admin; otherwise create that secret manually or sync returns 400 until configured.
 #   - Post-apply: synesis-admin is rollout-restarted when the secret was created/updated this run or
