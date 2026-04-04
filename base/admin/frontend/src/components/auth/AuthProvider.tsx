@@ -170,7 +170,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (_username: string, _password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
+    void username;
+    void password;
     throw new Error(
       "Local login was removed. Configure Keycloak (SYNESIS_KEYCLOAK_ISSUER_URL) or use a PAT.",
     );

@@ -243,7 +243,7 @@ export default function CostTracker() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="role" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
-                  <Tooltip formatter={(v: number) => `$${v.toFixed(6)}`} />
+                  <Tooltip formatter={(v) => (v == null ? "" : `$${Number(v).toFixed(6)}`)} />
                   <Legend />
                   <Bar dataKey="estimated_cost_usd" name="Estimated" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="actual_cost_usd" name="Actual" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -260,7 +260,7 @@ export default function CostTracker() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
-                  <Tooltip formatter={(v: number) => `$${v.toFixed(6)}`} />
+                  <Tooltip formatter={(v) => (v == null ? "" : `$${Number(v).toFixed(6)}`)} />
                   <Legend />
                   <Bar dataKey="estimated_cost_usd" name="Estimated" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="actual_cost_usd" name="Actual" fill="#10b981" radius={[4, 4, 0, 0]} />

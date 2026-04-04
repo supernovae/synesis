@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Pencil, Scale } from "lucide-react";
+import { Plus, Trash2, Scale } from "lucide-react";
 import client from "../../api/client";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 
@@ -39,7 +39,6 @@ export default function PolicyList() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterRuleType, setFilterRuleType] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "", description: "", scope: "org", scope_value: "", org_id: "",
     category: "quality", constraint_kind: "guiding", rule_type: "threshold",
@@ -59,14 +58,6 @@ export default function PolicyList() {
       queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
       setShowCreate(false);
       resetForm();
-    },
-  });
-
-  const updatePolicy = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => client.put(`/governance/policies/${id}`, body).then((r) => r.data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
-      setEditingId(null);
     },
   });
 

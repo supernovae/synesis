@@ -40,7 +40,7 @@ export default function NodePerformance() {
               <BarChart data={nodes}>
                 <XAxis dataKey="node" tick={{ fontSize: 11 }} />
                 <YAxis domain={[0, 1]} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => v.toFixed(3)} />
+                <Tooltip formatter={(v) => (v == null ? "" : Number(v).toFixed(3))} />
                 <Bar dataKey="avg_confidence" fill="#22c55e" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

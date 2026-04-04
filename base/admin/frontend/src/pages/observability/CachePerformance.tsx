@@ -167,7 +167,7 @@ export default function CachePerformance() {
                   tick={{ fontSize: 11 }}
                   tickFormatter={(v) => `${v}%`}
                 />
-                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Tooltip formatter={(v) => (v == null ? "" : `${Number(v)}%`)} />
                 <Legend />
                 <Line
                   type="monotone"

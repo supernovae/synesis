@@ -324,7 +324,10 @@ export default function YarnOverview() {
                       <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
                       <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                       <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                      <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v: number) => [v, "Requests"]} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12 }}
+                        formatter={(v) => [v == null ? 0 : Number(v), "Requests"]}
+                      />
                       <Area
                         type="monotone"
                         dataKey="requests"
