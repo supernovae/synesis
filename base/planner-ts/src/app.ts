@@ -56,12 +56,17 @@ import { DependencyHealthMonitor } from "./diagnostics/health-monitor.js";
 import { getTracer } from "./telemetry/otel.js";
 import { PromptRegistry } from "./prompt-registry.js";
 import { setPlannerPromptSnapshot } from "./prompt-composer.js";
+import { isLikelyClarificationAnswer } from "./clarification/clarification-answer-heuristic.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
   retryAfterSeconds?: number;
   policyDecision?: { matchedRules?: string[] };
 };
+
+/** When the graph finishes with no assistant text (and no structured error), surface this instead of an empty message. */
+const EMPTY_ASSISTANT_FALLBACK =
+  "I wasn't able to complete a response for this request. Please try again or rephrase your question.";
 
 const SAFE_ERROR_PATTERNS = [
   /^Missing Bearer token$/,
@@ -144,30 +149,6 @@ function resolveIncomingConversationId(
   }
 
   return { id: "", source: "none" };
-}
-
-function normalizeWords(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 3);
-}
-
-function isLikelyClarificationAnswer(
-  answer: string,
-  pending: { question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string },
-): boolean {
-  const trimmed = answer.trim();
-  if (!trimmed) return false;
-  if (/^([a-z]|[0-9]{1,2})[\)\.]?$/i.test(trimmed)) return false;
-  if (/\b(proceed|go ahead|use assumptions|continue)\b/i.test(trimmed)) return true;
-  if (trimmed.length >= 24) return true;
-
-  const haystack = `${pending.question} ${pending.options.join(" ")}`.toLowerCase();
-  const words = normalizeWords(trimmed);
-  return words.some((w) => haystack.includes(w));
 }
 
 function isLikelyQuizOptionAnswer(answer: string): boolean {
@@ -470,7 +451,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
     }
 
-    const pendingClarification = await sessionManager.consumePendingClarification(sessionKey);
+    const pendingClarification = await sessionManager.getPendingClarification(sessionKey);
     let mergedTaskText = taskText;
     const { latestUserContent, previousAssistantContent } = findLatestUserTurnWithPreviousAssistant(requestBody.messages);
     const applyQuizFollowupMerge = Boolean(
@@ -553,6 +534,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
       // Short quiz answers are context-dependent; avoid downgrading to trivial.
       baseState.plan_required = true;
       baseState.difficulty = Math.max(baseState.difficulty ?? 0, 0.45);
+    }
+
+    if (applyPendingClarification && pendingClarification) {
+      await sessionManager.clearPendingClarification(sessionKey);
     }
 
     return baseState;
@@ -1299,7 +1284,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
       if (!body.stream) {
         const reqStart = Date.now();
         const state = await invokeGraph(initialState);
-        const content = state.generated_code ?? "";
+        let content = state.generated_code ?? "";
+        if (!content.trim()) {
+          content = state.error?.trim()
+            ? `Something went wrong: ${state.error}`
+            : EMPTY_ASSISTANT_FALLBACK;
+        }
 
         if (config.SYNESIS_INJECTION_SCAN_ENABLED && content) {
           const outputScan = scanModelOutput(content);
@@ -1321,6 +1311,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
             assumptions: state.assumptions ?? [],
             originalTaskDescription: initialState.task_description,
           });
+          if (!(effectiveBody.conversation_id ?? "").trim()) {
+            request.log.warn(
+              { authzTraceId, sessionSource: resolvedSession.source },
+              "clarification_pending_stored_without_conversation_id",
+            );
+          }
         }
 
         spawnBackgroundCritic(state, request.log);
@@ -1421,7 +1417,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
           }
         }
 
-        const content = finalState.generated_code ?? "";
+        let content = finalState.generated_code ?? "";
+        if (!content.trim() && !streamingError) {
+          const filled = finalState.error?.trim()
+            ? `Something went wrong: ${finalState.error}`
+            : EMPTY_ASSISTANT_FALLBACK;
+          content = filled;
+          finalState = { ...finalState, generated_code: filled };
+        }
 
         // When the graph bypasses the writer (e.g. clarification → respond),
         // content is set in generated_code but never streamed. Emit it now.
@@ -1455,6 +1458,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
             assumptions: finalState.assumptions ?? [],
             originalTaskDescription: initialState.task_description,
           });
+          if (!(effectiveBody.conversation_id ?? "").trim()) {
+            request.log.warn(
+              { authzTraceId, sessionSource: resolvedSession.source },
+              "clarification_pending_stored_without_conversation_id",
+            );
+          }
         }
 
         spawnBackgroundCritic(finalState, request.log);

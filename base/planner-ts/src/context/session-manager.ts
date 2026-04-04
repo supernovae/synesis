@@ -256,24 +256,38 @@ export class SessionManager {
     });
   }
 
-  async consumePendingClarification(
+  /** Read pending clarification without mutating session (peek before merge validation). */
+  async getPendingClarification(
     key: string,
   ): Promise<{ question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string } | undefined> {
     if (!this.opts.enabled) return undefined;
-    let pending: { question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string } | undefined;
+    const session = await this.store.get(key);
+    return session?.pendingClarification;
+  }
+
+  /** Remove pending clarification after a validated merge (or explicit discard). */
+  async clearPendingClarification(key: string): Promise<void> {
+    if (!this.opts.enabled) return;
+    const existing = await this.store.get(key);
+    if (!existing?.pendingClarification) return;
     await this.store.mutate(key, this.opts.ttlMs, (current) => {
-      const session: SessionData = current ?? {
-        key,
-        lastSeenAt: this.now(),
-        history: [],
-      };
-      pending = session.pendingClarification;
-      if (pending) {
-        session.pendingClarification = undefined;
-        session.lastSeenAt = this.now();
-      }
+      const session: SessionData = current ?? existing;
+      delete session.pendingClarification;
+      session.lastSeenAt = this.now();
       return session;
     });
+  }
+
+  /**
+   * Atomically take and clear pending clarification (e.g. tests or rare call sites).
+   * Prefer getPendingClarification + clearPendingClarification after validation.
+   */
+  async consumePendingClarification(
+    key: string,
+  ): Promise<{ question: string; options: string[]; assumptions: string[]; originalTaskDescription?: string } | undefined> {
+    const pending = await this.getPendingClarification(key);
+    if (!pending) return undefined;
+    await this.clearPendingClarification(key);
     return pending;
   }
 

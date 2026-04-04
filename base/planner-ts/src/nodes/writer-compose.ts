@@ -28,6 +28,7 @@ import { getWorkerPersonaBlock } from "../taxonomy/vertical-prompts.js";
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 import { composePlannerPrompt } from "../prompt-composer.js";
 import { enforceMermaidHygiene } from "../security/mermaid-guard.js";
+import { isMetadataTagsOnlyJson } from "./writer-metadata-guard.js";
 
 export interface WriterResult {
   content: string;
@@ -242,7 +243,15 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
       messages: buildWriterMessages(state),
     });
     const cfg = loadConfig();
-    const content = result.content.trim() || fallback;
+    let content = result.content.trim() || fallback;
+    if (cfg.SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD && isMetadataTagsOnlyJson(content)) {
+      process.stderr.write(JSON.stringify({
+        level: 30,
+        msg: "writer: replaced metadata-only JSON (tags) with prose fallback",
+        time: Date.now(),
+      }) + "\n");
+      content = fallback;
+    }
     if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED) {
       return { content, usage: result.usage };
     }
@@ -288,7 +297,17 @@ export async function composeWriterDraftStream(
       onDelta,
     );
     const cfg = loadConfig();
-    const content = result.content.trim() || fallback;
+    let content = result.content.trim() || fallback;
+    if (cfg.SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD && isMetadataTagsOnlyJson(content)) {
+      process.stderr.write(JSON.stringify({
+        level: 30,
+        msg: "writer stream: metadata-only JSON (tags) detected; appending prose fallback",
+        time: Date.now(),
+      }) + "\n");
+      const repair = `\n\n${fallback}`;
+      onDelta({ content: repair });
+      content = `${content.trim()}${repair}`;
+    }
     if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED) {
       return { content, usage: result.usage };
     }

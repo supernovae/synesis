@@ -133,6 +133,12 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
+  /** When true, replace JSON-only `{"tags":[...]}`-style writer output with a prose fallback. */
+  SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
   // --- Injection scanning ---
   SYNESIS_INJECTION_SCAN_ENABLED: z
     .string()

@@ -1,3 +1,8 @@
+/**
+ * LangGraph topology: START → entry_pipeline → planner|writer|respond → … → respond → END.
+ * All branches must reach `respond` (timeouts and errors set next_node respond). Streaming uses
+ * streamGraph(), which yields a synthetic respond if the compiled run stops with next_node !== respond.
+ */
 import type { GraphState } from "./state/types.js";
 import type { StreamDelta } from "./llm/client.js";
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
@@ -204,6 +209,15 @@ export async function* streamGraph(
   }
 
   if (!lastState.next_node || lastState.next_node !== "respond") {
-    yield { node: "respond", state: lastState };
+    process.stderr.write(JSON.stringify({
+      level: 40,
+      msg: "streamGraph: forcing synthetic respond terminal; next_node was not respond",
+      next_node: lastState.next_node ?? null,
+      time: Date.now(),
+    }) + "\n");
+    yield {
+      node: "respond",
+      state: { ...lastState, next_node: "respond" },
+    };
   }
 }
