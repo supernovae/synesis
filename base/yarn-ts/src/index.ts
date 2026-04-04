@@ -72,6 +72,7 @@ import {
   defaultShellAllowlistFromEnv,
 } from "./tool-collapse/index.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
+import { synesisPolicyErrorExtension } from "./policy/policy-error-extension.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
 import {
   appendPathContextToAdapterBlock,
@@ -1507,6 +1508,31 @@ function toolLoopSoftFailMessage(decision: PolicyDecision): string {
   ].join(" ");
 }
 
+function policyRejectOpenAIBody(decision: PolicyDecision) {
+  const message = decision.rejectReason ?? "Policy rejected request.";
+  const synesis = synesisPolicyErrorExtension(decision.matchedRules);
+  return {
+    error: {
+      type: "invalid_request_error" as const,
+      message,
+      ...(synesis ? { synesis } : {}),
+    },
+  };
+}
+
+function policyRejectClaudeBody(decision: PolicyDecision) {
+  const message = decision.rejectReason ?? "Policy rejected request.";
+  const synesis = synesisPolicyErrorExtension(decision.matchedRules);
+  return {
+    type: "error" as const,
+    error: {
+      type: "invalid_request_error" as const,
+      message,
+      ...(synesis ? { synesis } : {}),
+    },
+  };
+}
+
 type HandshakeStatus = "pending" | "ready" | "unavailable";
 type SessionPathHints = {
   projectRoot: string | null;
@@ -2575,7 +2601,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
       return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
     }
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
+    return reply.code(400).send(policyRejectOpenAIBody(policyPrecheck));
   }
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
   const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
@@ -3779,10 +3805,7 @@ app.post("/v1/messages", async (req, reply) => {
       );
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
     }
-    return reply.code(400).send({
-      type: "error",
-      error: { type: "invalid_request_error", message: claudePolicyPrecheck.rejectReason ?? "Policy rejected request." }
-    });
+    return reply.code(400).send(policyRejectClaudeBody(claudePolicyPrecheck));
   }
 
   const claudeRole = TIER_TO_ROLE[claudeOrchestration.tier];
