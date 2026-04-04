@@ -16,7 +16,7 @@ set -euo pipefail
 # Optional:
 # - SYNESIS_ADMIN_URL (default: https://synesis-admin.apps.openshiftdemo.dev)
 # - SYNESIS_YARN_URL  (default: https://synesis-yarn.apps.openshiftdemo.dev)
-# - SYNESIS_TEST_AUTH for yarn retrieval checks
+# - SYNESIS_TEST_PAT_TOKEN or SYNESIS_TEST_AUTH (PAT) for yarn retrieval checks
 # - GO_FIRST_PURGE_PENDING=true (default) — DELETE all pending ingestion_items before enqueue
 #   (platform_admin PAT). Set to false to keep existing pending work.
 # - GO_FIRST_RELEASE_STALE_RUNNING_MINUTES=180 (default) — reset stuck running rows before purge
@@ -31,6 +31,8 @@ ADMIN_URL="${SYNESIS_ADMIN_URL:-https://synesis-admin.apps.openshiftdemo.dev}"
 YARN_URL="${SYNESIS_YARN_URL:-https://synesis-yarn.apps.openshiftdemo.dev}"
 ADMIN_TOKEN="${SYNESIS_ADMIN_TOKEN:-}"
 SYNESIS_TEST_AUTH="${SYNESIS_TEST_AUTH:-}"
+SYNESIS_TEST_PAT_TOKEN="${SYNESIS_TEST_PAT_TOKEN:-}"
+YARN_PROBE_TOKEN="${SYNESIS_TEST_PAT_TOKEN:-${SYNESIS_TEST_AUTH:-}}"
 RUN_RETRIEVAL_CHECKS="${RUN_RETRIEVAL_CHECKS:-true}"
 
 RAG_NS="${RAG_NS:-synesis-rag}"
@@ -288,8 +290,8 @@ if [[ "${RUN_RETRIEVAL_CHECKS}" != "true" ]]; then
   exit 0
 fi
 
-if [[ -z "${SYNESIS_TEST_AUTH}" ]]; then
-  log "SYNESIS_TEST_AUTH is not set; skipping retrieval checks"
+if [[ -z "${YARN_PROBE_TOKEN}" ]]; then
+  log "SYNESIS_TEST_PAT_TOKEN or SYNESIS_TEST_AUTH is not set; skipping retrieval checks"
   exit 0
 fi
 
@@ -308,7 +310,7 @@ log "Running basic Go retrieval probe"
 probe_code="$(curl -sS -o /tmp/go-first-yarn-probe.json -w '%{http_code}' \
   -X POST "${YARN_URL%/}/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${SYNESIS_TEST_AUTH}" \
+  -H "Authorization: Bearer ${YARN_PROBE_TOKEN}" \
   -d '{"model":"synesis-auto","messages":[{"role":"user","content":"In Go, does map iteration order have guaranteed stability? Answer in 2-3 sentences and include source links if available."}],"temperature":0.1}')"
 
 if [[ "${probe_code}" != "200" ]]; then

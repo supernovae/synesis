@@ -1,16 +1,21 @@
 # OpenAI-compatible API probing
 
-See also **[TESTING.md](./TESTING.md)** for the full CI vs manual test matrix.
+See **[CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md)** for GitHub Variables/Secrets aligned with CI. See also **[deprecated/TESTING.md](./deprecated/TESTING.md)** for the broader CI vs manual test matrix.
 
 ## Synesis probe (HTTP)
 
 Run against a reachable planner and/or Yarn base URL:
 
 ```bash
+# Local: probe-specific env names
 export SYNESIS_PROBE_PLANNER_URL=https://your-planner:8000   # with or without trailing /v1
 export SYNESIS_PROBE_TOKEN='syn-…'                         # optional; enables POST /v1/chat/completions
 # optional:
 export SYNESIS_PROBE_YARN_URL=https://your-yarn…
+
+# CI: repository variables SYNESIS_PLANNER_EVAL_URL / SYNESIS_YARN_EVAL_URL and secret
+# SYNESIS_TEST_PAT_TOKEN (see openai-compat-probe.yml). RAG/knowledge routes use
+# SYNESIS_INTERNAL_SERVICE_TOKEN separately — not this probe.
 
 python3 scripts/synesis_openai_capability_probe.py
 # strict exit code for automation (still not used as default CI gate):

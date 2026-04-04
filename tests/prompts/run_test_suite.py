@@ -22,6 +22,9 @@ Usage:
     python tests/prompts/run_test_suite.py --dry-run
 
 Requires: httpx, pyyaml (both in planner requirements already)
+
+API key env (first match wins): SYNESIS_TEST_PAT_TOKEN, SYNESIS_TEST_AUTH, SYNESIS_API_KEY.
+Use a PAT for user-space /v1 chat — not the internal service token (that is for /v1/knowledge/search only).
 """
 
 from __future__ import annotations
@@ -51,7 +54,10 @@ except ImportError:
 
 SUITE_PATH = Path(__file__).parent / "test_prompts.yaml"
 DEFAULT_API_URL = os.environ.get("SYNESIS_PLANNER_BASE_URL", os.environ.get("SYNESIS_API_URL", "http://127.0.0.1:8000"))
-DEFAULT_API_KEY = os.environ.get("SYNESIS_TEST_AUTH", os.environ.get("SYNESIS_API_KEY", ""))
+DEFAULT_API_KEY = os.environ.get(
+    "SYNESIS_TEST_PAT_TOKEN",
+    os.environ.get("SYNESIS_TEST_AUTH", os.environ.get("SYNESIS_API_KEY", "")),
+)
 DEFAULT_MODEL = os.environ.get("SYNESIS_MODEL", "Synesis")
 TIMEOUT_S = 120
 

@@ -8,33 +8,35 @@ Repeatable live-system tests that validate reducer runtime behavior, telemetry c
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `SYNESIS_YARN_URL` | Yes | Yarn route (e.g. `https://synesis-yarn.apps.openshiftdemo.dev`) |
-| `SYNESIS_TEST_AUTH` | For chat scenarios | PAT with coder scope (raw value, no `Bearer ` prefix — same var used by planner live tests) |
+| `SYNESIS_YARN_EVAL_URL` | Yes (or `SYNESIS_YARN_URL`) | Yarn OpenAI base URL — **CI uses** `SYNESIS_YARN_EVAL_URL` (e.g. `https://coder.kybern.dev`) |
+| `SYNESIS_TEST_PAT_TOKEN` | For chat scenarios | PAT for user-space `/v1` (GitHub secret in CI); locally: `SYNESIS_TEST_AUTH` / `SYNESIS_TEST_TOKEN` |
 | `SYNESIS_VERIFY_MODE` | No (default `safe`) | `safe` or `full` |
 | `SYNESIS_VERIFY_MODEL` | No (default `synesis-core`) | Model to use for chat completions |
 
-> **Auth resolution:** `SYNESIS_TEST_AUTH` is checked first (standard convention), then `SYNESIS_TEST_TOKEN` as fallback.
+See **[CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md)** for GitHub Variables/Secrets names used by `yarn-live-verify.yml`.
+
+> **Auth resolution (PAT only):** `SYNESIS_TEST_PAT_TOKEN` → `SYNESIS_TEST_AUTH` → `SYNESIS_TEST_TOKEN`. Do not use the internal service token here.
 
 ### One-command runs
 
 ```bash
 cd base/yarn-ts
 
-# If SYNESIS_TEST_AUTH is already exported in your shell, just set the URL:
-SYNESIS_YARN_URL=https://… npm run verify:live
+# CI-style names (repository variable + PAT secret):
+SYNESIS_YARN_EVAL_URL=https://coder.kybern.dev SYNESIS_TEST_PAT_TOKEN=syn-… npm run verify:live
 
-# Or set both inline:
+# Local aliases:
 SYNESIS_YARN_URL=https://… SYNESIS_TEST_AUTH=syn-… npm run verify:live
 
 # Full mode — adds Claude Messages API scenarios
-SYNESIS_YARN_URL=https://… npm run verify:live:full
+SYNESIS_YARN_EVAL_URL=https://… npm run verify:live:full
 
 # Save JSON report
-SYNESIS_YARN_URL=https://… npx tsx scripts/live-verify.ts --json report.json
+SYNESIS_YARN_EVAL_URL=https://… npx tsx scripts/live-verify.ts --json report.json
 
 # A-B comparison (reducer savings analysis)
-SYNESIS_YARN_URL=https://… npm run verify:ab
-SYNESIS_YARN_URL=https://… npx tsx scripts/ab-reducer-compare.ts --json ab-report.json
+SYNESIS_YARN_EVAL_URL=https://… npm run verify:ab
+SYNESIS_YARN_EVAL_URL=https://… npx tsx scripts/ab-reducer-compare.ts --json ab-report.json
 ```
 
 ## What the harness validates

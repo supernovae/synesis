@@ -8,14 +8,18 @@
  *                       larger payloads that cost real tokens
  *
  * Env:
- *   SYNESIS_YARN_URL     https://synesis-yarn.apps.openshiftdemo.dev  (required)
- *   SYNESIS_TEST_AUTH    PAT with coder scope (raw value, no "Bearer " prefix)
- *   SYNESIS_VERIFY_MODE  safe | full                                   (default: safe)
- *   SYNESIS_VERIFY_MODEL synesis-core                                  (default)
+ *   SYNESIS_YARN_EVAL_URL   CI-style Yarn base URL (preferred; same name as GitHub Actions variable)
+ *   SYNESIS_YARN_URL        Same as above if unset (local/dev convention)
+ *   SYNESIS_TEST_PAT_TOKEN  Personal access token for user-space /v1 (preferred in CI; GitHub secret)
+ *   SYNESIS_TEST_AUTH       Local PAT (raw value, no "Bearer " prefix)
+ *   SYNESIS_TEST_TOKEN      Fallback PAT
+ *   SYNESIS_VERIFY_MODE     safe | full                                   (default: safe)
+ *   SYNESIS_VERIFY_MODEL    synesis-core                                  (default)
  *
- * Auth resolution order:
- *   1. SYNESIS_TEST_AUTH   (standard live-test convention)
- *   2. SYNESIS_TEST_TOKEN  (fallback)
+ * Auth resolution order (PAT only — not the internal service token):
+ *   1. SYNESIS_TEST_PAT_TOKEN
+ *   2. SYNESIS_TEST_AUTH
+ *   3. SYNESIS_TEST_TOKEN
  *
  * Usage:
  *   npx tsx scripts/live-verify.ts
@@ -28,8 +32,16 @@ import { join } from "node:path";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
-const YARN_URL = (process.env.SYNESIS_YARN_URL ?? "").replace(/\/+$/, "");
-const TOKEN = (process.env.SYNESIS_TEST_AUTH ?? process.env.SYNESIS_TEST_TOKEN ?? "").trim();
+const YARN_URL = (process.env.SYNESIS_YARN_EVAL_URL ?? process.env.SYNESIS_YARN_URL ?? "").replace(
+  /\/+$/,
+  "",
+);
+const TOKEN = (
+  process.env.SYNESIS_TEST_PAT_TOKEN ??
+  process.env.SYNESIS_TEST_AUTH ??
+  process.env.SYNESIS_TEST_TOKEN ??
+  ""
+).trim();
 const MODE = (process.env.SYNESIS_VERIFY_MODE ?? "safe") as "safe" | "full";
 const MODEL = process.env.SYNESIS_VERIFY_MODEL ?? "synesis-core";
 const JSON_OUT = process.argv.includes("--json")
@@ -37,7 +49,7 @@ const JSON_OUT = process.argv.includes("--json")
   : null;
 
 if (!YARN_URL) {
-  console.error("ERROR: SYNESIS_YARN_URL is required");
+  console.error("ERROR: Set SYNESIS_YARN_EVAL_URL or SYNESIS_YARN_URL to the Yarn OpenAI base URL");
   process.exit(1);
 }
 
@@ -401,7 +413,7 @@ async function main(): Promise<void> {
 
   // 4. Run scenarios
   if (!TOKEN) {
-    console.log("\n4. Skipping chat scenarios (SYNESIS_TEST_TOKEN not set)\n");
+    console.log("\n4. Skipping chat scenarios (set SYNESIS_TEST_PAT_TOKEN or SYNESIS_TEST_AUTH)\n");
   }
 
   const scenarios = TOKEN ? buildScenarios() : [];

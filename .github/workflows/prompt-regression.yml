@@ -24,9 +24,9 @@ on:
 permissions:
   contents: read
 
-# Live suite uses the same planner URL + internal token as other validation workflows:
+# Live suite (user-space chat): planner URL + PAT:
 #   Variable SYNESIS_PLANNER_EVAL_URL
-#   Secret   SYNESIS_INTERNAL_SERVICE_TOKEN
+#   Secret   SYNESIS_TEST_PAT_TOKEN
 
 jobs:
   prompt-suite-offline:
@@ -104,20 +104,20 @@ jobs:
       - name: Run prompt regression suite
         env:
           SYNESIS_API_URL: ${{ vars.SYNESIS_PLANNER_EVAL_URL }}
-          SYNESIS_API_KEY: ${{ secrets.SYNESIS_INTERNAL_SERVICE_TOKEN }}
+          SYNESIS_TEST_PAT_TOKEN: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
         run: |
           if [ -z "${SYNESIS_API_URL}" ]; then
             echo "Missing repository variable SYNESIS_PLANNER_EVAL_URL."
             exit 1
           fi
-          if [ -z "${SYNESIS_API_KEY}" ]; then
-            echo "Missing secret SYNESIS_INTERNAL_SERVICE_TOKEN."
+          if [ -z "${SYNESIS_TEST_PAT_TOKEN:-}" ]; then
+            echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
             exit 1
           fi
           CATS="${{ inputs.categories || 'adversarial retrieval_quality node_routing grounding' }}"
           python tests/prompts/run_test_suite.py \
             --api-url "$SYNESIS_API_URL" \
-            --api-key "$SYNESIS_API_KEY" \
+            --api-key "$SYNESIS_TEST_PAT_TOKEN" \
             --model "${{ inputs.model || 'Synesis' }}" \
             --category $CATS \
             --output prompt-regression-report.yaml

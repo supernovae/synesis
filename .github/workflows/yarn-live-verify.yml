@@ -1,0 +1,62 @@
+# Live Yarn verification (base/yarn-ts `npm run verify:live`).
+#
+# Triggers: manual + GitHub Release published — not on every PR/commit (cost control).
+#
+# Canonical GitHub configuration (Settings → Secrets and variables → Actions):
+#   Variable SYNESIS_YARN_EVAL_URL — Yarn OpenAI-compatible base URL (e.g. https://coder.kybern.dev).
+#   Secret   SYNESIS_TEST_PAT_TOKEN — PAT for user-space Yarn /v1 (not the internal service token).
+#
+# Optional: protect the `validation` environment with required reviewers for workflow_dispatch.
+
+name: Yarn live verify
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  yarn-live-verify:
+    name: Yarn live verify (safe)
+    runs-on: self-hosted
+    timeout-minutes: 25
+    environment: validation
+    defaults:
+      run:
+        working-directory: base/yarn-ts
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: base/yarn-ts/package-lock.json
+
+      - name: Install and verify
+        env:
+          SYNESIS_YARN_EVAL_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
+          SYNESIS_TEST_PAT_TOKEN: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SYNESIS_YARN_EVAL_URL:-}" ]; then
+            echo "Missing repository variable SYNESIS_YARN_EVAL_URL."
+            exit 1
+          fi
+          if [ -z "${SYNESIS_TEST_PAT_TOKEN:-}" ]; then
+            echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
+            exit 1
+          fi
+          npm ci
+          npm run verify:live -- --json live-verify-report.json
+
+      - name: Upload verify report (if present)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: yarn-live-verify-report
+          path: base/yarn-ts/live-verify-report.json
+          if-no-files-found: ignore

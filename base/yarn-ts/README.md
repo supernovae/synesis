@@ -19,6 +19,17 @@ npm run dev
 
 The service listens on `0.0.0.0:8000` by default.
 
+## Live verification (deployed Yarn)
+
+From this directory, `npm run verify:live` hits a running Yarn OpenAI-compatible API. Prefer the same names as GitHub Actions:
+
+- **`SYNESIS_YARN_EVAL_URL`** — public Yarn base URL (e.g. `https://coder.kybern.dev`; alias: `SYNESIS_YARN_URL`)
+- **`SYNESIS_TEST_PAT_TOKEN`** — PAT for user-space `/v1` (CI; locally use `SYNESIS_TEST_AUTH` / `SYNESIS_TEST_TOKEN`)
+
+The runtime **`SYNESIS_INTERNAL_SERVICE_TOKEN`** in this package is the **service** token Yarn uses to call the planner and other internals — not the PAT you pass to live-verify.
+
+See **`docs/CI_GITHUB_VALIDATION.md`** and **`docs/LIVE_VERIFICATION_M9.md`**. Workflow: **`yarn-live-verify.yml`**.
+
 ## Important Environment Variables
 
 - `SYNESIS_YARN_ADMIN_API_URL`

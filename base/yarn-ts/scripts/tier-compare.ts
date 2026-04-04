@@ -10,15 +10,23 @@
  * - tool schema pruning activity
  *
  * Env:
- *   SYNESIS_YARN_URL           required (e.g. https://synesis-yarn.apps...)
- *   SYNESIS_TEST_AUTH          required PAT/token for /v1/chat/completions
+ *   SYNESIS_YARN_EVAL_URL / SYNESIS_YARN_URL  required (eval name matches GitHub variable)
+ *   SYNESIS_TEST_PAT_TOKEN / SYNESIS_TEST_AUTH / SYNESIS_TEST_TOKEN  for /v1/chat/completions (PAT)
  *   SYNESIS_TELEMETRY_TOKEN    optional internal service token for /health/telemetry
  *   SYNESIS_TIER_MODELS        optional comma-list (default: synesis-pulse,synesis-core,synesis-horizon)
  *   SYNESIS_TIER_ROUNDS        optional requests per model (default: 6)
  */
 
-const YARN_URL = (process.env.SYNESIS_YARN_URL ?? "").replace(/\/+$/, "");
-const AUTH_TOKEN = (process.env.SYNESIS_TEST_AUTH ?? process.env.SYNESIS_TEST_TOKEN ?? "").trim();
+const YARN_URL = (process.env.SYNESIS_YARN_EVAL_URL ?? process.env.SYNESIS_YARN_URL ?? "").replace(
+  /\/+$/,
+  "",
+);
+const AUTH_TOKEN = (
+  process.env.SYNESIS_TEST_PAT_TOKEN ??
+  process.env.SYNESIS_TEST_AUTH ??
+  process.env.SYNESIS_TEST_TOKEN ??
+  ""
+).trim();
 const TELEMETRY_TOKEN = (process.env.SYNESIS_TELEMETRY_TOKEN ?? "").trim();
 const MODEL_IDS = (process.env.SYNESIS_TIER_MODELS ?? "synesis-pulse,synesis-core,synesis-horizon")
   .split(",")
@@ -27,11 +35,13 @@ const MODEL_IDS = (process.env.SYNESIS_TIER_MODELS ?? "synesis-pulse,synesis-cor
 const ROUNDS = Math.max(1, Number(process.env.SYNESIS_TIER_ROUNDS ?? 6));
 
 if (!YARN_URL) {
-  console.error("ERROR: SYNESIS_YARN_URL is required");
+  console.error("ERROR: SYNESIS_YARN_EVAL_URL or SYNESIS_YARN_URL is required");
   process.exit(1);
 }
 if (!AUTH_TOKEN) {
-  console.error("ERROR: SYNESIS_TEST_AUTH (or SYNESIS_TEST_TOKEN) is required");
+  console.error(
+    "ERROR: SYNESIS_TEST_PAT_TOKEN, SYNESIS_TEST_AUTH, or SYNESIS_TEST_TOKEN is required",
+  );
   process.exit(1);
 }
 

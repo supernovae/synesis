@@ -14,16 +14,15 @@ It is designed for fix-forward operations (no rollback choreography required).
 
 - OpenShift access with `oc` logged into the target cluster.
 - Admin PAT with **`platform_admin`** role (stored on the PAT) for default global bootstrap packs (`lang-go.yaml` uses `visibility_scope: global`). **`org_admin` alone cannot enqueue global rows** — use a platform-admin account or change the corpus to org/tenant scope.
-- Optional Yarn test token for retrieval checks:
-  - `SYNESIS_TEST_AUTH`
+- Optional Yarn probe token: `SYNESIS_TEST_PAT_TOKEN` or `SYNESIS_TEST_AUTH` (PAT; see `docs/CI_GITHUB_VALIDATION.md`).
 
 Export variables:
 
 ```bash
 export SYNESIS_ADMIN_URL="https://synesis-admin.apps.openshiftdemo.dev"
 export SYNESIS_ADMIN_TOKEN="syn-..."
-export SYNESIS_YARN_URL="https://synesis-yarn.apps.openshiftdemo.dev"
-export SYNESIS_TEST_AUTH="Bearer-or-PAT-token"
+export SYNESIS_YARN_EVAL_URL="https://coder.kybern.dev"   # or SYNESIS_YARN_URL
+export SYNESIS_TEST_PAT_TOKEN="syn-..."                   # or SYNESIS_TEST_AUTH
 ```
 
 ## One-command execution
@@ -44,7 +43,7 @@ What it does:
 - Enqueues only `bootstrap/corpus/lang-go.yaml`.
 - Creates one manual queue job from `cronjob/synesis-indexer-queue` with **`SYNESIS_INDEXER_QUEUE_DOMAIN=go`** so the indexer only claims Go-domain items (even if other pending rows exist later).
 - Waits for completion and prints job logs + post-run ingestion stats.
-- Runs an optional Yarn retrieval probe if Yarn is ready and `SYNESIS_TEST_AUTH` is set.
+- Runs an optional Yarn retrieval probe if Yarn is ready and `SYNESIS_TEST_PAT_TOKEN` or `SYNESIS_TEST_AUTH` is set.
 
 For **large multi-stage** loads (avoid re-fetch on failure), use the staged S3 pipeline described in **`docs/INDEXERS.md`** (`staged-fetch` → `staged-normalize` → `staged-enrich`) after Go-first validation.
 

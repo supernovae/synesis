@@ -14,11 +14,11 @@
  * computed locally from raw fixture sizes.
  *
  * Env:
- *   SYNESIS_YARN_URL     required
- *   SYNESIS_TEST_AUTH    PAT with coder scope (raw value, no "Bearer " prefix)
+ *   SYNESIS_YARN_EVAL_URL / SYNESIS_YARN_URL  required (eval name matches GitHub variable)
+ *   SYNESIS_TEST_PAT_TOKEN / SYNESIS_TEST_AUTH / SYNESIS_TEST_TOKEN  (PAT for user-space /v1)
  *   SYNESIS_VERIFY_MODEL synesis-core (default)
  *
- * Auth resolution: SYNESIS_TEST_AUTH > SYNESIS_TEST_TOKEN
+ * Auth resolution: TEST_PAT_TOKEN > TEST_AUTH > TEST_TOKEN
  *
  * Usage:
  *   npx tsx scripts/ab-reducer-compare.ts
@@ -28,19 +28,29 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const YARN_URL = (process.env.SYNESIS_YARN_URL ?? "").replace(/\/+$/, "");
-const TOKEN = (process.env.SYNESIS_TEST_AUTH ?? process.env.SYNESIS_TEST_TOKEN ?? "").trim();
+const YARN_URL = (process.env.SYNESIS_YARN_EVAL_URL ?? process.env.SYNESIS_YARN_URL ?? "").replace(
+  /\/+$/,
+  "",
+);
+const TOKEN = (
+  process.env.SYNESIS_TEST_PAT_TOKEN ??
+  process.env.SYNESIS_TEST_AUTH ??
+  process.env.SYNESIS_TEST_TOKEN ??
+  ""
+).trim();
 const MODEL = process.env.SYNESIS_VERIFY_MODEL ?? "synesis-core";
 const JSON_OUT = process.argv.includes("--json")
   ? process.argv[process.argv.indexOf("--json") + 1]
   : null;
 
 if (!YARN_URL) {
-  console.error("ERROR: SYNESIS_YARN_URL is required");
+  console.error("ERROR: SYNESIS_YARN_EVAL_URL or SYNESIS_YARN_URL is required");
   process.exit(1);
 }
 if (!TOKEN) {
-  console.error("ERROR: SYNESIS_TEST_TOKEN is required for A-B comparison");
+  console.error(
+    "ERROR: SYNESIS_TEST_PAT_TOKEN, SYNESIS_TEST_AUTH, or SYNESIS_TEST_TOKEN is required for A-B comparison",
+  );
   process.exit(1);
 }
 

@@ -1,8 +1,8 @@
 # Manual / scheduled gap report — never blocks merge.
 #
-# Canonical GitHub configuration (same as other planner-facing workflows):
+# GitHub configuration:
 #   Variable SYNESIS_PLANNER_EVAL_URL — planner base URL (e.g. https://api.kybern.dev).
-#   Secret   SYNESIS_INTERNAL_SERVICE_TOKEN — Bearer token for /v1 (internal service token or PAT).
+#   Secret   SYNESIS_TEST_PAT_TOKEN — PAT for user-space /v1 (models + chat probe).
 # Optional:
 #   Variable SYNESIS_YARN_EVAL_URL — Yarn OpenAI-compatible base URL (if you probe Yarn too).
 
@@ -24,7 +24,7 @@ jobs:
         env:
           SYNESIS_PROBE_PLANNER_URL: ${{ vars.SYNESIS_PLANNER_EVAL_URL }}
           SYNESIS_PROBE_YARN_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
-          SYNESIS_PROBE_TOKEN: ${{ secrets.SYNESIS_INTERNAL_SERVICE_TOKEN }}
+          SYNESIS_TEST_PAT_TOKEN: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
         run: |
           if [ -z "${SYNESIS_PROBE_PLANNER_URL}" ] && [ -z "${SYNESIS_PROBE_YARN_URL}" ]; then
             echo "Set repository variable SYNESIS_PLANNER_EVAL_URL and/or SYNESIS_YARN_EVAL_URL — skipping probe."

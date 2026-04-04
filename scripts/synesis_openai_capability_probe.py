@@ -8,7 +8,8 @@ This is a **gap-awareness** tool, not a CI gate. It checks documented shapes
 Environment:
   SYNESIS_PROBE_PLANNER_URL   Base URL (default http://127.0.0.1:8000)
   SYNESIS_PROBE_YARN_URL      Optional second base (e.g. Yarn OpenAI port)
-  SYNESIS_PROBE_TOKEN         Bearer token (PAT syn-… or service token); chat checks skip if unset
+  SYNESIS_TEST_PAT_TOKEN      Preferred PAT for /v1 (CI; user-space)
+  SYNESIS_PROBE_TOKEN         Fallback Bearer (PAT); chat checks skip if unset
 
 Exit code: 0 unless ``--strict`` and any check fails.
 
@@ -129,7 +130,13 @@ def main() -> int:
         default=os.environ.get("SYNESIS_PROBE_PLANNER_URL", "http://127.0.0.1:8000"),
     )
     p.add_argument("--yarn-url", default=os.environ.get("SYNESIS_PROBE_YARN_URL", "").strip())
-    p.add_argument("--token", default=os.environ.get("SYNESIS_PROBE_TOKEN", "").strip())
+    p.add_argument(
+        "--token",
+        default=(
+            os.environ.get("SYNESIS_TEST_PAT_TOKEN", "").strip()
+            or os.environ.get("SYNESIS_PROBE_TOKEN", "").strip()
+        ),
+    )
     p.add_argument("--planner-model", default="Synesis")
     p.add_argument("--yarn-model", default="synesis-yarn")
     p.add_argument("-o", "--output-json", help="Write full report JSON to this path")

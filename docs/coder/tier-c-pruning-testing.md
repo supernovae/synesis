@@ -40,8 +40,8 @@ SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE=0 \
 From `base/yarn-ts`, run full live verification:
 
 ```bash
-SYNESIS_YARN_URL="https://<your-yarn-url>" \
-SYNESIS_TEST_AUTH="<coder-pat>" \
+SYNESIS_YARN_EVAL_URL="https://coder.kybern.dev" \
+SYNESIS_TEST_PAT_TOKEN="<syn-pat>" \
 SYNESIS_VERIFY_MODE=full \
 SYNESIS_VERIFY_MODEL=synesis-core \
 npm run verify:live -- --json verify-core.json
@@ -54,8 +54,8 @@ Run again for `synesis-pulse` and `synesis-horizon` to compare baseline latencie
 Use the dedicated tier compare runner to execute the same payload across pulse/core/horizon:
 
 ```bash
-SYNESIS_YARN_URL="https://<your-yarn-url>" \
-SYNESIS_TEST_AUTH="<coder-pat>" \
+SYNESIS_YARN_EVAL_URL="https://coder.kybern.dev" \
+SYNESIS_TEST_PAT_TOKEN="<syn-pat>" \
 SYNESIS_TELEMETRY_TOKEN="<internal-service-token>" \
 npm run verify:tiers
 ```
@@ -77,8 +77,8 @@ Output includes:
 ## A/B reduction telemetry view
 
 ```bash
-SYNESIS_YARN_URL="https://<your-yarn-url>" \
-SYNESIS_TEST_AUTH="<coder-pat>" \
+SYNESIS_YARN_EVAL_URL="https://coder.kybern.dev" \
+SYNESIS_TEST_PAT_TOKEN="<syn-pat>" \
 SYNESIS_VERIFY_MODEL=synesis-core \
 npm run verify:ab -- --json ab-core.json
 ```

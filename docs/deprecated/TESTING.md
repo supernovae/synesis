@@ -285,13 +285,19 @@ python tests/prompts/run_test_suite.py \
 
 ### 9.4 GitHub secrets and variables
 
+Canonical list: **[CI_GITHUB_VALIDATION.md](../CI_GITHUB_VALIDATION.md)**.
+
 | Name | Type | Where | Purpose |
 |------|------|-------|---------|
-| `SYNESIS_VALIDATION_ENABLED` | **Variable** | Repo settings > Variables | Set to `true` to enable live tests on PRs; remove or set `false` to disable |
-| `SYNESIS_VALIDATION_API_URL` | **Secret** | `validation` environment | Planner API URL (e.g. `https://synesis-api.apps.openshiftdemo.dev`) |
-| `SYNESIS_VALIDATION_API_KEY` | **Secret** | `validation` environment | PAT or service token for the planner |
+| `SYNESIS_VALIDATION_ENABLED` | **Variable** | Repo settings > Variables | Set to `true` to enable workflows that consult it; remove or set `false` to disable |
+| `SYNESIS_PLANNER_EVAL_URL` | **Variable** | `validation` environment or repo | Planner API base URL (e.g. `https://api.kybern.dev`) |
+| `SYNESIS_YARN_EVAL_URL` | **Variable** | `validation` environment or repo | Yarn OpenAI base URL (e.g. `https://coder.kybern.dev`) |
+| `SYNESIS_INTERNAL_SERVICE_TOKEN` | **Secret** | `validation` environment | Internal application token (`synesis-internal-service-auth`) — **RAG / knowledge/search** |
+| `SYNESIS_TEST_PAT_TOKEN` | **Secret** | `validation` environment | PAT for user-space planner/Yarn `/v1` (prompt regression, probes, Yarn live verify) |
 
 The `validation` GitHub **Environment** provides branch protections and reviewer gates. Secrets are scoped to this environment and not visible to other workflows.
+
+**Deprecated:** `SYNESIS_VALIDATION_API_URL` / `SYNESIS_VALIDATION_API_KEY` — use `SYNESIS_PLANNER_EVAL_URL` plus **`SYNESIS_INTERNAL_SERVICE_TOKEN`** (RAG) and **`SYNESIS_TEST_PAT_TOKEN`** (live chat suites).
 
 ### 9.5 Lane B: Testing Labs (Admin-Facing)
 
@@ -326,14 +332,14 @@ See [LIVE_VERIFICATION_M9.md](./LIVE_VERIFICATION_M9.md) for the full runbook.
 ```bash
 cd base/yarn-ts
 
-# Uses SYNESIS_TEST_AUTH from your shell (same var as planner live tests)
-SYNESIS_YARN_URL=https://… npm run verify:live
+# CI-style: SYNESIS_YARN_EVAL_URL + SYNESIS_TEST_PAT_TOKEN (see CI_GITHUB_VALIDATION.md)
+SYNESIS_YARN_EVAL_URL=https://coder.kybern.dev SYNESIS_TEST_PAT_TOKEN=syn-… npm run verify:live
 
 # Full mode (adds Claude API path)
-SYNESIS_YARN_URL=https://… npm run verify:live:full
+SYNESIS_YARN_EVAL_URL=https://… npm run verify:live:full
 
 # A-B reducer savings comparison
-SYNESIS_YARN_URL=https://… npm run verify:ab
+SYNESIS_YARN_EVAL_URL=https://… npm run verify:ab
 ```
 
 Scenarios send deterministic tool-result payloads for each reducer family (`pytest`, `tsc`, `lint`, `git`, `search`) and assert telemetry counter movement. Reports emit structured JSON for archival. See the M9 doc for regression interpretation and CI integration plans.
