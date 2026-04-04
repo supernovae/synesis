@@ -250,4 +250,25 @@ describe("DeterministicPolicyEngine", () => {
     const third = engine.evaluate(ctx);
     expect(third.pivotPrompt).toContain("3 attempts remaining");
   });
+
+  /**
+   * Regression: repeat keys must change as the transcript grows (e.g. fsFingerprint
+   * includes messageCount). Otherwise legitimate tool loops hash like identical
+   * "none" fingerprints and hit repeat_loop_hard_reject instead of advancing.
+   */
+  it("does not accumulate repeat count across distinct fingerprints (simulated transcript growth)", () => {
+    const engine = new DeterministicPolicyEngine();
+    const model = "synesis-core";
+    for (let messageCount = 3; messageCount <= 12; messageCount += 1) {
+      const out = engine.evaluate({
+        repeatAttempt: {
+          action: "claude_messages",
+          args: { model, lastToolUseId: "", messageCount },
+          fsFingerprint: `none:${messageCount}`,
+        },
+      });
+      expect(out.allow).toBe(true);
+      expect(out.matchedRules).toContain("allow");
+    }
+  });
 });
