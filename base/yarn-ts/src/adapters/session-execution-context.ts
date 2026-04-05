@@ -118,6 +118,9 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     lines.push(
       "Keep Read/Write/Edit paths relative to project_root. Shell cd only affects Bash; file tools stay workspace-relative to project_root.",
     );
+    lines.push(
+      "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
+    );
   }
   if (ctx.shellCwd) {
     lines.push(`shell_cwd=${ctx.shellCwd}`);
@@ -150,6 +153,7 @@ function pathHygieneFallbackBlock(): string {
     "No project_root or shell_cwd was provided by the client. Infer the workspace from the user's task and the first successful pwd in Bash; default to staying in that directory for new files.",
     "Do not mkdir && cd into a nested folder whose name repeats the current directory (e.g. aws-cost-calculator/aws-cost-calculator). If you are already inside the project folder, create the Go module and sources there.",
     "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",
+    "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
     "Before rm or other destructive commands, list the target path and confirm; avoid guessing with wildcards on project trees.",
     "</PATH_HYGIENE>",
   ].join("\n");
