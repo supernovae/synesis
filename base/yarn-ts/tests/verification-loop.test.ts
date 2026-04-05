@@ -101,6 +101,20 @@ describe("Verification Plan Formatting", () => {
     const block = formatVerificationPlanBlock(plan);
     expect(block).toBeNull();
   });
+
+  it("includes Go module preflight only for Go plans", () => {
+    const goPlan = buildVerificationPlan(["go"], registry);
+    const goBlock = formatVerificationPlanBlock(goPlan);
+    expect(goBlock).toContain("Go preflight");
+    expect(goBlock).toContain("go mod init");
+
+    const javaPlan = buildVerificationPlan(["java"], registry);
+    const javaBlock = formatVerificationPlanBlock(javaPlan);
+    if (javaBlock) {
+      expect(javaBlock).not.toContain("Go preflight");
+      expect(javaBlock).not.toContain("go mod init");
+    }
+  });
 });
 
 /* ── isVerificationTool ──────────────────────────────────────────── */

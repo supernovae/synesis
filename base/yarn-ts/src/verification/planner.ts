@@ -69,6 +69,7 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
   const langs = new Set(plan.languages.map((l) => l.toLowerCase()));
   if (langs.has("go")) {
     lines.push("MCP preset mapping (go): run_lint(preset=go) or run_lint(preset=go_golangci), run_build(preset=go), run_test(preset=go), format_code(preset=go)");
+    lines.push("Go preflight: if go.mod is missing in the project root, run `go mod init <module-name>` before go build/go test.");
   }
   if (langs.has("python")) {
     lines.push("MCP preset mapping (python): run_lint(preset=python) and run_lint(preset=python_ruff_format_check), run_build(preset=python_mypy) then run_build(preset=python), run_test(preset=python_pytest_short)");
