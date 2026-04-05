@@ -26,27 +26,59 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
   const out: OpenAIChatMessage[] = [];
   const pendingEmptyIdQueue: string[] = [];
 
+  const validToolCallIds = new Set<string>();
+  let availableEmptyToolMessages = 0;
+
+  for (const m of messages) {
+    if (m.role === "tool") {
+      if (m.tool_call_id) {
+        validToolCallIds.add(m.tool_call_id);
+      } else {
+        availableEmptyToolMessages++;
+      }
+    }
+  }
+
   for (const m of messages) {
     if (m.role === "assistant" && m.tool_calls?.length) {
       let changed = false;
-      const fixedCalls = m.tool_calls.map((tc) => {
+      const fixedCalls = [];
+
+      for (const tc of m.tool_calls) {
         let id = tc.id;
         if (!id) {
-          id = `call_synth_${++synthCounter}_${Date.now().toString(36)}`;
-          pendingEmptyIdQueue.push(id);
+          if (availableEmptyToolMessages > 0) {
+            availableEmptyToolMessages--;
+            id = `call_synth_${++synthCounter}_${Date.now().toString(36)}`;
+            pendingEmptyIdQueue.push(id);
+            changed = true;
+          } else {
+            changed = true;
+            continue;
+          }
+        } else if (!validToolCallIds.has(id)) {
           changed = true;
+          continue;
         }
+
         const fn = tc.function;
         const args = fn?.arguments ?? "{}";
         const name = fn?.name ?? "";
         if (!fn || fn.arguments === undefined) changed = true;
-        return {
+
+        fixedCalls.push({
           id,
           type: tc.type ?? "function",
           function: { name, arguments: args },
-        };
-      });
-      out.push(changed ? { ...m, tool_calls: fixedCalls } : m);
+        });
+      }
+
+      if (fixedCalls.length === 0) {
+        const { tool_calls, ...rest } = m;
+        out.push(rest);
+      } else {
+        out.push(changed ? { ...m, tool_calls: fixedCalls } : m);
+      }
       continue;
     }
 

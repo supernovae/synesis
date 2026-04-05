@@ -221,6 +221,7 @@ describe("sanitizeToolCalls", () => {
       { role: "assistant", content: "", tool_calls: [
         { id: "call_1", type: "function", function: { name: "Glob" } }
       ]},
+      { role: "tool", content: "result", tool_call_id: "call_1" },
     ];
     const result = sanitizeToolCalls(msgs as never);
     expect(result[0].tool_calls![0].function.arguments).toBe("{}");
@@ -231,6 +232,7 @@ describe("sanitizeToolCalls", () => {
       { role: "assistant", content: "", tool_calls: [
         { id: "", type: "function" }
       ]},
+      { role: "tool", content: "result", tool_call_id: "" },
     ];
     const result = sanitizeToolCalls(msgs as never);
     expect(result[0].tool_calls![0].function.name).toBe("");
@@ -257,12 +259,47 @@ describe("sanitizeToolCalls", () => {
   it("does not rewrite tool messages that already have valid tool_call_id", () => {
     const msgs = [
       { role: "assistant", content: "", tool_calls: [
-        { id: "", type: "function", function: { name: "A", arguments: "{}" } },
+        { id: "existing_id", type: "function", function: { name: "A", arguments: "{}" } },
       ]},
       { role: "tool", content: "result", tool_call_id: "existing_id" },
     ];
     const result = sanitizeToolCalls(msgs as never);
     expect(result[1].tool_call_id).toBe("existing_id");
+  });
+
+  it("drops orphaned tool calls with an ID that has no matching tool result", () => {
+    const msgs = [
+      { role: "assistant", content: "I will call a tool", tool_calls: [
+        { id: "call_1", type: "function", function: { name: "A", arguments: "{}" } },
+      ]},
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[0].tool_calls).toBeUndefined();
+    expect(result[0].content).toBe("I will call a tool");
+  });
+
+  it("drops orphaned tool calls without an ID that have no matching empty tool result", () => {
+    const msgs = [
+      { role: "assistant", content: "I will call a tool", tool_calls: [
+        { id: "", type: "function", function: { name: "A", arguments: "{}" } },
+      ]},
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[0].tool_calls).toBeUndefined();
+    expect(result[0].content).toBe("I will call a tool");
+  });
+
+  it("preserves valid tool calls and drops invalid ones in the same message", () => {
+    const msgs = [
+      { role: "assistant", content: "I will call two tools", tool_calls: [
+        { id: "call_1", type: "function", function: { name: "A", arguments: "{}" } },
+        { id: "call_2", type: "function", function: { name: "B", arguments: "{}" } },
+      ]},
+      { role: "tool", content: "result", tool_call_id: "call_1" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result[0].tool_calls).toHaveLength(1);
+    expect(result[0].tool_calls![0].id).toBe("call_1");
   });
 });
 
