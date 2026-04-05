@@ -66,6 +66,7 @@ import {
   assessVerificationFromMessages as assessVerificationSignals,
   evaluateDeterministicPreFinalize,
 } from "./verification/staff-completion.js";
+import { enforceNonSilentFinalizeText } from "./verification/non-silent-finalize.js";
 import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
@@ -3545,6 +3546,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
           );
         }
       }
+      const nonSilent = enforceNonSilentFinalizeText(finalAssistantText);
+      if (nonSilent.applied) {
+        finalAssistantText = nonSilent.text;
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "completion_non_actionable_fallback",
+          "completion-gate",
+          "terminal stop had non-actionable text; emitted deterministic fallback",
+          reqId,
+        );
+      }
     }
     session.history.push({ role: "assistant", content: finalAssistantText });
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
@@ -3938,6 +3952,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
           );
         }
       }
+      const nonSilent = enforceNonSilentFinalizeText(gateText);
+      if (nonSilent.applied) {
+        gateText = nonSilent.text;
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "completion_non_actionable_fallback",
+          "completion-gate",
+          "stream stop had non-actionable text; emitted deterministic fallback",
+          reqId,
+        );
+      }
       const guarded = applyMarkdownGuardrail(
         gateText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
@@ -3986,6 +4013,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
       streamedText,
       config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
     );
+    if (finishReason !== "tool_calls") {
+      const nonSilent = enforceNonSilentFinalizeText(streamedText);
+      if (nonSilent.applied) {
+        streamedText = nonSilent.text;
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "completion_non_actionable_fallback",
+          "completion-gate",
+          "streamed text was non-actionable; emitted deterministic fallback",
+          reqId,
+        );
+      }
+    }
     session.history.push({ role: "assistant", content: streamedText });
   }
   const oaiStreamLatency = Date.now() - started;
@@ -4987,6 +5029,19 @@ app.post("/v1/messages", async (req, reply) => {
           );
         }
       }
+      const nonSilent = enforceNonSilentFinalizeText(gateText);
+      if (nonSilent.applied) {
+        gateText = nonSilent.text;
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "completion_non_actionable_fallback",
+          "completion-gate",
+          "claude stream stop had non-actionable text; emitted deterministic fallback",
+          traceReqId,
+        );
+      }
       const guarded = applyMarkdownGuardrail(
         gateText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
@@ -5041,6 +5096,21 @@ app.post("/v1/messages", async (req, reply) => {
         claudeStreamedText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
       );
+      if (stopReason !== "tool_use") {
+        const nonSilent = enforceNonSilentFinalizeText(claudeStreamedText);
+        if (nonSilent.applied) {
+          claudeStreamedText = nonSilent.text;
+          recordSessionEvent(
+            claudeSessionKey,
+            claudeIdentity.userId,
+            claudeIdentity.orgId,
+            "completion_non_actionable_fallback",
+            "completion-gate",
+            "claude streamed text was non-actionable; emitted deterministic fallback",
+            reqId,
+          );
+        }
+      }
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
     const claudeStreamLatency = Date.now() - started;
@@ -5334,6 +5404,19 @@ app.post("/v1/messages", async (req, reply) => {
           reqId,
         );
       }
+    }
+    const nonSilent = enforceNonSilentFinalizeText(finalClaudeText);
+    if (nonSilent.applied) {
+      finalClaudeText = nonSilent.text;
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "completion_non_actionable_fallback",
+        "completion-gate",
+        "terminal end_turn had non-actionable text; emitted deterministic fallback",
+        reqId,
+      );
     }
   }
   finalClaudeText = applyMarkdownGuardrail(
