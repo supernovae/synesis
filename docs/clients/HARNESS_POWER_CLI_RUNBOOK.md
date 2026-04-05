@@ -28,6 +28,33 @@ export SYNESIS_ADMIN_BASE_URL="http://127.0.0.1:8080"
 export SYNESIS_ADMIN_TOKEN="<bearer-token>"
 ```
 
+## Quick Commands
+
+Copy/paste these first, then customize paths/session keys as needed.
+
+```bash
+# 1) KPI snapshot (24h)
+uv run --project tools/synesis-power-cli python -m synesis_power_cli \
+  kpi snapshot --since-hours 24 --bucket-minutes 15 --format json \
+  --output artifacts/power-cli/kpi-24h.json
+
+# 2) Session inspect
+uv run --project tools/synesis-power-cli python -m synesis_power_cli \
+  session inspect --session-key "<session-key>" --format markdown \
+  --output artifacts/power-cli/session-<session-key>.md
+
+# 3) Canary checklist
+uv run --project tools/synesis-power-cli python -m synesis_power_cli \
+  canary checklist --format json \
+  --output artifacts/power-cli/canary-checklist.json
+
+# 4) A/B scaffold
+uv run --project tools/synesis-power-cli python -m synesis_power_cli \
+  ab scaffold --run-a-name "A-synesis" --run-b-name "B-control" \
+  --model-id "same-base-model" --format json \
+  --output artifacts/power-cli/ab-scaffold.json
+```
+
 ## Standard Operating Loop
 
 Run this loop after deploys and at least once daily for active environments.

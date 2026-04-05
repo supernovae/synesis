@@ -125,6 +125,13 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   const validation = validateToolArgs(logicalName, out.input);
   if (!validation.valid) {
     out.validationMissing = validation.missing;
+    const recovered = recoverValidationFailure(logicalName, out.input, validation.missing);
+    if (recovered) {
+      out.toolName = recovered.toolName;
+      out.input = recovered.input;
+      out.validationMissing = [];
+      return out;
+    }
     if (opts.strictValidationBlock !== false) {
       const human = `Synesis Yarn blocked invalid tool arguments for ${out.toolName}: missing ${validation.missing.join(", ")}`;
       out.toolName = "Bash";
@@ -136,7 +143,7 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
           original_tool: logicalName,
           missing: validation.missing,
           message: human,
-          hint: `Provide required fields (${validation.missing.join(", ")}) using exact parameter names from the tool schema (e.g. file_path and content for Write).`,
+          hint: validationHint(logicalName, validation.missing),
           retryable: true,
         }),
         description: "Blocked invalid tool arguments",
@@ -144,6 +151,41 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     }
   }
   return out;
+}
+
+function recoverValidationFailure(
+  logicalName: string,
+  input: Record<string, unknown>,
+  missing: string[],
+): { toolName: string; input: Record<string, unknown> } | null {
+  // Common model failure: Edit missing old_string.
+  // Recover by issuing a Read on the same file so the model can retry with exact text.
+  if (
+    (logicalName === "Edit" || logicalName === "Update")
+    && missing.includes("old_string")
+    && typeof input.file_path === "string"
+    && input.file_path.trim()
+  ) {
+    return {
+      toolName: "Read",
+      input: { file_path: input.file_path },
+    };
+  }
+  return null;
+}
+
+function validationHint(logicalName: string, missing: string[]): string {
+  const base = `Provide required fields (${missing.join(", ")}) using exact parameter names from the tool schema.`;
+  if (logicalName === "Edit" || logicalName === "Update") {
+    if (missing.includes("old_string")) {
+      return `${base} For Edit/Update, include BOTH old_string (exact text to replace) and new_string (replacement text). If replacing an entire file, use Write(file_path, content) instead.`;
+    }
+    return `${base} For Edit/Update, required params are file_path, old_string, new_string.`;
+  }
+  if (logicalName === "Write") {
+    return `${base} For Write, required params are file_path and content.`;
+  }
+  return `${base} Example: Write uses file_path and content.`;
 }
 
 function isWriteCapableTool(logicalName: string): boolean {

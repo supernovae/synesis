@@ -142,6 +142,19 @@ describe("governToolCall", () => {
     expect(cmd).toContain("missing");
   });
 
+  it("recovers Edit missing old_string to a safe Read call", () => {
+    const out = governToolCall({
+      toolName: "Edit",
+      input: { file_path: "main.go", new_string: "package main" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.toolName).toBe("Read");
+    expect(out.input).toEqual({ file_path: "main.go" });
+    expect(out.validationMissing).toEqual([]);
+  });
+
   it("keeps governed file paths inside project root across mixed path styles", () => {
     const root = "/Users/me/repo";
     const cases = [
