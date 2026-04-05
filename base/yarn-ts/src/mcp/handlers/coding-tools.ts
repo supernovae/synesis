@@ -7,8 +7,10 @@ import { z } from "zod";
 import type { McpToolDefinition } from "../tool-registry.js";
 import {
   extractDiagnosticLines,
+  extractStructuredErrors,
   MAX_STREAM_CHARS,
   truncateStream,
+  type StructuredDiagnostic,
 } from "./command-diagnostics.js";
 
 const execFileAsync = promisify(execFile);
@@ -387,6 +389,8 @@ export interface RunPresetResult {
   stderrTruncated: boolean;
   /** Up to 28 lines of compiler/test diagnostics (from full output before stream truncation). */
   errorLines: string[];
+  /** Optional structured diagnostics for fast patch recovery (tsc/go test/go build patterns). */
+  errors: StructuredDiagnostic[];
 }
 
 function makeRunnerTool(
@@ -406,6 +410,7 @@ function makeRunnerTool(
       const [cmd, ...args] = preset;
       const full = await runCommand(path.resolve(input.projectRoot), cmd, args);
       const errorLines = extractDiagnosticLines(full.stderr, full.stdout, 28);
+      const errors = extractStructuredErrors(full.stderr, full.stdout, 16);
       const out = truncateStream(full.stdout, MAX_STREAM_CHARS);
       const err = truncateStream(full.stderr, MAX_STREAM_CHARS);
       const ok = full.exitCode === 0;
@@ -423,6 +428,7 @@ function makeRunnerTool(
         stdoutTruncated: out.truncated,
         stderrTruncated: err.truncated,
         errorLines,
+        errors,
       };
     },
   };

@@ -142,6 +142,7 @@ describe("coding tools", () => {
     expect(out.summary).toContain("failed");
     expect(out.exitCode).not.toBe(0);
     expect(Array.isArray(out.errorLines)).toBe(true);
+    expect(Array.isArray(out.errors)).toBe(true);
   });
 });
 
