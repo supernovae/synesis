@@ -140,8 +140,8 @@ describe("claudeMessagesToOpenAI", () => {
       }
     ]);
     expect(result).toHaveLength(2);
-    expect(result[0].content).toBe("Here are the results:");
-    expect(result[1].role).toBe("tool");
+    expect(result[0].role).toBe("tool");
+    expect(result[1].content).toBe("Here are the results:");
   });
 
   it("preserves tool_use blocks as OpenAI tool_calls on assistant messages", () => {

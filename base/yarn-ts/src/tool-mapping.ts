@@ -105,7 +105,37 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
     out.push(m);
   }
 
-  return out;
+  const reorderedOut: OpenAIChatMessage[] = [];
+  const toolMessagesById = new Map<string, OpenAIChatMessage>();
+
+  for (const m of out) {
+    if (m.role === "tool" && m.tool_call_id) {
+      toolMessagesById.set(m.tool_call_id, m);
+    }
+  }
+
+  for (const m of out) {
+    if (m.role === "tool") {
+      continue;
+    }
+    
+    reorderedOut.push(m);
+    
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      for (const tc of m.tool_calls) {
+        if (tc.id && toolMessagesById.has(tc.id)) {
+          reorderedOut.push(toolMessagesById.get(tc.id)!);
+          toolMessagesById.delete(tc.id);
+        }
+      }
+    }
+  }
+
+  for (const m of toolMessagesById.values()) {
+    reorderedOut.push(m);
+  }
+
+  return reorderedOut;
 }
 
 /**
@@ -302,6 +332,21 @@ export function claudeMessagesToOpenAI(
       }
     }
 
+    for (const tr of toolResultParts) {
+      const baseResultContent = typeof tr.content === "string"
+        ? tr.content
+        : JSON.stringify(tr.content ?? "");
+      const resultContent = reduceToolResult
+        ? reduceToolResult(baseResultContent, tr.name)
+        : baseResultContent;
+      out.push({
+        role: "tool",
+        content: resultContent,
+        tool_call_id: tr.tool_use_id ?? "",
+        name: tr.name
+      });
+    }
+
     if (textParts.length > 0 || toolUseParts.length > 0) {
       const combined = textParts.join("\n");
       if (toolUseParts.length > 0) {
@@ -321,21 +366,6 @@ export function claudeMessagesToOpenAI(
       } else {
         out.push({ role: m.role, content: combined });
       }
-    }
-
-    for (const tr of toolResultParts) {
-      const baseResultContent = typeof tr.content === "string"
-        ? tr.content
-        : JSON.stringify(tr.content ?? "");
-      const resultContent = reduceToolResult
-        ? reduceToolResult(baseResultContent, tr.name)
-        : baseResultContent;
-      out.push({
-        role: "tool",
-        content: resultContent,
-        tool_call_id: tr.tool_use_id ?? "",
-        name: tr.name
-      });
     }
   }
   return out;
