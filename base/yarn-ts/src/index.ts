@@ -632,7 +632,8 @@ function clampMaxOutputTokensForSafety(n: number): number {
 initFgaClient(config);
 const app = Fastify({
   logger: { level: config.LOG_LEVEL },
-  forceCloseConnections: "idle"
+  forceCloseConnections: "idle",
+  bodyLimit: 50 * 1024 * 1024 // 50MB to support massive conversation histories from subagents
 });
 
 const yarnDedupeLayer =
@@ -4096,6 +4097,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
         if (idx >= 0) {
           pendingToolCalls[idx].args += td.inputTextDelta ?? "";
         }
+      } else if ((part as any).type === "error") {
+        throw (part as any).error;
+      } else if ((part as any).type === "finish") {
+        const fr = (part as any).finishReason;
+        if (fr === "length") finishReason = "length";
       }
     }
     if (
@@ -5258,6 +5264,12 @@ app.post("/v1/messages", async (req, reply) => {
           blockIdx++;
           claudeToolBuffer.delete(toolCallId);
           stopReason = "tool_use";
+        } else if ((part as any).type === "error") {
+          throw (part as any).error;
+        } else if ((part as any).type === "finish") {
+          const fr = (part as any).finishReason;
+          if (fr === "length") stopReason = "max_tokens";
+          else if (fr === "stop" && claudeToolBuffer.size > 0) stopReason = "end_turn";
         }
       }
       if (
