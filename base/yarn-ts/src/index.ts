@@ -2213,7 +2213,7 @@ function sendClaudeWorkspaceHandshake(
   });
   safeSse(reply, "message_start", {
     type: "message_start",
-    message: { id: msgId, type: "message", role: "assistant", model, content: [] },
+    message: { id: msgId, type: "message", role: "assistant", model, content: [], usage: { input_tokens: 0, output_tokens: 0 } },
   });
   safeSse(reply, "content_block_start", {
     type: "content_block_start",
@@ -2304,7 +2304,7 @@ function sendClaudeSoftFail(
   });
   safeSse(reply, "message_start", {
     type: "message_start",
-    message: { id: msgId, type: "message", role: "assistant", model, content: [] }
+    message: { id: msgId, type: "message", role: "assistant", model, content: [], usage: { input_tokens: 0, output_tokens: 0 } }
   });
   safeSse(reply, "content_block_start", {
     type: "content_block_start",
@@ -4979,7 +4979,7 @@ app.post("/v1/messages", async (req, reply) => {
       },
     });
     const msgId = `msg_${crypto.randomUUID()}`;
-    safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [] } });
+    safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [], usage: { input_tokens: 0, output_tokens: 0 } } });
 
     let blockIdx = 0;
     let inTextBlock = false;
