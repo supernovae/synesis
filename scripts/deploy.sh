@@ -1189,6 +1189,8 @@ patch_yarn_debug_and_streams() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_MAX_CONCURRENT_STREAMS" "${SYNESIS_YARN_MAX_CONCURRENT_STREAMS:-50}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH" "${SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH:-100}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS" "${SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS:-30000}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS" "${SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS:-2000000}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_BUDGET_MODE" "${SYNESIS_YARN_SESSION_BUDGET_MODE:-audit}" "$container"
 }
 
 # Tool call collapsing: batch/dedupe model tool rounds (see docs/YARN_TOOL_COLLAPSE.md).
