@@ -32,7 +32,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_WRITE_QUEUE_MAX: z.coerce.number().default(10000),
   SYNESIS_YARN_WRITE_FLUSH_INTERVAL_MS: z.coerce.number().default(50),
   SYNESIS_YARN_SESSION_TTL_MS: z.coerce.number().default(14_400_000),
-  SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS: z.coerce.number().default(12_000),
+  SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS: z.coerce.number().default(48_000),
   SYNESIS_YARN_VALIDATION_MAX_FINDINGS: z.coerce.number().default(30),
   SYNESIS_YARN_VALIDATION_INCLUDE_RAW: z
     .string()
@@ -44,7 +44,7 @@ const EnvSchema = z.object({
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_VALIDATION_TIER_C_ROLE: z.string().default("coder-normalizer"),
   SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS: z.coerce.number().default(1500),
-  SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS: z.coerce.number().default(8000),
+  SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS: z.coerce.number().default(24000),
   SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS: z.coerce.number().default(8),
   SYNESIS_YARN_REDUCERS_ENABLED: z
     .string()
@@ -93,10 +93,10 @@ const EnvSchema = z.object({
   SYNESIS_YARN_SESSION_BUDGET_MODE: z.enum(["audit", "enforced"]).default("enforced"),
   /** When > 0, cap `maxOutputTokens` sent to the provider (runaway output safety). 0 = disabled. */
   SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(0),
-  SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(15),
-  SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT: z.coerce.number().default(10),
-  SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT: z.coerce.number().default(4),
-  SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT: z.coerce.number().default(2),
+  SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(25),
+  SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT: z.coerce.number().default(15),
+  SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT: z.coerce.number().default(8),
+  SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT: z.coerce.number().default(4),
   SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED: z
     .string()
     .optional()
@@ -125,7 +125,7 @@ const EnvSchema = z.object({
   // Artifact store bounds (memory safety when feature is enabled)
   SYNESIS_YARN_ARTIFACT_MAX_COUNT: z.coerce.number().default(500),
   SYNESIS_YARN_ARTIFACT_TTL_MS: z.coerce.number().default(3_600_000),
-  SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES: z.coerce.number().default(1_048_576),
+  SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES: z.coerce.number().default(5_242_880),
 
   // Policy engine repeat-map bounds (memory safety)
   SYNESIS_YARN_POLICY_REPEAT_MAP_MAX: z.coerce.number().default(5000),
@@ -366,7 +366,7 @@ const EnvSchema = z.object({
   // Reliability hardening (Phase 11)
   SYNESIS_YARN_AUTH_POOL_MAX: z.coerce.number().default(5),
   SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS: z.coerce.number().default(30_000),
-  SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS: z.coerce.number().default(2000),
+  SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS: z.coerce.number().default(8000),
   SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED: z
     .string()
     .optional()
