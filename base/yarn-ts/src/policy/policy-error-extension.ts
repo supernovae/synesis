@@ -22,7 +22,7 @@ export function synesisPolicyErrorExtension(matchedRules: string[]): SynesisPoli
       code: "repeat_loop_hard_reject",
       retryable: false,
       guidance:
-        "The same request fingerprint repeated too many times. Start a new session, trim history, or change the prompt; do not retry the identical request.",
+        "The same request fingerprint repeated too many times. Start a new chat/session (not Resume), trim history, or send a materially different prompt; do not retry the identical request.",
     };
   }
   if (matchedRules.includes("session_budget_exceeded")) {

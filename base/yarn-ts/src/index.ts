@@ -1985,6 +1985,15 @@ function toolLoopSoftFailMessage(decision: PolicyDecision): string {
   ].join(" ");
 }
 
+function repeatLoopSoftFailMessage(decision: PolicyDecision): string {
+  const reason = decision.rejectReason ?? "Repeated request fingerprint detected without progress.";
+  return [
+    "I paused this turn because the same request pattern keeps replaying, so continuing automatically is unlikely to make progress.",
+    reason,
+    "Next step: start a new chat/session (not Resume) and ask me to recover from current files, summarize the last failure, propose two alternatives, then execute one.",
+  ].join(" ");
+}
+
 function policyRejectOpenAIBody(decision: PolicyDecision) {
   const message = decision.rejectReason ?? "Policy rejected request.";
   const synesis = synesisPolicyErrorExtension(decision.matchedRules);
@@ -2447,6 +2456,39 @@ function safeSse(reply: { raw: NodeJS.WritableStream & { destroyed?: boolean } }
 
 function safeEnd(raw: NodeJS.WritableStream & { destroyed?: boolean }): void {
   try { if (!raw.destroyed) raw.end(); } catch { /* already closed */ }
+}
+
+function startSseHeartbeat(args: {
+  raw: NodeJS.WritableStream & { destroyed?: boolean; on?(event: string, listener: () => void): unknown };
+  intervalMs: number;
+  longWaitEventMs: number;
+  onLongWait?: (elapsedMs: number) => void;
+}): { stop: () => void } {
+  let stopped = false;
+  const normalizedInterval = Math.max(1000, Number.isFinite(args.intervalMs) ? args.intervalMs : 15_000);
+  const normalizedLongWait = Math.max(normalizedInterval, Number.isFinite(args.longWaitEventMs) ? args.longWaitEventMs : 45_000);
+  const startedAt = Date.now();
+  const interval = setInterval(() => {
+    if (stopped) return;
+    // SSE comment frame; ignored by clients, but keeps idle proxies/connections alive.
+    safeWrite(args.raw, ": keep-alive\n\n");
+  }, normalizedInterval);
+  let longWaitTimer: NodeJS.Timeout | undefined;
+  if (args.onLongWait) {
+    longWaitTimer = setTimeout(() => {
+      if (stopped) return;
+      args.onLongWait?.(Date.now() - startedAt);
+    }, normalizedLongWait);
+  }
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(interval);
+    if (longWaitTimer) clearTimeout(longWaitTimer);
+  };
+  args.raw.on?.("close", stop);
+  args.raw.on?.("error", stop);
+  return { stop };
 }
 
 function sanitizeUpstreamError(err: unknown): string {
@@ -3034,8 +3076,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     tools: request.tools as unknown[],
     repeatAttempt: {
       action: "chat_completion",
-      args: { model: request.model, lastToolId: oaiLastToolId, messageCount: request.messages.length },
-      fsFingerprint: `${oaiLastToolId || "none"}:${request.messages.length}`,
+      args: {
+        model: request.model,
+        lastToolId: oaiLastToolId,
+        messageCount: request.messages.length,
+        latestUserHash: latestOpenAIUserHash || "none",
+      },
+      fsFingerprint: `${oaiLastToolId || "none"}:${request.messages.length}:${latestOpenAIUserHash || "none"}`,
     },
     sessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -3081,6 +3128,32 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "deterministic-policy",
         policyPrecheck.rejectReason ?? "Tool loop soft fail",
         oaiTraceReqId
+      );
+      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
+    }
+    if (policyPrecheck.matchedRules.includes("repeat_loop_hard_reject")) {
+      const started = Date.now();
+      const content = repeatLoopSoftFailMessage(policyPrecheck);
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      session.history.push({ role: "assistant", content });
+      persistSessionAndUsage(
+        session,
+        oaiTraceReqId,
+        orchestration.selectedModel,
+        usage,
+        Date.now() - started,
+        "stop",
+        0,
+      );
+      maybeCheckpoint(session);
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "repeat_loop_soft_fail",
+        "deterministic-policy",
+        policyPrecheck.rejectReason ?? "Repeat loop soft fail",
+        oaiTraceReqId,
       );
       return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
     }
@@ -3677,6 +3750,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
   });
   reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
+  const oaiHeartbeat = startSseHeartbeat({
+    raw: reply.raw,
+    intervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
+    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+    onLongWait: (elapsedMs) => {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "stream_long_wait",
+        "stream-heartbeat",
+        `OpenAI stream exceeded ${config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS}ms without finishing`,
+        reqId,
+        { elapsedMs, model: resolved.resolvedModelId },
+      );
+    },
+  });
 
   let finishReason = "stop";
   const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
@@ -3988,6 +4078,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   })}\n\n`);
   safeWrite(reply.raw, "data: [DONE]\n\n");
   safeEnd(reply.raw);
+  oaiHeartbeat.stop();
 
   let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
   let streamedText = "";
@@ -4399,9 +4490,14 @@ app.post("/v1/messages", async (req, reply) => {
     tools: (body.tools as unknown[]) ?? [],
     repeatAttempt: {
       action: "claude_messages",
-      args: { model: body.model, lastToolUseId: claudeLastToolUseId, messageCount: body.messages.length },
+      args: {
+        model: body.model,
+        lastToolUseId: claudeLastToolUseId,
+        messageCount: body.messages.length,
+        latestUserHash: latestClaudeUserHash || "none",
+      },
       // Include transcript length so tool loops advance the fingerprint even if tool_use_id extraction fails.
-      fsFingerprint: `${claudeLastToolUseId || "none"}:${body.messages.length}`,
+      fsFingerprint: `${claudeLastToolUseId || "none"}:${body.messages.length}:${latestClaudeUserHash || "none"}`,
     },
     sessionKey: claudeSessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -4447,6 +4543,32 @@ app.post("/v1/messages", async (req, reply) => {
         "deterministic-policy",
         claudePolicyPrecheck.rejectReason ?? "Tool loop soft fail",
         traceReqId
+      );
+      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
+    }
+    if (claudePolicyPrecheck.matchedRules.includes("repeat_loop_hard_reject")) {
+      const started = Date.now();
+      const content = repeatLoopSoftFailMessage(claudePolicyPrecheck);
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      session.history.push({ role: "assistant", content });
+      persistSessionAndUsage(
+        session,
+        traceReqId,
+        claudeOrchestration.selectedModel,
+        usage,
+        Date.now() - started,
+        "end_turn",
+        0,
+      );
+      maybeCheckpoint(session);
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "repeat_loop_soft_fail",
+        "deterministic-policy",
+        claudePolicyPrecheck.rejectReason ?? "Repeat loop soft fail",
+        traceReqId,
       );
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
     }
@@ -4669,6 +4791,23 @@ app.post("/v1/messages", async (req, reply) => {
       ...(providerOptions ? { providerOptions: providerOptions as never } : {})
     });
     reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
+    const claudeHeartbeat = startSseHeartbeat({
+      raw: reply.raw,
+      intervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
+      longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+      onLongWait: (elapsedMs) => {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "stream_long_wait",
+          "stream-heartbeat",
+          `Claude stream exceeded ${config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS}ms without finishing`,
+          traceReqId,
+          { elapsedMs, model: resolved.resolvedModelId },
+        );
+      },
+    });
     const msgId = `msg_${crypto.randomUUID()}`;
     safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [] } });
 
@@ -5075,6 +5214,7 @@ app.post("/v1/messages", async (req, reply) => {
     });
     safeSse(reply, "message_stop", { type: "message_stop" });
     safeEnd(reply.raw);
+    claudeHeartbeat.stop();
 
     let claudeStreamedText = "";
     try { claudeStreamedText = await streamed.text; } catch { /* stream aborted */ }

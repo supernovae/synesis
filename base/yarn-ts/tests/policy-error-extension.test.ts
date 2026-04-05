@@ -6,7 +6,7 @@ describe("synesisPolicyErrorExtension", () => {
     const ext = synesisPolicyErrorExtension(["repeat_loop_hard_reject"]);
     expect(ext?.code).toBe("repeat_loop_hard_reject");
     expect(ext?.retryable).toBe(false);
-    expect(ext?.guidance).toContain("new session");
+    expect(ext?.guidance).toContain("new chat/session");
   });
 
   it("returns undefined for unknown rules", () => {
