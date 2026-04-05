@@ -132,21 +132,23 @@ export class ToolResultReductionService {
         return { ...m, content: dispatched.transformed };
       }
 
-      let reduced: ReturnType<ReducerRegistry["reduce"]>;
-      try {
-        reduced = this.registry.reduce({
-          raw,
-          context: {
-            toolName: m.name,
-            command: m.name,
-            profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
-            maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
-            minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
-          }
-        });
-      } catch {
-        this.stats.compactionFailures += 1;
-        reduced = null;
+      let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
+      if (!this.isExemptFromFileReduction(m.name)) {
+        try {
+          reduced = this.registry.reduce({
+            raw,
+            context: {
+              toolName: m.name,
+              command: m.name,
+              profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
+              maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+              minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
+            }
+          });
+        } catch {
+          this.stats.compactionFailures += 1;
+          reduced = null;
+        }
       }
       const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
       if (!shouldReduce) return { ...m, content: raw };
@@ -271,21 +273,23 @@ export class ToolResultReductionService {
         continue;
       }
 
-      let reduced: ReturnType<ReducerRegistry["reduce"]>;
-      try {
-        reduced = this.registry.reduce({
-          raw,
-          context: {
-            toolName: m.name,
-            command: m.name,
-            profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
-            maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
-            minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE,
-          },
-        });
-      } catch {
-        this.stats.compactionFailures += 1;
-        reduced = null;
+      let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
+      if (!this.isExemptFromFileReduction(m.name)) {
+        try {
+          reduced = this.registry.reduce({
+            raw,
+            context: {
+              toolName: m.name,
+              command: m.name,
+              profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
+              maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+              minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE,
+            },
+          });
+        } catch {
+          this.stats.compactionFailures += 1;
+          reduced = null;
+        }
       }
 
       const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
@@ -364,21 +368,23 @@ export class ToolResultReductionService {
 
   reduceStandaloneToolResult(content: unknown, toolName?: string): string {
     const raw = toStringContent(content);
-    let reduced: ReturnType<ReducerRegistry["reduce"]>;
-    try {
-      reduced = this.registry.reduce({
-        raw,
-        context: {
-          toolName,
-          command: toolName,
-          profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
-          maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
-          minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
-        }
-      });
-    } catch {
-      this.stats.compactionFailures += 1;
-      reduced = null;
+    let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
+    if (!this.isExemptFromFileReduction(toolName)) {
+      try {
+        reduced = this.registry.reduce({
+          raw,
+          context: {
+            toolName,
+            command: toolName,
+            profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
+            maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+            minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
+          }
+        });
+      } catch {
+        this.stats.compactionFailures += 1;
+        reduced = null;
+      }
     }
     if (!reduced && (this.isExemptFromFileReduction(toolName) || raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS)) {
       const jsonResult = compactJsonArray(raw);
@@ -527,7 +533,11 @@ export class ToolResultReductionService {
       name === "synesis_config_search" ||
       name === "synesis_knowledge_search" ||
       name === "synesis_web_search" ||
-      name === "synesis_artifact_retrieve"
+      name === "synesis_artifact_retrieve" ||
+      name === "agent" ||
+      name === "explore" ||
+      name === "taskcreate" ||
+      name === "taskupdate"
     );
   }
 

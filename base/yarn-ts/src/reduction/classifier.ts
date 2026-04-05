@@ -207,7 +207,8 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
   if (/^% time\s+seconds/m.test(r)) return "strace-perf";
 
   // Log stream (generic — many log-level lines)
-  const logLevelCount = (r.match(/\b(ERROR|WARN|INFO|DEBUG|FATAL)\b/gi) ?? []).length;
+  // Must be somewhat structured to avoid matching source code files with "error" variables.
+  const logLevelCount = (r.match(/^(?:[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\[[^\]]+\]|\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}).*\b(ERROR|WARN|INFO|DEBUG|FATAL)\b/gim) ?? []).length;
   if (logLevelCount >= 10) return "log-stream";
 
   // Search / grep: generic file:line: fallback — last because many tools produce this format
