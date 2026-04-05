@@ -77,6 +77,13 @@ export class ValidationNormalizationService {
         maxFindings: this.config.SYNESIS_YARN_VALIDATION_MAX_FINDINGS,
         maxExcerptChars: 280
       });
+      if (envelope.findings.length === 0) {
+        if (typeof m.content === "string" && m.content.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS) {
+          // Let admission policy truncate it to an artifact handle
+        } else {
+          return m;
+        }
+      }
       const decision = applyAdmissionPolicy(
         envelope,
         m.content,
@@ -144,6 +151,14 @@ export class ValidationNormalizationService {
       } else {
         envelope = normalizeValidationOutput(input);
       }
+      if (envelope.findings.length === 0) {
+        if (typeof m.content === "string" && m.content.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS) {
+          // Let admission policy truncate it to an artifact handle
+        } else {
+          out.push(m);
+          continue;
+        }
+      }
       const decision = applyAdmissionPolicy(
         envelope,
         m.content,
@@ -192,6 +207,27 @@ export class ValidationNormalizationService {
 
   private shouldNormalize(toolName: string | undefined, content: string): boolean {
     const name = (toolName ?? "").toLowerCase();
+    
+    // Never treat file operations or search tools as validation output.
+    // ToolResultReductionService will handle them if they are too large.
+    if (
+      name === "read" || 
+      name === "write" || 
+      name === "edit" || 
+      name === "update" || 
+      name === "glob" || 
+      name === "read_file" || 
+      name === "search_files" ||
+      name === "synesis_code_search" ||
+      name === "synesis_docs_search" ||
+      name === "synesis_config_search" ||
+      name === "synesis_knowledge_search" ||
+      name === "synesis_web_search" ||
+      name === "synesis_artifact_retrieve"
+    ) {
+      return false;
+    }
+
     if (VALIDATION_TOOL_HINTS.some((h) => name.includes(h))) return true;
     if (content.length >= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS) return true;
 
@@ -204,7 +240,17 @@ export class ValidationNormalizationService {
     if (trimmed.includes('"runs"') && trimmed.includes('"results"')) return true;
 
     const lower = content.toLowerCase();
-    if (lower.includes("error ts") || lower.includes("eslint") || lower.includes("ruff") || lower.includes("failed")) {
+    if (lower.includes("error ts") || lower.includes("eslint") || lower.includes("ruff")) {
+      return true;
+    }
+    // More specific test failure patterns instead of just "failed"
+    if (
+      content.includes("FAIL:") || 
+      content.includes("FAILED") || 
+      content.includes("FAILURES") || 
+      content.includes("E       assert") ||
+      (content.includes("--- FAIL:") && content.includes(".go:"))
+    ) {
       return true;
     }
     // Terraform validate text pattern: "Error: ... on file.tf line N"

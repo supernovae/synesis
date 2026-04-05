@@ -67,7 +67,7 @@ describe("ValidationNormalizationService", () => {
   it("supports Tier C async fallback path", async () => {
     const svc = new ValidationNormalizationService(makeConfig());
     const out = await svc.normalizeMessagesAsync(
-      [{ role: "tool", name: "unknown", content: "failed at src/a.ts line 4" }],
+      [{ role: "tool", name: "unknown", content: "FAIL: at src/a.ts line 4" }],
       async () => ({
         findings: [
           {
