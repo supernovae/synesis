@@ -3589,6 +3589,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
           strictBashBlock: openClawStrictGovernance,
           blockWriteCapableTools: openClawStrictGovernance,
+          clientKind: oaiClientKind,
         });
         if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
         if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
@@ -3663,6 +3664,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
           strictBashBlock: openClawStrictGovernance,
           blockWriteCapableTools: openClawStrictGovernance,
+          clientKind: oaiClientKind,
         });
         externalToolCalls = [{
           toolCallId: `legacy_${Date.now().toString(36)}`,
@@ -3990,6 +3992,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
             strictBashBlock: openClawStrictGovernance,
             blockWriteCapableTools: openClawStrictGovernance,
+            clientKind: oaiClientKind,
           });
           if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
           if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
@@ -4120,6 +4123,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
         strictBashBlock: openClawStrictGovernance,
         blockWriteCapableTools: openClawStrictGovernance,
+        clientKind: oaiClientKind,
       });
       if (parsedLegacy.cleanText) {
         const guarded = applyMarkdownGuardrail(
@@ -5137,6 +5141,7 @@ app.post("/v1/messages", async (req, reply) => {
             blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
             strictBashBlock: claudeOpenClawStrictGovernance,
             blockWriteCapableTools: claudeOpenClawStrictGovernance,
+            clientKind: claudeClientKind,
           });
           emitToolName = governed.toolName;
           finalInput = governed.input;
@@ -5284,6 +5289,7 @@ app.post("/v1/messages", async (req, reply) => {
           blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
           strictBashBlock: claudeOpenClawStrictGovernance,
           blockWriteCapableTools: claudeOpenClawStrictGovernance,
+          clientKind: claudeClientKind,
         });
         const legacyToolCallId = `legacy_${Date.now().toString(36)}`;
         const normalizedJson = JSON.stringify(legacyGoverned.input);
@@ -5680,6 +5686,7 @@ app.post("/v1/messages", async (req, reply) => {
         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
         strictBashBlock: claudeOpenClawStrictGovernance,
         blockWriteCapableTools: claudeOpenClawStrictGovernance,
+        clientKind: claudeClientKind,
       });
       if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
       if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
@@ -5720,6 +5727,7 @@ app.post("/v1/messages", async (req, reply) => {
         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
         strictBashBlock: claudeOpenClawStrictGovernance,
         blockWriteCapableTools: claudeOpenClawStrictGovernance,
+        clientKind: claudeClientKind,
       });
       externalClaudeToolCalls = [{
         toolCallId: `legacy_${Date.now().toString(36)}`,

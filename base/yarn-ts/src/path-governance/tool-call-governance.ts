@@ -16,6 +16,7 @@ export interface GovernToolCallOptions {
   strictBashBlock?: boolean;
   strictValidationBlock?: boolean;
   blockWriteCapableTools?: boolean;
+  clientKind?: string;
 }
 
 export interface GovernedToolCall {
@@ -68,19 +69,30 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
 
   if (opts.blockWriteCapableTools && isWriteCapableTool(logicalName)) {
     const message = `Synesis Yarn blocked write-capable tool '${logicalName}' for this client safety profile.`;
-    out.toolName = "Bash";
-    out.input = {
-      command: buildStructuredErrorBashCommand({
+    if (opts.clientKind === "claude-code") {
+      out.toolName = "Synesis_Error_WriteCapableBlocked";
+      out.input = {
         synesis_error: true,
-        schema_version: 1,
-        category: "policy",
         reason: "write_capable_blocked",
         original_tool: logicalName,
         message,
         retryable: false,
-      }),
-      description: "Blocked write-capable tool for safety profile",
-    };
+      };
+    } else {
+      out.toolName = "Bash";
+      out.input = {
+        command: buildStructuredErrorBashCommand({
+          synesis_error: true,
+          schema_version: 1,
+          category: "policy",
+          reason: "write_capable_blocked",
+          original_tool: logicalName,
+          message,
+          retryable: false,
+        }),
+        description: "Blocked write-capable tool for safety profile",
+      };
+    }
     out.blockedBashDrift = true;
     return out;
   }
@@ -96,34 +108,55 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
       const drift = detectBashPathDrift(effectiveCommand, opts.shellCwd);
       if (drift) {
         const message = `Synesis Yarn blocked risky shell path drift: ${drift.reason}. Stay in the current project root and use relative paths.`;
-        out.input = {
-          command: buildStructuredErrorBashCommand({
+        if (opts.clientKind === "claude-code") {
+          out.toolName = "Synesis_Error_BashPathDrift";
+          out.input = {
             synesis_error: true,
-            schema_version: 1,
-            category: "policy",
             reason: "bash_path_drift",
             message,
             retryable: true,
-          }),
-          description: "Blocked risky mkdir/cd path drift",
-        };
+          };
+        } else {
+          out.input = {
+            command: buildStructuredErrorBashCommand({
+              synesis_error: true,
+              schema_version: 1,
+              category: "policy",
+              reason: "bash_path_drift",
+              message,
+              retryable: true,
+            }),
+            description: "Blocked risky mkdir/cd path drift",
+          };
+        }
         out.blockedBashDrift = true;
       }
       const dangerous = detectDangerousBash(effectiveCommand);
       if (dangerous) {
         const message = `Synesis Yarn blocked unsafe shell command: ${dangerous.reason}. Use safe structured tools from project root.`;
-        out.input = {
-          command: buildStructuredErrorBashCommand({
+        if (opts.clientKind === "claude-code") {
+          out.toolName = "Synesis_Error_UnsafeShell";
+          out.input = {
             synesis_error: true,
-            schema_version: 1,
-            category: "policy",
             reason: "unsafe_shell",
             detail: dangerous.reason,
             message,
             retryable: true,
-          }),
-          description: "Blocked unsafe shell command",
-        };
+          };
+        } else {
+          out.input = {
+            command: buildStructuredErrorBashCommand({
+              synesis_error: true,
+              schema_version: 1,
+              category: "policy",
+              reason: "unsafe_shell",
+              detail: dangerous.reason,
+              message,
+              retryable: true,
+            }),
+            description: "Blocked unsafe shell command",
+          };
+        }
         out.blockedBashDrift = true;
       }
     }
@@ -141,20 +174,33 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     }
     if (opts.strictValidationBlock !== false) {
       const human = `Synesis Yarn blocked invalid tool arguments for ${out.toolName}: missing ${validation.missing.join(", ")}`;
-      out.toolName = "Bash";
-      out.input = {
-        command: buildStructuredErrorBashCommand({
+      if (opts.clientKind === "claude-code") {
+        out.toolName = "Synesis_Error_ValidationFailed";
+        out.input = {
           synesis_error: true,
-          schema_version: 1,
-          category: "validation",
+          reason: "validation_failed",
           original_tool: logicalName,
           missing: validation.missing,
           message: human,
           hint: validationHint(logicalName, validation.missing),
           retryable: true,
-        }),
-        description: "Blocked invalid tool arguments",
-      };
+        };
+      } else {
+        out.toolName = "Bash";
+        out.input = {
+          command: buildStructuredErrorBashCommand({
+            synesis_error: true,
+            schema_version: 1,
+            category: "validation",
+            original_tool: logicalName,
+            missing: validation.missing,
+            message: human,
+            hint: validationHint(logicalName, validation.missing),
+            retryable: true,
+          }),
+          description: "Blocked invalid tool arguments",
+        };
+      }
     }
   }
   return out;
