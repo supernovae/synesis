@@ -260,31 +260,6 @@ function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | nul
   return cwd || null;
 }
 
-function detectBashPathDrift(command: string, shellCwd?: string | null): { reason: string } | null {
-  const shellBase = normalizedBase(shellCwd);
-  const mkdirCd = command.match(/mkdir(?:\s+-p)?\s+([^\s;&|]+)\s*&&\s*cd\s+([^\s;&|]+)/);
-  if (mkdirCd) {
-    const mkdirTarget = stripQuotes(mkdirCd[1]);
-    const cdTarget = stripQuotes(mkdirCd[2]);
-    if (mkdirTarget === cdTarget && shellBase && path.basename(mkdirTarget) === shellBase) {
-      return { reason: `mkdir&&cd repeats current directory segment '${shellBase}'` };
-    }
-    if (hasDuplicateAdjacentSegment(mkdirTarget) || hasDuplicateAdjacentSegment(cdTarget)) {
-      return { reason: "mkdir/cd target contains duplicated adjacent segments" };
-    }
-  }
-
-  const cdMatches = command.matchAll(/(?:^|[;&|]\s*|\s+)cd\s+([^\s;&|]+)/g);
-  for (const m of cdMatches) {
-    const target = stripQuotes(m[1]);
-    if (hasDuplicateAdjacentSegment(target)) {
-      return { reason: `cd target '${target}' contains duplicated adjacent segments` };
-    }
-  }
-
-  return null;
-}
-
 function detectDangerousBash(command: string): { reason: string } | null {
   const c = command.trim().toLowerCase();
   if (/\brm\s+-rf\s+/.test(c)) {
