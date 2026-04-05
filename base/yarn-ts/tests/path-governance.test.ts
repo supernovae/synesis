@@ -87,6 +87,18 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("cd is disallowed");
   });
 
+  it("rewrites redundant cd-to-cwd prefixes before strict bash checks", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "cd /Users/me/repo && go run main.go" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.blockedBashDrift).toBe(false);
+    expect(String(out.input.command)).toBe("go run main.go");
+  });
+
   it("normalizes alias tool names for validation without renaming output tool", () => {
     const out = governToolCall({
       toolName: "read_file",

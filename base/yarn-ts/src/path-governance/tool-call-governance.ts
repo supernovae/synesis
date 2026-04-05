@@ -81,7 +81,12 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
     const command = out.input.command;
     if (typeof command === "string" && command.trim()) {
-      const drift = detectBashPathDrift(command, opts.shellCwd);
+      const rewritten = rewriteRedundantCdPrefix(command, opts.shellCwd);
+      const effectiveCommand = rewritten?.rewrittenCommand ?? command;
+      if (rewritten) {
+        out.input = { ...out.input, command: effectiveCommand };
+      }
+      const drift = detectBashPathDrift(effectiveCommand, opts.shellCwd);
       if (drift) {
         const message = `Synesis Yarn blocked risky shell path drift: ${drift.reason}. Stay in the current project root and use relative paths.`;
         out.input = {
@@ -97,7 +102,7 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
         };
         out.blockedBashDrift = true;
       }
-      const dangerous = detectDangerousBash(command);
+      const dangerous = detectDangerousBash(effectiveCommand);
       if (dangerous) {
         const message = `Synesis Yarn blocked unsafe shell command: ${dangerous.reason}. Use safe structured tools from project root.`;
         out.input = {
@@ -194,6 +199,25 @@ function detectDangerousBash(command: string): { reason: string } | null {
     return { reason: "destructive system command detected" };
   }
   return null;
+}
+
+function rewriteRedundantCdPrefix(
+  command: string,
+  shellCwd?: string | null,
+): { rewrittenCommand: string } | null {
+  const cwd = (shellCwd ?? "").trim();
+  if (!cwd) return null;
+  const m = command.match(/^\s*cd\s+([^\s;&|]+)\s*&&\s*([\s\S]+)$/);
+  if (!m) return null;
+  const cdTarget = stripQuotes(m[1]);
+  const remainder = String(m[2] ?? "").trim();
+  if (!cdTarget || !remainder) return null;
+  const cwdAbs = path.resolve(cwd);
+  const targetAbs = path.isAbsolute(cdTarget)
+    ? path.resolve(cdTarget)
+    : path.resolve(cwdAbs, cdTarget);
+  if (targetAbs !== cwdAbs) return null;
+  return { rewrittenCommand: remainder };
 }
 
 function normalizedBase(raw?: string | null): string | null {
