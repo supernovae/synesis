@@ -321,6 +321,42 @@ describe("sanitizeToolCalls", () => {
     expect(result[0].tool_calls).toHaveLength(1);
     expect(result[0].tool_calls![0].id).toBe("call_1");
   });
+
+  it("reorders out-of-order tool results immediately after matching assistant tool calls", () => {
+    const msgs = [
+      { role: "assistant", content: "I will run a tool", tool_calls: [
+        { id: "call_1", type: "function", function: { name: "Glob", arguments: '{"glob_pattern":"*.ts"}' } },
+      ]},
+      { role: "user", content: "Thanks, continue." },
+      { role: "tool", content: "file.ts", tool_call_id: "call_1" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool", "user"]);
+    expect(result[1].tool_call_id).toBe("call_1");
+  });
+});
+
+describe("vercel tool protocol ordering", () => {
+  it("normalizes claude-converted history to assistant -> tool-result ordering", () => {
+    const converted = claudeMessagesToOpenAI([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "toolu_01", name: "bash", input: { command: "ls" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "continuing" },
+          { type: "tool_result", tool_use_id: "toolu_01", content: "ok" },
+        ],
+      },
+    ]);
+    const sanitized = sanitizeToolCalls(converted as never);
+    expect(sanitized.map((m) => m.role)).toEqual(["assistant", "tool", "user"]);
+    expect(sanitized[1].tool_call_id).toBe("toolu_01");
+  });
 });
 
 describe("parseLegacyInlineToolCall", () => {

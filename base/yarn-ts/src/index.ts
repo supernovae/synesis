@@ -4418,7 +4418,10 @@ app.post("/v1/messages", async (req, reply) => {
       (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
     ),
   );
-  const openAIMessages = claudeSystemMsg ? [claudeSystemMsg, ...rawOpenAIMessages] : rawOpenAIMessages;
+  // Enforce Vercel tool protocol invariants (assistant tool_call -> tool_result adjacency/order)
+  // on Claude-converted histories to prevent resume-time MissingToolResultsError class failures.
+  const sanitizedOpenAIMessages = sanitizeToolCalls(rawOpenAIMessages as never);
+  const openAIMessages = claudeSystemMsg ? [claudeSystemMsg, ...sanitizedOpenAIMessages] : sanitizedOpenAIMessages;
 
   // Tool-search policy: strip defer_loading / tool_reference in disable mode
   const toolSearchResult = applyToolSearchPolicy(
