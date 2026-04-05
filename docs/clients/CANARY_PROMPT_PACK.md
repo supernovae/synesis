@@ -61,6 +61,7 @@ Use the same prompts (fast pack or full pack) in two configurations to compare *
 
 - `request_id`, `model_id`, `duration_ms`, `input_tokens`, `output_tokens` (if surfaced)
 - `tool_calls_total`, `synesis_knowledge_search` count (if enabled)
+- `structured_errors_count`, `diagnostic_lines_count`, `structured_error_coverage` from `mcp_tool_call` logs for `run_*`
 - `mcp_http_requests` / policy denials from `synesis-mcp-ts` `/health/telemetry` when testing MCP clients
 
 ## Pass/fail global checks

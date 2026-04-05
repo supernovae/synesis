@@ -258,6 +258,22 @@ export async function registerMcpRoutes(
               exitCode: (result as { exitCode: number }).exitCode,
             }
           : undefined;
+      const diagnosticsMeta = (() => {
+        if (typeof result !== "object" || result === null) return undefined;
+        const row = result as Record<string, unknown>;
+        const errors = Array.isArray(row.errors) ? row.errors : [];
+        const errorLines = Array.isArray(row.errorLines) ? row.errorLines : [];
+        if (errors.length === 0 && errorLines.length === 0) return undefined;
+        const coverage =
+          errorLines.length > 0
+            ? Number((errors.length / errorLines.length).toFixed(3))
+            : (errors.length > 0 ? 1 : 0);
+        return {
+          structured_errors_count: errors.length,
+          diagnostic_lines_count: errorLines.length,
+          structured_error_coverage: coverage,
+        };
+      })();
       app.log.info(
         {
           tool: body.name,
@@ -267,6 +283,7 @@ export async function registerMcpRoutes(
           requestId,
           elapsed_ms: elapsed,
           ...(runMeta ?? {}),
+          ...(diagnosticsMeta ?? {}),
         },
         "mcp_tool_call",
       );
