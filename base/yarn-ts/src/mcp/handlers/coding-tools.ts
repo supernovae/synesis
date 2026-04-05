@@ -265,19 +265,61 @@ const ApplyPatchSchema = RootSchema.extend({
 });
 export const applyPatchTool: McpToolDefinition<
   z.infer<typeof ApplyPatchSchema>,
-  { filePath: string; replaced: boolean }
+  {
+    filePath: string;
+    replaced: boolean;
+    ok: boolean;
+    reason: "applied" | "not_found" | "context_mismatch";
+    suggestedNextActions: string[];
+    contextHint?: string;
+  }
 > = {
   name: "apply_patch",
-  description: "Apply deterministic single-occurrence string replacement in a file.",
+  description:
+    "Apply deterministic single-occurrence string replacement in a file. Prefer this over whole-file rewrites for existing files; returns recovery hints when patching fails.",
   inputSchema: ApplyPatchSchema,
   async handler(input) {
     const abs = resolveInsideRoot(input.projectRoot, input.filePath);
     const content = await fs.readFile(abs, "utf8");
     const idx = content.indexOf(input.oldString);
-    if (idx < 0) return { filePath: input.filePath, replaced: false };
+    if (idx < 0) {
+      const firstOldLine = input.oldString
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l.length > 0)
+        ?? "";
+      let contextHint: string | undefined;
+      if (firstOldLine.length > 0) {
+        const lines = content.split(/\r?\n/);
+        const nearbyIdx = lines.findIndex((l) => l.includes(firstOldLine.slice(0, Math.min(80, firstOldLine.length))));
+        if (nearbyIdx >= 0) {
+          const start = Math.max(0, nearbyIdx - 2);
+          const end = Math.min(lines.length, nearbyIdx + 3);
+          contextHint = lines.slice(start, end).join("\n");
+        }
+      }
+      return {
+        filePath: input.filePath,
+        replaced: false,
+        ok: false,
+        reason: contextHint ? "context_mismatch" : "not_found",
+        suggestedNextActions: [
+          "search_code(pattern=<target symbol>, dir='.')",
+          "read_file(filePath=<same file>, startLine=<nearby>, endLine=<nearby+200>)",
+          "retry apply_patch with adjusted oldString context",
+        ],
+        ...(contextHint ? { contextHint } : {}),
+      };
+    }
     const updated = `${content.slice(0, idx)}${input.newString}${content.slice(idx + input.oldString.length)}`;
     await fs.writeFile(abs, updated, "utf8");
-    return { filePath: input.filePath, replaced: true };
+    return {
+      filePath: input.filePath,
+      replaced: true,
+      ok: true,
+      reason: "applied",
+      suggestedNextActions: [],
+    };
   },
 };
 

@@ -136,6 +136,58 @@ type SessionState = {
   record: SessionRecord;
 };
 
+type TrajectoryBucket = "micro" | "repo" | "feature" | "investigation";
+
+type RequestTrajectoryInput = {
+  toolSequence?: string[];
+  retryCountTotal?: number;
+  taskBucket?: TrajectoryBucket;
+  verificationSteps?: string[];
+  patchOpsCount?: number;
+  wholeWriteOpsCount?: number;
+  outcomeState?: "verified" | "partial" | "stalled" | "policy_reject" | "user_abort";
+  failureStage?: "discovery" | "mutation" | "verification" | "policy" | null;
+};
+
+function classifyToolKind(name: string): "discovery" | "evidence" | "mutation" | "verification" | "other" {
+  const n = name.toLowerCase();
+  if (n.includes("search") || n.includes("inspect") || n.includes("classify")) return "discovery";
+  if (n.includes("read") || n.includes("diff") || n.includes("status")) return "evidence";
+  if (n.includes("patch") || n.includes("write") || n.includes("format") || n.includes("git_add") || n.includes("git_commit")) {
+    return "mutation";
+  }
+  if (n.includes("run_test") || n.includes("run_build") || n.includes("run_lint")) return "verification";
+  return "other";
+}
+
+function inferTrajectoryBucket(sequence: string[], patchOps: number, wholeWriteOps: number): TrajectoryBucket {
+  const edits = patchOps + wholeWriteOps;
+  if (edits === 0) return "investigation";
+  if (edits === 1 && sequence.length <= 5) return "micro";
+  if (edits >= 4 || sequence.length >= 12) return "feature";
+  return "repo";
+}
+
+function countEditsFromToolSequence(sequence: string[]): { patchOps: number; wholeWriteOps: number } {
+  let patchOps = 0;
+  let wholeWriteOps = 0;
+  for (const name of sequence) {
+    if (name === "apply_patch") patchOps += 1;
+    if (name === "write_file") wholeWriteOps += 1;
+  }
+  return { patchOps, wholeWriteOps };
+}
+
+function inferVerificationSteps(sequence: string[]): string[] {
+  const steps: string[] = [];
+  for (const name of sequence) {
+    if (name === "run_lint" && !steps.includes("run_lint")) steps.push("run_lint");
+    else if (name === "run_build" && !steps.includes("run_build")) steps.push("run_build");
+    else if (name === "run_test" && !steps.includes("run_test_targeted")) steps.push("run_test_targeted");
+  }
+  return steps;
+}
+
 function getMetadataString(meta: Record<string, unknown>, key: string): string {
   const value = meta[key];
   return typeof value === "string" ? value : "";
@@ -1198,6 +1250,7 @@ function persistSessionAndUsage(
   tokensSavedByReduction = 0,
   escalated = false,
   snapshot?: DecisionSnapshot,
+  trajectory?: RequestTrajectoryInput,
 ): void {
   const persistSpan = getTracer().startSpan("yarn.persist_session", {
     "yarn.request_id": requestId,
@@ -1303,6 +1356,86 @@ function persistSessionAndUsage(
     escalated,
     toolCallsCount: state.toolCallsSinceCheckpoint,
     finishReason
+  });
+
+  const toolSequence = trajectory?.toolSequence ?? [];
+  const inferredEdits = countEditsFromToolSequence(toolSequence);
+  const patchOpsCount = trajectory?.patchOpsCount ?? inferredEdits.patchOps;
+  const wholeWriteOpsCount = trajectory?.wholeWriteOpsCount ?? inferredEdits.wholeWriteOps;
+  const verificationSteps = trajectory?.verificationSteps ?? [];
+  const countsByKind = { discovery: 0, evidence: 0, mutation: 0, verification: 0, other: 0 };
+  for (const name of toolSequence) {
+    const kind = classifyToolKind(name);
+    countsByKind[kind] += 1;
+  }
+  const taskBucket = trajectory?.taskBucket ?? inferTrajectoryBucket(toolSequence, patchOpsCount, wholeWriteOpsCount);
+  const firstPassVerifyOk =
+    finishReason !== "error"
+    && !snapshot?.verificationStalled
+    && (snapshot?.verificationRound === undefined || snapshot.verificationRound <= 1);
+  const outcomeState = trajectory?.outcomeState
+    ?? (finishReason === "error" ? "stalled" : snapshot?.verificationStalled ? "stalled" : "verified");
+  const failureStage = trajectory?.failureStage
+    ?? (finishReason === "error" ? "verification" : snapshot?.verificationStalled ? "verification" : null);
+
+  usageWriter.enqueueSessionEvent({
+    sessionKey: state.record.sessionKey,
+    requestId,
+    userId: state.record.userId,
+    orgId: state.record.orgId,
+    eventKind: "request_trajectory_v1",
+    component: "yarn",
+    detail: `trajectory ${outcomeState} bucket=${taskBucket} tools=${toolSequence.length}`,
+    metadataJson: {
+      schema_version: "request_trajectory_v1",
+      request_id: requestId,
+      session_key: state.record.sessionKey,
+      task_bucket: taskBucket,
+      identity: {
+        client_kind: state.record.clientKind || "unknown",
+        model: resolvedModelId,
+      },
+      workflow: {
+        decision_path: snapshot?.decisionPath,
+        phase: snapshot?.phase ?? "unknown",
+        escalated,
+        policy_rules_matched: snapshot?.policyDecision ? String(snapshot.policyDecision).split(",").filter(Boolean) : [],
+      },
+      tools: {
+        sequence: toolSequence,
+        counts_by_kind: countsByKind,
+        retry_count_total: trajectory?.retryCountTotal ?? state.stagnantToolCycles,
+        blind_retry_count: state.stagnantToolCycles,
+      },
+      edits: {
+        files_read_count: undefined,
+        bytes_read_total: undefined,
+        files_written_count: patchOpsCount + wholeWriteOpsCount,
+        patch_ops_count: patchOpsCount,
+        whole_write_ops_count: wholeWriteOpsCount,
+        patch_success_rate: patchOpsCount + wholeWriteOpsCount > 0
+          ? Number((patchOpsCount / (patchOpsCount + wholeWriteOpsCount)).toFixed(3))
+          : undefined,
+      },
+      verification: {
+        steps: verificationSteps,
+        round: snapshot?.verificationRound,
+        stalled: snapshot?.verificationStalled,
+        findings: snapshot?.verificationFindings,
+        first_pass_verify_ok: firstPassVerifyOk,
+      },
+      cost: {
+        tokens_in: usage.inputTokens,
+        tokens_out: usage.outputTokens,
+        tokens_saved_by_reduction: tokensSavedByReduction,
+        latency_ms: latencyMs,
+        tool_latency_ms_total: undefined,
+      },
+      outcome: {
+        state: outcomeState,
+        failure_stage: failureStage,
+      },
+    },
   });
 
   const telemetryUsage: TelemetryLlmUsage = {
@@ -3048,7 +3181,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
       sensemakingTriggered: oaiSensemakingResult?.triggered,
       sensemakingReason: oaiSensemakingResult?.reason,
     });
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, oaiLatency, finishReason, oaiSaved, orchestration.escalated, oaiSnapshot);
+    persistSessionAndUsage(
+      session,
+      reqId,
+      resolved.resolvedModelId,
+      usage,
+      oaiLatency,
+      finishReason,
+      oaiSaved,
+      orchestration.escalated,
+      oaiSnapshot,
+      {
+        toolSequence: externalToolCalls.map((tc) => tc.toolName),
+        verificationSteps: inferVerificationSteps(externalToolCalls.map((tc) => tc.toolName)),
+      },
+    );
     maybeCheckpoint(session);
     emitDecisionEvents(sessionKey, identity.userId, identity.orgId, reqId, oaiSnapshot);
 
@@ -3429,7 +3576,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sensemakingTriggered: oaiSensemakingResult?.triggered,
     sensemakingReason: oaiSensemakingResult?.reason,
   });
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, oaiStreamUsage, oaiStreamLatency, finishReason, oaiStreamSaved, orchestration.escalated, oaiStreamSnapshot);
+  persistSessionAndUsage(
+    session,
+    reqId,
+    resolved.resolvedModelId,
+    oaiStreamUsage,
+    oaiStreamLatency,
+    finishReason,
+    oaiStreamSaved,
+    orchestration.escalated,
+    oaiStreamSnapshot,
+    {
+      toolSequence: pendingToolCalls.map((tc) => tc.name),
+      verificationSteps: inferVerificationSteps(pendingToolCalls.map((tc) => tc.name)),
+    },
+  );
   maybeCheckpoint(session);
   emitDecisionEvents(sessionKey, identity.userId, identity.orgId, reqId, oaiStreamSnapshot);
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
@@ -4037,6 +4198,7 @@ app.post("/v1/messages", async (req, reply) => {
     const pendingClaudeTextDeltas: string[] = [];
     const pendingClaudeToolIds = new Set<string>();
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
+    const claudeStreamToolSequence: string[] = [];
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
     const isLocalLikeBaseUrl =
       !!resolvedTier?.baseUrl &&
@@ -4221,6 +4383,7 @@ app.post("/v1/messages", async (req, reply) => {
               adapterFamily: claudeAdapter.family,
             }, "claude_tool_call_streamed");
           }
+          claudeStreamToolSequence.push(emitToolName);
 
           const toolCallId = tcFull.toolCallId ?? "";
           const normalizedJson = JSON.stringify(finalInput);
@@ -4378,7 +4541,21 @@ app.post("/v1/messages", async (req, reply) => {
       sensemakingTriggered: claudeSensemakingResult?.triggered,
       sensemakingReason: claudeSensemakingResult?.reason,
     });
-    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeStreamLatency, stopReason, claudeStreamSaved, claudeOrchestration.escalated, claudeStreamSnapshot);
+    persistSessionAndUsage(
+      session,
+      reqId,
+      resolved.resolvedModelId,
+      usage,
+      claudeStreamLatency,
+      stopReason,
+      claudeStreamSaved,
+      claudeOrchestration.escalated,
+      claudeStreamSnapshot,
+      {
+        toolSequence: claudeStreamToolSequence,
+        verificationSteps: inferVerificationSteps(claudeStreamToolSequence),
+      },
+    );
     maybeCheckpoint(session);
     emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeStreamSnapshot);
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
@@ -4592,7 +4769,21 @@ app.post("/v1/messages", async (req, reply) => {
     sensemakingTriggered: claudeSensemakingResult?.triggered,
     sensemakingReason: claudeSensemakingResult?.reason,
   });
-  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, claudeNonStreamLatency, stopReason, claudeNonStreamSaved, claudeOrchestration.escalated, claudeNonStreamSnapshot);
+  persistSessionAndUsage(
+    session,
+    reqId,
+    resolved.resolvedModelId,
+    usage,
+    claudeNonStreamLatency,
+    stopReason,
+    claudeNonStreamSaved,
+    claudeOrchestration.escalated,
+    claudeNonStreamSnapshot,
+    {
+      toolSequence: externalClaudeToolCalls.map((tc) => tc.toolName),
+      verificationSteps: inferVerificationSteps(externalClaudeToolCalls.map((tc) => tc.toolName)),
+    },
+  );
   maybeCheckpoint(session);
   emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeNonStreamSnapshot);
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);

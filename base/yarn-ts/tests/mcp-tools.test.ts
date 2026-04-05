@@ -100,6 +100,20 @@ describe("coding tools", () => {
       newString: "synesis",
     });
     expect(patched.replaced).toBe(true);
+    expect(patched.ok).toBe(true);
+    expect(patched.reason).toBe("applied");
+    expect(patched.suggestedNextActions).toEqual([]);
+
+    const patchMiss = await applyPatchTool.handler({
+      projectRoot: root,
+      filePath: rel,
+      oldString: "does-not-exist",
+      newString: "x",
+    });
+    expect(patchMiss.replaced).toBe(false);
+    expect(patchMiss.ok).toBe(false);
+    expect(["not_found", "context_mismatch"]).toContain(patchMiss.reason);
+    expect(patchMiss.suggestedNextActions.length).toBeGreaterThan(0);
   });
 
   it("searches code with rg", async () => {

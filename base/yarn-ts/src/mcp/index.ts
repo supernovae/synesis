@@ -100,6 +100,27 @@ function synesisAuthForRequest(user: AuthUser, req: FastifyRequest): SynesisMcpA
   };
 }
 
+function classifyToolKind(toolName: string): "discovery" | "evidence" | "mutation" | "verification" | "other" {
+  const n = toolName.toLowerCase();
+  if (n.includes("search") || n.includes("inspect") || n.includes("classify")) return "discovery";
+  if (n.includes("read") || n.includes("diff") || n.includes("status")) return "evidence";
+  if (n.includes("patch") || n.includes("write") || n.includes("format") || n.includes("git_add") || n.includes("git_commit")) {
+    return "mutation";
+  }
+  if (n.includes("run_test") || n.includes("run_build") || n.includes("run_lint")) return "verification";
+  return "other";
+}
+
+function inferTargetScope(args: unknown): "workspace" | "package" | "file" | "unknown" {
+  if (!args || typeof args !== "object") return "unknown";
+  const row = args as Record<string, unknown>;
+  if (typeof row.filePath === "string" && row.filePath.length > 0) return "file";
+  if (typeof row.dir === "string") {
+    return row.dir === "." ? "workspace" : "package";
+  }
+  return "unknown";
+}
+
 const registry = new McpToolRegistry();
 registry.register(classifyProjectTool);
 registry.register(inspectRepoTool);
@@ -240,6 +261,8 @@ export async function registerMcpRoutes(
       app.log.info(
         {
           tool: body.name,
+          tool_kind: classifyToolKind(body.name),
+          target_scope: inferTargetScope(body.arguments),
           userId: user.userId,
           requestId,
           elapsed_ms: elapsed,
