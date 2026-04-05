@@ -124,7 +124,11 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
     if (m.role === "assistant" && m.tool_calls?.length) {
       for (const tc of m.tool_calls) {
         if (tc.id && toolMessagesById.has(tc.id)) {
-          reorderedOut.push(toolMessagesById.get(tc.id)!);
+          let toolMsg = toolMessagesById.get(tc.id)!;
+          if (!toolMsg.name && tc.function?.name) {
+            toolMsg = { ...toolMsg, name: tc.function.name };
+          }
+          reorderedOut.push(toolMsg);
           toolMessagesById.delete(tc.id);
         }
       }
