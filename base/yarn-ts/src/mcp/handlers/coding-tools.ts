@@ -108,27 +108,34 @@ async function walkFilesForSearch(root: string, maxDepth: number): Promise<strin
 const RUN_TEST_PRESETS: Record<string, [string, ...string[]]> = {
   go: ["go", "test", "./..."],
   python: ["pytest", "-q"],
+  python_pytest_short: ["pytest", "--tb=short"],
   node_npm: ["npm", "test"],
   node_pnpm: ["pnpm", "test"],
   node_yarn: ["yarn", "test"],
+  typescript_jest: ["npx", "jest", "--passWithNoTests"],
   rust: ["cargo", "test"],
 };
 
 const RUN_BUILD_PRESETS: Record<string, [string, ...string[]]> = {
   go: ["go", "build", "./..."],
   python: ["python", "-m", "compileall", "."],
+  python_mypy: ["mypy", "."],
   node_npm: ["npm", "run", "build"],
   node_pnpm: ["pnpm", "build"],
   node_yarn: ["yarn", "build"],
+  typescript_tsc: ["npx", "tsc", "--noEmit"],
   rust: ["cargo", "build"],
 };
 
 const RUN_LINT_PRESETS: Record<string, [string, ...string[]]> = {
   go: ["go", "vet", "./..."],
+  go_golangci: ["golangci-lint", "run"],
   python: ["ruff", "check", "."],
+  python_ruff_format_check: ["ruff", "format", "--check", "."],
   node_npm: ["npm", "run", "lint"],
   node_pnpm: ["pnpm", "lint"],
   node_yarn: ["yarn", "lint"],
+  typescript_eslint: ["npx", "eslint", "."],
   rust: ["cargo", "clippy", "--", "-D", "warnings"],
 };
 
@@ -271,7 +278,7 @@ export const applyPatchTool: McpToolDefinition<
     filePath: string;
     replaced: boolean;
     ok: boolean;
-    reason: "applied" | "not_found" | "context_mismatch";
+    reason: "applied" | "not_found" | "context_mismatch" | "multiple_matches";
     suggestedNextActions: string[];
     contextHint?: string;
   }
@@ -284,6 +291,20 @@ export const applyPatchTool: McpToolDefinition<
     const abs = resolveInsideRoot(input.projectRoot, input.filePath);
     const content = await fs.readFile(abs, "utf8");
     const idx = content.indexOf(input.oldString);
+    const secondIdx = idx >= 0 ? content.indexOf(input.oldString, idx + input.oldString.length) : -1;
+    if (idx >= 0 && secondIdx >= 0) {
+      return {
+        filePath: input.filePath,
+        replaced: false,
+        ok: false,
+        reason: "multiple_matches",
+        suggestedNextActions: [
+          "read_file(filePath=<same file>, startLine=<nearby>, endLine=<nearby+200>)",
+          "retry apply_patch with a larger unique oldString context (3-8 surrounding lines)",
+          "prefer one focused replacement per call",
+        ],
+      };
+    }
     if (idx < 0) {
       const firstOldLine = input.oldString
         .split(/\r?\n/)
@@ -391,6 +412,8 @@ export interface RunPresetResult {
   errorLines: string[];
   /** Optional structured diagnostics for fast patch recovery (tsc/go test/go build patterns). */
   errors: StructuredDiagnostic[];
+  /** Suggested recovery actions when ok=false. */
+  nextActions: string[];
 }
 
 function makeRunnerTool(
@@ -429,13 +452,20 @@ function makeRunnerTool(
         stderrTruncated: err.truncated,
         errorLines,
         errors,
+        nextActions: ok
+          ? []
+          : [
+              "read_file(filePath=<reported file>, startLine=<nearby>, endLine=<nearby+200>)",
+              "apply_patch with minimal fix",
+              `rerun ${name}(preset=${input.preset})`,
+            ],
       };
     },
   };
 }
 
 const RUNNER_DESC =
-  "Allowlisted preset. Prefer run_lint/run_build before run_test when compile/typecheck is cheap; fix errors in errorLines first. Streams are capped; summary + errorLines are derived from full output.";
+  "Allowlisted preset. Blocking policy: if ok=false, do not finalize. Fix diagnostics first, then rerun the same check. Prefer run_lint/run_build before run_test when compile/typecheck is cheap; summary + errorLines are derived from full output.";
 
 export const runTestTool = makeRunnerTool(
   "run_test",

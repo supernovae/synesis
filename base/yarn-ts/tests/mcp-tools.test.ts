@@ -104,6 +104,18 @@ describe("coding tools", () => {
     expect(patched.reason).toBe("applied");
     expect(patched.suggestedNextActions).toEqual([]);
 
+    writeFileSync(path.join(root, "dupe.txt"), "x=1\nx=1\n", "utf8");
+    const patchDupe = await applyPatchTool.handler({
+      projectRoot: root,
+      filePath: "dupe.txt",
+      oldString: "x=1",
+      newString: "x=2",
+    });
+    expect(patchDupe.replaced).toBe(false);
+    expect(patchDupe.ok).toBe(false);
+    expect(patchDupe.reason).toBe("multiple_matches");
+    expect(patchDupe.suggestedNextActions.length).toBeGreaterThan(0);
+
     const patchMiss = await applyPatchTool.handler({
       projectRoot: root,
       filePath: rel,
@@ -143,6 +155,8 @@ describe("coding tools", () => {
     expect(out.exitCode).not.toBe(0);
     expect(Array.isArray(out.errorLines)).toBe(true);
     expect(Array.isArray(out.errors)).toBe(true);
+    expect(Array.isArray(out.nextActions)).toBe(true);
+    expect(out.nextActions.length).toBeGreaterThan(0);
   });
 });
 

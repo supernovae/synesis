@@ -221,6 +221,26 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** When true, completion gate also blocks finalization if verification tool outputs contain blocking failures. */
+  SYNESIS_YARN_COMPLETION_GATE_BLOCK_VERIFICATION: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** If completion is blocked by verification failure, suggest one bounded cleanup pass before next finalize attempt. */
+  SYNESIS_YARN_COMPLETION_GATE_BOUNDED_CLEANUP_PASS: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Deterministic pre-finalization critic pass on end-turn responses. */
+  SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Optional cheap LLM critic fallback when deterministic critic blocks completion. */
+  SYNESIS_YARN_PREFINALIZE_LLM_CRITIC_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   /** Route planning-phase sessions to synesis-horizon (inference path). Default true. Set false for keyword-only horizon on planning. */
   SYNESIS_YARN_PLANNING_USE_HORIZON: z
     .string()

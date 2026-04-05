@@ -2110,6 +2110,15 @@ export interface YarnIntelligence {
   cache_hit_estimate: number;
   tool_use_stop_rate: number;
   error_like_rate: number;
+  trajectory_events: number;
+  first_pass_verify_rate: number;
+  verification_stall_rate: number;
+  blind_retry_rate: number;
+  patch_ratio: number;
+  structured_error_coverage: number;
+  completion_gate_blocked_rate: number;
+  critic_block_rate: number;
+  trajectory_bucket_counts: Record<string, number>;
   top_models: Array<{ model: string; requests: number; cost_usd: number }>;
   finish_reason_counts: Record<string, number>;
 }

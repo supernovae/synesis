@@ -208,6 +208,38 @@ export default function YarnOverview() {
                     <span>Error-like rate</span>
                     <span className="font-medium">{(intelligence.error_like_rate * 100).toFixed(1)}%</span>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <span>First-pass verify rate</span>
+                    <span className="font-medium">{(intelligence.first_pass_verify_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Verification stall rate</span>
+                    <span className="font-medium">{(intelligence.verification_stall_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Blind retry rate</span>
+                    <span className="font-medium">{(intelligence.blind_retry_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Patch ratio</span>
+                    <span className="font-medium">{(intelligence.patch_ratio * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Structured parser coverage</span>
+                    <span className="font-medium">{(intelligence.structured_error_coverage * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Completion gate blocked</span>
+                    <span className="font-medium">{(intelligence.completion_gate_blocked_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Pre-finalize critic blocked</span>
+                    <span className="font-medium">{(intelligence.critic_block_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Trajectory events</span>
+                    <span className="font-medium">{intelligence.trajectory_events.toLocaleString()}</span>
+                  </div>
                 </div>
               </ChartCard>
 
@@ -248,6 +280,24 @@ export default function YarnOverview() {
                     Object.entries(intelligence.finish_reason_counts).map(([reason, count]) => (
                       <div key={reason} className="flex items-center justify-between text-sm">
                         <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{reason}</span>
+                        <span className="text-gray-500 dark:text-gray-400">{count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ChartCard>
+
+              <ChartCard
+                title="Trajectory Buckets"
+                subtitle="request_trajectory_v1 distribution"
+              >
+                <div className="space-y-2">
+                  {Object.keys(intelligence.trajectory_bucket_counts || {}).length === 0 ? (
+                    <p className="text-sm text-gray-500">No trajectory bucket data yet.</p>
+                  ) : (
+                    Object.entries(intelligence.trajectory_bucket_counts).map(([bucket, count]) => (
+                      <div key={bucket} className="flex items-center justify-between text-sm">
+                        <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{bucket}</span>
                         <span className="text-gray-500 dark:text-gray-400">{count}</span>
                       </div>
                     ))

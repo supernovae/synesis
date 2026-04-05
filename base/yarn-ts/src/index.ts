@@ -62,6 +62,10 @@ import { compareManifests as manifestCompare } from "./manifest/comparator.js";
 import { critiquStructure as manifestCritique } from "./manifest/structural-critic.js";
 import { buildVerificationPlan, formatVerificationPlanBlock } from "./verification/planner.js";
 import { VerificationLoopTracker } from "./verification/loop-tracker.js";
+import {
+  assessVerificationFromMessages as assessVerificationSignals,
+  evaluateDeterministicPreFinalize,
+} from "./verification/staff-completion.js";
 import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
@@ -143,6 +147,13 @@ type RequestTrajectoryInput = {
   retryCountTotal?: number;
   taskBucket?: TrajectoryBucket;
   verificationSteps?: string[];
+  diagnostics?: {
+    structuredErrorsCount?: number;
+    diagnosticLinesCount?: number;
+    structuredErrorCoverage?: number;
+  };
+  completionGateBlocked?: boolean;
+  criticBlocked?: boolean;
   patchOpsCount?: number;
   wholeWriteOpsCount?: number;
   outcomeState?: "verified" | "partial" | "stalled" | "policy_reject" | "user_abort";
@@ -250,6 +261,9 @@ type CompletionGateOutcome = {
   applied: boolean;
   missingMust: number;
   missingShould: number;
+  blockedByVerification: boolean;
+  blockingVerificationFailures: number;
+  suggestedNextActions: string[];
 };
 
 function applyClarificationRoundResponseHeader(
@@ -280,18 +294,79 @@ function applyCompletionGate(
   originalText: string,
   traceRootPrompt: string,
   latestUserPrompt: string,
+  verification: VerificationAssessment,
 ): CompletionGateOutcome {
+  const blockedByVerification =
+    config.SYNESIS_YARN_COMPLETION_GATE_BLOCK_VERIFICATION
+    && verification.hasBlockingFailures;
+  if (blockedByVerification) {
+    const top = verification.failures.slice(0, 3);
+    const detail = top.map((f, i) => `- ${i + 1}. [${f.category}] ${f.summary}`).join("\n");
+    const boundedCleanup = config.SYNESIS_YARN_COMPLETION_GATE_BOUNDED_CLEANUP_PASS
+      ? [
+          "Run one bounded cleanup pass before finalizing:",
+          "- Scope: changed files / touched package only",
+          "- Fix only blocking diagnostics and obvious patch debris",
+          "- Re-run the same failing verification preset(s)",
+        ].join("\n")
+      : "";
+    const nextActions = [
+      ...top.map((f) => `rerun verification preset ${f.preset ?? "unknown"} after minimal fix`),
+      "only finalize when blocking verification failures are cleared",
+    ];
+    return {
+      finalText: [
+        "Not complete: blocking verification failures remain.",
+        "",
+        "Blocking failures:",
+        detail || "- (no details)",
+        ...(boundedCleanup ? ["", boundedCleanup] : []),
+        "",
+        "Next: repair these failures and rerun verification before finalizing.",
+      ].join("\n"),
+      applied: true,
+      missingMust: 0,
+      missingShould: 0,
+      blockedByVerification: true,
+      blockingVerificationFailures: verification.failingSignals,
+      suggestedNextActions: nextActions,
+    };
+  }
   if (!config.SYNESIS_YARN_COMPLETION_GATE_ENABLED || !checklist) {
-    return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
+    return {
+      finalText: originalText,
+      applied: false,
+      missingMust: 0,
+      missingShould: 0,
+      blockedByVerification: false,
+      blockingVerificationFailures: 0,
+      suggestedNextActions: [],
+    };
   }
   if (checklist.must.length === 0 && checklist.should.length === 0) {
-    return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
+    return {
+      finalText: originalText,
+      applied: false,
+      missingMust: 0,
+      missingShould: 0,
+      blockedByVerification: false,
+      blockingVerificationFailures: 0,
+      suggestedNextActions: [],
+    };
   }
   if (
     config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION &&
     looksLikeClarificationTurnAssistantMessage(originalText)
   ) {
-    return { finalText: originalText, applied: false, missingMust: 0, missingShould: 0 };
+    return {
+      finalText: originalText,
+      applied: false,
+      missingMust: 0,
+      missingShould: 0,
+      blockedByVerification: false,
+      blockingVerificationFailures: 0,
+      suggestedNextActions: [],
+    };
   }
   const evidence = [traceRootPrompt, latestUserPrompt, originalText].filter(Boolean).join("\n");
   const report = evaluateRequirementCoverage(checklist, evidence);
@@ -301,6 +376,9 @@ function applyCompletionGate(
       applied: false,
       missingMust: 0,
       missingShould: report.missingShould.length,
+      blockedByVerification: false,
+      blockingVerificationFailures: 0,
+      suggestedNextActions: [],
     };
   }
   const summary = summarizeMissingCoverage(report);
@@ -319,6 +397,9 @@ function applyCompletionGate(
     applied: true,
     missingMust: report.missingMust.length,
     missingShould: report.missingShould.length,
+    blockedByVerification: false,
+    blockingVerificationFailures: 0,
+    suggestedNextActions: ["continue implementation to close missing must-have requirements"],
   };
 }
 
@@ -1373,10 +1454,18 @@ function persistSessionAndUsage(
     finishReason !== "error"
     && !snapshot?.verificationStalled
     && (snapshot?.verificationRound === undefined || snapshot.verificationRound <= 1);
+  const structuredErrorsCount = trajectory?.diagnostics?.structuredErrorsCount ?? 0;
+  const diagnosticLinesCount = trajectory?.diagnostics?.diagnosticLinesCount ?? 0;
+  const structuredErrorCoverage = trajectory?.diagnostics?.structuredErrorCoverage
+    ?? (diagnosticLinesCount > 0
+      ? Number((structuredErrorsCount / diagnosticLinesCount).toFixed(3))
+      : (structuredErrorsCount > 0 ? 1 : 0));
+  const completionGateBlocked = trajectory?.completionGateBlocked ?? false;
+  const criticBlocked = trajectory?.criticBlocked ?? false;
   const outcomeState = trajectory?.outcomeState
-    ?? (finishReason === "error" ? "stalled" : snapshot?.verificationStalled ? "stalled" : "verified");
+    ?? (finishReason === "error" ? "stalled" : snapshot?.verificationStalled ? "stalled" : (completionGateBlocked || criticBlocked) ? "partial" : "verified");
   const failureStage = trajectory?.failureStage
-    ?? (finishReason === "error" ? "verification" : snapshot?.verificationStalled ? "verification" : null);
+    ?? (finishReason === "error" ? "verification" : snapshot?.verificationStalled ? "verification" : completionGateBlocked ? "verification" : criticBlocked ? "policy" : null);
 
   usageWriter.enqueueSessionEvent({
     sessionKey: state.record.sessionKey,
@@ -1423,6 +1512,11 @@ function persistSessionAndUsage(
         stalled: snapshot?.verificationStalled,
         findings: snapshot?.verificationFindings,
         first_pass_verify_ok: firstPassVerifyOk,
+        structured_errors_count: structuredErrorsCount,
+        diagnostic_lines_count: diagnosticLinesCount,
+        structured_error_coverage: structuredErrorCoverage,
+        completion_gate_blocked: completionGateBlocked,
+        critic_blocked: criticBlocked,
       },
       cost: {
         tokens_in: usage.inputTokens,
@@ -1578,6 +1672,255 @@ function countMessageRoles(messages: Array<{ role: string; content: unknown }>):
     else if (m.role === "tool") toolMessageCount++;
   }
   return { systemMessageCount, userMessageCount, toolMessageCount, totalInputChars };
+}
+
+function parseJsonIfPossible(raw: string): unknown | null {
+  const trimmed = raw.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function extractBestDiagnosticsFromValue(
+  value: unknown,
+  depth = 0,
+  seen = new Set<object>(),
+): { structuredErrorsCount: number; diagnosticLinesCount: number } {
+  if (depth > 6 || value === null || value === undefined) {
+    return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
+  }
+  if (typeof value === "string") {
+    const parsed = parseJsonIfPossible(value);
+    if (!parsed) return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
+    return extractBestDiagnosticsFromValue(parsed, depth + 1, seen);
+  }
+  if (typeof value !== "object") {
+    return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
+  }
+  if (seen.has(value as object)) {
+    return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
+  }
+  seen.add(value as object);
+
+  const score = (candidate: { structuredErrorsCount: number; diagnosticLinesCount: number }) =>
+    candidate.diagnosticLinesCount * 1000 + candidate.structuredErrorsCount;
+  let best = { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = extractBestDiagnosticsFromValue(item, depth + 1, seen);
+      if (score(nested) > score(best)) best = nested;
+    }
+    return best;
+  }
+
+  const row = value as Record<string, unknown>;
+  const errors = Array.isArray(row.errors) ? row.errors : null;
+  const errorLines = Array.isArray(row.errorLines) ? row.errorLines : null;
+  if (errors || errorLines) {
+    best = {
+      structuredErrorsCount: errors?.length ?? 0,
+      diagnosticLinesCount: errorLines?.length ?? 0,
+    };
+  }
+
+  const nestedKeys = ["result", "content", "data", "payload", "output", "text"];
+  for (const key of nestedKeys) {
+    if (!(key in row)) continue;
+    const nested = extractBestDiagnosticsFromValue(row[key], depth + 1, seen);
+    if (score(nested) > score(best)) best = nested;
+  }
+
+  return best;
+}
+
+function inferTrajectoryDiagnosticsFromMessages(
+  messages: Array<{ role: string; content: unknown }>,
+): { structuredErrorsCount: number; diagnosticLinesCount: number; structuredErrorCoverage: number } {
+  let structuredErrorsCount = 0;
+  let diagnosticLinesCount = 0;
+  for (const message of messages) {
+    if (message.role !== "tool" && message.role !== "tool_result") continue;
+    const found = extractBestDiagnosticsFromValue(message.content);
+    structuredErrorsCount += found.structuredErrorsCount;
+    diagnosticLinesCount += found.diagnosticLinesCount;
+  }
+  const structuredErrorCoverage = diagnosticLinesCount > 0
+    ? Number((structuredErrorsCount / diagnosticLinesCount).toFixed(3))
+    : (structuredErrorsCount > 0 ? 1 : 0);
+  return { structuredErrorsCount, diagnosticLinesCount, structuredErrorCoverage };
+}
+
+type VerificationFailure = {
+  tool: string;
+  preset?: string;
+  summary: string;
+  category: "format_or_lint" | "build_or_typecheck" | "test" | "runtime";
+  topErrorLines: string[];
+};
+
+type VerificationAssessment = {
+  verificationSignals: number;
+  failingSignals: number;
+  failures: VerificationFailure[];
+  hasBlockingFailures: boolean;
+};
+
+const VERIFY_TOOL_HINTS = ["run_lint", "run_build", "run_test", "format_code"];
+
+function classifyVerificationCategory(text: string): VerificationFailure["category"] {
+  const t = text.toLowerCase();
+  if (/(pytest|jest|test\b|assert|--- fail|^fail\b)/i.test(t)) return "test";
+  if (/(format|fmt|prettier|ruff format|gofmt|clippy|eslint|lint|unused)/i.test(t)) return "format_or_lint";
+  if (/(build|compile|type|ts\d+|mypy|vet|cargo check|go build)/i.test(t)) return "build_or_typecheck";
+  return "runtime";
+}
+
+function extractBestVerificationPayload(
+  value: unknown,
+  toolNameHint: string,
+  depth = 0,
+  seen = new Set<object>(),
+): { ok: boolean; preset?: string; summary: string; errorLines: string[] } | null {
+  if (depth > 6 || value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const parsed = parseJsonIfPossible(value);
+    if (!parsed) return null;
+    return extractBestVerificationPayload(parsed, toolNameHint, depth + 1, seen);
+  }
+  if (typeof value !== "object") return null;
+  if (seen.has(value as object)) return null;
+  seen.add(value as object);
+  if (Array.isArray(value)) {
+    for (const row of value) {
+      const found = extractBestVerificationPayload(row, toolNameHint, depth + 1, seen);
+      if (found) return found;
+    }
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  const ok = typeof row.ok === "boolean" ? row.ok : undefined;
+  const preset = typeof row.preset === "string" ? row.preset : undefined;
+  const summary = typeof row.summary === "string" ? row.summary : "";
+  const errorLines = Array.isArray(row.errorLines)
+    ? row.errorLines.map((l) => String(l)).filter(Boolean)
+    : [];
+  const command = typeof row.command === "string" ? row.command : "";
+  const likelyVerify = VERIFY_TOOL_HINTS.some((x) => toolNameHint.includes(x))
+    || Boolean(preset)
+    || /(lint|build|test|format|compile|pytest|eslint|mypy|tsc|cargo|go test|go build)/i.test(command);
+  if (ok !== undefined && likelyVerify) {
+    return { ok, preset, summary: summary || command || `verification via ${toolNameHint}`, errorLines };
+  }
+  for (const key of ["result", "content", "data", "payload", "output", "text"]) {
+    if (!(key in row)) continue;
+    const nested = extractBestVerificationPayload(row[key], toolNameHint, depth + 1, seen);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function assessVerificationFromMessages(
+  messages: Array<{ role: string; content: unknown; name?: string }>,
+): VerificationAssessment {
+  const failures: VerificationFailure[] = [];
+  let verificationSignals = 0;
+  for (const m of messages) {
+    if (m.role !== "tool" && m.role !== "tool_result") continue;
+    const toolName = String(m.name ?? "").toLowerCase();
+    const payload = extractBestVerificationPayload(m.content, toolName);
+    if (!payload) continue;
+    verificationSignals += 1;
+    if (payload.ok) continue;
+    const category = classifyVerificationCategory(`${payload.summary}\n${payload.errorLines.join("\n")}`);
+    failures.push({
+      tool: toolName || "verification_tool",
+      preset: payload.preset,
+      summary: payload.summary || "verification failed",
+      category,
+      topErrorLines: payload.errorLines.slice(0, 3),
+    });
+  }
+  return {
+    verificationSignals,
+    failingSignals: failures.length,
+    failures,
+    hasBlockingFailures: failures.length > 0,
+  };
+}
+
+type CriticAssessment = {
+  blocked: boolean;
+  findings: string[];
+  suggestedNextActions: string[];
+  source: "deterministic" | "llm_fallback";
+};
+
+async function runPreFinalizeCritic(
+  input: {
+    requestId: string;
+    assistantText: string;
+    verification: VerificationAssessment;
+    recentToolNames: string[];
+  },
+): Promise<CriticAssessment> {
+  const deterministic = evaluateDeterministicPreFinalize(input.verification, input.recentToolNames);
+  if (!deterministic.blocked) return deterministic;
+  const findings = deterministic.findings;
+  const next = deterministic.suggestedNextActions;
+  if (!config.SYNESIS_YARN_PREFINALIZE_LLM_CRITIC_ENABLED) {
+    return { blocked: true, findings, suggestedNextActions: next, source: "deterministic" };
+  }
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 3500);
+    const prompt = [
+      "You are a strict pre-finalization critic for coding tasks.",
+      "Return JSON only: {\"verdict\":\"pass|fail\",\"reason\":\"...\"}",
+      `Assistant text: ${input.assistantText.slice(0, 1200)}`,
+      `Verification failures: ${JSON.stringify(input.verification.failures).slice(0, 1600)}`,
+      `Recent tool names: ${input.recentToolNames.join(",")}`,
+    ].join("\n");
+    const resp = await fetch(`${config.SYNESIS_YARN_CRITIC_URL}/chat/completions`, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        "content-type": "application/json",
+        ...(config.SYNESIS_INTERNAL_SERVICE_TOKEN ? { authorization: `Bearer ${config.SYNESIS_INTERNAL_SERVICE_TOKEN}` } : {}),
+      },
+      body: JSON.stringify({
+        model: config.SYNESIS_YARN_CRITIC_MODEL,
+        temperature: 0,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) {
+      return { blocked: true, findings, suggestedNextActions: next, source: "deterministic" };
+    }
+    const body = await resp.json() as Record<string, unknown>;
+    const text = String((((body.choices as Array<Record<string, unknown>> | undefined)?.[0] ?? {}).message as Record<string, unknown> | undefined)?.content ?? "");
+    const parsed = parseJsonIfPossible(text) as { verdict?: string; reason?: string } | null;
+    if (parsed?.verdict?.toLowerCase() === "pass") {
+      return {
+        blocked: false,
+        findings: [`LLM critic override: ${parsed.reason ?? "passed"}`],
+        suggestedNextActions: [],
+        source: "llm_fallback",
+      };
+    }
+    return {
+      blocked: true,
+      findings: [parsed?.reason ?? findings.join(" ")],
+      suggestedNextActions: next,
+      source: "llm_fallback",
+    };
+  } catch {
+    return { blocked: true, findings, suggestedNextActions: next, source: "deterministic" };
+  }
 }
 
 type ToolProgressState = "stagnant" | "progress" | "unknown";
@@ -2465,6 +2808,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     reducedOpenAI.messages as never,
     runValidationTierCFallback,
   );
+  const oaiTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
+    request.messages as Array<{ role: string; content: unknown }>,
+  );
+  const oaiVerificationAssessment = assessVerificationSignals(
+    request.messages as Array<{ role: string; content: unknown; name?: string }>,
+  );
   const adapterProfile = clientAdapterPacks.resolve(
     String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
@@ -3127,25 +3476,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
     let oaiGateApplied = false;
     let oaiMissingMust = 0;
     let oaiMissingShould = 0;
+    let oaiGateBlockedVerification = false;
+    let oaiCriticBlocked = false;
     if (finishReason === "stop") {
       const gate = applyCompletionGate(
         oaiRequirementChecklist,
         finalAssistantText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
+        oaiVerificationAssessment,
       );
       finalAssistantText = gate.finalText;
       oaiGateApplied = gate.applied;
       oaiMissingMust = gate.missingMust;
       oaiMissingShould = gate.missingShould;
+      oaiGateBlockedVerification = gate.blockedByVerification;
       if (gate.applied) {
         recordSessionEvent(
           sessionKey,
           identity.userId,
           identity.orgId,
-          "completion_gap",
+          gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
           "completion-gate",
-          `Missing must-have requirements (${gate.missingMust})`,
+          gate.blockedByVerification
+            ? `Blocking verification failures (${gate.blockingVerificationFailures})`
+            : `Missing must-have requirements (${gate.missingMust})`,
           reqId,
         );
       } else if (oaiRequirementChecklist) {
@@ -3158,6 +3513,37 @@ app.post("/v1/chat/completions", async (req, reply) => {
           "No missing must-have requirements detected",
           reqId,
         );
+      }
+      if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
+        const critic = await runPreFinalizeCritic({
+          requestId: reqId,
+          assistantText: finalAssistantText,
+          verification: oaiVerificationAssessment,
+          recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+        });
+        if (critic.blocked) {
+          oaiCriticBlocked = true;
+          finalAssistantText = [
+            "Completion paused by pre-finalization critic.",
+            "",
+            "Findings:",
+            ...critic.findings.map((f) => `- ${f}`),
+            "",
+            "Next actions:",
+            ...(critic.suggestedNextActions.length > 0
+              ? critic.suggestedNextActions.map((s) => `- ${s}`)
+              : ["- Address verification/quality gaps and rerun checks."]),
+          ].join("\n");
+          recordSessionEvent(
+            sessionKey,
+            identity.userId,
+            identity.orgId,
+            "pre_finalize_critic_block",
+            "completion-gate",
+            `critic_source=${critic.source}`,
+            reqId,
+          );
+        }
       }
     }
     session.history.push({ role: "assistant", content: finalAssistantText });
@@ -3194,6 +3580,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
       {
         toolSequence: externalToolCalls.map((tc) => tc.toolName),
         verificationSteps: inferVerificationSteps(externalToolCalls.map((tc) => tc.toolName)),
+        diagnostics: oaiTrajectoryDiagnostics,
+        completionGateBlocked: oaiGateBlockedVerification,
+        criticBlocked: oaiCriticBlocked,
+        outcomeState: (oaiGateBlockedVerification || oaiCriticBlocked) ? "partial" : undefined,
+        failureStage: oaiGateBlockedVerification ? "verification" : undefined,
       },
     );
     maybeCheckpoint(session);
@@ -3279,6 +3670,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let oaiStreamGateApplied = false;
   let oaiStreamMissingMust = 0;
   let oaiStreamMissingShould = 0;
+  let oaiStreamGateBlockedVerification = false;
+  let oaiStreamCriticBlocked = false;
   let oaiStreamToolRepairs = 0;
   let oaiStreamValidationFailures = 0;
   const resolvedTierOaiStream = tierRegistry.getTierConfig(resolved.resolvedModelId);
@@ -3484,18 +3877,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
         rawText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
+        oaiVerificationAssessment,
       );
       oaiStreamGateApplied = gate.applied;
       oaiStreamMissingMust = gate.missingMust;
       oaiStreamMissingShould = gate.missingShould;
+      oaiStreamGateBlockedVerification = gate.blockedByVerification;
       if (gate.applied) {
         recordSessionEvent(
           sessionKey,
           identity.userId,
           identity.orgId,
-          "completion_gap",
+          gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
           "completion-gate",
-          `Missing must-have requirements (${gate.missingMust})`,
+          gate.blockedByVerification
+            ? `Blocking verification failures (${gate.blockingVerificationFailures})`
+            : `Missing must-have requirements (${gate.missingMust})`,
           reqId,
         );
       } else if (oaiRequirementChecklist) {
@@ -3509,8 +3906,40 @@ app.post("/v1/chat/completions", async (req, reply) => {
           reqId,
         );
       }
+      let gateText = gate.finalText;
+      if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
+        const critic = await runPreFinalizeCritic({
+          requestId: reqId,
+          assistantText: gateText,
+          verification: oaiVerificationAssessment,
+          recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+        });
+        if (critic.blocked) {
+          oaiStreamCriticBlocked = true;
+          gateText = [
+            "Completion paused by pre-finalization critic.",
+            "",
+            "Findings:",
+            ...critic.findings.map((f) => `- ${f}`),
+            "",
+            "Next actions:",
+            ...(critic.suggestedNextActions.length > 0
+              ? critic.suggestedNextActions.map((s) => `- ${s}`)
+              : ["- Address verification/quality gaps and rerun checks."]),
+          ].join("\n");
+          recordSessionEvent(
+            sessionKey,
+            identity.userId,
+            identity.orgId,
+            "pre_finalize_critic_block",
+            "completion-gate",
+            `critic_source=${critic.source}`,
+            reqId,
+          );
+        }
+      }
       const guarded = applyMarkdownGuardrail(
-        gate.finalText,
+        gateText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
       );
       if (rawText.length === 0) {
@@ -3546,10 +3975,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
         streamedText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
+        oaiVerificationAssessment,
       );
       streamedText = gate.finalText;
       oaiStreamMissingMust = gate.missingMust;
       oaiStreamMissingShould = gate.missingShould;
+      oaiStreamGateBlockedVerification = gate.blockedByVerification;
     }
     streamedText = applyMarkdownGuardrail(
       streamedText,
@@ -3589,6 +4020,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
     {
       toolSequence: pendingToolCalls.map((tc) => tc.name),
       verificationSteps: inferVerificationSteps(pendingToolCalls.map((tc) => tc.name)),
+      diagnostics: oaiTrajectoryDiagnostics,
+      completionGateBlocked: oaiStreamGateBlockedVerification,
+      criticBlocked: oaiStreamCriticBlocked,
+      outcomeState: (oaiStreamGateBlockedVerification || oaiStreamCriticBlocked) ? "partial" : undefined,
+      failureStage: oaiStreamGateBlockedVerification ? "verification" : undefined,
     },
   );
   maybeCheckpoint(session);
@@ -3696,6 +4132,12 @@ app.post("/v1/messages", async (req, reply) => {
   const normalizedFromClaude = await validationNormalization.normalizeMessagesAsync(
     openAIMessages as never,
     runValidationTierCFallback,
+  );
+  const claudeTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
+    openAIMessages as Array<{ role: string; content: unknown }>,
+  );
+  const claudeVerificationAssessment = assessVerificationSignals(
+    openAIMessages as Array<{ role: string; content: unknown; name?: string }>,
   );
 
   debugProtocolLog(app.log as never, traceReqId, "/v1/messages", {
@@ -4195,6 +4637,8 @@ app.post("/v1/messages", async (req, reply) => {
     let claudeStreamGateApplied = false;
     let claudeStreamMissingMust = 0;
     let claudeStreamMissingShould = 0;
+    let claudeStreamGateBlockedVerification = false;
+    let claudeStreamCriticBlocked = false;
     const pendingClaudeTextDeltas: string[] = [];
     const pendingClaudeToolIds = new Set<string>();
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
@@ -4444,18 +4888,22 @@ app.post("/v1/messages", async (req, reply) => {
         rawText,
         getMetadataString(session.record.metadata, "trace_root_prompt"),
         getMetadataString(session.record.metadata, "latest_user_prompt"),
+        claudeVerificationAssessment,
       );
       claudeStreamGateApplied = gate.applied;
       claudeStreamMissingMust = gate.missingMust;
       claudeStreamMissingShould = gate.missingShould;
+      claudeStreamGateBlockedVerification = gate.blockedByVerification;
       if (gate.applied) {
         recordSessionEvent(
           claudeSessionKey,
           claudeIdentity.userId,
           claudeIdentity.orgId,
-          "completion_gap",
+          gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
           "completion-gate",
-          `Missing must-have requirements (${gate.missingMust})`,
+          gate.blockedByVerification
+            ? `Blocking verification failures (${gate.blockingVerificationFailures})`
+            : `Missing must-have requirements (${gate.missingMust})`,
           traceReqId,
         );
       } else if (claudeRequirementChecklist) {
@@ -4469,8 +4917,40 @@ app.post("/v1/messages", async (req, reply) => {
           traceReqId,
         );
       }
+      let gateText = gate.finalText;
+      if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
+        const critic = await runPreFinalizeCritic({
+          requestId: traceReqId,
+          assistantText: gateText,
+          verification: claudeVerificationAssessment,
+          recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+        });
+        if (critic.blocked) {
+          claudeStreamCriticBlocked = true;
+          gateText = [
+            "Completion paused by pre-finalization critic.",
+            "",
+            "Findings:",
+            ...critic.findings.map((f) => `- ${f}`),
+            "",
+            "Next actions:",
+            ...(critic.suggestedNextActions.length > 0
+              ? critic.suggestedNextActions.map((s) => `- ${s}`)
+              : ["- Address verification/quality gaps and rerun checks."]),
+          ].join("\n");
+          recordSessionEvent(
+            claudeSessionKey,
+            claudeIdentity.userId,
+            claudeIdentity.orgId,
+            "pre_finalize_critic_block",
+            "completion-gate",
+            `critic_source=${critic.source}`,
+            traceReqId,
+          );
+        }
+      }
       const guarded = applyMarkdownGuardrail(
-        gate.finalText,
+        gateText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
       );
       if (claudeStreamingTextOpen) {
@@ -4511,10 +4991,12 @@ app.post("/v1/messages", async (req, reply) => {
           claudeStreamedText,
           getMetadataString(session.record.metadata, "trace_root_prompt"),
           getMetadataString(session.record.metadata, "latest_user_prompt"),
+          claudeVerificationAssessment,
         );
         claudeStreamedText = gate.finalText;
         claudeStreamMissingMust = gate.missingMust;
         claudeStreamMissingShould = gate.missingShould;
+        claudeStreamGateBlockedVerification = gate.blockedByVerification;
       }
       claudeStreamedText = applyMarkdownGuardrail(
         claudeStreamedText,
@@ -4554,6 +5036,11 @@ app.post("/v1/messages", async (req, reply) => {
       {
         toolSequence: claudeStreamToolSequence,
         verificationSteps: inferVerificationSteps(claudeStreamToolSequence),
+        diagnostics: claudeTrajectoryDiagnostics,
+        completionGateBlocked: claudeStreamGateBlockedVerification,
+        criticBlocked: claudeStreamCriticBlocked,
+        outcomeState: (claudeStreamGateBlockedVerification || claudeStreamCriticBlocked) ? "partial" : undefined,
+        failureStage: claudeStreamGateBlockedVerification ? "verification" : undefined,
       },
     );
     maybeCheckpoint(session);
@@ -4710,25 +5197,31 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeGateApplied = false;
   let claudeMissingMust = 0;
   let claudeMissingShould = 0;
+  let claudeGateBlockedVerification = false;
+  let claudeCriticBlocked = false;
   if (stopReason === "end_turn") {
     const gate = applyCompletionGate(
       claudeRequirementChecklist,
       finalClaudeText,
       getMetadataString(session.record.metadata, "trace_root_prompt"),
       getMetadataString(session.record.metadata, "latest_user_prompt"),
+      claudeVerificationAssessment,
     );
     finalClaudeText = gate.finalText;
     claudeGateApplied = gate.applied;
     claudeMissingMust = gate.missingMust;
     claudeMissingShould = gate.missingShould;
+    claudeGateBlockedVerification = gate.blockedByVerification;
     if (gate.applied) {
       recordSessionEvent(
         claudeSessionKey,
         claudeIdentity.userId,
         claudeIdentity.orgId,
-        "completion_gap",
+        gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
         "completion-gate",
-        `Missing must-have requirements (${gate.missingMust})`,
+        gate.blockedByVerification
+          ? `Blocking verification failures (${gate.blockingVerificationFailures})`
+          : `Missing must-have requirements (${gate.missingMust})`,
         reqId,
       );
     } else if (claudeRequirementChecklist) {
@@ -4741,6 +5234,37 @@ app.post("/v1/messages", async (req, reply) => {
         "No missing must-have requirements detected",
         reqId,
       );
+    }
+    if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
+      const critic = await runPreFinalizeCritic({
+        requestId: reqId,
+        assistantText: finalClaudeText,
+        verification: claudeVerificationAssessment,
+        recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+      });
+      if (critic.blocked) {
+        claudeCriticBlocked = true;
+        finalClaudeText = [
+          "Completion paused by pre-finalization critic.",
+          "",
+          "Findings:",
+          ...critic.findings.map((f) => `- ${f}`),
+          "",
+          "Next actions:",
+          ...(critic.suggestedNextActions.length > 0
+            ? critic.suggestedNextActions.map((s) => `- ${s}`)
+            : ["- Address verification/quality gaps and rerun checks."]),
+        ].join("\n");
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "pre_finalize_critic_block",
+          "completion-gate",
+          `critic_source=${critic.source}`,
+          reqId,
+        );
+      }
     }
   }
   finalClaudeText = applyMarkdownGuardrail(
@@ -4782,6 +5306,11 @@ app.post("/v1/messages", async (req, reply) => {
     {
       toolSequence: externalClaudeToolCalls.map((tc) => tc.toolName),
       verificationSteps: inferVerificationSteps(externalClaudeToolCalls.map((tc) => tc.toolName)),
+      diagnostics: claudeTrajectoryDiagnostics,
+      completionGateBlocked: claudeGateBlockedVerification,
+      criticBlocked: claudeCriticBlocked,
+      outcomeState: (claudeGateBlockedVerification || claudeCriticBlocked) ? "partial" : undefined,
+      failureStage: claudeGateBlockedVerification ? "verification" : undefined,
     },
   );
   maybeCheckpoint(session);

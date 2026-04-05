@@ -187,6 +187,52 @@ def test_yarn_overview_returns_expected_fields(client, monkeypatch, overview_pay
     assert data["error_count"] == 3
 
 
+def test_yarn_intelligence_includes_staff_kpis(client, monkeypatch):
+    payload = {
+        "since_hours": 24,
+        "requests": 10,
+        "avg_tool_calls_per_request": 2.2,
+        "cache_hit_estimate": 0.1,
+        "tool_use_stop_rate": 0.2,
+        "error_like_rate": 0.1,
+        "trajectory_events": 8,
+        "first_pass_verify_rate": 0.6,
+        "verification_stall_rate": 0.1,
+        "blind_retry_rate": 0.2,
+        "patch_ratio": 0.75,
+        "structured_error_coverage": 0.5,
+        "completion_gate_blocked_rate": 0.15,
+        "critic_block_rate": 0.05,
+        "trajectory_bucket_counts": {"micro": 4, "repo": 3, "feature": 1},
+        "top_models": [],
+        "finish_reason_counts": {"stop": 7, "tool_use": 3},
+    }
+    mock_intel = AsyncMock(return_value=payload)
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_intelligence", mock_intel)
+
+    resp = client.get("/api/v1/yarn/intelligence?since_hours=24")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    for key in (
+        "first_pass_verify_rate",
+        "verification_stall_rate",
+        "blind_retry_rate",
+        "patch_ratio",
+        "structured_error_coverage",
+        "completion_gate_blocked_rate",
+        "critic_block_rate",
+        "trajectory_bucket_counts",
+    ):
+        assert key in data
+
+    assert data["completion_gate_blocked_rate"] == 0.15
+    assert data["critic_block_rate"] == 0.05
+    assert data["trajectory_bucket_counts"]["micro"] == 4
+
+    mock_intel.assert_awaited_once()
+
+
 def test_yarn_sessions_list_paginated_shape(client, monkeypatch):
     payload = {
         "sessions": [

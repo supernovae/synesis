@@ -464,10 +464,109 @@ async def get_yarn_intelligence(
         )
         finish_reason_counts = {(r.finish_reason or "unknown"): int(r.count or 0) for r in finish_reason_res}
 
+        trajectory_sql = text(
+            """
+            SELECT
+              COUNT(*)::int AS trajectory_events,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE((metadata_json->'verification'->>'first_pass_verify_ok')::boolean, false)
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS first_pass_verify_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE((metadata_json->'verification'->>'stalled')::boolean, false)
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS verification_stall_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE((metadata_json->'tools'->>'blind_retry_count')::int, 0) > 0
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS blind_retry_rate,
+              COALESCE(SUM(COALESCE((metadata_json->'edits'->>'patch_ops_count')::int, 0)), 0)::int AS patch_ops,
+              COALESCE(SUM(COALESCE((metadata_json->'edits'->>'whole_write_ops_count')::int, 0)), 0)::int AS whole_write_ops,
+              COALESCE(AVG(COALESCE((metadata_json->'verification'->>'structured_error_coverage')::float, 0)), 0)::float AS structured_error_coverage,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE((metadata_json->'verification'->>'completion_gate_blocked')::boolean, false)
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS completion_gate_blocked_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE((metadata_json->'verification'->>'critic_blocked')::boolean, false)
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS critic_block_rate
+            FROM yarn_session_events
+            WHERE event_kind = 'request_trajectory_v1'
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+            """
+        )
+        trajectory_row = (
+            await session.execute(
+                trajectory_sql,
+                {
+                    "cutoff": cutoff,
+                    "uid": scope_user_id or "",
+                    "oid": scope_org_id or "",
+                },
+            )
+        ).mappings().one()
+
+        bucket_sql = text(
+            """
+            SELECT
+              COALESCE(metadata_json->>'task_bucket', 'unknown') AS bucket,
+              COUNT(*)::int AS count
+            FROM yarn_session_events
+            WHERE event_kind = 'request_trajectory_v1'
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+            GROUP BY bucket
+            ORDER BY count DESC
+            """
+        )
+        bucket_rows = (
+            await session.execute(
+                bucket_sql,
+                {
+                    "cutoff": cutoff,
+                    "uid": scope_user_id or "",
+                    "oid": scope_org_id or "",
+                },
+            )
+        ).mappings().all()
+        trajectory_bucket_counts = {str(r["bucket"]): int(r["count"]) for r in bucket_rows}
+
     requests = int(row.requests or 0)
     total_tokens = int(row.total_tokens or 0)
     cached_tokens = int(row.cached_tokens or 0)
     cache_hit_estimate = (cached_tokens / total_tokens) if total_tokens else 0.0
+    patch_ops = int(trajectory_row["patch_ops"] or 0)
+    whole_write_ops = int(trajectory_row["whole_write_ops"] or 0)
+    patch_ratio = (patch_ops / (patch_ops + whole_write_ops)) if (patch_ops + whole_write_ops) > 0 else 0.0
 
     return {
         "since_hours": since_hours,
@@ -476,6 +575,15 @@ async def get_yarn_intelligence(
         "cache_hit_estimate": round(cache_hit_estimate, 4),
         "tool_use_stop_rate": round((int(row.tool_use_stops or 0) / requests), 4) if requests else 0.0,
         "error_like_rate": round((int(row.error_like or 0) / requests), 4) if requests else 0.0,
+        "trajectory_events": int(trajectory_row["trajectory_events"] or 0),
+        "first_pass_verify_rate": round(float(trajectory_row["first_pass_verify_rate"] or 0), 4),
+        "verification_stall_rate": round(float(trajectory_row["verification_stall_rate"] or 0), 4),
+        "blind_retry_rate": round(float(trajectory_row["blind_retry_rate"] or 0), 4),
+        "patch_ratio": round(patch_ratio, 4),
+        "structured_error_coverage": round(float(trajectory_row["structured_error_coverage"] or 0), 4),
+        "completion_gate_blocked_rate": round(float(trajectory_row["completion_gate_blocked_rate"] or 0), 4),
+        "critic_block_rate": round(float(trajectory_row["critic_block_rate"] or 0), 4),
+        "trajectory_bucket_counts": trajectory_bucket_counts,
         "top_models": top_models,
         "finish_reason_counts": finish_reason_counts,
     }

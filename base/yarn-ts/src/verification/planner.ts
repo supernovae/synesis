@@ -66,6 +66,18 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
     "",
   ];
 
+  const langs = new Set(plan.languages.map((l) => l.toLowerCase()));
+  if (langs.has("go")) {
+    lines.push("MCP preset mapping (go): run_lint(preset=go) or run_lint(preset=go_golangci), run_build(preset=go), run_test(preset=go), format_code(preset=go)");
+  }
+  if (langs.has("python")) {
+    lines.push("MCP preset mapping (python): run_lint(preset=python) and run_lint(preset=python_ruff_format_check), run_build(preset=python_mypy) then run_build(preset=python), run_test(preset=python_pytest_short)");
+  }
+  if (langs.has("typescript") || langs.has("javascript")) {
+    lines.push("MCP preset mapping (typescript/js): run_lint(preset=typescript_eslint or node_npm/node_pnpm/node_yarn), run_build(preset=typescript_tsc or node_* build), run_test(preset=typescript_jest or node_* test)");
+  }
+  if (lines[lines.length - 1] !== "") lines.push("");
+
   for (const cmd of plan.commands) {
     const marker = cmd.priority === "required" ? "[required]" : "[recommended]";
     lines.push(`  ${marker} ${cmd.command}`);
@@ -73,7 +85,7 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
   }
 
   lines.push("");
-  lines.push("If verification finds issues, use run_* tool summary and errorLines (plus read_file near reported paths) to self-repair.");
+  lines.push("If verification finds issues, use run_* tool summary, nextActions, and errorLines (plus read_file near reported paths) to self-repair.");
   lines.push("Stop verification after issues stabilize or budget is exhausted.");
   lines.push("</synesis_verification_plan>");
 

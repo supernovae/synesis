@@ -32,4 +32,30 @@ main.go:15:1: other`;
     const rows = extractStructuredErrors("", stdout, 10);
     expect(rows.some((r) => r.kind === "test" && r.file?.includes("service_test.go"))).toBe(true);
   });
+
+  it("extracts structured python traceback errors", () => {
+    const stderr = [
+      "Traceback (most recent call last):",
+      '  File "/repo/app/main.py", line 27, in <module>',
+      "    run()",
+      "ValueError: invalid state transition",
+    ].join("\n");
+    const rows = extractStructuredErrors(stderr, "", 10);
+    expect(rows.some((r) => r.kind === "runtime" && r.file?.includes("main.py") && r.line === 27)).toBe(true);
+  });
+
+  it("extracts structured pytest assertion failures", () => {
+    const stdout = "tests/test_service.py:41: AssertionError: expected 200 got 500";
+    const rows = extractStructuredErrors("", stdout, 10);
+    expect(rows.some((r) => r.kind === "test" && r.file?.includes("test_service.py") && r.line === 41)).toBe(true);
+  });
+
+  it("extracts structured rust errors", () => {
+    const stderr = [
+      "error[E0432]: unresolved import `crate::missing`",
+      " --> src/main.rs:12:5",
+    ].join("\n");
+    const rows = extractStructuredErrors(stderr, "", 10);
+    expect(rows.some((r) => r.kind === "compile" && r.file === "src/main.rs" && r.line === 12 && r.column === 5)).toBe(true);
+  });
 });

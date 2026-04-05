@@ -34,6 +34,23 @@ The **Settings → Admin audit** page and `admin_audit_events` table cover model
 
 If you run **`oc apply -k base/admin`** without going through deploy, the live DB URL can be reset to the placeholder → **migration auth failures** and restarts. Re-run **`./scripts/deploy.sh`** (or patch the env from the secret as in deploy.sh).
 
+## Local test bootstrap
+
+For local `pytest` runs in `base/admin`, use a dedicated venv and include both the admin module path and shared telemetry package on `PYTHONPATH`.
+
+```bash
+python3 -m venv base/admin/.venv
+base/admin/.venv/bin/pip install -r base/admin/requirements.txt pytest
+
+PYTHONPATH="/Users/bymiller/src/synesis/base/admin:/Users/bymiller/src/synesis/base/images/base-api/synesis-telemetry" \
+  /Users/bymiller/src/synesis/base/admin/.venv/bin/pytest \
+  /Users/bymiller/src/synesis/base/admin/tests/test_yarn_router.py -q
+
+PYTHONPATH="/Users/bymiller/src/synesis/base/admin:/Users/bymiller/src/synesis/base/images/base-api/synesis-telemetry" \
+  /Users/bymiller/src/synesis/base/admin/.venv/bin/pytest \
+  /Users/bymiller/src/synesis/base/admin/tests/test_yarn_router.py::test_yarn_intelligence_includes_staff_kpis -q
+```
+
 ## Related docs
 
 - [docs/admin/KEYCLOAK_BOOTSTRAP.md](../../docs/admin/KEYCLOAK_BOOTSTRAP.md) — install order: `master` admin → user in **`synesis`** realm → **`synesis-admin`** role → first UI login → PATs.

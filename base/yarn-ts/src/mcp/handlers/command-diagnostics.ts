@@ -54,6 +54,8 @@ export function extractStructuredErrors(stderr: string, stdout: string, maxItems
   const lines = [...stderr.split(/\r?\n/), ...stdout.split(/\r?\n/)];
   const out: StructuredDiagnostic[] = [];
   const seen = new Set<string>();
+  let inPythonTraceback = false;
+  let pendingPyFrame: { file?: string; line?: number } | null = null;
 
   const push = (row: StructuredDiagnostic): void => {
     const key = `${row.kind}|${row.file ?? ""}|${row.line ?? ""}|${row.column ?? ""}|${row.message}`;
@@ -80,6 +82,71 @@ export function extractStructuredErrors(stderr: string, stdout: string, maxItems
       continue;
     }
 
+    // rustc: --> src/main.rs:12:9
+    const rustArrow = line.match(/^-->\s+(.+?):(\d+):(\d+)$/);
+    if (rustArrow && /\.(rs)$/i.test(rustArrow[1])) {
+      pendingPyFrame = null;
+      push({
+        kind: "compile",
+        file: rustArrow[1],
+        line: Number(rustArrow[2]),
+        column: Number(rustArrow[3]),
+        message: "rustc diagnostic location",
+      });
+      continue;
+    }
+
+    // rustc/cargo one-line errors: error[E0432]: unresolved import `x` at src/main.rs:3:5
+    const rustInline = line.match(/^error(?:\[[A-Z]\d+\])?:\s*(.+?)\s+at\s+(.+?):(\d+):(\d+)$/i);
+    if (rustInline && /\.(rs)$/i.test(rustInline[2])) {
+      pendingPyFrame = null;
+      push({
+        kind: "compile",
+        file: rustInline[2],
+        line: Number(rustInline[3]),
+        column: Number(rustInline[4]),
+        message: rustInline[1],
+      });
+      continue;
+    }
+
+    // Python traceback markers.
+    if (/^Traceback \(most recent call last\):$/i.test(line)) {
+      inPythonTraceback = true;
+      pendingPyFrame = null;
+      continue;
+    }
+    const pyFrame = line.match(/^File "(.+?)", line (\d+)(?:, in .+)?$/);
+    if (pyFrame) {
+      inPythonTraceback = true;
+      pendingPyFrame = { file: pyFrame[1], line: Number(pyFrame[2]) };
+      continue;
+    }
+    // Python exception line after traceback frame: ValueError: bad value
+    const pyExc = line.match(/^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning)):\s+(.+)$/);
+    if (pyExc && inPythonTraceback) {
+      push({
+        kind: "runtime",
+        file: pendingPyFrame?.file,
+        line: pendingPyFrame?.line,
+        message: `${pyExc[1]}: ${pyExc[2]}`,
+      });
+      pendingPyFrame = null;
+      continue;
+    }
+
+    // Pytest assertion short form: path/test_file.py:42: AssertionError: ...
+    const pytestLike = line.match(/^(.+?_test\.py|.+?test_.+?\.py|.+?\.py):(\d+):\s*(AssertionError|E\s+.+|FAILED.*)$/i);
+    if (pytestLike) {
+      push({
+        kind: "test",
+        file: pytestLike[1],
+        line: Number(pytestLike[2]),
+        message: pytestLike[3].replace(/^E\s+/, ""),
+      });
+      continue;
+    }
+
     // go/pytest-ish: path/file.go:12:34: message OR file_test.go:42: message
     const goLike = line.match(/^(.+?):(\d+)(?::(\d+))?:\s*(.+)$/);
     if (goLike && /\.(go|ts|tsx|js|jsx|py|rs|java|kt|cs)/i.test(goLike[1])) {
@@ -93,6 +160,18 @@ export function extractStructuredErrors(stderr: string, stdout: string, maxItems
         column: goLike[3] ? Number(goLike[3]) : undefined,
         message: msg,
       });
+      continue;
+    }
+
+    // rustc title line without explicit location.
+    if (/^error(?:\[[A-Z]\d+\])?:/i.test(line) && /rust|cargo|crate|borrow/i.test(line)) {
+      push({ kind: "compile", message: line.replace(/^error(?:\[[A-Z]\d+\])?:\s*/i, "") });
+      continue;
+    }
+
+    // Pytest failed summary line.
+    if (/^FAILED\s+.+?::.+?\s+-\s+.+$/i.test(line)) {
+      push({ kind: "test", message: line });
       continue;
     }
 
