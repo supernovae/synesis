@@ -167,6 +167,24 @@ Request IDs (`x-request-id` or `anthropic-request-id` from client, or generated
 `req-<uuid>`) propagate through all log entries, trace records, and the
 `GET /v1/diagnostics/recent` ring buffer.
 
+### Upstream error playbook (Vercel AI SDK)
+
+When sessions appear "stuck" after long waits, check for structured upstream error fields in Yarn logs/events:
+
+- `upstream_vercel_ai_sdk_error=true`
+- `upstream_missing_tool_results=true`
+- `upstream_error_name`, `upstream_error_code`, `upstream_http_status`
+- `upstream_raw_message` (truncated) for provider/SDK specifics
+
+Fast triage loop:
+
+1. Correlate by `reqId` from client error output.
+2. Filter Yarn logs for `OpenAI stream error`, `OpenAI non-stream generateText failed`, `Claude stream error`, or `Claude non-stream generateText failed` with that `reqId`.
+3. If `upstream_missing_tool_results=true`, inspect the preceding assistant/tool history pairing for orphaned `tool_call_id` chains (resume/timeout edge case).
+4. Confirm whether the request was stream or non-stream (`stream_error` vs `upstream_error`) to narrow where it failed in the loop.
+
+This keeps "generic upstream failure" incidents actionable without requiring full prompt/body logging.
+
 ## Configuration Reference
 
 ### Tier Configuration (Yarn deployment)

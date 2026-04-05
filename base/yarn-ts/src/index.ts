@@ -2539,6 +2539,50 @@ function sanitizeUpstreamError(err: unknown): string {
   return "Model request failed";
 }
 
+interface UpstreamErrorDiagnostics {
+  userMessage: string;
+  rawMessage: string;
+  errorName?: string;
+  errorCode?: string;
+  httpStatus?: number;
+  isVercelAiSdkError: boolean;
+  isMissingToolResults: boolean;
+}
+
+function extractUpstreamErrorDiagnostics(err: unknown): UpstreamErrorDiagnostics {
+  const row = (typeof err === "object" && err !== null) ? (err as Record<string, unknown>) : {};
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  const errorNameRaw =
+    (err instanceof Error ? err.name : undefined)
+    ?? (typeof row.name === "string" ? row.name : undefined);
+  const errorCodeRaw =
+    (typeof row.code === "string" || typeof row.code === "number")
+      ? String(row.code)
+      : undefined;
+  const httpStatusRaw =
+    typeof row.statusCode === "number"
+      ? row.statusCode
+      : (typeof row.status === "number" ? row.status : undefined);
+  const stackText = err instanceof Error ? String(err.stack ?? "") : "";
+  const isMissingToolResults =
+    /MissingToolResultsError/i.test(rawMessage)
+    || /MissingToolResultsError/i.test(stackText)
+    || /missing tool results?/i.test(rawMessage);
+  const isVercelAiSdkError =
+    /^AI[_A-Z]/.test(String(errorNameRaw ?? ""))
+    || /\b@?vercel\/ai\b/i.test(stackText)
+    || isMissingToolResults;
+  return {
+    userMessage: sanitizeUpstreamError(err),
+    rawMessage,
+    errorName: errorNameRaw,
+    errorCode: errorCodeRaw,
+    httpStatus: httpStatusRaw,
+    isVercelAiSdkError,
+    isMissingToolResults,
+  };
+}
+
 function requireInternalToken(req: { headers: Record<string, unknown> }): boolean {
   const token = config.SYNESIS_INTERNAL_SERVICE_TOKEN;
   if (!token) return false;
@@ -3469,12 +3513,42 @@ app.post("/v1/chat/completions", async (req, reply) => {
         });
       }
     } catch (err) {
+      const upstream = extractUpstreamErrorDiagnostics(err);
       circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
-      otelSpan.setStatus("error", sanitizeUpstreamError(err));
+      otelSpan.setStatus("error", upstream.userMessage);
       otelSpan.end();
-      app.log.error({ err, reqId, model: resolved.resolvedModelId }, "OpenAI non-stream generateText failed");
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "upstream_error", "generateText", sanitizeUpstreamError(err), reqId, { model: resolved.resolvedModelId });
-      return reply.code(502).send({ error: { type: "upstream_error", message: sanitizeUpstreamError(err) } });
+      app.log.error(
+        {
+          err,
+          reqId,
+          model: resolved.resolvedModelId,
+          upstream_error_name: upstream.errorName,
+          upstream_error_code: upstream.errorCode,
+          upstream_http_status: upstream.httpStatus,
+          upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+          upstream_missing_tool_results: upstream.isMissingToolResults,
+          upstream_raw_message: upstream.rawMessage.slice(0, 600),
+        },
+        "OpenAI non-stream generateText failed",
+      );
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "upstream_error",
+        "generateText",
+        upstream.userMessage,
+        reqId,
+        {
+          model: resolved.resolvedModelId,
+          error_name: upstream.errorName ?? "",
+          error_code: upstream.errorCode ?? "",
+          error_status: upstream.httpStatus ?? 0,
+          vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+          missing_tool_results: upstream.isMissingToolResults,
+        },
+      );
+      return reply.code(502).send({ error: { type: "upstream_error", message: upstream.userMessage } });
     }
     circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
     otelSpan.setStatus("ok");
@@ -3980,11 +4054,40 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
     }
   } catch (streamErr) {
+    const upstream = extractUpstreamErrorDiagnostics(streamErr);
     circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
-    otelStreamSpan.setStatus("error", sanitizeUpstreamError(streamErr));
-    const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
-    app.log.error({ err: streamErr, reqId, model: resolved.resolvedModelId }, `OpenAI stream error: ${detail}`);
-    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "stream_error", "streamText", detail.slice(0, 500), reqId, { model: resolved.resolvedModelId });
+    otelStreamSpan.setStatus("error", upstream.userMessage);
+    app.log.error(
+      {
+        err: streamErr,
+        reqId,
+        model: resolved.resolvedModelId,
+        upstream_error_name: upstream.errorName,
+        upstream_error_code: upstream.errorCode,
+        upstream_http_status: upstream.httpStatus,
+        upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+        upstream_missing_tool_results: upstream.isMissingToolResults,
+        upstream_raw_message: upstream.rawMessage.slice(0, 600),
+      },
+      `OpenAI stream error: ${upstream.rawMessage.slice(0, 500)}`,
+    );
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "stream_error",
+      "streamText",
+      upstream.userMessage,
+      reqId,
+      {
+        model: resolved.resolvedModelId,
+        error_name: upstream.errorName ?? "",
+        error_code: upstream.errorCode ?? "",
+        error_status: upstream.httpStatus ?? 0,
+        vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+        missing_tool_results: upstream.isMissingToolResults,
+      },
+    );
     finishReason = "error";
     safeWrite(reply.raw, `data: ${JSON.stringify({
       id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
@@ -5113,11 +5216,40 @@ app.post("/v1/messages", async (req, reply) => {
         );
       }
     } catch (streamErr) {
-      const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
+      const upstream = extractUpstreamErrorDiagnostics(streamErr);
       circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
-      claudeStreamSpan.setStatus("error", sanitizeUpstreamError(streamErr));
-      app.log.error({ err: streamErr, reqId: traceReqId, model: resolved.resolvedModelId }, `Claude stream error: ${detail}`);
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "stream_error", "streamText", detail.slice(0, 500), traceReqId, { model: resolved.resolvedModelId });
+      claudeStreamSpan.setStatus("error", upstream.userMessage);
+      app.log.error(
+        {
+          err: streamErr,
+          reqId: traceReqId,
+          model: resolved.resolvedModelId,
+          upstream_error_name: upstream.errorName,
+          upstream_error_code: upstream.errorCode,
+          upstream_http_status: upstream.httpStatus,
+          upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+          upstream_missing_tool_results: upstream.isMissingToolResults,
+          upstream_raw_message: upstream.rawMessage.slice(0, 600),
+        },
+        `Claude stream error: ${upstream.rawMessage.slice(0, 500)}`,
+      );
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "stream_error",
+        "streamText",
+        upstream.userMessage,
+        traceReqId,
+        {
+          model: resolved.resolvedModelId,
+          error_name: upstream.errorName ?? "",
+          error_code: upstream.errorCode ?? "",
+          error_status: upstream.httpStatus ?? 0,
+          vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+          missing_tool_results: upstream.isMissingToolResults,
+        },
+      );
       if (!claudeStreamingTextOpen) {
         safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
         claudeStreamingTextOpen = true;
@@ -5423,14 +5555,44 @@ app.post("/v1/messages", async (req, reply) => {
       ...(providerOptions ? { providerOptions: providerOptions as never } : {})
     });
   } catch (err) {
+    const upstream = extractUpstreamErrorDiagnostics(err);
     circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
-    claudeNonStreamSpan.setStatus("error", sanitizeUpstreamError(err));
+    claudeNonStreamSpan.setStatus("error", upstream.userMessage);
     claudeNonStreamSpan.end();
-    app.log.error({ err, reqId, model: resolved.resolvedModelId }, "Claude non-stream generateText failed");
-    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "upstream_error", "generateText", sanitizeUpstreamError(err), reqId, { model: resolved.resolvedModelId });
+    app.log.error(
+      {
+        err,
+        reqId,
+        model: resolved.resolvedModelId,
+        upstream_error_name: upstream.errorName,
+        upstream_error_code: upstream.errorCode,
+        upstream_http_status: upstream.httpStatus,
+        upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+        upstream_missing_tool_results: upstream.isMissingToolResults,
+        upstream_raw_message: upstream.rawMessage.slice(0, 600),
+      },
+      "Claude non-stream generateText failed",
+    );
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "upstream_error",
+      "generateText",
+      upstream.userMessage,
+      reqId,
+      {
+        model: resolved.resolvedModelId,
+        error_name: upstream.errorName ?? "",
+        error_code: upstream.errorCode ?? "",
+        error_status: upstream.httpStatus ?? 0,
+        vercel_ai_sdk_error: upstream.isVercelAiSdkError,
+        missing_tool_results: upstream.isMissingToolResults,
+      },
+    );
     return reply.code(502).send({
       type: "error",
-      error: { type: "upstream_error", message: sanitizeUpstreamError(err) }
+      error: { type: "upstream_error", message: upstream.userMessage }
     });
   }
   circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
