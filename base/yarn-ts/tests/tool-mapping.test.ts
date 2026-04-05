@@ -289,6 +289,26 @@ describe("sanitizeToolCalls", () => {
     expect(result[0].content).toBe("I will call a tool");
   });
 
+  it("drops orphaned tool messages that have no matching tool call", () => {
+    const msgs = [
+      { role: "assistant", content: "I will call a tool" },
+      { role: "tool", content: "result", tool_call_id: "orphaned_id" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result).toHaveLength(1);
+    expect(result[0].role).toBe("assistant");
+  });
+
+  it("drops orphaned tool messages without an ID that have no matching empty tool call", () => {
+    const msgs = [
+      { role: "assistant", content: "I will call a tool" },
+      { role: "tool", content: "result", tool_call_id: "" },
+    ];
+    const result = sanitizeToolCalls(msgs as never);
+    expect(result).toHaveLength(1);
+    expect(result[0].role).toBe("assistant");
+  });
+
   it("preserves valid tool calls and drops invalid ones in the same message", () => {
     const msgs = [
       { role: "assistant", content: "I will call two tools", tool_calls: [

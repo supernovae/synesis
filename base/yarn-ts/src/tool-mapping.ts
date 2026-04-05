@@ -27,6 +27,7 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
   const pendingEmptyIdQueue: string[] = [];
 
   const validToolCallIds = new Set<string>();
+  const assistantToolCallIds = new Set<string>();
   let availableEmptyToolMessages = 0;
 
   for (const m of messages) {
@@ -35,6 +36,12 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
         validToolCallIds.add(m.tool_call_id);
       } else {
         availableEmptyToolMessages++;
+      }
+    } else if (m.role === "assistant" && m.tool_calls?.length) {
+      for (const tc of m.tool_calls) {
+        if (tc.id) {
+          assistantToolCallIds.add(tc.id);
+        }
       }
     }
   }
@@ -82,9 +89,17 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
       continue;
     }
 
-    if (m.role === "tool" && !m.tool_call_id && pendingEmptyIdQueue.length > 0) {
-      out.push({ ...m, tool_call_id: pendingEmptyIdQueue.shift()! });
-      continue;
+    if (m.role === "tool") {
+      if (!m.tool_call_id) {
+        if (pendingEmptyIdQueue.length > 0) {
+          out.push({ ...m, tool_call_id: pendingEmptyIdQueue.shift()! });
+        }
+        continue;
+      }
+      if (!assistantToolCallIds.has(m.tool_call_id)) {
+        // Drop orphaned tool message
+        continue;
+      }
     }
 
     out.push(m);
