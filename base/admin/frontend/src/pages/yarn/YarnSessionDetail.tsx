@@ -7,7 +7,16 @@ import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { fmtCost, fmtDurationMs, fmtTokens, isFallbackPricing, pricingSourceLabel } from "../../lib/formatUsage";
-import { eventKindCount, eventKinds as listEventKinds, filterEventsByKinds, isRecord, trajectoryHighlights } from "./eventDrilldown";
+import {
+  diagnosticPresetCount,
+  eventKindCount,
+  eventKinds as listEventKinds,
+  filterEventsByDiagnosticPreset,
+  filterEventsByKinds,
+  isRecord,
+  trajectoryHighlights,
+  type EventDiagnosticPreset,
+} from "./eventDrilldown";
 
 function truncId(id: string): string {
   if (id.length <= 18) return id;
@@ -25,6 +34,7 @@ export default function YarnSessionDetail() {
   const key = sessionKey ? decodeURIComponent(sessionKey) : "";
   const { data, isLoading, isError, error } = useYarnSessionDetail(key || undefined);
   const [selectedKinds, setSelectedKinds] = useState<string[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState<EventDiagnosticPreset | null>(null);
   const [expandedMetadata, setExpandedMetadata] = useState<Record<number, boolean>>({});
 
   const availableEventKinds = useMemo(() => {
@@ -34,8 +44,8 @@ export default function YarnSessionDetail() {
 
   const filteredEvents = useMemo(() => {
     const src = data?.events ?? [];
-    return filterEventsByKinds(src, selectedKinds);
-  }, [data?.events, selectedKinds]);
+    return filterEventsByDiagnosticPreset(filterEventsByKinds(src, selectedKinds), selectedPreset);
+  }, [data?.events, selectedKinds, selectedPreset]);
 
   const toggleKind = (kind: string) => {
     setSelectedKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
@@ -282,6 +292,44 @@ export default function YarnSessionDetail() {
               <h2 className="mb-3 text-lg font-medium text-gray-900 dark:text-white">
                 Events
               </h2>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPreset(null)}
+                  className={clsx(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium",
+                    selectedPreset === null
+                      ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-300"
+                      : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+                  )}
+                >
+                  Any diagnostics
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPreset("vercel_sdk_errors")}
+                  className={clsx(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium",
+                    selectedPreset === "vercel_sdk_errors"
+                      ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-300"
+                      : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+                  )}
+                >
+                  Vercel SDK errors ({diagnosticPresetCount(data.events, "vercel_sdk_errors")})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPreset("missing_tool_results")}
+                  className={clsx(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium",
+                    selectedPreset === "missing_tool_results"
+                      ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-300"
+                      : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+                  )}
+                >
+                  Missing tool results ({diagnosticPresetCount(data.events, "missing_tool_results")})
+                </button>
+              </div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"

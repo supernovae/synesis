@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { YarnSessionEventRow } from "../../api/hooks";
-import { eventKindCount, eventKinds, filterEventsByKinds, trajectoryHighlights } from "./eventDrilldown";
+import {
+  diagnosticPresetCount,
+  eventKindCount,
+  eventKinds,
+  filterEventsByDiagnosticPreset,
+  filterEventsByKinds,
+  trajectoryHighlights,
+} from "./eventDrilldown";
 
 const events: YarnSessionEventRow[] = [
   {
@@ -30,17 +37,26 @@ const events: YarnSessionEventRow[] = [
     component: "executor",
     detail: "failed",
     request_id: "rq-1",
-    metadata_json: { exit_code: 1 },
+    metadata_json: { exit_code: 1, vercel_ai_sdk_error: true },
+    created_at: "2026-04-01T10:00:01Z",
+  },
+  {
+    id: 3,
+    event_kind: "stream_error",
+    component: "streamText",
+    detail: "tool mismatch",
+    request_id: "rq-1",
+    metadata_json: { missing_tool_results: true, vercel_ai_sdk_error: true },
     created_at: "2026-04-01T10:00:01Z",
   },
 ];
 
 describe("event drilldown helpers", () => {
   it("lists and filters event kinds", () => {
-    expect(eventKinds(events)).toEqual(["request_trajectory_v1", "runtime_error"]);
+    expect(eventKinds(events)).toEqual(["request_trajectory_v1", "runtime_error", "stream_error"]);
     expect(eventKindCount(events, "runtime_error")).toBe(1);
     expect(filterEventsByKinds(events, ["runtime_error"]).map((ev) => ev.id)).toEqual([2]);
-    expect(filterEventsByKinds(events, []).map((ev) => ev.id)).toEqual([1, 2]);
+    expect(filterEventsByKinds(events, []).map((ev) => ev.id)).toEqual([1, 2, 3]);
   });
 
   it("extracts trajectory highlights for metadata rendering", () => {
@@ -54,5 +70,12 @@ describe("event drilldown helpers", () => {
         { label: "Blind retries", value: "1", tone: "warn" },
       ]),
     );
+  });
+
+  it("filters event diagnostics presets for Vercel SDK and missing tool results", () => {
+    expect(filterEventsByDiagnosticPreset(events, "vercel_sdk_errors").map((ev) => ev.id)).toEqual([2, 3]);
+    expect(filterEventsByDiagnosticPreset(events, "missing_tool_results").map((ev) => ev.id)).toEqual([3]);
+    expect(diagnosticPresetCount(events, "vercel_sdk_errors")).toBe(2);
+    expect(diagnosticPresetCount(events, "missing_tool_results")).toBe(1);
   });
 });

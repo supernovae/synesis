@@ -6,6 +6,8 @@ export interface TrajectoryHighlight {
   tone?: "good" | "warn" | "neutral";
 }
 
+export type EventDiagnosticPreset = "vercel_sdk_errors" | "missing_tool_results";
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -42,6 +44,35 @@ export function eventKindCount(events: YarnSessionEventRow[], kind: string): num
 export function filterEventsByKinds(events: YarnSessionEventRow[], selectedKinds: string[]): YarnSessionEventRow[] {
   if (selectedKinds.length === 0) return events;
   return events.filter((ev) => selectedKinds.includes(ev.event_kind));
+}
+
+function hasTruthyFlag(record: Record<string, unknown> | null | undefined, key: string): boolean {
+  if (!record) return false;
+  const value = record[key];
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function hasVercelSdkErrorFlag(ev: YarnSessionEventRow): boolean {
+  if (!isRecord(ev.metadata_json)) return false;
+  return hasTruthyFlag(ev.metadata_json, "vercel_ai_sdk_error");
+}
+
+function hasMissingToolResultsFlag(ev: YarnSessionEventRow): boolean {
+  if (!isRecord(ev.metadata_json)) return false;
+  return hasTruthyFlag(ev.metadata_json, "missing_tool_results");
+}
+
+export function filterEventsByDiagnosticPreset(
+  events: YarnSessionEventRow[],
+  preset: EventDiagnosticPreset | null,
+): YarnSessionEventRow[] {
+  if (!preset) return events;
+  if (preset === "vercel_sdk_errors") return events.filter((ev) => hasVercelSdkErrorFlag(ev));
+  return events.filter((ev) => hasMissingToolResultsFlag(ev));
+}
+
+export function diagnosticPresetCount(events: YarnSessionEventRow[], preset: EventDiagnosticPreset): number {
+  return filterEventsByDiagnosticPreset(events, preset).length;
 }
 
 export function trajectoryHighlights(ev: YarnSessionEventRow): TrajectoryHighlight[] {
