@@ -4897,7 +4897,17 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const { resolved, messages } = claudeResolveResult;
   const { adapter: claudeAdapter } = resolved;
-  const claudeRawTools = (processedTools as unknown[]) ?? [];
+  let claudeRawTools = (processedTools as unknown[]) ?? [];
+  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
+    claudeRawTools = artifactRetrieval.injectToolClaude(claudeRawTools) as never;
+  }
+  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
+    claudeRawTools = knowledgeSearch.injectToolClaude(claudeRawTools) as never;
+  }
+  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
+    claudeRawTools = webSearch.injectToolClaude(claudeRawTools) as never;
+  }
+
   const claudeToolBudget = resolveToolSchemaBudget(
     claudeAdapter.maxEffectiveTools,
     config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(claudeAdapterProfile)
