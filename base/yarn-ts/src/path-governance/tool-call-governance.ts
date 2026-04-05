@@ -100,39 +100,7 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
     const command = out.input.command;
     if (typeof command === "string" && command.trim()) {
-      const rewritten = rewriteRedundantCdPrefix(command, opts.shellCwd);
-      const effectiveCommand = rewritten?.rewrittenCommand ?? command;
-      if (rewritten) {
-        out.input = { ...out.input, command: effectiveCommand };
-      }
-      const drift = detectBashPathDrift(effectiveCommand, opts.shellCwd);
-      if (drift) {
-        const message = `Synesis Yarn blocked risky shell path drift: ${drift.reason}. Stay in the current project root and use relative paths.`;
-        if (opts.clientKind === "claude-code") {
-          out.toolName = "Synesis_Error_BashPathDrift";
-          out.input = {
-            synesis_error: true,
-            reason: "bash_path_drift",
-            message,
-            retryable: true,
-          };
-        } else {
-          out.input = {
-            command: buildStructuredErrorBashCommand({
-              synesis_error: true,
-              schema_version: 1,
-              category: "policy",
-              reason: "bash_path_drift",
-              message,
-              retryable: true,
-            }),
-            description: "Blocked risky mkdir/cd path drift",
-          };
-        }
-        out.blockedBashDrift = true;
-        return out;
-      }
-      const dangerous = detectDangerousBash(effectiveCommand);
+      const dangerous = detectDangerousBash(command);
       if (dangerous) {
         const message = `Synesis Yarn blocked unsafe shell command: ${dangerous.reason}. Use safe structured tools from project root.`;
         if (opts.clientKind === "claude-code") {
@@ -319,9 +287,6 @@ function detectBashPathDrift(command: string, shellCwd?: string | null): { reaso
 
 function detectDangerousBash(command: string): { reason: string } | null {
   const c = command.trim().toLowerCase();
-  if (/(^|[;&|]\s*|\s+)cd\s+/.test(c)) {
-    return { reason: "cd is disallowed in strict mode" };
-  }
   if (/\brm\s+-rf\s+/.test(c)) {
     return { reason: "rm -rf is disallowed" };
   }
@@ -331,49 +296,8 @@ function detectDangerousBash(command: string): { reason: string } | null {
   if (/\bmkfs\b|\bdd\s+if=|\bshutdown\b|\breboot\b/.test(c)) {
     return { reason: "destructive system command detected" };
   }
+  
   return null;
-}
-
-function rewriteRedundantCdPrefix(
-  command: string,
-  shellCwd?: string | null,
-): { rewrittenCommand: string } | null {
-  const cwd = (shellCwd ?? "").trim();
-  if (!cwd) return null;
-  const m = command.match(/^\s*cd\s+([^\s;&|]+)\s*&&\s*([\s\S]+)$/);
-  if (!m) return null;
-  const cdTarget = stripQuotes(m[1]);
-  const remainder = String(m[2] ?? "").trim();
-  if (!cdTarget || !remainder) return null;
-  const cwdAbs = path.resolve(cwd);
-  const targetAbs = path.isAbsolute(cdTarget)
-    ? path.resolve(cdTarget)
-    : path.resolve(cwdAbs, cdTarget);
-  if (targetAbs !== cwdAbs) return null;
-  return { rewrittenCommand: remainder };
-}
-
-function normalizedBase(raw?: string | null): string | null {
-  const t = (raw ?? "").trim();
-  if (!t) return null;
-  const b = path.basename(t);
-  return b && b !== "." && b !== ".." ? b : null;
-}
-
-function stripQuotes(s: string): string {
-  return s.replace(/^['"`]+|['"`]+$/g, "").trim();
-}
-
-function hasDuplicateAdjacentSegment(rawPath: string): boolean {
-  const cleaned = stripQuotes(rawPath).replace(/\\/g, "/").replace(/\/{2,}/g, "/");
-  const parts = cleaned
-    .split("/")
-    .filter((p) => p.length > 0 && p !== "." && p !== ".." && p !== "~")
-    .map((p) => p.replace(/\*+$/g, ""));
-  for (let i = 1; i < parts.length; i += 1) {
-    if (parts[i] && parts[i] === parts[i - 1]) return true;
-  }
-  return false;
 }
 
 function shellEscape(s: string): string {

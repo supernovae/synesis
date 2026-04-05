@@ -39,46 +39,6 @@ describe("governToolCall", () => {
     expect(out.constrainedToRoot).toBe(true);
   });
 
-  it("blocks mkdir&&cd duplicate-segment drift", () => {
-    const out = governToolCall({
-      toolName: "Bash",
-      input: { command: "mkdir -p aws-cost-calculator && cd aws-cost-calculator" },
-      shellCwd: "/Users/me/aws-cost-calculator",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-    });
-    expect(out.blockedBashDrift).toBe(true);
-    expect(String(out.input.command)).toContain("bash_path_drift");
-  });
-
-  it("rewrites path-drift block to synthetic error tool for claude-code", () => {
-    const out = governToolCall({
-      toolName: "Bash",
-      input: { command: "mkdir -p aws-cost-calculator && cd aws-cost-calculator" },
-      shellCwd: "/Users/me/aws-cost-calculator",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-      clientKind: "claude-code",
-    });
-    expect(out.toolName).toBe("Synesis_Error_BashPathDrift");
-    expect(out.blockedBashDrift).toBe(true);
-    expect(out.input.synesis_error).toBe(true);
-    expect(out.input.reason).toBe("bash_path_drift");
-    expect(out.input.retryable).toBe(true);
-  });
-
-  it("does not block benign bash command", () => {
-    const out = governToolCall({
-      toolName: "Bash",
-      input: { command: "go build ./..." },
-      shellCwd: "/Users/me/repo",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-    });
-    expect(out.blockedBashDrift).toBe(false);
-    expect(out.validationMissing).toEqual([]);
-  });
-
   it("blocks dangerous rm -rf shell command", () => {
     const out = governToolCall({
       toolName: "Bash",
@@ -88,25 +48,13 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
     });
     expect(out.blockedBashDrift).toBe(true);
-    expect(String(out.input.command)).toContain("blocked unsafe shell command");
-  });
-
-  it("blocks cd commands in strict mode", () => {
-    const out = governToolCall({
-      toolName: "Bash",
-      input: { command: "cd src && go test ./..." },
-      shellCwd: "/Users/me/repo",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-    });
-    expect(out.blockedBashDrift).toBe(true);
-    expect(String(out.input.command)).toContain("cd is disallowed");
+    expect(String(out.input.command)).toContain("unsafe_shell");
   });
 
   it("rewrites blocked unsafe shell to synthetic error tool for claude-code", () => {
     const out = governToolCall({
       toolName: "Bash",
-      input: { command: "cd src && go test ./..." },
+      input: { command: "rm -rf /" },
       shellCwd: "/Users/me/repo",
       enforcePathRoot: true,
       blockBashPathDrift: true,
@@ -117,18 +65,6 @@ describe("governToolCall", () => {
     expect(out.input.synesis_error).toBe(true);
     expect(out.input.reason).toBe("unsafe_shell");
     expect(out.input.retryable).toBe(true);
-  });
-
-  it("rewrites redundant cd-to-cwd prefixes before strict bash checks", () => {
-    const out = governToolCall({
-      toolName: "Bash",
-      input: { command: "cd /Users/me/repo && go run main.go" },
-      shellCwd: "/Users/me/repo",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-    });
-    expect(out.blockedBashDrift).toBe(false);
-    expect(String(out.input.command)).toBe("go run main.go");
   });
 
   it("normalizes alias tool names for validation without renaming output tool", () => {
