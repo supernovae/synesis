@@ -4883,6 +4883,44 @@ app.post("/v1/messages", async (req, reply) => {
 
     if (stopReason !== "tool_use" && pendingClaudeTextDeltas.length > 0) {
       const rawText = pendingClaudeTextDeltas.join("");
+      const parsedLegacy = parseLegacyInlineToolCall(rawText);
+      if (parsedLegacy) {
+        const legacyHard = applyAdapterToolHardening(claudeAdapter, parsedLegacy.toolName, parsedLegacy.input);
+        if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+        if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
+        if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
+        const legacyGoverned = governToolCall({
+          toolName: legacyHard.toolName,
+          input: legacyHard.input,
+          projectRoot: effectiveClaudePathCtx.projectRoot,
+          shellCwd: effectiveClaudePathCtx.shellCwd,
+          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+          strictBashBlock: claudeOpenClawStrictGovernance,
+          blockWriteCapableTools: claudeOpenClawStrictGovernance,
+        });
+        const legacyToolCallId = `legacy_${Date.now().toString(36)}`;
+        const normalizedJson = JSON.stringify(legacyGoverned.input);
+        if (claudeStreamingTextOpen) closeClaudeStreamingTextBlock();
+        safeSse(reply, "content_block_start", {
+          type: "content_block_start",
+          index: blockIdx,
+          content_block: { type: "tool_use", id: legacyToolCallId, name: legacyGoverned.toolName },
+        });
+        safeSse(reply, "content_block_delta", {
+          type: "content_block_delta",
+          index: blockIdx,
+          delta: { type: "input_json_delta", partial_json: normalizedJson },
+        });
+        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+        blockIdx++;
+        if (claudeOpenClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
+          openClawProfileStats.strictGovernanceRewrites += 1;
+        }
+        stopReason = "tool_use";
+        pendingClaudeTextDeltas.length = 0;
+        app.log.warn({ reqId: traceReqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_claude_stream");
+      } else {
       const gate = applyCompletionGate(
         claudeRequirementChecklist,
         rawText,
@@ -4968,6 +5006,7 @@ app.post("/v1/messages", async (req, reply) => {
         flushClaudeTextBlock(guarded);
       }
       pendingClaudeTextDeltas.length = 0;
+      }
     }
 
     closeClaudeStreamingTextBlock();
@@ -5136,7 +5175,7 @@ app.post("/v1/messages", async (req, reply) => {
     allToolCalls = allToolCalls.filter((tc) => tc.toolName !== KNOWLEDGE_TOOL_NAME);
   }
 
-  const externalClaudeToolCalls = allToolCalls
+  let externalClaudeToolCalls = allToolCalls
     .filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME && tc.toolName !== KNOWLEDGE_TOOL_NAME)
     .map((tc) => {
       const rawInput =
@@ -5192,8 +5231,38 @@ app.post("/v1/messages", async (req, reply) => {
     });
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
-  const stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
+  let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
   let finalClaudeText = result.text ?? "";
+  if (externalClaudeToolCalls.length === 0 && finalClaudeText) {
+    const parsedLegacy = parseLegacyInlineToolCall(finalClaudeText);
+    if (parsedLegacy) {
+      const legacyHard = applyAdapterToolHardening(claudeAdapter, parsedLegacy.toolName, parsedLegacy.input);
+      if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+      if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
+      if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
+      const legacyGoverned = governToolCall({
+        toolName: legacyHard.toolName,
+        input: legacyHard.input,
+        projectRoot: effectiveClaudePathCtx.projectRoot,
+        shellCwd: effectiveClaudePathCtx.shellCwd,
+        enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+        blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+        strictBashBlock: claudeOpenClawStrictGovernance,
+        blockWriteCapableTools: claudeOpenClawStrictGovernance,
+      });
+      externalClaudeToolCalls = [{
+        toolCallId: `legacy_${Date.now().toString(36)}`,
+        toolName: legacyGoverned.toolName,
+        input: legacyGoverned.input,
+      }];
+      if (claudeOpenClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
+        openClawProfileStats.strictGovernanceRewrites += 1;
+      }
+      finalClaudeText = parsedLegacy.cleanText;
+      stopReason = "tool_use";
+      app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_claude_non_stream");
+    }
+  }
   let claudeGateApplied = false;
   let claudeMissingMust = 0;
   let claudeMissingShould = 0;
