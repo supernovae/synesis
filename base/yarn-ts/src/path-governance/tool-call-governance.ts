@@ -35,6 +35,7 @@ export function buildStructuredErrorBashCommand(payload: Record<string, unknown>
 
 export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   const logicalName = canonicalValidationToolName(opts.toolName);
+  const requestedFilePath = typeof opts.input.file_path === "string" ? opts.input.file_path.trim() : "";
   const out: GovernedToolCall = {
     toolName: opts.toolName,
     input: { ...opts.input },
@@ -56,6 +57,12 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     if (rootClamp.constrained) {
       out.input = rootClamp.input;
       out.constrainedToRoot = true;
+      const pathRecovery = recoverConstrainedPathRequest(logicalName, requestedFilePath, out.input);
+      if (pathRecovery) {
+        out.toolName = pathRecovery.toolName;
+        out.input = pathRecovery.input;
+        return out;
+      }
     }
   }
 
@@ -171,6 +178,20 @@ function recoverValidationFailure(
       input: { file_path: input.file_path },
     };
   }
+  // Common model failure: Glob called without glob_pattern.
+  // Recover with a bounded broad pattern so the model gets file candidates and can retry.
+  if (logicalName === "Glob" && missing.includes("glob_pattern")) {
+    const targetDirectory =
+      typeof input.target_directory === "string" && input.target_directory.trim()
+        ? input.target_directory.trim()
+        : undefined;
+    return {
+      toolName: "Glob",
+      input: targetDirectory
+        ? { target_directory: targetDirectory, glob_pattern: "*" }
+        : { glob_pattern: "*" },
+    };
+  }
   return null;
 }
 
@@ -185,7 +206,29 @@ function validationHint(logicalName: string, missing: string[]): string {
   if (logicalName === "Write") {
     return `${base} For Write, required params are file_path and content.`;
   }
+  if (logicalName === "Glob") {
+    return `${base} For Glob, required param is glob_pattern (for example "*.py" or "**/*.test.ts").`;
+  }
   return `${base} Example: Write uses file_path and content.`;
+}
+
+function recoverConstrainedPathRequest(
+  logicalName: string,
+  requestedFilePath: string,
+  governedInput: Record<string, unknown>,
+): { toolName: string; input: Record<string, unknown> } | null {
+  if (!(logicalName === "Edit" || logicalName === "Update")) return null;
+  if (!requestedFilePath || !path.isAbsolute(requestedFilePath)) return null;
+  const governedPath = typeof governedInput.file_path === "string" ? governedInput.file_path.trim() : "";
+  if (!governedPath) return null;
+  const base = path.basename(governedPath);
+  if (!base) return null;
+  // If an absolute path was clamped into project root, discover candidates first.
+  // This avoids "file not found" on a potentially wrong basename and gives deterministic next steps.
+  return {
+    toolName: "Glob",
+    input: { glob_pattern: `**/${base}` },
+  };
 }
 
 function isWriteCapableTool(logicalName: string): boolean {

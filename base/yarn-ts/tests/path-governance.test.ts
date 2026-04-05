@@ -155,6 +155,35 @@ describe("governToolCall", () => {
     expect(out.validationMissing).toEqual([]);
   });
 
+  it("recovers Glob missing glob_pattern to a safe default pattern", () => {
+    const out = governToolCall({
+      toolName: "Glob",
+      input: {},
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.toolName).toBe("Glob");
+    expect(out.input).toEqual({ glob_pattern: "*" });
+    expect(out.validationMissing).toEqual([]);
+  });
+
+  it("recovers absolute out-of-root Edit path to candidate Glob lookup", () => {
+    const out = governToolCall({
+      toolName: "Edit",
+      input: {
+        file_path: "/Users/someone/other-project/src/vector_store.py",
+        old_string: "x = 1",
+        new_string: "x = 2",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.toolName).toBe("Glob");
+    expect(out.input).toEqual({ glob_pattern: "**/vector_store.py" });
+  });
+
   it("keeps governed file paths inside project root across mixed path styles", () => {
     const root = "/Users/me/repo";
     const cases = [
