@@ -3350,13 +3350,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session
   ) as never;
 
-  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
+  // Server-side tools are only supported in non-streaming OpenAI requests (which have a loop)
+  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED && !normalizedRequest.stream) {
     normalizedRequest.tools = artifactRetrieval.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
-  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
+  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED && !normalizedRequest.stream) {
     normalizedRequest.tools = knowledgeSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
-  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
+  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED && !normalizedRequest.stream) {
     normalizedRequest.tools = webSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
 
@@ -4877,15 +4878,16 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
 
-  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
-    openAIShape.tools = artifactRetrieval.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
-  }
-  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
-    openAIShape.tools = knowledgeSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
-  }
-  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
-    openAIShape.tools = webSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
-  }
+  // Server-side tools are NOT supported in the Claude endpoint (no loop implemented)
+  // if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED && !body.stream) {
+  //   openAIShape.tools = artifactRetrieval.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
+  // }
+  // if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED && !body.stream) {
+  //   openAIShape.tools = knowledgeSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
+  // }
+  // if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED && !body.stream) {
+  //   openAIShape.tools = webSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
+  // }
 
   const claudeResolveResult = runOpenAIRequest(openAIShape);
   if (!claudeResolveResult.ok) {
@@ -4898,15 +4900,16 @@ app.post("/v1/messages", async (req, reply) => {
   const { resolved, messages } = claudeResolveResult;
   const { adapter: claudeAdapter } = resolved;
   let claudeRawTools = (processedTools as unknown[]) ?? [];
-  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
-    claudeRawTools = artifactRetrieval.injectToolClaude(claudeRawTools) as never;
-  }
-  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
-    claudeRawTools = knowledgeSearch.injectToolClaude(claudeRawTools) as never;
-  }
-  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
-    claudeRawTools = webSearch.injectToolClaude(claudeRawTools) as never;
-  }
+  // Server-side tools are NOT supported in the Claude endpoint (no loop implemented)
+  // if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED && !body.stream) {
+  //   claudeRawTools = artifactRetrieval.injectToolClaude(claudeRawTools) as never;
+  // }
+  // if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED && !body.stream) {
+  //   claudeRawTools = knowledgeSearch.injectToolClaude(claudeRawTools) as never;
+  // }
+  // if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED && !body.stream) {
+  //   claudeRawTools = webSearch.injectToolClaude(claudeRawTools) as never;
+  // }
 
   const claudeToolBudget = resolveToolSchemaBudget(
     claudeAdapter.maxEffectiveTools,
@@ -5001,7 +5004,6 @@ app.post("/v1/messages", async (req, reply) => {
     let claudeStreamGateBlockedVerification = false;
     let claudeStreamCriticBlocked = false;
     const pendingClaudeTextDeltas: string[] = [];
-    const pendingClaudeToolIds = new Set<string>();
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
     const claudeStreamToolSequence: string[] = [];
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
@@ -5081,15 +5083,6 @@ app.post("/v1/messages", async (req, reply) => {
           blockIdx++;
         } else if (part.type === "tool-input-start") {
           const tc = part as unknown as { toolCallId?: string; toolName?: string };
-          if (
-            tc.toolName === ARTIFACT_TOOL_NAME
-            || tc.toolName === KNOWLEDGE_TOOL_NAME
-            || tc.toolName === WEB_SEARCH_TOOL_NAME
-            || tc.toolName === WEB_SEARCH_TOOL_ALIAS
-          ) {
-            pendingClaudeToolIds.add(tc.toolCallId ?? "");
-            continue;
-          }
           if (pendingClaudeTextDeltas.length > 0) {
             closeClaudeStreamingTextBlock();
             pendingClaudeTextDeltas.length = 0;
@@ -5099,19 +5092,12 @@ app.post("/v1/messages", async (req, reply) => {
         } else if (part.type === "tool-input-delta") {
           const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
           const tdId = td.toolCallId ?? "";
-          if (pendingClaudeToolIds.has(tdId)) continue;
           const buf = claudeToolBuffer.get(tdId);
           if (buf) {
             buf.chunks.push(td.inputTextDelta ?? "");
           }
         } else if (part.type === "tool-call") {
           const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
-          if (
-            tcFull.toolName === ARTIFACT_TOOL_NAME
-            || tcFull.toolName === KNOWLEDGE_TOOL_NAME
-            || tcFull.toolName === WEB_SEARCH_TOOL_NAME
-            || tcFull.toolName === WEB_SEARCH_TOOL_ALIAS
-          ) continue;
           const buf = claudeToolBuffer.get(tcFull.toolCallId ?? "");
           const rawToolInput = (tcFull.input ?? {}) as Record<string, unknown>;
           const hard = applyAdapterToolHardening(
@@ -5616,55 +5602,7 @@ app.post("/v1/messages", async (req, reply) => {
   claudeNonStreamSpan.end();
   let allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
 
-  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED) {
-    const artifactCalls = allToolCalls.filter((tc) => tc.toolName === ARTIFACT_TOOL_NAME);
-    for (const ac of artifactCalls) {
-      const inp = ac.input as { artifact_handle?: string; query?: string };
-      artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
-    }
-    allToolCalls = allToolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
-  }
-
-  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
-    const knowledgeCalls = allToolCalls.filter((tc) => tc.toolName === KNOWLEDGE_TOOL_NAME);
-    for (const kc of knowledgeCalls) {
-      await knowledgeSearch.resolve(
-        kc.input as Record<string, unknown>,
-        knowledgeResolveContext(claudeAuthUser, req),
-      );
-    }
-    allToolCalls = allToolCalls.filter((tc) => tc.toolName !== KNOWLEDGE_TOOL_NAME);
-  }
-
-  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
-    const webCalls = allToolCalls.filter(
-      (tc) => tc.toolName === WEB_SEARCH_TOOL_NAME || tc.toolName === WEB_SEARCH_TOOL_ALIAS,
-    );
-    for (const wc of webCalls) {
-      await webSearch.resolve(
-        wc.input as Record<string, unknown>,
-        webSearchResolveContext(claudeAuthUser, req, {
-          requestId: reqId,
-          sessionKey: claudeSessionKey,
-          conversationId: session.record.conversationId || undefined,
-          traceId: reqId,
-          sourceSurface: "yarn_chat",
-          toolName: WEB_SEARCH_TOOL_NAME,
-        }),
-      );
-    }
-    allToolCalls = allToolCalls.filter(
-      (tc) => tc.toolName !== WEB_SEARCH_TOOL_NAME && tc.toolName !== WEB_SEARCH_TOOL_ALIAS,
-    );
-  }
-
-  let externalClaudeToolCalls = allToolCalls
-    .filter((tc) =>
-      tc.toolName !== ARTIFACT_TOOL_NAME
-      && tc.toolName !== KNOWLEDGE_TOOL_NAME
-      && tc.toolName !== WEB_SEARCH_TOOL_NAME
-      && tc.toolName !== WEB_SEARCH_TOOL_ALIAS)
-    .map((tc) => {
+  let externalClaudeToolCalls = allToolCalls.map((tc) => {
       const rawInput =
         typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
           ? (tc.input as Record<string, unknown>)
