@@ -37,6 +37,7 @@ describe("ClientAdapterPacks", () => {
     expect(block).toContain("client=claude-code");
     expect(block).toContain("family=default");
     expect(block).toContain("prefer Update/Edit-style targeted diffs");
+    expect(block).toContain("do not delete or weaken failing tests");
   });
 
   it("resolves openclaw variants to openclaw family features", () => {
