@@ -109,6 +109,7 @@ export class ClientAdapterPacks {
       "- Prefer search_code or synesis_inspect_repo to locate files/symbols, then read_file (optionally startLine/endLine) — avoid huge undirected reads.",
       "- Never edit a file before inspecting it. Search first unless the user already gave exact file and region.",
       "- Prefer apply_patch for existing files; use write_file for new/generated files or when patching is infeasible after inspection.",
+      "- For tests and other existing files, prefer Update/Edit-style targeted diffs; avoid full-file overwrite unless the user explicitly asked to replace the file.",
       "- After patch mismatch, read the smallest nearby window and retry with adjusted context instead of blind retries.",
       "- For Synesis platform APIs, deployment, and conventions: synesis_search / synesis_docs_search before guessing.",
       "- Ambiguous or multi-step tasks: synesis_classify then synesis_plan before large edits.",
