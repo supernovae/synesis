@@ -2,6 +2,8 @@
 
 Use this pack after deploys to quickly validate client parity, safety middleware, and tool-call reliability across Claude Code, Cursor, and Codex CLI style clients.
 
+For repeatable run planning and A/B templates, use the power CLI guide: `docs/clients/HARNESS_POWER_CLI.md`.
+
 ## Fast pack (3 prompts, ~5 minutes)
 
 Run these first after every rollout. If any fail, stop and investigate before running the full pack.

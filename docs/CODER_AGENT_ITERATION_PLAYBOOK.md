@@ -186,3 +186,4 @@ For each chunk, append:
 ## Companion docs
 
 - `docs/STAFF_CODER_RESEARCH_TRACKER.md` (research basis + implementation ledger + anti-perfection guardrails)
+- `docs/clients/HARNESS_POWER_CLI.md` (operator CLI quickstart for KPI/session/canary loops)

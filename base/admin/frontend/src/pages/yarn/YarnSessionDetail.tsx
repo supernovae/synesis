@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { clsx } from "clsx";
@@ -6,6 +7,7 @@ import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { fmtCost, fmtDurationMs, fmtTokens, isFallbackPricing, pricingSourceLabel } from "../../lib/formatUsage";
+import { eventKindCount, eventKinds as listEventKinds, filterEventsByKinds, isRecord, trajectoryHighlights } from "./eventDrilldown";
 
 function truncId(id: string): string {
   if (id.length <= 18) return id;
@@ -22,6 +24,26 @@ export default function YarnSessionDetail() {
   const navigate = useNavigate();
   const key = sessionKey ? decodeURIComponent(sessionKey) : "";
   const { data, isLoading, isError, error } = useYarnSessionDetail(key || undefined);
+  const [selectedKinds, setSelectedKinds] = useState<string[]>([]);
+  const [expandedMetadata, setExpandedMetadata] = useState<Record<number, boolean>>({});
+
+  const availableEventKinds = useMemo(() => {
+    const src = data?.events ?? [];
+    return listEventKinds(src);
+  }, [data?.events]);
+
+  const filteredEvents = useMemo(() => {
+    const src = data?.events ?? [];
+    return filterEventsByKinds(src, selectedKinds);
+  }, [data?.events, selectedKinds]);
+
+  const toggleKind = (kind: string) => {
+    setSelectedKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
+  };
+
+  const toggleMetadata = (eventId: number) => {
+    setExpandedMetadata((prev) => ({ ...prev, [eventId]: !prev[eventId] }));
+  };
 
   if (!key) {
     return (
@@ -260,6 +282,39 @@ export default function YarnSessionDetail() {
               <h2 className="mb-3 text-lg font-medium text-gray-900 dark:text-white">
                 Events
               </h2>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedKinds([])}
+                  className={clsx(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium",
+                    selectedKinds.length === 0
+                      ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-300"
+                      : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+                  )}
+                >
+                  All ({data.events.length})
+                </button>
+                {availableEventKinds.map((kind) => {
+                  const active = selectedKinds.includes(kind);
+                  const count = eventKindCount(data.events, kind);
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => toggleKind(kind)}
+                      className={clsx(
+                        "rounded-full border px-2.5 py-1 text-xs font-medium",
+                        active
+                          ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-300"
+                          : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+                      )}
+                    >
+                      {kind} ({count})
+                    </button>
+                  );
+                })}
+              </div>
               <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
@@ -274,32 +329,83 @@ export default function YarnSessionDetail() {
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           Detail
                         </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Request
+                        </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           Time
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-950">
-                      {data.events.map((ev: YarnSessionEventRow) => (
-                        <tr key={ev.id}>
-                          <td className="whitespace-nowrap px-4 py-3 font-medium text-red-600 dark:text-red-400">
-                            {ev.event_kind}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-300">
-                            {ev.component || "—"}
-                          </td>
-                          <td className="max-w-[400px] truncate px-4 py-3 text-gray-600 dark:text-gray-400" title={ev.detail}>
-                            {ev.detail || "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-right text-gray-600 dark:text-gray-400">
-                            {ev.created_at ? new Date(ev.created_at).toLocaleString() : "—"}
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredEvents.map((ev: YarnSessionEventRow) => {
+                        const highlights = trajectoryHighlights(ev);
+                        const hasMetadata = isRecord(ev.metadata_json);
+                        const expanded = expandedMetadata[ev.id] === true;
+                        return (
+                          <tr key={ev.id}>
+                            <td className="whitespace-nowrap px-4 py-3 font-medium text-red-600 dark:text-red-400">
+                              {ev.event_kind}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-300">
+                              {ev.component || "—"}
+                            </td>
+                            <td className="max-w-[520px] px-4 py-3 text-gray-600 dark:text-gray-400">
+                              <div className="truncate" title={ev.detail}>
+                                {ev.detail || "—"}
+                              </div>
+                              {highlights.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {highlights.map((h) => (
+                                    <span
+                                      key={`${ev.id}-${h.label}-${h.value}`}
+                                      className={clsx(
+                                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                                        h.tone === "good" && "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+                                        h.tone === "warn" && "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+                                        (!h.tone || h.tone === "neutral") && "border-gray-300 bg-gray-50 text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300",
+                                      )}
+                                    >
+                                      {h.label}: {h.value}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {hasMetadata && (
+                                <div className="mt-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleMetadata(ev.id)}
+                                    className="text-xs font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                                  >
+                                    {expanded ? "Hide metadata JSON" : "Show metadata JSON"}
+                                  </button>
+                                  {expanded && (
+                                    <pre className="mt-2 max-h-80 overflow-auto rounded-md border border-gray-200 bg-gray-50 p-2 text-[11px] leading-5 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                                      {JSON.stringify(ev.metadata_json, null, 2)}
+                                    </pre>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">
+                              {ev.request_id ? truncId(ev.request_id) : "—"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right text-gray-600 dark:text-gray-400">
+                              {ev.created_at ? new Date(ev.created_at).toLocaleString() : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
+              {filteredEvents.length === 0 && (
+                <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                  No events match the selected kind filter.
+                </p>
+              )}
             </div>
           )}
         </>

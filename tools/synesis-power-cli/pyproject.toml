@@ -1,0 +1,12 @@
+[project]
+name = "synesis-power-cli"
+version = "0.1.0"
+description = "Admin API power CLI for Synesis harness KPIs and canary workflows"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+synesis-power = "synesis_power_cli.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

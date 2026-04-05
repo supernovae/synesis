@@ -7,7 +7,8 @@
     "dev": "vite",
     "lint": "eslint src/",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.96.1",
@@ -38,6 +39,7 @@
     "tailwindcss": "^3.4.0",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.1"
   }
 }
