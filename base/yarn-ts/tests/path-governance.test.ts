@@ -48,7 +48,23 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
     });
     expect(out.blockedBashDrift).toBe(true);
-    expect(String(out.input.command)).toContain("blocked unsafe shell command");
+    expect(String(out.input.command)).toContain("bash_path_drift");
+  });
+
+  it("rewrites path-drift block to synthetic error tool for claude-code", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "mkdir -p aws-cost-calculator && cd aws-cost-calculator" },
+      shellCwd: "/Users/me/aws-cost-calculator",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_BashPathDrift");
+    expect(out.blockedBashDrift).toBe(true);
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("bash_path_drift");
+    expect(out.input.retryable).toBe(true);
   });
 
   it("does not block benign bash command", () => {
@@ -85,6 +101,22 @@ describe("governToolCall", () => {
     });
     expect(out.blockedBashDrift).toBe(true);
     expect(String(out.input.command)).toContain("cd is disallowed");
+  });
+
+  it("rewrites blocked unsafe shell to synthetic error tool for claude-code", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "cd src && go test ./..." },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_UnsafeShell");
+    expect(out.blockedBashDrift).toBe(true);
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("unsafe_shell");
+    expect(out.input.retryable).toBe(true);
   });
 
   it("rewrites redundant cd-to-cwd prefixes before strict bash checks", () => {
@@ -125,6 +157,23 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("blocked write-capable tool");
   });
 
+  it("rewrites blocked write-capable tool to synthetic error tool for claude-code", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: { file_path: "main.go", content: "package main" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      blockWriteCapableTools: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_WriteCapableBlocked");
+    expect(out.blockedBashDrift).toBe(true);
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("write_capable_blocked");
+    expect(out.input.original_tool).toBe("Write");
+  });
+
   it("emits structured JSON for Write validation failure", () => {
     const out = governToolCall({
       toolName: "Write",
@@ -140,6 +189,22 @@ describe("governToolCall", () => {
     expect(cmd).toContain('"category":"validation"');
     expect(cmd).toContain('"original_tool":"Write"');
     expect(cmd).toContain("missing");
+  });
+
+  it("rewrites validation failure to synthetic error tool for claude-code", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: { file_path: "main.go" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_ValidationFailed");
+    expect(out.validationMissing).toContain("content");
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("validation_failed");
+    expect(out.input.original_tool).toBe("Write");
   });
 
   it("recovers Edit missing old_string to a safe Read call", () => {

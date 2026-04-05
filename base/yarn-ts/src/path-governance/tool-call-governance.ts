@@ -130,6 +130,7 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
           };
         }
         out.blockedBashDrift = true;
+        return out;
       }
       const dangerous = detectDangerousBash(effectiveCommand);
       if (dangerous) {
@@ -158,6 +159,7 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
           };
         }
         out.blockedBashDrift = true;
+        return out;
       }
     }
   }
