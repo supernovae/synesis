@@ -73,6 +73,7 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
   }
   if (langs.has("python")) {
     lines.push("MCP preset mapping (python): run_lint(preset=python) and run_lint(preset=python_ruff_format_check), run_build(preset=python_mypy) then run_build(preset=python), run_test(preset=python_pytest_short)");
+    lines.push("Python preflight: if dependency metadata exists (pyproject.toml, requirements.txt, or requirements.lock), sync/install deps in the active environment before mypy/pytest.");
   }
   if (langs.has("typescript") || langs.has("javascript")) {
     lines.push("MCP preset mapping (typescript/js): run_lint(preset=typescript_eslint or node_npm/node_pnpm/node_yarn), run_build(preset=typescript_tsc or node_* build), run_test(preset=typescript_jest or node_* test)");

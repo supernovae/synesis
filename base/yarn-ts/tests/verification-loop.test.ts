@@ -115,6 +115,21 @@ describe("Verification Plan Formatting", () => {
       expect(javaBlock).not.toContain("go mod init");
     }
   });
+
+  it("includes Python dependency preflight only for Python plans", () => {
+    const pythonPlan = buildVerificationPlan(["python"], registry);
+    const pythonBlock = formatVerificationPlanBlock(pythonPlan);
+    expect(pythonBlock).toContain("Python preflight");
+    expect(pythonBlock).toContain("pyproject.toml");
+    expect(pythonBlock).toContain("requirements.txt");
+
+    const javaPlan = buildVerificationPlan(["java"], registry);
+    const javaBlock = formatVerificationPlanBlock(javaPlan);
+    if (javaBlock) {
+      expect(javaBlock).not.toContain("Python preflight");
+      expect(javaBlock).not.toContain("pyproject.toml");
+    }
+  });
 });
 
 /* ── isVerificationTool ──────────────────────────────────────────── */
