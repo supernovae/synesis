@@ -3495,7 +3495,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       finalResult = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
-        maxOutputTokens: clampMaxOutputTokensForSafety(orchestration.maxOutputTokens),
+        maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
@@ -3568,7 +3568,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         finalResult = await generateText({
           model: resolved.model as never,
           messages: currentMessages,
-          maxOutputTokens: clampMaxOutputTokensForSafety(orchestration.maxOutputTokens),
+          maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
         });
@@ -3941,7 +3941,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const streamed = streamText({
     model: resolved.model as never,
     messages: modelMessages,
-    maxOutputTokens: clampMaxOutputTokensForSafety(orchestration.maxOutputTokens),
+    maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
     ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
@@ -5034,7 +5034,7 @@ app.post("/v1/messages", async (req, reply) => {
     const streamed = streamText({
       model: resolved.model as never,
       messages: claudeModelMessages,
-      maxOutputTokens: clampMaxOutputTokensForSafety(claudeOrchestration.maxOutputTokens),
+      maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
       ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
@@ -5623,7 +5623,7 @@ app.post("/v1/messages", async (req, reply) => {
     result = await generateText({
       model: resolved.model as never,
       messages: claudeModelMessages,
-      maxOutputTokens: clampMaxOutputTokensForSafety(claudeOrchestration.maxOutputTokens),
+      maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
       ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),

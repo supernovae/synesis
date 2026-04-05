@@ -150,10 +150,10 @@ function detectPhase(text: string, fallback: WorkflowPhase = "implementation"): 
 }
 
 function tierOutput(tier: EffortTier, phase: WorkflowPhase): number {
-  if (phase === "explore") return 4200;
-  if (tier === "synesis-pulse") return 1800;
-  if (tier === "synesis-core") return 2800;
-  return 4200;
+  if (phase === "explore") return 8192;
+  if (tier === "synesis-pulse") return 4096;
+  if (tier === "synesis-core") return 8192;
+  return 8192;
 }
 
 function buildUncertaintyFraming(evidence: EvidenceSignals, riskProfile: string): string {
