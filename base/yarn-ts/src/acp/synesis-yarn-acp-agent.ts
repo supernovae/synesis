@@ -108,12 +108,32 @@ export const mapAnthropicToolNameToAcpKind = mapCoderToolNameToAcpKind;
 export function resolvePathForAcp(filePath: string, meta: Record<string, unknown>): string {
   const fp = filePath.trim();
   if (!fp) return fp;
-  if (path.isAbsolute(fp)) return fp;
   const root = meta.synesis_project_root;
   const cwd = meta.synesis_shell_cwd;
-  if (typeof root === "string" && root) return path.resolve(root, fp);
-  if (typeof cwd === "string" && cwd) return path.resolve(cwd, fp);
-  return path.resolve(fp);
+  const anchor = typeof root === "string" && root
+    ? root
+    : (typeof cwd === "string" && cwd ? cwd : "");
+  const hasAnchor = anchor.trim().length > 0;
+  const normalized = fp.replace(/\\/g, "/");
+  const maybeHostLikeNoSlash = /^(Users|home|root)\//.test(normalized);
+  const withHostSlash = maybeHostLikeNoSlash ? `/${normalized}` : normalized;
+  const looksWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(fp) || /^[A-Za-z]:\//.test(normalized);
+  const candidate = hasAnchor
+    ? (
+      looksWindowsAbsolute && path.sep !== "\\"
+        ? path.resolve("/", normalized.replace(/^[A-Za-z]:[\\/]/, ""))
+        : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(anchor, fp))
+    )
+    : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(fp));
+
+  if (!hasAnchor) return candidate;
+  const rootAbs = path.resolve(anchor);
+  const rel = path.relative(rootAbs, candidate);
+  const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  if (inside) return candidate;
+  const base = path.basename(candidate);
+  const safeBase = base && base !== "." && base !== ".." ? base : "file";
+  return path.resolve(rootAbs, safeBase);
 }
 
 function parseToolArguments(argumentsJson: string | undefined): Record<string, unknown> {

@@ -312,7 +312,22 @@ export function constrainFileToolPathToProjectRoot(
 
   const root = path.resolve(projectRoot.trim());
   const raw = fp.trim();
-  const resolved = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
+  const maybeHostLikeNoSlash = /^(Users|home|root)\//.test(raw);
+  const withHostSlash = maybeHostLikeNoSlash ? `/${raw}` : raw;
+  const looksWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(withHostSlash);
+
+  // On non-Windows hosts, treat Windows drive-letter paths as foreign absolute paths
+  // and clamp to basename under root rather than creating "C:" directories in-repo.
+  if (looksWindowsAbsolute && path.sep !== "\\") {
+    const base = path.basename(withHostSlash.replace(/\\/g, "/"));
+    const clamped =
+      base && base !== "." && base !== ".."
+        ? base.split(path.sep).join("/")
+        : "file";
+    return { input: { ...input, file_path: clamped }, constrained: true };
+  }
+
+  const resolved = path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(root, withHostSlash);
   const rel = path.relative(root, resolved);
   const inside =
     rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
@@ -382,7 +397,10 @@ export function normalizeWorkspaceRelativeFilePath(filePath: string): string {
   p = p.replace(/\\/g, "/");
   p = p.replace(/^\.\/+/, "");
   p = p.replace(/\/{2,}/g, "/");
+  const preHallucinated = p;
   p = normalizeHallucinatedLinuxWritePath(p);
+  const hallucinatedLinuxPathRewritten = preHallucinated !== p;
+  const preserveLeadingSlash = p.startsWith("/") && !hallucinatedLinuxPathRewritten;
 
   const parts = p.split("/").filter((s) => s.length > 0);
   let guard = 0;
@@ -396,7 +414,8 @@ export function normalizeWorkspaceRelativeFilePath(filePath: string): string {
     parts.shift();
     guard += 1;
   }
-  return parts.join("/");
+  const normalized = parts.join("/");
+  return preserveLeadingSlash ? `/${normalized}` : normalized;
 }
 
 function shellEscape(s: string): string {

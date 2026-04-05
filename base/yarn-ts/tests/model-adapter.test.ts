@@ -326,6 +326,16 @@ describe("normalizeWorkspaceRelativeFilePath", () => {
     expect(normalizeWorkspaceRelativeFilePath("'./cmd\\\\main.go'")).toBe("cmd/main.go");
   });
 
+  it("preserves non-hallucinated absolute macOS paths", () => {
+    expect(normalizeWorkspaceRelativeFilePath("/Users/bymiller/src/calc/main.go"))
+      .toBe("/Users/bymiller/src/calc/main.go");
+  });
+
+  it("preserves Windows drive-letter absolute-looking paths for downstream clamping", () => {
+    expect(normalizeWorkspaceRelativeFilePath("C:\\Users\\dev\\proj\\main.go"))
+      .toBe("C:/Users/dev/proj/main.go");
+  });
+
   it("collapses duplicated leading repo segment", () => {
     expect(normalizeWorkspaceRelativeFilePath("rosa-cost-calculator/rosa-cost-calculator/internal/main.go"))
       .toBe("rosa-cost-calculator/internal/main.go");
@@ -356,6 +366,36 @@ describe("constrainFileToolPathToProjectRoot", () => {
     const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Read", { file_path: "../../etc/passwd" });
     expect(r.constrained).toBe(true);
     expect(r.input.file_path).toBe("passwd");
+  });
+
+  it("converts in-root absolute paths to project-relative paths", () => {
+    const r = constrainFileToolPathToProjectRoot(
+      "/Users/bymiller/src/calc",
+      "Read",
+      { file_path: "/Users/bymiller/src/calc/main.go" },
+    );
+    expect(r.constrained).toBe(true);
+    expect(r.input.file_path).toBe("main.go");
+  });
+
+  it("handles missing-leading-slash host paths by treating them as absolute", () => {
+    const r = constrainFileToolPathToProjectRoot(
+      "/Users/bymiller/src/calc",
+      "Read",
+      { file_path: "Users/bymiller/src/calc/main.go" },
+    );
+    expect(r.constrained).toBe(true);
+    expect(r.input.file_path).toBe("main.go");
+  });
+
+  it("clamps Windows absolute paths on non-Windows hosts", () => {
+    const r = constrainFileToolPathToProjectRoot(
+      "/Users/bymiller/src/calc",
+      "Read",
+      { file_path: "C:/Users/dev/other/secret.go" },
+    );
+    expect(r.constrained).toBe(true);
+    expect(r.input.file_path).toBe("secret.go");
   });
 });
 

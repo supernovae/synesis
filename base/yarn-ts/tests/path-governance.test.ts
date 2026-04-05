@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { governToolCall } from "../src/path-governance/tool-call-governance.js";
 
@@ -34,8 +35,8 @@ describe("governToolCall", () => {
       enforcePathRoot: true,
       blockBashPathDrift: true,
     });
-    expect(out.input.file_path).toBe("tmp/outside.go");
-    expect(out.constrainedToRoot).toBe(false);
+    expect(out.input.file_path).toBe("outside.go");
+    expect(out.constrainedToRoot).toBe(true);
   });
 
   it("blocks mkdir&&cd duplicate-segment drift", () => {
@@ -127,5 +128,33 @@ describe("governToolCall", () => {
     expect(cmd).toContain('"category":"validation"');
     expect(cmd).toContain('"original_tool":"Write"');
     expect(cmd).toContain("missing");
+  });
+
+  it("keeps governed file paths inside project root across mixed path styles", () => {
+    const root = "/Users/me/repo";
+    const cases = [
+      "main.go",
+      "./pkg/main.go",
+      "repo/repo/main.go",
+      "../../etc/passwd",
+      "/Users/me/repo/cmd/app.go",
+      "Users/me/repo/cmd/app.go",
+      "/tmp/outside.go",
+      "C:/Users/dev/secret.go",
+      "C:\\Users\\dev\\secret.go",
+    ];
+    for (const filePath of cases) {
+      const out = governToolCall({
+        toolName: "Write",
+        input: { file_path: filePath, content: "package main" },
+        projectRoot: root,
+        enforcePathRoot: true,
+        blockBashPathDrift: true,
+      });
+      const governedPath = String(out.input.file_path ?? "");
+      // Invariant: governed file path is never absolute and cannot traverse upward.
+      expect(path.isAbsolute(governedPath)).toBe(false);
+      expect(governedPath.includes("..")).toBe(false);
+    }
   });
 });
