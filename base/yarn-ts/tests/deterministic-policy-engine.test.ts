@@ -88,6 +88,22 @@ describe("DeterministicPolicyEngine", () => {
     expect(engine.getStats().softSessionBudgetExceededCount).toBe(1);
   });
 
+  it("audit mode still hard rejects once hard ceiling is exceeded", () => {
+    const engine = new DeterministicPolicyEngine();
+    const out = engine.evaluate({
+      sessionKey: "audit-hard-limit",
+      sessionTokensIn: 2_100_000,
+      maxInputTokens: 500_000,
+      hardMaxInputTokens: 2_000_000,
+      sessionBudgetMode: "audit"
+    });
+    expect(out.allow).toBe(false);
+    expect(out.matchedRules).toContain("session_budget_exceeded");
+    expect(out.rejectReason).toContain("audit mode");
+    expect(out.rejectReason).toContain("soft: 500,000");
+    expect(out.rejectReason).toContain("hard: 2,000,000");
+  });
+
   it("allows requests within token budget", () => {
     const engine = new DeterministicPolicyEngine();
     const out = engine.evaluate({

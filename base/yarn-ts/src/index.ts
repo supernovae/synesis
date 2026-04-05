@@ -1478,6 +1478,61 @@ function persistSessionAndUsage(
     finishReason
   });
 
+  if (config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED && usage.inputTokens > 0) {
+    const prevSessionWindowTokens = Number(state.record.metadata.hourly_tokens_session ?? 0) || 0;
+    const prevUserWindowTokens = Number(state.record.metadata.hourly_tokens_user ?? 0) || 0;
+    const windowMs = Math.max(60_000, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS);
+    const windowMinutes = Math.max(1, Math.ceil(windowMs / 60_000));
+    const sessionLimit = Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT);
+    const userLimit = Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT);
+    void distributedCounters.addInputTokensAndReadHourlyWindow(
+      state.record.sessionKey,
+      state.record.userId,
+      usage.inputTokens,
+    ).then((snapshot) => {
+      if (!snapshot) return;
+      state.record.metadata.hourly_tokens_session = snapshot.sessionTokensInWindow;
+      state.record.metadata.hourly_tokens_user = snapshot.userTokensInWindow;
+      if (snapshot.sessionTokensInWindow > sessionLimit && prevSessionWindowTokens <= sessionLimit) {
+        recordSessionEvent(
+          state.record.sessionKey,
+          state.record.userId,
+          state.record.orgId,
+          "hourly_token_throttle_warn",
+          "token-throttle",
+          `Session input tokens in rolling ${windowMinutes}m window exceeded ${sessionLimit.toLocaleString()} (used: ${snapshot.sessionTokensInWindow.toLocaleString()})`,
+          requestId,
+          {
+            scope: "session",
+            mode: "audit",
+            window_ms: windowMs,
+            limit_tokens: sessionLimit,
+            observed_tokens: snapshot.sessionTokensInWindow,
+          },
+        );
+      }
+      if (snapshot.userTokensInWindow > userLimit && prevUserWindowTokens <= userLimit) {
+        recordSessionEvent(
+          state.record.sessionKey,
+          state.record.userId,
+          state.record.orgId,
+          "hourly_token_throttle_warn",
+          "token-throttle",
+          `User input tokens in rolling ${windowMinutes}m window exceeded ${userLimit.toLocaleString()} (used: ${snapshot.userTokensInWindow.toLocaleString()})`,
+          requestId,
+          {
+            scope: "user",
+            mode: "audit",
+            window_ms: windowMs,
+            limit_tokens: userLimit,
+            observed_tokens: snapshot.userTokensInWindow,
+          },
+        );
+      }
+      void casSessionSave(state);
+    });
+  }
+
   const toolSequence = trajectory?.toolSequence ?? [];
   const inferredEdits = countEditsFromToolSequence(toolSequence);
   const patchOpsCount = trajectory?.patchOpsCount ?? inferredEdits.patchOps;
@@ -2791,6 +2846,10 @@ app.get("/health/telemetry", async (req, reply) => {
       sessionSoftMaxInputTokens: config.SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS,
       sessionMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
       sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
+      hourlyTokenThrottleEnabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
+      hourlyTokenThrottleWindowMs: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS,
+      hourlyTokenThrottleSessionLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT,
+      hourlyTokenThrottleUserLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT,
       maxOutputTokensSafetyCeiling: config.SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING,
       consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
       consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,

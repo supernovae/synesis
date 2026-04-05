@@ -36,10 +36,50 @@ redis.call("SET", key, value, "EX", ttl)
 return value
 `;
 
+const ROLLING_MINUTE_BUCKET_SUM_LUA = `
+local key = KEYS[1]
+local nowMs = tonumber(ARGV[1])
+local windowMinutes = tonumber(ARGV[2])
+local addTokens = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+
+local nowMinute = math.floor(nowMs / 60000)
+local cutoff = nowMinute - windowMinutes + 1
+if cutoff < 0 then cutoff = 0 end
+
+if addTokens > 0 then
+  redis.call("HINCRBY", key, tostring(nowMinute), addTokens)
+end
+
+local fields = redis.call("HKEYS", key)
+for i = 1, #fields do
+  local minute = tonumber(fields[i])
+  if minute ~= nil and minute < cutoff then
+    redis.call("HDEL", key, fields[i])
+  end
+end
+
+local rows = redis.call("HGETALL", key)
+local total = 0
+for i = 2, #rows, 2 do
+  total = total + tonumber(rows[i])
+end
+
+redis.call("EXPIRE", key, ttl)
+return total
+`;
+
+export interface HourlyTokenWindowSnapshot {
+  sessionTokensInWindow: number;
+  userTokensInWindow: number;
+}
+
 export class DistributedCounterService {
   private readonly redis: Redis;
   private readonly repeatTtlSeconds: number;
   private readonly consecutiveToolTtlSeconds: number;
+  private readonly hourlyWindowMinutes: number;
+  private readonly hourlyCounterTtlSeconds: number;
   private stats = { redisOps: 0, redisErrors: 0, fallbackInvocations: 0 };
 
   constructor(config: AppConfig) {
@@ -54,6 +94,9 @@ export class DistributedCounterService {
     this.consecutiveToolTtlSeconds = Math.ceil(
       (config.SYNESIS_YARN_SESSION_TTL_MS ?? 14_400_000) / 1000
     );
+    const hourlyWindowMs = Math.max(60_000, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS ?? 3_600_000);
+    this.hourlyWindowMinutes = Math.max(1, Math.ceil(hourlyWindowMs / 60_000));
+    this.hourlyCounterTtlSeconds = Math.max(120, Math.ceil((hourlyWindowMs * 2) / 1000));
   }
 
   /**
@@ -105,6 +148,52 @@ export class DistributedCounterService {
       this.stats.redisErrors += 1;
       this.stats.fallbackInvocations += 1;
       return false;
+    }
+  }
+
+  /**
+   * Record input tokens into rolling hourly minute buckets and return current
+   * window totals for both session and user scopes.
+   */
+  async addInputTokensAndReadHourlyWindow(
+    sessionKey: string,
+    userId: string,
+    inputTokens: number,
+    nowMs = Date.now(),
+  ): Promise<HourlyTokenWindowSnapshot | null> {
+    const safeTokens = Number.isFinite(inputTokens) ? Math.max(0, Math.floor(inputTokens)) : 0;
+    const sessionCounterKey = `yarn-ts:qos:hourly_tokens:session:${sessionKey}`;
+    const userCounterKey = `yarn-ts:qos:hourly_tokens:user:${userId}`;
+    try {
+      this.stats.redisOps += 2;
+      const [sessionTokens, userTokens] = await Promise.all([
+        this.redis.eval(
+          ROLLING_MINUTE_BUCKET_SUM_LUA,
+          1,
+          sessionCounterKey,
+          String(nowMs),
+          String(this.hourlyWindowMinutes),
+          String(safeTokens),
+          String(this.hourlyCounterTtlSeconds),
+        ),
+        this.redis.eval(
+          ROLLING_MINUTE_BUCKET_SUM_LUA,
+          1,
+          userCounterKey,
+          String(nowMs),
+          String(this.hourlyWindowMinutes),
+          String(safeTokens),
+          String(this.hourlyCounterTtlSeconds),
+        ),
+      ]);
+      return {
+        sessionTokensInWindow: Number(sessionTokens),
+        userTokensInWindow: Number(userTokens),
+      };
+    } catch {
+      this.stats.redisErrors += 1;
+      this.stats.fallbackInvocations += 1;
+      return null;
     }
   }
 

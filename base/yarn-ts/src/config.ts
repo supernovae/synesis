@@ -105,6 +105,14 @@ const EnvSchema = z.object({
   // Per-user rate limiting (sliding window)
   SYNESIS_YARN_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
   SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(30),
+  // Hourly token throttle (warn-only by default; complements request-rate limiting)
+  SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS: z.coerce.number().default(3_600_000),
+  SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT: z.coerce.number().default(10_000_000),
+  SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT: z.coerce.number().default(20_000_000),
 
   // Circuit breaker for model providers
   SYNESIS_YARN_BREAKER_FAILURE_THRESHOLD: z.coerce.number().default(5),

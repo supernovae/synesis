@@ -165,7 +165,7 @@ export class DeterministicPolicyEngine {
         });
         return {
           allow: false,
-          rejectReason: `Session token budget exceeded (${tokensIn.toLocaleString()} / ${hardLimit.toLocaleString()} input tokens). Start a new session.`,
+          rejectReason: `Session token budget exceeded in ${mode} mode (observed: ${tokensIn.toLocaleString()} input tokens; soft: ${policyCap.toLocaleString()}; hard: ${hardLimit.toLocaleString()}). Start a new session.`,
           matchedRules
         };
       }
@@ -183,7 +183,7 @@ export class DeterministicPolicyEngine {
         });
         return {
           allow: false,
-          rejectReason: `Session token budget exceeded (${tokensIn.toLocaleString()} / ${policyCap.toLocaleString()} input tokens). Start a new session.`,
+          rejectReason: `Session token budget exceeded in enforced mode (observed: ${tokensIn.toLocaleString()} input tokens; soft: ${policyCap.toLocaleString()}; hard: ${hardLimit.toLocaleString()}). Start a new session.`,
           matchedRules
         };
       }
@@ -194,7 +194,7 @@ export class DeterministicPolicyEngine {
         this.recordEvent({
           kind: "session_budget_soft_exceeded",
           sessionKey,
-          detail: `Session above policy ${policyCap.toLocaleString()} input tokens (used: ${tokensIn.toLocaleString()}) — audit mode allows until hard ${hardLimit.toLocaleString()}`,
+          detail: `Session above policy soft limit in audit mode (observed: ${tokensIn.toLocaleString()} input tokens; soft: ${policyCap.toLocaleString()}; hard: ${hardLimit.toLocaleString()})`,
           tokensBurned: tokensIn,
           timestamp: Date.now()
         });

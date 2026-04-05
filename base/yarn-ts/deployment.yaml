@@ -58,10 +58,20 @@ spec:
               value: "true"
             - name: SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
               value: "6"
+            - name: SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS
+              value: "10000000"
             - name: SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS
-              value: "2000000"
+              value: "50000000"
             - name: SYNESIS_YARN_SESSION_BUDGET_MODE
               value: "audit"
+            - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS
+              value: "3600000"
+            - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT
+              value: "10000000"
+            - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT
+              value: "20000000"
             - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
               value: "15"
             - name: SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT
