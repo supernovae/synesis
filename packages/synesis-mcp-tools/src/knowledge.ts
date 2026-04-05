@@ -1,6 +1,7 @@
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { authHeaders, bearerForUpstream } from "./deps.js";
+import { buildSearchAttributionBody } from "./search-contract.js";
 
 const SEARCH_TIMEOUT_MS = 30_000;
 
@@ -77,10 +78,7 @@ function buildSearchBody(
   const goldenPathId = optionalString(args.golden_path_id);
   if (goldenPathId !== undefined) body.golden_path_id = goldenPathId;
 
-  if (auth.orgId) body.caller_org_id = auth.orgId;
-  if (auth.tenantIds?.length) body.caller_tenant_ids = [...auth.tenantIds];
-  if (auth.aclGroups?.length) body.caller_acl_groups = [...auth.aclGroups];
-  if (auth.userId) body.caller_user_id = auth.userId;
+  Object.assign(body, buildSearchAttributionBody(args, auth, "planner_internal", "synesis_knowledge_search"));
 
   return body;
 }

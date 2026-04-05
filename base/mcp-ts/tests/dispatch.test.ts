@@ -32,4 +32,25 @@ describe("dispatchSynesisTool (shared with Yarn)", () => {
     expect(body.query).toBe("hello");
     expect(body.caller_org_id).toBe("o1");
   });
+
+  it("calls planner /v1/web/search for synesis_web_search", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }),
+    );
+
+    await dispatchSynesisTool(
+      "synesis_web_search",
+      { query: "latest release notes", source_surface: "yarn_chat", request_id: "req-1" },
+      auth,
+      deps,
+    );
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/web/search");
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.query).toBe("latest release notes");
+    expect(body.source_surface).toBe("yarn_chat");
+    expect(body.tool_name).toBe("synesis_web_search");
+    expect(body.request_id).toBe("req-1");
+    expect(body.caller_org_id).toBe("o1");
+  });
 });

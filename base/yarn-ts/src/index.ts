@@ -50,6 +50,12 @@ import {
   KNOWLEDGE_TOOL_NAME,
   type KnowledgeResolveContext,
 } from "./state/knowledge-search.js";
+import {
+  WebSearchService,
+  WEB_SEARCH_TOOL_NAME,
+  WEB_SEARCH_TOOL_ALIAS,
+  type WebSearchResolveContext,
+} from "./state/web-search.js";
 import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, runPatternPrefetch, formatPatternBlock, getPatternPrefetchStats } from "./evidence/fast-path.js";
 import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
@@ -698,6 +704,12 @@ const knowledgeSearch = new KnowledgeSearchService({
   criticModel: config.SYNESIS_YARN_CRITIC_MODEL,
   internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
 });
+const webSearch = new WebSearchService({
+  plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
+  criticUrl: config.SYNESIS_YARN_CRITIC_URL,
+  criticModel: config.SYNESIS_YARN_CRITIC_MODEL,
+  internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
+});
 
 function extractBearerToken(authorizationHeader: string | undefined): string {
   const raw = authorizationHeader ?? "";
@@ -714,6 +726,32 @@ function knowledgeResolveContext(
     userId: authUser.userId,
     tenantIds: authUser.tenantIds,
     bearerToken: extractBearerToken(req.headers.authorization),
+  };
+}
+
+function webSearchResolveContext(
+  authUser: import("./auth.js").AuthUser,
+  req: { headers: { authorization?: string } },
+  args: {
+    requestId?: string;
+    sessionKey?: string;
+    conversationId?: string;
+    traceId?: string;
+    sourceSurface?: "yarn_chat" | "yarn_mcp_http";
+    toolName?: string;
+  } = {},
+): WebSearchResolveContext {
+  return {
+    orgId: authUser.orgId,
+    userId: authUser.userId,
+    tenantIds: authUser.tenantIds,
+    bearerToken: extractBearerToken(req.headers.authorization),
+    requestId: args.requestId,
+    sessionKey: args.sessionKey,
+    conversationId: args.conversationId,
+    traceId: args.traceId,
+    sourceSurface: args.sourceSurface ?? "yarn_chat",
+    toolName: args.toolName ?? WEB_SEARCH_TOOL_NAME,
   };
 }
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
@@ -3274,6 +3312,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
     normalizedRequest.tools = knowledgeSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
+  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
+    normalizedRequest.tools = webSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
+  }
 
   {
     const blocks: string[] = [];
@@ -3355,7 +3396,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
       });
 
-      const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME]);
+      const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_ALIAS]);
       for (let round = 0; round < 3; round++) {
         const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
         const serverCalls = allCalls.filter((tc) => SERVER_SIDE_TOOLS.has(tc.toolName));
@@ -3381,6 +3422,25 @@ app.post("/v1/chat/completions", async (req, reply) => {
               toolCallId: ac.toolCallId,
               toolName: KNOWLEDGE_TOOL_NAME,
               output: { type: "text", value: JSON.stringify(result) }
+            });
+          } else if (ac.toolName === WEB_SEARCH_TOOL_NAME || ac.toolName === WEB_SEARCH_TOOL_ALIAS) {
+            const inp = ac.input as Record<string, unknown>;
+            const result = await webSearch.resolve(
+              inp,
+              webSearchResolveContext(authUser, req, {
+                requestId: reqId,
+                sessionKey,
+                conversationId: session.record.conversationId || undefined,
+                traceId: reqId,
+                sourceSurface: "yarn_chat",
+                toolName: WEB_SEARCH_TOOL_NAME,
+              }),
+            );
+            toolResults.push({
+              type: "tool-result",
+              toolCallId: ac.toolCallId,
+              toolName: WEB_SEARCH_TOOL_NAME,
+              output: { type: "text", value: JSON.stringify(result) },
             });
           }
         }
@@ -4716,6 +4776,9 @@ app.post("/v1/messages", async (req, reply) => {
   if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED) {
     openAIShape.tools = knowledgeSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
   }
+  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
+    openAIShape.tools = webSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
+  }
 
   const claudeResolveResult = runOpenAIRequest(openAIShape);
   if (!claudeResolveResult.ok) {
@@ -4901,7 +4964,12 @@ app.post("/v1/messages", async (req, reply) => {
           blockIdx++;
         } else if (part.type === "tool-input-start") {
           const tc = part as unknown as { toolCallId?: string; toolName?: string };
-          if (tc.toolName === ARTIFACT_TOOL_NAME || tc.toolName === KNOWLEDGE_TOOL_NAME) {
+          if (
+            tc.toolName === ARTIFACT_TOOL_NAME
+            || tc.toolName === KNOWLEDGE_TOOL_NAME
+            || tc.toolName === WEB_SEARCH_TOOL_NAME
+            || tc.toolName === WEB_SEARCH_TOOL_ALIAS
+          ) {
             pendingClaudeToolIds.add(tc.toolCallId ?? "");
             continue;
           }
@@ -4921,7 +4989,12 @@ app.post("/v1/messages", async (req, reply) => {
           }
         } else if (part.type === "tool-call") {
           const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
-          if (tcFull.toolName === ARTIFACT_TOOL_NAME || tcFull.toolName === KNOWLEDGE_TOOL_NAME) continue;
+          if (
+            tcFull.toolName === ARTIFACT_TOOL_NAME
+            || tcFull.toolName === KNOWLEDGE_TOOL_NAME
+            || tcFull.toolName === WEB_SEARCH_TOOL_NAME
+            || tcFull.toolName === WEB_SEARCH_TOOL_ALIAS
+          ) continue;
           const buf = claudeToolBuffer.get(tcFull.toolCallId ?? "");
           const rawToolInput = (tcFull.input ?? {}) as Record<string, unknown>;
           const hard = applyAdapterToolHardening(
@@ -5385,8 +5458,34 @@ app.post("/v1/messages", async (req, reply) => {
     allToolCalls = allToolCalls.filter((tc) => tc.toolName !== KNOWLEDGE_TOOL_NAME);
   }
 
+  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED) {
+    const webCalls = allToolCalls.filter(
+      (tc) => tc.toolName === WEB_SEARCH_TOOL_NAME || tc.toolName === WEB_SEARCH_TOOL_ALIAS,
+    );
+    for (const wc of webCalls) {
+      await webSearch.resolve(
+        wc.input as Record<string, unknown>,
+        webSearchResolveContext(claudeAuthUser, req, {
+          requestId: reqId,
+          sessionKey: claudeSessionKey,
+          conversationId: session.record.conversationId || undefined,
+          traceId: reqId,
+          sourceSurface: "yarn_chat",
+          toolName: WEB_SEARCH_TOOL_NAME,
+        }),
+      );
+    }
+    allToolCalls = allToolCalls.filter(
+      (tc) => tc.toolName !== WEB_SEARCH_TOOL_NAME && tc.toolName !== WEB_SEARCH_TOOL_ALIAS,
+    );
+  }
+
   let externalClaudeToolCalls = allToolCalls
-    .filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME && tc.toolName !== KNOWLEDGE_TOOL_NAME)
+    .filter((tc) =>
+      tc.toolName !== ARTIFACT_TOOL_NAME
+      && tc.toolName !== KNOWLEDGE_TOOL_NAME
+      && tc.toolName !== WEB_SEARCH_TOOL_NAME
+      && tc.toolName !== WEB_SEARCH_TOOL_ALIAS)
     .map((tc) => {
       const rawInput =
         typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)

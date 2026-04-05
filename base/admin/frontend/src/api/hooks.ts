@@ -1082,11 +1082,33 @@ interface WebSearchLogEntry {
   latency_ms: number;
   outcome: string;
   engine: string;
+  org_id: string;
+  user_id: string;
+  tenant_id: string;
+  request_id: string;
+  session_key: string;
+  conversation_id: string;
+  trace_id: string;
+  source_surface: string;
+  tool_name: string;
+  query_hash: string;
+  rate_bucket_key: string;
+  blocked_reason: string;
+  policy_action: string;
+  token_estimate: number;
 }
 
 export function useWebSearchLog(params?: {
   domain?: string;
   outcome?: string;
+  source_surface?: string;
+  org_id?: string;
+  user_id?: string;
+  session_key?: string;
+  request_id?: string;
+  trace_id?: string;
+  tool_name?: string;
+  engine?: string;
   q?: string;
   page?: number;
   page_size?: number;

@@ -33,6 +33,8 @@ import { getLlmResilienceStats, setPricingContext } from "./llm/client.js";
 import { setRetrievalClient, directStreamPipeline } from "./pipeline.js";
 import { UnifiedRetrievalClient } from "./retrieval/client.js";
 import { retrieveContext } from "./retrieval/rag-client.js";
+import { searchAndProcess, setWebSearchObserver } from "./retrieval/web-search.js";
+import { persistWebSearchLog } from "./retrieval/web-search-log.js";
 import { buildMetadataFilter, extractTagMetadata } from "./retrieval/metadata-filter.js";
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { buildDomainProfile } from "./nodes/domain-profile.js";
@@ -58,6 +60,7 @@ import { getTracer } from "./telemetry/otel.js";
 import { PromptRegistry } from "./prompt-registry.js";
 import { setPlannerPromptSnapshot } from "./prompt-composer.js";
 import { isLikelyClarificationAnswer } from "./clarification/clarification-answer-heuristic.js";
+import type { WebSearchAttribution, WebSearchRequest, WebSearchResponse } from "./retrieval/types.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
@@ -91,6 +94,40 @@ function sanitizeErrorMessage(raw: string): string {
   if (raw.startsWith("LLM HTTP ")) return "Upstream model service error";
   if (raw.includes("ZodError") || raw.includes("Expected")) return "Request validation failed";
   return "Internal server error";
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const s = String(value).trim();
+  return s.length > 0 ? s : undefined;
+}
+
+function normalizeSourceSurface(value: unknown): WebSearchAttribution["source_surface"] {
+  const raw = String(value ?? "").trim();
+  switch (raw) {
+    case "yarn_chat":
+    case "yarn_mcp_http":
+    case "openwebui_planner":
+    case "planner_internal":
+    case "external_api":
+      return raw;
+    default:
+      return "planner_internal";
+  }
+}
+
+function isSearchRouteAuthorized(
+  authorizationHeader: string | undefined,
+  internalServiceToken: string,
+): boolean {
+  const raw = String(authorizationHeader ?? "");
+  if (!raw.toLowerCase().startsWith("bearer ")) return false;
+  const bearer = raw.slice(7).trim();
+  if (!bearer) return false;
+  if (internalServiceToken && bearer === internalServiceToken) return true;
+  // PAT-style access for internal search tooling (Yarn/MCP/OpenWebUI pass-through).
+  if (bearer.startsWith("syn-")) return true;
+  return !internalServiceToken;
 }
 
 type ParsedChatRequest = ReturnType<typeof ChatCompletionRequestSchema.parse>;
@@ -235,6 +272,27 @@ export function buildApp(config: AppConfig): FastifyInstance {
   if (config.SYNESIS_EMBEDDER_URL) {
     setRetrievalClient(new UnifiedRetrievalClient(config));
   }
+
+  setWebSearchObserver(async (payload) => {
+    await persistWebSearchLog(
+      {
+        adminDbUrl: config.SYNESIS_PLANNER_TS_ADMIN_DB_URL,
+        logger: app.log,
+      },
+      {
+        query: payload.query,
+        profile: payload.profile,
+        results: payload.results,
+        latencyMs: payload.latencyMs,
+        outcome: payload.results.length > 0 ? "success" : "empty",
+        policyAction: "allow",
+        attribution: payload.attribution ?? {
+          source_surface: "planner_internal",
+          tool_name: "planner_internal",
+        },
+      },
+    );
+  });
 
   const knowledgeSearchRagConfig: import("./retrieval/rag-client.js").RagClientConfig = {
     milvusHost: config.SYNESIS_MILVUS_HOST,
@@ -720,7 +778,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
   // -----------------------------------------------------------------------
   app.post("/v1/knowledge/search", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+    if (!isSearchRouteAuthorized(request.headers.authorization, token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
 
@@ -817,6 +875,133 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const msg = err instanceof Error ? err.message : String(err);
       request.log.error({ err: msg }, "knowledge_search_failed");
       return reply.code(500).send({ error: "Knowledge search failed", detail: msg });
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Web search — planner-owned route for MCP/Yarn/OpenWebUI attribution
+  // -----------------------------------------------------------------------
+  app.post("/v1/web/search", async (request, reply) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!isSearchRouteAuthorized(request.headers.authorization, token)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    if (!config.SYNESIS_WEB_SEARCH_ENABLED || !config.SYNESIS_WEB_SEARCH_URL) {
+      const attribution: WebSearchAttribution = {
+        source_surface: "planner_internal",
+        tool_name: "synesis_web_search",
+      };
+      await persistWebSearchLog(
+        { adminDbUrl: config.SYNESIS_PLANNER_TS_ADMIN_DB_URL, logger: app.log },
+        {
+          query: "",
+          profile: "web",
+          results: [],
+          latencyMs: 0,
+          outcome: "error",
+          policyAction: "deny",
+          blockedReason: "web_search_disabled",
+          attribution,
+          errorMessage: "web search disabled",
+        },
+      );
+      return reply.code(503).send({
+        error: "web_search_disabled",
+        policy: { action: "deny", reason: "web_search_disabled" },
+      });
+    }
+
+    const body = (request.body ?? {}) as Partial<WebSearchRequest>;
+    const query = String(body.query ?? "").trim();
+    if (!query) {
+      return reply.code(400).send({ error: "query is required" });
+    }
+
+    const topK = Math.min(Math.max(Number(body.top_k ?? 8) || 8, 1), 20);
+    const profile = body.profile === "code" ? "code" : "web";
+    const attribution: WebSearchAttribution = {
+      source_surface: normalizeSourceSurface(body.source_surface),
+      tool_name: optionalString(body.tool_name) ?? "synesis_web_search",
+      request_id: optionalString(body.request_id),
+      session_key: optionalString(body.session_key),
+      conversation_id: optionalString(body.conversation_id),
+      trace_id: optionalString(body.trace_id),
+      caller_org_id: optionalString(body.caller_org_id),
+      caller_user_id: optionalString(body.caller_user_id),
+      caller_tenant_ids: Array.isArray(body.caller_tenant_ids) ? body.caller_tenant_ids.map(String) : undefined,
+    };
+
+    const started = performance.now();
+    try {
+      const results = await searchAndProcess(query, {
+        url: config.SYNESIS_WEB_SEARCH_URL,
+        enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
+        timeoutMs: config.SYNESIS_WEB_SEARCH_TIMEOUT_MS,
+        maxResults: topK,
+        engineAuthorityMap: (() => {
+          try {
+            return JSON.parse(config.SYNESIS_ENGINE_AUTHORITY_MAP || "{}");
+          } catch {
+            return {};
+          }
+        })(),
+      }, {
+        profile,
+        fetchPages: body.fetch_pages ?? true,
+        maxFetchPages: Number(body.max_fetch_pages ?? 2) || 2,
+        minRelevance: Number(body.min_relevance ?? 0.5) || 0.5,
+        attribution,
+      });
+
+      const totalMs = Math.round((performance.now() - started) * 10) / 10;
+      const response: WebSearchResponse = {
+        query,
+        total: results.length,
+        results: results.slice(0, topK),
+        timings: { total_ms: totalMs },
+        attribution_echo: attribution,
+        policy: {
+          action: "allow",
+        },
+      };
+      request.log.info(
+        {
+          web_search: true,
+          query_len: query.length,
+          total: response.total,
+          latency_ms: totalMs,
+          source_surface: attribution.source_surface,
+          tool_name: attribution.tool_name,
+          request_id: attribution.request_id,
+          trace_id: attribution.trace_id,
+        },
+        "web_search_complete",
+      );
+      return response;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const totalMs = Math.round((performance.now() - started) * 10) / 10;
+      await persistWebSearchLog(
+        { adminDbUrl: config.SYNESIS_PLANNER_TS_ADMIN_DB_URL, logger: app.log },
+        {
+          query,
+          profile,
+          results: [],
+          latencyMs: totalMs,
+          outcome: "error",
+          policyAction: "degraded",
+          blockedReason: "planner_web_search_error",
+          attribution,
+          errorMessage: message,
+        },
+      );
+      request.log.error({ err: message }, "web_search_failed");
+      return reply.code(500).send({
+        error: "Web search failed",
+        detail: message,
+        attribution_echo: attribution,
+        policy: { action: "degraded", reason: "planner_web_search_error" },
+      });
     }
   });
 

@@ -163,6 +163,20 @@ class WebSearchLog(Base):
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="success")
     engine: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    session_key: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    conversation_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    source_surface: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    tool_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    query_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    rate_bucket_key: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    blocked_reason: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    policy_action: Mapped[str] = mapped_column(String(32), nullable=False, default="allow")
+    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
@@ -170,6 +184,11 @@ class WebSearchLog(Base):
         Index("ix_web_search_log_domain", "domain"),
         Index("ix_web_search_log_timestamp", timestamp.desc()),
         Index("ix_web_search_log_outcome", "outcome"),
+        Index("ix_web_search_log_org_id", "org_id"),
+        Index("ix_web_search_log_source_surface", "source_surface"),
+        Index("ix_web_search_log_request_id", "request_id"),
+        Index("ix_web_search_log_session_key", "session_key"),
+        Index("ix_web_search_log_trace_id", "trace_id"),
     )
 
 

@@ -1300,9 +1300,10 @@ patch_yarn_feature_flags() {
         _patch_deployment_env "$ns" "$deploy" "$name" "$val" "$container"
     }
 
-    # ── Phase 6: MCP + Knowledge Search ──
+    # ── Phase 6: MCP + Planner-backed search tools ──
     _flag SYNESIS_YARN_MCP_TOOLS_ENABLED              "true"
     _flag SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED        "false"
+    _flag SYNESIS_YARN_WEB_SEARCH_ENABLED              "true"
 
     # ── Phase 7a: Recall Engine ──
     _flag SYNESIS_YARN_RECALL_BYPASS_ENABLED           "false"

@@ -4,7 +4,7 @@
  * Ports the Python search_and_process() and multi-source fan-out from web_search.py.
  */
 
-import type { SearchResult } from "./types.js";
+import type { SearchResult, WebSearchAttribution } from "./types.js";
 import { scanWebContent, redactPatterns } from "../security/scanner.js";
 
 export interface WebSearchConfig {
@@ -13,6 +13,22 @@ export interface WebSearchConfig {
   timeoutMs: number;
   maxResults: number;
   engineAuthorityMap?: Record<string, { authority: string; origin_type: string }>;
+}
+
+export interface WebSearchObserverPayload {
+  query: string;
+  profile: "web" | "code";
+  results: SearchResult[];
+  latencyMs: number;
+  attribution?: WebSearchAttribution;
+}
+
+let webSearchObserver: ((payload: WebSearchObserverPayload) => void | Promise<void>) | null = null;
+
+export function setWebSearchObserver(
+  observer: ((payload: WebSearchObserverPayload) => void | Promise<void>) | null,
+): void {
+  webSearchObserver = observer;
 }
 
 interface SearxngResult {
@@ -191,9 +207,11 @@ export async function searchAndProcess(
     fetchPages?: boolean;
     maxFetchPages?: number;
     minRelevance?: number;
+    attribution?: WebSearchAttribution;
   } = {},
 ): Promise<SearchResult[]> {
   if (!config.enabled || !config.url) return [];
+  const started = performance.now();
 
   const profile = options.profile ?? "web";
   const fetchPages = options.fetchPages ?? true;
@@ -243,5 +261,19 @@ export async function searchAndProcess(
     }
   }
 
-  return scoreAndFilter(query, results, minRelevance);
+  const filtered = scoreAndFilter(query, results, minRelevance);
+  if (webSearchObserver) {
+    try {
+      await webSearchObserver({
+        query,
+        profile,
+        results: filtered,
+        latencyMs: Math.round((performance.now() - started) * 10) / 10,
+        attribution: options.attribution,
+      });
+    } catch {
+      // Keep retrieval path resilient if observer persistence fails.
+    }
+  }
+  return filtered;
 }

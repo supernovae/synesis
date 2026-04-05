@@ -71,6 +71,11 @@ export interface UnifiedRetrievalRequest {
   callerAclGroups?: string[];
   callerUserId?: string;
   callerConversationId?: string;
+  sourceSurface?: WebSearchSourceSurface;
+  toolName?: string;
+  requestId?: string;
+  sessionKey?: string;
+  traceId?: string;
 }
 
 export interface SearchResult {
@@ -196,5 +201,57 @@ export interface KnowledgeSearchResponse {
     search_ms: number;
     rerank_ms: number;
     total_ms: number;
+  };
+}
+
+export type WebSearchSourceSurface =
+  | "yarn_chat"
+  | "yarn_mcp_http"
+  | "openwebui_planner"
+  | "planner_internal"
+  | "external_api";
+
+export interface WebSearchAttribution {
+  source_surface: WebSearchSourceSurface;
+  tool_name: string;
+  request_id?: string;
+  session_key?: string;
+  conversation_id?: string;
+  trace_id?: string;
+  caller_org_id?: string;
+  caller_user_id?: string;
+  caller_tenant_ids?: string[];
+}
+
+export interface WebSearchRequest {
+  query: string;
+  top_k?: number;
+  profile?: "web" | "code";
+  fetch_pages?: boolean;
+  max_fetch_pages?: number;
+  min_relevance?: number;
+  preferred_domains?: string[];
+  source_surface?: WebSearchSourceSurface;
+  tool_name?: string;
+  request_id?: string;
+  session_key?: string;
+  conversation_id?: string;
+  trace_id?: string;
+  caller_org_id?: string;
+  caller_user_id?: string;
+  caller_tenant_ids?: string[];
+}
+
+export interface WebSearchResponse {
+  query: string;
+  total: number;
+  results: SearchResult[];
+  timings: {
+    total_ms: number;
+  };
+  attribution_echo: WebSearchAttribution;
+  policy: {
+    action: "allow" | "deny" | "degraded";
+    reason?: string;
   };
 }

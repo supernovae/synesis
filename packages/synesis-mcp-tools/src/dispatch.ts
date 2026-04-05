@@ -1,6 +1,7 @@
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { runKnowledgeSearch } from "./knowledge.js";
+import { runWebSearch } from "./web-search.js";
 import { runClassify, runPlan, runCritique } from "./planner-tools.js";
 import {
   runCveCheck,
@@ -23,6 +24,9 @@ export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_patch_integrity",
   /** Yarn UI name — same behavior as synesis_search */
   "synesis_knowledge_search",
+  "synesis_web_search",
+  /** Alias for compatibility; canonical is synesis_web_search. */
+  "web_search",
 ] as const;
 
 export type SynesisMcpToolName = (typeof SYNESIS_MCP_TOOL_NAMES)[number];
@@ -37,6 +41,10 @@ export async function dispatchSynesisTool(
     case "synesis_search":
     case "synesis_knowledge_search":
       return runKnowledgeSearch(args, auth, deps, undefined);
+    case "synesis_web_search":
+      return runWebSearch(args, auth, deps, "synesis_web_search");
+    case "web_search":
+      return runWebSearch(args, auth, deps, "synesis_web_search");
     case "synesis_code_search":
       return runKnowledgeSearch(args, auth, deps, "code");
     case "synesis_docs_search":

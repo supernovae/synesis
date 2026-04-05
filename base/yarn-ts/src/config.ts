@@ -155,6 +155,10 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_WEB_SEARCH_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED: z
     .string()
     .optional()

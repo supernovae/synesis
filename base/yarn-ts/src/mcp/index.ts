@@ -54,6 +54,8 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
   /** Read-only Synesis platform tools (same handlers as synesis-mcp-ts). */
   "synesis_search",
   "synesis_knowledge_search",
+  "synesis_web_search",
+  "web_search",
   "synesis_code_search",
   "synesis_docs_search",
   "synesis_config_search",
@@ -241,9 +243,43 @@ export async function registerMcpRoutes(
     try {
       let result: unknown;
       if (SYNESIS_PLATFORM_TOOL_SET.has(body.name)) {
+        const rawArgs =
+          body.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
+            ? (body.arguments as Record<string, unknown>)
+            : {};
+        const isWebSearchTool = body.name === "synesis_web_search" || body.name === "web_search";
+        const mcpArgs = isWebSearchTool
+          ? {
+              ...rawArgs,
+              source_surface: typeof rawArgs.source_surface === "string" && rawArgs.source_surface.trim().length > 0
+                ? rawArgs.source_surface
+                : "yarn_mcp_http",
+              tool_name: "synesis_web_search",
+              request_id:
+                typeof rawArgs.request_id === "string" && rawArgs.request_id.trim().length > 0
+                  ? rawArgs.request_id
+                  : requestId,
+              session_key:
+                typeof rawArgs.session_key === "string" && rawArgs.session_key.trim().length > 0
+                  ? rawArgs.session_key
+                  : (typeof req.headers["x-synesis-session-key"] === "string"
+                    ? req.headers["x-synesis-session-key"]
+                    : undefined),
+              conversation_id:
+                typeof rawArgs.conversation_id === "string" && rawArgs.conversation_id.trim().length > 0
+                  ? rawArgs.conversation_id
+                  : (typeof req.headers["x-synesis-conversation-id"] === "string"
+                    ? req.headers["x-synesis-conversation-id"]
+                    : undefined),
+              trace_id:
+                typeof rawArgs.trace_id === "string" && rawArgs.trace_id.trim().length > 0
+                  ? rawArgs.trace_id
+                  : requestId,
+            }
+          : rawArgs;
         result = await dispatchSynesisTool(
           body.name,
-          (body.arguments ?? {}) as Record<string, unknown>,
+          mcpArgs,
           synesisAuthForRequest(user, req),
           opts.synesisMcpDeps,
         );

@@ -93,6 +93,14 @@ async def web_search_log(
     _user: UserInfo = Depends(get_current_user),
     domain: str = Query("", description="Filter by domain"),
     outcome: str = Query("", description="Filter by outcome"),
+    source_surface: str = Query("", description="Filter by source surface"),
+    org_id: str = Query("", description="Filter by org id"),
+    user_id: str = Query("", description="Filter by user id"),
+    session_key: str = Query("", description="Filter by session key"),
+    request_id: str = Query("", description="Filter by request id"),
+    trace_id: str = Query("", description="Filter by trace id"),
+    tool_name: str = Query("", description="Filter by tool name"),
+    engine: str = Query("", description="Filter by engine"),
     query_filter: str = Query("", alias="q", description="Substring search in query text"),
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=100),
@@ -104,6 +112,22 @@ async def web_search_log(
             base = base.where(WebSearchLog.domain == domain)
         if outcome:
             base = base.where(WebSearchLog.outcome == outcome)
+        if source_surface:
+            base = base.where(WebSearchLog.source_surface == source_surface)
+        if org_id:
+            base = base.where(WebSearchLog.org_id == org_id)
+        if user_id:
+            base = base.where(WebSearchLog.user_id == user_id)
+        if session_key:
+            base = base.where(WebSearchLog.session_key == session_key)
+        if request_id:
+            base = base.where(WebSearchLog.request_id == request_id)
+        if trace_id:
+            base = base.where(WebSearchLog.trace_id == trace_id)
+        if tool_name:
+            base = base.where(WebSearchLog.tool_name == tool_name)
+        if engine:
+            base = base.where(WebSearchLog.engine == engine)
         if query_filter:
             base = base.where(WebSearchLog.query.ilike(f"%{query_filter}%"))
 
@@ -132,6 +156,20 @@ async def web_search_log(
                 "latency_ms": r.latency_ms,
                 "outcome": r.outcome,
                 "engine": r.engine,
+                "org_id": r.org_id,
+                "user_id": r.user_id,
+                "tenant_id": r.tenant_id,
+                "request_id": r.request_id,
+                "session_key": r.session_key,
+                "conversation_id": r.conversation_id,
+                "trace_id": r.trace_id,
+                "source_surface": r.source_surface,
+                "tool_name": r.tool_name,
+                "query_hash": r.query_hash,
+                "rate_bucket_key": r.rate_bucket_key,
+                "blocked_reason": r.blocked_reason,
+                "policy_action": r.policy_action,
+                "token_estimate": r.token_estimate,
             }
             for r in rows
         ]

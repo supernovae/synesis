@@ -261,6 +261,11 @@ export async function retrieveUnified(
     callerAclGroups,
     callerUserId,
     callerConversationId,
+    sourceSurface = "planner_internal",
+    toolName = "planner_web_retrieval",
+    requestId,
+    sessionKey,
+    traceId,
   } = request;
 
   const t0 = performance.now();
@@ -290,7 +295,19 @@ export async function retrieveUnified(
   let webPromise: Promise<SearchResult[]> | null = null;
   if (webEnabled) {
     const effectiveWebQuery = webQuery || query.slice(0, 120);
-    webPromise = searchAndProcess(effectiveWebQuery, settings.web).catch((err) => {
+    webPromise = searchAndProcess(effectiveWebQuery, settings.web, {
+      attribution: {
+        source_surface: sourceSurface,
+        tool_name: toolName,
+        request_id: requestId,
+        session_key: sessionKey,
+        conversation_id: callerConversationId,
+        trace_id: traceId,
+        caller_org_id: callerOrgId,
+        caller_user_id: callerUserId,
+        caller_tenant_ids: callerTenantIds,
+      },
+    }).catch((err) => {
       webDegraded = true;
       degradationNotes.push(`Web failed: ${err instanceof Error ? err.message : String(err)}`);
       return [] as SearchResult[];

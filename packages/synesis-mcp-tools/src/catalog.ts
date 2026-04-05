@@ -6,6 +6,7 @@ import {
   docsSearchInputSchema,
   configSearchInputSchema,
 } from "./knowledge-schemas.js";
+import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
 import {
   cvePackagesSchema,
@@ -79,6 +80,18 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
       name: "synesis_knowledge_search",
       description: knowledgeYarnDesc,
       inputSchema: zodToJsonSchema(knowledgeSearchInputSchema),
+    },
+    {
+      name: "synesis_web_search",
+      description:
+        "Web search via planner-backed SearXNG retrieval with attribution context. Use when evidence is likely outside the indexed Synesis corpora.",
+      inputSchema: zodToJsonSchema(webSearchInputSchema),
+    },
+    {
+      name: "web_search",
+      description:
+        "Alias for synesis_web_search. Returns the same planner-backed web search results and attribution envelope.",
+      inputSchema: zodToJsonSchema(webSearchInputSchema),
     },
     {
       name: "synesis_code_search",

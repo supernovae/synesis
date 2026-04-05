@@ -8,6 +8,7 @@ import {
   docsSearchInputSchema,
   configSearchInputSchema,
 } from "./knowledge-schemas.js";
+import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
 import {
   cvePackagesSchema,
@@ -36,6 +37,31 @@ export function registerSynesisMcpTools(server: McpServer, auth: SynesisMcpAuth,
     },
     async (args) =>
       jsonResult(await dispatchSynesisTool("synesis_search", args as Record<string, unknown>, auth, deps)),
+  );
+
+  server.registerTool(
+    "synesis_web_search",
+    {
+      description:
+        "Web search via planner /v1/web/search (SearXNG-backed) with standard attribution fields.",
+      inputSchema: webSearchInputSchema,
+    },
+    async (args) =>
+      jsonResult(
+        await dispatchSynesisTool("synesis_web_search", args as Record<string, unknown>, auth, deps),
+      ),
+  );
+
+  server.registerTool(
+    "web_search",
+    {
+      description: "Alias for synesis_web_search.",
+      inputSchema: webSearchInputSchema,
+    },
+    async (args) =>
+      jsonResult(
+        await dispatchSynesisTool("web_search", args as Record<string, unknown>, auth, deps),
+      ),
   );
 
   server.registerTool(

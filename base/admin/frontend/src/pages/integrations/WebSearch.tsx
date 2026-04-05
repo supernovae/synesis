@@ -32,12 +32,18 @@ export default function WebSearch() {
   const [logPage, setLogPage] = useState(1);
   const [domainFilter, setDomainFilter] = useState("");
   const [queryFilter, setQueryFilter] = useState("");
+  const [surfaceFilter, setSurfaceFilter] = useState("");
+  const [requestIdFilter, setRequestIdFilter] = useState("");
+  const [sessionFilter, setSessionFilter] = useState("");
 
   const { data: stats, isLoading: statsLoading } = useWebSearchStats();
   const { data: logData } = useWebSearchLog({
     page: logPage,
     page_size: 25,
     domain: domainFilter || undefined,
+    source_surface: surfaceFilter || undefined,
+    request_id: requestIdFilter || undefined,
+    session_key: sessionFilter || undefined,
     q: queryFilter || undefined,
   });
   const { data: domainData } = useWebSearchDomains();
@@ -178,6 +184,36 @@ export default function WebSearch() {
                 className="rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               />
             </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Source Surface</label>
+              <input
+                type="text"
+                placeholder="e.g. yarn_chat"
+                value={surfaceFilter}
+                onChange={(e) => { setSurfaceFilter(e.target.value); setLogPage(1); }}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Request ID</label>
+              <input
+                type="text"
+                placeholder="trace/request id"
+                value={requestIdFilter}
+                onChange={(e) => { setRequestIdFilter(e.target.value); setLogPage(1); }}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Session Key</label>
+              <input
+                type="text"
+                placeholder="conversation:..."
+                value={sessionFilter}
+                onChange={(e) => { setSessionFilter(e.target.value); setLogPage(1); }}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
           </div>
 
           {/* Log table */}
@@ -212,6 +248,25 @@ export default function WebSearch() {
                       ),
                     },
                     {
+                      key: "source_surface",
+                      label: "Surface",
+                      render: (r) => <span className="text-xs font-mono">{r.source_surface || "—"}</span>,
+                    },
+                    {
+                      key: "tool_name",
+                      label: "Tool",
+                      render: (r) => <span className="text-xs font-mono">{r.tool_name || "—"}</span>,
+                    },
+                    {
+                      key: "request_id",
+                      label: "Request",
+                      render: (r) => (
+                        <span className="max-w-[140px] truncate block text-xs font-mono" title={r.request_id}>
+                          {r.request_id || "—"}
+                        </span>
+                      ),
+                    },
+                    {
                       key: "title",
                       label: "Title",
                       render: (r) =>
@@ -234,6 +289,11 @@ export default function WebSearch() {
                       label: "Latency",
                       sortable: true,
                       render: (r) => <span className="text-xs">{r.latency_ms.toFixed(0)}ms</span>,
+                    },
+                    {
+                      key: "policy_action",
+                      label: "Policy",
+                      render: (r) => <span className="text-xs">{r.policy_action || "allow"}</span>,
                     },
                     {
                       key: "outcome",
