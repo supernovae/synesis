@@ -148,7 +148,7 @@ export class ToolResultReductionService {
         this.stats.compactionFailures += 1;
         reduced = null;
       }
-      const shouldReduce = Boolean(reduced) || raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
+      const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
       if (!shouldReduce) return { ...m, content: raw };
 
       let summary: string;
@@ -288,7 +288,7 @@ export class ToolResultReductionService {
         reduced = null;
       }
 
-      const shouldReduce = Boolean(reduced) || raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
+      const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
       if (!shouldReduce) {
         out[idx] = { ...m, content: raw };
         continue;
@@ -380,7 +380,7 @@ export class ToolResultReductionService {
       this.stats.compactionFailures += 1;
       reduced = null;
     }
-    if (!reduced && raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS) {
+    if (!reduced && (this.isExemptFromFileReduction(toolName) || raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS)) {
       const jsonResult = compactJsonArray(raw);
       if (jsonResult && jsonResult.compressionRatio > 0.2) {
         this.stats.jsonCompactionCount += 1;
@@ -510,6 +510,25 @@ export class ToolResultReductionService {
     if (outChars < rawChars) this.stats.shrunkCount += 1;
     else if (outChars > rawChars) this.stats.expandedCount += 1;
     else this.stats.unchangedCount += 1;
+  }
+
+  private isExemptFromFileReduction(toolName: string | undefined): boolean {
+    const name = (toolName ?? "").toLowerCase();
+    return (
+      name === "read" ||
+      name === "write" ||
+      name === "edit" ||
+      name === "update" ||
+      name === "glob" ||
+      name === "read_file" ||
+      name === "search_files" ||
+      name === "synesis_code_search" ||
+      name === "synesis_docs_search" ||
+      name === "synesis_config_search" ||
+      name === "synesis_knowledge_search" ||
+      name === "synesis_web_search" ||
+      name === "synesis_artifact_retrieve"
+    );
   }
 
   private artifactSummary(raw: string, toolName?: string): string {
