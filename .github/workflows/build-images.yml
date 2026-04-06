@@ -443,7 +443,8 @@ jobs:
             base_arg: ""
             change_key: mcp-ts
             base_change_key: ""
-          - name: ast-mcp
+          # GHCR image name synesis-ast-mcp (ast-mcp push failed with write_package in CI).
+          - name: synesis-ast-mcp
             dockerfile: base/ast-mcp/Dockerfile
             context: base/ast-mcp
             base_arg: synesis-base-api
@@ -493,6 +494,8 @@ jobs:
           # workflow_dispatch with filter -> check if this image is in the list
           if [[ "$DISPATCH" == "true" && -n "$INPUT_FILTER" ]]; then
             if echo ",$INPUT_FILTER," | grep -qi ",${{ matrix.name }},"; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            elif [[ "$CHANGE_KEY" == "ast-mcp" ]] && echo ",$INPUT_FILTER," | grep -qi ",ast-mcp,"; then
               echo "skip=false" >> "$GITHUB_OUTPUT"
             else
               echo "skip=true" >> "$GITHUB_OUTPUT"

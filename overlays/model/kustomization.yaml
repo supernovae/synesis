@@ -68,7 +68,7 @@ images:
     newName: ghcr.io/supernovae/synesis/mcp-ts
     newTag: latest
   - name: synesis-ast-mcp
-    newName: ghcr.io/supernovae/synesis/ast-mcp
+    newName: ghcr.io/supernovae/synesis/synesis-ast-mcp
     newTag: latest
   - name: synesis-vision-worker
     newName: ghcr.io/supernovae/synesis/vision-worker
