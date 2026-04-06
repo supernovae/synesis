@@ -14,6 +14,7 @@ import { getVerificationToolNames } from "../verification/planner.js";
 import type { VerificationStats } from "../verification/types.js";
 import { createEmptyVerificationStats } from "../verification/types.js";
 import { formatSelfRepairBlock } from "../recall/formatter.js";
+import { formatTerminalVerificationHint, type TerminalSignals } from "../terminal/terminal-signals.js";
 import type { EnrichmentPool } from "../workers/pool.js";
 
 export interface ToolResultLike {
@@ -220,6 +221,8 @@ export class ToolResultReductionService {
       if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
       reducedCount += 1;
 
+      summary = this.appendTerminalVerificationHintForTool(m.name, m.content, summary);
+
       return {
         ...m,
         content: summary
@@ -366,6 +369,7 @@ export class ToolResultReductionService {
       this.trackTransformation(raw.length, summary.length);
       if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
       reducedCount += 1;
+      summary = this.appendTerminalVerificationHintForTool(m.name, m.content, summary);
       out[idx] = { ...m, content: summary };
     }
 
@@ -468,7 +472,7 @@ export class ToolResultReductionService {
     }
     this.trackTransformation(raw.length, summary.length);
     if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
-    return summary;
+    return this.appendTerminalVerificationHintForTool(toolName, content, summary);
   }
 
   private _savedCheckpoint = 0;
@@ -501,6 +505,43 @@ export class ToolResultReductionService {
 
   getVerificationTracker(): VerificationLoopTracker {
     return this.verificationTracker;
+  }
+
+  private pickTerminalSignalsFromToolContent(content: unknown): TerminalSignals | null {
+    if (content && typeof content === "object" && !Array.isArray(content)) {
+      const row = content as Record<string, unknown>;
+      const ts = row.terminalSignals ?? row.terminal_signals;
+      if (ts && typeof ts === "object") return ts as TerminalSignals;
+      return null;
+    }
+    if (typeof content === "string") {
+      try {
+        const row = JSON.parse(content) as Record<string, unknown>;
+        const ts = row.terminalSignals ?? row.terminal_signals;
+        if (ts && typeof ts === "object") return ts as TerminalSignals;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * When verification MCP tools emit terminalSignals, append a bounded hint so the model
+   * does not repeat the same hung/interactive command blindly.
+   */
+  private appendTerminalVerificationHintForTool(
+    toolName: string | undefined,
+    content: unknown,
+    summary: string,
+  ): string {
+    if (!this.isVerificationOutput(toolName)) return summary;
+    if (summary.includes("<synesis_terminal_signals")) return summary;
+    const ts = this.pickTerminalSignalsFromToolContent(content);
+    if (!ts) return summary;
+    const hint = formatTerminalVerificationHint(ts);
+    if (!hint) return summary;
+    return `${summary}\n${hint}`;
   }
 
   private isVerificationOutput(toolName: string | undefined): boolean {
@@ -586,6 +627,20 @@ export class ToolResultReductionService {
   private extractRunnerReductionRaw(row: Record<string, unknown>, fallback: string): string {
     const chunks: string[] = [];
     if (typeof row.summary === "string" && row.summary.trim()) chunks.push(row.summary.trim());
+    if (row.terminalSignals && typeof row.terminalSignals === "object" && row.terminalSignals !== null) {
+      try {
+        chunks.push(`terminalSignals=${JSON.stringify(row.terminalSignals)}`);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (row.terminal_signals && typeof row.terminal_signals === "object" && row.terminal_signals !== null) {
+      try {
+        chunks.push(`terminal_signals=${JSON.stringify(row.terminal_signals)}`);
+      } catch {
+        /* ignore */
+      }
+    }
     if (Array.isArray(row.errorLines)) {
       const lines = row.errorLines
         .filter((v): v is string => typeof v === "string" && v.trim().length > 0)

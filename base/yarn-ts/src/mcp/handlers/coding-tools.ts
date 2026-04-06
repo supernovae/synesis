@@ -12,8 +12,93 @@ import {
   truncateStream,
   type StructuredDiagnostic,
 } from "./command-diagnostics.js";
+import { shapeTerminalOutput, type ShapingStats } from "../../terminal/output-shaper.js";
+import { mergeSynesisToolEnv } from "../../terminal/tool-env.js";
+import {
+  attachShapingToSignals,
+  classifyTerminalOutput,
+  formatTerminalVerificationHint,
+  type TerminalSignals,
+} from "../../terminal/terminal-signals.js";
 
 const execFileAsync = promisify(execFile);
+
+function terminalShapingEnabled(): boolean {
+  return (process.env.SYNESIS_YARN_TERMINAL_SHAPING_ENABLED ?? "true").toLowerCase() !== "false";
+}
+
+function addShapingStats(a: ShapingStats, b: ShapingStats): ShapingStats {
+  return {
+    ansiEscapeBytesRemoved: a.ansiEscapeBytesRemoved + b.ansiEscapeBytesRemoved,
+    carriageReturnSegmentsCollapsed: a.carriageReturnSegmentsCollapsed + b.carriageReturnSegmentsCollapsed,
+    repeatedLineRunsCollapsed: a.repeatedLineRunsCollapsed + b.repeatedLineRunsCollapsed,
+    inputChars: a.inputChars + b.inputChars,
+    outputChars: a.outputChars + b.outputChars,
+  };
+}
+
+/**
+ * Shape stdout/stderr for MCP preset runners, then classify for structured terminalSignals.
+ */
+function processRunnerStreams(stdout: string, stderr: string): {
+  stdoutOut: string;
+  stderrOut: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  terminalSignals: TerminalSignals;
+} {
+  const skip = !terminalShapingEnabled();
+  const so = shapeTerminalOutput(stdout, { skip });
+  const se = shapeTerminalOutput(stderr, { skip });
+  const mergedStats = addShapingStats(so.stats, se.stats);
+  const combined = `${se.text}\n---\n${so.text}`;
+  const signals = classifyTerminalOutput(combined, { shapingStats: mergedStats });
+  const terminalSignals = attachShapingToSignals(signals, [...se.shapingApplied, ...so.shapingApplied], mergedStats);
+  const out = truncateStream(so.text, MAX_STREAM_CHARS);
+  const err = truncateStream(se.text, MAX_STREAM_CHARS);
+  return {
+    stdoutOut: out.text,
+    stderrOut: err.text,
+    stdoutTruncated: out.truncated,
+    stderrTruncated: err.truncated,
+    terminalSignals,
+  };
+}
+
+function applyTerminalToSandboxResult(result: Record<string, unknown>): Record<string, unknown> {
+  const skip = !terminalShapingEnabled();
+  const lint = result.lint as Record<string, unknown> | undefined;
+  const exec = result.execution as Record<string, unknown> | undefined;
+  const chunks: string[] = [];
+  let mergedShaping: string[] = [];
+  let mergedStats: ShapingStats = {
+    ansiEscapeBytesRemoved: 0,
+    carriageReturnSegmentsCollapsed: 0,
+    repeatedLineRunsCollapsed: 0,
+    inputChars: 0,
+    outputChars: 0,
+  };
+
+  if (lint && typeof lint.output === "string") {
+    const s = shapeTerminalOutput(lint.output, { skip });
+    lint.output = s.text;
+    chunks.push(s.text);
+    mergedShaping = [...mergedShaping, ...s.shapingApplied];
+    mergedStats = addShapingStats(mergedStats, s.stats);
+  }
+  if (exec && typeof exec.output === "string") {
+    const s = shapeTerminalOutput(exec.output, { skip });
+    exec.output = s.text;
+    chunks.push(s.text);
+    mergedShaping = [...mergedShaping, ...s.shapingApplied];
+    mergedStats = addShapingStats(mergedStats, s.stats);
+  }
+
+  const combined = chunks.join("\n");
+  const signals = classifyTerminalOutput(combined, { shapingStats: mergedStats });
+  const terminal_signals = attachShapingToSignals(signals, mergedShaping, mergedStats);
+  return { ...result, terminal_signals };
+}
 
 const MAX_READ_BYTES = 1_000_000;
 const MAX_WRITE_BYTES = 1_000_000;
@@ -53,7 +138,7 @@ async function runCommand(
     const { stdout, stderr } = await execFileAsync(command, args, {
       cwd: projectRoot,
       maxBuffer: 8 * 1024 * 1024,
-      env: process.env,
+      env: mergeSynesisToolEnv(process.env),
     });
     return { exitCode: 0, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") };
   } catch (err) {
@@ -508,7 +593,9 @@ export interface RunPresetResult {
   stderr: string;
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
-  /** Up to 28 lines of compiler/test diagnostics (from full output before stream truncation). */
+  /** Heuristic classification + hints for TTY-shaped or stalled CLI output. */
+  terminalSignals: TerminalSignals;
+  /** Up to 28 lines of compiler/test diagnostics (from shaped output before stream truncation). */
   errorLines: string[];
   /** Optional structured diagnostics for fast patch recovery (tsc/go test/go build patterns). */
   errors: StructuredDiagnostic[];
@@ -532,33 +619,41 @@ function makeRunnerTool(
       }
       const [cmd, ...args] = preset;
       const full = await runCommand(path.resolve(input.projectRoot), cmd, args);
-      const errorLines = extractDiagnosticLines(full.stderr, full.stdout, 28);
-      const errors = extractStructuredErrors(full.stderr, full.stdout, 16);
-      const out = truncateStream(full.stdout, MAX_STREAM_CHARS);
-      const err = truncateStream(full.stderr, MAX_STREAM_CHARS);
+      const proc = processRunnerStreams(full.stdout, full.stderr);
+      const errorLines = extractDiagnosticLines(proc.stderrOut, proc.stdoutOut, 28);
+      const errors = extractStructuredErrors(proc.stderrOut, proc.stdoutOut, 16);
       const ok = full.exitCode === 0;
-      const summary = ok
+      let summary = ok
         ? `ok exit=0 preset=${input.preset}`
         : `failed exit=${full.exitCode} preset=${input.preset} diagnostics=${errorLines.length}`;
+      const termHint = formatTerminalVerificationHint(proc.terminalSignals);
+      if (termHint) {
+        summary = `${summary}\n${termHint}`;
+      }
+      const nextActions: string[] = ok
+        ? []
+        : [
+            "read_file(filePath=<reported file>, startLine=<nearby>, endLine=<nearby+200>)",
+            "str_replace with minimal fix",
+            `rerun ${name}(preset=${input.preset})`,
+          ];
+      if (proc.terminalSignals.hints.length > 0 && proc.terminalSignals.classification !== "unknown") {
+        nextActions.push(proc.terminalSignals.hints[0]!);
+      }
       return {
         preset: input.preset,
         command: [cmd, ...args].join(" "),
         exitCode: full.exitCode,
         ok,
         summary,
-        stdout: out.text,
-        stderr: err.text,
-        stdoutTruncated: out.truncated,
-        stderrTruncated: err.truncated,
+        stdout: proc.stdoutOut,
+        stderr: proc.stderrOut,
+        stdoutTruncated: proc.stdoutTruncated,
+        stderrTruncated: proc.stderrTruncated,
+        terminalSignals: proc.terminalSignals,
         errorLines,
         errors,
-        nextActions: ok
-          ? []
-          : [
-              "read_file(filePath=<reported file>, startLine=<nearby>, endLine=<nearby+200>)",
-              "str_replace with minimal fix",
-              `rerun ${name}(preset=${input.preset})`,
-            ],
+        nextActions,
       };
     },
   };
@@ -821,14 +916,19 @@ const RunInSandboxSchema = RootSchema.extend({
   trivial: z.boolean().default(false).describe("If true, only runs syntax/format checks. If false, runs full linting/execution."),
 });
 
-export const runInSandboxTool: McpToolDefinition<
-  z.infer<typeof RunInSandboxSchema>,
-  { exitCode: number; lint: any; execution: any; error?: string }
-> = {
+export type RunInSandboxToolResult = {
+  exitCode: number;
+  lint: unknown;
+  execution: unknown;
+  error?: string;
+  terminal_signals?: TerminalSignals;
+};
+
+export const runInSandboxTool: McpToolDefinition<z.infer<typeof RunInSandboxSchema>, RunInSandboxToolResult> = {
   name: "run_in_sandbox",
   description: "Run a single file in the isolated Synesis sandbox. Useful for speculative execution of scripts to capture stdout/stderr safely.",
   inputSchema: RunInSandboxSchema,
-  async handler(input) {
+  async handler(input): Promise<RunInSandboxToolResult> {
     const abs = resolveInsideRoot(input.projectRoot, input.filePath);
     const code = await fs.readFile(abs, "utf8");
     
@@ -854,8 +954,8 @@ export const runInSandboxTool: McpToolDefinition<
         return { exitCode: 1, lint: null, execution: null, error: `Sandbox returned HTTP ${resp.status}: ${await resp.text()}` };
       }
 
-      const result = await resp.json();
-      return result as any;
+      const result = (await resp.json()) as Record<string, unknown>;
+      return applyTerminalToSandboxResult(result) as RunInSandboxToolResult;
     } catch (err) {
       return { exitCode: 1, lint: null, execution: null, error: `Failed to connect to sandbox: ${err}` };
     }

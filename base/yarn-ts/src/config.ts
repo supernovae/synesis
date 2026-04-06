@@ -474,6 +474,14 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS: z.coerce.number().default(1),
+
+  /** Terminal interception: ANSI/\\r/repeat shaping for MCP runners and sandbox (default on). */
+  SYNESIS_YARN_TERMINAL_SHAPING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** ACP Bash: max wall-clock wait for waitForExit (local editor terminal). */
+  SYNESIS_YARN_ACP_BASH_TIMEOUT_MS: z.coerce.number().default(600_000),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

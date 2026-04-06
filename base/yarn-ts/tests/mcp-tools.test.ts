@@ -161,6 +161,8 @@ describe("coding tools", () => {
     expect(Array.isArray(out.errors)).toBe(true);
     expect(Array.isArray(out.nextActions)).toBe(true);
     expect(out.nextActions.length).toBeGreaterThan(0);
+    expect(out.terminalSignals).toBeDefined();
+    expect(typeof out.terminalSignals.classification).toBe("string");
   });
 
   it("reports read-only git introspection for repo roots", async () => {

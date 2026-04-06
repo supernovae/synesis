@@ -20,6 +20,8 @@ import type {
   ToolKind,
 } from "@agentclientprotocol/sdk";
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { shapeTerminalOutput } from "../terminal/output-shaper.js";
+import { attachShapingToSignals, classifyTerminalOutput } from "../terminal/terminal-signals.js";
 
 /** OpenAI-format messages we keep in-session (matches yarn-ts /v1/chat/completions). */
 export interface OaiChatMessage {
@@ -77,6 +79,16 @@ function envModel(): string {
 function truncate(s: string, max: number): string {
   const t = s.trim();
   return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
+function acpTerminalShapingEnabled(): boolean {
+  return (process.env.SYNESIS_YARN_TERMINAL_SHAPING_ENABLED ?? "true").toLowerCase() !== "false";
+}
+
+function acpBashTimeoutMs(): number {
+  const raw = Number(process.env.SYNESIS_YARN_ACP_BASH_TIMEOUT_MS ?? 600_000);
+  if (!Number.isFinite(raw) || raw < 1000) return 600_000;
+  return Math.min(raw, 3_600_000);
 }
 
 function blocksToUserText(blocks: ContentBlock[]): string {
@@ -604,13 +616,44 @@ export class SynesisYarnAcpAgent implements Agent {
           cwd: sh.cwd ?? undefined,
         });
         try {
-          const exitRes = await handle.waitForExit();
+          const bashTimeoutMs = acpBashTimeoutMs();
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          let exitRes: { exitCode?: number | null };
+          let killedReason: "wall_clock_timeout" | undefined;
+          try {
+            exitRes = await Promise.race([
+              handle.waitForExit().finally(() => {
+                if (timer !== undefined) clearTimeout(timer);
+              }),
+              new Promise<{ exitCode?: number | null }>((_, rej) => {
+                timer = setTimeout(() => rej(new Error("SYNESIS_ACP_BASH_TIMEOUT")), bashTimeoutMs);
+              }),
+            ]);
+          } catch (e) {
+            if (timer !== undefined) clearTimeout(timer);
+            if (e instanceof Error && e.message === "SYNESIS_ACP_BASH_TIMEOUT") {
+              killedReason = "wall_clock_timeout";
+              exitRes = { exitCode: null };
+            } else {
+              throw e;
+            }
+          }
+
           const out = await handle.currentOutput();
+          const skip = !acpTerminalShapingEnabled();
+          const shaped = shapeTerminalOutput(out.output, { skip });
+          const signals = classifyTerminalOutput(shaped.text, {
+            shapingStats: shaped.stats,
+            killedReason,
+          });
+          const terminal_signals = attachShapingToSignals(signals, shaped.shapingApplied, shaped.stats);
           return JSON.stringify({
-            stdout: out.output,
+            stdout: shaped.text,
             exit_code: exitRes.exitCode ?? null,
             truncated: out.truncated,
             cwd: resolvedCwd,
+            terminal_signals,
+            ...(killedReason ? { killed_reason: killedReason } : {}),
           });
         } finally {
           await handle.release();
