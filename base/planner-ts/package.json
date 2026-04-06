@@ -16,8 +16,8 @@
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",
-    "@langchain/core": "^1.1.36",
-    "@langchain/langgraph": "^1.2.6",
+    "@langchain/core": "^1.1.39",
+    "@langchain/langgraph": "^1.2.7",
     "@openfga/sdk": "^0.9.4",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
@@ -35,7 +35,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "@types/pg": "^8.20.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",

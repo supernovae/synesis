@@ -13,7 +13,7 @@
     "prom-client": ">=15"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "prom-client": "^15.1.3",
     "typescript": "^6.0.2"
   }

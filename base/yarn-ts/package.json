@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.18.0",
-    "@ai-sdk/openai": "^3.0.49",
+    "@ai-sdk/openai": "^3.0.51",
     "@openfga/sdk": "^0.9.4",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
@@ -34,7 +34,7 @@
     "@synesis/manifest": "*",
     "@synesis/mcp-tools": "*",
     "@synesis/telemetry": "*",
-    "ai": "^6.0.143",
+    "ai": "^6.0.148",
     "fastify": "^5.8.4",
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",
@@ -43,7 +43,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "@types/pg": "^8.20.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
