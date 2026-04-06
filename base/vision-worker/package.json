@@ -1,0 +1,13 @@
+{
+  "name": "synesis-vision-worker",
+  "version": "0.1.0",
+  "description": "Headless Playwright worker for Synesis vision tasks",
+  "main": "app/server.js",
+  "scripts": {
+    "start": "node app/server.js"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "playwright": "^1.48.0"
+  }
+}

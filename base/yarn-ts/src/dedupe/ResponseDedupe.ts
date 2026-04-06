@@ -31,7 +31,7 @@ export class ResponseDedupe {
    */
   wrapToolResult(toolName: string, input: unknown, resultText: string): string {
     const k = classifyTool(toolName);
-    if (k === "run_tests" || k === "apply_patch") {
+    if (k === "run_tests" || k === "str_replace") {
       return resultText;
     }
     if (k !== "read_file" && k !== "search") {

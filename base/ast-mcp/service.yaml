@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-ast-mcp
+  namespace: synesis-yarn
+  labels:
+    app: synesis-ast-mcp
+spec:
+  selector:
+    app: synesis-ast-mcp
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP

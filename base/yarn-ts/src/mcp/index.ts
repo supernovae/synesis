@@ -13,7 +13,7 @@ import { inspectRepoTool } from "./handlers/inspect-repo.js";
 import { scaffoldTool } from "./handlers/scaffold.js";
 import { compareManifestTool } from "./handlers/compare-manifest.js";
 import {
-  applyPatchTool,
+  strReplaceTool,
   formatCodeTool,
   getRuntimeContextTool,
   gitAddGuardedTool,
@@ -25,7 +25,10 @@ import {
   runBuildTool,
   runLintTool,
   runTestTool,
+  runInSandboxTool,
   searchCodeTool,
+  takeScreenshotTool,
+  delegateTaskTool,
   writeFileTool,
 } from "./handlers/coding-tools.js";
 
@@ -58,6 +61,7 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
   "web_search",
   "synesis_code_search",
   "synesis_docs_search",
+  "search_developer_docs",
   "synesis_config_search",
   "synesis_cve_check",
   "synesis_license_check",
@@ -67,10 +71,12 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
 
 const OPENCLAW_WRITE_CAPABLE_TOOLS = new Set<string>([
   "write_file",
-  "apply_patch",
+  "str_replace",
   "format_code",
   "git_add_guarded",
   "git_commit_guarded",
+  "take_screenshot",
+  "delegate_task",
 ]);
 
 export function isOpenClawClientHeader(raw: unknown): boolean {
@@ -132,7 +138,7 @@ registry.register(getRuntimeContextTool);
 registry.register(listDirTool);
 registry.register(readFileTool);
 registry.register(writeFileTool);
-registry.register(applyPatchTool);
+registry.register(strReplaceTool);
 registry.register(searchCodeTool);
 registry.register(runTestTool);
 registry.register(runBuildTool);
@@ -142,6 +148,9 @@ registry.register(formatCodeTool);
 registry.register(gitDiffTool);
 registry.register(gitAddGuardedTool);
 registry.register(gitCommitGuardedTool);
+registry.register(runInSandboxTool);
+registry.register(takeScreenshotTool);
+registry.register(delegateTaskTool);
 
 export function getToolRegistry(): McpToolRegistry {
   return registry;

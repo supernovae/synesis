@@ -50,6 +50,7 @@ export const typescriptPack: LanguagePackManifest = {
       errorFamily: "undeclared_name",
       template: "Add the missing import or declare the identifier in {file}.",
       description: "An identifier is referenced but not declared in scope",
+      autoFixer: "import_resolver", // Instructs the deterministic engine to attempt an auto-fix
     },
     {
       errorFamily: "import_error",

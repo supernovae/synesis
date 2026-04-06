@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-vision-worker
+  namespace: synesis-yarn
+  labels:
+    app: synesis-vision-worker
+spec:
+  selector:
+    app: synesis-vision-worker
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP

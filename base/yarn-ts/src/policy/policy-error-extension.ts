@@ -36,7 +36,7 @@ export function synesisPolicyErrorExtension(matchedRules: string[]): SynesisPoli
     return {
       code: "patch_first_policy",
       retryable: false,
-      guidance: "Use apply_patch or search-replace instead of write_file for this workspace policy.",
+      guidance: "Use str_replace or search-replace instead of write_file for this workspace policy.",
     };
   }
   if (matchedRules.includes("consecutive_tool_calls_limit")) {

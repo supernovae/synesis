@@ -2509,6 +2509,8 @@ wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
 wait_for_deployment synesis-admin synesis-admin-mcp-ts
 wait_for_deployment synesis-yarn synesis-mcp-ts
+wait_for_deployment synesis-yarn synesis-ast-mcp
+wait_for_deployment synesis-yarn synesis-vision-worker
 wait_for_deployment synesis-yarn synesis-yarn
 if ! verify_yarn_path_governance_envs; then
     log "ERROR: strict Yarn path-governance env validation failed after rollout."

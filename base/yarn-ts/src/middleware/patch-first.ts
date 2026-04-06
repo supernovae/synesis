@@ -13,7 +13,7 @@ export function enforcePatchFirst(tools: ToolDef[] | undefined): string | null {
       continue;
     }
     if (fn.name === "write_file") {
-      return "Patch-first policy violation: use apply_patch/search-replace instead of write_file for non-trivial edits.";
+      return "Patch-first policy violation: use str_replace/search-replace instead of write_file for non-trivial edits.";
     }
   }
   return null;

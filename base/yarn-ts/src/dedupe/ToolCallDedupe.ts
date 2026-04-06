@@ -54,12 +54,12 @@ function isExactDedupeEligible(c: ParsedToolCall): boolean {
       n === "file_search"
     );
   }
-  return k === "read_file" || k === "search" || k === "apply_patch";
+  return k === "read_file" || k === "search" || k === "str_replace";
 }
 
 /**
  * Consecutive identical tool calls (same hash) → keep first, drop rest.
- * apply_patch: only deduped when full args hash matches (byte-equivalent JSON-stable encoding).
+ * str_replace: only deduped when full args hash matches (byte-equivalent JSON-stable encoding).
  */
 export function stripConsecutiveExactDuplicates(
   calls: ParsedToolCall[],
@@ -118,7 +118,7 @@ export function stripConsecutiveExactDuplicates(
  * Strict: only identical patch body + path (via extractPatch) produces same hash when whole input stable.
  */
 export function patchCallsAreByteIdentical(a: ParsedToolCall, b: ParsedToolCall): boolean {
-  if (classifyTool(a.toolName) !== "apply_patch" || classifyTool(b.toolName) !== "apply_patch") {
+  if (classifyTool(a.toolName) !== "str_replace" || classifyTool(b.toolName) !== "str_replace") {
     return false;
   }
   const pa = extractPatch(a.input);

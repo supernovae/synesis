@@ -5,6 +5,7 @@ import {
   codeSearchInputSchema,
   docsSearchInputSchema,
   configSearchInputSchema,
+  devDocsSearchInputSchema,
 } from "./knowledge-schemas.js";
 import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
@@ -110,6 +111,12 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
       description:
         "RAG over configs (YAML, JSON, K8s, …). When to use: cluster/manifest patterns in Synesis. When not to use: editing the user’s repo without reading it — inspect_repo/read_file first.",
       inputSchema: zodToJsonSchema(configSearchInputSchema),
+    },
+    {
+      name: "search_developer_docs",
+      description:
+        "RAG over official developer documentation for programming languages and frameworks (e.g., Python, React, Go). Use this to look up API references and best practices before falling back to web search.",
+      inputSchema: zodToJsonSchema(devDocsSearchInputSchema),
     },
     {
       name: "synesis_classify",

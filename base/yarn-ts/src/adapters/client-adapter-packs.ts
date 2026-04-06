@@ -92,7 +92,7 @@ export class ClientAdapterPacks {
   }
 
   toSystemBlock(profile: AdapterPackProfile): string {
-    return [
+    const lines = [
       "<CLIENT_ADAPTER>",
       `client=${profile.client}`,
       `family=${profile.family}`,
@@ -104,11 +104,43 @@ export class ClientAdapterPacks {
       `strict_write_tool_governance=${profile.features.strictWriteToolGovernance}`,
       "</CLIENT_ADAPTER>",
       "",
+    ];
+
+    if (profile.client.includes("cursor")) {
+      lines.push(
+        "<CLIENT_SPECIFIC_RULES>",
+        "You are operating within Cursor. Use the native IDE context when possible.",
+        "Prioritize using str_replace for targeted edits to avoid disrupting the user's view.",
+        "Do not use markdown code blocks for edits unless proposing new code; use the str_replace tool.",
+        "</CLIENT_SPECIFIC_RULES>",
+        ""
+      );
+    } else if (profile.client.includes("claude-code")) {
+      lines.push(
+        "<CLIENT_SPECIFIC_RULES>",
+        "You are operating within Claude Code (CLI).",
+        "Be extremely concise in your explanations. The user is in a terminal.",
+        "Rely heavily on run_terminal_cmd and git_* tools to verify state.",
+        "</CLIENT_SPECIFIC_RULES>",
+        ""
+      );
+    } else if (profile.client.includes("roo") || profile.client.includes("cline")) {
+      lines.push(
+        "<CLIENT_SPECIFIC_RULES>",
+        "You are operating within Roo/Cline.",
+        "Ensure you explicitly ask the user for permission before running destructive terminal commands.",
+        "Use the take_screenshot tool if you are modifying frontend code to verify your changes visually.",
+        "</CLIENT_SPECIFIC_RULES>",
+        ""
+      );
+    }
+
+    lines.push(
       "<SYNESIS_CODER_WORKFLOW>",
       "phase_order=explore|contract|implement|verify_fast|verify_deep",
       "- Prefer search_code or synesis_inspect_repo to locate files/symbols, then read_file (optionally startLine/endLine) — avoid huge undirected reads.",
       "- Never edit a file before inspecting it. Search first unless the user already gave exact file and region.",
-      "- Prefer apply_patch for existing files; use write_file for new/generated files or when patching is infeasible after inspection.",
+      "- Prefer str_replace for existing files; use write_file for new/generated files or when patching is infeasible after inspection.",
       "- For tests and other existing files, prefer Update/Edit-style targeted diffs; avoid full-file overwrite unless the user explicitly asked to replace the file.",
       "- When tests fail, fix implementation or expected assertions based on contract; do not delete or weaken failing tests just to make the suite pass.",
       "- After patch mismatch, read the smallest nearby window and retry with adjusted context instead of blind retries.",
@@ -119,7 +151,9 @@ export class ClientAdapterPacks {
       "- Do not claim completion while blocking quality checks remain; report not-complete with next actions instead.",
       "- External APIs, money, or compliance: state unknowns and explicit acceptance checks (commands/tests) before implementation.",
       "</SYNESIS_CODER_WORKFLOW>",
-    ].join("\n");
+    );
+
+    return lines.join("\n");
   }
 
   getStats(): AdapterStats {

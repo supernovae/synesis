@@ -7,6 +7,7 @@ import {
   codeSearchInputSchema,
   docsSearchInputSchema,
   configSearchInputSchema,
+  devDocsSearchInputSchema,
 } from "./knowledge-schemas.js";
 import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
@@ -98,6 +99,19 @@ export function registerSynesisMcpTools(server: McpServer, auth: SynesisMcpAuth,
     async (args) =>
       jsonResult(
         await dispatchSynesisTool("synesis_config_search", args as Record<string, unknown>, auth, deps),
+      ),
+  );
+
+  server.registerTool(
+    "search_developer_docs",
+    {
+      description:
+        "RAG over official developer documentation for programming languages and frameworks (e.g., Python, React, Go). Use this to look up API references and best practices before falling back to web search.",
+      inputSchema: devDocsSearchInputSchema,
+    },
+    async (args) =>
+      jsonResult(
+        await dispatchSynesisTool("search_developer_docs", args as Record<string, unknown>, auth, deps),
       ),
   );
 

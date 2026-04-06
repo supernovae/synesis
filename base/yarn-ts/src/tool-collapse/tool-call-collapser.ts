@@ -38,7 +38,7 @@ const SEARCH_ALIASES = new Set([
 ]);
 
 const PATCH_ALIASES = new Set([
-  "apply_patch",
+  "str_replace",
   "update",
   "edit",
   "str_replace_editor",
@@ -63,7 +63,7 @@ export function classifyTool(name: string): ToolKind {
   const n = normalizeToolAlias(name);
   if (READ_ALIASES.has(n)) return "read_file";
   if (SEARCH_ALIASES.has(n)) return "search";
-  if (PATCH_ALIASES.has(n)) return "apply_patch";
+  if (PATCH_ALIASES.has(n)) return "str_replace";
   if (RUN_ALIASES.has(n)) return "run_tests";
   return "passthrough";
 }
@@ -171,7 +171,7 @@ function buildBatchRead(chunk: ParsedToolCall[]): BatchReadCollapsed {
 function endsReadSearchDedupeSegment(c: ParsedToolCall): boolean {
   if (NEVER_COLLAPSE_NAMES.has(c.toolName)) return false;
   const k = classifyTool(c.toolName);
-  return k === "apply_patch" || k === "run_tests";
+  return k === "str_replace" || k === "run_tests";
 }
 
 function searchDedupeKey(q: { query: string; path?: string }): string {
@@ -185,7 +185,7 @@ export interface ReadSearchDedupePrepassResult {
 }
 
 /**
- * Within each segment (split on `apply_patch` / `run_terminal_cmd`, and on Synesis protected tools), drop:
+ * Within each segment (split on `str_replace` / `run_terminal_cmd`, and on Synesis protected tools), drop:
  * - **Interleaved** duplicate `read_file` for the same path (e.g. `read → search → read same file`).
  *   Consecutive reads of the same path are **kept** so the main pass can `batch_read` and retain all tool IDs.
  * - **Interleaved** duplicate `search` with the same (query, path). Consecutive identical searches are kept for `batch_search`.
@@ -398,12 +398,12 @@ export function collapseToolCallsLinear(slim: ParsedToolCall[], log: CollapseLog
       continue;
     }
 
-    if (k === "apply_patch") {
+    if (k === "str_replace") {
       const chunk: ParsedToolCall[] = [];
       while (i < slim.length) {
         const x = slim[i];
         if (NEVER_COLLAPSE_NAMES.has(x.toolName)) break;
-        if (classifyTool(x.toolName) !== "apply_patch") break;
+        if (classifyTool(x.toolName) !== "str_replace") break;
         chunk.push(x);
         i += 1;
       }

@@ -21,3 +21,4 @@ export const knowledgeSearchInputSchema = z.object({
 export const codeSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
 export const docsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
 export const configSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
+export const devDocsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });

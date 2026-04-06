@@ -139,7 +139,7 @@ export class DeterministicPolicyEngine {
         });
         return {
           allow: false,
-          rejectReason: "Patch-first policy violation: use apply_patch/search-replace instead of write_file for non-trivial edits.",
+          rejectReason: "Patch-first policy violation: use str_replace/search-replace instead of write_file for non-trivial edits.",
           matchedRules
         };
       }

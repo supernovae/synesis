@@ -48,6 +48,7 @@ import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-r
 import {
   KnowledgeSearchService,
   KNOWLEDGE_TOOL_NAME,
+  DEV_DOCS_TOOL_NAME,
   type KnowledgeResolveContext,
 } from "./state/knowledge-search.js";
 import {
@@ -190,7 +191,7 @@ function countEditsFromToolSequence(sequence: string[]): { patchOps: number; who
   let patchOps = 0;
   let wholeWriteOps = 0;
   for (const name of sequence) {
-    if (name === "apply_patch") patchOps += 1;
+    if (name === "str_replace") patchOps += 1;
     if (name === "write_file") wholeWriteOps += 1;
   }
   return { patchOps, wholeWriteOps };
@@ -488,7 +489,7 @@ function isWriteCapableToolName(name: string): boolean {
     || n === "edit"
     || n === "update"
     || n === "write_file"
-    || n === "apply_patch"
+    || n === "str_replace"
     || n === "git_add_guarded"
     || n === "git_commit_guarded"
     || n === "format_code";
@@ -966,6 +967,19 @@ function enrichWithFrameAndManifest(
   if (config.SYNESIS_YARN_PROJECT_MANIFEST_ENABLED) {
     const manifest = projectManifestService.build(out);
     volatileBlocks.push({ role: "system", content: projectManifestService.toSystemBlock(manifest) });
+  }
+
+  // Inject Golden Trajectories (Experience Library)
+  // If the user intent is recognized as a previously successful task, inject the trajectory.
+  if (detectedGoal) {
+    // In a full implementation, this would query Milvus via the Planner API.
+    // For now, we add a placeholder block if the goal matches a known pattern.
+    if (detectedGoal.toLowerCase().includes("add a new fastapi route")) {
+      volatileBlocks.push({
+        role: "system",
+        content: "<PREVIOUS_SUCCESS>\nSimilar task succeeded previously. Pattern: Create route in app/routers, add schema in app/schemas, and add test in tests/routers.\n</PREVIOUS_SUCCESS>"
+      });
+    }
   }
 
   if (config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED) {
@@ -2032,13 +2046,22 @@ async function runPreFinalizeCritic(
   const findings = deterministic.findings;
   const next = deterministic.suggestedNextActions;
   if (!config.SYNESIS_YARN_PREFINALIZE_LLM_CRITIC_ENABLED) {
-    return { blocked: true, findings, suggestedNextActions: next, source: "deterministic" };
+    return {
+      blocked: true,
+      findings,
+      suggestedNextActions: [
+        ...next,
+        "Self-Review: Review the changes you just made against the original user request. Did you miss any edge cases? Did you break any existing imports?",
+      ],
+      source: "deterministic",
+    };
   }
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 3500);
     const prompt = [
       "You are a strict pre-finalization critic for coding tasks.",
+      "Evaluate if the task is genuinely complete. Fail if there are unverified assumptions, token bloat (e.g. repeating unchanged code), or unresolved verification failures.",
       "Return JSON only: {\"verdict\":\"pass|fail\",\"reason\":\"...\"}",
       `Assistant text: ${input.assistantText.slice(0, 1200)}`,
       `Verification failures: ${JSON.stringify(input.verification.failures).slice(0, 1600)}`,
@@ -2075,11 +2098,22 @@ async function runPreFinalizeCritic(
     return {
       blocked: true,
       findings: [parsed?.reason ?? findings.join(" ")],
-      suggestedNextActions: next,
+      suggestedNextActions: [
+        ...next,
+        "Self-Review: Review the changes you just made against the original user request. Did you miss any edge cases? Did you break any existing imports?",
+      ],
       source: "llm_fallback",
     };
   } catch {
-    return { blocked: true, findings, suggestedNextActions: next, source: "deterministic" };
+    return {
+      blocked: true,
+      findings,
+      suggestedNextActions: [
+        ...next,
+        "Self-Review: Review the changes you just made against the original user request. Did you miss any edge cases? Did you break any existing imports?",
+      ],
+      source: "deterministic",
+    };
   }
 }
 
@@ -3566,7 +3600,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
       });
 
-      const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_ALIAS]);
+      const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME, DEV_DOCS_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_ALIAS]);
       for (let round = 0; round < 3; round++) {
         const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
         const serverCalls = allCalls.filter((tc) => SERVER_SIDE_TOOLS.has(tc.toolName));
@@ -3591,6 +3625,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
               type: "tool-result",
               toolCallId: ac.toolCallId,
               toolName: KNOWLEDGE_TOOL_NAME,
+              output: { type: "text", value: JSON.stringify(result) }
+            });
+          } else if (ac.toolName === DEV_DOCS_TOOL_NAME) {
+            const inp = ac.input as Record<string, unknown>;
+            const result = await knowledgeSearch.resolveDevDocs(inp, knowledgeResolveContext(authUser, req));
+            toolResults.push({
+              type: "tool-result",
+              toolCallId: ac.toolCallId,
+              toolName: DEV_DOCS_TOOL_NAME,
               output: { type: "text", value: JSON.stringify(result) }
             });
           } else if (ac.toolName === WEB_SEARCH_TOOL_NAME || ac.toolName === WEB_SEARCH_TOOL_ALIAS) {

@@ -79,7 +79,30 @@ export class WorkingFrameService {
         .slice(0, 8)
     );
 
-    const files = uniq((allText.match(FILE_RE) ?? []).map((f) => f.trim())).slice(0, this.maxFiles);
+    let currentPhase: WorkingFrame["currentPhase"] = "implementation";
+    if (/\b(explore|discover|research|investigate|understand)\b/i.test(latestUser)) currentPhase = "explore";
+    else if (/\b(plan|roadmap|design)\b/i.test(latestUser)) currentPhase = "planning";
+    else if (/\b(test|verify|validate|check)\b/i.test(latestUser)) currentPhase = "validation";
+
+    // Context eviction: if we are not in explore phase, only look at recent messages for active files
+    // to avoid dragging in files that were only relevant during exploration.
+    const filesSourceText = currentPhase === "explore" 
+      ? allText 
+      : texts.slice(-10).map((m) => m.text).join("\n");
+
+    const rawFiles = uniq((filesSourceText.match(FILE_RE) ?? []).map((f) => f.trim()));
+    
+    // Prefix Caching Rules: Always preserve core rule files in the active files list
+    // regardless of phase eviction, so they stay in the context window and benefit from prefix caching.
+    const ruleFiles = uniq((allText.match(FILE_RE) ?? []).map(f => f.trim())).filter(f => 
+      f.includes(".cursorrules") || 
+      f.includes(".claude.md") || 
+      f.includes("AGENTS.md") || 
+      f.includes(".windsurfrules")
+    );
+    
+    const files = uniq([...ruleFiles, ...rawFiles]).slice(0, this.maxFiles);
+
     const pendingChecks: string[] = [];
     if (/\b(test|pytest|vitest|go test|cargo test)\b/i.test(allText)) pendingChecks.push("tests");
     if (/\b(ruff|eslint|lint)\b/i.test(allText)) pendingChecks.push("lint");
@@ -92,11 +115,6 @@ export class WorkingFrameService {
         .filter((s) => s.endsWith("?"))
         .slice(0, 6)
     );
-
-    let currentPhase: WorkingFrame["currentPhase"] = "implementation";
-    if (/\b(explore|discover|research|investigate|understand)\b/i.test(latestUser)) currentPhase = "explore";
-    else if (/\b(plan|roadmap|design)\b/i.test(latestUser)) currentPhase = "planning";
-    else if (/\b(test|verify|validate|check)\b/i.test(latestUser)) currentPhase = "validation";
 
     const goal = (latestUser.split("\n").find((s) => s.trim()) ?? "Complete the current coding task.").trim();
     const frame: WorkingFrame = {
@@ -195,6 +213,16 @@ export class WorkingFrameService {
       `pending_checks=${frame.pendingChecks.join(",") || "none"}`,
       `constraints=${frame.constraints.join(" | ") || "none"}`,
       `open_decisions=${frame.openDecisions.join(" | ") || "none"}`,
+    );
+
+    if (frame.currentPhase === "explore") {
+      lines.push("phase_directive=You are in the discovery phase. Your ONLY goal is to build a mental map of the codebase. Do not propose edits. Use search tools to trace data flows.");
+    } else if (frame.currentPhase === "validation") {
+      lines.push("phase_directive=A verification step failed. Before reading any more files, explicitly state 3 possible hypotheses for this failure.");
+    }
+
+    lines.push(
+      "formatting_rules=Cite existing code as ```startLine:endLine:filepath. Use standard markdown for new code. Use specialized edit tools (like str_replace) instead of rewriting entire files.",
       "</WORKING_FRAME>",
     );
     return lines.join("\n");
@@ -234,6 +262,14 @@ export class WorkingFrameService {
     if (frame.blockers.length > 0) {
       lines.push(`blockers=${frame.blockers.join(" | ")}`);
     }
+
+    if (frame.phase === "explore") {
+      lines.push("phase_directive=You are in the discovery phase. Your ONLY goal is to build a mental map of the codebase. Do not propose edits. Use search tools to trace data flows.");
+    } else if (frame.phase === "validate") {
+      lines.push("phase_directive=A verification step failed. Before reading any more files, explicitly state 3 possible hypotheses for this failure.");
+    }
+
+    lines.push("formatting_rules=Cite existing code as ```startLine:endLine:filepath. Use standard markdown for new code. Use specialized edit tools (like str_replace) instead of rewriting entire files.");
     lines.push("</WORKING_FRAME>");
     return lines.join("\n");
   }

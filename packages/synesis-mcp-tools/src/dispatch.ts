@@ -15,6 +15,7 @@ export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_code_search",
   "synesis_docs_search",
   "synesis_config_search",
+  "search_developer_docs",
   "synesis_classify",
   "synesis_plan",
   "synesis_critique",
@@ -48,6 +49,8 @@ export async function dispatchSynesisTool(
     case "synesis_code_search":
       return runKnowledgeSearch(args, auth, deps, "code");
     case "synesis_docs_search":
+      return runKnowledgeSearch(args, auth, deps, "docs");
+    case "search_developer_docs":
       return runKnowledgeSearch(args, auth, deps, "docs");
     case "synesis_config_search":
       return runKnowledgeSearch(args, auth, deps, "config");

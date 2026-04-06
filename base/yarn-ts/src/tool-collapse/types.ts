@@ -2,7 +2,7 @@
  * Tool call collapsing — types for batching, merging, and safe execution.
  */
 
-export type ToolKind = "read_file" | "search" | "apply_patch" | "run_tests" | "passthrough";
+export type ToolKind = "read_file" | "search" | "str_replace" | "run_tests" | "passthrough";
 
 export interface ParsedToolCall {
   toolCallId: string;

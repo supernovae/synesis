@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-ast-mcp
+  namespace: synesis-yarn
+  labels:
+    app: synesis-ast-mcp
+    app.kubernetes.io/part-of: synesis-coder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synesis-ast-mcp
+  template:
+    metadata:
+      labels:
+        app: synesis-ast-mcp
+    spec:
+      containers:
+        - name: ast-mcp
+          image: synesis-ast-mcp:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

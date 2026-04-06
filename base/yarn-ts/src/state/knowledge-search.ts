@@ -75,6 +75,46 @@ export const KNOWLEDGE_TOOL_SCHEMA_CLAUDE = {
   input_schema: KNOWLEDGE_PARAMETERS,
 };
 
+export const DEV_DOCS_TOOL_NAME = "search_developer_docs";
+
+const DEV_DOCS_DESCRIPTION =
+  "Search official developer documentation for programming languages and frameworks (e.g., Python, React, Go). " +
+  "Use this to look up API references and best practices before falling back to web search.";
+
+const DEV_DOCS_PARAMETERS = {
+  type: "object" as const,
+  properties: {
+    query: {
+      type: "string",
+      description: "Search query describing what documentation to find",
+    },
+    language: {
+      type: "string",
+      description: "Filter by programming language or framework (e.g., python, react, go)",
+    },
+    top_k: {
+      type: "integer",
+      description: "Number of results to return (default 5, max 20)",
+    },
+  },
+  required: ["query"],
+};
+
+export const DEV_DOCS_TOOL_SCHEMA_OPENAI = {
+  type: "function" as const,
+  function: {
+    name: DEV_DOCS_TOOL_NAME,
+    description: DEV_DOCS_DESCRIPTION,
+    parameters: DEV_DOCS_PARAMETERS,
+  },
+};
+
+export const DEV_DOCS_TOOL_SCHEMA_CLAUDE = {
+  name: DEV_DOCS_TOOL_NAME,
+  description: DEV_DOCS_DESCRIPTION,
+  input_schema: DEV_DOCS_PARAMETERS,
+};
+
 export interface KnowledgeSearchResult {
   results: Array<{
     text: string;
@@ -158,21 +198,79 @@ export class KnowledgeSearchService {
   }
 
   injectToolOpenAI(tools: unknown[] | undefined): unknown[] | undefined {
-    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_OPENAI];
-    const exists = (tools as Array<{ function?: { name?: string } }>).some(
+    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_OPENAI, DEV_DOCS_TOOL_SCHEMA_OPENAI];
+    let newTools = [...tools];
+    const existsKnowledge = (tools as Array<{ function?: { name?: string } }>).some(
       (t) => t.function?.name === KNOWLEDGE_TOOL_NAME,
     );
-    if (exists) return tools;
-    return [...tools, KNOWLEDGE_TOOL_SCHEMA_OPENAI];
+    if (!existsKnowledge) newTools.push(KNOWLEDGE_TOOL_SCHEMA_OPENAI);
+    
+    const existsDevDocs = (tools as Array<{ function?: { name?: string } }>).some(
+      (t) => t.function?.name === DEV_DOCS_TOOL_NAME,
+    );
+    if (!existsDevDocs) newTools.push(DEV_DOCS_TOOL_SCHEMA_OPENAI);
+    
+    return newTools;
   }
 
   injectToolClaude(tools: unknown[] | undefined): unknown[] | undefined {
-    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_CLAUDE];
-    const exists = (tools as Array<{ name?: string }>).some(
+    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_CLAUDE, DEV_DOCS_TOOL_SCHEMA_CLAUDE];
+    let newTools = [...tools];
+    const existsKnowledge = (tools as Array<{ name?: string }>).some(
       (t) => t.name === KNOWLEDGE_TOOL_NAME,
     );
-    if (exists) return tools;
-    return [...tools, KNOWLEDGE_TOOL_SCHEMA_CLAUDE];
+    if (!existsKnowledge) newTools.push(KNOWLEDGE_TOOL_SCHEMA_CLAUDE);
+    
+    const existsDevDocs = (tools as Array<{ name?: string }>).some(
+      (t) => t.name === DEV_DOCS_TOOL_NAME,
+    );
+    if (!existsDevDocs) newTools.push(DEV_DOCS_TOOL_SCHEMA_CLAUDE);
+    
+    return newTools;
+  }
+
+  async resolveDevDocs(
+    args: Record<string, unknown>,
+    context?: KnowledgeResolveContext,
+  ): Promise<KnowledgeSearchResult> {
+    this.searchCount++;
+    const bearer =
+      context?.bearerToken?.trim() || this.deps.internalServiceToken?.trim() || "";
+    const auth: SynesisMcpAuth = {
+      bearerToken: bearer,
+      userId: context?.userId ?? "",
+      orgId: context?.orgId ?? "",
+      tenantIds: context?.tenantIds ?? [],
+    };
+
+    try {
+      const raw = await dispatchSynesisTool(
+        "search_developer_docs",
+        args,
+        auth,
+        this.deps,
+      );
+      const parsed = raw as Record<string, unknown>;
+      if (parsed && typeof parsed === "object" && "error" in parsed) {
+        this.errorCount++;
+        return { results: [], query: String(args.query ?? ""), total: 0 };
+      }
+      const results = Array.isArray(parsed.results) ? parsed.results : [];
+      const total =
+        typeof parsed.total === "number"
+          ? parsed.total
+          : Array.isArray(results)
+            ? results.length
+            : 0;
+      return {
+        results: results as KnowledgeSearchResult["results"],
+        query: String(args.query ?? ""),
+        total,
+      };
+    } catch {
+      this.errorCount++;
+      return { results: [], query: String(args.query ?? ""), total: 0 };
+    }
   }
 
   getStats() {

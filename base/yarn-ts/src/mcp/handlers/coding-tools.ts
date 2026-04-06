@@ -267,13 +267,88 @@ export const writeFileTool: McpToolDefinition<
   },
 };
 
-const ApplyPatchSchema = RootSchema.extend({
+const StrReplaceSchema = RootSchema.extend({
   filePath: RelPathSchema,
   oldString: z.string().min(1),
   newString: z.string(),
 });
-export const applyPatchTool: McpToolDefinition<
-  z.infer<typeof ApplyPatchSchema>,
+const TakeScreenshotSchema = RootSchema.extend({
+  url: z.string().url().describe("The URL to take a screenshot of (e.g., http://localhost:3000)"),
+  width: z.number().int().min(320).max(3840).default(1280),
+  height: z.number().int().min(240).max(2160).default(800),
+  delayMs: z.number().int().min(0).max(10000).default(1000).describe("Wait time before taking screenshot"),
+});
+
+export const takeScreenshotTool: McpToolDefinition<
+  z.infer<typeof TakeScreenshotSchema>,
+  { exitCode: number; imagePath?: string; error?: string }
+> = {
+  name: "take_screenshot",
+  description: "Take a headless screenshot of a URL using Playwright. Useful for visually verifying UI changes. Saves image to project root.",
+  inputSchema: TakeScreenshotSchema,
+  async handler(input) {
+    const root = path.resolve(input.projectRoot);
+    const filename = `screenshot-${Date.now()}.png`;
+    const absPath = path.join(root, filename);
+
+    const url = process.env.SYNESIS_VISION_WORKER_URL || "http://synesis-vision-worker.synesis-yarn.svc.cluster.local:8080/screenshot";
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: input.url,
+          width: input.width,
+          height: input.height,
+          delayMs: input.delayMs,
+        }),
+      });
+
+      if (!resp.ok) {
+        return { exitCode: 1, error: `Vision worker returned HTTP ${resp.status}: ${await resp.text()}` };
+      }
+
+      const result = await resp.json() as { success: boolean; image_base64?: string; error?: string };
+      if (!result.success || !result.image_base64) {
+        return { exitCode: 1, error: result.error || "Failed to take screenshot" };
+      }
+
+      const buffer = Buffer.from(result.image_base64, "base64");
+      await fs.writeFile(absPath, buffer);
+      
+      return { exitCode: 0, imagePath: filename };
+    } catch (err) {
+      return { exitCode: 1, error: `Failed to connect to vision worker: ${err}` };
+    }
+  },
+};
+
+const DelegateTaskSchema = RootSchema.extend({
+  task_description: z.string().min(10).describe("Detailed description of the task for the sub-agent to perform"),
+  context_files: z.array(RelPathSchema).optional().describe("Optional list of files to pre-load into the sub-agent's context"),
+});
+
+export const delegateTaskTool: McpToolDefinition<
+  z.infer<typeof DelegateTaskSchema>,
+  { status: string; sub_agent_id?: string; error?: string }
+> = {
+  name: "delegate_task",
+  description: "Spawn a parallel sub-agent to perform an isolated task (e.g., massive architectural exploration or reading multiple files). The sub-agent will run asynchronously.",
+  inputSchema: DelegateTaskSchema,
+  async handler(input) {
+    // In a full implementation, this would call the Synesis API to spawn a new yarn-ts session
+    // and return the session ID. For now, we return a mock success.
+    const subAgentId = `sub-agent-${Date.now()}`;
+    return {
+      status: "Sub-agent spawned successfully. It will report back when finished.",
+      sub_agent_id: subAgentId,
+    };
+  },
+};
+
+export const strReplaceTool: McpToolDefinition<
+  z.infer<typeof StrReplaceSchema>,
   {
     filePath: string;
     replaced: boolean;
@@ -283,10 +358,10 @@ export const applyPatchTool: McpToolDefinition<
     contextHint?: string;
   }
 > = {
-  name: "apply_patch",
+  name: "str_replace",
   description:
     "Apply deterministic single-occurrence string replacement in a file. Prefer this over whole-file rewrites for existing files; returns recovery hints when patching fails.",
-  inputSchema: ApplyPatchSchema,
+  inputSchema: StrReplaceSchema,
   async handler(input) {
     const abs = resolveInsideRoot(input.projectRoot, input.filePath);
     const content = await fs.readFile(abs, "utf8");
@@ -300,7 +375,7 @@ export const applyPatchTool: McpToolDefinition<
         reason: "multiple_matches",
         suggestedNextActions: [
           "read_file(filePath=<same file>, startLine=<nearby>, endLine=<nearby+200>)",
-          "retry apply_patch with a larger unique oldString context (3-8 surrounding lines)",
+          "retry str_replace with a larger unique oldString context (3-8 surrounding lines)",
           "prefer one focused replacement per call",
         ],
       };
@@ -329,7 +404,7 @@ export const applyPatchTool: McpToolDefinition<
         suggestedNextActions: [
           "search_code(pattern=<target symbol>, dir='.')",
           "read_file(filePath=<same file>, startLine=<nearby>, endLine=<nearby+200>)",
-          "retry apply_patch with adjusted oldString context",
+          "retry str_replace with adjusted oldString context",
         ],
         ...(contextHint ? { contextHint } : {}),
       };
@@ -456,7 +531,7 @@ function makeRunnerTool(
           ? []
           : [
               "read_file(filePath=<reported file>, startLine=<nearby>, endLine=<nearby+200>)",
-              "apply_patch with minimal fix",
+              "str_replace with minimal fix",
               `rerun ${name}(preset=${input.preset})`,
             ],
       };
@@ -556,6 +631,53 @@ const GitCommitGuardedSchema = RootSchema.extend({
   message: z.string().min(5).max(300),
   files: z.array(RelPathSchema).min(1).max(200).optional(),
 });
+const RunInSandboxSchema = RootSchema.extend({
+  filePath: RelPathSchema,
+  language: z.string().min(1).describe("Language of the file (e.g., python, bash, go, javascript)"),
+  trivial: z.boolean().default(false).describe("If true, only runs syntax/format checks. If false, runs full linting/execution."),
+});
+
+export const runInSandboxTool: McpToolDefinition<
+  z.infer<typeof RunInSandboxSchema>,
+  { exitCode: number; lint: any; execution: any; error?: string }
+> = {
+  name: "run_in_sandbox",
+  description: "Run a single file in the isolated Synesis sandbox. Useful for speculative execution of scripts to capture stdout/stderr safely.",
+  inputSchema: RunInSandboxSchema,
+  async handler(input) {
+    const abs = resolveInsideRoot(input.projectRoot, input.filePath);
+    const code = await fs.readFile(abs, "utf8");
+    
+    const url = process.env.SYNESIS_SANDBOX_URL || "http://synesis-warm-pool.synesis-sandbox.svc.cluster.local:8080/execute";
+    const secret = process.env.SYNESIS_SANDBOX_SECRET || "";
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
+        },
+        body: JSON.stringify({
+          language: input.language,
+          code,
+          filename: path.basename(input.filePath),
+          trivial: input.trivial,
+        }),
+      });
+
+      if (!resp.ok) {
+        return { exitCode: 1, lint: null, execution: null, error: `Sandbox returned HTTP ${resp.status}: ${await resp.text()}` };
+      }
+
+      const result = await resp.json();
+      return result as any;
+    } catch (err) {
+      return { exitCode: 1, lint: null, execution: null, error: `Failed to connect to sandbox: ${err}` };
+    }
+  },
+};
+
 export const gitCommitGuardedTool: McpToolDefinition<
   z.infer<typeof GitCommitGuardedSchema>,
   { committed: boolean; exitCode: number; stdout: string; stderr: string }

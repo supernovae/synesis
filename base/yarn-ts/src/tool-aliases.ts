@@ -22,7 +22,7 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   edit_file: "Edit",
 
   update: "Update",
-  apply_patch: "Update",
+  str_replace: "Update",
   search_replace: "Update",
   str_replace_editor: "Update",
 

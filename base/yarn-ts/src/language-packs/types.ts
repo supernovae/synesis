@@ -22,6 +22,7 @@ export interface FixRecipe {
   description: string;
   steps?: string[];
   constraints?: string;
+  autoFixer?: string; // Optional deterministic auto-fixer ID
 }
 
 export interface LanguagePackManifest {

@@ -96,6 +96,7 @@ KNOWN_ROLES = (
     "coder-normalizer",
     "summarizer",
     "indexer-enrich",
+    "vision",
 )
 
 ROLE_DESCRIPTIONS = {
@@ -112,6 +113,7 @@ ROLE_DESCRIPTIONS = {
     "coder-normalizer": "Validation normalizer Tier C — fast small model for structured extraction fallback when deterministic parsers miss",
     "summarizer": "Pivot history summarization — router evidence compression",
     "indexer-enrich": "Indexer chunk enrichment — small model for structured metadata extraction during corpus ingestion",
+    "vision": "Multimodal model — UI verification, screenshot analysis, and visual debugging",
 }
 
 ROLE_SERVED_NAMES = {
@@ -123,6 +125,7 @@ ROLE_SERVED_NAMES = {
     "coder-horizon": "synesis-horizon",
     "coder-compaction": "synesis-compaction",
     "coder-normalizer": "synesis-normalizer",
+    "vision": "synesis-vision",
 }
 
 

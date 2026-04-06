@@ -21,6 +21,7 @@ on:
       - 'base/rag/spam-service/**'
       - 'base/rag/knowledge-base/**'
       - 'base/mcp-ts/**'
+      - 'base/ast-mcp/**'
       - 'base/admin-mcp-ts/**'
       - 'base/yarn-ts/**'
       - 'base/planner-ts/**'
@@ -74,6 +75,8 @@ jobs:
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
       open-webui: ${{ steps.filter.outputs.open-webui }}
       mcp-ts: ${{ steps.filter.outputs.mcp-ts }}
+      ast-mcp: ${{ steps.filter.outputs.ast-mcp }}
+      vision-worker: ${{ steps.filter.outputs.vision-worker }}
       admin-mcp-ts: ${{ steps.filter.outputs.admin-mcp-ts }}
       yarn-ts: ${{ steps.filter.outputs.yarn-ts }}
       planner-ts: ${{ steps.filter.outputs.planner-ts }}
@@ -121,6 +124,10 @@ jobs:
             mcp-ts:
               - 'base/mcp-ts/**'
               - 'packages/synesis-mcp-tools/**'
+            ast-mcp:
+              - 'base/ast-mcp/**'
+            vision-worker:
+              - 'base/vision-worker/**'
             admin-mcp-ts:
               - 'base/admin-mcp-ts/**'
               - 'base/admin/kustomization.yaml'
@@ -435,6 +442,18 @@ jobs:
             context: .
             base_arg: ""
             change_key: mcp-ts
+            base_change_key: ""
+          - name: ast-mcp
+            dockerfile: base/ast-mcp/Dockerfile
+            context: base/ast-mcp
+            base_arg: synesis-base-api
+            change_key: ast-mcp
+            base_change_key: base-api
+          - name: vision-worker
+            dockerfile: base/vision-worker/Dockerfile
+            context: base/vision-worker
+            base_arg: ""
+            change_key: vision-worker
             base_change_key: ""
           - name: admin-mcp-ts
             dockerfile: base/admin-mcp-ts/Containerfile
