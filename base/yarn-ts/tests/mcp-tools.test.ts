@@ -9,7 +9,7 @@ import {
   listDirTool,
   readFileTool,
   writeFileTool,
-  applyPatchTool,
+  strReplaceTool,
   searchCodeTool,
   runTestTool,
   runBuildTool,
@@ -93,7 +93,7 @@ describe("coding tools", () => {
     expect(windowed.content).not.toContain("N01");
     expect(windowed.lineRange).toEqual({ startLine: 5, endLine: 30 });
 
-    const patched = await applyPatchTool.handler({
+    const patched = await strReplaceTool.handler({
       projectRoot: root,
       filePath: rel,
       oldString: "world",
@@ -105,7 +105,7 @@ describe("coding tools", () => {
     expect(patched.suggestedNextActions).toEqual([]);
 
     writeFileSync(path.join(root, "dupe.txt"), "x=1\nx=1\n", "utf8");
-    const patchDupe = await applyPatchTool.handler({
+    const patchDupe = await strReplaceTool.handler({
       projectRoot: root,
       filePath: "dupe.txt",
       oldString: "x=1",
@@ -116,7 +116,7 @@ describe("coding tools", () => {
     expect(patchDupe.reason).toBe("multiple_matches");
     expect(patchDupe.suggestedNextActions.length).toBeGreaterThan(0);
 
-    const patchMiss = await applyPatchTool.handler({
+    const patchMiss = await strReplaceTool.handler({
       projectRoot: root,
       filePath: rel,
       oldString: "does-not-exist",

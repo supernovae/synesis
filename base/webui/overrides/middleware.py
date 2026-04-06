@@ -1,3 +1,5 @@
+# ruff: noqa
+# Synesis-maintained fork of Open WebUI upstream middleware; preserve upstream import surface for merges.
 import copy
 import time
 import logging

@@ -65,6 +65,7 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+exclude = ["base/webui/overrides/middleware.py"]
 
 # Bandit (CI: uvx bandit[toml] -c pyproject.toml -r base/). Exclude venvs so
 # third-party code does not trigger plugins or internal bandit errors.

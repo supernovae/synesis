@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Any
 
@@ -94,9 +93,11 @@ for _lang_name, _cfg in LANG_CONFIGS.items():
         if _ext not in _EXT_TO_LANG:
             _EXT_TO_LANG[_ext] = _lang_name
 
+
 def detect_language(file_path: str) -> str | None:
     p = Path(file_path)
     return _EXT_TO_LANG.get(p.suffix.lower())
+
 
 def _extract_symbol_name(node) -> str:
     for child in node.children:
@@ -105,6 +106,7 @@ def _extract_symbol_name(node) -> str:
         if child.type == "function_declarator":
             return _extract_symbol_name(child)
     return ""
+
 
 def _get_leading_comment(source_bytes: bytes, node) -> bytes:
     start = node.start_byte
@@ -124,7 +126,9 @@ def _get_leading_comment(source_bytes: bytes, node) -> bytes:
             break
     return b"\n".join(comment_lines) + b"\n" if comment_lines else b""
 
+
 mcp = FastMCP("AST Outline Server")
+
 
 @mcp.tool()
 def get_file_outline(file_path: str) -> str:
@@ -133,7 +137,7 @@ def get_file_outline(file_path: str) -> str:
     Useful for exploring large codebases efficiently.
     """
     try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(file_path, encoding="utf-8", errors="replace") as f:
             source_code = f.read()
     except Exception as e:
         return f"Error reading file: {e}"
@@ -144,6 +148,7 @@ def get_file_outline(file_path: str) -> str:
 
     try:
         from tree_sitter_language_pack import get_parser
+
         parser = get_parser(language)
     except ImportError:
         return "Error: tree-sitter-language-pack not installed."
@@ -176,20 +181,24 @@ def get_file_outline(file_path: str) -> str:
                 child_leading = _get_leading_comment(source_bytes, child).decode("utf-8", errors="replace").strip()
                 child_name = _extract_symbol_name(child)
                 child_type = child.type.replace("_declaration", "").replace("_definition", "")
-                
+
                 if child_leading:
                     outline_lines.append(f"  // {child_leading}")
-                outline_lines.append(f"  {child_type} {child_name} (lines {child.start_point[0] + 1}-{child.end_point[0] + 1})")
-        
-        outline_lines.append("") # Empty line between top-level symbols
+                outline_lines.append(
+                    f"  {child_type} {child_name} (lines {child.start_point[0] + 1}-{child.end_point[0] + 1})"
+                )
+
+        outline_lines.append("")  # Empty line between top-level symbols
 
     if not outline_lines:
         return "No top-level symbols found or file is empty."
 
     return "\n".join(outline_lines)
 
+
 def main():
     mcp.run()
+
 
 if __name__ == "__main__":
     main()

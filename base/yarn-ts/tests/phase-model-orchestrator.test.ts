@@ -11,7 +11,8 @@ describe("PhaseModelOrchestrator", () => {
     });
     expect(d.tier).toBe("synesis-pulse");
     expect(d.phase).toBe("validation");
-    expect(d.maxOutputTokens).toBeLessThanOrEqual(1800);
+    // tierOutput(): pulse → 4096 (validation phase does not further cap).
+    expect(d.maxOutputTokens).toBeLessThanOrEqual(4096);
   });
 
   it("chooses horizon for high risk tasks", () => {

@@ -31,14 +31,14 @@ spec:
         options:
           - name: ndots
             value: "3"
+      # Do not set fsGroup/runAsUser under securityContext: OpenShift assigns UID/GID from the
+      # namespace range (see base/gateway/helm/values-synesis.yaml). Fixed 977 would often fail
+      # scheduling. EmptyDir remains group-writable; entrypoint may still warn about
+      # searxng:searxng — harmless on restricted SCC.
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-        # Do not set fsGroup/runAsUser here: OpenShift assigns UID/GID from the
-        # namespace range (see base/gateway/helm/values-synesis.yaml). Fixed 977
-        # would often fail scheduling. EmptyDir remains group-writable; entrypoint
-        # may still warn about searxng:searxng — harmless on restricted SCC.
       containers:
         - name: searxng
           image: docker.io/searxng/searxng:latest

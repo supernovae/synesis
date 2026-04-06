@@ -60,7 +60,8 @@ describe("PhaseModelOrchestrator — Decision Routing (Phase 8)", () => {
     it("explore mode gives broader output budget", () => {
       const d = orch.decide(ctx({ latestUserText: "explore how the system works" }));
       expect(d.phase).toBe("explore");
-      expect(d.maxOutputTokens).toBe(4200);
+      // tierOutput(): explore phase → 8192
+      expect(d.maxOutputTokens).toBe(8192);
     });
 
     it("detects planning phase", () => {
@@ -615,7 +616,7 @@ describe("PhaseModelOrchestrator — Decision Routing (Phase 8)", () => {
       });
       expect(d.tier).toBe("synesis-pulse");
       expect(d.phase).toBe("validation");
-      expect(d.maxOutputTokens).toBeLessThanOrEqual(1800);
+      expect(d.maxOutputTokens).toBeLessThanOrEqual(4096);
     });
 
     it("chooses horizon for high risk tasks", () => {

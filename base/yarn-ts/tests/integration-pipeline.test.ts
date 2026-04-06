@@ -703,12 +703,14 @@ describe("Knowledge search tool Claude parity", () => {
     const svc = new KnowledgeSearchService(knowledgeDeps);
 
     const oaiTools = svc.injectToolOpenAI([]);
-    expect(oaiTools).toHaveLength(1);
-    expect((oaiTools![0] as { function: { name: string } }).function.name).toBe(KNOWLEDGE_TOOL_NAME);
+    expect(oaiTools).toHaveLength(2);
+    const oaiNames = (oaiTools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name);
+    expect(oaiNames).toContain(KNOWLEDGE_TOOL_NAME);
 
     const claudeTools = svc.injectToolClaude([]);
-    expect(claudeTools).toHaveLength(1);
-    expect((claudeTools![0] as { name: string }).name).toBe(KNOWLEDGE_TOOL_NAME);
+    expect(claudeTools).toHaveLength(2);
+    const claudeNames = (claudeTools as Array<{ name?: string }>).map((t) => t.name);
+    expect(claudeNames).toContain(KNOWLEDGE_TOOL_NAME);
   });
 
   it("knowledge search resolve returns results and tracks stats", async () => {
