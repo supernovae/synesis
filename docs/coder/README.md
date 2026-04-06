@@ -24,6 +24,7 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [`admin-control-plane-and-constitutions.md`](./admin-control-plane-and-constitutions.md)
 - [`safety-reliability-and-fail-safe.md`](./safety-reliability-and-fail-safe.md)
 - [`observability-verification-and-evals.md`](./observability-verification-and-evals.md)
+- [`GIT_FIRST_POLICY_MODES.md`](./GIT_FIRST_POLICY_MODES.md)
 - [`implementation-phases.md`](./implementation-phases.md)
 - [`migration-map-from-milestones.md`](./migration-map-from-milestones.md)
 

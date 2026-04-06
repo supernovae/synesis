@@ -91,6 +91,14 @@ const EnvSchema = z.object({
   SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS: z.coerce.number().default(2_000_000),
   /** `audit`: warn above policy soft limit but allow until hard max; `enforced`: reject at policy limit. */
   SYNESIS_YARN_SESSION_BUDGET_MODE: z.enum(["audit", "enforced"]).default("enforced"),
+  /** Outbound model-admission mode based on estimated prompt+tool schema footprint. */
+  SYNESIS_YARN_CONTEXT_ADMISSION_MODE: z
+    .enum(["advisory", "hybrid", "enforced"])
+    .default("hybrid"),
+  /** Advisory threshold for estimated outbound input tokens (0 disables warning threshold). */
+  SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS: z.coerce.number().default(120_000),
+  /** Hard safety threshold for estimated outbound input tokens (0 disables hard admission reject). */
+  SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS: z.coerce.number().default(180_000),
   /** When > 0, cap `maxOutputTokens` sent to the provider (runaway output safety). 0 = disabled. */
   SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(0),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(25),
@@ -454,6 +462,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
+  // Git-first policy mode for prompts and guarded git MCP tools.
+  SYNESIS_YARN_GIT_POLICY_MODE: z
+    .enum(["off", "advisory", "enforced"])
+    .default("advisory"),
 
   // Workspace context handshake (synthetic first tool call).
   SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED: z

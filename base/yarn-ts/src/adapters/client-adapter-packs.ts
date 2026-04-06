@@ -147,6 +147,8 @@ export class ClientAdapterPacks {
       "- For Synesis platform APIs, deployment, and conventions: synesis_search / synesis_docs_search before guessing.",
       "- Ambiguous or multi-step tasks: synesis_classify then synesis_plan before large edits.",
       "- Verify: run_lint and run_build (verify_fast) before run_test when compile/typecheck applies; fix errorLines/summary from run_* before rerunning.",
+      "- In git repositories, run git_status and git_diff before final completion; keep commits focused and avoid staging credentials/secrets.",
+      "- In non-git or empty workspaces, do not force git workflows; scaffold first and suggest git init only when requested.",
       "- Prefer minimal patches, but do not be minimal in quality: if formatting/lint/typecheck/test fails, continue repair until blocking failures are gone.",
       "- Do not claim completion while blocking quality checks remain; report not-complete with next actions instead.",
       "- External APIs, money, or compliance: state unknowns and explicit acceptance checks (commands/tests) before implementation.",

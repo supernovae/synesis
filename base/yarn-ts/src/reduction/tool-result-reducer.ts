@@ -122,15 +122,8 @@ export class ToolResultReductionService {
     let reducedCount = 0;
     const out = messages.map((m) => {
       if (m.role !== "tool") return m;
-      const raw = toStringContent(m.content);
-
-      const dispatched = this.contentDispatch?.dispatch(raw);
-      if (dispatched?.transformed) {
-        this.stats.contentDispatchCount += 1;
-        this.trackTransformation(raw.length, dispatched.transformed.length);
-        reducedCount += 1;
-        return { ...m, content: dispatched.transformed };
-      }
+      const normalized = this.buildReductionInput(m.name, m.content);
+      const raw = normalized.raw;
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
       if (!this.isExemptFromFileReduction(m.name)) {
@@ -139,7 +132,7 @@ export class ToolResultReductionService {
             raw,
             context: {
               toolName: m.name,
-              command: m.name,
+              command: normalized.commandHint,
               profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
               maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
               minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
@@ -149,6 +142,13 @@ export class ToolResultReductionService {
           this.stats.compactionFailures += 1;
           reduced = null;
         }
+      }
+      const dispatched = reduced || !normalized.allowDispatch ? null : this.contentDispatch?.dispatch(raw);
+      if (!reduced && dispatched?.transformed) {
+        this.stats.contentDispatchCount += 1;
+        this.trackTransformation(raw.length, dispatched.transformed.length);
+        reducedCount += 1;
+        return { ...m, content: dispatched.transformed };
       }
       const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
       if (!shouldReduce) return { ...m, content: raw };
@@ -203,7 +203,9 @@ export class ToolResultReductionService {
           }
         }
       } else {
-        const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
+        const jsonResult = this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED
+          ? compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id })
+          : null;
         if (jsonResult && jsonResult.compressionRatio > 0.2) {
           summary = jsonResult.compacted;
           this.stats.jsonCompactionCount += 1;
@@ -240,16 +242,18 @@ export class ToolResultReductionService {
     }
 
     const toolIndices: number[] = [];
+    const toolInputs: Array<{ raw: string; commandHint: string; allowDispatch: boolean }> = [];
     const dispatchPromises: Promise<{ contentType: string; transformed: string | null }>[] = [];
-    const rawStrings: string[] = [];
 
     for (let i = 0; i < messages.length; i++) {
       if (messages[i].role === "tool") {
-        const raw = toStringContent(messages[i].content);
+        const normalized = this.buildReductionInput(messages[i].name, messages[i].content);
         toolIndices.push(i);
-        rawStrings.push(raw);
+        toolInputs.push(normalized);
         dispatchPromises.push(
-          this.contentDispatch ? pool.dispatchContentAsync(raw) : Promise.resolve({ contentType: "unknown", transformed: null }),
+          this.contentDispatch && normalized.allowDispatch
+            ? pool.dispatchContentAsync(normalized.raw)
+            : Promise.resolve({ contentType: "unknown", transformed: null }),
         );
       }
     }
@@ -262,16 +266,9 @@ export class ToolResultReductionService {
     for (let j = 0; j < toolIndices.length; j++) {
       const idx = toolIndices[j];
       const m = messages[idx];
-      const raw = rawStrings[j];
+      const normalized = toolInputs[j];
+      const raw = normalized.raw;
       const dispatch = dispatched[j];
-
-      if (dispatch.transformed) {
-        this.stats.contentDispatchCount += 1;
-        this.trackTransformation(raw.length, dispatch.transformed.length);
-        reducedCount += 1;
-        out[idx] = { ...m, content: dispatch.transformed };
-        continue;
-      }
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
       if (!this.isExemptFromFileReduction(m.name)) {
@@ -280,7 +277,7 @@ export class ToolResultReductionService {
             raw,
             context: {
               toolName: m.name,
-              command: m.name,
+              command: normalized.commandHint,
               profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
               maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
               minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE,
@@ -290,6 +287,13 @@ export class ToolResultReductionService {
           this.stats.compactionFailures += 1;
           reduced = null;
         }
+      }
+      if (!reduced && normalized.allowDispatch && dispatch.transformed) {
+        this.stats.contentDispatchCount += 1;
+        this.trackTransformation(raw.length, dispatch.transformed.length);
+        reducedCount += 1;
+        out[idx] = { ...m, content: dispatch.transformed };
+        continue;
       }
 
       const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
@@ -346,7 +350,9 @@ export class ToolResultReductionService {
           }
         }
       } else {
-        const compactResult = await pool.compactJsonAsync(raw);
+        const compactResult = this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED
+          ? await pool.compactJsonAsync(raw)
+          : null;
         if (compactResult && compactResult.compressionRatio > 0.2) {
           summary = compactResult.compacted;
           this.stats.jsonCompactionCount += 1;
@@ -367,7 +373,8 @@ export class ToolResultReductionService {
   }
 
   reduceStandaloneToolResult(content: unknown, toolName?: string): string {
-    const raw = toStringContent(content);
+    const normalized = this.buildReductionInput(toolName, content);
+    const raw = normalized.raw;
     let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
     if (!this.isExemptFromFileReduction(toolName)) {
       try {
@@ -375,7 +382,7 @@ export class ToolResultReductionService {
           raw,
           context: {
             toolName,
-            command: toolName,
+            command: normalized.commandHint,
             profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
             maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
             minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
@@ -387,7 +394,9 @@ export class ToolResultReductionService {
       }
     }
     if (!reduced && (this.isExemptFromFileReduction(toolName) || raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS)) {
-      const jsonResult = compactJsonArray(raw);
+      const jsonResult = this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED
+        ? compactJsonArray(raw)
+        : null;
       if (jsonResult && jsonResult.compressionRatio > 0.2) {
         this.stats.jsonCompactionCount += 1;
         this.trackTransformation(raw.length, jsonResult.compacted.length);
@@ -445,7 +454,9 @@ export class ToolResultReductionService {
         }
       }
     } else {
-      const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
+      const jsonResult = this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED
+        ? compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id })
+        : null;
       if (jsonResult && jsonResult.compressionRatio > 0.2) {
         summary = jsonResult.compacted;
         this.stats.jsonCompactionCount += 1;
@@ -516,6 +527,74 @@ export class ToolResultReductionService {
     if (outChars < rawChars) this.stats.shrunkCount += 1;
     else if (outChars > rawChars) this.stats.expandedCount += 1;
     else this.stats.unchangedCount += 1;
+  }
+
+  private buildReductionInput(
+    toolName: string | undefined,
+    content: unknown,
+  ): { raw: string; commandHint: string; allowDispatch: boolean } {
+    const name = (toolName ?? "").toLowerCase();
+    const fallback = toStringContent(content);
+    if (!content || typeof content !== "object" || Array.isArray(content)) {
+      return { raw: fallback, commandHint: name || (toolName ?? ""), allowDispatch: true };
+    }
+    const row = content as Record<string, unknown>;
+    if (name.startsWith("git_")) {
+      return {
+        raw: this.extractGitReductionRaw(row, fallback),
+        commandHint: this.gitCommandHintFromToolName(name),
+        allowDispatch: false,
+      };
+    }
+    if (name.startsWith("run_") || name === "format_code") {
+      return {
+        raw: this.extractRunnerReductionRaw(row, fallback),
+        commandHint: name,
+        allowDispatch: false,
+      };
+    }
+    return { raw: fallback, commandHint: name || (toolName ?? ""), allowDispatch: true };
+  }
+
+  private gitCommandHintFromToolName(toolName: string): string {
+    if (toolName === "git_status") return "git status";
+    if (toolName === "git_diff") return "git diff";
+    if (toolName === "git_log") return "git log";
+    if (toolName === "git_rev_parse") return "git rev-parse";
+    if (toolName === "git_branch_info") return "git branch";
+    if (toolName === "git_file_state") return "git status --porcelain";
+    if (toolName === "git_add_guarded") return "git add";
+    if (toolName === "git_commit_guarded") return "git commit";
+    return toolName;
+  }
+
+  private extractGitReductionRaw(row: Record<string, unknown>, fallback: string): string {
+    const chunks: string[] = [];
+    if (typeof row.stdout === "string" && row.stdout.trim()) chunks.push(row.stdout.trim());
+    if (typeof row.stderr === "string" && row.stderr.trim()) chunks.push(row.stderr.trim());
+    if (typeof row.summary === "string" && row.summary.trim()) chunks.push(row.summary.trim());
+    if (typeof row.branch === "string" && row.branch.trim()) chunks.push(`branch=${row.branch.trim()}`);
+    if (typeof row.statusCode === "string" && row.statusCode.trim()) chunks.push(`status=${row.statusCode.trim()}`);
+    if (typeof row.ahead === "number" || typeof row.behind === "number") {
+      chunks.push(`ahead_behind=${String(row.ahead ?? 0)}/${String(row.behind ?? 0)}`);
+    }
+    if (typeof row.dirty === "boolean") chunks.push(`dirty=${row.dirty}`);
+    if (typeof row.hasUntracked === "boolean") chunks.push(`has_untracked=${row.hasUntracked}`);
+    return chunks.length > 0 ? chunks.join("\n") : fallback;
+  }
+
+  private extractRunnerReductionRaw(row: Record<string, unknown>, fallback: string): string {
+    const chunks: string[] = [];
+    if (typeof row.summary === "string" && row.summary.trim()) chunks.push(row.summary.trim());
+    if (Array.isArray(row.errorLines)) {
+      const lines = row.errorLines
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        .slice(0, 64);
+      if (lines.length > 0) chunks.push(lines.join("\n"));
+    }
+    if (typeof row.stderr === "string" && row.stderr.trim()) chunks.push(row.stderr.trim());
+    if (typeof row.stdout === "string" && row.stdout.trim()) chunks.push(row.stdout.trim());
+    return chunks.length > 0 ? chunks.join("\n") : fallback;
   }
 
   private isExemptFromFileReduction(toolName: string | undefined): boolean {

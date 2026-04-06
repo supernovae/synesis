@@ -73,6 +73,28 @@ Regression detection rules:
 - **Token regression**: candidate >2x baseline
 - **Decision path degradation**: deterministic -> constrained -> inference_first -> abstain
 
+## Git-First KPI Pack
+
+Use this KPI set when evaluating `SYNESIS_YARN_GIT_POLICY_MODE=advisory|enforced` rollouts:
+
+| KPI | Source | Target |
+|-----|--------|--------|
+| First-pass verify rate | run_test/run_build/run_lint `ok=true` on first verification pass | No regression greater than 2 percentage points |
+| Unsafe shell block count | `toolArgHardening.blockedUnsafeShellCount` | Increase expected; monitor for false positives |
+| Path-drift block count | `toolArgHardening.blockedBashPathDriftCount` | Increase expected when duplicate `mkdir && cd` patterns appear |
+| Write-capable block count | `toolArgHardening.blockedWriteCapableToolCount` | Stable in default clients; elevated only in strict profiles |
+| Context admission warning/reject rate | `contextAdmission.warned`, `contextAdmission.rejected` from Yarn telemetry | Warnings may rise during tuning; rejects should remain low and actionable |
+| Git commit hygiene | `git_commit_guarded` responses (`stagedCount > 0`, no blocked staged paths) | 100% successful commits satisfy preflight checks |
+| Unintended file churn | trace diff size / changed-file count before finalization | No increase in median changed-file count |
+| Stall rate | verification loop stalled or repeated tool loops | No regression greater than 1 percentage point |
+
+### Suggested A/B sequence
+
+1. Baseline with `SYNESIS_YARN_GIT_POLICY_MODE=off` on one cohort and `advisory` on another.
+2. Promote to `enforced` only for cohorts where quality and stall KPIs remain within target.
+3. Keep `off` as a tenant-level escape hatch for emergency rollback.
+4. For context admission, start with `SYNESIS_YARN_CONTEXT_ADMISSION_MODE=hybrid` and verify reject messages are guiding users to recover (split task, reduce history, trim tool output).
+
 ## Replay and Audit
 
 Support policy replay against historical traces to evaluate:

@@ -97,6 +97,28 @@ describe("Classifier: all families by toolName/command hint", () => {
   }
 });
 
+describe("Classifier: MCP git tool aliases", () => {
+  it("maps git_status to git family", () => {
+    const raw = JSON.stringify({
+      exitCode: 0,
+      stdout: "## feature/test...origin/feature/test [ahead 2]\n M src/index.ts\n?? notes.md",
+      stderr: "",
+    });
+    const result = classifyReducerFamily("git_status", "git_status", raw);
+    expect(result).toBe("git");
+  });
+
+  it("maps git_diff to git-diff family", () => {
+    const raw = JSON.stringify({
+      exitCode: 0,
+      stdout: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n",
+      stderr: "",
+    });
+    const result = classifyReducerFamily("git_diff", "git_diff", raw);
+    expect(result).toBe("git-diff");
+  });
+});
+
 describe("ReducerRegistry: all families produce non-null output", () => {
   for (const family of ALL_FAMILIES) {
     const hint = TOOL_HINTS[family];
@@ -205,6 +227,20 @@ describe("Reducer output quality", () => {
         expect(out.summary.length).toBeLessThan(raw.length);
       }
     }
+  });
+
+  it("reduces MCP-style git status payloads", () => {
+    const raw = JSON.stringify({
+      exitCode: 0,
+      stdout: "## main...origin/main [ahead 1]\n M src/a.ts\n M src/b.ts\n?? docs/note.md\n",
+      stderr: "",
+    });
+    const out = registry.reduce({
+      raw,
+      context: { toolName: "git_status", command: "git status", profile: "balanced", maxChars: 12000, minConfidence: 0.6 },
+    });
+    expect(out).not.toBeNull();
+    expect(out!.summary).toContain("family=\"git\"");
   });
 });
 

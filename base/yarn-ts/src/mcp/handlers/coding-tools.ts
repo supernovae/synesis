@@ -149,6 +149,31 @@ const FORMAT_PRESETS: Record<string, [string, ...string[]]> = {
 };
 
 const BlockedGitPaths = [/^\.env($|\.)/i, /credentials/i, /secret/i, /token/i];
+type GitPolicyMode = "off" | "advisory" | "enforced";
+
+function gitPolicyModeFromEnv(): GitPolicyMode {
+  const raw = String(process.env.SYNESIS_YARN_GIT_POLICY_MODE ?? "advisory").trim().toLowerCase();
+  if (raw === "off" || raw === "advisory" || raw === "enforced") return raw;
+  return "advisory";
+}
+
+function branchFromStatusHeader(stdout: string): string | null {
+  const line = stdout.split(/\r?\n/).find((l) => l.startsWith("## "));
+  if (!line) return null;
+  const candidate = line.slice(3).trim().split("...")[0]?.trim() ?? "";
+  return candidate || null;
+}
+
+async function isGitRepo(projectRoot: string): Promise<boolean> {
+  const out = await runCommand(path.resolve(projectRoot), "git", ["rev-parse", "--is-inside-work-tree"]);
+  return out.exitCode === 0 && out.stdout.trim() === "true";
+}
+
+async function listStagedFiles(projectRoot: string): Promise<string[]> {
+  const out = await runCommand(path.resolve(projectRoot), "git", ["diff", "--cached", "--name-only"]);
+  if (out.exitCode !== 0) return [];
+  return out.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}
 
 const RuntimeContextSchema = RootSchema.extend({
   shellCwd: z.string().optional(),
@@ -601,35 +626,194 @@ export const gitDiffTool: McpToolDefinition<
   },
 };
 
+const GitRevParseSchema = RootSchema.extend({
+  path: RelPathSchema.optional(),
+});
+export const gitRevParseTool: McpToolDefinition<
+  z.infer<typeof GitRevParseSchema>,
+  { isGitRepo: boolean; topLevel: string | null; branch: string | null; detachedHead: boolean }
+> = {
+  name: "git_rev_parse",
+  description: "Read-only git repository preflight: repo presence, top-level, branch, detached head.",
+  inputSchema: GitRevParseSchema,
+  async handler(input) {
+    const root = path.resolve(input.projectRoot);
+    if (input.path) resolveInsideRoot(root, input.path);
+    const repo = await isGitRepo(root);
+    if (!repo) return { isGitRepo: false, topLevel: null, branch: null, detachedHead: false };
+    const top = await runCommand(root, "git", ["rev-parse", "--show-toplevel"]);
+    const branch = await runCommand(root, "git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const branchText = branch.stdout.trim();
+    return {
+      isGitRepo: true,
+      topLevel: top.exitCode === 0 ? (top.stdout.trim() || root) : root,
+      branch: branchText && branchText !== "HEAD" ? branchText : null,
+      detachedHead: branchText === "HEAD",
+    };
+  },
+};
+
+const GitBranchInfoSchema = RootSchema;
+export const gitBranchInfoTool: McpToolDefinition<
+  z.infer<typeof GitBranchInfoSchema>,
+  {
+    isGitRepo: boolean;
+    branch: string | null;
+    detachedHead: boolean;
+    ahead: number;
+    behind: number;
+    hasUntracked: boolean;
+    dirty: boolean;
+  }
+> = {
+  name: "git_branch_info",
+  description: "Read-only branch and working tree summary derived from git status --short --branch.",
+  inputSchema: GitBranchInfoSchema,
+  async handler(input) {
+    const root = path.resolve(input.projectRoot);
+    const repo = await isGitRepo(root);
+    if (!repo) {
+      return {
+        isGitRepo: false,
+        branch: null,
+        detachedHead: false,
+        ahead: 0,
+        behind: 0,
+        hasUntracked: false,
+        dirty: false,
+      };
+    }
+    const status = await runCommand(root, "git", ["status", "--short", "--branch"]);
+    const header = status.stdout.split(/\r?\n/).find((l) => l.startsWith("## ")) ?? "";
+    const branch = branchFromStatusHeader(status.stdout);
+    const ahead = (() => {
+      const m = /\bahead (\d+)\b/.exec(header);
+      return m?.[1] ? Math.max(0, Math.trunc(Number(m[1]))) : 0;
+    })();
+    const behind = (() => {
+      const m = /\bbehind (\d+)\b/.exec(header);
+      return m?.[1] ? Math.max(0, Math.trunc(Number(m[1]))) : 0;
+    })();
+    const lines = status.stdout.split(/\r?\n/).slice(1).filter(Boolean);
+    const hasUntracked = lines.some((l) => l.startsWith("?? "));
+    const dirty = lines.length > 0;
+    const branchProbe = await runCommand(root, "git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const detachedHead = branchProbe.stdout.trim() === "HEAD";
+    return { isGitRepo: true, branch, detachedHead, ahead, behind, hasUntracked, dirty };
+  },
+};
+
+const GitFileStateSchema = RootSchema.extend({
+  filePath: RelPathSchema,
+});
+export const gitFileStateTool: McpToolDefinition<
+  z.infer<typeof GitFileStateSchema>,
+  { isGitRepo: boolean; filePath: string; statusCode: string | null; tracked: boolean; staged: boolean }
+> = {
+  name: "git_file_state",
+  description: "Read-only file-level git status for one path (XY status, tracked, staged).",
+  inputSchema: GitFileStateSchema,
+  async handler(input) {
+    const root = path.resolve(input.projectRoot);
+    resolveInsideRoot(root, input.filePath);
+    const repo = await isGitRepo(root);
+    if (!repo) {
+      return { isGitRepo: false, filePath: input.filePath, statusCode: null, tracked: false, staged: false };
+    }
+    const out = await runCommand(root, "git", ["status", "--porcelain", "--", input.filePath]);
+    const line = out.stdout.split(/\r?\n/).find(Boolean) ?? "";
+    const statusCode = line ? line.slice(0, 2) : null;
+    const tracked = statusCode !== "??";
+    const staged = !!statusCode && statusCode[0] !== " " && statusCode[0] !== "?";
+    return { isGitRepo: true, filePath: input.filePath, statusCode, tracked, staged };
+  },
+};
+
 const GitAddGuardedSchema = RootSchema.extend({
   files: z.array(RelPathSchema).min(1).max(200),
+  requireCleanWorkingTree: z.boolean().default(false),
 });
 export const gitAddGuardedTool: McpToolDefinition<
   z.infer<typeof GitAddGuardedSchema>,
-  { added: string[]; blocked: string[]; exitCode: number; stdout: string; stderr: string }
+  {
+    added: string[];
+    blocked: string[];
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    policyMode: GitPolicyMode;
+    repoDetected: boolean;
+  }
 > = {
   name: "git_add_guarded",
   description: "Stage only explicitly listed non-sensitive relative paths.",
   inputSchema: GitAddGuardedSchema,
   async handler(input) {
+    const root = path.resolve(input.projectRoot);
+    const policyMode = gitPolicyModeFromEnv();
+    const repoDetected = await isGitRepo(root);
+    if (!repoDetected) {
+      return {
+        added: [],
+        blocked: [],
+        exitCode: 1,
+        stdout: "",
+        stderr: "No git repository detected at project root",
+        policyMode,
+        repoDetected,
+      };
+    }
+    if (policyMode === "enforced" && input.requireCleanWorkingTree) {
+      const status = await runCommand(root, "git", ["status", "--porcelain"]);
+      const dirtyLines = status.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (dirtyLines.length > 0) {
+        return {
+          added: [],
+          blocked: [],
+          exitCode: 1,
+          stdout: status.stdout,
+          stderr: "Git policy enforced: working tree is not clean",
+          policyMode,
+          repoDetected,
+        };
+      }
+    }
     const blocked: string[] = [];
     const safe: string[] = [];
     for (const f of input.files) {
-      resolveInsideRoot(input.projectRoot, f);
+      resolveInsideRoot(root, f);
       if (BlockedGitPaths.some((re) => re.test(f))) blocked.push(f);
       else safe.push(f);
     }
     if (safe.length === 0) {
-      return { added: [], blocked, exitCode: 1, stdout: "", stderr: "No safe files to add" };
+      return {
+        added: [],
+        blocked,
+        exitCode: 1,
+        stdout: "",
+        stderr: "No safe files to add",
+        policyMode,
+        repoDetected,
+      };
     }
-    const out = await runCommand(path.resolve(input.projectRoot), "git", ["add", "--", ...safe]);
-    return { added: safe, blocked, exitCode: out.exitCode, stdout: out.stdout, stderr: out.stderr };
+    const out = await runCommand(root, "git", ["add", "--", ...safe]);
+    return {
+      added: safe,
+      blocked,
+      exitCode: out.exitCode,
+      stdout: out.stdout,
+      stderr: out.stderr,
+      policyMode,
+      repoDetected,
+    };
   },
 };
 
 const GitCommitGuardedSchema = RootSchema.extend({
   message: z.string().min(5).max(300),
   files: z.array(RelPathSchema).min(1).max(200).optional(),
+  requireStatusCheck: z.boolean().default(true),
+  allowDetachedHead: z.boolean().default(false),
 });
 const RunInSandboxSchema = RootSchema.extend({
   filePath: RelPathSchema,
@@ -680,21 +864,123 @@ export const runInSandboxTool: McpToolDefinition<
 
 export const gitCommitGuardedTool: McpToolDefinition<
   z.infer<typeof GitCommitGuardedSchema>,
-  { committed: boolean; exitCode: number; stdout: string; stderr: string }
+  {
+    committed: boolean;
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    branch: string | null;
+    detachedHead: boolean;
+    stagedCount: number;
+    policyMode: GitPolicyMode;
+  }
 > = {
   name: "git_commit_guarded",
   description: "Guarded git commit: optional safe add of files then commit with provided message.",
   inputSchema: GitCommitGuardedSchema,
   async handler(input) {
     const root = path.resolve(input.projectRoot);
-    if (input.files?.length) {
-      const add = await gitAddGuardedTool.handler({ projectRoot: root, files: input.files });
-      if (add.exitCode !== 0) {
-        return { committed: false, exitCode: add.exitCode, stdout: add.stdout, stderr: add.stderr };
+    const policyMode = gitPolicyModeFromEnv();
+    const repoDetected = await isGitRepo(root);
+    if (!repoDetected) {
+      return {
+        committed: false,
+        exitCode: 1,
+        stdout: "",
+        stderr: "No git repository detected at project root",
+        branch: null,
+        detachedHead: false,
+        stagedCount: 0,
+        policyMode,
+      };
+    }
+    const branchProbe = await runCommand(root, "git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const branchText = branchProbe.stdout.trim();
+    const detachedHead = branchText === "HEAD";
+    const branch = detachedHead ? null : (branchText || null);
+    if (policyMode === "enforced" && detachedHead && !input.allowDetachedHead) {
+      return {
+        committed: false,
+        exitCode: 1,
+        stdout: branchProbe.stdout,
+        stderr: "Git policy enforced: refusing commit on detached HEAD",
+        branch,
+        detachedHead,
+        stagedCount: 0,
+        policyMode,
+      };
+    }
+    if (input.requireStatusCheck) {
+      const status = await runCommand(root, "git", ["status", "--short", "--branch"]);
+      if (status.exitCode !== 0) {
+        return {
+          committed: false,
+          exitCode: status.exitCode,
+          stdout: status.stdout,
+          stderr: status.stderr || "git status preflight failed",
+          branch,
+          detachedHead,
+          stagedCount: 0,
+          policyMode,
+        };
       }
     }
+    if (input.files?.length) {
+      const add = await gitAddGuardedTool.handler({
+        projectRoot: root,
+        files: input.files,
+        requireCleanWorkingTree: false,
+      });
+      if (add.exitCode !== 0) {
+        return {
+          committed: false,
+          exitCode: add.exitCode,
+          stdout: add.stdout,
+          stderr: add.stderr,
+          branch,
+          detachedHead,
+          stagedCount: 0,
+          policyMode,
+        };
+      }
+    }
+    const staged = await listStagedFiles(root);
+    if (staged.length === 0) {
+      return {
+        committed: false,
+        exitCode: 1,
+        stdout: "",
+        stderr: "No staged changes to commit",
+        branch,
+        detachedHead,
+        stagedCount: 0,
+        policyMode,
+      };
+    }
+    const blockedStaged = staged.filter((f) => BlockedGitPaths.some((re) => re.test(f)));
+    if (blockedStaged.length > 0) {
+      return {
+        committed: false,
+        exitCode: 1,
+        stdout: blockedStaged.join("\n"),
+        stderr: "Blocked staged paths detected; unstage sensitive files before committing",
+        branch,
+        detachedHead,
+        stagedCount: staged.length,
+        policyMode,
+      };
+    }
     const out = await runCommand(root, "git", ["commit", "-m", input.message]);
-    return { committed: out.exitCode === 0, exitCode: out.exitCode, stdout: out.stdout, stderr: out.stderr };
+    return {
+      committed: out.exitCode === 0,
+      exitCode: out.exitCode,
+      stdout: out.stdout,
+      stderr: out.stderr,
+      branch,
+      detachedHead,
+      stagedCount: staged.length,
+      policyMode,
+    };
   },
 };
 

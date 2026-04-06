@@ -114,3 +114,25 @@ This avoids restarting pods between runs.
    easy/medium prompts (difficulty < 0.6) while keeping `full` for hard.
 4. **Full rollout**: After 1-2 weeks of monitoring, promote `selective` to
    default if no regressions detected.
+
+## Git-First Canary Extension
+
+When evaluating coder behavior in repository environments, run a second A/B slice
+for `SYNESIS_YARN_GIT_POLICY_MODE`:
+
+- Cohort A: `off` (baseline)
+- Cohort B: `advisory`
+- Optional Cohort C: `enforced` (only after B passes)
+
+Track and gate on:
+
+1. first-pass verify success (no regression >2pp),
+2. unsafe shell/path-drift block precision (higher block counts, no quality drop),
+3. commit preflight hygiene (`git_commit_guarded` with non-empty staged set, no blocked staged paths),
+4. stall rate and latency (no regression >1pp stall, >10% p95 latency unless quality improves).
+
+For hybrid-safe rollout, also monitor Yarn context admission telemetry:
+
+- `contextAdmission.warned` should rise before rejects during tuning,
+- `contextAdmission.rejected` should stay low and produce actionable recovery hints,
+- no increase in client incompatibility for standard workflows.

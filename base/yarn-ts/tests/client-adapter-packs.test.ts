@@ -107,4 +107,42 @@ describe("appendPathContextToAdapterBlock", () => {
     );
     expect(ctx.projectRoot).toBe("/meta");
   });
+
+  it("parses structured git metadata fields", () => {
+    const ctx = parseSessionExecutionContext(
+      {},
+      {
+        synesis_git_is_repo: true,
+        synesis_git_branch: "feature/git-first",
+        synesis_git_dirty: true,
+        synesis_git_has_untracked: true,
+        synesis_git_ahead: 2,
+        synesis_git_behind: 1,
+      },
+      { gitPolicyMode: "advisory" },
+    );
+    expect(ctx.gitIsRepo).toBe(true);
+    expect(ctx.gitBranch).toBe("feature/git-first");
+    expect(ctx.gitDirty).toBe(true);
+    expect(ctx.gitHasUntracked).toBe(true);
+    expect(ctx.gitAhead).toBe(2);
+    expect(ctx.gitBehind).toBe(1);
+    expect(ctx.gitPolicyMode).toBe("advisory");
+  });
+
+  it("infers branch info from git summary when structured fields are absent", () => {
+    const ctx = parseSessionExecutionContext(
+      {},
+      {
+        synesis_git_summary: "## feature/test...origin/feature/test [ahead 3, behind 1]\n M src/app.ts\n?? notes.txt",
+      },
+      { gitPolicyMode: "enforced" },
+    );
+    const block = toSessionExecutionContextSystemBlock(ctx);
+    expect(ctx.gitBranch).toBe("feature/test");
+    expect(ctx.gitDirty).toBe(true);
+    expect(ctx.gitHasUntracked).toBe(true);
+    expect(block).toContain("git_policy_mode=enforced");
+    expect(block).toContain("is_git_repo=true");
+  });
 });

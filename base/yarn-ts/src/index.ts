@@ -588,6 +588,10 @@ interface RequestDiagnostic {
   missingShouldRequirements?: number;
   requirementChecklistMust?: number;
   requirementChecklistShould?: number;
+  contextAdmissionDecision?: "allow" | "warn" | "reject";
+  contextAdmissionReason?: string;
+  contextAdmissionEstimatedTokens?: number;
+  contextAdmissionEstimatedChars?: number;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -596,6 +600,8 @@ const toolArgHardeningStats = {
   normalizedPathCount: 0,
   projectRootConstrainedCount: 0,
   blockedBashPathDriftCount: 0,
+  blockedUnsafeShellCount: 0,
+  blockedWriteCapableToolCount: 0,
   remappedArgsCount: 0,
   repairedWriteCount: 0,
   repairedBashCount: 0,
@@ -610,6 +616,15 @@ const toolSchemaPruningStats = {
 const openClawProfileStats = {
   requestsObserved: 0,
   strictGovernanceRewrites: 0,
+};
+const contextAdmissionStats = {
+  checked: 0,
+  warned: 0,
+  rejected: 0,
+  byPath: {
+    openai: 0,
+    claude: 0,
+  },
 };
 
 function pushDiagnostic(d: RequestDiagnostic): void {
@@ -1848,6 +1863,70 @@ function countMessageRoles(messages: Array<{ role: string; content: unknown }>):
   return { systemMessageCount, userMessageCount, toolMessageCount, totalInputChars };
 }
 
+interface ContextAdmissionResult {
+  decision: "allow" | "warn" | "reject";
+  reason?: string;
+  estimatedTokens: number;
+  estimatedChars: number;
+}
+
+function estimateToolSchemaChars(tools: unknown[]): number {
+  if (!Array.isArray(tools) || tools.length === 0) return 0;
+  try {
+    return JSON.stringify(tools).length;
+  } catch {
+    return 0;
+  }
+}
+
+function evaluateContextAdmission(
+  messages: Array<{ role: string; content: unknown }>,
+  tools: unknown[],
+  mode: "advisory" | "hybrid" | "enforced",
+  warnTokens: number,
+  hardTokens: number,
+): ContextAdmissionResult {
+  const msgChars = countMessageRoles(messages).totalInputChars;
+  const schemaChars = estimateToolSchemaChars(tools);
+  const estimatedChars = msgChars + schemaChars;
+  const estimatedTokens = Math.ceil(estimatedChars / 4);
+  if (hardTokens <= 0) {
+    return { decision: "allow", estimatedTokens, estimatedChars };
+  }
+  if (estimatedTokens > hardTokens) {
+    return {
+      decision: "reject",
+      reason: `estimated_input_tokens_exceeded_hard_limit (${estimatedTokens} > ${hardTokens})`,
+      estimatedTokens,
+      estimatedChars,
+    };
+  }
+  if (warnTokens > 0 && estimatedTokens > warnTokens) {
+    if (mode === "enforced") {
+      return {
+        decision: "reject",
+        reason: `estimated_input_tokens_exceeded_warn_limit_enforced (${estimatedTokens} > ${warnTokens})`,
+        estimatedTokens,
+        estimatedChars,
+      };
+    }
+    return {
+      decision: "warn",
+      reason: `estimated_input_tokens_above_warn_limit (${estimatedTokens} > ${warnTokens})`,
+      estimatedTokens,
+      estimatedChars,
+    };
+  }
+  return { decision: "allow", estimatedTokens, estimatedChars };
+}
+
+function admissionErrorMessage(result: ContextAdmissionResult): string {
+  const base = "Request context is too large for safe model admission.";
+  const est = `Estimated input tokens: ${result.estimatedTokens.toLocaleString()}.`;
+  const hint = "Reduce history length, narrow tool output, or split the task into smaller turns.";
+  return `${base} ${est} ${hint}`;
+}
+
 function parseJsonIfPossible(raw: string): unknown | null {
   const trimmed = raw.trim();
   if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return null;
@@ -2863,6 +2942,7 @@ app.get("/health/telemetry", async (req, reply) => {
     toolArgHardening: { ...toolArgHardeningStats },
     toolSchemaPruning: { ...toolSchemaPruningStats },
     openClawProfile: { ...openClawProfileStats },
+    contextAdmission: { ...contextAdmissionStats, byPath: { ...contextAdmissionStats.byPath } },
     workingFrame: workingFrameService.getStats(),
     projectManifest: projectManifestService.getStats(),
     deterministicPolicy: policyEngine.getStats(),
@@ -2946,6 +3026,9 @@ app.get("/health/telemetry", async (req, reply) => {
       sessionSoftMaxInputTokens: config.SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS,
       sessionMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
       sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
+      contextAdmissionMode: config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
+      contextAdmissionWarnTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
+      contextAdmissionHardTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
       hourlyTokenThrottleEnabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
       hourlyTokenThrottleWindowMs: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS,
       hourlyTokenThrottleSessionLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT,
@@ -3120,6 +3203,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     req.headers as Record<string, string | string[] | undefined>,
     oaiBodyMeta,
     String((req.headers["x-synesis-client"] as string | undefined) ?? ""),
+    { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
   );
   const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
@@ -3577,6 +3661,51 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
     : messages;
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
+  const oaiContextAdmission = evaluateContextAdmission(
+    modelMessages as Array<{ role: string; content: unknown }>,
+    effectiveTools as unknown[],
+    config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
+    config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
+    config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
+  );
+  contextAdmissionStats.checked += 1;
+  contextAdmissionStats.byPath.openai += 1;
+  if (oaiContextAdmission.decision === "warn") {
+    contextAdmissionStats.warned += 1;
+    app.log.warn(
+      {
+        requestId: reqId,
+        estimatedTokens: oaiContextAdmission.estimatedTokens,
+        estimatedChars: oaiContextAdmission.estimatedChars,
+        reason: oaiContextAdmission.reason,
+      },
+      "context_admission_warn_openai",
+    );
+  }
+  if (oaiContextAdmission.decision === "reject") {
+    contextAdmissionStats.rejected += 1;
+    app.log.warn(
+      {
+        requestId: reqId,
+        estimatedTokens: oaiContextAdmission.estimatedTokens,
+        estimatedChars: oaiContextAdmission.estimatedChars,
+        reason: oaiContextAdmission.reason,
+      },
+      "context_admission_reject_openai",
+    );
+    return reply.code(400).send({
+      error: {
+        type: "invalid_request_error",
+        message: admissionErrorMessage(oaiContextAdmission),
+      },
+      context_admission: {
+        decision: oaiContextAdmission.decision,
+        estimated_tokens: oaiContextAdmission.estimatedTokens,
+        estimated_chars: oaiContextAdmission.estimatedChars,
+        reason: oaiContextAdmission.reason,
+      },
+    });
+  }
 
   if (!normalizedRequest.stream) {
     if (!circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId)) {
@@ -3763,6 +3892,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
         if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
         if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
+        if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
+        if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
         if (governed.validationMissing.length > 0) {
           toolArgHardeningStats.validationFailedCount += 1;
           app.log.warn(
@@ -4011,6 +4142,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       missingShouldRequirements: oaiMissingShould || undefined,
       requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
       requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
+      contextAdmissionDecision: oaiContextAdmission.decision,
+      contextAdmissionReason: oaiContextAdmission.reason,
+      contextAdmissionEstimatedTokens: oaiContextAdmission.estimatedTokens,
+      contextAdmissionEstimatedChars: oaiContextAdmission.estimatedChars,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalAssistantText };
@@ -4166,6 +4301,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
           if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
           if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
+          if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
+          if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
           if (governed.validationMissing.length > 0) {
             toolArgHardeningStats.validationFailedCount += 1;
             oaiStreamValidationFailures += 1;
@@ -4532,6 +4669,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       missingShouldRequirements: oaiStreamMissingShould || undefined,
       requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
       requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
+      contextAdmissionDecision: oaiContextAdmission.decision,
+      contextAdmissionReason: oaiContextAdmission.reason,
+      contextAdmissionEstimatedTokens: oaiContextAdmission.estimatedTokens,
+      contextAdmissionEstimatedChars: oaiContextAdmission.estimatedChars,
   });
   return reply;
 });
@@ -4650,6 +4791,7 @@ app.post("/v1/messages", async (req, reply) => {
     req.headers as Record<string, string | string[] | undefined>,
     body.metadata ?? null,
     String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
+    { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
   );
   const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
@@ -5119,6 +5261,52 @@ app.post("/v1/messages", async (req, reply) => {
     ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
     : adapterClaudeProviderOptions;
   const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
+  const claudeContextAdmission = evaluateContextAdmission(
+    claudeModelMessages as Array<{ role: string; content: unknown }>,
+    effectiveClaudeTools as unknown[],
+    config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
+    config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
+    config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
+  );
+  contextAdmissionStats.checked += 1;
+  contextAdmissionStats.byPath.claude += 1;
+  if (claudeContextAdmission.decision === "warn") {
+    contextAdmissionStats.warned += 1;
+    app.log.warn(
+      {
+        requestId: req.id,
+        estimatedTokens: claudeContextAdmission.estimatedTokens,
+        estimatedChars: claudeContextAdmission.estimatedChars,
+        reason: claudeContextAdmission.reason,
+      },
+      "context_admission_warn_claude",
+    );
+  }
+  if (claudeContextAdmission.decision === "reject") {
+    contextAdmissionStats.rejected += 1;
+    app.log.warn(
+      {
+        requestId: req.id,
+        estimatedTokens: claudeContextAdmission.estimatedTokens,
+        estimatedChars: claudeContextAdmission.estimatedChars,
+        reason: claudeContextAdmission.reason,
+      },
+      "context_admission_reject_claude",
+    );
+    return reply.code(400).send({
+      type: "error",
+      error: {
+        type: "invalid_request_error",
+        message: admissionErrorMessage(claudeContextAdmission),
+      },
+      context_admission: {
+        decision: claudeContextAdmission.decision,
+        estimated_tokens: claudeContextAdmission.estimatedTokens,
+        estimated_chars: claudeContextAdmission.estimatedChars,
+        reason: claudeContextAdmission.reason,
+      },
+    });
+  }
 
   if (body.stream) {
     if (claudeNativeWebSearchRequested) {
@@ -5521,6 +5709,20 @@ app.post("/v1/messages", async (req, reply) => {
               "bash_path_drift_blocked",
             );
           }
+          if (governed.blockedUnsafeShell) {
+            toolArgHardeningStats.blockedUnsafeShellCount += 1;
+            app.log.warn(
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              "unsafe_shell_command_blocked",
+            );
+          }
+          if (governed.blockedWriteCapable) {
+            toolArgHardeningStats.blockedWriteCapableToolCount += 1;
+            app.log.warn(
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              "write_capable_tool_blocked",
+            );
+          }
 
           if (governed.validationMissing.length > 0) {
             requestToolValidationFailures += 1;
@@ -5901,6 +6103,10 @@ app.post("/v1/messages", async (req, reply) => {
       missingShouldRequirements: claudeStreamMissingShould || undefined,
       requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
       requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
+      contextAdmissionDecision: claudeContextAdmission.decision,
+      contextAdmissionReason: claudeContextAdmission.reason,
+      contextAdmissionEstimatedTokens: claudeContextAdmission.estimatedTokens,
+      contextAdmissionEstimatedChars: claudeContextAdmission.estimatedChars,
     });
     return reply;
   }
@@ -6072,6 +6278,8 @@ app.post("/v1/messages", async (req, reply) => {
       if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
       if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
       if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
+      if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
+      if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
       if (governed.validationMissing.length > 0) {
         toolArgHardeningStats.validationFailedCount += 1;
         app.log.warn(
@@ -6286,6 +6494,10 @@ app.post("/v1/messages", async (req, reply) => {
     missingShouldRequirements: claudeMissingShould || undefined,
     requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
     requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
+    contextAdmissionDecision: claudeContextAdmission.decision,
+    contextAdmissionReason: claudeContextAdmission.reason,
+    contextAdmissionEstimatedTokens: claudeContextAdmission.estimatedTokens,
+    contextAdmissionEstimatedChars: claudeContextAdmission.estimatedChars,
   });
 
   const content: Array<Record<string, unknown>> = [];

@@ -25,3 +25,10 @@ This roadmap outlines future features and capabilities required to compete again
 *   **Reinforcement Learning from Human Feedback (RLHF)**: Implement a feedback loop where user corrections (e.g., rejecting a proposed edit, manually fixing a bug) are captured and used to fine-tune the agent's underlying models or update the Golden Trajectories Cache.
 *   **Self-Improving Prompts**: Allow the agent to analyze its own failure rates and autonomously suggest improvements to its system prompts or language pack definitions.
 *   **Advanced Multi-modal Debugging**: Enable the agent to analyze screen recordings or video captures of bugs, correlating visual glitches with specific code paths and logs.
+
+### TODO: RLHF Decision Gate
+
+- [ ] Keep RLHF/training behind a metrics gate: apply prompt/policy/tool/MCP improvements first.
+- [ ] Require two consecutive eval windows where Git-first and verification KPIs plateau before proposing training.
+- [ ] Document residual failure classes that remain after policy tuning (for example repeated unsafe shell attempts, commit hygiene misses, unresolved verification stalls).
+- [ ] Only start RLHF data curation after the plateau criterion is met and a canary baseline is captured.

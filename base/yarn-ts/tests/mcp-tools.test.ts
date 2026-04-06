@@ -6,6 +6,9 @@ import { scaffoldTool } from "../src/mcp/handlers/scaffold.js";
 import { compareManifestTool } from "../src/mcp/handlers/compare-manifest.js";
 import {
   getRuntimeContextTool,
+  gitBranchInfoTool,
+  gitFileStateTool,
+  gitRevParseTool,
   listDirTool,
   readFileTool,
   writeFileTool,
@@ -18,6 +21,7 @@ import {
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 describe("McpToolRegistry", () => {
   it("registers and lists tools", () => {
@@ -157,6 +161,28 @@ describe("coding tools", () => {
     expect(Array.isArray(out.errors)).toBe(true);
     expect(Array.isArray(out.nextActions)).toBe(true);
     expect(out.nextActions.length).toBeGreaterThan(0);
+  });
+
+  it("reports read-only git introspection for repo roots", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-git-"));
+    execFileSync("git", ["init"], { cwd: root });
+    writeFileSync(path.join(root, "app.ts"), "export const ok = true;\n", "utf8");
+    execFileSync("git", ["add", "--", "app.ts"], { cwd: root });
+
+    const rev = await gitRevParseTool.handler({ projectRoot: root });
+    expect(rev.isGitRepo).toBe(true);
+    expect(rev.topLevel).toBeTruthy();
+    expect(typeof rev.detachedHead).toBe("boolean");
+
+    const branch = await gitBranchInfoTool.handler({ projectRoot: root });
+    expect(branch.isGitRepo).toBe(true);
+    expect(branch.branch).toBeTruthy();
+    expect(branch.dirty).toBe(true);
+
+    const fileState = await gitFileStateTool.handler({ projectRoot: root, filePath: "app.ts" });
+    expect(fileState.isGitRepo).toBe(true);
+    expect(fileState.statusCode).toBe("A ");
+    expect(fileState.staged).toBe(true);
   });
 });
 

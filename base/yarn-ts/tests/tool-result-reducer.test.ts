@@ -31,11 +31,13 @@ function makeConfig(maxRawChars = 100): AppConfig {
     SYNESIS_YARN_REDUCER_DISABLED_FAMILIES: "",
     SYNESIS_YARN_REDUCER_MIN_CONFIDENCE: 0.6,
     SYNESIS_YARN_REDUCER_PROFILE: "balanced",
+    SYNESIS_YARN_JSON_COMPACTION_ENABLED: true,
+    SYNESIS_YARN_CONTENT_DISPATCH_ENABLED: true,
     SYNESIS_YARN_WORKING_FRAME_ENABLED: true,
     SYNESIS_YARN_PROJECT_MANIFEST_ENABLED: true,
     SYNESIS_YARN_FRAME_MAX_FILES: 12,
     SYNESIS_YARN_PERSIST_USAGE_TO_DB: true
-  };
+  } as AppConfig;
 }
 
 describe("ToolResultReductionService", () => {
@@ -98,5 +100,19 @@ describe("ToolResultReductionService", () => {
     const stats = svc.getStats();
     expect(stats.enrichedCount).toBe(0);
     expect(stats.bypassEligibleCount).toBe(0);
+  });
+
+  it("normalizes MCP git_status payloads for git reducer family", () => {
+    const svc = new ToolResultReductionService(makeConfig(10), new ArtifactStore());
+    const out = svc.reduceStandaloneToolResult(
+      {
+        exitCode: 0,
+        stdout: "## feature/x...origin/feature/x [ahead 1]\n M src/index.ts\n?? notes.md",
+        stderr: "",
+      },
+      "git_status",
+    );
+    expect(out).toContain("<TOOL_REDUCED");
+    expect(out).toContain('family="git"');
   });
 });

@@ -14,6 +14,9 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
   // More specific matches first within each group.
 
   // VCS — specific subcommands before generic
+  if (hasAny(tc, ["git_diff", "git_show", "git_apply", "git format-patch"])) return "git-diff";
+  if (hasAny(tc, ["git_log", "git_shortlog"])) return "git-log";
+  if (hasAny(tc, ["git_status", "git_branch_info", "git_rev_parse", "git_file_state"])) return "git";
   if (hasAny(tc, ["git diff", "git show", "git apply", "git format-patch"])) return "git-diff";
   if (hasAny(tc, ["git log", "git shortlog"])) return "git-log";
   if (hasAny(tc, ["git status", "git branch", "git stash", "git remote", "git tag"])) return "git";

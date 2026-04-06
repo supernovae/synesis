@@ -47,7 +47,8 @@ describe("governToolCall", () => {
       enforcePathRoot: true,
       blockBashPathDrift: true,
     });
-    expect(out.blockedBashDrift).toBe(true);
+    expect(out.blockedUnsafeShell).toBe(true);
+    expect(out.blockedBashDrift).toBe(false);
     expect(String(out.input.command)).toContain("unsafe_shell");
   });
 
@@ -61,10 +62,23 @@ describe("governToolCall", () => {
       clientKind: "claude-code",
     });
     expect(out.toolName).toBe("Synesis_Error_UnsafeShell");
-    expect(out.blockedBashDrift).toBe(true);
+    expect(out.blockedUnsafeShell).toBe(true);
     expect(out.input.synesis_error).toBe(true);
     expect(out.input.reason).toBe("unsafe_shell");
     expect(out.input.retryable).toBe(true);
+  });
+
+  it("blocks mkdir/cd duplicate segment path drift", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "mkdir -p demo && cd demo" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(out.blockedBashDrift).toBe(true);
+    expect(out.blockedUnsafeShell).toBe(true);
+    expect(String(out.input.command)).toContain("path drift");
   });
 
   it("normalizes alias tool names for validation without renaming output tool", () => {
@@ -89,6 +103,7 @@ describe("governToolCall", () => {
       blockWriteCapableTools: true,
     });
     expect(out.toolName).toBe("Bash");
+    expect(out.blockedWriteCapable).toBe(true);
     expect(String(out.input.command)).toContain("write_capable_blocked");
     expect(String(out.input.command)).toContain("blocked write-capable tool");
   });
@@ -104,7 +119,8 @@ describe("governToolCall", () => {
       clientKind: "claude-code",
     });
     expect(out.toolName).toBe("Synesis_Error_WriteCapableBlocked");
-    expect(out.blockedBashDrift).toBe(true);
+    expect(out.blockedBashDrift).toBe(false);
+    expect(out.blockedWriteCapable).toBe(true);
     expect(out.input.synesis_error).toBe(true);
     expect(out.input.reason).toBe("write_capable_blocked");
     expect(out.input.original_tool).toBe("Write");

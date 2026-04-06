@@ -17,8 +17,11 @@ import {
   formatCodeTool,
   getRuntimeContextTool,
   gitAddGuardedTool,
+  gitBranchInfoTool,
   gitCommitGuardedTool,
   gitDiffTool,
+  gitFileStateTool,
+  gitRevParseTool,
   gitStatusTool,
   listDirTool,
   readFileTool,
@@ -54,6 +57,9 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
   "run_lint",
   "git_status",
   "git_diff",
+  "git_rev_parse",
+  "git_branch_info",
+  "git_file_state",
   /** Read-only Synesis platform tools (same handlers as synesis-mcp-ts). */
   "synesis_search",
   "synesis_knowledge_search",
@@ -146,6 +152,9 @@ registry.register(gitStatusTool);
 registry.register(runLintTool);
 registry.register(formatCodeTool);
 registry.register(gitDiffTool);
+registry.register(gitRevParseTool);
+registry.register(gitBranchInfoTool);
+registry.register(gitFileStateTool);
 registry.register(gitAddGuardedTool);
 registry.register(gitCommitGuardedTool);
 registry.register(runInSandboxTool);

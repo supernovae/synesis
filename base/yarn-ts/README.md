@@ -47,6 +47,10 @@ See **`docs/CI_GITHUB_VALIDATION.md`** and **`docs/LIVE_VERIFICATION_M9.md`**. W
 - `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME` (default `true`) — include client `project_root` / `shell_cwd` in `<WORKING_FRAME>` when sent; see `docs/clients/SESSION_EXECUTION_CONTEXT.md`.
 - `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE` (default `true`) — clamp file-tool paths to `project_root` (or `shell_cwd` fallback) across coder routes.
 - `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED` (default `true`) — block risky `mkdir && cd` duplicate-segment drift by rewriting the Bash tool call to a safe failure.
+- `SYNESIS_YARN_GIT_POLICY_MODE` (default `advisory`) — `off|advisory|enforced` repo behavior mode for prompt context and guarded git MCP preflights.
+- `SYNESIS_YARN_CONTEXT_ADMISSION_MODE` (default `hybrid`) — outbound prompt admission behavior: `advisory|hybrid|enforced`.
+- `SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS` (default `120000`) — warning threshold for estimated prompt+tool-schema input size.
+- `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` (default `180000`) — hard reject threshold for clearly unsafe outbound context size.
 - `SYNESIS_YARN_RESPONSE_STYLE_MODE` (default `guidance`) — markdown style policy mode: `off`, `guidance`, or `guardrail`.
 - `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID` (default `true`) — whether style guidance should encourage mermaid diagrams when appropriate.
 - Synthetic workspace handshake is disabled in fix-forward strict mode; provide `project_root` / `shell_cwd` through headers or request metadata for deterministic path anchoring.

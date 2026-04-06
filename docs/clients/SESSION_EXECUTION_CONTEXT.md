@@ -37,6 +37,25 @@ Resolution order: `synesis_project_root` → `x-synesis-project-root` → `x-syn
 | `synesis_client_model_label` | 256 | Display-only client model name |
 | `synesis_knowledge_cutoff` | 128 | Knowledge cutoff label if known |
 
+### Optional structured git facts (preferred over summary parsing)
+
+| Source | Key | Type |
+|--------|-----|------|
+| Header | `x-synesis-git-is-repo` | boolean-ish (`true/false/1/0/yes/no`) |
+| Header | `x-synesis-git-branch` | string |
+| Header | `x-synesis-git-dirty` | boolean-ish |
+| Header | `x-synesis-git-has-untracked` | boolean-ish |
+| Header | `x-synesis-git-ahead` | integer |
+| Header | `x-synesis-git-behind` | integer |
+| Metadata | `synesis_git_is_repo` | boolean or boolean-like string |
+| Metadata | `synesis_git_branch` | string |
+| Metadata | `synesis_git_dirty` | boolean or boolean-like string |
+| Metadata | `synesis_git_has_untracked` | boolean or boolean-like string |
+| Metadata | `synesis_git_ahead` | integer or numeric string |
+| Metadata | `synesis_git_behind` | integer or numeric string |
+
+When structured facts are missing, yarn-ts can infer best-effort branch/ahead/behind/dirty hints from `synesis_git_summary` (for example `git status -sb` style output).
+
 ## Yarn-ts behavior
 
 - When any field resolves non-empty, yarn-ts appends `<SESSION_EXECUTION_CONTEXT>…</SESSION_EXECUTION_CONTEXT>` after `<CLIENT_ADAPTER>` (replacing the legacy standalone `<WORKSPACE_ROOT>` block).
@@ -45,6 +64,7 @@ Resolution order: `synesis_project_root` → `x-synesis-project-root` → `x-syn
 - Optional env `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME=true` (default): `project_root` / `shell_cwd` are also echoed inside `<WORKING_FRAME>` when provided.
 - Optional env `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE=true` (default **true**): Read/Write/Edit/Update `file_path` values are constrained to resolve under `project_root` (or `shell_cwd` when `project_root` is absent) across coder routes (string prefix check after `path.resolve`).
 - Optional env `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED=true` (default **true**): blocks risky `mkdir && cd` duplicate-segment drift by rewriting the Bash call to a safe error command.
+- Optional env `SYNESIS_YARN_GIT_POLICY_MODE=off|advisory|enforced` (default **advisory**): adds explicit repo-mode guidance into `<SESSION_EXECUTION_CONTEXT>` and is consumed by guarded git MCP tools (`git_add_guarded`, `git_commit_guarded`) for stricter preflight behavior in `enforced`.
 - Synthetic workspace handshake is disabled in fix-forward strict mode. Clients should provide `project_root` and `shell_cwd` anchors directly via headers or metadata on every request.
 
 ## Client implementation notes

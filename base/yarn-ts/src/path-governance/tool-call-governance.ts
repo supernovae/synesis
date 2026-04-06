@@ -24,6 +24,8 @@ export interface GovernedToolCall {
   input: Record<string, unknown>;
   normalizedPath: boolean;
   constrainedToRoot: boolean;
+  blockedUnsafeShell: boolean;
+  blockedWriteCapable: boolean;
   blockedBashDrift: boolean;
   validationMissing: string[];
 }
@@ -42,6 +44,8 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     input: { ...opts.input },
     normalizedPath: false,
     constrainedToRoot: false,
+    blockedUnsafeShell: false,
+    blockedWriteCapable: false,
     blockedBashDrift: false,
     validationMissing: [],
   };
@@ -93,22 +97,24 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
         description: "Blocked write-capable tool for safety profile",
       };
     }
-    out.blockedBashDrift = true;
+    out.blockedWriteCapable = true;
     return out;
   }
 
   if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
     const command = out.input.command;
     if (typeof command === "string" && command.trim()) {
+      const pathDrift = opts.blockBashPathDrift ? detectBashPathDrift(command) : null;
       const dangerous = detectDangerousBash(command);
-      if (dangerous) {
-        const message = `Synesis Yarn blocked unsafe shell command: ${dangerous.reason}. Use safe structured tools from project root.`;
+      if (pathDrift || dangerous) {
+        const detail = pathDrift?.reason ?? dangerous?.reason ?? "unsafe shell command";
+        const message = `Synesis Yarn blocked unsafe shell command: ${detail}. Use safe structured tools from project root.`;
         if (opts.clientKind === "claude-code") {
           out.toolName = "Synesis_Error_UnsafeShell";
           out.input = {
             synesis_error: true,
             reason: "unsafe_shell",
-            detail: dangerous.reason,
+            detail,
             message,
             retryable: true,
           };
@@ -119,14 +125,15 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
               schema_version: 1,
               category: "policy",
               reason: "unsafe_shell",
-              detail: dangerous.reason,
+              detail,
               message,
               retryable: true,
             }),
             description: "Blocked unsafe shell command",
           };
         }
-        out.blockedBashDrift = true;
+        out.blockedUnsafeShell = true;
+        if (pathDrift) out.blockedBashDrift = true;
         return out;
       }
     }
@@ -272,6 +279,23 @@ function detectDangerousBash(command: string): { reason: string } | null {
     return { reason: "destructive system command detected" };
   }
   
+  return null;
+}
+
+function normalizeTokenPath(v: string): string {
+  return v.trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/g, "");
+}
+
+function detectBashPathDrift(command: string): { reason: string } | null {
+  const c = command.trim();
+  const m = /mkdir(?:\s+-p)?\s+([^\s;&|]+)\s*(?:&&|;)\s*cd\s+([^\s;&|]+)/i.exec(c);
+  if (!m) return null;
+  const created = normalizeTokenPath(m[1]);
+  const changed = normalizeTokenPath(m[2]);
+  if (!created || !changed) return null;
+  if (created === changed) {
+    return { reason: "mkdir && cd path drift detected (duplicate segment)" };
+  }
   return null;
 }
 

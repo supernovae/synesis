@@ -6,6 +6,13 @@
 const MAX_GIT_SUMMARY = 500;
 const MAX_LABEL = 256;
 const MAX_CUTOFF = 128;
+const GIT_POLICY_MODES = new Set(["off", "advisory", "enforced"]);
+
+export type GitPolicyMode = "off" | "advisory" | "enforced";
+
+export interface ParseSessionExecutionContextOptions {
+  gitPolicyMode?: GitPolicyMode;
+}
 
 export interface ParsedSessionExecutionContext {
   projectRoot: string | null;
@@ -14,6 +21,13 @@ export interface ParsedSessionExecutionContext {
   osVersion?: string;
   shell?: string;
   gitSummary?: string;
+  gitIsRepo?: boolean;
+  gitBranch?: string;
+  gitDirty?: boolean;
+  gitHasUntracked?: boolean;
+  gitAhead?: number;
+  gitBehind?: number;
+  gitPolicyMode?: GitPolicyMode;
   clientModelLabel?: string;
   knowledgeCutoff?: string;
 }
@@ -33,9 +47,75 @@ function metaString(meta: Record<string, unknown> | null | undefined, key: strin
   return typeof v === "string" ? v.trim() : undefined;
 }
 
+function metaBool(meta: Record<string, unknown> | null | undefined, key: string): boolean | undefined {
+  if (!meta) return undefined;
+  const raw = meta[key];
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim().toLowerCase();
+  if (t === "true" || t === "1" || t === "yes") return true;
+  if (t === "false" || t === "0" || t === "no") return false;
+  return undefined;
+}
+
+function metaInt(meta: Record<string, unknown> | null | undefined, key: string): number | undefined {
+  if (!meta) return undefined;
+  const raw = meta[key];
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.trunc(raw));
+  if (typeof raw !== "string") return undefined;
+  const n = Number(raw.trim());
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(0, Math.trunc(n));
+}
+
 function truncate(s: string, max: number): string {
   const t = s.trim();
   return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
+function parseHeaderBool(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): boolean | undefined {
+  const v = headerOne(headers, name);
+  if (!v) return undefined;
+  const t = v.trim().toLowerCase();
+  if (t === "true" || t === "1" || t === "yes") return true;
+  if (t === "false" || t === "0" || t === "no") return false;
+  return undefined;
+}
+
+function parseHeaderInt(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): number | undefined {
+  const v = headerOne(headers, name);
+  if (!v) return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(0, Math.trunc(n));
+}
+
+function parseGitFactsFromSummary(summary: string | undefined): Partial<ParsedSessionExecutionContext> {
+  if (!summary) return {};
+  const out: Partial<ParsedSessionExecutionContext> = {};
+  const s = summary.trim();
+  if (!s) return out;
+  const lines = s.split(/\r?\n/);
+  const first = lines[0] ?? "";
+  const branchMatch = /^##\s+([^\s.[]+)/.exec(first);
+  if (branchMatch?.[1]) {
+    out.gitIsRepo = true;
+    out.gitBranch = branchMatch[1];
+  }
+  const aheadBehind = /\[(?:ahead\s+(\d+))?(?:,\s*)?(?:behind\s+(\d+))?\]/.exec(first);
+  if (aheadBehind) {
+    if (aheadBehind[1]) out.gitAhead = Math.max(0, Math.trunc(Number(aheadBehind[1])));
+    if (aheadBehind[2]) out.gitBehind = Math.max(0, Math.trunc(Number(aheadBehind[2])));
+  }
+  if (/\n\?\?\s/m.test(s)) out.gitHasUntracked = true;
+  if (/\n(?:\?\?|[ MADRCU][MADRCU? ]?)\s/m.test(s)) out.gitDirty = true;
+  return out;
 }
 
 /**
@@ -45,6 +125,7 @@ function truncate(s: string, max: number): string {
 export function parseSessionExecutionContext(
   headers: Record<string, string | string[] | undefined>,
   metadata?: Record<string, unknown> | null,
+  options?: ParseSessionExecutionContextOptions,
 ): ParsedSessionExecutionContext {
   const fromMetaRoot = metaString(metadata, "synesis_project_root");
   const fromHeaderProject = headerOne(headers, "x-synesis-project-root");
@@ -68,6 +149,29 @@ export function parseSessionExecutionContext(
 
   const gitRaw = metaString(metadata, "synesis_git_summary");
   const gitSummary = gitRaw ? truncate(gitRaw, MAX_GIT_SUMMARY) : undefined;
+  const inferredGit = parseGitFactsFromSummary(gitSummary);
+  const gitIsRepo = metaBool(metadata, "synesis_git_is_repo")
+    ?? parseHeaderBool(headers, "x-synesis-git-is-repo")
+    ?? inferredGit.gitIsRepo;
+  const gitBranch = metaString(metadata, "synesis_git_branch")
+    ?? headerOne(headers, "x-synesis-git-branch")
+    ?? inferredGit.gitBranch;
+  const gitDirty = metaBool(metadata, "synesis_git_dirty")
+    ?? parseHeaderBool(headers, "x-synesis-git-dirty")
+    ?? inferredGit.gitDirty;
+  const gitHasUntracked = metaBool(metadata, "synesis_git_has_untracked")
+    ?? parseHeaderBool(headers, "x-synesis-git-has-untracked")
+    ?? inferredGit.gitHasUntracked;
+  const gitAhead = metaInt(metadata, "synesis_git_ahead")
+    ?? parseHeaderInt(headers, "x-synesis-git-ahead")
+    ?? inferredGit.gitAhead;
+  const gitBehind = metaInt(metadata, "synesis_git_behind")
+    ?? parseHeaderInt(headers, "x-synesis-git-behind")
+    ?? inferredGit.gitBehind;
+  const policyCandidate = (options?.gitPolicyMode ?? "").trim().toLowerCase();
+  const gitPolicyMode = GIT_POLICY_MODES.has(policyCandidate)
+    ? (policyCandidate as GitPolicyMode)
+    : undefined;
 
   const labelRaw = metaString(metadata, "synesis_client_model_label");
   const clientModelLabel = labelRaw ? truncate(labelRaw, MAX_LABEL) : undefined;
@@ -82,6 +186,13 @@ export function parseSessionExecutionContext(
     osVersion,
     shell,
     gitSummary,
+    gitIsRepo,
+    gitBranch,
+    gitDirty,
+    gitHasUntracked,
+    gitAhead,
+    gitBehind,
+    gitPolicyMode,
     clientModelLabel,
     knowledgeCutoff,
   };
@@ -93,6 +204,13 @@ function hasAnyOptional(ctx: ParsedSessionExecutionContext): boolean {
     ctx.osVersion ||
     ctx.shell ||
     ctx.gitSummary ||
+    ctx.gitIsRepo !== undefined ||
+    ctx.gitBranch ||
+    ctx.gitDirty !== undefined ||
+    ctx.gitHasUntracked !== undefined ||
+    ctx.gitAhead !== undefined ||
+    ctx.gitBehind !== undefined ||
+    ctx.gitPolicyMode ||
     ctx.clientModelLabel ||
     ctx.knowledgeCutoff
   );
@@ -141,7 +259,33 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
   if (ctx.platform) lines.push(`platform=${ctx.platform}`);
   if (ctx.osVersion) lines.push(`os_version=${ctx.osVersion}`);
   if (ctx.shell) lines.push(`shell=${ctx.shell}`);
+  if (ctx.gitPolicyMode) lines.push(`git_policy_mode=${ctx.gitPolicyMode}`);
   if (ctx.gitSummary) lines.push(`git_summary=${ctx.gitSummary}`);
+  if (ctx.gitIsRepo !== undefined) lines.push(`is_git_repo=${ctx.gitIsRepo}`);
+  if (ctx.gitBranch) lines.push(`git_branch=${ctx.gitBranch}`);
+  if (ctx.gitDirty !== undefined) lines.push(`git_dirty=${ctx.gitDirty}`);
+  if (ctx.gitHasUntracked !== undefined) lines.push(`git_has_untracked=${ctx.gitHasUntracked}`);
+  if (ctx.gitAhead !== undefined || ctx.gitBehind !== undefined) {
+    lines.push(`git_ahead_behind=${ctx.gitAhead ?? 0}/${ctx.gitBehind ?? 0}`);
+  }
+  if (ctx.gitIsRepo === true) {
+    lines.push(
+      "Git repo detected: run status/diff before finalizing, keep commits focused, and avoid staging credentials or secrets.",
+    );
+    if (ctx.gitPolicyMode === "enforced") {
+      lines.push(
+        "Git policy mode is enforced: expect guarded git tools to block risky add/commit behavior without preflight hygiene.",
+      );
+    } else if (ctx.gitPolicyMode === "advisory") {
+      lines.push(
+        "Git policy mode is advisory: prefer branch-aware, status-first, diff-before-final workflows in this session.",
+      );
+    }
+  } else if (ctx.gitIsRepo === false) {
+    lines.push(
+      "No git repository detected for this workspace anchor. Scaffold normally and suggest git init only when the user asks for repository workflows.",
+    );
+  }
   if (ctx.clientModelLabel) lines.push(`client_model_label=${ctx.clientModelLabel}`);
   if (ctx.knowledgeCutoff) lines.push(`knowledge_cutoff=${ctx.knowledgeCutoff}`);
   lines.push("</SESSION_EXECUTION_CONTEXT>");
@@ -179,8 +323,9 @@ export function appendPathContextToAdapterBlock(
   headers: Record<string, string | string[] | undefined>,
   metadata?: Record<string, unknown> | null,
   coderClientHint?: string | null,
+  options?: ParseSessionExecutionContextOptions,
 ): string {
-  const ctx = parseSessionExecutionContext(headers, metadata);
+  const ctx = parseSessionExecutionContext(headers, metadata, options);
   const block = toSessionExecutionContextSystemBlock(ctx);
   if (block) return `${adapterBlock}\n\n${block}`;
   if (shouldAppendPathHygieneFallback(coderClientHint)) {

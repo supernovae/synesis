@@ -108,9 +108,36 @@ export function summarizeJsonObject(raw: string, maxChars = 2000): string {
     const obj = JSON.parse(raw);
     const keys = Object.keys(obj);
     const summary: Record<string, unknown> = {};
+    const highSignalKeys = new Set([
+      "ok",
+      "exitCode",
+      "summary",
+      "stderr",
+      "stdout",
+      "errors",
+      "errorLines",
+      "isGitRepo",
+      "branch",
+      "detachedHead",
+      "ahead",
+      "behind",
+      "dirty",
+      "hasUntracked",
+      "statusCode",
+    ]);
 
     for (const key of keys) {
       const val = obj[key];
+      if (highSignalKeys.has(key)) {
+        if (typeof val === "string") {
+          summary[key] = val.length > 500 ? `${val.slice(0, 500)}...` : val;
+        } else if (Array.isArray(val) && val.length > 20) {
+          summary[key] = val.slice(0, 20);
+        } else {
+          summary[key] = val;
+        }
+        continue;
+      }
       if (typeof val === "string" && val.length > 200) {
         summary[key] = val.slice(0, 200) + "...";
       } else if (Array.isArray(val) && val.length > 5) {
