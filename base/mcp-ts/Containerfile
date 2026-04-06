@@ -13,6 +13,7 @@ COPY base/mcp-ts/package.json base/mcp-ts/package-lock.json ./base/mcp-ts/
 COPY base/mcp-ts/tsconfig.json ./base/mcp-ts/
 COPY base/mcp-ts/src ./base/mcp-ts/src
 WORKDIR /opt/app-root/src/base/mcp-ts
+# Lockfile is maintained for this image (not the repo-root workspace lock). Refresh: `npm install --workspaces=false` here.
 RUN npm ci
 RUN npx tsc
 RUN npm prune --omit=dev
