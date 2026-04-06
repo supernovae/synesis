@@ -755,6 +755,71 @@ function webSearchResolveContext(
     toolName: args.toolName ?? WEB_SEARCH_TOOL_NAME,
   };
 }
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasClaudeNativeWebSearchTool(tools: unknown[] | undefined): boolean {
+  if (!Array.isArray(tools) || tools.length === 0) return false;
+  return tools.some((tool) => {
+    if (!isObjectRecord(tool)) return false;
+    const type = String(tool.type ?? "").toLowerCase();
+    const name = String(tool.name ?? "").toLowerCase();
+    return type.startsWith("web_search_") || name === "web_search";
+  });
+}
+
+function isClaudeWebSearchToolName(toolName: string): boolean {
+  return toolName.trim().toLowerCase() === "web_search";
+}
+
+type ClaudeServerWebSearchEvent = {
+  toolUseId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  query: string;
+  results: Array<{ type: "web_search_result"; url: string; title: string; snippet: string }>;
+  errorCode?: string;
+};
+
+function toClaudeServerWebSearchEvent(
+  toolCallId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+  response: Record<string, unknown>,
+): ClaudeServerWebSearchEvent {
+  const query = String(response.query ?? input.query ?? "");
+  const rawResults = Array.isArray(response.results) ? response.results : [];
+  const results = rawResults
+    .map((row) => {
+      if (!isObjectRecord(row)) return null;
+      return {
+        type: "web_search_result" as const,
+        url: String(row.url ?? ""),
+        title: String(row.title ?? ""),
+        snippet: String(row.snippet ?? ""),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  let errorCode: string | undefined;
+  if (typeof response.error === "string" && response.error.trim().length > 0) {
+    errorCode = response.error;
+  } else if (typeof response.status === "number" && response.status >= 400) {
+    errorCode = "upstream_error";
+  }
+
+  return {
+    toolUseId: `srvtoolu_${toolCallId || crypto.randomUUID().replace(/-/g, "")}`,
+    toolName,
+    input,
+    query,
+    results,
+    errorCode,
+  };
+}
+
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
 const enrichmentPool = new EnrichmentPool(config);
@@ -5010,8 +5075,197 @@ app.post("/v1/messages", async (req, reply) => {
   const providerOptions = body.thinking
     ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
     : adapterClaudeProviderOptions;
+  const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
 
   if (body.stream) {
+    if (claudeNativeWebSearchRequested) {
+      const started = Date.now();
+      let currentMessages = claudeModelMessages;
+      const serverEvents: ClaudeServerWebSearchEvent[] = [];
+      let streamedResult: Awaited<ReturnType<typeof generateText>> | null = null;
+      for (let round = 0; round < 3; round++) {
+        streamedResult = await generateText({
+          model: resolved.model as never,
+          messages: currentMessages,
+          maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+          ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+          ...(sdkStop ? { stopSequences: sdkStop } : {}),
+          ...(sdkTools ? { tools: sdkTools } : {}),
+          ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+          ...(providerOptions ? { providerOptions: providerOptions as never } : {})
+        });
+
+        const allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+        const serverCalls = allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName));
+        if (serverCalls.length === 0) break;
+
+        const assistantParts: Array<
+          { type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
+        > = [];
+        if (streamedResult.text) assistantParts.push({ type: "text", text: streamedResult.text });
+        const toolResults: Array<{
+          type: "tool-result";
+          toolCallId: string;
+          toolName: string;
+          output: { type: "text"; value: string };
+        }> = [];
+
+        for (const call of serverCalls) {
+          const input = isObjectRecord(call.input) ? call.input : {};
+          const searchOutput = await webSearch.resolve(
+            input,
+            webSearchResolveContext(claudeAuthUser, req, {
+              requestId: reqId,
+              sessionKey: claudeSessionKey,
+              conversationId: session.record.conversationId || undefined,
+              traceId: reqId,
+              sourceSurface: "yarn_chat",
+              toolName: "web_search",
+            }),
+          );
+          const payload = isObjectRecord(searchOutput) ? searchOutput : { error: "invalid_server_tool_payload" };
+          serverEvents.push(toClaudeServerWebSearchEvent(call.toolCallId, call.toolName, input, payload));
+          assistantParts.push({
+            type: "tool-call",
+            toolCallId: call.toolCallId,
+            toolName: call.toolName,
+            input,
+          });
+          toolResults.push({
+            type: "tool-result",
+            toolCallId: call.toolCallId,
+            toolName: call.toolName,
+            output: { type: "text", value: JSON.stringify(payload) },
+          });
+        }
+
+        if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
+        currentMessages = [
+          ...currentMessages,
+          { role: "assistant", content: assistantParts } as never,
+          { role: "tool", content: toolResults } as never,
+        ];
+      }
+
+      const finalResult = streamedResult ?? await generateText({
+        model: resolved.model as never,
+        messages: currentMessages,
+        maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+        ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+        ...(sdkStop ? { stopSequences: sdkStop } : {}),
+        ...(sdkTools ? { tools: sdkTools } : {}),
+        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+        ...(providerOptions ? { providerOptions: providerOptions as never } : {})
+      });
+
+      const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
+      const msgId = `msg_${crypto.randomUUID()}`;
+      let idx = 0;
+      let stopReason = "end_turn";
+      const finalText = finalResult.text ?? "";
+      const finalCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+      const externalCalls = finalCalls.filter((tc) => !isClaudeWebSearchToolName(tc.toolName));
+      if (externalCalls.length > 0) stopReason = "tool_use";
+
+      reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
+      safeSse(reply, "message_start", {
+        type: "message_start",
+        message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [], usage: { input_tokens: 0, output_tokens: 0 } },
+      });
+
+      for (const evt of serverEvents) {
+        safeSse(reply, "content_block_start", {
+          type: "content_block_start",
+          index: idx,
+          content_block: { type: "server_tool_use", id: evt.toolUseId, name: evt.toolName, input: evt.input },
+        });
+        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
+        idx += 1;
+        safeSse(reply, "content_block_start", {
+          type: "content_block_start",
+          index: idx,
+          content_block: evt.errorCode
+            ? {
+                type: "web_search_tool_result",
+                tool_use_id: evt.toolUseId,
+                content: { type: "web_search_tool_result_error", error_code: evt.errorCode },
+              }
+            : { type: "web_search_tool_result", tool_use_id: evt.toolUseId, content: evt.results },
+        });
+        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
+        idx += 1;
+      }
+
+      if (finalText) {
+        safeSse(reply, "content_block_start", { type: "content_block_start", index: idx, content_block: { type: "text", text: "" } });
+        safeSse(reply, "content_block_delta", { type: "content_block_delta", index: idx, delta: { type: "text_delta", text: finalText } });
+        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
+        idx += 1;
+        session.history.push({ role: "assistant", content: finalText });
+      }
+
+      for (const call of externalCalls) {
+        safeSse(reply, "content_block_start", {
+          type: "content_block_start",
+          index: idx,
+          content_block: { type: "tool_use", id: call.toolCallId, name: call.toolName },
+        });
+        safeSse(reply, "content_block_delta", {
+          type: "content_block_delta",
+          index: idx,
+          delta: { type: "input_json_delta", partial_json: JSON.stringify(call.input ?? {}) },
+        });
+        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
+        idx += 1;
+      }
+
+      const reduced = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+      const verificationState = toolResultReduction.getVerificationTracker().getState();
+      const recallDecision = toolResultReduction.getLastRecallDecision();
+      const snapshot = buildDecisionSnapshot({
+        orchestration: claudeOrchestration,
+        recallDecision,
+        verificationState,
+        policyMatchedRules: claudePolicyPrecheck.matchedRules,
+        reducedToolResults: claudeToolResultCount,
+        tokensSavedByReduction: reduced,
+        evidencePrefetched: claudePrefetchResult?.matched,
+        evidenceConfidence: claudePrefetchResult?.confidence,
+        evidenceAuthoritative: claudePrefetchResult?.authoritative,
+        evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
+        isStreaming: true,
+        sensemakingTriggered: claudeSensemakingResult?.triggered,
+        sensemakingReason: claudeSensemakingResult?.reason,
+      });
+      persistSessionAndUsage(
+        session,
+        reqId,
+        resolved.resolvedModelId,
+        usage,
+        Date.now() - started,
+        stopReason,
+        reduced,
+        claudeOrchestration.escalated,
+        snapshot,
+        {
+          toolSequence: externalCalls.map((c) => c.toolName),
+          verificationSteps: inferVerificationSteps(externalCalls.map((c) => c.toolName)),
+          diagnostics: claudeTrajectoryDiagnostics,
+        },
+      );
+      maybeCheckpoint(session);
+      emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, snapshot);
+
+      safeSse(reply, "message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: stopReason },
+        usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
+      });
+      safeSse(reply, "message_stop", { type: "message_stop" });
+      safeEnd(reply.raw);
+      return reply;
+    }
+
     const claudeAdmission = await streamAdmission.acquire();
     if (!claudeAdmission.admitted) {
       app.log.warn({ reason: claudeAdmission.reason, queueStats: streamAdmission.getStats() }, "stream_admission_rejected_claude");
@@ -5618,18 +5872,80 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeNonStreamSpan = getTracer().startSpan("yarn.claude.generate", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
   const started = Date.now();
-  let result;
+  const claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[] = [];
+  let result: Awaited<ReturnType<typeof generateText>> | null = null;
   try {
-    result = await generateText({
-      model: resolved.model as never,
-      messages: claudeModelMessages,
-      maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-      ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
-      ...(sdkStop ? { stopSequences: sdkStop } : {}),
-      ...(sdkTools ? { tools: sdkTools } : {}),
-      ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
-      ...(providerOptions ? { providerOptions: providerOptions as never } : {})
-    });
+    let currentMessages = claudeModelMessages;
+    for (let round = 0; round < 3; round++) {
+      result = await generateText({
+        model: resolved.model as never,
+        messages: currentMessages,
+        maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+        ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+        ...(sdkStop ? { stopSequences: sdkStop } : {}),
+        ...(sdkTools ? { tools: sdkTools } : {}),
+        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+        ...(providerOptions ? { providerOptions: providerOptions as never } : {})
+      });
+
+      const allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+      const serverCalls = claudeNativeWebSearchRequested
+        ? allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName))
+        : [];
+      if (serverCalls.length === 0) break;
+
+      const assistantParts: Array<
+        { type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
+      > = [];
+      if (result.text) assistantParts.push({ type: "text", text: result.text });
+      const toolResults: Array<{
+        type: "tool-result";
+        toolCallId: string;
+        toolName: string;
+        output: { type: "text"; value: string };
+      }> = [];
+
+      for (const call of serverCalls) {
+        const input = isObjectRecord(call.input) ? call.input : {};
+        const searchOutput = await webSearch.resolve(
+          input,
+          webSearchResolveContext(claudeAuthUser, req, {
+            requestId: reqId,
+            sessionKey: claudeSessionKey,
+            conversationId: session.record.conversationId || undefined,
+            traceId: reqId,
+            sourceSurface: "yarn_chat",
+            toolName: "web_search",
+          }),
+        );
+        const searchPayload = isObjectRecord(searchOutput) ? searchOutput : { error: "invalid_server_tool_payload" };
+        claudeServerWebSearchEvents.push(
+          toClaudeServerWebSearchEvent(call.toolCallId, call.toolName, input, searchPayload),
+        );
+        assistantParts.push({
+          type: "tool-call",
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          input,
+        });
+        toolResults.push({
+          type: "tool-result",
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          output: { type: "text", value: JSON.stringify(searchPayload) },
+        });
+      }
+
+      if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
+      currentMessages = [
+        ...currentMessages,
+        { role: "assistant", content: assistantParts } as never,
+        { role: "tool", content: toolResults } as never,
+      ];
+    }
+    if (!result) {
+      throw new Error("empty_generation_result");
+    }
   } catch (err) {
     const upstream = extractUpstreamErrorDiagnostics(err);
     circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
@@ -5932,6 +6248,32 @@ app.post("/v1/messages", async (req, reply) => {
   const content: Array<Record<string, unknown>> = [];
   if (reasoning) {
     content.push({ type: "thinking", thinking: reasoning });
+  }
+  if (claudeServerWebSearchEvents.length > 0) {
+    for (const evt of claudeServerWebSearchEvents) {
+      content.push({
+        type: "server_tool_use",
+        id: evt.toolUseId,
+        name: evt.toolName,
+        input: evt.input,
+      });
+      if (evt.errorCode) {
+        content.push({
+          type: "web_search_tool_result",
+          tool_use_id: evt.toolUseId,
+          content: {
+            type: "web_search_tool_result_error",
+            error_code: evt.errorCode,
+          },
+        });
+      } else {
+        content.push({
+          type: "web_search_tool_result",
+          tool_use_id: evt.toolUseId,
+          content: evt.results,
+        });
+      }
+    }
   }
   if (finalClaudeText) {
     content.push({ type: "text", text: finalClaudeText });

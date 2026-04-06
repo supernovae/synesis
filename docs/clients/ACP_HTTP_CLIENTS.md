@@ -23,3 +23,7 @@ See [Cloudflare Edge Hardening](../CLOUDFLARE_EDGE_HARDENING.md) for WAF, tunnel
 Workspace MCP tools such as `run_build`, `run_test`, and `run_lint` return **structured fields** (`summary`, `errorLines`, `errors`, `nextActions`, capped `stdout`/`stderr`) so models can target fixes without pasting full logs. For **complete** command output (e.g. long `go test` traces), rely on the **client transcript** or local terminal where the agent ran the command—server logs may not include every byte of stderr. Use request/correlation IDs from responses when correlating with Yarn logs.
 
 For Claude/OpenAI session stalls tied to tool-call resume history, use the Yarn upstream diagnostics playbook in [Claude Code Compatibility](../claude_code_compat.md#upstream-error-playbook-vercel-ai-sdk).
+
+## Web search: native Claude Code vs Synesis
+
+Claude Code’s own **Web Search** UI is not Synesis SearXNG. Grounded web search that appears in **Admin → Integrations → Web Search** and in Planner metrics uses MCP tools **`synesis_web_search`** / **`web_search`** (or Yarn server-side injection on the OpenAI non-stream path). See [Web Search Provenance](WEB_SEARCH_PROVENANCE.md#claude-code-vs-synesis-synesis_web_search).
