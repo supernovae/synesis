@@ -6,7 +6,8 @@ Tool **handlers** run here (Python). The **MCP protocol** (Streamable HTTP) is s
 - ``GET /api/v1/internal/mcp/tools`` — tools visible to the caller's role
 - ``POST /api/v1/internal/mcp/invoke`` — execute a tool (JWT/PAT + RBAC + audit)
 
-Each invocation is logged to ``admin_audit_events``.
+Tools mirror public Admin API behavior (traces, usage time series, unified usage, Yarn ops,
+ingestion, health, etc.). Each invocation is logged to ``admin_audit_events``.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..auth import UserInfo, get_current_user
-from ..rbac import Role, resolve_role, trace_scope_filters
+from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role, trace_scope_filters
 from ..services.admin_audit import record_admin_audit
 
 logger = logging.getLogger("synesis.admin.mcp")
@@ -31,15 +32,31 @@ internal_router = APIRouter(prefix="/api/v1/internal/mcp", tags=["mcp-internal"]
 _TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_traces",
-        "description": "List recent traces with optional filters. Scoped to the caller's role.",
+        "description": (
+            "List recent traces with optional filters (same data as GET /api/v1/traces). "
+            "Supports trace_service (yarn|planner|all), conversation_id, decision_path, tenant_id, offset."
+        ),
         "min_role": Role.org_admin,
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "default": 20, "description": "Max results"},
+                "limit": {"type": "integer", "default": 20, "description": "Max results (max 100)"},
+                "offset": {"type": "integer", "default": 0, "description": "Pagination offset"},
                 "has_error": {"type": "boolean", "description": "Filter error traces"},
                 "task_type": {"type": "string", "description": "Filter by task type"},
-                "since_hours": {"type": "integer", "default": 24, "description": "Lookback hours"},
+                "since_hours": {"type": "integer", "description": "If set, only traces newer than this many hours ago"},
+                "trace_service": {
+                    "type": "string",
+                    "description": "Filter by emitter: planner, yarn, or all (default all)",
+                },
+                "conversation_id": {"type": "string", "description": "Filter by conversation / session id"},
+                "decision_path": {
+                    "type": "string",
+                    "description": "Filter by routing path (deterministic, constrained, inference_first, abstain)",
+                },
+                "tenant_id": {"type": "string", "description": "Optional tenant filter (scoped callers)"},
+                "user_id": {"type": "string", "description": "Optional user id filter (within RBAC scope)"},
+                "org_id": {"type": "string", "description": "Optional org id filter (within RBAC scope)"},
             },
         },
     },
@@ -57,18 +74,54 @@ _TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "trace_stats",
-        "description": "Aggregate trace statistics (last 24h). Scoped to the caller's role.",
+        "description": "Aggregate trace statistics (last 24h), same as GET /api/v1/traces/stats.",
         "min_role": Role.org_admin,
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "trace_decision_analytics",
+        "description": (
+            "Decision-path and verification analytics from trace JSONB (GET /api/v1/traces/analytics). "
+            "Requires org observability access."
+        ),
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {
+                    "type": "integer",
+                    "default": 24,
+                    "description": "Start of window (hours ago); maps to since/until on the API",
+                },
+                "org_id": {"type": "string", "description": "Optional org filter (platform admin); else caller org scope"},
+            },
+        },
+    },
+    {
         "name": "usage_summary",
-        "description": "Pre-aggregated usage/cost summary. Scoped to the caller's role.",
+        "description": (
+            "Pre-aggregated usage/cost summary from trace aggregates (legacy shape). "
+            "For full pipeline + Yarn + glossary, prefer unified_usage_snapshot."
+        ),
         "min_role": Role.org_admin,
         "inputSchema": {
             "type": "object",
             "properties": {
                 "since_hours": {"type": "integer", "default": 24, "description": "Lookback hours"},
+            },
+        },
+    },
+    {
+        "name": "usage_time_series",
+        "description": (
+            "Hourly usage buckets (planner_usage_log; trace fallback) — same as GET /api/v1/usage. "
+            "Requires org observability. Use for token/cost trends over time."
+        ),
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 24, "description": "Lookback hours (1-720)"},
             },
         },
     },
@@ -85,6 +138,88 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "since_hours": {"type": "integer", "default": 24, "description": "Lookback hours"},
             },
+        },
+    },
+    {
+        "name": "yarn_overview",
+        "description": "Yarn ops overview: sessions, tokens, costs (GET /api/v1/yarn/overview).",
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 24, "description": "Lookback hours"},
+            },
+        },
+    },
+    {
+        "name": "yarn_intelligence",
+        "description": "Yarn intelligence rollup for the period (GET /api/v1/yarn/intelligence).",
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 24, "description": "Lookback hours"},
+            },
+        },
+    },
+    {
+        "name": "yarn_sessions",
+        "description": "List Yarn IDE sessions (GET /api/v1/yarn/sessions).",
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "page": {"type": "integer", "default": 1},
+                "page_size": {"type": "integer", "default": 20, "description": "Max 100"},
+                "active_since_hours": {"type": "integer", "default": 168, "description": "Only sessions active in this window"},
+            },
+        },
+    },
+    {
+        "name": "yarn_session_detail",
+        "description": "Full detail for one Yarn session by session_key (GET /api/v1/yarn/sessions/{key}).",
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_key": {"type": "string", "description": "Yarn session key"},
+            },
+            "required": ["session_key"],
+        },
+    },
+    {
+        "name": "yarn_performance",
+        "description": "Yarn latency and throughput buckets (GET /api/v1/yarn/performance).",
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 24},
+                "bucket_minutes": {"type": "integer", "default": 15, "description": "Bucket size 5-60"},
+            },
+        },
+    },
+    {
+        "name": "yarn_events",
+        "description": "Yarn session events and errors (GET /api/v1/yarn/events).",
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "page": {"type": "integer", "default": 1},
+                "page_size": {"type": "integer", "default": 50},
+                "since_hours": {"type": "integer", "default": 24},
+                "errors_only": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "yarn_safety_summary",
+        "description": "Yarn safety / policy events summary (GET /api/v1/yarn/safety-summary).",
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"since_hours": {"type": "integer", "default": 24}},
         },
     },
     {
@@ -414,20 +549,50 @@ async def invoke_mcp_tool_for_chat(
 import time
 
 
+def _ensure_org_observability(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_observability):
+        raise HTTPException(status_code=403, detail="Requires route group access: org_observability")
+
+
+def _ensure_org_admin(user: UserInfo) -> None:
+    if resolve_role(user) < Role.org_admin:
+        raise HTTPException(status_code=403, detail="Requires org_admin role or higher")
+
+
+def _yarn_scope(user: UserInfo) -> tuple[str, str, str]:
+    """Match ``yarn`` router: (scope_user_id, scope_org_id, scope_tenant_id)."""
+    role = resolve_role(user)
+    if role >= Role.platform_admin:
+        return "", "", ""
+    if role >= Role.org_admin:
+        return "", user.org_id or "", ""
+    tenant_ids = getattr(user, "tenant_ids", None) or []
+    scope_tenant = (tenant_ids[0].strip()[:64]) if tenant_ids else ""
+    return user.user_id or user.username, "", scope_tenant
+
+
 async def _list_traces(user: UserInfo, args: dict) -> Any:
     from ..services import trace_store
 
     scope = trace_scope_filters(user)
     since = 0.0
-    if args.get("since_hours"):
-        since = time.time() - (args["since_hours"] * 3600)
+    if args.get("since_hours") is not None:
+        since = time.time() - (int(args["since_hours"]) * 3600)
+    effective_tenant = (str(args.get("tenant_id", "")).strip()) or scope.get("scope_tenant_id", "")
     return await trace_store.list_traces(
-        limit=min(args.get("limit", 20), 100),
+        offset=max(0, int(args.get("offset", 0))),
+        limit=min(int(args.get("limit", 20)), 100),
         has_error=args.get("has_error"),
-        task_type=args.get("task_type", ""),
+        task_type=str(args.get("task_type", "") or ""),
+        conversation_id=str(args.get("conversation_id", "") or "").strip(),
+        decision_path=str(args.get("decision_path", "") or "").strip(),
+        trace_service=str(args.get("trace_service", "") or "").strip(),
+        user_id=str(args.get("user_id", "") or "").strip(),
+        org_id=str(args.get("org_id", "") or "").strip(),
         since=since,
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
+        scope_tenant_id=effective_tenant,
     )
 
 
@@ -453,6 +618,23 @@ async def _trace_stats(user: UserInfo, args: dict) -> Any:
     return await trace_store.get_trace_stats(
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
+        scope_tenant_id=scope.get("scope_tenant_id", ""),
+    )
+
+
+async def _trace_decision_analytics(user: UserInfo, args: dict) -> Any:
+    from ..services import trace_store
+
+    _ensure_org_observability(user)
+    scope = trace_scope_filters(user)
+    since_hours = int(args.get("since_hours", 24))
+    since_ts = time.time() - since_hours * 3600
+    effective_org = str(args.get("org_id", "") or "").strip() or scope.get("org_id", "")
+    return await trace_store.get_decision_analytics(
+        since=since_ts,
+        until=0,
+        scope_org_id=effective_org,
+        scope_tenant_id=scope.get("scope_tenant_id", ""),
     )
 
 
@@ -461,9 +643,37 @@ async def _usage_summary(user: UserInfo, args: dict) -> Any:
 
     scope = trace_scope_filters(user)
     return await aggregate_traces_period(
-        since_hours=args.get("since_hours", 24),
+        since_hours=int(args.get("since_hours", 24)),
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
+        scope_tenant_id=scope.get("scope_tenant_id", ""),
+    )
+
+
+async def _usage_time_series(user: UserInfo, args: dict) -> Any:
+    from ..services.planner_usage_service import planner_usage_time_series
+    from ..services.trace_store import trace_time_series
+
+    _ensure_org_observability(user)
+    since_hours = int(args.get("since_hours", 24))
+    since_hours = max(1, min(since_hours, 720))
+    scope = trace_scope_filters(user)
+    su = scope.get("user_id", "") or ""
+    so = scope.get("org_id", "") or ""
+    st = scope.get("scope_tenant_id", "") or ""
+    pl_series = await planner_usage_time_series(
+        since_hours=since_hours,
+        scope_user_id=su,
+        scope_org_id=so,
+        scope_tenant_id=st,
+    )
+    if pl_series and sum(b.get("requests", 0) for b in pl_series) > 0:
+        return pl_series
+    return await trace_time_series(
+        since_hours=since_hours,
+        scope_user_id=su,
+        scope_org_id=so,
+        scope_tenant_id=st,
     )
 
 
@@ -471,6 +681,105 @@ async def _unified_usage_snapshot(user: UserInfo, args: dict) -> Any:
     from ..services.usage_unified import get_summary_unified
 
     return await get_summary_unified(user=user, since_hours=int(args.get("since_hours", 24)))
+
+
+async def _yarn_overview(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    return await yarn_service.get_yarn_overview(
+        since_hours=int(args.get("since_hours", 24)),
+        scope_user_id=su,
+        scope_org_id=so,
+    )
+
+
+async def _yarn_intelligence(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    return await yarn_service.get_yarn_intelligence(
+        since_hours=int(args.get("since_hours", 24)),
+        scope_user_id=su,
+        scope_org_id=so,
+    )
+
+
+async def _yarn_sessions(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    ash = args.get("active_since_hours", 168)
+    return await yarn_service.list_yarn_sessions(
+        page=int(args.get("page", 1)),
+        page_size=min(int(args.get("page_size", 20)), 100),
+        scope_user_id=su,
+        scope_org_id=so,
+        active_since_hours=int(ash) if ash is not None else 168,
+    )
+
+
+async def _yarn_session_detail(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    key = str(args.get("session_key", "") or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="session_key required")
+    su, so, _ = _yarn_scope(user)
+    detail = await yarn_service.get_yarn_session_detail(
+        key,
+        scope_user_id=su,
+        scope_org_id=so,
+    )
+    if not detail:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return detail
+
+
+async def _yarn_performance(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    bm = int(args.get("bucket_minutes", 15))
+    bm = max(5, min(bm, 60))
+    return await yarn_service.get_yarn_performance(
+        since_hours=int(args.get("since_hours", 24)),
+        bucket_minutes=bm,
+        scope_user_id=su,
+        scope_org_id=so,
+    )
+
+
+async def _yarn_events(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    return await yarn_service.list_yarn_events(
+        page=int(args.get("page", 1)),
+        page_size=min(int(args.get("page_size", 50)), 200),
+        scope_user_id=su,
+        scope_org_id=so,
+        since_hours=int(args.get("since_hours", 24)),
+        errors_only=bool(args.get("errors_only", False)),
+    )
+
+
+async def _yarn_safety_summary(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    return await yarn_service.get_yarn_safety_summary(
+        since_hours=int(args.get("since_hours", 24)),
+        scope_user_id=su,
+        scope_org_id=so,
+    )
 
 
 async def _service_health(user: UserInfo, args: dict) -> Any:
@@ -696,8 +1005,17 @@ _HANDLERS: dict[str, Any] = {
     "list_traces": _list_traces,
     "get_trace": _get_trace,
     "trace_stats": _trace_stats,
+    "trace_decision_analytics": _trace_decision_analytics,
     "usage_summary": _usage_summary,
+    "usage_time_series": _usage_time_series,
     "unified_usage_snapshot": _unified_usage_snapshot,
+    "yarn_overview": _yarn_overview,
+    "yarn_intelligence": _yarn_intelligence,
+    "yarn_sessions": _yarn_sessions,
+    "yarn_session_detail": _yarn_session_detail,
+    "yarn_performance": _yarn_performance,
+    "yarn_events": _yarn_events,
+    "yarn_safety_summary": _yarn_safety_summary,
     "service_health": _service_health,
     "list_models": _list_models,
     "cache_metrics": _cache_metrics,
