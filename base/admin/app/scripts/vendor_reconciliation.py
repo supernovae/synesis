@@ -8,7 +8,6 @@ import asyncio
 import logging
 import os
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import httpx
 from sqlalchemy import select, update
@@ -60,10 +59,10 @@ async def fetch_deepinfra_cost(client: httpx.AsyncClient, request_id: str, api_k
 async def reconcile_costs(since_hours: int = 24) -> None:
     """Reconcile costs for traces and usage logs created in the last `since_hours`."""
     cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
-    
+
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     deepinfra_key = os.environ.get("DEEPINFRA_API_KEY")
-    
+
     if not openrouter_key and not deepinfra_key:
         logger.warning("No vendor API keys found. Skipping reconciliation.")
         return
@@ -77,21 +76,21 @@ async def reconcile_costs(since_hours: int = 24) -> None:
                 YarnUsageLog.pricing_source != "provider"  # Only reconcile if we don't have provider cost
             )
             yarn_logs = (await session.execute(q_yarn)).scalars().all()
-            
+
             for log in yarn_logs:
                 cost = None
                 if log.provider == "openrouter" and openrouter_key:
                     cost = await fetch_openrouter_cost(client, log.request_id, openrouter_key)
                 elif log.provider == "deepinfra" and deepinfra_key:
                     cost = await fetch_deepinfra_cost(client, log.request_id, deepinfra_key)
-                
+
                 if cost is not None:
                     await session.execute(
                         update(YarnUsageLog)
                         .where(YarnUsageLog.id == log.id)
                         .values(actual_cost_usd=cost, pricing_source="provider_reconciled")
                     )
-            
+
             # 2. Reconcile PlannerUsageLog
             logger.info("Reconciling PlannerUsageLog...")
             q_planner = select(PlannerUsageLog).where(
@@ -99,7 +98,7 @@ async def reconcile_costs(since_hours: int = 24) -> None:
                 PlannerUsageLog.pricing_source != "provider"
             )
             planner_logs = (await session.execute(q_planner)).scalars().all()
-            
+
             for log in planner_logs:
                 cost = None
                 # Assuming model string might contain provider info, or we check both
@@ -107,14 +106,14 @@ async def reconcile_costs(since_hours: int = 24) -> None:
                     cost = await fetch_openrouter_cost(client, log.request_id, openrouter_key)
                 elif "deepinfra" in log.model.lower() and deepinfra_key:
                     cost = await fetch_deepinfra_cost(client, log.request_id, deepinfra_key)
-                
+
                 if cost is not None:
                     await session.execute(
                         update(PlannerUsageLog)
                         .where(PlannerUsageLog.id == log.id)
                         .values(actual_cost_usd=cost, pricing_source="provider_reconciled")
                     )
-            
+
             # 3. Reconcile Traces
             logger.info("Reconciling Traces...")
             # For traces, we might need to look at the full_record to determine provider
@@ -125,7 +124,7 @@ async def reconcile_costs(since_hours: int = 24) -> None:
                 Trace.estimated_cost_usd > 0.0
             )
             traces = (await session.execute(q_trace)).scalars().all()
-            
+
             for trace in traces:
                 cost = None
                 model = trace.full_record.get("model", "").lower()
@@ -133,7 +132,7 @@ async def reconcile_costs(since_hours: int = 24) -> None:
                     cost = await fetch_openrouter_cost(client, trace.trace_id, openrouter_key)
                 elif "deepinfra" in model and deepinfra_key:
                     cost = await fetch_deepinfra_cost(client, trace.trace_id, deepinfra_key)
-                
+
                 if cost is not None:
                     # Update top-level actual_cost_usd
                     await session.execute(
@@ -141,7 +140,7 @@ async def reconcile_costs(since_hours: int = 24) -> None:
                         .where(Trace.id == trace.id)
                         .values(actual_cost_usd=cost)
                     )
-            
+
             await session.commit()
             logger.info("Reconciliation complete.")
 

@@ -2048,7 +2048,6 @@ check_custom_images() {
     # sed regex replacement; ${var//} cannot express capture groups
     # shellcheck disable=SC2001
     [[ "$REF_SAFE" != "latest" ]] && built=$(echo "$built" | sed "s|ghcr.io/supernovae/synesis/\([^:]*\):latest|ghcr.io/supernovae/synesis/\\1:${REF_SAFE}|g")
-    local check_image_by_pattern
     check_image_by_pattern() {
         local label="$1"
         local pattern="$2"
