@@ -1735,7 +1735,7 @@ function persistSessionAndUsage(
     completion_tokens: usage.outputTokens,
     total_tokens: usage.inputTokens + usage.outputTokens,
     cached_prompt_tokens: usage.cachedTokens,
-    estimated_cost_usd: normalizedCostUsd,
+    estimated_cost_usd: normalizedEstimatedCostUsd,
     actual_cost_usd: usage.costUsd > 0 ? usage.costUsd : 0,
   };
   recordUsageMetrics(svcMetrics, resolvedModelId, resolvedModelId, telemetryUsage, latencyMs / 1000);
@@ -1757,7 +1757,7 @@ function persistSessionAndUsage(
     query_snippet: (rootPromptSnippet || latestPromptSnippet).slice(0, 2000),
     tokens: telemetryUsage,
     cost: {
-      estimated_usd: normalizedCostUsd,
+      estimated_usd: normalizedEstimatedCostUsd,
       actual_usd: usage.costUsd > 0 ? usage.costUsd : 0,
       rates_snapshot: {
         input_per_million: Number(tier?.inputPerM ?? 0),
