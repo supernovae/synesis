@@ -3,8 +3,8 @@ FROM mcr.microsoft.com/playwright:v1.48.0-noble
 WORKDIR /app
 
 # Copy package files and install dependencies
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # Copy application code
 COPY app/ ./app/
