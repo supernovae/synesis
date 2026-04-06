@@ -133,6 +133,11 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
       );
     }
   }
+  if (ctx.projectRoot || ctx.shellCwd) {
+    lines.push(
+      "When summarizing verification for the user (bullets, final messages), use human-readable paths: repo-relative directories, scoped package globs (e.g. ./cmd/foo/..., ./internal/...), or state the working directory using project_root or shell_cwd when given. Avoid bare `go test ./...` or `go build ./...` lines without anchoring where the command ran.",
+    );
+  }
   if (ctx.platform) lines.push(`platform=${ctx.platform}`);
   if (ctx.osVersion) lines.push(`os_version=${ctx.osVersion}`);
   if (ctx.shell) lines.push(`shell=${ctx.shell}`);
@@ -154,6 +159,7 @@ function pathHygieneFallbackBlock(): string {
     "Do not mkdir && cd into a nested folder whose name repeats the current directory (e.g. aws-cost-calculator/aws-cost-calculator). If you are already inside the project folder, create the Go module and sources there.",
     "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",
     "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
+    "When summarizing verification for the user, use human-readable paths (repo-relative dirs, scoped globs like ./cmd/foo/..., or state pwd after inferring it) instead of bare `go test ./...` / `go build ./...` without context.",
     "Before rm or other destructive commands, list the target path and confirm; avoid guessing with wildcards on project trees.",
     "</PATH_HYGIENE>",
   ].join("\n");

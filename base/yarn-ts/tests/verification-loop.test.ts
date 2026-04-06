@@ -107,6 +107,7 @@ describe("Verification Plan Formatting", () => {
     const goBlock = formatVerificationPlanBlock(goPlan);
     expect(goBlock).toContain("Go preflight");
     expect(goBlock).toContain("go mod init");
+    expect(goBlock).toContain("Go paths:");
 
     const javaPlan = buildVerificationPlan(["java"], registry);
     const javaBlock = formatVerificationPlanBlock(javaPlan);

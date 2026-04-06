@@ -31,9 +31,24 @@ export const goPack: LanguagePackManifest = {
     },
   ],
   verificationCommands: [
-    { tool: "go-build", command: "go build ./...", description: "Compile all packages" },
-    { tool: "go-vet", command: "go vet ./...", description: "Run go vet checks" },
-    { tool: "go-test", command: "go test ./...", description: "Run tests" },
+    {
+      tool: "go-build",
+      command: "go build ./...",
+      description:
+        "Compile all packages under the module root (run from the directory containing go.mod, or use `go build -C <dir> ./...`)",
+    },
+    {
+      tool: "go-vet",
+      command: "go vet ./...",
+      description:
+        "Vet all packages under the module root from cwd (same cwd / `-C` rules as go build)",
+    },
+    {
+      tool: "go-test",
+      command: "go test ./...",
+      description:
+        "Test all packages under the module root from cwd (same cwd / `-C` rules as go build)",
+    },
     { tool: "golangci-lint", command: "golangci-lint run", description: "Lint with golangci-lint" },
   ],
   fixRecipes: [

@@ -79,6 +79,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("base");
     expect(out).toContain("<PATH_HYGIENE>");
     expect(out).toContain("aws-cost-calculator/aws-cost-calculator");
+    expect(out).toContain("human-readable paths");
   });
 
   it("shell_cwd without project_root includes duplicate-segment warning", () => {
@@ -88,6 +89,7 @@ describe("appendPathContextToAdapterBlock", () => {
     });
     expect(block).toContain("shell_cwd=");
     expect(block).toContain("aws-cost-calculator/aws-cost-calculator");
+    expect(block).toContain("human-readable paths");
   });
 
   it("appends SESSION_EXECUTION_CONTEXT when workspace root header set", () => {
@@ -95,6 +97,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("base");
     expect(out).toContain("<SESSION_EXECUTION_CONTEXT>");
     expect(out).toContain("project_root=/Users/me/calc");
+    expect(out).toContain("human-readable paths");
   });
 
   it("prefers metadata synesis_project_root over header", () => {

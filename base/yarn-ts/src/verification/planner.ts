@@ -70,6 +70,9 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
   if (langs.has("go")) {
     lines.push("MCP preset mapping (go): run_lint(preset=go) or run_lint(preset=go_golangci), run_build(preset=go), run_test(preset=go), format_code(preset=go)");
     lines.push("Go preflight: if go.mod is missing in the project root, run `go mod init <module-name>` before go build/go test.");
+    lines.push(
+      "Go paths: `./...` means all packages under the module root from the current working directory; use `go ... -C <dir>` or `cd <dir>` when go.mod is not at cwd. When reporting verification to the user, pair results with human-readable scope (project_root/shell_cwd or scoped globs like ./cmd/foo/..., ./internal/...), not bare `./...` alone.",
+    );
   }
   if (langs.has("python")) {
     lines.push("MCP preset mapping (python): run_lint(preset=python) and run_lint(preset=python_ruff_format_check), run_build(preset=python_mypy) then run_build(preset=python), run_test(preset=python_pytest_short)");

@@ -48,6 +48,12 @@ const FRAMEWORK_HINTS: ReadonlyArray<[RegExp, string]> = [
   [/azurerm/, "azurerm"],
 ];
 
+/**
+ * Future (multi-module Go): scan `filePaths` for multiple `go.mod` roots and emit
+ * per-module verification hints (e.g. `go test -C services/foo ./...`) or populate
+ * `relevantDirectories` on the working frame. `TOOL_HINTS` below use generic `./...`
+ * for typical single-module layouts.
+ */
 const TOOL_HINTS: ReadonlyArray<[RegExp, RecommendedTool]> = [
   [/go test/, { name: "go test", purpose: "Unit tests", command: "go test ./...", required: true }],
   [/go vet/, { name: "go vet", purpose: "Static checks", command: "go vet ./...", required: true }],

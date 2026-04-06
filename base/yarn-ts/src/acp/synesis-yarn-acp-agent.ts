@@ -596,6 +596,7 @@ export class SynesisYarnAcpAgent implements Agent {
               ? meta.synesis_shell_cwd
               : null;
         const sh = shellInvocation(cmd, cwd);
+        const resolvedCwd = sh.cwd ?? null;
         const handle = await this.connection.createTerminal({
           sessionId,
           command: sh.command,
@@ -609,6 +610,7 @@ export class SynesisYarnAcpAgent implements Agent {
             stdout: out.output,
             exit_code: exitRes.exitCode ?? null,
             truncated: out.truncated,
+            cwd: resolvedCwd,
           });
         } finally {
           await handle.release();
