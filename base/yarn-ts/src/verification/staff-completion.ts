@@ -119,7 +119,13 @@ export function evaluateDeterministicPreFinalize(
 ): CriticAssessment {
   const findings: string[] = [];
   const next: string[] = [];
-  const hasMutation = recentToolNames.some((n) => n === "str_replace" || n === "write_file");
+  const hasMutation = recentToolNames.some((n) => {
+    const tool = n.toLowerCase();
+    return tool === "str_replace"
+      || tool === "write_file"
+      || tool === "apply_patch"
+      || tool === "repo.apply_patch";
+  });
   if (verification.hasBlockingFailures) {
     findings.push(`Blocking verification failures remain (${verification.failingSignals}).`);
     next.push("Fix failing verification diagnostics and rerun the same verification preset.");

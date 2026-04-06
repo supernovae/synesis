@@ -29,6 +29,15 @@ import {
   runLintTool,
   runTestTool,
   runInSandboxTool,
+  repoApplyPatchTool,
+  repoFindSymbolTool,
+  repoGitDiffTool,
+  repoListChangedFilesTool,
+  repoReadRangeTool,
+  repoRunLintTool,
+  repoRunTestsTool,
+  repoSearchTool,
+  repoWriteDecisionRecordTool,
   searchCodeTool,
   takeScreenshotTool,
   delegateTaskTool,
@@ -85,6 +94,18 @@ const OPENCLAW_WRITE_CAPABLE_TOOLS = new Set<string>([
   "delegate_task",
 ]);
 
+const AGENT_FLOW_ONLY_TOOLS = new Set<string>([
+  "repo.search",
+  "repo.read_range",
+  "repo.find_symbol",
+  "repo.apply_patch",
+  "repo.run_tests",
+  "repo.run_lint",
+  "repo.git_diff",
+  "repo.list_changed_files",
+  "repo.write_decision_record",
+]);
+
 export function isOpenClawClientHeader(raw: unknown): boolean {
   const v = String(raw ?? "").trim().toLowerCase();
   if (!v) return false;
@@ -97,6 +118,12 @@ export function isOpenClawClientHeader(raw: unknown): boolean {
 
 export function filterMcpCatalogForOpenClaw<T extends { name: string }>(catalog: T[]): T[] {
   return catalog.filter((t) => OPENCLAW_MCP_ALLOWLIST.has(t.name));
+}
+
+function isAgentFlowRequest(req: FastifyRequest): boolean {
+  const raw = String(req.headers["x-synesis-agent-flow"] ?? "").trim().toLowerCase();
+  if (!raw) return false;
+  return raw === "1" || raw === "true" || raw === "agent" || raw === "supervisor" || raw === "worker" || raw === "reviewer";
 }
 
 function extractBearerAuthorization(req: FastifyRequest): string {
@@ -160,6 +187,15 @@ registry.register(gitCommitGuardedTool);
 registry.register(runInSandboxTool);
 registry.register(takeScreenshotTool);
 registry.register(delegateTaskTool);
+registry.register(repoSearchTool);
+registry.register(repoReadRangeTool);
+registry.register(repoFindSymbolTool);
+registry.register(repoApplyPatchTool);
+registry.register(repoRunTestsTool);
+registry.register(repoRunLintTool);
+registry.register(repoGitDiffTool);
+registry.register(repoListChangedFilesTool);
+registry.register(repoWriteDecisionRecordTool);
 
 export function getToolRegistry(): McpToolRegistry {
   return registry;
@@ -200,11 +236,15 @@ export async function registerMcpRoutes(
     if (!user) return;
     const openClawClient = opts.openClawProfileEnabled
       && isOpenClawClientHeader(req.headers["x-synesis-client"]);
+    const agentFlow = isAgentFlowRequest(req);
     const catalog = [...registry.getCatalog(), ...getSynesisPlatformCatalog()];
-    const tools =
+    const openClawFiltered =
       openClawClient && opts.openClawMcpAllowlistEnabled
         ? filterMcpCatalogForOpenClaw(catalog)
         : catalog;
+    const tools = agentFlow
+      ? openClawFiltered
+      : openClawFiltered.filter((tool) => !AGENT_FLOW_ONLY_TOOLS.has(tool.name));
     if (openClawClient && opts.openClawMcpAllowlistEnabled) {
       app.log.info(
         { userId: user.userId, originalCount: catalog.length, filteredCount: tools.length },
@@ -218,6 +258,7 @@ export async function registerMcpRoutes(
         userId: user.userId,
         toolCount: tools.length,
         filteredForOpenClaw: openClawClient && opts.openClawMcpAllowlistEnabled,
+        filteredForAgentFlow: !agentFlow,
       },
     });
   });
@@ -234,6 +275,16 @@ export async function registerMcpRoutes(
     }
     const openClawClient = opts.openClawProfileEnabled
       && isOpenClawClientHeader(req.headers["x-synesis-client"]);
+    const agentFlow = isAgentFlowRequest(req);
+    if (!agentFlow && AGENT_FLOW_ONLY_TOOLS.has(body.name)) {
+      app.log.warn({ userId: user.userId, tool: body.name }, "mcp_tool_blocked_non_agent_flow");
+      return reply.code(403).send({
+        error: {
+          type: "forbidden_tool",
+          message: `Tool '${body.name}' is only available during agent flow`,
+        },
+      });
+    }
     if (openClawClient && opts.openClawMcpAllowlistEnabled && !OPENCLAW_MCP_ALLOWLIST.has(body.name)) {
       app.log.warn({ userId: user.userId, tool: body.name }, "mcp_tool_blocked_openclaw_allowlist");
       return reply.code(403).send({

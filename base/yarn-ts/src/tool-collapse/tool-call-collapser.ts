@@ -24,6 +24,7 @@ const READ_ALIASES = new Set([
   "filesystem_read_file",
   "view_file",
   "readfile",
+  "repo.read_range",
 ]);
 
 const SEARCH_ALIASES = new Set([
@@ -35,9 +36,12 @@ const SEARCH_ALIASES = new Set([
   "workspace_search",
   "semantic_search",
   "file_search",
+  "repo.search",
+  "repo.find_symbol",
 ]);
 
 const PATCH_ALIASES = new Set([
+  "apply_patch",
   "str_replace",
   "update",
   "edit",
@@ -45,6 +49,7 @@ const PATCH_ALIASES = new Set([
   "search_replace",
   "edit_file",
   "replace",
+  "repo.apply_patch",
 ]);
 
 const RUN_ALIASES = new Set([
@@ -55,6 +60,8 @@ const RUN_ALIASES = new Set([
   "run_terminal_cmd",
   "execute_command",
   "run_tests",
+  "repo.run_tests",
+  "repo.run_lint",
   "shell",
   "bash",
 ]);

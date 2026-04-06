@@ -17,6 +17,31 @@ This roadmap outlines future features and capabilities required to compete again
 *   **True Sub-Agents (Planner-Worker-Reviewer)**: Replace the `delegate_task` mock with a robust multi-agent orchestration framework. A "Planner" agent breaks down a task, spawns parallel "Worker" agents for frontend/backend/DB changes, and a "Reviewer" agent synthesizes the final PR.
 *   **Agentic Debate & Consensus**: Implement mechanisms for sub-agents to debate architectural decisions and reach consensus before proposing a solution to the user.
 
+### Phase 3 Tracking (Request/Response Runtime)
+
+#### Completed
+- [x] Architectural direction locked: deterministic Supervisor source-of-truth, bounded Planner/Worker/Reviewer roles, request/response only (no long-running job orchestration), traces as first-class artifacts.
+- [x] Safety constraints locked: no recursive spawning, worker/planner/repair/challenge round limits, conflict escalation, destructive/migration escalation, full-file rewrite deny-by-default.
+- [x] Scope lock for MCP surface: dynamic exposure with safe fallback, and no forced external MCP object renames when existing names already exist.
+
+#### Current Iteration (In Progress)
+- [x] Replace `delegate_task` mock with production request/response orchestration execution.
+- [x] Add shared TypeScript orchestration runtime abstraction (`OrchestrationRuntime` + `RequestResponseRuntime`).
+- [x] Add Zod contracts for `ExecutionPlan`, `WorkerTaskPacket`, `WorkerResult`, `DecisionRecord`, and `FinalReview`.
+- [x] Implement Cynefin-inspired intake (`clear|complicated|complex|chaotic`) and action routing (`answer_directly|ask_for_clarification|plan_and_execute|offer_paths`).
+- [x] Add bounded parallel worker execution (max 3) and reviewer remand policy (max 1 repair pass).
+- [x] Implement policy-driven merge/conflict handling with overlap escalation.
+- [x] Add compact context + instruction normalization (`AGENTS.md` / `CLAUDE.md` / internal rules) with artifact-ID referencing.
+- [x] Add trace model linkage (`trace_id`, `artifact_id`) across planning/execution/review.
+- [x] Ship required Phase 3 tests (ambiguity, conflict, architectural fork, remand, rewrite rejection, budgets, normalized instructions, e2e trace).
+
+#### Future Iterations / Remaining Work
+- [ ] Durable runtime boundary implementation (long-running async orchestration, resumes/retries across process restarts).
+- [ ] Richer architectural challenge UX beyond one challenge + one adjudication while preserving bounded behavior.
+- [ ] Expanded typed repo operations (deeper symbol-aware edit primitives and stronger static conflict prediction).
+- [ ] Additional governance and eval loops over orchestration traces (quality scoring, regression gates, policy drift alerts).
+- [ ] Optional broader MCP surface refinement after baseline stability (further minimization and per-flow policy hardening).
+
 ## Phase 4: Enterprise & Workflow Integration
 *   **Automated PR Generation & Review**: Deep integration with GitHub/GitLab. The agent should autonomously create branches, commit changes, open PRs with detailed summaries, and respond to human reviewer comments in a continuous loop.
 *   **Issue Tracker Sync (Jira/Linear)**: Automatically parse tickets, extract acceptance criteria, and link commits/PRs back to the original issue without manual intervention.

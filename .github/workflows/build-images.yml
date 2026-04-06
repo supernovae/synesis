@@ -134,6 +134,7 @@ jobs:
             yarn-ts:
               - 'base/yarn-ts/**'
               - 'packages/synesis-telemetry/**'
+              - 'packages/synesis-agent-orchestration/**'
               - 'package.json'
               - 'package-lock.json'
             planner-ts:

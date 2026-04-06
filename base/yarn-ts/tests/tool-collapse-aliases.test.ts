@@ -7,7 +7,9 @@ describe("tool alias classification", () => {
     expect(classifyTool("Read")).toBe("read_file");
     expect(classifyTool("search_code")).toBe("search");
     expect(classifyTool("rg")).toBe("search");
-    expect(classifyTool("apply_patch")).toBe("apply_patch");
+    // Internally, patch-like tools (including apply_patch aliases) collapse into
+    // the canonical mutation bucket "str_replace" for deterministic planning.
+    expect(classifyTool("apply_patch")).toBe("str_replace");
     expect(classifyTool("run_test")).toBe("run_tests");
   });
 

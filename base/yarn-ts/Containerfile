@@ -10,6 +10,7 @@ COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
 COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
 COPY packages/synesis-manifest/package.json packages/synesis-manifest/
 COPY packages/synesis-mcp-tools/package.json packages/synesis-mcp-tools/
+COPY packages/synesis-agent-orchestration/package.json packages/synesis-agent-orchestration/
 COPY base/yarn-ts/package.json base/yarn-ts/
 COPY base/planner-ts/package.json base/planner-ts/
 RUN npm ci --ignore-scripts
@@ -30,6 +31,10 @@ RUN npm run build --workspace=packages/synesis-manifest
 COPY packages/synesis-mcp-tools/tsconfig.json packages/synesis-mcp-tools/
 COPY packages/synesis-mcp-tools/src packages/synesis-mcp-tools/src
 RUN npm run build --workspace=packages/synesis-mcp-tools
+
+COPY packages/synesis-agent-orchestration/tsconfig.json packages/synesis-agent-orchestration/
+COPY packages/synesis-agent-orchestration/src packages/synesis-agent-orchestration/src
+RUN npm run build --workspace=packages/synesis-agent-orchestration
 
 # Build yarn-ts
 COPY base/yarn-ts/tsconfig.json base/yarn-ts/

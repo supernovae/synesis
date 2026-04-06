@@ -2035,55 +2035,61 @@ log "  $MANIFEST_COUNT resources to apply"
 
 # -----------------------------------------------------------------------
 # Pre-flight: verify custom images are reachable.
-# Spot-check the **admin UI** image (build-images.sh artifact "admin" → REGISTRY/admin:tag,
-# kustomize: synesis-admin → …/synesis/admin) so we do not depend on manifest ordering.
+# Spot-check key runtime images so deploys do not silently roll old tags:
+#   - admin UI image (build-images.sh artifact "admin" → REGISTRY/admin:tag,
+#     kustomize: synesis-admin → …/synesis/admin)
+#   - yarn-ts image (contains MCP runtime + delegate_task orchestration path)
 # When REF is not "latest", we check the same tag we're about to deploy.
 # -----------------------------------------------------------------------
 check_custom_images() {
-    log "Checking Synesis admin image availability (synesis-admin workload)..."
+    log "Checking Synesis runtime image availability (admin + yarn-ts)..."
     local built
     built=$(kustomize build "$OVERLAY_DIR" 2>/dev/null)
     # sed regex replacement; ${var//} cannot express capture groups
     # shellcheck disable=SC2001
     [[ "$REF_SAFE" != "latest" ]] && built=$(echo "$built" | sed "s|ghcr.io/supernovae/synesis/\([^:]*\):latest|ghcr.io/supernovae/synesis/\\1:${REF_SAFE}|g")
-    local sample_image
-    # Must match overlays */kustomization synesis-admin → ghcr.io/.../synesis/admin (not synesis-admin as path).
-    sample_image=$(echo "$built" | grep 'image:' | grep -E 'synesis/admin(:|@)' | head -1 \
-        | sed 's/.*image: *//' | tr -d '"' | tr -d "'" | awk '{print $1}' || true)
-    if [[ -z "$sample_image" ]]; then
-        sample_image=$(echo "$built" | grep 'image:' | grep 'ghcr.io.*synesis' | head -1 \
+    local check_image_by_pattern
+    check_image_by_pattern() {
+        local label="$1"
+        local pattern="$2"
+        local sample_image
+        sample_image=$(echo "$built" | grep 'image:' | grep -E "$pattern" | head -1 \
             | sed 's/.*image: *//' | tr -d '"' | tr -d "'" | awk '{print $1}' || true)
-    fi
 
-    if [[ -z "$sample_image" ]]; then
-        sample_image=$(echo "$built" | grep 'image:' | grep 'synesis-' | head -1 \
-            | sed 's/.*image: *//' | tr -d '"' | tr -d "'" | awk '{print $1}' || true)
-        if [[ -n "$sample_image" && "$sample_image" != *"/"* ]]; then
-            log "WARNING: Custom images still use bare names (e.g., $sample_image)."
+        if [[ -z "$sample_image" ]]; then
+            log "  WARNING: Could not find $label image in rendered manifests."
+            return
+        fi
+
+        if [[ "$sample_image" != *"/"* ]]; then
+            log "WARNING: $label image still uses a bare name ($sample_image)."
             log "  Kubernetes will try docker.io/library/$sample_image which does not exist."
-            log "  Ensure the kustomize overlay has an 'images:' block with your registry."
-            log "  See: overlays/$MODE/kustomization.yaml"
+            log "  Ensure overlays/$MODE/kustomization.yaml has an 'images:' mapping for this workload."
             log ""
+            return
         fi
-        return
-    fi
 
-    if command -v skopeo &>/dev/null; then
-        if ! skopeo inspect --no-tags "docker://$sample_image" &>/dev/null; then
-            log "WARNING: skopeo cannot inspect $sample_image (missing image, network, or anonymous auth)."
-            log "  Build/push images (same names build-images.sh uses, e.g. REGISTRY/admin:tag):"
-            [[ "$REF_SAFE" != "latest" ]] && log "    ./scripts/build-images.sh --only admin,mcp-ts,admin-mcp-ts --push --tag $REF_SAFE"
-            log "    ./scripts/build-images.sh --only admin,mcp-ts,admin-mcp-ts --push"
-            log "  Private GHCR: skopeo needs registry login (e.g. podman login ghcr.io); the cluster still pulls via imagePullSecrets."
-            log "  If the cluster already pulls this image, you can ignore this warning."
-            log ""
+        if command -v skopeo &>/dev/null; then
+            if ! skopeo inspect --no-tags "docker://$sample_image" &>/dev/null; then
+                log "WARNING: skopeo cannot inspect $sample_image ($label) (missing image, network, or auth)."
+                log "  Build/push images:"
+                [[ "$REF_SAFE" != "latest" ]] && log "    ./scripts/build-images.sh --only yarn-ts,admin,mcp-ts,admin-mcp-ts --push --tag $REF_SAFE"
+                log "    ./scripts/build-images.sh --only yarn-ts,admin,mcp-ts,admin-mcp-ts --push"
+                log "  Private GHCR: skopeo needs registry login (e.g. podman login ghcr.io); the cluster still pulls via imagePullSecrets."
+                log "  If the cluster already pulls this image, you can ignore this warning."
+                log ""
+            else
+                log "  Image check OK ($label: $sample_image)"
+            fi
         else
-            log "  Image check OK ($sample_image)"
+            log "  Skipping image pull check for $label (skopeo not installed)"
+            log "  Sample image: $sample_image"
         fi
-    else
-        log "  Skipping image pull check (skopeo not installed)"
-        log "  Sample image: $sample_image"
-    fi
+    }
+
+    # Must match overlays */kustomization image remaps.
+    check_image_by_pattern "admin" 'synesis/admin(:|@)'
+    check_image_by_pattern "yarn-ts" 'synesis/yarn-ts(:|@)'
 }
 
 check_custom_images

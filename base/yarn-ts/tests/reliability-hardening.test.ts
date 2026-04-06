@@ -250,7 +250,7 @@ describe("Reliability config vars", () => {
     });
     expect(cfg.SYNESIS_YARN_AUTH_POOL_MAX).toBe(5);
     expect(cfg.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS).toBe(30_000);
-    expect(cfg.SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS).toBe(2000);
+    expect(cfg.SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS).toBe(8000);
     expect(cfg.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED).toBe(false);
     expect(cfg.SYNESIS_YARN_DIAGNOSTIC_REDIS_TTL_S).toBe(86400);
   });

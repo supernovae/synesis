@@ -108,6 +108,7 @@ jobs:
           npm run build -w packages/synesis-context-trust
           npm run build -w packages/synesis-manifest
           npm run build -w packages/synesis-mcp-tools
+          npm run build -w packages/synesis-agent-orchestration
 
       - name: Typecheck
         working-directory: base/yarn-ts

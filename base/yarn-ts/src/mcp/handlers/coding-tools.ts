@@ -4,6 +4,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
+import {
+  DEFAULT_AGENT_ALLOWED_REPO_OPS,
+  GuardedRepoOpsAdapter,
+  REPO_OPERATION_IDS,
+  RequestResponseRuntime,
+  type RepoOperationRequest,
+  type RepoOperationResult,
+} from "@synesis/agent-orchestration";
 import type { McpToolDefinition } from "../tool-registry.js";
 import {
   extractDiagnosticLines,
@@ -439,22 +447,314 @@ const DelegateTaskSchema = RootSchema.extend({
   context_files: z.array(RelPathSchema).optional().describe("Optional list of files to pre-load into the sub-agent's context"),
 });
 
+export function projectRootFromArgs(args: Record<string, unknown>, fallback: string): string {
+  const candidate = args.projectRoot;
+  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : fallback;
+}
+
+async function runRepoOpFromDelegate(
+  request: RepoOperationRequest,
+  fallbackProjectRoot: string,
+): Promise<RepoOperationResult> {
+  try {
+    const args = request.args ?? {};
+    switch (request.op) {
+      case REPO_OPERATION_IDS.search: {
+        const result = await searchCodeTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          pattern: String(args.pattern ?? ""),
+          dir: typeof args.dir === "string" ? args.dir : ".",
+          glob: typeof args.glob === "string" ? args.glob : undefined,
+          headLimit: typeof args.headLimit === "number" ? args.headLimit : 100,
+        });
+        return { ok: true, data: result };
+      }
+      case REPO_OPERATION_IDS.readRange: {
+        const result = await readFileTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          filePath: String(args.filePath ?? ""),
+          maxBytes: typeof args.maxBytes === "number" ? args.maxBytes : 200_000,
+          startLine: typeof args.startLine === "number" ? args.startLine : undefined,
+          endLine: typeof args.endLine === "number" ? args.endLine : undefined,
+        });
+        return { ok: true, data: result };
+      }
+      case REPO_OPERATION_IDS.findSymbol: {
+        const symbol = String(args.symbol ?? "");
+        const result = await searchCodeTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          pattern: symbol,
+          dir: typeof args.dir === "string" ? args.dir : ".",
+          headLimit: typeof args.headLimit === "number" ? args.headLimit : 50,
+          glob: typeof args.glob === "string" ? args.glob : undefined,
+        });
+        return { ok: true, data: result };
+      }
+      case REPO_OPERATION_IDS.applyPatch: {
+        const mode = typeof args.mode === "string" ? args.mode : "str_replace";
+        if (mode === "write_file") {
+          const result = await writeFileTool.handler({
+            projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+            filePath: String(args.filePath ?? ""),
+            content: String(args.content ?? ""),
+            createDirs: args.createDirs === true,
+          });
+          return { ok: true, data: result };
+        }
+        const result = await strReplaceTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          filePath: String(args.filePath ?? ""),
+          oldString: String(args.oldString ?? ""),
+          newString: String(args.newString ?? ""),
+        });
+        return { ok: true, data: result };
+      }
+      case REPO_OPERATION_IDS.runTests: {
+        const result = await runTestTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          preset: typeof args.preset === "string" ? args.preset : "node_npm",
+        });
+        return { ok: result.ok, data: result, error: result.ok ? undefined : result.summary };
+      }
+      case REPO_OPERATION_IDS.runLint: {
+        const result = await runLintTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          preset: typeof args.preset === "string" ? args.preset : "typescript_eslint",
+        });
+        return { ok: result.ok, data: result, error: result.ok ? undefined : result.summary };
+      }
+      case REPO_OPERATION_IDS.gitDiff: {
+        const result = await gitDiffTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          staged: args.staged === true,
+          filePath: typeof args.filePath === "string" ? args.filePath : undefined,
+        });
+        return { ok: result.exitCode === 0, data: result, error: result.exitCode === 0 ? undefined : result.stderr };
+      }
+      case REPO_OPERATION_IDS.listChangedFiles: {
+        const result = await gitStatusTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+        });
+        if (result.exitCode !== 0) {
+          return { ok: false, error: result.stderr };
+        }
+        const files = result.stdout
+          .split(/\r?\n/)
+          .filter((line) => line.trim().length > 0 && !line.startsWith("## "))
+          .map((line) => line.slice(3).trim())
+          .filter(Boolean);
+        return { ok: true, data: { files } };
+      }
+      case REPO_OPERATION_IDS.writeDecisionRecord: {
+        const result = await writeFileTool.handler({
+          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
+          filePath: typeof args.filePath === "string" ? args.filePath : ".synesis/decision-record.json",
+          content: JSON.stringify(args.decisionRecord ?? {}, null, 2),
+          createDirs: true,
+        });
+        return { ok: true, data: result };
+      }
+      default:
+        return { ok: false, error: `unknown_repo_op:${request.op}` };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "repo_op_failed",
+    };
+  }
+}
+
 export const delegateTaskTool: McpToolDefinition<
   z.infer<typeof DelegateTaskSchema>,
-  { status: string; sub_agent_id?: string; error?: string }
+  { status: string; sub_agent_id?: string; error?: string; trace_id?: string; artifacts?: string[]; final_review?: unknown }
 > = {
   name: "delegate_task",
-  description: "Spawn a parallel sub-agent to perform an isolated task (e.g., massive architectural exploration or reading multiple files). The sub-agent will run asynchronously.",
+  description: "Run bounded request/response sub-agent orchestration (planner/worker/reviewer) with traceable artifacts.",
   inputSchema: DelegateTaskSchema,
   async handler(input) {
-    // In a full implementation, this would call the Synesis API to spawn a new yarn-ts session
-    // and return the session ID. For now, we return a mock success.
-    const subAgentId = `sub-agent-${Date.now()}`;
+    const traceId = `trace-${Date.now()}`;
+    const runtime = new RequestResponseRuntime({
+      repoOpsAdapter: new GuardedRepoOpsAdapter(
+        (request) => runRepoOpFromDelegate(request, input.projectRoot),
+        new Set(DEFAULT_AGENT_ALLOWED_REPO_OPS),
+      ),
+    });
+    const response = await runtime.run({
+      traceId,
+      objective: input.task_description,
+      projectRoot: input.projectRoot,
+      availableFiles: input.context_files ?? [],
+      initialContextSummary: `delegate_task context files count=${input.context_files?.length ?? 0}`,
+      allowFullFileOverride: false,
+    });
+
+    if (!response.accepted) {
+      return {
+        status: `Sub-agent orchestration requires input: ${response.responseSummary}`,
+        error: response.userQuestions?.join(" | ") || response.responseSummary,
+        trace_id: traceId,
+        artifacts: response.artifactIds,
+      };
+    }
+
     return {
-      status: "Sub-agent spawned successfully. It will report back when finished.",
-      sub_agent_id: subAgentId,
+      status: "Sub-agent request/response orchestration completed.",
+      sub_agent_id: `sub-agent-${Date.now()}`,
+      trace_id: traceId,
+      artifacts: response.artifactIds,
+      final_review: response.finalReview,
     };
   },
+};
+
+const RepoSearchSchema = RootSchema.extend({
+  pattern: z.string().min(1).max(500),
+  dir: RelPathSchema.default("."),
+  glob: z.string().optional(),
+  headLimit: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(100),
+});
+
+const RepoReadRangeSchema = RootSchema.extend({
+  filePath: RelPathSchema,
+  startLine: z.number().int().min(1).optional(),
+  endLine: z.number().int().min(1).optional(),
+  maxBytes: z.number().int().min(1).max(MAX_READ_BYTES).default(200_000),
+});
+
+const RepoFindSymbolSchema = RootSchema.extend({
+  symbol: z.string().min(1).max(500),
+  dir: RelPathSchema.default("."),
+  glob: z.string().optional(),
+  headLimit: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50),
+});
+
+const RepoApplyPatchSchema = RootSchema.extend({
+  filePath: RelPathSchema,
+  oldString: z.string().min(1),
+  newString: z.string(),
+});
+
+const RepoRunPresetSchema = RootSchema.extend({
+  preset: z.string().min(1),
+});
+
+const RepoGitDiffSchema = RootSchema.extend({
+  staged: z.boolean().default(false),
+  filePath: RelPathSchema.optional(),
+});
+
+const RepoWriteDecisionRecordSchema = RootSchema.extend({
+  filePath: RelPathSchema.default(".synesis/decision-record.json"),
+  decisionRecord: z.record(z.string(), z.unknown()),
+});
+
+export const repoSearchTool: McpToolDefinition<z.infer<typeof RepoSearchSchema>, { matches: string[]; exitCode: number; stderr: string }> = {
+  name: "repo.search",
+  description: "Agent-scoped repository search primitive.",
+  inputSchema: RepoSearchSchema,
+  handler: (input) => searchCodeTool.handler(input),
+};
+
+export const repoReadRangeTool: McpToolDefinition<
+  z.infer<typeof RepoReadRangeSchema>,
+  {
+    filePath: string;
+    content: string;
+    truncated: boolean;
+    bytes: number;
+    lineRange?: { startLine: number; endLine: number };
+  }
+> = {
+  name: "repo.read_range",
+  description: "Agent-scoped bounded file read primitive.",
+  inputSchema: RepoReadRangeSchema,
+  handler: (input) => readFileTool.handler(input),
+};
+
+export const repoFindSymbolTool: McpToolDefinition<z.infer<typeof RepoFindSymbolSchema>, { matches: string[]; exitCode: number; stderr: string }> = {
+  name: "repo.find_symbol",
+  description: "Agent-scoped symbol lookup primitive.",
+  inputSchema: RepoFindSymbolSchema,
+  handler: (input) => searchCodeTool.handler({
+    projectRoot: input.projectRoot,
+    pattern: input.symbol,
+    dir: input.dir,
+    glob: input.glob,
+    headLimit: input.headLimit,
+  }),
+};
+
+export const repoApplyPatchTool: McpToolDefinition<
+  z.infer<typeof RepoApplyPatchSchema>,
+  {
+    filePath: string;
+    replaced: boolean;
+    ok: boolean;
+    reason: "applied" | "not_found" | "context_mismatch" | "multiple_matches";
+    suggestedNextActions: string[];
+    contextHint?: string;
+  }
+> = {
+  name: "repo.apply_patch",
+  description: "Agent-scoped patch primitive using deterministic string replacement.",
+  inputSchema: RepoApplyPatchSchema,
+  handler: (input) => strReplaceTool.handler(input),
+};
+
+export const repoRunTestsTool: McpToolDefinition<z.infer<typeof RepoRunPresetSchema>, RunPresetResult> = {
+  name: "repo.run_tests",
+  description: "Agent-scoped test runner primitive.",
+  inputSchema: RepoRunPresetSchema,
+  handler: (input) => runTestTool.handler(input),
+};
+
+export const repoRunLintTool: McpToolDefinition<z.infer<typeof RepoRunPresetSchema>, RunPresetResult> = {
+  name: "repo.run_lint",
+  description: "Agent-scoped lint runner primitive.",
+  inputSchema: RepoRunPresetSchema,
+  handler: (input) => runLintTool.handler(input),
+};
+
+export const repoGitDiffTool: McpToolDefinition<z.infer<typeof RepoGitDiffSchema>, { exitCode: number; stdout: string; stderr: string }> = {
+  name: "repo.git_diff",
+  description: "Agent-scoped git diff primitive.",
+  inputSchema: RepoGitDiffSchema,
+  handler: (input) => gitDiffTool.handler(input),
+};
+
+export const repoListChangedFilesTool: McpToolDefinition<
+  z.infer<typeof RootSchema>,
+  { files: string[]; count: number }
+> = {
+  name: "repo.list_changed_files",
+  description: "Agent-scoped changed file listing primitive.",
+  inputSchema: RootSchema,
+  async handler(input) {
+    const out = await gitStatusTool.handler({ projectRoot: input.projectRoot });
+    if (out.exitCode !== 0) return { files: [], count: 0 };
+    const files = out.stdout
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0 && !line.startsWith("## "))
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+    return { files, count: files.length };
+  },
+};
+
+export const repoWriteDecisionRecordTool: McpToolDefinition<
+  z.infer<typeof RepoWriteDecisionRecordSchema>,
+  { filePath: string; bytes: number; written: true }
+> = {
+  name: "repo.write_decision_record",
+  description: "Agent-scoped decision record persistence primitive.",
+  inputSchema: RepoWriteDecisionRecordSchema,
+  handler: (input) => writeFileTool.handler({
+    projectRoot: input.projectRoot,
+    filePath: input.filePath,
+    content: JSON.stringify(input.decisionRecord, null, 2),
+    createDirs: true,
+  }),
 };
 
 export const strReplaceTool: McpToolDefinition<
