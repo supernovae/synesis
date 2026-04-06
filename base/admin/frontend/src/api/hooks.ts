@@ -2102,7 +2102,8 @@ export interface YarnOverview {
   total_tokens_in: number;
   total_tokens_out: number;
   total_tokens_cached: number;
-  total_cost_usd: number;
+  total_estimated_cost_usd: number;
+  total_actual_cost_usd: number;
   avg_latency_ms: number;
   p99_latency_ms: number;
   error_count: number;
@@ -2118,7 +2119,8 @@ export interface YarnPerformanceBucket {
   tokens_in: number;
   tokens_out: number;
   tokens_cached: number;
-  cost_usd: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
   avg_latency_ms: number;
   max_latency_ms: number;
   escalations: number;
@@ -2141,7 +2143,7 @@ export interface YarnIntelligence {
   completion_gate_blocked_rate: number;
   critic_block_rate: number;
   trajectory_bucket_counts: Record<string, number>;
-  top_models: Array<{ model: string; requests: number; cost_usd: number }>;
+  top_models: Array<{ model: string; requests: number; estimated_cost_usd: number; actual_cost_usd: number }>;
   finish_reason_counts: Record<string, number>;
 }
 
@@ -2202,7 +2204,8 @@ export interface YarnSessionRow {
   total_tokens_out: number;
   total_tokens_cached: number;
   total_tokens_saved: number;
-  total_cost_usd: number;
+  total_estimated_cost_usd: number;
+  total_actual_cost_usd: number;
   request_count: number;
   escalation_count: number;
   created_at: string | null;
@@ -2219,7 +2222,8 @@ export interface YarnSessionRequestRow {
   tokens_cached: number;
   tokens_saved_by_reduction: number;
   latency_ms: number;
-  cost_usd: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
   pricing_source: string;
   escalated: boolean;
   tool_calls_count: number;
@@ -2254,7 +2258,8 @@ export interface YarnEventRow {
   tokens_out: number;
   tokens_cached: number;
   latency_ms: number;
-  cost_usd: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
   pricing_source: string;
   escalated: boolean;
   tool_calls_count: number;
@@ -2436,7 +2441,8 @@ export interface YarnUserUsage {
   tokens_in: number;
   tokens_out: number;
   tokens_cached: number;
-  cost_usd: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
   avg_latency_ms: number;
   escalations: number;
   errors: number;

@@ -100,7 +100,7 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
     pipe_spend = float((pl_24 or {}).get("estimated_spend_24h_usd", 0) or 0)
     yarn_spend = 0.0
     if isinstance(yarn_24, dict):
-        yarn_spend = float(yarn_24.get("total_cost_usd", 0) or 0)
+        yarn_spend = float(yarn_24.get("total_estimated_cost_usd", 0) or 0)
 
     return {
         "services": services or [],

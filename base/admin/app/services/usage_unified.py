@@ -32,11 +32,18 @@ def _normalize_pipeline_block(
         note = None
 
     n = int(src.get("request_count") or src.get("trace_count") or 0)
+    tokens_in = int(src.get("tokens_in", 0) or 0)
+    tokens_cached = int(src.get("tokens_cached", 0) or 0)
+    cache_hit_rate = (tokens_cached / tokens_in) if tokens_in > 0 else 0.0
+
     return {
         "period_hours": since_hours,
         "trace_count": n,
         "request_count": n,
         "total_tokens": int(src.get("total_tokens", 0)),
+        "tokens_in": tokens_in,
+        "tokens_cached": tokens_cached,
+        "cache_hit_rate": round(cache_hit_rate, 4),
         "estimated_cost_usd": float(src.get("estimated_cost_usd", 0) or 0),
         "actual_cost_usd": float(src.get("actual_cost_usd", 0) or 0),
         "avg_duration_ms": float(src.get("avg_duration_ms", 0) or 0),
@@ -102,18 +109,20 @@ async def get_summary_unified(
 
     pipeline_est = pipe.get("estimated_cost_usd", 0) or 0
     pipeline_act = pipe.get("actual_cost_usd", 0) or 0
-    yarn_cost = 0.0
+    yarn_est = 0.0
+    yarn_act = 0.0
     if out.get("yarn") and isinstance(out["yarn"], dict):
-        yarn_cost = float(out["yarn"].get("total_cost_usd", 0) or 0)
+        yarn_est = float(out["yarn"].get("total_estimated_cost_usd", 0) or 0)
+        yarn_act = float(out["yarn"].get("total_actual_cost_usd", 0) or 0)
 
     out["total_platform_spend"] = {
         "planner_estimated_usd": round(pipeline_est, 4),
         "planner_actual_usd": round(pipeline_act, 4),
-        "yarn_estimated_usd": round(yarn_cost, 4),
-        "yarn_actual_usd": 0,
-        "total_estimated_usd": round(pipeline_est + yarn_cost, 4),
-        "total_actual_usd": round(pipeline_act, 4),
-        "effective_total_usd": round(max(pipeline_act, pipeline_est) + yarn_cost, 4),
+        "yarn_estimated_usd": round(yarn_est, 4),
+        "yarn_actual_usd": round(yarn_act, 4),
+        "total_estimated_usd": round(pipeline_est + yarn_est, 4),
+        "total_actual_usd": round(pipeline_act + yarn_act, 4),
+        "effective_total_usd": round(max(pipeline_act, pipeline_est) + max(yarn_act, yarn_est), 4),
         "note": "Pipeline = planner_usage_log (admin-only trace fallback); Yarn = yarn_usage_log. No double-count.",
     }
 

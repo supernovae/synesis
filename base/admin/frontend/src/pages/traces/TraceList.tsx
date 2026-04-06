@@ -68,7 +68,7 @@ export default function TraceList() {
         ...t,
         _time: fmtDate(t.timestamp),
         _duration: fmtDuration(t.total_duration_ms),
-        _cost: fmtCost(t.estimated_cost_usd),
+        _cost: fmtCost(t.actual_cost_usd && t.actual_cost_usd > 0 ? t.actual_cost_usd : t.estimated_cost_usd),
         _query: t.query_snippet?.slice(0, 80) || "—",
         _status: t.has_error ? "error" : "ok",
         _critic: t.critic_scores?.weighted_overall
@@ -127,7 +127,7 @@ export default function TraceList() {
             <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Models overview
             </Link>
-            . Table cost column is <span className="font-medium">estimated</span> (registry rates).
+            . Table cost column is <span className="font-medium">effective</span> (actual if available, else estimated).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -221,9 +221,9 @@ export default function TraceList() {
             trend={stats.error_rate > 0.05 ? "down" : "neutral"}
           />
           <MetricCard
-            label="Avg cost (est.)"
+            label="Avg cost (effective)"
             value={fmtCost(stats.avg_cost_usd)}
-            subtitle={`Total est.: ${fmtCost(stats.total_cost_usd)} · trace rows`}
+            subtitle={`Total effective: ${fmtCost(stats.total_cost_usd)} · trace rows`}
             icon={DollarSign}
           />
         </div>

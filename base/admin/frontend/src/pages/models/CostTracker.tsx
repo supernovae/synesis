@@ -210,13 +210,13 @@ export default function CostTracker() {
         <>
           <div className="grid gap-4 sm:grid-cols-4">
             <MetricCard
-              label="Estimated Cost"
+              label="Estimated (Forecast)"
               value={`$${totalEstimated.toFixed(4)}`}
               subtitle={`${days}d · from trace llm_calls`}
               icon={DollarSign}
             />
             <MetricCard
-              label="Actual Cost"
+              label="Actual (from API)"
               value={totalActual > 0 ? `$${totalActual.toFixed(4)}` : "N/A"}
               subtitle={totalActual > 0 ? "provider-reported on calls" : "no provider USD yet"}
               icon={DollarSign}
@@ -245,8 +245,8 @@ export default function CostTracker() {
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
                   <Tooltip formatter={(v) => (v == null ? "" : `$${Number(v).toFixed(6)}`)} />
                   <Legend />
-                  <Bar dataKey="estimated_cost_usd" name="Estimated" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="actual_cost_usd" name="Actual" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="estimated_cost_usd" name="Estimated (Forecast)" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="actual_cost_usd" name="Actual (from API)" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -262,8 +262,8 @@ export default function CostTracker() {
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
                   <Tooltip formatter={(v) => (v == null ? "" : `$${Number(v).toFixed(6)}`)} />
                   <Legend />
-                  <Bar dataKey="estimated_cost_usd" name="Estimated" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="actual_cost_usd" name="Actual" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="estimated_cost_usd" name="Estimated (Forecast)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="actual_cost_usd" name="Actual (from API)" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>

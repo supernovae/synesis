@@ -83,9 +83,10 @@ function PrefixCacheCard({
         />
         {metrics.estimated_cost_usd != null && metrics.estimated_cost_usd > 0 ? (
           <MetricCard
-            label="Est. LLM cost (USD)"
+            label="LLM cost (Estimated)"
             value={`$${metrics.estimated_cost_usd.toFixed(4)}`}
             icon={Database}
+            subtitle="Forecast based on rates"
           />
         ) : null}
         <MetricCard

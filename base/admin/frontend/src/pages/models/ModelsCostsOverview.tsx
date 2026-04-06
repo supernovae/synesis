@@ -118,11 +118,11 @@ export default function ModelsCostsOverview() {
                   <dd>{tr?.total_tokens != null ? fmtTokens(tr.total_tokens) : "—"}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-gray-500">Est. cost</dt>
+                  <dt className="text-gray-500" title="What we forecast if API doesn't provide costs">Estimated (Forecast)</dt>
                   <dd>{tr ? fmtCost(tr.estimated_cost_usd) : "—"}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-gray-500">Actual cost</dt>
+                  <dt className="text-gray-500" title="Actual costs from API">Actual (from API)</dt>
                   <dd>{tr ? fmtCost(tr.actual_cost_usd) : "—"}</dd>
                 </div>
                 {tr?.source && (
@@ -156,10 +156,15 @@ export default function ModelsCostsOverview() {
                     </dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-gray-500">Est. cost</dt>
+                    <dt className="text-gray-500" title="What we forecast if API doesn't provide costs">Estimated (Forecast)</dt>
                     <dd>
-                      {yarn.total_cost_usd != null ? fmtCost(Number(yarn.total_cost_usd)) : "—"}
-                      <span className="ml-1 text-xs text-gray-500">yarn_usage_log</span>
+                      {yarn.total_estimated_cost_usd != null ? fmtCost(Number(yarn.total_estimated_cost_usd)) : "—"}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500" title="Actual costs from API">Actual (from API)</dt>
+                    <dd>
+                      {yarn.total_actual_cost_usd != null ? fmtCost(Number(yarn.total_actual_cost_usd)) : "—"}
                     </dd>
                   </div>
                   <div className="pt-2">

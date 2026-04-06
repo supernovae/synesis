@@ -1236,9 +1236,13 @@ async function casSessionSave(state: SessionState): Promise<void> {
         reloaded.totalTokensSaved = Math.max(reloaded.totalTokensSaved ?? 0, state.record.totalTokensSaved ?? 0);
         reloaded.requestCount = Math.max(reloaded.requestCount, state.record.requestCount);
         reloaded.lastActiveAt = Math.max(reloaded.lastActiveAt, state.record.lastActiveAt);
-        const remoteCost = Number(reloaded.metadata.total_cost_usd ?? 0);
-        const localCost = Number(state.record.metadata.total_cost_usd ?? 0);
-        reloaded.metadata.total_cost_usd = Math.max(remoteCost, localCost);
+        const remoteEstimated = Number(reloaded.metadata.total_estimated_cost_usd ?? 0);
+        const localEstimated = Number(state.record.metadata.total_estimated_cost_usd ?? 0);
+        reloaded.metadata.total_estimated_cost_usd = Math.max(remoteEstimated, localEstimated);
+
+        const remoteActual = Number(reloaded.metadata.total_actual_cost_usd ?? 0);
+        const localActual = Number(state.record.metadata.total_actual_cost_usd ?? 0);
+        reloaded.metadata.total_actual_cost_usd = Math.max(remoteActual, localActual);
         state.record = reloaded;
         await sessionStore.save(state.record);
       }
@@ -1479,26 +1483,28 @@ function persistSessionAndUsage(
     cached_input_per_million: tier?.cachedPerM ?? null,
   };
   let pricingSource: PricingSource = tier?.pricingSource ?? "unknown";
-  let computedCostUsd: number;
-  if (usage.costUsd > 0) {
-    computedCostUsd = usage.costUsd;
-    pricingSource = "provider";
-  } else {
-    const result = computeCost(
-      {
-        prompt_tokens: usage.inputTokens,
-        completion_tokens: usage.outputTokens,
-        total_tokens: usage.inputTokens + usage.outputTokens,
-        cached_prompt_tokens: usage.cachedTokens,
-        estimated_cost_usd: 0,
-        actual_cost_usd: 0,
-      },
-      tierRates,
-    );
-    computedCostUsd = result.estimated_cost_usd;
+  const result = computeCost(
+    {
+      prompt_tokens: usage.inputTokens,
+      completion_tokens: usage.outputTokens,
+      total_tokens: usage.inputTokens + usage.outputTokens,
+      cached_prompt_tokens: usage.cachedTokens,
+      estimated_cost_usd: 0,
+      actual_cost_usd: 0,
+    },
+    tierRates,
+  );
+  let estimatedCostUsd = result.estimated_cost_usd;
+  if (pricingSource === "unknown" || pricingSource === "fallback_base") {
     pricingSource = result.pricing_source;
   }
-  const normalizedCostUsd = Number.isFinite(computedCostUsd) ? Math.max(0, computedCostUsd) : 0;
+  let actualCostUsd = usage.costUsd > 0 ? usage.costUsd : 0;
+  if (actualCostUsd > 0) {
+    pricingSource = "provider";
+  }
+  const normalizedEstimatedCostUsd = Number.isFinite(estimatedCostUsd) ? Math.max(0, estimatedCostUsd) : 0;
+  const normalizedActualCostUsd = Number.isFinite(actualCostUsd) ? Math.max(0, actualCostUsd) : 0;
+
   if (pricingSource === "fallback_base" && (usage.inputTokens + usage.outputTokens) > 0) {
     app.log.info({
       model: resolvedModelId,
@@ -1513,8 +1519,10 @@ function persistSessionAndUsage(
   state.record.totalTokensOut += usage.outputTokens;
   state.record.totalTokensCached += usage.cachedTokens;
   state.record.totalTokensSaved = (state.record.totalTokensSaved ?? 0) + tokensSavedByReduction;
-  const prevCost = Number(state.record.metadata.total_cost_usd ?? 0);
-  state.record.metadata.total_cost_usd = prevCost + normalizedCostUsd;
+  const prevEstimatedCost = Number(state.record.metadata.total_estimated_cost_usd ?? 0);
+  const prevActualCost = Number(state.record.metadata.total_actual_cost_usd ?? 0);
+  state.record.metadata.total_estimated_cost_usd = prevEstimatedCost + normalizedEstimatedCostUsd;
+  state.record.metadata.total_actual_cost_usd = prevActualCost + normalizedActualCostUsd;
   state.record.requestCount += 1;
   state.record.lastActiveAt = Date.now();
   const previousTraceId = getMetadataString(state.record.metadata, "last_trace_id");
@@ -1566,7 +1574,8 @@ function persistSessionAndUsage(
     tokensCached: usage.cachedTokens,
     tokensSavedByReduction,
     latencyMs,
-    costUsd: normalizedCostUsd,
+    estimatedCostUsd: normalizedEstimatedCostUsd,
+    actualCostUsd: normalizedActualCostUsd,
     pricingSource,
     escalated,
     toolCallsCount: state.toolCallsSinceCheckpoint,

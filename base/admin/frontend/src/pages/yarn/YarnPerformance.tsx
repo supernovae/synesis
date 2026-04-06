@@ -52,7 +52,7 @@ function summarize(buckets: YarnPerformanceBucket[]) {
   let latW = 0;
   for (const b of buckets) {
     requests += b.requests;
-    cost += b.cost_usd;
+    cost += b.actual_cost_usd > 0 ? b.actual_cost_usd : b.estimated_cost_usd;
     latW += b.avg_latency_ms * b.requests;
   }
   return {
@@ -73,6 +73,7 @@ export default function YarnPerformance() {
       buckets.map((b) => ({
         ...b,
         label: fmtBucketLabel(b.bucket),
+        effective_cost_usd: b.actual_cost_usd > 0 ? b.actual_cost_usd : b.estimated_cost_usd,
       })),
     [buckets],
   );
@@ -226,7 +227,7 @@ export default function YarnPerformance() {
                     contentStyle={{ fontSize: 12 }}
                     formatter={(value, name) => {
                       const n = Number(value ?? 0);
-                      if (name === "cost_usd") return [fmtCost(n), "Cost"];
+                      if (name === "effective_cost_usd") return [fmtCost(n), "Cost (Effective)"];
                       return [fmtTokens(n), String(name)];
                     }}
                   />
@@ -251,11 +252,11 @@ export default function YarnPerformance() {
                   <Line
                     yAxisId="right"
                     type="monotone"
-                    dataKey="cost_usd"
+                    dataKey="effective_cost_usd"
                     stroke="#f59e0b"
                     strokeWidth={2}
                     dot={false}
-                    name="cost_usd"
+                    name="effective_cost_usd"
                   />
                 </ComposedChart>
               </ResponsiveContainer>

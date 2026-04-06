@@ -53,7 +53,7 @@ function UsageSummarySection({
       <div className="mt-4 grid grid-cols-2 gap-3">
         <MetricCard label="Requests" value={requests.toLocaleString()} icon={Hash} />
         <MetricCard label="Tokens" value={fmtTokens(tokens)} icon={Zap} />
-        <MetricCard label="Cost" value={fmtCost(costUsd)} icon={Coins} />
+        <MetricCard label="Cost (Effective)" value={fmtCost(costUsd)} icon={Coins} />
         <MetricCard label="Avg Latency" value={fmtDurationMs(avgLatencyMs)} icon={Clock} />
       </div>
       {details ? (
@@ -75,14 +75,14 @@ export default function Usage() {
   const bucketRows: UsageTimeSeriesEntry[] = series ?? [];
   const plannerRequests = summary?.trace_count ?? 0;
   const plannerTokens = summary?.total_tokens ?? 0;
-  const plannerCost = summary?.estimated_cost_usd ?? 0;
+  const plannerCost = summary?.actual_cost_usd && summary.actual_cost_usd > 0 ? summary.actual_cost_usd : (summary?.estimated_cost_usd ?? 0);
   const plannerLatency = summary?.avg_duration_ms ?? 0;
   const plannerErrors = summary?.error_count ?? 0;
   const plannerHasData = plannerRequests > 0;
 
   const coderRequests = yarnUsage?.total_requests ?? 0;
   const coderTokens = (yarnUsage?.tokens_in ?? 0) + (yarnUsage?.tokens_out ?? 0);
-  const coderCost = yarnUsage?.cost_usd ?? 0;
+  const coderCost = yarnUsage?.actual_cost_usd && yarnUsage.actual_cost_usd > 0 ? yarnUsage.actual_cost_usd : (yarnUsage?.estimated_cost_usd ?? 0);
   const coderLatency = yarnUsage?.avg_latency_ms ?? 0;
   const coderCached = yarnUsage?.tokens_cached ?? 0;
   const coderErrors = yarnUsage?.errors ?? 0;
@@ -198,7 +198,7 @@ export default function Usage() {
                 <div className="text-sm text-amber-800 dark:text-amber-300">
                   <p className="font-medium">Cost variance detected</p>
                   <p className="mt-0.5">
-                    Estimated {fmtCost(summary.estimated_cost_usd)} vs actual{" "}
+                    Estimated (Forecast) {fmtCost(summary.estimated_cost_usd)} vs Actual (from API){" "}
                     {fmtCost(summary.actual_cost_usd)} (
                     {(
                       ((summary.actual_cost_usd - summary.estimated_cost_usd) /
@@ -206,7 +206,7 @@ export default function Usage() {
                       100
                     ).toFixed(1)}
                     % difference). Estimated costs use the configured pricing model;
-                    actual costs come from provider-reported values when available.
+                    actual costs come from provider-reported values when available or reconciled.
                   </p>
                 </div>
               </div>
@@ -232,6 +232,9 @@ export default function Usage() {
                         Est. Cost
                       </th>
                       <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
+                        Actual Cost
+                      </th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
                         Avg Latency
                       </th>
                     </tr>
@@ -251,8 +254,11 @@ export default function Usage() {
                         <td className="px-4 py-2 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">
                           {fmtTokens(row.total_tokens)}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400" title="Estimated (Forecast)">
                           {fmtCost(row.estimated_cost_usd)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400" title="Actual (from API)">
+                          {fmtCost(row.actual_cost_usd)}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
                           {fmtDurationMs(row.avg_duration_ms)}
