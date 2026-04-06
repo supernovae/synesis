@@ -132,10 +132,19 @@ function buildGraph(writerFn: (state: GraphEnvelope) => Promise<GraphEnvelope>) 
     .addEdge("planner", "plan_gate")
     .addConditionalEdges(
       "plan_gate",
-      (state: GraphEnvelope) => (state.data.next_node === "respond" ? "respond" : "router"),
-      { respond: "respond", router: "router" }
+      (state: GraphEnvelope) => {
+        const next = state.data.next_node;
+        if (next === "respond") return "respond";
+        if (next === "planner") return "planner";
+        return "router";
+      },
+      { respond: "respond", planner: "planner", router: "router" }
     )
-    .addEdge("router", "writer")
+    .addConditionalEdges(
+      "router",
+      (state: GraphEnvelope) => (state.data.next_node === "respond" ? "respond" : "writer"),
+      { respond: "respond", writer: "writer" }
+    )
     .addConditionalEdges(
       "writer",
       (state: GraphEnvelope) => {

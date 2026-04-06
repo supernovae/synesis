@@ -59,14 +59,14 @@ const EnvSchema = z.object({
   /** Hard ceiling on critic `max_tokens` (tokens). */
   SYNESIS_PLANNER_TS_CRITIC_MAX_TOKENS: z.coerce.number().default(4096),
   /** LLM planner JSON plan output cap (base; adaptive scaling may raise this). */
-  SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS: z.coerce.number().default(2000),
+  SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS: z.coerce.number().default(4096),
   SYNESIS_PLANNER_TS_CRITIC_BACKGROUND: z
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_PLANNER_TS_CRITIC_SKIP_BELOW_DIFFICULTY: z.coerce.number().default(0.15),
   SYNESIS_PLANNER_TS_CRITIC_LENIENT_BELOW_DIFFICULTY: z.coerce.number().default(0.4),
-  SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS: z.coerce.number().default(12000),
+  SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS: z.coerce.number().default(240000),
   SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT: z.coerce.number().default(24),
   SYNESIS_PLANNER_TS_SESSION_ENABLED: z
     .string()

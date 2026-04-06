@@ -3,53 +3,53 @@ import { computeAdaptivePlannerCap } from "../src/nodes/llm-planner.js";
 import type { GraphState } from "../src/state/types.js";
 
 describe("computeAdaptivePlannerCap", () => {
-  const BASE = 2000;
+  const BASE = 4096;
 
   it("returns base cap for low-difficulty clear tasks", () => {
     const state: GraphState = { difficulty: 0.3, cynefin_domain: "clear" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(2000);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(4096);
   });
 
   it("returns base cap when difficulty and cynefin are unset", () => {
     const state: GraphState = {};
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(2000);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(4096);
   });
 
   it("adds 800 for high difficulty (>=0.7) on clear domain", () => {
     const state: GraphState = { difficulty: 0.7, cynefin_domain: "clear" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(2800);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(4896);
   });
 
   it("adds 800 for complex domain with moderate difficulty", () => {
     const state: GraphState = { difficulty: 0.5, cynefin_domain: "complex" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(2800);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(4896);
   });
 
   it("adds 1600 for high difficulty + complex domain", () => {
     const state: GraphState = { difficulty: 0.75, cynefin_domain: "complex" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(3600);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(5696);
   });
 
   it("adds 1600 for high difficulty + chaotic domain", () => {
     const state: GraphState = { difficulty: 0.7, cynefin_domain: "chaotic" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(3600);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(5696);
   });
 
   it("adds extra 400 for very high difficulty (>=0.85)", () => {
     const state: GraphState = { difficulty: 0.92, cynefin_domain: "complex" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(4000);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(6096);
   });
 
-  it("clamps to 4096 ceiling", () => {
+  it("clamps to 8192 ceiling", () => {
     const state: GraphState = { difficulty: 0.95, cynefin_domain: "chaotic" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(4000);
-    // Even with a higher base, cap should not exceed 4096
-    expect(computeAdaptivePlannerCap(3000, state)).toBe(4096);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(6096);
+    // Even with a higher base, cap should not exceed 8192
+    expect(computeAdaptivePlannerCap(7000, state)).toBe(8192);
   });
 
   it("respects complicated domain (no extra budget)", () => {
     const state: GraphState = { difficulty: 0.8, cynefin_domain: "complicated" };
-    expect(computeAdaptivePlannerCap(BASE, state)).toBe(2800);
+    expect(computeAdaptivePlannerCap(BASE, state)).toBe(4896);
   });
 });
 
@@ -110,13 +110,13 @@ describe("runLlmPlanner adaptive budget", () => {
 
     const out = await runLlmPlanner(state);
 
-    // Verify the effective cap was raised: 2000 + 800 (d>=0.7) + 800 (complex) + 400 (d>=0.85) = 4000
-    expect(out.result.effectiveMaxTokens).toBe(4000);
+    // Verify the effective cap was raised: 4096 + 800 (d>=0.7) + 800 (complex) + 400 (d>=0.85) = 6096
+    expect(out.result.effectiveMaxTokens).toBe(6096);
 
     // Verify the LLM was actually called with the adaptive cap
     expect(chatCompletionMock).toHaveBeenCalled();
     const firstCallArgs = chatCompletionMock.mock.calls[0][0];
-    expect(firstCallArgs.max_tokens).toBe(4000);
+    expect(firstCallArgs.max_tokens).toBe(6096);
   });
 
   it("uses base cap for trivial tasks", async () => {
@@ -147,10 +147,10 @@ describe("runLlmPlanner adaptive budget", () => {
     };
 
     const out = await runLlmPlanner(state);
-    expect(out.result.effectiveMaxTokens).toBe(2000);
+    expect(out.result.effectiveMaxTokens).toBe(4096);
 
     const firstCallArgs = chatCompletionMock.mock.calls[0][0];
-    expect(firstCallArgs.max_tokens).toBe(2000);
+    expect(firstCallArgs.max_tokens).toBe(4096);
   });
 
   it("returns effectiveMaxTokens on parse fallback with clarification", async () => {
@@ -190,7 +190,7 @@ describe("runLlmPlanner adaptive budget", () => {
 
     // Should still trigger clarification on parse fallback
     expect(out.clarification).toBeDefined();
-    // Effective cap should be adaptive: 2000 + 800 + 800 + 400 = 4000
-    expect(out.result.effectiveMaxTokens).toBe(4000);
+    // Effective cap should be adaptive: 4096 + 800 + 800 + 400 = 6096
+    expect(out.result.effectiveMaxTokens).toBe(6096);
   });
 });

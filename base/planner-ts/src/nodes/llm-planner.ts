@@ -61,7 +61,7 @@ export interface LlmPlannerResult {
   ambiguity_decision_reason?: string;
 }
 
-const PLANNER_CAP_HARD_CEILING = 4096;
+const PLANNER_CAP_HARD_CEILING = 8192;
 
 /**
  * Always appended after composePlannerPrompt() so Prompt Library profiles
