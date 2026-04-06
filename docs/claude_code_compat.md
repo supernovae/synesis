@@ -118,6 +118,20 @@ Environment variables serve as a fallback when the admin API is unreachable
 `GET /v1/models` returns exactly the three tier models, making them visible
 to Cursor and other OpenAI-compatible IDE clients.
 
+### Claude command-compat endpoints
+
+Yarn now exposes explicit API equivalents for common Claude Code command
+workflows:
+
+- `GET /v1/claude/bootstrap?preset=default|go-strict|ts-strict|python-strict`
+- `GET /v1/claude/model-resolution?model=<id>`
+- `POST /v1/claude/commands/execute` with commands `init`, `model`, `compact`
+
+These are authenticated coder endpoints. They are not a claim that Claude
+client slash commands are remotely invoked over the Anthropic wire by default.
+They exist so custom clients, wrappers, and operators can provide first-class
+command behavior against Synesis without local repo scanning in the model loop.
+
 ## MCP Tool Search Policy
 
 When `ANTHROPIC_BASE_URL` points to a non-first-party host, Claude Code

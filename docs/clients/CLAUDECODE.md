@@ -62,6 +62,31 @@ For a **fixed** tier name in the Claude Code picker regardless of Anthropic labe
 - **In Claude Code**: use the client’s `/models` **slash command** in the terminal UI. That is not a shell executable; do not run it with Bash.
 - **Over HTTP**: `GET https://<your-coder-host>/v1/models` returns an OpenAI-style list whose `id` values are the three Synesis tier names (discovery does not require auth; `POST /v1/messages` still requires your PAT).
 
+## API-equivalent Claude commands (server-side)
+
+Yarn now exposes authenticated command-compat endpoints for clients that want
+server-side command behavior without relying on local proxy logic.
+
+- `GET /v1/claude/bootstrap?preset=default|go-strict|ts-strict|python-strict`
+  - Returns a versioned `CLAUDE.md` template payload.
+- `GET /v1/claude/model-resolution?model=<id>`
+  - Returns the resolved Synesis tier (`synesis-pulse|synesis-core|synesis-horizon`) and resolution reason.
+- `POST /v1/claude/commands/execute`
+  - Command envelope for `init`, `model`, and `compact`.
+  - Includes structured fallback for unsupported commands (`supported=false`) and whether a command is likely client-local.
+
+Example:
+
+```bash
+curl -sS -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" \
+  "https://<your-coder-host>/v1/claude/bootstrap?preset=default"
+```
+
+```bash
+curl -sS -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" \
+  "https://<your-coder-host>/v1/claude/model-resolution?model=claude-sonnet-4-5"
+```
+
 ## Key yarn-ts settings
 
 These are the most relevant runtime controls for Claude Code behavior:
@@ -136,6 +161,13 @@ Yarn-ts does **not** execute tools; it only returns tool calls to the client. **
 | `401 Unauthorized` | Missing/invalid PAT | Regenerate PAT with `coder` scope |
 | Tool search not working | Default `disable` mode | Set `ENABLE_TOOL_SEARCH=true` client-side and `SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE=passthrough` server-side |
 | Loop message asking for guidance | Safe-fail loop guard triggered | Provide one corrective user instruction (tool install, alternate command, narrower repair plan) |
+
+## Important boundary: slash commands vs API
+
+Claude Code slash commands (for example `/init`, `/model`, `/compact`) are part
+of the client UX. Synesis cannot intercept keystrokes from the Claude terminal
+UI directly. The endpoints above are API equivalents that wrappers/integrations
+can call explicitly.
 
 ## Related docs
 

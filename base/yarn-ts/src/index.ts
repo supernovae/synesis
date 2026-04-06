@@ -13,11 +13,22 @@ import {
 } from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
 import {
+  ClaudeBootstrapQuerySchema,
+  ClaudeCommandExecuteRequestSchema,
+  ClaudeModelResolutionQuerySchema,
   ClaudeMessagesRequestSchema,
   OpenAIChatCompletionRequestSchema,
+  type ClaudeBootstrapQuery,
+  type ClaudeCommandExecuteRequest,
+  type ClaudeModelResolutionQuery,
   type ClaudeMessagesRequest,
   type OpenAIChatCompletionRequest
 } from "./schemas.js";
+import {
+  buildClaudeBootstrapTemplate,
+  executeClaudeCompatCommand,
+  resolveClaudeModelSelection,
+} from "./claude-compat.js";
 import {
   fetchTierRegistrySnapshot,
   TIER_TO_ROLE,
@@ -3090,6 +3101,141 @@ app.get("/v1/models", async () => ({
   object: "list",
   data: tierRegistry.getAvailableModels()
 }));
+
+app.get("/v1/claude/bootstrap", async (req, reply) => {
+  let authUser: import("./auth.js").AuthUser;
+  try {
+    authUser = await authResolver.resolve(req.headers.authorization);
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  }
+  try {
+    authResolver.requireCoderScope(authUser);
+  } catch {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Insufficient scope for coder access" } });
+  }
+  const fgaResult = await fgaCheck(`user:${authUser.userId}`, "can_invoke", "yarn_endpoint", "messages");
+  if (!fgaResult.allowed) {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
+  }
+  const rateResult = userRateLimiter.check(authUser.userId);
+  if (!rateResult.allowed) {
+    reply.header("Retry-After", String(rateResult.retryAfterSeconds));
+    return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${rateResult.retryAfterSeconds} seconds.` } });
+  }
+
+  const parsedQuery = ClaudeBootstrapQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: parsedQuery.error.message } });
+  }
+  const query: ClaudeBootstrapQuery = parsedQuery.data;
+  const template = buildClaudeBootstrapTemplate(query.preset);
+  return {
+    object: "claude_bootstrap",
+    template,
+  };
+});
+
+app.get("/v1/claude/model-resolution", async (req, reply) => {
+  let authUser: import("./auth.js").AuthUser;
+  try {
+    authUser = await authResolver.resolve(req.headers.authorization);
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  }
+  try {
+    authResolver.requireCoderScope(authUser);
+  } catch {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Insufficient scope for coder access" } });
+  }
+  const fgaResult = await fgaCheck(`user:${authUser.userId}`, "can_invoke", "yarn_endpoint", "messages");
+  if (!fgaResult.allowed) {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
+  }
+  const rateResult = userRateLimiter.check(authUser.userId);
+  if (!rateResult.allowed) {
+    reply.header("Retry-After", String(rateResult.retryAfterSeconds));
+    return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${rateResult.retryAfterSeconds} seconds.` } });
+  }
+
+  const parsedQuery = ClaudeModelResolutionQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: parsedQuery.error.message } });
+  }
+  const query: ClaudeModelResolutionQuery = parsedQuery.data;
+  return {
+    object: "claude_model_resolution",
+    resolution: resolveClaudeModelSelection(query.model, config.SYNESIS_YARN_CLAUDE_TIER_MAP),
+    available_models: tierRegistry.getAvailableModels().map((m) => m.id),
+  };
+});
+
+app.post("/v1/claude/commands/execute", async (req, reply) => {
+  let authUser: import("./auth.js").AuthUser;
+  try {
+    authUser = await authResolver.resolve(req.headers.authorization);
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  }
+  try {
+    authResolver.requireCoderScope(authUser);
+  } catch {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Insufficient scope for coder access" } });
+  }
+  const fgaResult = await fgaCheck(`user:${authUser.userId}`, "can_invoke", "yarn_endpoint", "messages");
+  if (!fgaResult.allowed) {
+    return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
+  }
+  const rateResult = userRateLimiter.check(authUser.userId);
+  if (!rateResult.allowed) {
+    reply.header("Retry-After", String(rateResult.retryAfterSeconds));
+    return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${rateResult.retryAfterSeconds} seconds.` } });
+  }
+
+  const parsedBody = ClaudeCommandExecuteRequestSchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: parsedBody.error.message } });
+  }
+  const body: ClaudeCommandExecuteRequest = parsedBody.data;
+
+  const clientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
+  const conversationId = (body.conversation_id ?? body.session_id ?? "").trim();
+  const identity: SessionIdentity = {
+    userId: authUser.userId,
+    orgId: authUser.orgId,
+    conversationId,
+    clientKind,
+    displayName: authUser.displayName,
+  };
+  const sessionKey = await getSessionKey(identity);
+
+  if (body.command.trim().toLowerCase() === "compact") {
+    const state = await getSessionState(sessionKey, identity);
+    maybeCheckpoint(state);
+    await casSessionSave(state);
+    recordSessionEvent(
+      state.record.sessionKey,
+      state.record.userId,
+      state.record.orgId,
+      "compat_command_compact",
+      "claude-command-api",
+      "Manual compaction requested via /v1/claude/commands/execute",
+    );
+  }
+
+  const result = executeClaudeCompatCommand({
+    tierMap: config.SYNESIS_YARN_CLAUDE_TIER_MAP,
+    availableModels: tierRegistry.getAvailableModels().map((m) => m.id),
+    command: body.command,
+    model: body.model,
+    conversationId,
+    sessionKey,
+  });
+  return {
+    object: "claude_command_result",
+    ...result,
+  };
+});
 
 app.get("/v1/adapter-packs", async () => ({
   catalog: clientAdapterPacks.getCatalog()

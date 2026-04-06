@@ -41,5 +41,32 @@ export const ClaudeMessagesRequestSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional()
 }).passthrough();
 
+export const ClaudeBootstrapPresetSchema = z.enum([
+  "default",
+  "go-strict",
+  "ts-strict",
+  "python-strict",
+]);
+
+export const ClaudeBootstrapQuerySchema = z.object({
+  preset: ClaudeBootstrapPresetSchema.optional().default("default"),
+});
+
+export const ClaudeModelResolutionQuerySchema = z.object({
+  model: z.string().trim().min(1),
+});
+
+export const ClaudeCommandExecuteRequestSchema = z.object({
+  command: z.string().trim().min(1),
+  args: z.record(z.string(), z.unknown()).optional(),
+  session_id: z.string().trim().optional(),
+  conversation_id: z.string().trim().optional(),
+  model: z.string().trim().optional(),
+}).passthrough();
+
 export type OpenAIChatCompletionRequest = z.infer<typeof OpenAIChatCompletionRequestSchema>;
 export type ClaudeMessagesRequest = z.infer<typeof ClaudeMessagesRequestSchema>;
+export type ClaudeBootstrapPreset = z.infer<typeof ClaudeBootstrapPresetSchema>;
+export type ClaudeBootstrapQuery = z.infer<typeof ClaudeBootstrapQuerySchema>;
+export type ClaudeModelResolutionQuery = z.infer<typeof ClaudeModelResolutionQuerySchema>;
+export type ClaudeCommandExecuteRequest = z.infer<typeof ClaudeCommandExecuteRequestSchema>;
