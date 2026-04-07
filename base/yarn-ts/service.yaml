@@ -6,6 +6,10 @@ metadata:
     app.kubernetes.io/name: synesis-yarn
     app.kubernetes.io/component: yarn
 spec:
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
   selector:
     app.kubernetes.io/name: synesis-yarn
   ports:

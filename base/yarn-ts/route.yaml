@@ -3,6 +3,7 @@ kind: Route
 metadata:
   name: synesis-yarn
   annotations:
+    haproxy.router.openshift.io/balance: source
     haproxy.router.openshift.io/timeout: 300s
     haproxy.router.openshift.io/disable_buffer: "true"
   labels:
