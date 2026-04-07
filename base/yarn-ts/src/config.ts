@@ -210,6 +210,16 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
+  // Transcript pruning — evict stale tool results and condense old turns
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS: z.coerce.number().default(5),
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS: z.coerce.number().default(120_000),
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS: z.coerce.number().default(400),
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS: z.coerce.number().default(2000),
+
   // Recall engine — confidence-based bypass / enrichment
   SYNESIS_YARN_RECALL_BYPASS_ENABLED: z
     .string()

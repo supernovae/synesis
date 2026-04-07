@@ -73,6 +73,7 @@ import {
 import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, runPatternPrefetch, formatPatternBlock, getPatternPrefetchStats } from "./evidence/fast-path.js";
 import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
+import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
 import { getTemplate as manifestGetTemplate } from "@synesis/manifest";
@@ -854,6 +855,13 @@ function toClaudeServerWebSearchEvent(
 
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
+const transcriptPruning = new TranscriptPruningService({
+  enabled: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED,
+  keepTurns: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS,
+  budgetChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS,
+  stubMaxChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS,
+  assistantCondenseChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS,
+});
 const enrichmentPool = new EnrichmentPool(config);
 if (enrichmentPool.isAvailable()) {
   app.log.info({ poolSize: config.SYNESIS_YARN_WORKER_POOL_SIZE || "auto" }, "worker_pool_enabled");
@@ -1489,7 +1497,7 @@ function persistSessionAndUsage(
   state: SessionState,
   requestId: string,
   resolvedModelId: string,
-  usage: { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number },
+  usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number },
   latencyMs: number,
   finishReason: string,
   tokensSavedByReduction = 0,
@@ -1515,6 +1523,7 @@ function persistSessionAndUsage(
       completion_tokens: usage.outputTokens,
       total_tokens: usage.inputTokens + usage.outputTokens,
       cached_prompt_tokens: usage.cachedTokens,
+      cache_creation_tokens: usage.cacheCreationTokens,
       estimated_cost_usd: 0,
       actual_cost_usd: 0,
     },
@@ -1761,6 +1770,7 @@ function persistSessionAndUsage(
     completion_tokens: usage.outputTokens,
     total_tokens: usage.inputTokens + usage.outputTokens,
     cached_prompt_tokens: usage.cachedTokens,
+    cache_creation_tokens: usage.cacheCreationTokens,
     estimated_cost_usd: normalizedEstimatedCostUsd,
     actual_cost_usd: usage.costUsd > 0 ? usage.costUsd : 0,
   };
@@ -1807,7 +1817,7 @@ function persistSessionAndUsage(
   persistSpan.end();
 }
 
-function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number } {
+function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number } {
   const obj = (input ?? {}) as Record<string, unknown>;
 
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
@@ -1820,6 +1830,7 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
     inputTokens: Number.isFinite(normalized.prompt_tokens) ? normalized.prompt_tokens : 0,
     outputTokens: Number.isFinite(normalized.completion_tokens) ? normalized.completion_tokens : 0,
     cachedTokens: Number.isFinite(normalized.cached_prompt_tokens) ? normalized.cached_prompt_tokens : 0,
+    cacheCreationTokens: Number.isFinite(normalized.cache_creation_tokens) ? normalized.cache_creation_tokens! : 0,
     costUsd: Number.isFinite(cost) ? cost : 0
   };
 }
@@ -2954,6 +2965,7 @@ app.get("/health/telemetry", async (req, reply) => {
     writeQueue: usageWriter.getStats(),
     validationNormalization: validationNormalization.getStats(),
     toolResultReduction: toolResultReduction.getStats(),
+    transcriptPruning: transcriptPruning.getStats(),
     toolArgHardening: { ...toolArgHardeningStats },
     toolSchemaPruning: { ...toolSchemaPruningStats },
     openClawProfile: { ...openClawProfileStats },
@@ -3021,6 +3033,7 @@ app.get("/health/telemetry", async (req, reply) => {
       crossConversationRecall: config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED,
       workerPool: config.SYNESIS_YARN_WORKER_POOL_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
+      transcriptPruning: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED,
       patternRecall: config.SYNESIS_YARN_PATTERN_RECALL_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
@@ -3326,6 +3339,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     reducedOpenAI.messages as never,
     runValidationTierCFallback,
   );
+  const prunedOpenAI = transcriptPruning.prune(
+    normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+  );
+  if (prunedOpenAI.pruned) {
+    normalizedOpenAI.messages = prunedOpenAI.messages as never;
+  }
   const oaiTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
     request.messages as Array<{ role: string; content: unknown }>,
   );
@@ -3581,7 +3600,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && policyPrecheck.softFailClass === "tool_loop") {
       const started = Date.now();
       const content = toolLoopSoftFailMessage(policyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
       session.awaitingToolLoopUserAck = true;
       session.toolLoopAckAnchorUserHash = latestOpenAIUserHash;
       session.toolLoopNoUserAckCount = 0;
@@ -3610,7 +3629,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (policyPrecheck.matchedRules.includes("repeat_loop_hard_reject")) {
       const started = Date.now();
       const content = repeatLoopSoftFailMessage(policyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
       session.history.push({ role: "assistant", content });
       persistSessionAndUsage(
         session,
@@ -4711,7 +4730,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   safeEnd(reply.raw);
   oaiHeartbeat.stop();
 
-  let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+  let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
   let streamedText = "";
   try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
   try { streamedText = await streamed.text; } catch { /* stream aborted */ }
@@ -4906,6 +4925,12 @@ app.post("/v1/messages", async (req, reply) => {
     openAIMessages as never,
     runValidationTierCFallback,
   );
+  const prunedClaude = transcriptPruning.prune(
+    normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+  );
+  if (prunedClaude.pruned) {
+    normalizedFromClaude.messages = prunedClaude.messages as never;
+  }
   const claudeTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
     openAIMessages as Array<{ role: string; content: unknown }>,
   );
@@ -5161,7 +5186,7 @@ app.post("/v1/messages", async (req, reply) => {
     if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && claudePolicyPrecheck.softFailClass === "tool_loop") {
       const started = Date.now();
       const content = toolLoopSoftFailMessage(claudePolicyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
       session.awaitingToolLoopUserAck = true;
       session.toolLoopAckAnchorUserHash = latestClaudeUserHash;
       session.toolLoopNoUserAckCount = 0;
@@ -5190,7 +5215,7 @@ app.post("/v1/messages", async (req, reply) => {
     if (claudePolicyPrecheck.matchedRules.includes("repeat_loop_hard_reject")) {
       const started = Date.now();
       const content = repeatLoopSoftFailMessage(claudePolicyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
       session.history.push({ role: "assistant", content });
       persistSessionAndUsage(
         session,
@@ -6140,7 +6165,7 @@ app.post("/v1/messages", async (req, reply) => {
 
     closeClaudeStreamingTextBlock();
 
-    let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
+    let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
     try { usage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
     safeSse(reply, "message_delta", {
       type: "message_delta",

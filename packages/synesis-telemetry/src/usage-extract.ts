@@ -17,7 +17,8 @@ interface ProviderUsage {
   input_tokens?: number;
   output_tokens?: number;
   cache_read_input_tokens?: number;
-  inputTokenDetails?: { cacheReadTokens?: number; cachedTokens?: number };
+  cache_creation_input_tokens?: number;
+  inputTokenDetails?: { cacheReadTokens?: number; cachedTokens?: number; cacheWriteTokens?: number };
   costUsd?: number;
   cost_usd?: number;
   estimated_cost?: number;
@@ -48,6 +49,11 @@ export function extractUsage(raw?: ProviderUsage | null): LlmUsage {
       raw.prompt_cache_hit_tokens ??
       0,
   );
+  const cacheCreation = Number(
+    raw.cache_creation_input_tokens ??
+      raw.inputTokenDetails?.cacheWriteTokens ??
+      0,
+  );
   const actualCost = Number(raw.costUsd ?? raw.cost_usd ?? raw.estimated_cost ?? 0);
 
   return {
@@ -55,6 +61,7 @@ export function extractUsage(raw?: ProviderUsage | null): LlmUsage {
     completion_tokens: Number.isFinite(completion) ? completion : 0,
     total_tokens: Number.isFinite(total) ? total : 0,
     cached_prompt_tokens: Number.isFinite(cached) ? cached : 0,
+    cache_creation_tokens: Number.isFinite(cacheCreation) ? cacheCreation : 0,
     estimated_cost_usd: 0,
     actual_cost_usd: Number.isFinite(actualCost) ? actualCost : 0,
   };

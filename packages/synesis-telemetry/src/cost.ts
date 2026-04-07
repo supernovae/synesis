@@ -5,6 +5,7 @@ export const ZERO_USAGE: LlmUsage = {
   completion_tokens: 0,
   total_tokens: 0,
   cached_prompt_tokens: 0,
+  cache_creation_tokens: 0,
   estimated_cost_usd: 0,
   actual_cost_usd: 0,
 };
@@ -66,6 +67,7 @@ export function mergeUsage(a: LlmUsage | undefined, b: LlmUsage): LlmUsage {
     completion_tokens: a.completion_tokens + b.completion_tokens,
     total_tokens: a.total_tokens + b.total_tokens,
     cached_prompt_tokens: a.cached_prompt_tokens + b.cached_prompt_tokens,
+    cache_creation_tokens: (a.cache_creation_tokens ?? 0) + (b.cache_creation_tokens ?? 0),
     estimated_cost_usd: a.estimated_cost_usd + b.estimated_cost_usd,
     actual_cost_usd: a.actual_cost_usd + b.actual_cost_usd,
   };

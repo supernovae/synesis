@@ -55,9 +55,10 @@ function PrefixCacheCard({
   metrics: PrefixCacheServiceMetrics;
 }) {
   const hitPct = (metrics.hit_rate * 100).toFixed(1);
+  const cacheWrite = metrics.cache_write_tokens ?? 0;
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
         {label} Prefix Cache
       </h3>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -65,14 +66,24 @@ function PrefixCacheCard({
           label="Hit Rate"
           value={`${hitPct}%`}
           icon={Target}
+          subtitle="Provider-reported cache reads / total prompt"
         />
         <MetricCard
-          label="Cached Tokens"
+          label="Cached Tokens (read)"
           value={metrics.cached_prompt_tokens.toLocaleString()}
           icon={Zap}
+          subtitle="Prompt tokens served from provider cache"
         />
+        {cacheWrite > 0 && (
+          <MetricCard
+            label="Cache Write Tokens"
+            value={cacheWrite.toLocaleString()}
+            icon={Zap}
+            subtitle="Tokens written to provider cache"
+          />
+        )}
         <MetricCard
-          label="Total Tokens"
+          label="Total Prompt Tokens"
           value={metrics.total_prompt_tokens.toLocaleString()}
           icon={Database}
         />
@@ -99,6 +110,110 @@ function PrefixCacheCard({
           <MetricCard label="Mode" value={metrics.mode} icon={Key} />
         )}
       </div>
+      {metrics.hit_rate === 0 && metrics.total_prompt_tokens > 0 && (
+        <p className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          Hit rate is 0% — most OpenAI-compatible providers (LiteLLM, Alibaba, DeepInfra, Groq, xAI,
+          OpenRouter) do not report <code>prompt_tokens_details.cached_tokens</code> in their API responses
+          even when server-side prefix caching is active. vLLM requires <code>--enable-prompt-tokens-details</code>.
+          Stable prefix and transcript pruning still reduce actual compute cost upstream.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function OptimizationsCard({
+  optimizations,
+}: {
+  optimizations: NonNullable<PrefixCacheServiceMetrics["optimizations"]>;
+}) {
+  const tp = optimizations.transcriptPruning;
+  const tr = optimizations.toolResultReduction;
+  const ff = optimizations.featureFlags;
+
+  const enabledFlags = ff
+    ? Object.entries(ff).filter(([, v]) => v).length
+    : 0;
+  const totalFlags = ff ? Object.keys(ff).length : 0;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+        Yarn Token Efficiency
+      </h3>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {tp && (
+          <>
+            <MetricCard
+              label="Transcript Pruning"
+              value={tp.invocations?.toLocaleString() ?? "0"}
+              icon={Zap}
+              subtitle="Invocations (prune passes)"
+            />
+            <MetricCard
+              label="Chars Saved (pruning)"
+              value={(tp.totalCharsSaved ?? 0).toLocaleString()}
+              icon={Target}
+              subtitle="Cumulative characters removed"
+            />
+            <MetricCard
+              label="Tool Results Evicted"
+              value={(tp.toolResultsEvicted ?? 0).toLocaleString()}
+              icon={Activity}
+              subtitle="Stale tool outputs replaced with stubs"
+            />
+            <MetricCard
+              label="File Reads Deduped"
+              value={(tp.fileDeduped ?? 0).toLocaleString()}
+              icon={Database}
+              subtitle="Superseded file read results"
+            />
+            <MetricCard
+              label="Assistant Condensed"
+              value={(tp.assistantCondensed ?? 0).toLocaleString()}
+              icon={Activity}
+              subtitle="Old assistant messages truncated"
+            />
+          </>
+        )}
+        {tr && (
+          <MetricCard
+            label="Tool Result Reductions"
+            value={(tr.reductions ?? tr.invocations ?? 0).toLocaleString()}
+            icon={Zap}
+            subtitle="Large tool outputs summarized"
+          />
+        )}
+        {ff && (
+          <MetricCard
+            label="Feature Flags"
+            value={`${enabledFlags}/${totalFlags}`}
+            icon={Key}
+            subtitle="Optimization flags enabled"
+          />
+        )}
+      </div>
+      {ff && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+            Feature flag details
+          </summary>
+          <div className="mt-2 grid gap-1 text-xs">
+            {Object.entries(ff)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([key, val]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${
+                      val ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"
+                    }`}
+                  />
+                  <span className="font-mono text-gray-600 dark:text-gray-400">{key}</span>
+                </div>
+              ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -151,6 +266,11 @@ export default function CachePerformance() {
           <PrefixCacheCard label="Yarn" metrics={data.yarn} />
         )}
       </div>
+
+      {/* Yarn optimization stats */}
+      {data.yarn?.optimizations && (
+        <OptimizationsCard optimizations={data.yarn.optimizations} />
+      )}
 
       {/* Time-series chart */}
       {mergedChart.length > 0 && (

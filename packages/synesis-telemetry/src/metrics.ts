@@ -84,6 +84,7 @@ export function recordUsageMetrics(
     prompt_tokens: number;
     completion_tokens: number;
     cached_prompt_tokens: number;
+    cache_creation_tokens?: number;
     estimated_cost_usd: number;
     actual_cost_usd: number;
   },
@@ -102,6 +103,12 @@ export function recordUsageMetrics(
     { direction: "in", cache_status: "cached", model },
     usage.cached_prompt_tokens,
   );
+  if (usage.cache_creation_tokens && usage.cache_creation_tokens > 0) {
+    metrics.tokenTotal.inc(
+      { direction: "cache_write", cache_status: "cache_write", model },
+      usage.cache_creation_tokens,
+    );
+  }
   metrics.tokenTotal.inc(
     { direction: "out", cache_status: "uncached", model },
     usage.completion_tokens,

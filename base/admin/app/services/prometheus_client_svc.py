@@ -116,6 +116,7 @@ def _aggregate_synesis_service_metrics(raw: dict[str, Any], service: str) -> dic
     act_m = f"{prefix}_cost_actual_usd_total"
     total_in = 0.0
     cached_in = 0.0
+    cache_write_in = 0.0
     requests = 0.0
     est_cost = 0.0
     act_cost = 0.0
@@ -128,11 +129,13 @@ def _aggregate_synesis_service_metrics(raw: dict[str, Any], service: str) -> dic
         metric_val = float(val.get("value", 0))
         labels = val.get("labels") if isinstance(val.get("labels"), dict) else {}
         if mname == token_m:
-            if labels.get("direction") != "in":
-                continue
-            total_in += metric_val
-            if labels.get("cache_status") == "cached":
-                cached_in += metric_val
+            direction = labels.get("direction", "")
+            if direction == "in":
+                total_in += metric_val
+                if labels.get("cache_status") == "cached":
+                    cached_in += metric_val
+            elif direction == "cache_write":
+                cache_write_in += metric_val
         elif mname == req_m:
             requests += metric_val
         elif mname == est_m:
@@ -142,6 +145,7 @@ def _aggregate_synesis_service_metrics(raw: dict[str, Any], service: str) -> dic
     return {
         "total_prompt_tokens": total_in,
         "cached_prompt_tokens": cached_in,
+        "cache_write_tokens": cache_write_in,
         "requests": requests,
         "estimated_cost_usd": est_cost,
         "actual_cost_usd": act_cost,
@@ -173,8 +177,10 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
 
     p_prompt = p["total_prompt_tokens"]
     p_cached = p["cached_prompt_tokens"]
+    p_cache_write = p["cache_write_tokens"]
     y_prompt = y["total_prompt_tokens"]
     y_cached = y["cached_prompt_tokens"]
+    y_cache_write = y["cache_write_tokens"]
 
     planner_mode = (
         planner_health.get("llm", {}).get("prefixCacheMode", "auto") if isinstance(planner_health, dict) else "auto"
@@ -189,6 +195,7 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
     planner_block = {
         "hit_rate": round(p_cached / p_prompt, 4) if p_prompt > 0 else 0.0,
         "cached_prompt_tokens": int(p_cached),
+        "cache_write_tokens": int(p_cache_write),
         "total_prompt_tokens": int(p_prompt),
         "mode": planner_mode,
         "requests": int(p["requests"]),
@@ -196,14 +203,33 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
         "estimated_savings_usd": _savings_proxy(p_cached, p_prompt, p["estimated_cost_usd"]),
     }
 
-    yarn_block = {
+    # Extract Yarn optimization stats from telemetry health
+    yarn_optimizations: dict[str, Any] = {}
+    if isinstance(yarn_health, dict):
+        tp = yarn_health.get("transcriptPruning")
+        if isinstance(tp, dict):
+            yarn_optimizations["transcriptPruning"] = tp
+        tr = yarn_health.get("toolResultReduction")
+        if isinstance(tr, dict):
+            yarn_optimizations["toolResultReduction"] = tr
+        vn = yarn_health.get("validationNormalization")
+        if isinstance(vn, dict):
+            yarn_optimizations["validationNormalization"] = vn
+        ff = yarn_health.get("featureFlags")
+        if isinstance(ff, dict):
+            yarn_optimizations["featureFlags"] = ff
+
+    yarn_block: dict[str, Any] = {
         "hit_rate": round(y_cached / y_prompt, 4) if y_prompt > 0 else 0.0,
         "cached_prompt_tokens": int(y_cached),
+        "cache_write_tokens": int(y_cache_write),
         "total_prompt_tokens": int(y_prompt),
         "requests": int(y["requests"]),
         "estimated_cost_usd": round(y["estimated_cost_usd"], 6),
         "estimated_savings_usd": _savings_proxy(y_cached, y_prompt, y["estimated_cost_usd"]),
     }
+    if yarn_optimizations:
+        yarn_block["optimizations"] = yarn_optimizations
 
     total_prompt = p_prompt + y_prompt
     total_cached = p_cached + y_cached

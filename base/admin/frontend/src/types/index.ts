@@ -521,6 +521,7 @@ export interface FailureRecord {
 export interface PrefixCacheServiceMetrics {
   hit_rate: number;
   cached_prompt_tokens: number;
+  cache_write_tokens?: number;
   total_prompt_tokens: number;
   mode?: string;
   requests: number;
@@ -528,6 +529,13 @@ export interface PrefixCacheServiceMetrics {
   estimated_cost_usd?: number;
   /** Rough proxy: fraction of cost attributed to cached prompt tokens */
   estimated_savings_usd: number;
+  /** Yarn-only: optimization pipeline stats from /health/telemetry */
+  optimizations?: {
+    transcriptPruning?: Record<string, number>;
+    toolResultReduction?: Record<string, number>;
+    validationNormalization?: Record<string, number>;
+    featureFlags?: Record<string, boolean>;
+  };
 }
 
 export interface CacheMetrics {
@@ -726,6 +734,8 @@ export interface LLMCallRecord {
   total_tokens: number;
   /** Provider-reported cached prompt tokens when available (OpenAI details, Anthropic cache read, etc.). */
   cached_prompt_tokens?: number;
+  /** Provider-reported cache creation (write) tokens when available. */
+  cache_creation_tokens?: number;
   latency_ms: number;
   prompt_snippet: string;
   completion_snippet: string;
@@ -798,6 +808,8 @@ export interface TraceRecord {
   total_tokens: number;
   /** Sum of per-call cached prompt tokens when the provider returned them. */
   total_cached_prompt_tokens?: number;
+  /** Sum of per-call cache creation (write) tokens when the provider returned them. */
+  total_cache_creation_tokens?: number;
   estimated_cost_usd: number;
   actual_cost_usd?: number;
   difficulty: number;

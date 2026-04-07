@@ -368,3 +368,12 @@ def _enrich_detail(record: dict) -> None:
         if isinstance(entry, dict):
             record.setdefault("decision_path", entry.get("path"))
             record.setdefault("decision_escalated", entry.get("escalated"))
+
+    tokens = record.get("tokens")
+    if isinstance(tokens, dict):
+        cached = int(tokens.get("cached_prompt_tokens", 0) or 0)
+        if cached > 0:
+            record.setdefault("total_cached_prompt_tokens", cached)
+        cache_write = int(tokens.get("cache_creation_tokens", 0) or 0)
+        if cache_write > 0:
+            record.setdefault("total_cache_creation_tokens", cache_write)

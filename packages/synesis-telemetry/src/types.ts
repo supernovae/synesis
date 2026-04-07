@@ -3,6 +3,7 @@ export interface LlmUsage {
   completion_tokens: number;
   total_tokens: number;
   cached_prompt_tokens: number;
+  cache_creation_tokens?: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;
 }

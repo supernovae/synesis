@@ -203,8 +203,11 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
         </span>
         <span className="flex-1" />
         <span className="text-xs text-gray-400">
-          {(call.cached_prompt_tokens ?? 0) > 0
-            ? `${call.prompt_tokens} in (${call.cached_prompt_tokens} cached) + ${call.completion_tokens} out`
+          {(call.cached_prompt_tokens ?? 0) > 0 || (call.cache_creation_tokens ?? 0) > 0
+            ? `${call.prompt_tokens} in` +
+              ((call.cached_prompt_tokens ?? 0) > 0 ? ` (${call.cached_prompt_tokens} cached)` : "") +
+              ((call.cache_creation_tokens ?? 0) > 0 ? ` (${call.cache_creation_tokens} cache-write)` : "") +
+              ` + ${call.completion_tokens} out`
             : `${call.prompt_tokens}+${call.completion_tokens} tok`}
         </span>
         {typeof call.estimated_cost === "number" || typeof call.actual_cost === "number" ? (
@@ -794,7 +797,12 @@ export default function TraceDetail() {
           </p>
           {(trace.total_cached_prompt_tokens ?? 0) > 0 && (
             <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-              {trace.total_cached_prompt_tokens!.toLocaleString()} prompt cached (provider-reported)
+              {trace.total_cached_prompt_tokens!.toLocaleString()} cached
+            </p>
+          )}
+          {(trace.total_cache_creation_tokens ?? 0) > 0 && (
+            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+              {trace.total_cache_creation_tokens!.toLocaleString()} cache-write
             </p>
           )}
         </div>

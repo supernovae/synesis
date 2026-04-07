@@ -62,6 +62,14 @@ set -euo pipefail
 #   - SYNESIS_YARN_RESPONSE_STYLE_MODE (default guidance) and SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID (default true) — stylized markdown response guidance.
 #   - Workspace handshake disabled in strict fix-forward mode; clients must send project_root/shell_cwd anchors.
 #
+# Yarn token optimization (M10 + transcript pruning):
+#   - SYNESIS_YARN_STABLE_PREFIX_ENABLED (default true) — stable system prompt prefix for provider cache hits.
+#   - SYNESIS_YARN_JSON_COMPACTION_ENABLED (default true) — compact JSON in tool results.
+#   - SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED (default true) — attention-aware message positioning.
+#   - SYNESIS_YARN_SORTED_TOOLS_ENABLED (default true) — deterministic tool ordering for cache.
+#   - SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED (default true) — evict stale tool results, dedup file reads, condense old assistant turns.
+#   - SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS (default 5), BUDGET_CHARS (120000), STUB_MAX_CHARS (400), ASSISTANT_CONDENSE_CHARS (2000).
+#
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
 #   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
@@ -1363,6 +1371,19 @@ patch_yarn_feature_flags() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS" "${SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS:-8}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE" "${SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE:-0}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP" "${SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP:-8}" "$container"
+
+    # ── M10: Prefix cache / token optimization ──
+    _flag SYNESIS_YARN_STABLE_PREFIX_ENABLED           "true"
+    _flag SYNESIS_YARN_JSON_COMPACTION_ENABLED         "true"
+    _flag SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED   "true"
+    _flag SYNESIS_YARN_SORTED_TOOLS_ENABLED            "true"
+
+    # ── Transcript pruning (evict stale tool results, condense old turns) ──
+    _flag SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED        "true"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS:-5}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS:-120000}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS:-400}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS:-2000}" "$container"
 
     # ── Content Dispatch ──
     _flag SYNESIS_YARN_CONTENT_DISPATCH_ENABLED        "true"
