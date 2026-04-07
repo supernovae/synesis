@@ -926,6 +926,10 @@ function inferModelFamily(backendModel: string): string {
   return "generic";
 }
 
+function isQwenModelName(modelName: string | undefined): boolean {
+  return /qwen/i.test((modelName ?? "").toLowerCase());
+}
+
 function enrichWithFrameAndManifest(
   messages: Array<{ role: string; content: unknown }>,
   sessionKey: string,
@@ -2183,6 +2187,9 @@ async function runPreFinalizeCritic(
         model: config.SYNESIS_YARN_CRITIC_MODEL,
         temperature: 0,
         messages: [{ role: "user", content: prompt }],
+        ...(isQwenModelName(config.SYNESIS_YARN_CRITIC_MODEL)
+          ? { response_format: { type: "json_object" } }
+          : {}),
       }),
     });
     clearTimeout(timeout);

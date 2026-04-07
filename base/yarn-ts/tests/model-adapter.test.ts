@@ -170,6 +170,7 @@ describe("Qwen3CoderAdapter", () => {
     const prompt = adapter.toolSystemPrompt!(10);
     expect(prompt).toContain("heredoc");
     expect(prompt).toContain("Bash");
+    expect(prompt).toContain("Never emit XML");
   });
 });
 

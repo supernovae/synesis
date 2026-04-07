@@ -103,6 +103,8 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "You have access to tools. When calling a tool, you MUST use the EXACT parameter names from the tool's schema.",
       "If a tool requires no arguments, pass an empty object: `{}`.",
       "Do not omit the arguments field. Call one tool at a time.",
+      "Never emit XML tool wrappers/tags (e.g. <tool_call>, <tool>, </tool>).",
+      "Tool calls must be plain JSON arguments through the tool API only.",
       "",
       "## Critical parameter names (use these EXACTLY):",
       "- **Write tool**: `file_path` (string), `content` (string). Both required.",
