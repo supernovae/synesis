@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -127,7 +128,26 @@ def _get_leading_comment(source_bytes: bytes, node) -> bytes:
     return b"\n".join(comment_lines) + b"\n" if comment_lines else b""
 
 
-mcp = FastMCP("AST Outline Server")
+_HOST = os.getenv("FASTMCP_HOST", os.getenv("HOST", "0.0.0.0"))
+_PORT = int(os.getenv("FASTMCP_PORT", os.getenv("PORT", "8080")))
+_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http").strip().lower()
+_STREAMABLE_HTTP_PATH = os.getenv("FASTMCP_STREAMABLE_HTTP_PATH", "/mcp")
+_DISABLE_DNS_REBIND = os.getenv("FASTMCP_DISABLE_DNS_REBINDING", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+mcp = FastMCP(
+    "AST Outline Server",
+    host=_HOST,
+    port=_PORT,
+    streamable_http_path=_STREAMABLE_HTTP_PATH,
+)
+if _DISABLE_DNS_REBIND and mcp.settings.transport_security is not None:
+    # In-cluster callers use service DNS names; localhost-only host checks reject those.
+    mcp.settings.transport_security.enable_dns_rebinding_protection = False
 
 
 @mcp.tool()
@@ -197,7 +217,8 @@ def get_file_outline(file_path: str) -> str:
 
 
 def main():
-    mcp.run()
+    transport = _TRANSPORT if _TRANSPORT in {"stdio", "sse", "streamable-http"} else "streamable-http"
+    mcp.run(transport=transport)
 
 
 if __name__ == "__main__":
