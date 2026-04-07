@@ -325,7 +325,7 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
         return with_retry(get_resilient_milvus(), _do)
     except Exception as exc:
         logger.warning("milvus_schema_info_error collection=%s error=%s", collection, str(exc)[:80])
-        return {"exists": False, "error": str(exc)[:80]}
+        return {"exists": False, "fields": [], "indexes": []}
 
 
 def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
@@ -385,4 +385,4 @@ def collection_stats(collection: str) -> dict[str, Any]:
         return with_retry(get_resilient_milvus(), _do)
     except Exception as exc:
         logger.warning("milvus_stats_error collection=%s error=%s", collection, str(exc)[:80])
-        return {"exists": False, "row_count": 0, "error": str(exc)[:80]}
+        return {"exists": False, "row_count": 0}

@@ -263,7 +263,10 @@ export async function registerMcpRoutes(
     });
   });
 
-  app.post("/v1/mcp/tools/call", async (req, reply) => {
+  app.post("/v1/mcp/tools/call", {
+    config: { rateLimit: { max: 240, timeWindow: "1 minute" } },
+    preHandler: app.rateLimit({ max: 240, timeWindow: "1 minute" }),
+  }, async (req, reply) => {
     const user = await resolveUser(req, reply);
     if (!user) return;
 

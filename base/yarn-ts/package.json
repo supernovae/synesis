@@ -20,6 +20,7 @@
     "scaffold:reducer": "tsx scripts/scaffold-reducer.ts"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^10.3.0",
     "@agentclientprotocol/sdk": "^0.18.0",
     "@ai-sdk/openai": "^3.0.51",
     "@openfga/sdk": "^0.9.4",
@@ -48,5 +49,8 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
+  },
+  "overrides": {
+    "vite": "8.0.7"
   }
 }

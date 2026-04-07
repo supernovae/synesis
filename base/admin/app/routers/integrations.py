@@ -19,6 +19,19 @@ from ..services.mcp_client import get_mcp_tools, probe_admin_mcp_health, probe_m
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 
 
+def _sanitize_probe_payload(payload: dict) -> dict:
+    allowed_errors = {"upstream_unhealthy", "request_failed", None}
+    raw_error = payload.get("error")
+    error = raw_error if raw_error in allowed_errors else "request_failed"
+    return {
+        "reachable": bool(payload.get("reachable", False)),
+        "status_code": payload.get("status_code"),
+        "latency_ms": payload.get("latency_ms"),
+        "url": payload.get("url"),
+        "error": error,
+    }
+
+
 # ── MCP ──
 
 
@@ -31,13 +44,13 @@ async def mcp_tools(_user: UserInfo = Depends(get_current_user)):
 @router.get("/mcp/health")
 async def mcp_agent_health(_user: UserInfo = Depends(get_current_user)):
     """Reachability of synesis-mcp-ts (agent / IDE Streamable MCP)."""
-    return await probe_mcp_health()
+    return _sanitize_probe_payload(await probe_mcp_health())
 
 
 @router.get("/mcp/admin-mcp-health")
 async def admin_mcp_streamable_health(_user: UserInfo = Depends(get_current_user)):
     """Reachability of synesis-admin-mcp-ts (Admin MCP, Streamable HTTP)."""
-    return await probe_admin_mcp_health()
+    return _sanitize_probe_payload(await probe_admin_mcp_health())
 
 
 @router.get("/mcp/admin-catalog")

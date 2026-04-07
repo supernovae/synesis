@@ -59,11 +59,7 @@ export function checkSecrets(code: string): IntegrityResult | null {
 
 const _NETWORK_MODULES_FIRST = new Set(["requests", "urllib", "urllib3", "socket", "httpx"]);
 
-const _NETWORK_BASH: RegExp[] = [
-  /\b(curl|wget|nc\s|\bnetcat\s)\s/i,
-  /\/dev\/tcp\//,
-  /\$\(.*\bcurl\b.*\)/i,
-];
+const _NETWORK_BASH_TOKENS = ["curl ", "wget ", "nc ", "netcat ", "/dev/tcp/"] as const;
 
 const _NETWORK_JS: RegExp[] = [/\bfetch\s*\(/, /\baxios\.(get|post|create)\s*\(/, /\brequire\s*\(\s*['"]https?:\/\//];
 
@@ -142,6 +138,14 @@ function _firstModSegment(name: string): string {
   return name.trim().split(".")[0] ?? "";
 }
 
+function _splitAliasTarget(token: string): string {
+  const trimmed = token.trim();
+  if (!trimmed) return "";
+  const lowered = trimmed.toLowerCase();
+  const asIdx = lowered.indexOf(" as ");
+  return asIdx >= 0 ? trimmed.slice(0, asIdx).trim() : trimmed;
+}
+
 function _parsePythonImportLine(line: string): string[] {
   const m = line.match(_PYTHON_NETWORK_IMPORT);
   if (!m) return [];
@@ -150,7 +154,7 @@ function _parsePythonImportLine(line: string): string[] {
   }
   const block = (m[2] ?? "").trim();
   if (!block) return [];
-  return block.split(",").map((s) => _firstModSegment(s.split(/\s+as\s+/i)[0] ?? ""));
+  return block.split(",").map((s) => _firstModSegment(_splitAliasTarget(s)));
 }
 
 function _checkNetworkPythonRegex(code: string): IntegrityResult | null {
@@ -201,23 +205,37 @@ export function checkNetwork(code: string, language: string): IntegrityResult | 
   if (lang === "python" || lang === "py") {
     return _checkNetworkPythonRegex(code);
   }
-  const patterns = ["bash", "shell", "sh"].includes(lang) ? _NETWORK_BASH : _NETWORK_JS;
+  const isShell = ["bash", "shell", "sh"].includes(lang);
+  const patterns = _NETWORK_JS;
   const lines = code.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     if (_isLikelyCommentOrString(line, lang)) continue;
     let codePart = _stripSingleLineComment(line, lang);
     codePart = _stripStringsBashJs(codePart);
-    for (const pat of patterns) {
-      const m = codePart.match(pat);
-      if (m) {
-        const symbol = m[0].trim();
+    if (isShell) {
+      const lowered = ` ${codePart.toLowerCase()} `;
+      const token = _NETWORK_BASH_TOKENS.find((t) => lowered.includes(t));
+      const hasSubshellCurl = lowered.includes("$(") && lowered.includes("curl");
+      if (token || hasSubshellCurl) {
+        const symbol = token ?? "$( ... curl ... )";
         return new IntegrityResult(
           "network",
           `Line ~${i + 1}: ${symbol.slice(0, 60)}`,
           `Call '${symbol.slice(0, 40)}' makes network calls. Use internal MockClient or declare as external tool requirement.`,
         );
       }
+      continue;
+    }
+    for (const pat of patterns) {
+      const m = codePart.match(pat);
+      if (!m) continue;
+      const symbol = m[0].trim();
+      return new IntegrityResult(
+        "network",
+        `Line ~${i + 1}: ${symbol.slice(0, 60)}`,
+        `Call '${symbol.slice(0, 40)}' makes network calls. Use internal MockClient or declare as external tool requirement.`,
+      );
     }
   }
   return null;
@@ -227,14 +245,6 @@ export function checkNetwork(code: string, language: string): IntegrityResult | 
 // Dangerous commands
 // ---------------------------------------------------------------------------
 
-const _DANGEROUS_BASH: RegExp[] = [
-  /\brm\s+-rf\s+/i,
-  /\brm\s+--recursive\s+/i,
-  /\bcurl\s+[^|]*\|\s*bash/i,
-  /\bwget\s+[^|]*\|\s*(?:bash|sh)\b/i,
-  /:\s*\{\s*:\s*\}\s*\|/m,
-];
-
 export function checkDangerousCommands(code: string, language: string): IntegrityResult | null {
   const lang = (language || "bash").toLowerCase();
   if (!["bash", "shell", "sh"].includes(lang)) return null;
@@ -242,16 +252,25 @@ export function checkDangerousCommands(code: string, language: string): Integrit
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     if (_isLikelyCommentOrString(line, lang)) continue;
-    const codePart = _stripSingleLineComment(line, lang);
-    for (const pat of _DANGEROUS_BASH) {
-      const m = codePart.match(pat);
-      if (m) {
-        return new IntegrityResult(
-          "dangerous",
-          `Line ~${i + 1}: ${m[0].slice(0, 60)}`,
-          "Remove rm -rf, curl|bash, or fork bombs. Use safer alternatives.",
-        );
-      }
+    const codePart = _stripSingleLineComment(line, lang).toLowerCase();
+    const trimmed = codePart.trim();
+    if (trimmed.includes("rm -rf ") || trimmed.includes("rm --recursive ")) {
+      return new IntegrityResult(
+        "dangerous",
+        `Line ~${i + 1}: ${trimmed.slice(0, 60)}`,
+        "Remove rm -rf, curl|bash, or fork bombs. Use safer alternatives.",
+      );
+    }
+    const hasPipeToShell =
+      (trimmed.includes("curl") || trimmed.includes("wget"))
+      && trimmed.includes("|")
+      && (trimmed.includes("| bash") || trimmed.includes("| sh"));
+    if (hasPipeToShell || trimmed.includes(":(){ :|")) {
+      return new IntegrityResult(
+        "dangerous",
+        `Line ~${i + 1}: ${trimmed.slice(0, 60)}`,
+        "Remove rm -rf, curl|bash, or fork bombs. Use safer alternatives.",
+      );
     }
   }
   return null;
@@ -285,7 +304,14 @@ const _DEFAULT_DENYLIST = [
   "pnpm-lock.yaml",
 ] as const;
 
-const _WRITE_INDICATORS = /(?:^|\s)(?:>|>>|cp\s|mv\s|sed\s+[^;]*-i)/im;
+function _hasWriteIndicator(line: string): boolean {
+  const lowered = ` ${line.toLowerCase()} `;
+  return lowered.includes(" >")
+    || lowered.includes(" >>")
+    || lowered.includes(" cp ")
+    || lowered.includes(" mv ")
+    || (lowered.includes(" sed ") && lowered.includes(" -i"));
+}
 
 export function checkPathDenylist(
   code: string,
@@ -294,7 +320,7 @@ export function checkPathDenylist(
   const lines = code.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
-    if (!_WRITE_INDICATORS.test(line)) continue;
+    if (!_hasWriteIndicator(line)) continue;
     for (const name of denylist) {
       if (line.includes(name)) {
         return new IntegrityResult(
@@ -374,7 +400,10 @@ export function checkWorkspaceBoundary(
   targetWorkspace: string,
 ): IntegrityResult | null {
   if (!targetWorkspace || !targetWorkspace.trim()) return null;
-  const prefix = targetWorkspace.replace(/\/+$/, "");
+  let prefix = targetWorkspace;
+  while (prefix.endsWith("/") && prefix.length > 1) {
+    prefix = prefix.slice(0, -1);
+  }
   if (!prefix) return null;
 
   const paths: string[] = [];

@@ -58,6 +58,19 @@ def _drop_error_fields(value: Any) -> Any:
     return value
 
 
+def _sanitize_schema_info(schema: Any) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        return {"exists": False, "fields": [], "indexes": []}
+    exists = bool(schema.get("exists", False))
+    fields = schema.get("fields")
+    indexes = schema.get("indexes")
+    return {
+        "exists": exists,
+        "fields": fields if isinstance(fields, list) else [],
+        "indexes": indexes if isinstance(indexes, list) else [],
+    }
+
+
 @router.get("/corpus")
 async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     _ensure_org_observability(_user)
@@ -125,7 +138,7 @@ async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
         hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
         return {
             "collection": CATALOG_COLLECTION,
-            "schema": _drop_error_fields(schema),
+            "schema": _sanitize_schema_info(schema),
             "hierarchy": _drop_error_fields(hierarchy),
         }
     except Exception:

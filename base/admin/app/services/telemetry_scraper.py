@@ -146,7 +146,7 @@ def get_yarn_reducer_scrape_status(now: datetime | None = None, stale_after_minu
     return {
         "last_success_at": _last_yarn_reducer_success_at.isoformat() if _last_yarn_reducer_success_at else None,
         "last_error_at": _last_yarn_reducer_error_at.isoformat() if _last_yarn_reducer_error_at else None,
-        "last_error": _last_yarn_reducer_error,
+        "has_recent_error": bool(_last_yarn_reducer_error),
         "stale": stale,
     }
 

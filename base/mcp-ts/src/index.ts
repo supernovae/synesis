@@ -2,6 +2,7 @@
  * Synesis MCP — Streamable HTTP transport (official MCP protocol).
  */
 import Fastify, { type FastifyRequest } from "fastify";
+import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { getSynesisPlatformCatalog, registerSynesisMcpTools, type SynesisMcpDeps } from "@synesis/mcp-tools";
@@ -86,6 +87,7 @@ async function enforceFga(patUser: PatUser): Promise<void> {
 }
 
 const app = Fastify({ logger: { level: config.LOG_LEVEL } });
+void app.register(fastifyRateLimit, { global: false });
 
 /** Public catalog for UIs (Integrations page) — no secrets; same tool surface as Streamable MCP. */
 app.get("/v1/synesis-tools", async () => ({
@@ -98,6 +100,8 @@ app.get("/v1/synesis-tools", async () => ({
 app.route({
   method: ["GET", "POST", "DELETE"],
   url: config.SYNESIS_MCP_HTTP_PATH,
+  config: { rateLimit: { max: 240, timeWindow: "1 minute" } },
+  preHandler: app.rateLimit({ max: 240, timeWindow: "1 minute" }),
   handler: async (req, reply) => {
     mcpHttpRequests++;
     let patUser: PatUser;

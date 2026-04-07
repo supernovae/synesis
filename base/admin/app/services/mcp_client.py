@@ -47,16 +47,17 @@ async def probe_mcp_health() -> dict:
                 "status_code": resp.status_code,
                 "latency_ms": ms,
                 "url": url,
-                "error": None if ok else (resp.text or "")[:200],
+                "error": None if ok else "upstream_unhealthy",
             }
     except Exception as exc:
         ms = round((time.perf_counter() - t0) * 1000, 1)
+        logger.warning("probe_mcp_health_failed error=%s", str(exc)[:80])
         return {
             "reachable": False,
             "status_code": None,
             "latency_ms": ms,
             "url": url,
-            "error": str(exc)[:200],
+            "error": "request_failed",
         }
 
 
@@ -74,14 +75,15 @@ async def probe_admin_mcp_health() -> dict:
                 "status_code": resp.status_code,
                 "latency_ms": ms,
                 "url": url,
-                "error": None if ok else (resp.text or "")[:200],
+                "error": None if ok else "upstream_unhealthy",
             }
     except Exception as exc:
         ms = round((time.perf_counter() - t0) * 1000, 1)
+        logger.warning("probe_admin_mcp_health_failed error=%s", str(exc)[:80])
         return {
             "reachable": False,
             "status_code": None,
             "latency_ms": ms,
             "url": url,
-            "error": str(exc)[:200],
+            "error": "request_failed",
         }
