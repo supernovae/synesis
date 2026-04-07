@@ -239,6 +239,9 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     lines.push(
       "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
     );
+    lines.push(
+      "Language package identity (for example Go `module` path) must come from explicit user input or repository metadata in the target project, not from platform/workspace names, hostnames, or headers such as `project_root` / `shell_cwd`.",
+    );
   }
   if (ctx.shellCwd) {
     lines.push(`shell_cwd=${ctx.shellCwd}`);
@@ -303,6 +306,7 @@ function pathHygieneFallbackBlock(): string {
     "Do not mkdir && cd into a nested folder whose name repeats the current directory (e.g. aws-cost-calculator/aws-cost-calculator). If you are already inside the project folder, create the Go module and sources there.",
     "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",
     "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
+    "Do not infer package/module ownership from surrounding platform names. For new repositories, ask for module/import path (or use a neutral placeholder like `example.com/<name>` until provided).",
     "When summarizing verification for the user, use human-readable paths (repo-relative dirs, scoped globs like ./cmd/foo/..., or state pwd after inferring it) instead of bare `go test ./...` / `go build ./...` without context.",
     "Before rm or other destructive commands, list the target path and confirm; avoid guessing with wildcards on project trees.",
     "</PATH_HYGIENE>",

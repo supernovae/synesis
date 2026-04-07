@@ -79,6 +79,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("base");
     expect(out).toContain("<PATH_HYGIENE>");
     expect(out).toContain("aws-cost-calculator/aws-cost-calculator");
+    expect(out).toContain("Do not infer package/module ownership from surrounding platform names");
     expect(out).toContain("human-readable paths");
   });
 
@@ -97,6 +98,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("base");
     expect(out).toContain("<SESSION_EXECUTION_CONTEXT>");
     expect(out).toContain("project_root=/Users/me/calc");
+    expect(out).toContain("Language package identity (for example Go `module` path) must come from explicit user input");
     expect(out).toContain("human-readable paths");
   });
 
