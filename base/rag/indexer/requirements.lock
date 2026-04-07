@@ -164,13 +164,13 @@ beautifulsoup4==4.14.3 \
     --hash=sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb \
     --hash=sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86
     # via crawl4ai, -r base/rag/indexer/requirements.txt
-boto3==1.42.83 \
-    --hash=sha256:544846fdb10585bb7837e409868e8e04c6b372fa04479ba1597ce82cf1242076 \
-    --hash=sha256:cc5621e603982cb3145b7f6c9970e02e297a1a0eb94637cc7f7b69d3017640ee
+boto3==1.42.84 \
+    --hash=sha256:4d03ad3211832484037337292586f71f48707141288d9ac23049c04204f4ab03 \
+    --hash=sha256:6a84b3293a5d8b3adf827a54588e7dcffcf0a85410d7dadca615544f97d27579
     # via -r base/rag/indexer/requirements.txt
-botocore==1.42.83 \
-    --hash=sha256:34bc8cb64b17ac17f8901f073fe4fc9572a5cac9393a37b2b3ea372a83b87f4a \
-    --hash=sha256:ec0c3ecb3772936ed22a3bdda09883b34858933f71004686d460d829bab39d8e
+botocore==1.42.84 \
+    --hash=sha256:15f3fe07dfa6545e46a60c4b049fe2bdf63803c595ae4a4eec90e8f8172764f3 \
+    --hash=sha256:234064604c80d9272a5e9f6b3566d260bcaa053a5e05246db90d7eca1c2cf44b
     # via boto3, s3transfer
 brotli==1.2.0 \
     --hash=sha256:022426c9e99fd65d9475dce5c195526f04bb8be8907607e27e747893f6ee3e24 \
