@@ -74,6 +74,7 @@ import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, run
 import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
+import { normalizeCommandOutputForComparison } from "./reduction/output-normalization.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
 import { getTemplate as manifestGetTemplate } from "@synesis/manifest";
@@ -2355,6 +2356,125 @@ function hashTextSignal(value: unknown): string {
   return crypto.createHash("sha256").update(text.slice(0, 4000)).digest("hex");
 }
 
+const SHELLISH_TOOL_NAMES = new Set([
+  "bash",
+  "shell",
+  "terminal",
+  "run_command",
+  "run_terminal_command",
+  "execute_command",
+  "run_bash",
+]);
+
+type ToolLoopMessage = {
+  role: string;
+  content: unknown;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id?: string;
+    function?: { name?: string; arguments?: unknown };
+    name?: string;
+    input?: unknown;
+  }>;
+};
+
+type CommandLoopSignal = {
+  commandSignatureHash: string;
+  commandRepeatCount: number;
+  failureSignatureHash: string;
+};
+
+function parseJsonObjectLoose(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function commandFromArgs(args: unknown): string {
+  if (typeof args === "string") {
+    const parsed = parseJsonObjectLoose(args);
+    if (parsed) {
+      return commandFromArgs(parsed);
+    }
+    return args.replace(/\s+/g, " ").trim().slice(0, 512);
+  }
+  if (!args || typeof args !== "object") return "";
+  const row = args as Record<string, unknown>;
+  for (const key of ["command", "cmd", "script"]) {
+    const v = row[key];
+    if (typeof v === "string" && v.trim()) {
+      return v.replace(/\s+/g, " ").trim().slice(0, 512);
+    }
+  }
+  return "";
+}
+
+function normalizedToolOutputSignal(content: unknown): string {
+  if (typeof content === "string") {
+    return normalizeCommandOutputForComparison(content).slice(0, 1600);
+  }
+  return normalizeCommandOutputForComparison(stableSignalString(content)).slice(0, 1600);
+}
+
+function looksLikeFailureSignal(value: string): boolean {
+  if (!value) return false;
+  return /(fail|error|panic|traceback|exception|not found|undefined|cannot|fatal|exit code)/i.test(value);
+}
+
+function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSignal {
+  const callMap = new Map<string, { command: string }>();
+  const history: Array<{ command: string; failureHash: string }> = [];
+  for (const message of messages) {
+    if (message.role === "assistant" && Array.isArray(message.tool_calls)) {
+      for (const call of message.tool_calls) {
+        const id = typeof call.id === "string" ? call.id : "";
+        if (!id) continue;
+        const toolName = String(call.function?.name ?? call.name ?? "").toLowerCase();
+        if (!SHELLISH_TOOL_NAMES.has(toolName)) continue;
+        const command = commandFromArgs(call.function?.arguments ?? call.input);
+        if (!command) continue;
+        callMap.set(id, { command });
+      }
+      continue;
+    }
+    if (message.role !== "tool" && message.role !== "tool_result") continue;
+    const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id : "";
+    if (!toolCallId) continue;
+    const call = callMap.get(toolCallId);
+    if (!call) continue;
+    const out = normalizedToolOutputSignal(message.content);
+    const failureHash = looksLikeFailureSignal(out) ? hashTextSignal(out) : "";
+    history.push({ command: call.command, failureHash });
+  }
+  if (history.length === 0) {
+    return { commandSignatureHash: "", commandRepeatCount: 0, failureSignatureHash: "" };
+  }
+
+  const latest = history[history.length - 1];
+  let commandRepeatCount = 0;
+  let failureRepeatCount = 0;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    if (history[i].command !== latest.command) break;
+    commandRepeatCount += 1;
+    if (latest.failureHash && history[i].failureHash === latest.failureHash) {
+      failureRepeatCount += 1;
+    }
+  }
+
+  return {
+    commandSignatureHash: hashTextSignal(latest.command),
+    commandRepeatCount,
+    failureSignatureHash: failureRepeatCount >= 2 ? latest.failureHash : "",
+  };
+}
+
 function detectToolProgress(
   session: SessionState,
   messages: Array<{ role: string; content: unknown }>
@@ -2364,7 +2484,7 @@ function detectToolProgress(
     return { state: "unknown", signalHash: null };
   }
   const latest = toolMessages[0];
-  const signal = stableSignalString(latest.content).slice(0, 4000);
+  const signal = normalizedToolOutputSignal(latest.content).slice(0, 4000);
   const hash = crypto.createHash("sha256").update(signal).digest("hex");
   if (!session.lastToolSignalHash) {
     session.lastToolSignalHash = hash;
@@ -3669,6 +3789,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session,
     normalizedOpenAI.messages as Array<{ role: string; content: unknown }>
   );
+  const oaiCommandLoop = analyzeRecentCommandLoop(
+    normalizedOpenAI.messages as Array<ToolLoopMessage>,
+  );
+  const oaiAggressiveRepeatGuard =
+    oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash);
+  const oaiRepeatAwarePivot = oaiAggressiveRepeatGuard
+    ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
+    : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;
+  const oaiRepeatAwareHardReject = oaiAggressiveRepeatGuard
+    ? Math.max(3, Math.min(config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER, 4))
+    : config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER;
   const distToolCalls = await distributedCounters.getConsecutiveToolCalls(sessionKey);
   if (distToolCalls !== null && distToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = distToolCalls;
@@ -3682,8 +3813,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
         lastToolId: oaiLastToolId,
         messageCount: request.messages.length,
         latestUserHash: latestOpenAIUserHash || "none",
+        commandSignature: oaiCommandLoop.commandSignatureHash || "none",
+        commandRepeatCount: oaiCommandLoop.commandRepeatCount,
+        failureSignature: oaiCommandLoop.failureSignatureHash || "none",
       },
-      fsFingerprint: `${oaiLastToolId || "none"}:${request.messages.length}:${latestOpenAIUserHash || "none"}`,
+      fsFingerprint: oaiCommandLoop.commandSignatureHash
+        ? `${oaiCommandLoop.commandSignatureHash}:${oaiCommandLoop.failureSignatureHash || "none"}:${latestOpenAIUserHash || "none"}`
+        : `${oaiLastToolId || "none"}:${request.messages.length}:${latestOpenAIUserHash || "none"}`,
     },
     sessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -3692,13 +3828,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
-    consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
+    consecutiveToolCallsPivot: oaiRepeatAwarePivot,
     toolProgressState: oaiToolProgress.state,
     stagnantToolCycles: session.stagnantToolCycles,
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+    hardRejectAfter: oaiRepeatAwareHardReject,
     governanceRules: governanceClient?.getRules(),
   }));
   if (!policyPrecheck.allow) {
@@ -5291,6 +5427,17 @@ app.post("/v1/messages", async (req, reply) => {
     session,
     normalizedFromClaude.messages as Array<{ role: string; content: unknown }>
   );
+  const claudeCommandLoop = analyzeRecentCommandLoop(
+    normalizedFromClaude.messages as Array<ToolLoopMessage>,
+  );
+  const claudeAggressiveRepeatGuard =
+    claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash);
+  const claudeRepeatAwarePivot = claudeAggressiveRepeatGuard
+    ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
+    : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;
+  const claudeRepeatAwareHardReject = claudeAggressiveRepeatGuard
+    ? Math.max(3, Math.min(config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER, 4))
+    : config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER;
   const claudeDistToolCalls = await distributedCounters.getConsecutiveToolCalls(claudeSessionKey);
   if (claudeDistToolCalls !== null && claudeDistToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = claudeDistToolCalls;
@@ -5304,9 +5451,13 @@ app.post("/v1/messages", async (req, reply) => {
         lastToolUseId: claudeLastToolUseId,
         messageCount: body.messages.length,
         latestUserHash: latestClaudeUserHash || "none",
+        commandSignature: claudeCommandLoop.commandSignatureHash || "none",
+        commandRepeatCount: claudeCommandLoop.commandRepeatCount,
+        failureSignature: claudeCommandLoop.failureSignatureHash || "none",
       },
-      // Include transcript length so tool loops advance the fingerprint even if tool_use_id extraction fails.
-      fsFingerprint: `${claudeLastToolUseId || "none"}:${body.messages.length}:${latestClaudeUserHash || "none"}`,
+      fsFingerprint: claudeCommandLoop.commandSignatureHash
+        ? `${claudeCommandLoop.commandSignatureHash}:${claudeCommandLoop.failureSignatureHash || "none"}:${latestClaudeUserHash || "none"}`
+        : `${claudeLastToolUseId || "none"}:${body.messages.length}:${latestClaudeUserHash || "none"}`,
     },
     sessionKey: claudeSessionKey,
     sessionTokensIn: session.record.totalTokensIn,
@@ -5315,13 +5466,13 @@ app.post("/v1/messages", async (req, reply) => {
     sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
-    consecutiveToolCallsPivot: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT,
+    consecutiveToolCallsPivot: claudeRepeatAwarePivot,
     toolProgressState: claudeToolProgress.state,
     stagnantToolCycles: session.stagnantToolCycles,
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-    hardRejectAfter: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+    hardRejectAfter: claudeRepeatAwareHardReject,
     governanceRules: governanceClient?.getRules(),
   }));
   if (!claudePolicyPrecheck.allow) {

@@ -246,7 +246,7 @@ export class DeterministicPolicyEngine {
       return {
         allow: true,
         pivotPrompt:
-          `System: You have made ${ctx.consecutiveToolCalls} consecutive tool calls without a text response. Stop calling tools and explain to the user what you are trying to do so they can help. (${toolCallsLimit - ctx.consecutiveToolCalls} calls remaining before circuit breaker)`,
+          `System: You have made ${ctx.consecutiveToolCalls} consecutive tool calls without a stable resolution. Do not repeat the same broad verification command. First explain the root-cause hypothesis, then run one narrower command that validates that hypothesis. (${toolCallsLimit - ctx.consecutiveToolCalls} calls remaining before circuit breaker)`,
         matchedRules
       };
     }
@@ -291,7 +291,7 @@ export class DeterministicPolicyEngine {
         return {
           allow: true,
           pivotPrompt:
-            `System: You have attempted this ${next} times without success. Analyze the root cause and propose a new strategy before next action. (${hardLimit - next} attempts remaining before circuit breaker)`,
+            `System: You have attempted this ${next} times without success. Do not rerun the same command unless code or inputs changed. Analyze the root cause, propose a different strategy, and validate with the narrowest possible command first. (${hardLimit - next} attempts remaining before circuit breaker)`,
           matchedRules
         };
       }
