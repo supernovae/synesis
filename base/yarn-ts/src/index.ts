@@ -666,7 +666,7 @@ const app = Fastify({
   forceCloseConnections: "idle",
   bodyLimit: 50 * 1024 * 1024 // 50MB to support massive conversation histories from subagents
 });
-void app.register(fastifyRateLimit, { global: false });
+await app.register(fastifyRateLimit, { global: false });
 
 const yarnDedupeLayer =
   config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED && config.SYNESIS_YARN_DEDUPE_ENABLED
