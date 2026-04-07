@@ -778,7 +778,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
   // -----------------------------------------------------------------------
   app.post("/v1/knowledge/search", {
     config: { rateLimit: { max: 180, timeWindow: "1 minute" } },
-    preHandler: app.rateLimit({ max: 180, timeWindow: "1 minute" }),
   }, async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
     if (!isSearchRouteAuthorized(request.headers.authorization, token)) {
@@ -886,7 +885,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
   // -----------------------------------------------------------------------
   app.post("/v1/web/search", {
     config: { rateLimit: { max: 180, timeWindow: "1 minute" } },
-    preHandler: app.rateLimit({ max: 180, timeWindow: "1 minute" }),
   }, async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
     if (!isSearchRouteAuthorized(request.headers.authorization, token)) {
@@ -1023,7 +1021,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.delete("/v1/memory/:conversationId", {
     config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
-    preHandler: app.rateLimit({ max: 60, timeWindow: "1 minute" }),
   }, async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
@@ -1389,7 +1386,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.post("/v1/chat/completions", {
     config: { rateLimit: { max: 300, timeWindow: "1 minute" } },
-    preHandler: app.rateLimit({ max: 300, timeWindow: "1 minute" }),
   }, async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     const inboundTraceparentHeader = request.headers["traceparent"];
