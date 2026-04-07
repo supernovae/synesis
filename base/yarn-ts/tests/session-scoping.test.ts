@@ -246,9 +246,9 @@ describe("readUsage extracts cached tokens from multiple provider formats", () =
   // Inline readUsage for direct testing — mirrors the logic in index.ts
   function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number } {
     const obj = (input ?? {}) as Record<string, unknown>;
-    const prompt = Number(obj.inputTokens ?? obj.promptTokens ?? obj.input_tokens ?? 0);
-    const completion = Number(obj.outputTokens ?? obj.completionTokens ?? obj.output_tokens ?? 0);
-    let cached = Number(obj.cachedInputTokens ?? obj.cached_tokens ?? 0);
+    const prompt = Number(obj.prompt_tokens ?? obj.promptTokens ?? obj.inputTokens ?? obj.input_tokens ?? 0);
+    const completion = Number(obj.completion_tokens ?? obj.completionTokens ?? obj.outputTokens ?? obj.output_tokens ?? 0);
+    let cached = Number(obj.cachedInputTokens ?? obj.cached_tokens ?? obj.cached_input_tokens ?? 0);
     if (!cached) {
       const details = obj.prompt_tokens_details as Record<string, unknown> | undefined;
       if (details) cached = Number(details.cached_tokens ?? 0);
@@ -257,7 +257,15 @@ describe("readUsage extracts cached tokens from multiple provider formats", () =
       const cacheRead = obj.cache_read_input_tokens as number | undefined;
       if (cacheRead) cached = Number(cacheRead);
     }
-    const cost = Number(obj.costUsd ?? obj.cost_usd ?? 0);
+    if (!cached) {
+      const promptCacheHit = obj.prompt_cache_hit_tokens as number | undefined;
+      if (promptCacheHit) cached = Number(promptCacheHit);
+    }
+    if (!cached) {
+      const inputTokenDetails = obj.inputTokenDetails as Record<string, unknown> | undefined;
+      if (inputTokenDetails) cached = Number(inputTokenDetails.cacheReadTokens ?? inputTokenDetails.cachedTokens ?? 0);
+    }
+    const cost = Number(obj.costUsd ?? obj.cost_usd ?? obj.estimated_cost ?? 0);
     return {
       inputTokens: Number.isFinite(prompt) ? prompt : 0,
       outputTokens: Number.isFinite(completion) ? completion : 0,
@@ -276,9 +284,20 @@ describe("readUsage extracts cached tokens from multiple provider formats", () =
     expect(usage.cachedTokens).toBe(40);
   });
 
+  it("reads snake_case prompt/completion token fields", () => {
+    const usage = readUsage({ prompt_tokens: 320, completion_tokens: 90 });
+    expect(usage.inputTokens).toBe(320);
+    expect(usage.outputTokens).toBe(90);
+  });
+
   it("reads Anthropic cache_read_input_tokens", () => {
     const usage = readUsage({ inputTokens: 300, outputTokens: 100, cache_read_input_tokens: 60 });
     expect(usage.cachedTokens).toBe(60);
+  });
+
+  it("reads prompt_cache_hit_tokens and inputTokenDetails", () => {
+    expect(readUsage({ inputTokens: 300, outputTokens: 10, prompt_cache_hit_tokens: 77 }).cachedTokens).toBe(77);
+    expect(readUsage({ inputTokens: 300, outputTokens: 10, inputTokenDetails: { cacheReadTokens: 88 } }).cachedTokens).toBe(88);
   });
 
   it("handles null/undefined input gracefully", () => {

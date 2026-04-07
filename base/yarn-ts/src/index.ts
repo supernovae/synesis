@@ -6,6 +6,7 @@ import {
   createServiceMetrics,
   recordUsageMetrics,
   computeCost,
+  extractUsage,
   emitTrace,
   type LlmUsage as TelemetryLlmUsage,
   type PricingSource,
@@ -594,6 +595,8 @@ interface RequestDiagnostic {
   requestId?: string;
   promptProfileIds?: number[];
   promptProfileHashes?: string[];
+  prefixHash?: string;
+  prefixChangeReasons?: string[];
   completionGateApplied?: boolean;
   missingMustRequirements?: number;
   missingShouldRequirements?: number;
@@ -901,6 +904,8 @@ interface EnrichResult {
   workingFrameGoal?: string;
   promptProfileIds?: number[];
   promptProfileHashes?: string[];
+  prefixHash?: string;
+  prefixChangeReasons?: string[];
 }
 
 function inferModelFamily(backendModel: string): string {
@@ -1052,6 +1057,8 @@ function enrichWithFrameAndManifest(
     workingFrameGoal: detectedGoal,
     promptProfileIds: partition.promptProfileIds,
     promptProfileHashes: partition.promptProfileHashes,
+    prefixHash: partition.prefixHash,
+    prefixChangeReasons: partition.prefixChangeReasons,
   };
 }
 
@@ -1292,6 +1299,10 @@ function injectSessionContext(
     (m) => m.role === "system" && m.content.includes("<ARCHITECTURAL_STATE>")
   );
   if (!compacted) return messages;
+  const alreadyPresent = messages.some(
+    (m) => m.role === "system" && m.content === compacted.content,
+  );
+  if (alreadyPresent) return messages;
   return [{ role: "system", content: compacted.content }, ...messages];
 }
 
@@ -1799,32 +1810,12 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
     app.log.debug({ rawUsage: obj }, "raw_usage_from_sdk");
   }
 
-  const prompt = Number(obj.inputTokens ?? obj.promptTokens ?? obj.input_tokens ?? 0);
-  const completion = Number(obj.outputTokens ?? obj.completionTokens ?? obj.output_tokens ?? 0);
-
-  let cached = Number(obj.cachedInputTokens ?? obj.cached_tokens ?? 0);
-  if (!cached) {
-    const details = obj.prompt_tokens_details as Record<string, unknown> | undefined;
-    if (details) {
-      cached = Number(details.cached_tokens ?? 0);
-    }
-  }
-  if (!cached) {
-    const cacheRead = obj.cache_read_input_tokens as number | undefined;
-    if (cacheRead) cached = Number(cacheRead);
-  }
-  if (!cached) {
-    const inputTokenDetails = obj.inputTokenDetails as Record<string, unknown> | undefined;
-    if (inputTokenDetails) {
-      cached = Number(inputTokenDetails.cacheReadTokens ?? inputTokenDetails.cachedTokens ?? 0);
-    }
-  }
-
-  const cost = Number(obj.costUsd ?? obj.cost_usd ?? obj.estimated_cost ?? 0);
+  const normalized = extractUsage(obj as never);
+  const cost = Number(obj.costUsd ?? obj.cost_usd ?? obj.estimated_cost ?? normalized.actual_cost_usd ?? 0);
   return {
-    inputTokens: Number.isFinite(prompt) ? prompt : 0,
-    outputTokens: Number.isFinite(completion) ? completion : 0,
-    cachedTokens: Number.isFinite(cached) ? cached : 0,
+    inputTokens: Number.isFinite(normalized.prompt_tokens) ? normalized.prompt_tokens : 0,
+    outputTokens: Number.isFinite(normalized.completion_tokens) ? normalized.completion_tokens : 0,
+    cachedTokens: Number.isFinite(normalized.cached_prompt_tokens) ? normalized.cached_prompt_tokens : 0,
     costUsd: Number.isFinite(cost) ? cost : 0
   };
 }
@@ -2976,6 +2967,7 @@ app.get("/health/telemetry", async (req, reply) => {
       checkpointThreshold: config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS
     },
     stablePrefix: stablePrefixService.getStats(),
+    toolPrefixCache: yarnToolPrefixCache ? yarnToolPrefixCache.getStats() : { enabled: false },
     artifactRetrieval: artifactRetrieval.getStats(),
     knowledgeSearch: knowledgeSearch.getStats(),
     evidencePrefetch: getEvidencePrefetchStats(),
@@ -4292,6 +4284,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
       promptProfileIds: oaiEnriched.promptProfileIds,
       promptProfileHashes: oaiEnriched.promptProfileHashes,
+      prefixHash: oaiEnriched.prefixHash,
+      prefixChangeReasons: oaiEnriched.prefixChangeReasons,
       completionGateApplied: oaiGateApplied || undefined,
       missingMustRequirements: oaiMissingMust || undefined,
       missingShouldRequirements: oaiMissingShould || undefined,
@@ -4819,6 +4813,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
     promptProfileIds: oaiEnriched.promptProfileIds,
     promptProfileHashes: oaiEnriched.promptProfileHashes,
+    prefixHash: oaiEnriched.prefixHash,
+    prefixChangeReasons: oaiEnriched.prefixChangeReasons,
       completionGateApplied: oaiStreamGateApplied || undefined,
       missingMustRequirements: oaiStreamMissingMust || undefined,
       missingShouldRequirements: oaiStreamMissingShould || undefined,
@@ -6253,6 +6249,8 @@ app.post("/v1/messages", async (req, reply) => {
       evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
       promptProfileIds: claudeEnriched.promptProfileIds,
       promptProfileHashes: claudeEnriched.promptProfileHashes,
+      prefixHash: claudeEnriched.prefixHash,
+      prefixChangeReasons: claudeEnriched.prefixChangeReasons,
       completionGateApplied: claudeStreamGateApplied || undefined,
       missingMustRequirements: claudeStreamMissingMust || undefined,
       missingShouldRequirements: claudeStreamMissingShould || undefined,
@@ -6644,6 +6642,8 @@ app.post("/v1/messages", async (req, reply) => {
     evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
     promptProfileIds: claudeEnriched.promptProfileIds,
     promptProfileHashes: claudeEnriched.promptProfileHashes,
+    prefixHash: claudeEnriched.prefixHash,
+    prefixChangeReasons: claudeEnriched.prefixChangeReasons,
     completionGateApplied: claudeGateApplied || undefined,
     missingMustRequirements: claudeMissingMust || undefined,
     missingShouldRequirements: claudeMissingShould || undefined,

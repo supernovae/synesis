@@ -6,6 +6,7 @@ export interface PrefixPartition {
   prefixHash: string;
   promptProfileIds?: number[];
   promptProfileHashes?: string[];
+  prefixChangeReasons?: string[];
 }
 
 export interface StablePrefixStats {
@@ -49,6 +50,7 @@ export class StablePrefixService {
   };
   private knownHashes = new Set<string>();
   private sessionPrefixCache = new Map<string, string>();
+  private sessionComponentHashes = new Map<string, { promptHash: string; adapterHash: string }>();
 
   private resolvePromptBlocks(
     snapshot: PromptSnapshotLike | null | undefined,
@@ -106,6 +108,17 @@ export class StablePrefixService {
     }
     const stablePrefix = stableParts.join("\n\n");
 
+    const promptHash = crypto
+      .createHash("sha256")
+      .update(promptBlocks.profileHashes.join("|"))
+      .digest("hex")
+      .slice(0, 16);
+    const adapterHash = crypto
+      .createHash("sha256")
+      .update(adapterBlock ?? "")
+      .digest("hex")
+      .slice(0, 16);
+
     const prefixHash = crypto
       .createHash("sha256")
       .update(stablePrefix)
@@ -124,6 +137,18 @@ export class StablePrefixService {
         this.stats.uniquePrefixHashes++;
       }
     }
+    const priorComponents = this.sessionComponentHashes.get(sessionKey);
+    const prefixChangeReasons: string[] = [];
+    if (priorComponents) {
+      if (priorComponents.promptHash !== promptHash) prefixChangeReasons.push("prompt_profiles_changed");
+      if (priorComponents.adapterHash !== adapterHash) prefixChangeReasons.push("adapter_block_changed");
+      if (cachedHash !== prefixHash && prefixChangeReasons.length === 0) {
+        prefixChangeReasons.push("stable_prefix_changed");
+      }
+    } else {
+      prefixChangeReasons.push("first_partition");
+    }
+    this.sessionComponentHashes.set(sessionKey, { promptHash, adapterHash });
 
     return {
       stablePrefix,
@@ -131,6 +156,7 @@ export class StablePrefixService {
       prefixHash,
       promptProfileIds: promptBlocks.profileIds,
       promptProfileHashes: promptBlocks.profileHashes,
+      prefixChangeReasons,
     };
   }
 
@@ -161,6 +187,7 @@ export class StablePrefixService {
 
   evictSession(sessionKey: string): void {
     this.sessionPrefixCache.delete(sessionKey);
+    this.sessionComponentHashes.delete(sessionKey);
   }
 
   getStats(): StablePrefixStats {

@@ -76,7 +76,7 @@ export class WorkingFrameService {
         .flatMap((t) => t.split("\n"))
         .filter((line) => /\b(do not|must|never|required)\b/i.test(line))
         .map((line) => line.trim())
-        .slice(0, 8)
+        .slice(0, 6)
     );
 
     let currentPhase: WorkingFrame["currentPhase"] = "implementation";
@@ -88,7 +88,7 @@ export class WorkingFrameService {
     // to avoid dragging in files that were only relevant during exploration.
     const filesSourceText = currentPhase === "explore" 
       ? allText 
-      : texts.slice(-10).map((m) => m.text).join("\n");
+      : texts.slice(-8).map((m) => m.text).join("\n");
 
     const rawFiles = uniq((filesSourceText.match(FILE_RE) ?? []).map((f) => f.trim()));
     
@@ -113,7 +113,7 @@ export class WorkingFrameService {
         .split(/[\n.]/)
         .map((s) => s.trim())
         .filter((s) => s.endsWith("?"))
-        .slice(0, 6)
+        .slice(0, 4)
     );
 
     const goal = (latestUser.split("\n").find((s) => s.trim()) ?? "Complete the current coding task.").trim();

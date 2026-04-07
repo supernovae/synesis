@@ -28,6 +28,23 @@ describe("StablePrefixService", () => {
     expect(stats.uniquePrefixHashes).toBe(1);
   });
 
+  it("reports prefix change reasons by component", () => {
+    const svc = new StablePrefixService();
+    const snapshotA = {
+      profiles: [{ id: 1, content: "base-default", content_hash: "h1" }],
+      assignments: [{ target_type: "default", target_value: "*", profile_id: 1 }],
+    };
+    const snapshotB = {
+      profiles: [{ id: 1, content: "base-default-edited", content_hash: "h2" }],
+      assignments: [{ target_type: "default", target_value: "*", profile_id: 1 }],
+    };
+    const first = svc.partition("sess-change", "adapter-a", snapshotA, { tier: "synesis-core" });
+    const second = svc.partition("sess-change", "adapter-b", snapshotB, { tier: "synesis-core" });
+    expect(first.prefixChangeReasons).toContain("first_partition");
+    expect(second.prefixChangeReasons).toContain("prompt_profiles_changed");
+    expect(second.prefixChangeReasons).toContain("adapter_block_changed");
+  });
+
   it("handles undefined adapter block", () => {
     const svc = new StablePrefixService();
     const result = svc.partition("sess-1", undefined);
