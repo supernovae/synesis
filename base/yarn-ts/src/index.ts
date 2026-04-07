@@ -129,6 +129,7 @@ import {
   extractToolSchemaName,
   pruneToolSchemas,
 } from "./compat/tool-schema-pruning.js";
+import { buildRetrievalPolicyToolPromptFragment, mergeToolSystemPrompts } from "./retrieval-tool-policy.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
@@ -3833,7 +3834,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
-  const modelToolPrompt = adapter.toolSystemPrompt?.(effectiveTools.length);
+  const modelToolPrompt = mergeToolSystemPrompts(
+    adapter.toolSystemPrompt?.(effectiveTools.length),
+    buildRetrievalPolicyToolPromptFragment(effectiveTools),
+  );
   const modelMessages = modelToolPrompt
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
     : messages;
@@ -5438,7 +5442,10 @@ app.post("/v1/messages", async (req, reply) => {
   const sdkToolChoice = mapToolChoice(body.tool_choice);
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
 
-  const claudeModelToolPrompt = claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length);
+  const claudeModelToolPrompt = mergeToolSystemPrompts(
+    claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length),
+    buildRetrievalPolicyToolPromptFragment(effectiveClaudeTools),
+  );
   const claudeModelMessages = claudeModelToolPrompt
     ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)
     : messages;

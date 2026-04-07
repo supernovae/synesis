@@ -112,6 +112,32 @@ const PATTERNS: PatternRule[] = [
     scope_tags: ["linter-rules"],
     constraint_kind: "guiding",
   },
+  {
+    name: "go_cobra_reference",
+    regex:
+      /\b(?:spf13\/cobra|github\.com\/spf13\/cobra|import\s+["']github\.com\/spf13\/cobra["']|\bcobra\.Command\b)/i,
+    language: () => "go",
+    scope_tags: ["package-tooling"],
+    constraint_kind: "guiding",
+    queryTransform: () => "Go Cobra CLI library commands flags persistent flags spf13 cobra",
+  },
+  {
+    name: "go_pflag_reference",
+    regex: /\b(?:spf13\/pflag|github\.com\/spf13\/pflag|\bpflag\.\w+)/i,
+    language: () => "go",
+    scope_tags: ["package-tooling"],
+    constraint_kind: "guiding",
+    queryTransform: () => "Go spf13 pflag command line flags cobra integration",
+  },
+  {
+    name: "kubectl_reference",
+    regex:
+      /\bkubectl\b(?:\s+(?:plugin|plugins|completion|subcommand))|\bkubectl\b.{0,80}\b(?:flags?|options?|reference|documentation|source)\b/i,
+    language: () => "",
+    scope_tags: ["package-tooling"],
+    constraint_kind: "guiding",
+    queryTransform: (_m, text) => `kubectl CLI reference ${text.slice(0, 160).trim()}`,
+  },
 ];
 
 function getRegistryPatterns(): FastPathPatternDef[] {
@@ -224,13 +250,15 @@ export async function runEvidencePrefetch(
       return { matched: false, latencyMs: performance.now() - t0, timedOut: false, confidence: 0, authoritative: false };
     }
 
-    const searchArgs = {
+    const searchArgs: Record<string, unknown> = {
       query: match.searchQuery,
-      language: match.language,
       scope_tags: match.scope_tags,
       constraint_kind: match.constraint_kind,
       top_k: 3,
     };
+    if (match.language.trim()) {
+      searchArgs.language = match.language;
+    }
 
     let result = await raceSearch(knowledgeService, searchArgs, timeoutMs, resolveContext);
 

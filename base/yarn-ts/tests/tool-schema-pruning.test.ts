@@ -35,4 +35,17 @@ describe("tool schema pruning", () => {
     expect(out.pruned).toBe(true);
     expect(names).toEqual(["Read", "Write"]);
   });
+
+  it("prefers Synesis knowledge tools over web search when pruning (output order follows input)", () => {
+    const tools = [
+      { type: "function", function: { name: "synesis_web_search" } },
+      { type: "function", function: { name: "synesis_knowledge_search" } },
+      { type: "function", function: { name: "search_developer_docs" } },
+      { type: "function", function: { name: "LowPriorityTool" } },
+    ];
+    const out = pruneToolSchemas(tools, 2, [], []);
+    const names = out.tools.map((t) => extractToolSchemaName(t));
+    expect(out.pruned).toBe(true);
+    expect(names).toEqual(["synesis_knowledge_search", "search_developer_docs"]);
+  });
 });

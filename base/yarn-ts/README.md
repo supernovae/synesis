@@ -51,6 +51,8 @@ See **`docs/CI_GITHUB_VALIDATION.md`** and **`docs/LIVE_VERIFICATION_M9.md`**. W
 - `SYNESIS_YARN_CONTEXT_ADMISSION_MODE` (default `hybrid`) — outbound prompt admission behavior: `advisory|hybrid|enforced`.
 - `SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS` (default `120000`) — warning threshold for estimated prompt+tool-schema input size.
 - `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` (default `180000`) — hard reject threshold for clearly unsafe outbound context size.
+- `SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED` — inject `synesis_knowledge_search` and `search_developer_docs` on non-streaming OpenAI-style requests (calls planner `POST /v1/knowledge/search`).
+- `SYNESIS_YARN_WEB_SEARCH_ENABLED` — inject `synesis_web_search` similarly (planner-backed web; `fetch_pages` is token-heavy).
 - `SYNESIS_YARN_RESPONSE_STYLE_MODE` (default `guidance`) — markdown style policy mode: `off`, `guidance`, or `guardrail`.
 - `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID` (default `true`) — whether style guidance should encourage mermaid diagrams when appropriate.
 - Synthetic workspace handshake is disabled in fix-forward strict mode; provide `project_root` / `shell_cwd` through headers or request metadata for deterministic path anchoring.
@@ -65,3 +67,9 @@ This is the first implementation pass focused on:
 - safety middleware hooks.
 
 Advanced parity features (full MCP parity, persistence parity, and full streaming/tool lifecycle parity) are targeted in subsequent phases.
+
+## Knowledge catalog vs web search
+
+Yarn nudges the model (tool descriptions, optional system fragment when retrieval tools are present, tool-schema pruning priority) to prefer **knowledge** tools before **web**, and to avoid full-page fetch until snippets fail. Retrieval is still **optional** — nothing runs on every turn.
+
+Those tools only return useful results if the **indexer** has ingested relevant material (e.g. Cobra/spf13 patterns, kubectl snippets). Yarn does not ingest documents; operators curate the corpus and metadata (language, `scope_tags`, etc.) separately.

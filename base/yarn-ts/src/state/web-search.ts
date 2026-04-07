@@ -8,8 +8,10 @@ export const WEB_SEARCH_TOOL_NAME = "synesis_web_search";
 export const WEB_SEARCH_TOOL_ALIAS = "web_search";
 
 const WEB_SEARCH_DESCRIPTION =
-  "Search the public web through Synesis planner-backed SearXNG retrieval. " +
-  "Returns ranked results with snippets, authority metadata, timings, and attribution echo.";
+  "Search the public web via Synesis planner-backed retrieval. " +
+  "Default behavior returns snippets only (token-efficient). " +
+  "Use AFTER synesis_knowledge_search or search_developer_docs when the catalog lacks the answer or you need very fresh sources. " +
+  "Avoid fetch_pages unless snippets are insufficient — full page text is large and costly in context.";
 
 const WEB_SEARCH_PARAMETERS = {
   type: "object" as const,
@@ -17,8 +19,16 @@ const WEB_SEARCH_PARAMETERS = {
     query: { type: "string", description: "Web search query." },
     profile: { type: "string", enum: ["web", "code"], description: "Search profile (web or code)." },
     top_k: { type: "integer", description: "Maximum number of results to return (1-20)." },
-    fetch_pages: { type: "boolean", description: "Whether to fetch and parse top-page content." },
-    max_fetch_pages: { type: "integer", description: "Maximum number of page fetches." },
+    fetch_pages: {
+      type: "boolean",
+      description:
+        "If true, fetches and returns full page bodies (high token cost). Default omit/false: use search snippets only. " +
+        "Set true only when snippets are inadequate.",
+    },
+    max_fetch_pages: {
+      type: "integer",
+      description: "Cap on full-page fetches when fetch_pages is true (keep low to limit context size).",
+    },
     min_relevance: { type: "number", description: "Minimum relevance threshold in [0,1]." },
     preferred_domains: {
       type: "array",

@@ -292,4 +292,20 @@ describe("detectPattern", () => {
   it("returns null for non-matching text", () => {
     expect(detectPattern("just a normal sentence")).toBeNull();
   });
+
+  it("detects Cobra / spf13 reference intent", () => {
+    const match = detectPattern('Use import "github.com/spf13/cobra" for the CLI');
+    expect(match).not.toBeNull();
+    expect(match!.pattern).toBe("go_cobra_reference");
+    expect(match!.language).toBe("go");
+    expect(match!.scope_tags).toContain("package-tooling");
+    expect(match!.constraint_kind).toBe("guiding");
+  });
+
+  it("detects kubectl reference intent without language filter", () => {
+    const match = detectPattern("How do I set kubectl command line flags for plugins?");
+    expect(match).not.toBeNull();
+    expect(match!.pattern).toBe("kubectl_reference");
+    expect(match!.language).toBe("");
+  });
 });

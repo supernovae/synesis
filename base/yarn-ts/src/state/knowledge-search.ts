@@ -9,10 +9,11 @@ import { dispatchSynesisTool, type SynesisMcpDeps, type SynesisMcpAuth } from "@
 export const KNOWLEDGE_TOOL_NAME = "synesis_knowledge_search";
 
 const KNOWLEDGE_DESCRIPTION =
-  "Search the Synesis knowledge catalog for relevant documentation, code examples, " +
-  "language specifications, error catalogs, linter rules, style guides, and architecture " +
-  "patterns. Returns ranked chunks with provenance, authority, and constraint metadata. " +
-  "Use when you need grounded evidence from organizational knowledge or curated technical references.";
+  "Search the Synesis knowledge catalog for distilled documentation snippets, code examples, " +
+  "language specs, error catalogs, linter rules, style guides, CLI/framework patterns (e.g. Cobra, kubectl), " +
+  "and architecture notes. Returns compact ranked chunks (usually fewer tokens than full web pages). " +
+  "When you need external reference material, prefer this tool BEFORE synesis_web_search. " +
+  "Use filters (language, scope_tags, artifact_kind) when they narrow the query.";
 
 const KNOWLEDGE_PARAMETERS = {
   type: "object" as const,
@@ -78,8 +79,9 @@ export const KNOWLEDGE_TOOL_SCHEMA_CLAUDE = {
 export const DEV_DOCS_TOOL_NAME = "search_developer_docs";
 
 const DEV_DOCS_DESCRIPTION =
-  "Search official developer documentation for programming languages and frameworks (e.g., Python, React, Go). " +
-  "Use this to look up API references and best practices before falling back to web search.";
+  "Search curated developer documentation in the knowledge catalog for languages and frameworks (e.g. Python, Go, React). " +
+  "Prefer this (or synesis_knowledge_search) for API references, flags, and patterns before synesis_web_search. " +
+  "If results are empty or clearly stale, use web search with snippets only first (avoid fetch_pages until needed).";
 
 const DEV_DOCS_PARAMETERS = {
   type: "object" as const,

@@ -1317,7 +1317,7 @@ patch_yarn_feature_flags() {
 
     # ── Phase 6: MCP + Planner-backed search tools ──
     _flag SYNESIS_YARN_MCP_TOOLS_ENABLED              "true"
-    _flag SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED        "false"
+    _flag SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED        "true"
     _flag SYNESIS_YARN_WEB_SEARCH_ENABLED              "true"
 
     # ── Phase 7a: Recall Engine ──
@@ -1339,7 +1339,7 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED      "false"
 
     # ── Phase 13: Evidence Pipeline ──
-    _flag SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED       "false"
+    _flag SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED       "true"
     _flag SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED "false"
 
     # ── Phase 14: Governance ──
