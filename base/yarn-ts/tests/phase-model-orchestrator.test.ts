@@ -51,6 +51,29 @@ describe("PhaseModelOrchestrator", () => {
     expect(s.pulseCount + s.coreCount + s.horizonCount).toBe(2);
   });
 
+  it("treats auto as router-managed default", () => {
+    const o = new PhaseModelOrchestrator();
+    const d = o.decide({
+      requestedModel: "auto",
+      latestUserText: "implement feature and run tests",
+      riskProfile: "standard",
+    });
+    expect(d.reasons).toContain("model_auto_default");
+    expect(["synesis-pulse", "synesis-core", "synesis-horizon"]).toContain(d.tier);
+  });
+
+  it("honors explicit model lock mode", () => {
+    const o = new PhaseModelOrchestrator();
+    const d = o.decide({
+      requestedModel: "synesis-pulse",
+      modelSelectionMode: "lock",
+      latestUserText: "critical security migration",
+      riskProfile: "high",
+    });
+    expect(d.tier).toBe("synesis-pulse");
+    expect(d.reasons).toContain("explicit_model_lock");
+  });
+
   it("routes planning phase to horizon on legacy path when planningUseHorizon is default", () => {
     const o = new PhaseModelOrchestrator();
     const d = o.decide({

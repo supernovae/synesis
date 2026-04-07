@@ -14,12 +14,16 @@ export class SynesisProviderRegistry {
   }
 
   getAvailableModels(): Array<{ id: string; object: "model"; owned_by: string; created: number }> {
-    return Array.from(this.tierMap.keys()).map((id) => ({
+    const models = Array.from(this.tierMap.keys()).map((id) => ({
       id,
-      object: "model",
+      object: "model" as const,
       owned_by: "synesis",
       created: 1704067200
     }));
+    return [
+      { id: "auto", object: "model" as const, owned_by: "synesis", created: 1704067200 },
+      ...models,
+    ];
   }
 
   resolve(modelId: string, fallbackModelId: string): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {

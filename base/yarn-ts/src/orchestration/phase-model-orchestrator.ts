@@ -15,6 +15,7 @@ export interface EvidenceSignals {
 
 export interface OrchestratorContext {
   requestedModel: string;
+  modelSelectionMode?: "respect_explicit" | "preference" | "lock";
   latestUserText: string;
   workingPhase?: WorkflowPhase;
   /** When false, planning phase uses keyword-based horizon only (legacy). Default: treat as true (all planning → horizon in inference path). */
@@ -240,9 +241,24 @@ export class PhaseModelOrchestrator {
     tier = escalationResult.tier;
 
     // Respect explicit tier (synesis ids, Claude family wire ids, env map) unless risk overrides pulse
-    const resolvedExplicit = resolveExplicitTierFromRequestedModel(ctx.requestedModel, this.claudeTierMap);
+    const requestedNormalized = (ctx.requestedModel ?? "").trim().toLowerCase();
+    const explicitRoutingRequested = requestedNormalized !== "" && requestedNormalized !== "auto";
+    const mode = ctx.modelSelectionMode ?? "respect_explicit";
+    const resolvedExplicit = explicitRoutingRequested
+      ? resolveExplicitTierFromRequestedModel(ctx.requestedModel, this.claudeTierMap)
+      : null;
     if (resolvedExplicit) {
-      if (!(ctx.riskProfile === "high" && resolvedExplicit.tier === "synesis-pulse")) {
+      if (mode === "lock") {
+        tier = resolvedExplicit.tier;
+        reasons.push("explicit_model_lock");
+      } else if (mode === "preference") {
+        if (!(ctx.riskProfile === "high" && resolvedExplicit.tier === "synesis-pulse")) {
+          tier = resolvedExplicit.tier;
+          reasons.push("explicit_model_preference");
+        } else {
+          reasons.push("preference_overridden_high_risk");
+        }
+      } else if (!(ctx.riskProfile === "high" && resolvedExplicit.tier === "synesis-pulse")) {
         tier = resolvedExplicit.tier;
         if (resolvedExplicit.reason === "synesis_exact") {
           reasons.push("explicit_requested_tier");
@@ -254,6 +270,8 @@ export class PhaseModelOrchestrator {
       } else {
         reasons.push("escalated_over_explicit_pulse_due_to_high_risk");
       }
+    } else if (requestedNormalized === "auto" || requestedNormalized === "") {
+      reasons.push("model_auto_default");
     }
 
     const maxOutputTokens = tierOutput(tier, phase);

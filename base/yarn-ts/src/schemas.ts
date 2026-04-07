@@ -10,7 +10,7 @@ export const ChatMessageSchema = z.object({
 });
 
 export const OpenAIChatCompletionRequestSchema = z.object({
-  model: z.string().default("synesis-core"),
+  model: z.string().default("auto"),
   messages: z.array(ChatMessageSchema),
   stream: z.boolean().optional().default(false),
   temperature: z.number().optional(),

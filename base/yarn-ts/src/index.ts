@@ -50,6 +50,8 @@ import {
   summarizeMissingCoverage,
   type RequirementChecklist,
 } from "./validation/requirement-coverage.js";
+import { buildTaskIntake, formatTaskIntakeBlock, type TaskIntake } from "./planning/task-intake.js";
+import { advancePlanGraph, createPlanGraph, formatPlanGraphBlock, type PlanGraph } from "./planning/plan-graph.js";
 import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
 import {
   mergeSynesisClarificationFromRequestMetadata,
@@ -156,6 +158,8 @@ import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
+import { evaluateExecutionGovernor, executionGovernorSoftFailMessage, type GovernorInputMessage } from "./governance/execution-governor.js";
+import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
 type SessionState = {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
@@ -265,6 +269,57 @@ function refreshRequirementChecklist(state: SessionState): RequirementChecklist 
   const checklist = buildChecklistFromPrompt(rootPrompt, sourceHash);
   state.record.metadata.requirement_checklist = buildRequirementChecklistSnapshot(checklist);
   return checklist;
+}
+
+function buildTaskIntakeSnapshot(intake: TaskIntake): Record<string, unknown> {
+  return {
+    sourceHash: intake.sourceHash,
+    sourcePreview: intake.sourcePreview,
+    acceptanceCriteriaCount: intake.acceptanceCriteria.length,
+    rubric: intake.rubric,
+    updatedAt: Date.now(),
+  };
+}
+
+function refreshTaskIntake(state: SessionState): TaskIntake | null {
+  if (!config.SYNESIS_YARN_TASK_INTAKE_ENABLED) return null;
+  const rootPrompt = getMetadataString(state.record.metadata, "trace_root_prompt");
+  if (!rootPrompt) return null;
+  const sourceHash = hashTextSignal(rootPrompt);
+  if (!sourceHash) return null;
+  const intake = buildTaskIntake(rootPrompt, sourceHash);
+  state.record.metadata.task_intake = buildTaskIntakeSnapshot(intake);
+  return intake;
+}
+
+function parsePlanGraph(meta: Record<string, unknown>): PlanGraph | null {
+  const raw = meta.plan_graph;
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  if (typeof row.sourceHash !== "string" || typeof row.activeStage !== "string" || !Array.isArray(row.nodes)) return null;
+  return row as unknown as PlanGraph;
+}
+
+function updatePlanGraph(
+  state: SessionState,
+  intake: TaskIntake | null,
+  messages: Array<{ role: string; content: unknown }>,
+  verificationFailures: number,
+): PlanGraph | null {
+  if (!config.SYNESIS_YARN_PLAN_GRAPH_ENABLED || !intake) return null;
+  const existing = parsePlanGraph(state.record.metadata);
+  const base = !existing || existing.sourceHash !== intake.sourceHash
+    ? createPlanGraph(intake)
+    : existing;
+  const recentTools = extractRecentToolNames(messages);
+  const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const advanced = advancePlanGraph(base, {
+    recentToolNames: recentTools,
+    latestAssistantText: typeof latestAssistant?.content === "string" ? latestAssistant.content : "",
+    verificationFailures,
+  });
+  state.record.metadata.plan_graph = advanced as unknown as Record<string, unknown>;
+  return advanced;
 }
 
 function getChecklistSourceHash(meta: Record<string, unknown>): string {
@@ -399,6 +454,21 @@ function applyCompletionGate(
   }
   const evidence = [traceRootPrompt, latestUserPrompt, originalText].filter(Boolean).join("\n");
   const report = evaluateRequirementCoverage(checklist, evidence);
+  let cliAcceptanceNotes: string[] = [];
+  if (config.SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED) {
+    const fileMatches = evidence.match(/[a-zA-Z0-9_\-./]+/g) ?? [];
+    const acceptance = evaluateCliProjectAcceptance({
+      repoTree: fileMatches.filter((v) => v.includes("/") || v.includes(".")),
+      promptText: traceRootPrompt,
+      verificationSummary: originalText,
+    });
+    if (!acceptance.passed) {
+      cliAcceptanceNotes = [
+        ...acceptance.missingRequired.map((v) => `missing required path: ${v}`),
+        ...acceptance.notes,
+      ];
+    }
+  }
   if (report.missingMust.length === 0) {
     return {
       finalText: originalText,
@@ -407,7 +477,7 @@ function applyCompletionGate(
       missingShould: report.missingShould.length,
       blockedByVerification: false,
       blockingVerificationFailures: 0,
-      suggestedNextActions: [],
+      suggestedNextActions: cliAcceptanceNotes,
     };
   }
   const summary = summarizeMissingCoverage(report);
@@ -428,7 +498,10 @@ function applyCompletionGate(
     missingShould: report.missingShould.length,
     blockedByVerification: false,
     blockingVerificationFailures: 0,
-    suggestedNextActions: ["continue implementation to close missing must-have requirements"],
+    suggestedNextActions: [
+      "continue implementation to close missing must-have requirements",
+      ...cliAcceptanceNotes,
+    ],
   };
 }
 
@@ -1006,6 +1079,7 @@ function enrichWithFrameAndManifest(
   adapterBlock?: string,
   promptContext?: { tier?: string; role?: string; modelFamily?: string; node?: string },
   pathHints?: { projectRoot: string | null; shellCwd: string | null } | null,
+  governanceBlocks?: string[],
 ): EnrichResult {
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
@@ -1130,6 +1204,12 @@ function enrichWithFrameAndManifest(
   });
   if (responseStyleBlock) {
     volatileBlocks.push({ role: "system", content: responseStyleBlock });
+  }
+
+  for (const block of governanceBlocks ?? []) {
+    if (block && block.trim()) {
+      volatileBlocks.push({ role: "system", content: block });
+    }
   }
 
   volatileBlocks.push({ role: "system", content: TOOL_EFFICIENCY_GUIDANCE });
@@ -3630,6 +3710,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     updateTracePromptMetadata(session, latestUserText.content);
   }
   const oaiRequirementChecklist = refreshRequirementChecklist(session);
+  const oaiTaskIntake = refreshTaskIntake(session);
+  const oaiPlanGraph = updatePlanGraph(
+    session,
+    oaiTaskIntake,
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+    oaiVerificationAssessment.failingSignals,
+  );
   if (oaiRequirementChecklist && oaiRequirementChecklist.sourceHash !== priorOaiChecklistHash) {
     recordSessionEvent(
       sessionKey,
@@ -3753,6 +3840,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const orchestration = phaseOrchestrator.decide({
     requestedModel: request.model,
+    modelSelectionMode: config.SYNESIS_YARN_MODEL_SELECTION_MODE,
     latestUserText: String(latestUserText?.content ?? ""),
     workingPhase: oaiWorkingPhase,
     planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
@@ -3792,6 +3880,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiCommandLoop = analyzeRecentCommandLoop(
     normalizedOpenAI.messages as Array<ToolLoopMessage>,
   );
+  const oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+    ? evaluateExecutionGovernor(normalizedOpenAI.messages as Array<GovernorInputMessage>)
+    : {
+        pause: false,
+        reason: "disabled",
+        matchedRules: ["disabled"],
+        telemetry: { repeatedTestCommands: 0, repeatedReadSearchCalls: 0, broadTestRepeat: false },
+      };
   const oaiAggressiveRepeatGuard =
     oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash);
   const oaiRepeatAwarePivot = oaiAggressiveRepeatGuard
@@ -3896,6 +3992,32 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     return reply.code(400).send(policyRejectOpenAIBody(policyPrecheck));
   }
+  if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const started = Date.now();
+    const content = executionGovernorSoftFailMessage(oaiExecutionGovernor);
+    const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+    session.history.push({ role: "assistant", content });
+    persistSessionAndUsage(
+      session,
+      oaiTraceReqId,
+      orchestration.selectedModel,
+      usage,
+      Date.now() - started,
+      "stop",
+      0,
+    );
+    maybeCheckpoint(session);
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "execution_governor_soft_fail",
+      "execution-governor",
+      `Paused repetitive loop (${oaiExecutionGovernor.matchedRules.join(",")})`,
+      oaiTraceReqId,
+    );
+    return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
+  }
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
   const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
   const oaiPromptContext = {
@@ -3909,6 +4031,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     effectiveOaiAdapterBlock,
     oaiPromptContext,
     { projectRoot: effectiveOaiPathCtx.projectRoot, shellCwd: effectiveOaiPathCtx.shellCwd },
+    [
+      ...(oaiTaskIntake ? [formatTaskIntakeBlock(oaiTaskIntake)] : []),
+      ...(oaiPlanGraph ? [formatPlanGraphBlock(oaiPlanGraph)] : []),
+    ],
   );
   let oaiEnrichedMsgs = appendCriticBlock(
     oaiEnriched.messages as Array<{ role: string; content: unknown }>,
@@ -5274,6 +5400,13 @@ app.post("/v1/messages", async (req, reply) => {
     updateTracePromptMetadata(session, latestClaudeUser.content);
   }
   const claudeRequirementChecklist = refreshRequirementChecklist(session);
+  const claudeTaskIntake = refreshTaskIntake(session);
+  const claudePlanGraph = updatePlanGraph(
+    session,
+    claudeTaskIntake,
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+    claudeVerificationAssessment.failingSignals,
+  );
   if (claudeRequirementChecklist && claudeRequirementChecklist.sourceHash !== priorClaudeChecklistHash) {
     recordSessionEvent(
       claudeSessionKey,
@@ -5390,6 +5523,7 @@ app.post("/v1/messages", async (req, reply) => {
 
   const claudeOrchestration = phaseOrchestrator.decide({
     requestedModel: body.model,
+    modelSelectionMode: config.SYNESIS_YARN_MODEL_SELECTION_MODE,
     latestUserText: String(latestClaudeUser?.content ?? ""),
     workingPhase: claudeWorkingPhase,
     planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
@@ -5430,6 +5564,14 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeCommandLoop = analyzeRecentCommandLoop(
     normalizedFromClaude.messages as Array<ToolLoopMessage>,
   );
+  const claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+    ? evaluateExecutionGovernor(normalizedFromClaude.messages as Array<GovernorInputMessage>)
+    : {
+        pause: false,
+        reason: "disabled",
+        matchedRules: ["disabled"],
+        telemetry: { repeatedTestCommands: 0, repeatedReadSearchCalls: 0, broadTestRepeat: false },
+      };
   const claudeAggressiveRepeatGuard =
     claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash);
   const claudeRepeatAwarePivot = claudeAggressiveRepeatGuard
@@ -5534,6 +5676,32 @@ app.post("/v1/messages", async (req, reply) => {
     }
     return reply.code(400).send(policyRejectClaudeBody(claudePolicyPrecheck));
   }
+  if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const started = Date.now();
+    const content = executionGovernorSoftFailMessage(claudeExecutionGovernor);
+    const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+    session.history.push({ role: "assistant", content });
+    persistSessionAndUsage(
+      session,
+      traceReqId,
+      claudeOrchestration.selectedModel,
+      usage,
+      Date.now() - started,
+      "end_turn",
+      0,
+    );
+    maybeCheckpoint(session);
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "execution_governor_soft_fail",
+      "execution-governor",
+      `Paused repetitive loop (${claudeExecutionGovernor.matchedRules.join(",")})`,
+      traceReqId,
+    );
+    return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
+  }
 
   const claudeRole = TIER_TO_ROLE[claudeOrchestration.tier];
   const claudeBackendModel = roleAssignmentRegistry.get(claudeRole)?.backendModel ?? "";
@@ -5548,6 +5716,10 @@ app.post("/v1/messages", async (req, reply) => {
     effectiveClaudeAdapterBlock,
     claudePromptContext,
     { projectRoot: effectiveClaudePathCtx.projectRoot, shellCwd: effectiveClaudePathCtx.shellCwd },
+    [
+      ...(claudeTaskIntake ? [formatTaskIntakeBlock(claudeTaskIntake)] : []),
+      ...(claudePlanGraph ? [formatPlanGraphBlock(claudePlanGraph)] : []),
+    ],
   );
   let enrichedClaudeMsgs = appendCriticBlock(
     claudeEnriched.messages as Array<{ role: string; content: unknown }>,

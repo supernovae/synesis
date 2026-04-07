@@ -139,6 +139,31 @@ const EnvSchema = z.object({
   SYNESIS_YARN_POLICY_REPEAT_MAP_MAX: z.coerce.number().default(5000),
   SYNESIS_YARN_POLICY_REPEAT_ENTRY_TTL_MS: z.coerce.number().default(1_800_000),
 
+  // Task intake + plan graph governance
+  SYNESIS_YARN_TASK_INTAKE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_PLAN_GRAPH_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_MODEL_SELECTION_MODE: z
+    .enum(["respect_explicit", "preference", "lock"])
+    .default("respect_explicit"),
+  SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+
   // Session lifecycle — auto-rotate when no conversation_id and idle > threshold
   SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS: z.coerce.number().default(30 * 60 * 1000),
 
