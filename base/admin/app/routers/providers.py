@@ -9,7 +9,7 @@ import time
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -463,3 +463,45 @@ async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
         detail={"env_var": name, "restart": True},
     )
     return {"ok": True, "name": name, "restart": True}
+
+
+@router.post("/spend/reconcile")
+async def reconcile_provider_spend(
+    since_hours: int = Query(24, ge=1, le=24 * 90),
+    user: UserInfo = Depends(require_admin),
+):
+    """Reconcile historical actual USD from provider billing APIs."""
+    from ..scripts.vendor_reconciliation import reconcile_costs
+
+    try:
+        secret = await _get_secret()
+        secret_data = (secret or {}).get("data", {}) if isinstance(secret, dict) else {}
+        provider_keys: dict[str, str] = {}
+        for env_name in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY"):
+            raw = secret_data.get(env_name)
+            if not raw:
+                continue
+            try:
+                provider_keys[env_name] = base64.b64decode(raw).decode()
+            except Exception:
+                logger.warning("provider_spend_reconcile_key_decode_failed env=%s", env_name, exc_info=True)
+        summary = await reconcile_costs(since_hours=since_hours, provider_keys=provider_keys)
+    except Exception as exc:
+        logger.warning("provider_spend_reconcile_failed", exc_info=True)
+        await _audit_best_effort(
+            user=user,
+            action="providers.spend_reconcile",
+            status="error",
+            summary=f"Provider spend reconciliation failed (last {since_hours}h)",
+            detail={"since_hours": since_hours, "error": repr(exc)},
+        )
+        raise HTTPException(502, "Failed to reconcile provider spend") from exc
+
+    await _audit_best_effort(
+        user=user,
+        action="providers.spend_reconcile",
+        status="success",
+        summary=f"Provider spend reconciliation completed (last {since_hours}h)",
+        detail=summary,
+    )
+    return {"ok": True, "summary": summary}

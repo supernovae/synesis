@@ -446,6 +446,38 @@ export function useDeleteProviderKey() {
   });
 }
 
+export interface ProviderSpendReconcileResult {
+  ok: boolean;
+  summary: {
+    since_hours: number;
+    providers_available: number;
+    yarn_scanned: number;
+    yarn_updated: number;
+    planner_scanned: number;
+    planner_updated: number;
+    trace_scanned: number;
+    trace_updated: number;
+  };
+}
+
+export function useReconcileProviderSpend() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sinceHours: number) =>
+      client
+        .post<ProviderSpendReconcileResult>("/providers/spend/reconcile", null, {
+          params: { since_hours: sinceHours },
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "costs"] });
+      qc.invalidateQueries({ queryKey: ["yarn"] });
+      qc.invalidateQueries({ queryKey: ["usage"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
 export function useLitellmRestartStatus() {
   return useQuery<import("../types").LiteLLMRestartStatus>({
     queryKey: ["providers", "litellm", "restart-status"],

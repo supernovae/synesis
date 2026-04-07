@@ -4,6 +4,7 @@ import {
   useSetProviderKey,
   useDeleteProviderKey,
   useLitellmRestartStatus,
+  useReconcileProviderSpend,
 } from "../../api/hooks";
 import type { ProviderConfigInfo, ProviderGovernanceResponse, ProviderSecretKeyRow } from "../../types";
 import { Key, CheckCircle, XCircle, RotateCw, Trash2, AlertTriangle, Eye, EyeOff } from "lucide-react";
@@ -28,6 +29,7 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
   const { data: restartStatus } = useLitellmRestartStatus();
   const setKeyMut = useSetProviderKey();
   const deleteKeyMut = useDeleteProviderKey();
+  const reconcileSpendMut = useReconcileProviderSpend();
 
   const allowedNames = useMemo(() => catalogKeyEnvNames(providersList), [providersList]);
   const keyableProviders = useMemo(() => {
@@ -42,6 +44,7 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
   const [addPicker, setAddPicker] = useState("");
   const [addKeyValue, setAddKeyValue] = useState("");
   const [showAddValue, setShowAddValue] = useState(false);
+  const [sinceHours, setSinceHours] = useState(168);
 
   const handleSave = (name: string) => {
     if (!keyValue.trim()) return;
@@ -84,10 +87,11 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
   return (
     <div className="space-y-4">
       <ApiErrorBanner
-        error={setKeyMut.error ?? deleteKeyMut.error}
+        error={setKeyMut.error ?? deleteKeyMut.error ?? reconcileSpendMut.error}
         onDismiss={() => {
           setKeyMut.reset();
           deleteKeyMut.reset();
+          reconcileSpendMut.reset();
         }}
       />
 
@@ -105,6 +109,45 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950/30">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1 text-sm text-blue-900 dark:text-blue-200">
+            <p className="font-medium">Historical spend reconciliation</p>
+            <p className="text-blue-800/90 dark:text-blue-300/90">
+              Pull provider-billed USD for supported providers (OpenRouter / DeepInfra) and backfill
+              actual cost fields used by Usage & spend and Yarn views.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={sinceHours}
+              onChange={(e) => setSinceHours(Number(e.target.value))}
+              className="rounded border border-blue-300 bg-white px-2 py-1 text-xs dark:border-blue-700 dark:bg-gray-900"
+            >
+              <option value={24}>Last 24h</option>
+              <option value={72}>Last 3d</option>
+              <option value={168}>Last 7d</option>
+              <option value={720}>Last 30d</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => reconcileSpendMut.mutate(sinceHours)}
+              disabled={reconcileSpendMut.isPending}
+              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {reconcileSpendMut.isPending ? "Syncing..." : "Sync Historical Spend"}
+            </button>
+          </div>
+        </div>
+        {reconcileSpendMut.data?.summary && (
+          <p className="mt-2 text-xs text-blue-800 dark:text-blue-300">
+            Updated rows: Yarn {reconcileSpendMut.data.summary.yarn_updated}, Planner{" "}
+            {reconcileSpendMut.data.summary.planner_updated}, Traces{" "}
+            {reconcileSpendMut.data.summary.trace_updated}.
+          </p>
+        )}
       </div>
 
       {restartStatus && (
