@@ -859,6 +859,7 @@ const toolResultReduction = new ToolResultReductionService(config, artifactStore
 const transcriptPruning = new TranscriptPruningService({
   enabled: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED,
   keepTurns: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS,
+  keepToolResults: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS,
   budgetChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS,
   stubMaxChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS,
   assistantCondenseChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS,
@@ -1059,6 +1060,8 @@ function enrichWithFrameAndManifest(
     volatileBlocks.push({ role: "system", content: responseStyleBlock });
   }
 
+  volatileBlocks.push({ role: "system", content: TOOL_EFFICIENCY_GUIDANCE });
+
   const enriched: Array<{ role: string; content: unknown }> = [
     { role: "system", content: systemPrefix },
     ...volatileBlocks,
@@ -1085,6 +1088,14 @@ function phaseFromFrame(currentPhase: "explore" | "planning" | "implementation" 
   if (currentPhase === "validation") return "validation";
   return "implementation";
 }
+
+const TOOL_EFFICIENCY_GUIDANCE = `<TOOL_EFFICIENCY>
+When a build or test command fails, read the error output carefully and fix the root cause before re-running. Do not re-run the same command hoping for a different result.
+- Identify the specific file and line from the error, fix it, then verify.
+- Avoid running broader commands (e.g. \`go test ./...\`) repeatedly when you can target the failing package directly.
+- After fixing an error, run the narrowest possible verification first.
+- Remove unused imports and fix vet warnings before re-running the full suite.
+</TOOL_EFFICIENCY>`;
 
 const FILE_RE_GLOBAL = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
 
