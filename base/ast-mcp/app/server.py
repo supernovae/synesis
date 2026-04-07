@@ -128,7 +128,7 @@ def _get_leading_comment(source_bytes: bytes, node) -> bytes:
     return b"\n".join(comment_lines) + b"\n" if comment_lines else b""
 
 
-_HOST = os.getenv("FASTMCP_HOST", os.getenv("HOST", "0.0.0.0"))
+_HOST = os.getenv("FASTMCP_HOST", os.getenv("HOST", "0.0.0.0"))  # nosec B104
 _PORT = int(os.getenv("FASTMCP_PORT", os.getenv("PORT", "8080")))
 _TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http").strip().lower()
 _STREAMABLE_HTTP_PATH = os.getenv("FASTMCP_STREAMABLE_HTTP_PATH", "/mcp")
