@@ -2367,10 +2367,29 @@ export interface YarnReducerTelemetryRollup {
   lifecycle: Record<string, { success_delta: number; fail_delta: number }>;
 }
 
+export interface YarnReducerTelemetryCumulative {
+  reduced_count_total: number;
+  reducer_failures_total: number;
+  tokens_saved_estimate_total: number;
+  fallback_to_artifact_total: number;
+  lifecycle: Record<string, { success_total: number; fail_total: number }>;
+}
+
+export interface YarnReducerTelemetryScrapeStatus {
+  last_success_at: string | null;
+  last_error_at: string | null;
+  last_error: string | null;
+  stale: boolean;
+}
+
 export interface YarnReducerTelemetryHistory {
   since_hours: number;
   snapshot_count: number;
   rollup: YarnReducerTelemetryRollup;
+  cumulative: YarnReducerTelemetryCumulative;
+  latest_snapshot_at: string | null;
+  stale: boolean;
+  scrape_status?: YarnReducerTelemetryScrapeStatus;
   recent_snapshots: Array<{ captured_at: string | null; payload: Record<string, unknown> }>;
 }
 

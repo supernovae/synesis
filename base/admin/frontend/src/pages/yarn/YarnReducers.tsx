@@ -10,10 +10,12 @@ import {
 } from "recharts";
 import {
   useYarnRuntimeTelemetry,
+  useYarnReducerTelemetryHistory,
   useCompactionHistory,
 } from "../../api/hooks";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
+import { formatReducerHealth, formatSnapshotFreshness } from "./reducerTelemetry";
 
 const PERIOD_OPTIONS = [
   { label: "1h", hours: 1 },
@@ -27,7 +29,9 @@ export default function YarnReducers() {
   const { data: rt, isLoading } = useYarnRuntimeTelemetry();
   const trr = rt?.toolResultReduction;
   const [period, setPeriod] = useState(24);
+  const { data: reducerHistory } = useYarnReducerTelemetryHistory(period);
   const { data: compactionHistory } = useCompactionHistory(period, "yarn");
+  const cumulative = reducerHistory?.cumulative;
 
   const historyChart = (compactionHistory?.snapshots ?? []).map((s) => ({
     time: new Date(s.captured_at).toLocaleTimeString([], {
@@ -67,10 +71,10 @@ export default function YarnReducers() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Total Transformed" value={trr.reducedCount} />
+            <StatCard label="Total Transformed" value={cumulative?.reduced_count_total ?? trr.reducedCount} />
             <StatCard
               label="Tokens Saved"
-              value={trr.tokensSavedEstimateTotal}
+              value={cumulative?.tokens_saved_estimate_total ?? trr.tokensSavedEstimateTotal}
             />
             <StatCard
               label="Raw Chars In"
@@ -82,10 +86,34 @@ export default function YarnReducers() {
             />
           </div>
 
+          <ChartCard
+            title="Persisted Cumulative Totals"
+            subtitle="DB-backed reducer counters (survive admin/yarn reloads)"
+          >
+            <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+              <Row label="Snapshots captured" value={reducerHistory?.snapshot_count ?? 0} />
+              <Row
+                label="Latest snapshot"
+                value={formatSnapshotFreshness(
+                  reducerHistory?.snapshot_count ?? 0,
+                  reducerHistory?.latest_snapshot_at ?? null,
+                  Boolean(reducerHistory?.stale),
+                )}
+              />
+              <Row label="Snapshot stale" value={reducerHistory?.stale ? "yes" : "no"} warn={Boolean(reducerHistory?.stale)} />
+              <Row label="Reduced outputs (total)" value={cumulative?.reduced_count_total ?? 0} />
+              <Row label="Reducer failures (total)" value={cumulative?.reducer_failures_total ?? 0} warn={(cumulative?.reducer_failures_total ?? 0) > 0} />
+              <Row label="Fallback to artifact (total)" value={cumulative?.fallback_to_artifact_total ?? 0} />
+              {reducerHistory?.scrape_status?.last_error ? (
+                <Row label="Last scrape error" value={reducerHistory.scrape_status.last_error} warn />
+              ) : null}
+            </div>
+          </ChartCard>
+
           <div className="grid gap-4 lg:grid-cols-2">
             <ChartCard
               title="Overall Performance"
-              subtitle="Aggregate reducer metrics since last restart"
+              subtitle="Live reducer metrics from current Yarn process"
             >
               <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
                 <Row label="Total transformed outputs" value={trr.reducedCount} />
@@ -160,11 +188,11 @@ export default function YarnReducers() {
 
           <ChartCard
             title="Reducer Lifecycle"
-            subtitle="Circuit-breaker state per family — enabled, degraded, or disabled"
+            subtitle="Health uses DB cumulative totals; state uses live Yarn status"
           >
-            {Object.keys(trr.lifecycle || {}).length === 0 ? (
+            {Object.keys(cumulative?.lifecycle || {}).length === 0 ? (
               <p className="text-sm text-gray-500">
-                No reducer lifecycle state yet.
+                No reducer lifecycle totals yet. Wait for telemetry snapshots to accumulate.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -185,14 +213,11 @@ export default function YarnReducers() {
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(trr.lifecycle)
+                    {Object.entries(cumulative?.lifecycle || {})
                       .sort(([a], [b]) => a.localeCompare(b))
                       .map(([name, state]) => {
-                        const total = state.successes + state.failures;
-                        const healthPct =
-                          total > 0
-                            ? ((state.successes / total) * 100).toFixed(0)
-                            : "—";
+                        const liveState = trr.lifecycle?.[name]?.lifecycle ?? "unknown";
+                        const healthLabel = formatReducerHealth(state.success_total, state.fail_total);
                         return (
                           <tr
                             key={name}
@@ -202,16 +227,16 @@ export default function YarnReducers() {
                               {name}
                             </td>
                             <td className="py-2 pr-4">
-                              <LifecycleBadge state={state.lifecycle} />
+                              <LifecycleBadge state={liveState} />
                             </td>
                             <td className="py-2 pr-4 text-right text-green-600 dark:text-green-400">
-                              {state.successes}
+                              {state.success_total}
                             </td>
                             <td className="py-2 pr-4 text-right text-red-600 dark:text-red-400">
-                              {state.failures}
+                              {state.fail_total}
                             </td>
                             <td className="py-2 text-right text-gray-700 dark:text-gray-300">
-                              {healthPct}%
+                              {healthLabel}
                             </td>
                           </tr>
                         );

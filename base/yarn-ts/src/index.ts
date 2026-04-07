@@ -931,6 +931,8 @@ function enrichWithFrameAndManifest(
     ? stablePrefixService.partition(sessionKey, adapterBlock, promptSnapshotRegistry, promptContext)
     : {
       stablePrefix: "You are an AI coding assistant provided by Synesis.",
+      prefixHash: "",
+      prefixChangeReasons: ["stable_prefix_disabled"],
       promptProfileIds: [],
       promptProfileHashes: [],
     };

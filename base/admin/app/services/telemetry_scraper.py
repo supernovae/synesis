@@ -21,6 +21,9 @@ _TIMEOUT = 3.0
 
 _last_planner: dict[str, float] = {}
 _last_yarn: dict[str, float] = {}
+_last_yarn_reducer_success_at: datetime | None = None
+_last_yarn_reducer_error_at: datetime | None = None
+_last_yarn_reducer_error: str | None = None
 
 
 def _parse_prom_line(line: str) -> tuple[str, float] | None:
@@ -134,6 +137,20 @@ async def _persist_yarn_reducer_telemetry(trr: dict) -> None:
         await session.commit()
 
 
+def get_yarn_reducer_scrape_status(now: datetime | None = None, stale_after_minutes: int = 20) -> dict:
+    """Expose reducer scrape health to help distinguish no-data vs scrape failure."""
+    ref = now if now is not None else datetime.now(UTC)
+    stale = True
+    if _last_yarn_reducer_success_at is not None:
+        stale = (ref - _last_yarn_reducer_success_at).total_seconds() > max(60, stale_after_minutes * 60)
+    return {
+        "last_success_at": _last_yarn_reducer_success_at.isoformat() if _last_yarn_reducer_success_at else None,
+        "last_error_at": _last_yarn_reducer_error_at.isoformat() if _last_yarn_reducer_error_at else None,
+        "last_error": _last_yarn_reducer_error,
+        "stale": stale,
+    }
+
+
 async def _persist_compaction_snapshot(
     service: str,
     count: int,
@@ -159,7 +176,7 @@ async def _persist_compaction_snapshot(
 
 async def scrape_all() -> dict:
     """Run a full scrape cycle for both planner-ts and yarn-ts."""
-    global _last_planner, _last_yarn
+    global _last_planner, _last_yarn, _last_yarn_reducer_success_at, _last_yarn_reducer_error_at, _last_yarn_reducer_error
 
     planner_metrics, yarn_metrics, planner_health, yarn_health = await asyncio.gather(
         _scrape_metrics(PLANNER_TS_URL),
@@ -186,8 +203,15 @@ async def scrape_all() -> dict:
             if isinstance(trr, dict) and trr:
                 await _persist_yarn_reducer_telemetry(trr)
                 results["yarn"]["reducer_snapshot"] = True
+                _last_yarn_reducer_success_at = datetime.now(UTC)
+                _last_yarn_reducer_error_at = None
+                _last_yarn_reducer_error = None
+            else:
+                results["yarn"]["reducer_snapshot"] = False
     except Exception as exc:
         results["errors"].append(f"yarn_reducer_telemetry: {exc}")
+        _last_yarn_reducer_error_at = datetime.now(UTC)
+        _last_yarn_reducer_error = str(exc)[:200]
         logger.warning("persist_yarn_reducer_telemetry_failed", exc_info=True)
 
     try:

@@ -17,7 +17,12 @@ from ..db.models import YarnReducerTelemetrySnapshot
 from ..rbac import Role, require_org_admin, resolve_role
 from ..services import yarn_service
 from ..services.health_prober import probe_service
-from ..services.yarn_reducer_history import rollup_reducer_snapshots
+from ..services.telemetry_scraper import get_yarn_reducer_scrape_status
+from ..services.yarn_reducer_history import (
+    cumulative_reducer_snapshots,
+    reducer_snapshot_freshness,
+    rollup_reducer_snapshots,
+)
 
 logger = logging.getLogger("synesis.admin.yarn")
 
@@ -244,10 +249,17 @@ async def yarn_reducer_telemetry_history(
         for r in rows
     ]
     rollup = rollup_reducer_snapshots(serialized)
+    cumulative = cumulative_reducer_snapshots(serialized)
+    freshness = reducer_snapshot_freshness(serialized)
+    scrape_status = get_yarn_reducer_scrape_status()
     return {
         "since_hours": since_hours,
         "snapshot_count": len(serialized),
         "rollup": rollup,
+        "cumulative": cumulative,
+        "latest_snapshot_at": freshness.get("latest_snapshot_at"),
+        "stale": bool(freshness.get("stale")),
+        "scrape_status": scrape_status,
         "recent_snapshots": serialized[-72:],
     }
 

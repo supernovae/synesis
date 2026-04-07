@@ -464,18 +464,57 @@ export default function YarnOverview() {
           {reducerHistory ? (
             <ChartCard
               title="Saved reducer activity"
-              subtitle={`Deltas in Postgres from admin telemetry snapshots (~5 min). Same period as above (${sinceHours}h). Survives admin restarts.`}
+              subtitle={`Persisted in Postgres via admin telemetry snapshots (~5 min). Same period as above (${sinceHours}h).`}
             >
-              {reducerHistory.snapshot_count < 2 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {reducerHistory.snapshot_count === 0
-                    ? "No snapshots yet — the admin background job records reducer stats when Yarn is reachable."
-                    : "At least two snapshots are needed to compute pass/fail deltas for this window."}
+              <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Snapshots in window: {reducerHistory.snapshot_count}
+                  {reducerHistory.latest_snapshot_at
+                    ? ` · latest ${new Date(reducerHistory.latest_snapshot_at).toLocaleString()}`
+                    : ""}
+                  {reducerHistory.stale ? " · stale" : ""}
                 </p>
-              ) : (
-                <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Snapshots in window: {reducerHistory.snapshot_count}
+                {reducerHistory.scrape_status?.last_error ? (
+                  <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                    Last scrape error: {reducerHistory.scrape_status.last_error}
+                  </p>
+                ) : null}
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Cumulative totals (DB)
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Reduced outputs</span>
+                      <span className="font-medium tabular-nums">
+                        {reducerHistory.cumulative.reduced_count_total.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Reducer failures</span>
+                      <span className="font-medium tabular-nums">
+                        {reducerHistory.cumulative.reducer_failures_total.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Est. tokens saved</span>
+                      <span className="font-medium tabular-nums">
+                        {reducerHistory.cumulative.tokens_saved_estimate_total.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Fallback to artifact</span>
+                      <span className="font-medium tabular-nums">
+                        {reducerHistory.cumulative.fallback_to_artifact_total.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Windowed deltas ({sinceHours}h)
                   </p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
@@ -503,25 +542,34 @@ export default function YarnOverview() {
                       </span>
                     </div>
                   </div>
-                  {Object.keys(reducerHistory.rollup.lifecycle).length === 0 ? (
-                    <p className="text-sm text-gray-500">No per-family lifecycle deltas in this window.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                        Pass / fail by family (Δ)
-                      </p>
-                      {Object.entries(reducerHistory.rollup.lifecycle).map(([fam, d]) => (
-                        <div key={fam} className="flex items-center justify-between text-sm">
-                          <span className="truncate pr-2">{fam}</span>
-                          <span className="text-gray-500 dark:text-gray-400 tabular-nums">
-                            ok +{d.success_delta} · fail +{d.fail_delta}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              )}
+
+                {Object.keys(reducerHistory.cumulative.lifecycle).length === 0 ? (
+                  <p className="text-sm text-gray-500">No per-family cumulative lifecycle totals yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      Pass / fail by family (cumulative)
+                    </p>
+                    {Object.entries(reducerHistory.cumulative.lifecycle).map(([fam, d]) => (
+                      <div key={fam} className="flex items-center justify-between text-sm">
+                        <span className="truncate pr-2">{fam}</span>
+                        <span className="text-gray-500 dark:text-gray-400 tabular-nums">
+                          ok {d.success_total} · fail {d.fail_total}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {reducerHistory.snapshot_count < 2 ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {reducerHistory.snapshot_count === 0
+                      ? "No snapshots yet — the admin background job records reducer stats when Yarn is reachable."
+                      : "Need at least two snapshots to compute stable deltas for this window."}
+                  </p>
+                ) : null}
+              </div>
             </ChartCard>
           ) : null}
         </div>

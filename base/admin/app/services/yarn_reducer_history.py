@@ -1,8 +1,9 @@
-"""Roll up Yarn reducer telemetry snapshots into interval deltas (handles process restarts)."""
+"""Roll up Yarn reducer telemetry snapshots into deltas and cumulative totals."""
 
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 
@@ -11,6 +12,25 @@ def _monotonic_delta(prev: int, curr: int) -> int:
     if curr >= prev:
         return curr - prev
     return curr
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _parse_captured_at(raw: Any) -> datetime | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -39,30 +59,24 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for i in range(1, len(rows)):
         prev = rows[i - 1].get("payload") or {}
         curr = rows[i].get("payload") or {}
-        totals["reduced_count_delta"] += _monotonic_delta(
-            int(prev.get("reducedCount", 0) or 0),
-            int(curr.get("reducedCount", 0) or 0),
-        )
-        totals["reducer_failures_delta"] += _monotonic_delta(
-            int(prev.get("reducerFailures", 0) or 0),
-            int(curr.get("reducerFailures", 0) or 0),
-        )
+        totals["reduced_count_delta"] += _monotonic_delta(_as_int(prev.get("reducedCount")), _as_int(curr.get("reducedCount")))
+        totals["reducer_failures_delta"] += _monotonic_delta(_as_int(prev.get("reducerFailures")), _as_int(curr.get("reducerFailures")))
         totals["tokens_saved_estimate_delta"] += _monotonic_delta(
-            int(prev.get("tokensSavedEstimateTotal", 0) or 0),
-            int(curr.get("tokensSavedEstimateTotal", 0) or 0),
+            _as_int(prev.get("tokensSavedEstimateTotal")),
+            _as_int(curr.get("tokensSavedEstimateTotal")),
         )
         totals["fallback_to_artifact_delta"] += _monotonic_delta(
-            int(prev.get("fallbackToArtifactCount", 0) or 0),
-            int(curr.get("fallbackToArtifactCount", 0) or 0),
+            _as_int(prev.get("fallbackToArtifactCount")),
+            _as_int(curr.get("fallbackToArtifactCount")),
         )
 
         prev_l = prev.get("lifecycle") if isinstance(prev.get("lifecycle"), dict) else {}
         curr_l = curr.get("lifecycle") if isinstance(curr.get("lifecycle"), dict) else {}
         for fam in set(prev_l) | set(curr_l):
-            ps = int((prev_l.get(fam) or {}).get("successes", 0) or 0)
-            pf = int((prev_l.get(fam) or {}).get("failures", 0) or 0)
-            cs = int((curr_l.get(fam) or {}).get("successes", 0) or 0)
-            cf = int((curr_l.get(fam) or {}).get("failures", 0) or 0)
+            ps = _as_int((prev_l.get(fam) or {}).get("successes"))
+            pf = _as_int((prev_l.get(fam) or {}).get("failures"))
+            cs = _as_int((curr_l.get(fam) or {}).get("successes"))
+            cf = _as_int((curr_l.get(fam) or {}).get("failures"))
             totals["lifecycle"][fam]["success_delta"] += _monotonic_delta(ps, cs)
             totals["lifecycle"][fam]["fail_delta"] += _monotonic_delta(pf, cf)
 
@@ -74,3 +88,84 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "fallback_to_artifact_delta": totals["fallback_to_artifact_delta"],
         "lifecycle": lifecycle_out,
     }
+
+
+def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compute cumulative totals from retained snapshots (restart-tolerant)."""
+    empty = {
+        "reduced_count_total": 0,
+        "reducer_failures_total": 0,
+        "tokens_saved_estimate_total": 0,
+        "fallback_to_artifact_total": 0,
+        "lifecycle": {},
+    }
+    if not rows:
+        return empty
+
+    first_payload = rows[0].get("payload") or {}
+    totals = {
+        "reduced_count_total": _as_int(first_payload.get("reducedCount")),
+        "reducer_failures_total": _as_int(first_payload.get("reducerFailures")),
+        "tokens_saved_estimate_total": _as_int(first_payload.get("tokensSavedEstimateTotal")),
+        "fallback_to_artifact_total": _as_int(first_payload.get("fallbackToArtifactCount")),
+        "lifecycle": defaultdict(lambda: {"success_total": 0, "fail_total": 0}),
+    }
+
+    first_lifecycle = first_payload.get("lifecycle") if isinstance(first_payload.get("lifecycle"), dict) else {}
+    for fam, state in first_lifecycle.items():
+        item = state if isinstance(state, dict) else {}
+        totals["lifecycle"][fam]["success_total"] = _as_int(item.get("successes"))
+        totals["lifecycle"][fam]["fail_total"] = _as_int(item.get("failures"))
+
+    for i in range(1, len(rows)):
+        prev = rows[i - 1].get("payload") or {}
+        curr = rows[i].get("payload") or {}
+        totals["reduced_count_total"] += _monotonic_delta(_as_int(prev.get("reducedCount")), _as_int(curr.get("reducedCount")))
+        totals["reducer_failures_total"] += _monotonic_delta(
+            _as_int(prev.get("reducerFailures")),
+            _as_int(curr.get("reducerFailures")),
+        )
+        totals["tokens_saved_estimate_total"] += _monotonic_delta(
+            _as_int(prev.get("tokensSavedEstimateTotal")),
+            _as_int(curr.get("tokensSavedEstimateTotal")),
+        )
+        totals["fallback_to_artifact_total"] += _monotonic_delta(
+            _as_int(prev.get("fallbackToArtifactCount")),
+            _as_int(curr.get("fallbackToArtifactCount")),
+        )
+
+        prev_l = prev.get("lifecycle") if isinstance(prev.get("lifecycle"), dict) else {}
+        curr_l = curr.get("lifecycle") if isinstance(curr.get("lifecycle"), dict) else {}
+        for fam in set(prev_l) | set(curr_l):
+            ps = _as_int((prev_l.get(fam) or {}).get("successes"))
+            pf = _as_int((prev_l.get(fam) or {}).get("failures"))
+            cs = _as_int((curr_l.get(fam) or {}).get("successes"))
+            cf = _as_int((curr_l.get(fam) or {}).get("failures"))
+            totals["lifecycle"][fam]["success_total"] += _monotonic_delta(ps, cs)
+            totals["lifecycle"][fam]["fail_total"] += _monotonic_delta(pf, cf)
+
+    lifecycle_out = {k: dict(v) for k, v in sorted(totals["lifecycle"].items())}
+    return {
+        "reduced_count_total": totals["reduced_count_total"],
+        "reducer_failures_total": totals["reducer_failures_total"],
+        "tokens_saved_estimate_total": totals["tokens_saved_estimate_total"],
+        "fallback_to_artifact_total": totals["fallback_to_artifact_total"],
+        "lifecycle": lifecycle_out,
+    }
+
+
+def reducer_snapshot_freshness(
+    rows: list[dict[str, Any]],
+    now: datetime | None = None,
+    stale_after_minutes: int = 20,
+) -> dict[str, Any]:
+    """Return latest snapshot timestamp and stale indicator."""
+    if not rows:
+        return {"latest_snapshot_at": None, "stale": True}
+    latest_raw = rows[-1].get("captured_at")
+    latest = _parse_captured_at(latest_raw)
+    if latest is None:
+        return {"latest_snapshot_at": latest_raw if isinstance(latest_raw, str) else None, "stale": True}
+    ref = now if now is not None else datetime.now(UTC)
+    stale = (ref - latest) > timedelta(minutes=max(1, stale_after_minutes))
+    return {"latest_snapshot_at": latest.isoformat(), "stale": stale}
