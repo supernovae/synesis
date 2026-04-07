@@ -69,6 +69,8 @@ set -euo pipefail
 #   - SYNESIS_YARN_SORTED_TOOLS_ENABLED (default true) — deterministic tool ordering for cache.
 #   - SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED (default true) — evict stale tool results, dedup file reads, condense old assistant turns.
 #   - SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS (default 5), BUDGET_CHARS (120000), STUB_MAX_CHARS (400), ASSISTANT_CONDENSE_CHARS (2000).
+#   - SYNESIS_YARN_REQUEST_FORENSICS_ENABLED (default true via deploy.sh patch) — provider-boundary request forensics (LCP/first-change/breakdown).
+#   - SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD (default false) and MAX_PREVIEW_CHARS (default 4000) — optional payload preview capture.
 #
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
@@ -1194,6 +1196,9 @@ patch_yarn_debug_and_streams() {
     fi
 
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_DEBUG_PROTOCOL" "${SYNESIS_YARN_DEBUG_PROTOCOL:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REQUEST_FORENSICS_ENABLED" "${SYNESIS_YARN_REQUEST_FORENSICS_ENABLED:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD" "${SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD:-false}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS" "${SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS:-4000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_MAX_CONCURRENT_STREAMS" "${SYNESIS_YARN_MAX_CONCURRENT_STREAMS:-50}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH" "${SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH:-100}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS" "${SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS:-30000}" "$container"

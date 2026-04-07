@@ -137,6 +137,11 @@ import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.j
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
 import { buildDecisionSnapshot, snapshotToTraceFields, type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
 import {
+  buildRequestForensics,
+  withUsage as withForensicsUsage,
+  type RequestForensicsRecord,
+} from "./telemetry/request-forensics.js";
+import {
   analyzeGaps,
   shouldTriggerSensemaking,
   buildExplorationPlan,
@@ -609,6 +614,10 @@ interface RequestDiagnostic {
   contextAdmissionReason?: string;
   contextAdmissionEstimatedTokens?: number;
   contextAdmissionEstimatedChars?: number;
+  requestForensicsSummary?: string;
+  requestForensicsLcpRatio?: number;
+  requestForensicsFirstChangedSection?: string;
+  requestForensicsTokenEstimate?: number;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -643,6 +652,64 @@ const contextAdmissionStats = {
     claude: 0,
   },
 };
+const requestForensicsLastBySession = new Map<string, { requestId: string; serialized: string }>();
+
+function captureRequestForensics(
+  sessionKey: string,
+  requestId: string,
+  path: string,
+  providerModel: string,
+  stream: boolean,
+  messages: Array<{ role: string; content: unknown }>,
+  tools: unknown[] | undefined,
+  toolChoice: unknown,
+  providerOptions: unknown,
+): { record: RequestForensicsRecord; serialized: string } | null {
+  if (!config.SYNESIS_YARN_REQUEST_FORENSICS_ENABLED) return null;
+  const previous = requestForensicsLastBySession.get(sessionKey);
+  const built = buildRequestForensics({
+    providerModel,
+    path,
+    requestId,
+    stream,
+    messages,
+    tools,
+    toolChoice,
+    providerOptions,
+    previous,
+    capturePayload: config.SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD,
+    maxPreviewChars: config.SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS,
+  });
+  return built;
+}
+
+function finalizeRequestForensics(
+  session: SessionState,
+  requestId: string,
+  forensics: { record: RequestForensicsRecord; serialized: string } | null,
+  usage?: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number },
+): RequestForensicsRecord | undefined {
+  if (!forensics) return undefined;
+  const record = usage ? withForensicsUsage(forensics.record, usage) : forensics.record;
+  requestForensicsLastBySession.set(session.record.sessionKey, {
+    requestId,
+    serialized: forensics.serialized,
+  });
+  usageWriter.enqueueSessionEvent({
+    sessionKey: session.record.sessionKey,
+    requestId,
+    userId: session.record.userId,
+    orgId: session.record.orgId,
+    eventKind: "request_forensics_v1",
+    component: "yarn",
+    detail: record.summary.slice(0, 2048),
+    metadataJson: {
+      schema_version: "request_forensics_v1",
+      ...record,
+    },
+  });
+  return record;
+}
 
 function pushDiagnostic(d: RequestDiagnostic): void {
   diagnosticRing.push(d);
@@ -942,9 +1009,10 @@ function enrichWithFrameAndManifest(
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
   let detectedGoal: string | undefined;
+  const { stable: stableAdapterBlock, volatile: volatileAdapterBlock } = splitAdapterBlockForStability(adapterBlock);
 
   const partition = config.SYNESIS_YARN_STABLE_PREFIX_ENABLED
-    ? stablePrefixService.partition(sessionKey, adapterBlock, promptSnapshotRegistry, promptContext)
+    ? stablePrefixService.partition(sessionKey, stableAdapterBlock, promptSnapshotRegistry, promptContext)
     : {
       stablePrefix: "You are an AI coding assistant provided by Synesis.",
       prefixHash: "",
@@ -955,6 +1023,9 @@ function enrichWithFrameAndManifest(
   const systemPrefix = partition.stablePrefix;
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
+  if (volatileAdapterBlock) {
+    volatileBlocks.push({ role: "system", content: volatileAdapterBlock });
+  }
 
   const wfPathHints =
     config.SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME && pathHints
@@ -1087,6 +1158,22 @@ function phaseFromFrame(currentPhase: "explore" | "planning" | "implementation" 
   if (currentPhase === "planning") return "planning";
   if (currentPhase === "validation") return "validation";
   return "implementation";
+}
+
+function splitAdapterBlockForStability(adapterBlock?: string): { stable?: string; volatile?: string } {
+  if (!adapterBlock || !adapterBlock.trim()) return {};
+  const volatileLine = /^(git_|runtime=|session_id=|request_id=|project_root=|shell_cwd=|cwd=|pwd=|temp_|tmp_)/i;
+  const lines = adapterBlock.split("\n");
+  const stable: string[] = [];
+  const volatile: string[] = [];
+  for (const line of lines) {
+    if (volatileLine.test(line.trim())) volatile.push(line);
+    else stable.push(line);
+  }
+  return {
+    stable: stable.join("\n").trim() || undefined,
+    volatile: volatile.join("\n").trim() || undefined,
+  };
 }
 
 const TOOL_EFFICIENCY_GUIDANCE = `<TOOL_EFFICIENCY>
@@ -3729,19 +3816,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const oaiExplorationBlock = oaiSensemakingResult?.triggered ? formatExplorationPlanBlock(oaiSensemakingResult) : "";
   if (oaiExplorationBlock) {
-    const sysIdx = oaiEnrichedMsgs.findIndex((m) => m.role === "system");
-    if (sysIdx >= 0 && typeof oaiEnrichedMsgs[sysIdx].content === "string") {
-      oaiEnrichedMsgs[sysIdx] = { ...oaiEnrichedMsgs[sysIdx], content: `${oaiEnrichedMsgs[sysIdx].content}\n\n${oaiExplorationBlock}` };
-    } else {
-      oaiEnrichedMsgs.unshift({ role: "system", content: oaiExplorationBlock });
-    }
+    oaiEnrichedMsgs.push({ role: "system", content: oaiExplorationBlock });
   } else if (orchestration.uncertaintyFraming) {
-    const sysIdx = oaiEnrichedMsgs.findIndex((m) => m.role === "system");
-    if (sysIdx >= 0 && typeof oaiEnrichedMsgs[sysIdx].content === "string") {
-      oaiEnrichedMsgs[sysIdx] = { ...oaiEnrichedMsgs[sysIdx], content: `${oaiEnrichedMsgs[sysIdx].content}\n\n${orchestration.uncertaintyFraming}` };
-    } else {
-      oaiEnrichedMsgs.unshift({ role: "system", content: orchestration.uncertaintyFraming });
-    }
+    oaiEnrichedMsgs.push({ role: "system", content: orchestration.uncertaintyFraming });
   }
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
@@ -3806,12 +3883,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (blocks.length > 0) {
       const combined = blocks.join("\n\n");
       const msgs = normalizedRequest.messages as Array<{ role: string; content: unknown }>;
-      const sysIdx = msgs.findIndex((m) => m.role === "system");
-      if (sysIdx >= 0 && typeof msgs[sysIdx].content === "string") {
-        msgs[sysIdx] = { ...msgs[sysIdx], content: `${msgs[sysIdx].content}\n\n${combined}` };
-      } else {
-        msgs.unshift({ role: "system", content: combined });
-      }
+      // Keep early system prefix stable: append volatile evidence as a separate
+      // system message instead of mutating the first system block.
+      msgs.push({ role: "system", content: combined });
       normalizedRequest.messages = msgs as never;
     }
   }
@@ -3910,8 +3984,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const otelSpan = getTracer().startSpan("yarn.openai.generate", { model: resolved.resolvedModelId, sessionKey });
     const started = Date.now();
     let finalResult;
+    let lastOpenAiForensics: RequestForensicsRecord | undefined;
     try {
       let currentMessages = modelMessages;
+      const firstForensics = captureRequestForensics(
+        sessionKey,
+        reqId,
+        "/v1/chat/completions",
+        resolved.resolvedModelId,
+        false,
+        currentMessages as Array<{ role: string; content: unknown }>,
+        effectiveTools as unknown[],
+        sdkToolChoice,
+        adapterProviderOptions,
+      );
       finalResult = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
@@ -3920,6 +4006,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
       });
+      const firstUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
+      lastOpenAiForensics = finalizeRequestForensics(session, reqId, firstForensics, firstUsage);
 
       const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME, DEV_DOCS_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_ALIAS]);
       for (let round = 0; round < 3; round++) {
@@ -3994,6 +4082,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
           { role: "tool", content: toolResults } as never
         ];
 
+        const loopForensics = captureRequestForensics(
+          sessionKey,
+          reqId,
+          "/v1/chat/completions",
+          resolved.resolvedModelId,
+          false,
+          currentMessages as Array<{ role: string; content: unknown }>,
+          effectiveTools as unknown[],
+          sdkToolChoice,
+          adapterProviderOptions,
+        );
         finalResult = await generateText({
           model: resolved.model as never,
           messages: currentMessages,
@@ -4001,6 +4100,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
         });
+        const loopUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
+        lastOpenAiForensics = finalizeRequestForensics(session, reqId, loopForensics, loopUsage);
       }
     } catch (err) {
       const upstream = extractUpstreamErrorDiagnostics(err);
@@ -4340,6 +4441,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       contextAdmissionReason: oaiContextAdmission.reason,
       contextAdmissionEstimatedTokens: oaiContextAdmission.estimatedTokens,
       contextAdmissionEstimatedChars: oaiContextAdmission.estimatedChars,
+      requestForensicsSummary: lastOpenAiForensics?.summary,
+      requestForensicsLcpRatio: lastOpenAiForensics?.lcpRatio,
+      requestForensicsFirstChangedSection: lastOpenAiForensics?.firstChangedSection,
+      requestForensicsTokenEstimate: lastOpenAiForensics?.tokenEstimate,
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalAssistantText };
@@ -4375,6 +4480,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const otelStreamSpan = getTracer().startSpan("yarn.openai.stream", { model: resolved.resolvedModelId, sessionKey });
   const started = Date.now();
+  const openAiStreamForensics = captureRequestForensics(
+    sessionKey,
+    reqId,
+    "/v1/chat/completions (stream)",
+    resolved.resolvedModelId,
+    true,
+    modelMessages as Array<{ role: string; content: unknown }>,
+    effectiveTools as unknown[],
+    sdkToolChoice,
+    adapterProviderOptions,
+  );
   const streamed = streamText({
     model: resolved.model as never,
     messages: modelMessages,
@@ -4794,6 +4910,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.history.push({ role: "assistant", content: streamedText });
   }
   const oaiStreamLatency = Date.now() - started;
+  const openAiStreamForensicsDone = finalizeRequestForensics(session, reqId, openAiStreamForensics, oaiStreamUsage);
   const oaiStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
   const lastRecallOaiStream = toolResultReduction.getLastRecallDecision();
   const vStateOaiStream = toolResultReduction.getVerificationTracker().getState();
@@ -4860,15 +4977,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
     promptProfileHashes: oaiEnriched.promptProfileHashes,
     prefixHash: oaiEnriched.prefixHash,
     prefixChangeReasons: oaiEnriched.prefixChangeReasons,
-      completionGateApplied: oaiStreamGateApplied || undefined,
-      missingMustRequirements: oaiStreamMissingMust || undefined,
-      missingShouldRequirements: oaiStreamMissingShould || undefined,
-      requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
-      requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
-      contextAdmissionDecision: oaiContextAdmission.decision,
-      contextAdmissionReason: oaiContextAdmission.reason,
+    completionGateApplied: oaiStreamGateApplied || undefined,
+    missingMustRequirements: oaiStreamMissingMust || undefined,
+    missingShouldRequirements: oaiStreamMissingShould || undefined,
+    requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
+    requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
+    contextAdmissionDecision: oaiContextAdmission.decision,
+    contextAdmissionReason: oaiContextAdmission.reason,
       contextAdmissionEstimatedTokens: oaiContextAdmission.estimatedTokens,
-      contextAdmissionEstimatedChars: oaiContextAdmission.estimatedChars,
+    contextAdmissionEstimatedChars: oaiContextAdmission.estimatedChars,
+    requestForensicsSummary: openAiStreamForensicsDone?.summary,
+    requestForensicsLcpRatio: openAiStreamForensicsDone?.lcpRatio,
+    requestForensicsFirstChangedSection: openAiStreamForensicsDone?.firstChangedSection,
+    requestForensicsTokenEstimate: openAiStreamForensicsDone?.tokenEstimate,
   });
   return reply;
 });
@@ -5319,19 +5440,9 @@ app.post("/v1/messages", async (req, reply) => {
 
   const claudeExplorationBlock = claudeSensemakingResult?.triggered ? formatExplorationPlanBlock(claudeSensemakingResult) : "";
   if (claudeExplorationBlock) {
-    const sysIdx = enrichedClaudeMsgs.findIndex((m) => m.role === "system");
-    if (sysIdx >= 0 && typeof enrichedClaudeMsgs[sysIdx].content === "string") {
-      enrichedClaudeMsgs[sysIdx] = { ...enrichedClaudeMsgs[sysIdx], content: `${enrichedClaudeMsgs[sysIdx].content}\n\n${claudeExplorationBlock}` };
-    } else {
-      enrichedClaudeMsgs.unshift({ role: "system", content: claudeExplorationBlock });
-    }
+    enrichedClaudeMsgs.push({ role: "system", content: claudeExplorationBlock });
   } else if (claudeOrchestration.uncertaintyFraming) {
-    const sysIdx = enrichedClaudeMsgs.findIndex((m) => m.role === "system");
-    if (sysIdx >= 0 && typeof enrichedClaudeMsgs[sysIdx].content === "string") {
-      enrichedClaudeMsgs[sysIdx] = { ...enrichedClaudeMsgs[sysIdx], content: `${enrichedClaudeMsgs[sysIdx].content}\n\n${claudeOrchestration.uncertaintyFraming}` };
-    } else {
-      enrichedClaudeMsgs.unshift({ role: "system", content: claudeOrchestration.uncertaintyFraming });
-    }
+    enrichedClaudeMsgs.push({ role: "system", content: claudeOrchestration.uncertaintyFraming });
   }
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
@@ -5583,6 +5694,17 @@ app.post("/v1/messages", async (req, reply) => {
         ];
       }
 
+      const claudeNonStreamForensics = captureRequestForensics(
+        claudeSessionKey,
+        reqId,
+        "/v1/messages",
+        resolved.resolvedModelId,
+        false,
+        currentMessages as Array<{ role: string; content: unknown }>,
+        effectiveClaudeTools as unknown[],
+        sdkToolChoice,
+        providerOptions,
+      );
       const finalResult = streamedResult ?? await generateText({
         model: resolved.model as never,
         messages: currentMessages,
@@ -5595,6 +5717,7 @@ app.post("/v1/messages", async (req, reply) => {
       });
 
       const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
+      const claudeNonStreamForensicsDone = finalizeRequestForensics(session, reqId, claudeNonStreamForensics, usage);
       const msgId = `msg_${crypto.randomUUID()}`;
       let idx = 0;
       let stopReason = "end_turn";
@@ -5698,6 +5821,28 @@ app.post("/v1/messages", async (req, reply) => {
         usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
       });
       safeSse(reply, "message_stop", { type: "message_stop" });
+      pushDiagnostic({
+        timestamp: Date.now(),
+        sessionKey: claudeSessionKey,
+        path: "/v1/messages",
+        requestId: reqId,
+        ...countMessageRoles(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>),
+        toolDefinitionCount: effectiveClaudeTools.length,
+        artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+        knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
+        reducedToolResults: claudeToolResultCount,
+        finishReason: stopReason,
+        tokensIn: usage.inputTokens,
+        tokensOut: usage.outputTokens,
+        policyDecision: claudePolicyPrecheck.matchedRules.join(","),
+        latencyMs: Date.now() - started,
+        decisionPath: claudeOrchestration.decisionPath,
+        decisionEscalated: claudeOrchestration.escalated || undefined,
+        requestForensicsSummary: claudeNonStreamForensicsDone?.summary,
+        requestForensicsLcpRatio: claudeNonStreamForensicsDone?.lcpRatio,
+        requestForensicsFirstChangedSection: claudeNonStreamForensicsDone?.firstChangedSection,
+        requestForensicsTokenEstimate: claudeNonStreamForensicsDone?.tokenEstimate,
+      });
       safeEnd(reply.raw);
       return reply;
     }
@@ -5721,6 +5866,17 @@ app.post("/v1/messages", async (req, reply) => {
     }
     const claudeStreamSpan = getTracer().startSpan("yarn.claude.stream", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
     const started = Date.now();
+    const claudeStreamForensics = captureRequestForensics(
+      claudeSessionKey,
+      traceReqId,
+      "/v1/messages (stream)",
+      resolved.resolvedModelId,
+      true,
+      claudeModelMessages as Array<{ role: string; content: unknown }>,
+      effectiveClaudeTools as unknown[],
+      sdkToolChoice,
+      providerOptions,
+    );
     const streamed = streamText({
       model: resolved.model as never,
       messages: claudeModelMessages,
@@ -6192,6 +6348,7 @@ app.post("/v1/messages", async (req, reply) => {
 
     let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
     try { usage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
+    const claudeStreamForensicsDone = finalizeRequestForensics(session, reqId, claudeStreamForensics, usage);
     safeSse(reply, "message_delta", {
       type: "message_delta",
       delta: { stop_reason: stopReason },
@@ -6314,6 +6471,10 @@ app.post("/v1/messages", async (req, reply) => {
       contextAdmissionReason: claudeContextAdmission.reason,
       contextAdmissionEstimatedTokens: claudeContextAdmission.estimatedTokens,
       contextAdmissionEstimatedChars: claudeContextAdmission.estimatedChars,
+      requestForensicsSummary: claudeStreamForensicsDone?.summary,
+      requestForensicsLcpRatio: claudeStreamForensicsDone?.lcpRatio,
+      requestForensicsFirstChangedSection: claudeStreamForensicsDone?.firstChangedSection,
+      requestForensicsTokenEstimate: claudeStreamForensicsDone?.tokenEstimate,
     });
     return reply;
   }
@@ -6330,9 +6491,21 @@ app.post("/v1/messages", async (req, reply) => {
   const started = Date.now();
   const claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[] = [];
   let result: Awaited<ReturnType<typeof generateText>> | null = null;
+  let lastClaudeNonStreamForensics: RequestForensicsRecord | undefined;
   try {
     let currentMessages = claudeModelMessages;
     for (let round = 0; round < 3; round++) {
+      const roundForensics = captureRequestForensics(
+        claudeSessionKey,
+        reqId,
+        "/v1/messages",
+        resolved.resolvedModelId,
+        false,
+        currentMessages as Array<{ role: string; content: unknown }>,
+        effectiveClaudeTools as unknown[],
+        sdkToolChoice,
+        providerOptions,
+      );
       result = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
@@ -6343,6 +6516,8 @@ app.post("/v1/messages", async (req, reply) => {
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
         ...(providerOptions ? { providerOptions: providerOptions as never } : {})
       });
+      const roundUsage = readUsage((result as unknown as { usage?: unknown }).usage);
+      lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, roundForensics, roundUsage);
 
       const allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
       const serverCalls = claudeNativeWebSearchRequested
@@ -6707,6 +6882,10 @@ app.post("/v1/messages", async (req, reply) => {
     contextAdmissionReason: claudeContextAdmission.reason,
     contextAdmissionEstimatedTokens: claudeContextAdmission.estimatedTokens,
     contextAdmissionEstimatedChars: claudeContextAdmission.estimatedChars,
+    requestForensicsSummary: lastClaudeNonStreamForensics?.summary,
+    requestForensicsLcpRatio: lastClaudeNonStreamForensics?.lcpRatio,
+    requestForensicsFirstChangedSection: lastClaudeNonStreamForensics?.firstChangedSection,
+    requestForensicsTokenEstimate: lastClaudeNonStreamForensics?.tokenEstimate,
   });
 
   const content: Array<Record<string, unknown>> = [];

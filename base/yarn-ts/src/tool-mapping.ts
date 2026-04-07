@@ -1,5 +1,6 @@
 import { jsonSchema } from "ai";
 import type { ToolSet, Tool, ModelMessage } from "ai";
+import { stableJsonStringify } from "./compat/sorted-tools.js";
 
 interface OpenAIChatMessage {
   role: string;
@@ -56,7 +57,7 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
         if (!id) {
           if (availableEmptyToolMessages > 0) {
             availableEmptyToolMessages--;
-            id = `call_synth_${++synthCounter}_${Date.now().toString(36)}`;
+            id = `call_synth_${++synthCounter}`;
             pendingEmptyIdQueue.push(id);
             changed = true;
           } else {
@@ -180,7 +181,7 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
         break;
       }
       case "tool": {
-        const resultContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+        const resultContent = typeof m.content === "string" ? m.content : stableJsonStringify(m.content ?? "");
         out.push({
           role: "tool",
           content: [{
@@ -227,7 +228,8 @@ interface ClaudeContentBlock {
 export function openAIToolsToSDK(tools: OpenAITool[] | undefined): ToolSet | undefined {
   if (!tools || tools.length === 0) return undefined;
   const out: ToolSet = {};
-  for (const t of tools) {
+  const ordered = [...tools].sort((a, b) => String(a.function?.name ?? "").localeCompare(String(b.function?.name ?? "")));
+  for (const t of ordered) {
     const fn = t.function;
     if (!fn?.name) continue;
     out[fn.name] = {
@@ -241,7 +243,8 @@ export function openAIToolsToSDK(tools: OpenAITool[] | undefined): ToolSet | und
 export function claudeToolsToSDK(tools: ClaudeTool[] | undefined): ToolSet | undefined {
   if (!tools || tools.length === 0) return undefined;
   const out: ToolSet = {};
-  for (const t of tools) {
+  const ordered = [...tools].sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+  for (const t of ordered) {
     if (!t.name) continue;
     out[t.name] = {
       description: t.description ?? "",

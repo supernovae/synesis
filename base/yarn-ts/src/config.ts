@@ -456,6 +456,15 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_REQUEST_FORENSICS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS: z.coerce.number().default(4000),
 
   // Session execution context — project_root / shell_cwd in WORKING_FRAME
   SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME: z

@@ -1,3 +1,5 @@
+import { normalizeCommandOutputForComparison } from "./output-normalization.js";
+
 /**
  * Transcript Pruning Service
  *
@@ -387,7 +389,8 @@ function extractToolCallCommands(messages: MessageLike[]): Map<string, string> {
  * that outputs differing only in timestamps or run counts still match.
  */
 function contentFingerprint(raw: string): string {
-  const lines = raw.split("\n");
+  const normalized = normalizeCommandOutputForComparison(raw);
+  const lines = normalized.split("\n");
   const sampled: string[] = [];
   const step = Math.max(1, Math.floor(lines.length / 20));
   for (let i = 0; i < lines.length; i += step) {
