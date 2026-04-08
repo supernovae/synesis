@@ -103,6 +103,12 @@ import {
 } from "./tool-collapse/index.js";
 import { applyDiscoveryGuardrails } from "./tool-collapse/discovery-guardrails.js";
 import { normalizeClaudeStreamStopReason, normalizeOpenAIStreamFinishReason } from "./tool-collapse/stream-stop-normalizer.js";
+import {
+  buildBlockedDiscoveryGuidance,
+  buildBlockedDiscoveryRecoveryWithSnapshot,
+  buildBlockedDiscoveryRecoveryWithoutSnapshot,
+  type BlockedDiscoveryDetail,
+} from "./tool-collapse/blocked-discovery-recovery.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { synesisPolicyErrorExtension } from "./policy/policy-error-extension.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
@@ -173,78 +179,75 @@ type SessionState = {
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
 
-function modelFamilyLabelForGuidance(family: string): string {
-  const lower = family.toLowerCase();
-  if (lower.includes("qwen")) return "qwen";
-  if (lower.includes("kimi")) return "kimi";
-  if (lower.includes("minimax")) return "minimax";
-  if (lower.includes("deepseek")) return "deepseek";
-  return "default";
-}
-
-function buildBlockedDiscoveryGuidance(
-  family: string,
-  blocked: Array<{ toolName: string; reason: string }>,
-): string {
-  const label = modelFamilyLabelForGuidance(family);
-  const reasons = blocked.map((b) => `${b.toolName}:${b.reason}`).join(",");
-  return [
-    "<SYNESIS_TOOL_GUARDRAIL status=\"blocked\" code=\"root_wildcard_glob\" version=\"1\">",
-    `family=${label}`,
-    `startup_policy=${label === "minimax" ? "minimax_constrained_discovery" : "default_constrained_discovery"}`,
-    `blocked=${blocked.length}`,
-    `reasons=${reasons}`,
-    "next_action=list_dir:.|glob:src/*|search_code:<symbol>",
-    "message=Root-level wildcard globs are disabled for performance. Use list_dir on project root, then scope glob/search to a subfolder.",
-    "</SYNESIS_TOOL_GUARDRAIL>",
-  ].join("\n");
-}
-
 type DiscoveryRecoverySnapshot = {
   text: string;
   entryCount: number;
   usedTopLevelSnapshot: boolean;
+  recoveryMode: "top_level_snapshot" | "no_project_root" | "root_empty" | "snapshot_io_error";
 };
+
+function blockedInputPreview(input: unknown): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const row = input as Record<string, unknown>;
+  const trimmed: Record<string, unknown> = {};
+  for (const key of ["glob_pattern", "pattern", "glob", "query", "path", "directory", "dir"]) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) trimmed[key] = value.trim().slice(0, 80);
+  }
+  const keys = Object.keys(trimmed);
+  if (keys.length === 0) return undefined;
+  return JSON.stringify(trimmed);
+}
 
 async function buildBlockedDiscoveryRecoverySnapshot(
   family: string,
-  blocked: Array<{ toolName: string; reason: string }>,
+  blocked: BlockedDiscoveryDetail[],
   projectRoot: string | null | undefined,
 ): Promise<DiscoveryRecoverySnapshot> {
   const base = buildBlockedDiscoveryGuidance(family, blocked);
   const safeRoot = typeof projectRoot === "string" ? projectRoot.trim() : "";
   if (!safeRoot) {
-    return { text: base, entryCount: 0, usedTopLevelSnapshot: false };
+    return {
+      text: buildBlockedDiscoveryRecoveryWithoutSnapshot(base, "no_project_root"),
+      entryCount: 0,
+      usedTopLevelSnapshot: false,
+      recoveryMode: "no_project_root",
+    };
   }
   try {
     const entries = await readdir(safeRoot, { withFileTypes: true });
     const normalized = entries
-      .map((entry) => ({ name: entry.name, kind: entry.isDirectory() ? "dir" : "file" }))
+      .map((entry): { name: string; kind: "dir" | "file" } => ({
+        name: entry.name,
+        kind: entry.isDirectory() ? "dir" : "file",
+      }))
       .filter((entry) => entry.name && !entry.name.startsWith("."))
       .sort((a, b) => {
         if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-    const preview = normalized.slice(0, 20);
-    if (preview.length === 0) {
-      return { text: base, entryCount: 0, usedTopLevelSnapshot: false };
+    if (normalized.length === 0) {
+      return {
+        text: buildBlockedDiscoveryRecoveryWithoutSnapshot(base, "root_empty"),
+        entryCount: 0,
+        usedTopLevelSnapshot: false,
+        recoveryMode: "root_empty",
+      };
     }
-    const previewLines = preview.map((entry) => `- ${entry.kind}:${entry.name}`);
+    const withPreview = buildBlockedDiscoveryRecoveryWithSnapshot(base, normalized);
     return {
-      text: [
-        base,
-        "<SYNESIS_DISCOVERY_RECOVERY status=\"guided\" code=\"top_level_snapshot\" version=\"1\">",
-        `entries_total=${normalized.length}`,
-        `entries_preview=${preview.length}`,
-        "message=Use list_dir on one of these directories, then use search_code with a symbol or error string.",
-        ...previewLines,
-        "</SYNESIS_DISCOVERY_RECOVERY>",
-      ].join("\n"),
-      entryCount: preview.length,
+      text: withPreview.text,
+      entryCount: withPreview.previewCount,
       usedTopLevelSnapshot: true,
+      recoveryMode: "top_level_snapshot",
     };
   } catch {
-    return { text: base, entryCount: 0, usedTopLevelSnapshot: false };
+    return {
+      text: buildBlockedDiscoveryRecoveryWithoutSnapshot(base, "snapshot_io_error"),
+      entryCount: 0,
+      usedTopLevelSnapshot: false,
+      recoveryMode: "snapshot_io_error",
+    };
   }
 }
 
@@ -254,14 +257,19 @@ function applyDiscoveryToolGuardrail(
   calls: GuardrailToolCall[];
   blockedCount: number;
   collapsedCount: number;
-  blockedDetails: Array<{ toolName: string; reason: string }>;
+  blockedDetails: BlockedDiscoveryDetail[];
 } {
   const guarded = applyDiscoveryGuardrails(calls);
+  const callById = new Map(calls.map((call) => [call.toolCallId, call]));
   return {
     calls: guarded.calls as GuardrailToolCall[],
     blockedCount: guarded.blocked.length,
     collapsedCount: guarded.collapsed.length,
-    blockedDetails: guarded.blocked.map((b) => ({ toolName: b.toolName, reason: b.reason })),
+    blockedDetails: guarded.blocked.map((b) => ({
+      toolName: b.toolName,
+      reason: b.reason,
+      argsPreview: blockedInputPreview(callById.get(b.toolCallId)?.input),
+    })),
   };
 }
 
@@ -4684,18 +4692,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "tool-guardrails",
         `blocked=${oaiBlockedBroadDiscovery}`,
         reqId,
+        { blockedDetails: oaiGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
       );
-      if (recovery.usedTopLevelSnapshot) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "blocked_broad_discovery_then_recovery",
-          "tool-guardrails",
-          `top_level_preview=${recovery.entryCount}`,
-          reqId,
-        );
-      }
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "blocked_broad_discovery_then_recovery",
+        "tool-guardrails",
+        `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
+        reqId,
+        { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
+      );
     }
     if (oaiCollapsedBroadDiscovery > 0) {
       recordSessionEvent(
@@ -4797,18 +4805,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "tool-guardrails",
         `blocked=${oaiLegacyGuarded.blockedCount}`,
         reqId,
+        { blockedDetails: oaiLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
       );
-      if (recovery.usedTopLevelSnapshot) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "blocked_broad_discovery_then_recovery",
-          "tool-guardrails",
-          `top_level_preview=${recovery.entryCount}`,
-          reqId,
-        );
-      }
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "blocked_broad_discovery_then_recovery",
+        "tool-guardrails",
+        `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
+        reqId,
+        { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
+      );
     }
     if (oaiLegacyGuarded.collapsedCount > 0) {
       oaiCollapsedBroadDiscovery += oaiLegacyGuarded.collapsedCount;
@@ -5097,8 +5105,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
   const pendingTextDeltas: string[] = [];
   const oaiStreamGuardrailAccepted: GuardrailToolCall[] = [];
+  const oaiStreamBlockedDetails: BlockedDiscoveryDetail[] = [];
   let oaiStreamEmittedToolCalls = 0;
   let oaiStreamRecoveryPreviewEntries = 0;
+  let oaiStreamRecoveryMode: DiscoveryRecoverySnapshot["recoveryMode"] | null = null;
   let oaiStreamBlockedBroadDiscovery = 0;
   let oaiStreamCollapsedBroadDiscovery = 0;
   let oaiStreamGateApplied = false;
@@ -5232,7 +5242,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
                 streamGuarded.blockedDetails,
                 effectiveOaiPathCtx.projectRoot,
               );
+              oaiStreamBlockedDetails.push(...streamGuarded.blockedDetails);
               oaiStreamRecoveryPreviewEntries += recovery.entryCount;
+              oaiStreamRecoveryMode = recovery.recoveryMode;
               flushOpenAIText(`\n${recovery.text}\n`);
             }
             continue;
@@ -5295,18 +5307,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "tool-guardrails",
         `blocked=${oaiStreamBlockedBroadDiscovery}`,
         reqId,
+        {
+          blockedDetails: oaiStreamBlockedDetails.slice(0, 5),
+          recoveryMode: oaiStreamRecoveryMode,
+          topLevelPreview: oaiStreamRecoveryPreviewEntries,
+        },
       );
-      if (oaiStreamRecoveryPreviewEntries > 0) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "blocked_broad_discovery_then_recovery",
-          "tool-guardrails",
-          `top_level_preview=${oaiStreamRecoveryPreviewEntries}`,
-          reqId,
-        );
-      }
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "blocked_broad_discovery_then_recovery",
+        "tool-guardrails",
+        `mode=${oaiStreamRecoveryMode ?? "unknown"};top_level_preview=${oaiStreamRecoveryPreviewEntries}`,
+        reqId,
+        { recoveryMode: oaiStreamRecoveryMode, topLevelPreview: oaiStreamRecoveryPreviewEntries },
+      );
     }
     if (oaiStreamCollapsedBroadDiscovery > 0) {
       recordSessionEvent(
@@ -6621,8 +6637,10 @@ app.post("/v1/messages", async (req, reply) => {
     const pendingClaudeTextDeltas: string[] = [];
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
     const claudeStreamGuardrailAccepted: GuardrailToolCall[] = [];
+    const claudeStreamBlockedDetails: BlockedDiscoveryDetail[] = [];
     let claudeStreamEmittedToolCalls = 0;
     let claudeStreamRecoveryPreviewEntries = 0;
+    let claudeStreamRecoveryMode: DiscoveryRecoverySnapshot["recoveryMode"] | null = null;
     let claudeStreamBlockedBroadDiscovery = 0;
     let claudeStreamCollapsedBroadDiscovery = 0;
     const claudeStreamToolSequence: string[] = [];
@@ -6838,7 +6856,9 @@ app.post("/v1/messages", async (req, reply) => {
                 streamGuarded.blockedDetails,
                 effectiveClaudePathCtx.projectRoot,
               );
+              claudeStreamBlockedDetails.push(...streamGuarded.blockedDetails);
               claudeStreamRecoveryPreviewEntries += recovery.entryCount;
+              claudeStreamRecoveryMode = recovery.recoveryMode;
               safeSse(reply, "content_block_start", {
                 type: "content_block_start",
                 index: blockIdx,
@@ -6903,18 +6923,22 @@ app.post("/v1/messages", async (req, reply) => {
           "tool-guardrails",
           `blocked=${claudeStreamBlockedBroadDiscovery}`,
           traceReqId,
+          {
+            blockedDetails: claudeStreamBlockedDetails.slice(0, 5),
+            recoveryMode: claudeStreamRecoveryMode,
+            topLevelPreview: claudeStreamRecoveryPreviewEntries,
+          },
         );
-        if (claudeStreamRecoveryPreviewEntries > 0) {
-          recordSessionEvent(
-            claudeSessionKey,
-            claudeIdentity.userId,
-            claudeIdentity.orgId,
-            "blocked_broad_discovery_then_recovery",
-            "tool-guardrails",
-            `top_level_preview=${claudeStreamRecoveryPreviewEntries}`,
-            traceReqId,
-          );
-        }
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "blocked_broad_discovery_then_recovery",
+          "tool-guardrails",
+          `mode=${claudeStreamRecoveryMode ?? "unknown"};top_level_preview=${claudeStreamRecoveryPreviewEntries}`,
+          traceReqId,
+          { recoveryMode: claudeStreamRecoveryMode, topLevelPreview: claudeStreamRecoveryPreviewEntries },
+        );
       }
       if (claudeStreamCollapsedBroadDiscovery > 0) {
         recordSessionEvent(
@@ -7507,18 +7531,18 @@ app.post("/v1/messages", async (req, reply) => {
       "tool-guardrails",
       `blocked=${claudeBlockedBroadDiscovery}`,
       reqId,
+      { blockedDetails: claudeGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
     );
-    if (recovery.usedTopLevelSnapshot) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "blocked_broad_discovery_then_recovery",
-        "tool-guardrails",
-        `top_level_preview=${recovery.entryCount}`,
-        reqId,
-      );
-    }
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "blocked_broad_discovery_then_recovery",
+      "tool-guardrails",
+      `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
+      reqId,
+      { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
+    );
   }
   if (claudeCollapsedBroadDiscovery > 0) {
     recordSessionEvent(
@@ -7583,18 +7607,18 @@ app.post("/v1/messages", async (req, reply) => {
       "tool-guardrails",
       `blocked=${claudeLegacyGuarded.blockedCount}`,
       reqId,
+      { blockedDetails: claudeLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
     );
-    if (recovery.usedTopLevelSnapshot) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "blocked_broad_discovery_then_recovery",
-        "tool-guardrails",
-        `top_level_preview=${recovery.entryCount}`,
-        reqId,
-      );
-    }
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "blocked_broad_discovery_then_recovery",
+      "tool-guardrails",
+      `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
+      reqId,
+      { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
+    );
   }
   if (claudeLegacyGuarded.collapsedCount > 0) {
     recordSessionEvent(
