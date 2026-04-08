@@ -1637,6 +1637,15 @@ export function buildApp(config: AppConfig): FastifyInstance {
         if (usedDirectPath) {
           finalState = directState;
         } else {
+          if (isSseWritable(reply.raw)) {
+            writeReasoningDelta(reply.raw, {
+              id: completionId,
+              created,
+              model: responseModel,
+              reasoning_content: "[Planning and gathering evidence — this may take a little while]\n",
+              system_fingerprint: SYSTEM_FINGERPRINT,
+            });
+          }
           for await (const event of streamGraph(initialState, writerDeltaHandler)) {
             if (!isSseWritable(reply.raw)) break;
             finalState = event.state;

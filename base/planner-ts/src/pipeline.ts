@@ -721,7 +721,7 @@ export async function directStreamPipeline(
     state.force_live_web ||
     (!state.task_is_trivial && state.rag_mode !== "disabled")
   ) {
-    return input;
+    return state;
   }
 
   collector.startSpan("writer");
