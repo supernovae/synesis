@@ -1365,8 +1365,9 @@ function enrichWithFrameAndManifest(
       promptProfileHashes: [],
     };
   let systemPrefix = partition.stablePrefix;
-  if (topLevelDirs && topLevelDirs.length > 0 && pathHints?.projectRoot) {
-    systemPrefix += `\n<PROJECT_ROOT path="${pathHints.projectRoot}" dirs="${topLevelDirs.join(",")}" />`;
+  const effectiveRoot = pathHints?.projectRoot ?? pathHints?.shellCwd;
+  if (topLevelDirs && topLevelDirs.length > 0 && effectiveRoot) {
+    systemPrefix += `\n<PROJECT_ROOT path="${effectiveRoot}" dirs="${topLevelDirs.join(",")}" />`;
   }
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
@@ -4417,7 +4418,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     role: oaiRole,
     modelFamily: inferModelFamily(oaiBackendModel),
   };
-  const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot);
+  const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
   const oaiEnriched = enrichWithFrameAndManifest(
     normalizedOpenAI.messages as never,
     sessionKey,
@@ -4829,7 +4830,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     let oaiBlockedBroadDiscovery = 0;
     let oaiRedirectedBroadDiscovery = 0;
     let oaiCollapsedBroadDiscovery = 0;
-    const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot);
+    const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
     const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
     externalToolCalls = oaiGuarded.calls;
     oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
@@ -5406,7 +5407,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             toolName: governed.toolName,
             input: governed.input,
           };
-          const oaiStreamTopDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot);
+          const oaiStreamTopDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
           const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall], oaiStreamTopDirs);
           if (streamGuarded.redirectedCount > 0) {
             oaiStreamBlockedBroadDiscovery += streamGuarded.redirectedCount;
@@ -6369,7 +6370,7 @@ app.post("/v1/messages", async (req, reply) => {
     role: claudeRole,
     modelFamily: inferModelFamily(claudeBackendModel),
   };
-  const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot);
+  const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
   const claudeEnriched = enrichWithFrameAndManifest(
     normalizedFromClaude.messages as never,
     claudeSessionKey,
@@ -7082,7 +7083,7 @@ app.post("/v1/messages", async (req, reply) => {
             toolName: emitToolName,
             input: finalInput,
           };
-          const claudeStreamTopDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot);
+          const claudeStreamTopDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
           const streamGuarded = applyDiscoveryToolGuardrail([...claudeStreamGuardrailAccepted, candidateCall], claudeStreamTopDirs);
           if (streamGuarded.redirectedCount > 0) {
             claudeStreamBlockedBroadDiscovery += streamGuarded.redirectedCount;
@@ -7760,7 +7761,7 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeBlockedBroadDiscovery = 0;
   let claudeRedirectedBroadDiscovery = 0;
   let claudeCollapsedBroadDiscovery = 0;
-  const claudeTopLevelDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot);
+  const claudeTopLevelDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
   const claudeGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
   externalClaudeToolCalls = claudeGuarded.calls;
   claudeBlockedBroadDiscovery = claudeGuarded.blockedCount;

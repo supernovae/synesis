@@ -78,10 +78,10 @@ describe("discovery-guardrails", () => {
     expect(out.redirected[0]?.redirectedPattern).toBe("frontend/*");
   });
 
-  it("falls back to * when no topLevelDirs provided", () => {
+  it("falls back to . when no topLevelDirs provided", () => {
     const out = applyDiscoveryGuardrails(
       [{ toolCallId: "1", toolName: "glob", input: { glob_pattern: "" } }],
     );
-    expect(out.redirected[0]?.redirectedPattern).toBe("*");
+    expect(out.redirected[0]?.redirectedPattern).toBe(".");
   });
 });

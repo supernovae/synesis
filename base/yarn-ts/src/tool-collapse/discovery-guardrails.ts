@@ -96,7 +96,7 @@ export function emptyGlobPatternGuidanceMessage(): string {
   ].join(" ");
 }
 
-const DEFAULT_REDIRECT_PATTERN = "*";
+const DEFAULT_REDIRECT_PATTERN = ".";
 
 function rewriteGlobInput(input: unknown, newPattern: string): unknown {
   const row = asRecord(input);

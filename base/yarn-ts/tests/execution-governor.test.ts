@@ -98,15 +98,43 @@ describe("execution governor", () => {
     const messages = [
       assistantCall("1", "Glob", { glob_pattern: "*" }),
       toolResult("1", "200 files"),
-      assistantCall("2", "Glob", { glob_pattern: "*" }),
-      toolResult("2", "200 files"),
+      assistantCall("2", "read", { filePath: "README.md" }),
+      toolResult("2", "# README"),
+      assistantCall("3", "Glob", { glob_pattern: "*" }),
+      toolResult("3", "200 files"),
+      assistantCall("4", "read", { filePath: "go.mod" }),
+      toolResult("4", "module foo"),
+      assistantCall("5", "Glob", { glob_pattern: "*" }),
+      toolResult("5", "200 files"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(false);
-    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(2);
+    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(3);
   });
 
-  it("fires broad_discovery_repeat on 3 total non-consecutive broad calls", () => {
+  it("ages out old broad discovery calls outside the sliding window", () => {
+    const messages = [
+      assistantCall("1", "Glob", { glob_pattern: "*" }),
+      toolResult("1", "200 files"),
+      assistantCall("2", "read", { filePath: "README.md" }),
+      toolResult("2", "# README"),
+      assistantCall("3", "Glob", { glob_pattern: "*" }),
+      toolResult("3", "200 files"),
+      assistantCall("4", "read", { filePath: "go.mod" }),
+      toolResult("4", "module foo"),
+      assistantCall("5", "Glob", { glob_pattern: "*" }),
+      toolResult("5", "200 files"),
+    ];
+    for (let i = 6; i <= 28; i++) {
+      messages.push(assistantCall(String(i), "Bash", { command: `go test ./pkg${i}` }));
+      messages.push(toolResult(String(i), "ok"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(0);
+  });
+
+  it("fires broad_discovery_repeat on 4 total non-consecutive broad calls (sliding window)", () => {
     const messages = [
       assistantCall("1", "Glob", { glob_pattern: "*" }),
       toolResult("1", "200 files"),
@@ -116,11 +144,13 @@ describe("execution governor", () => {
       toolResult("3", "200 files"),
       assistantCall("4", "Glob", { glob_pattern: "*" }),
       toolResult("4", "200 files"),
+      assistantCall("5", "Glob", { glob_pattern: "*" }),
+      toolResult("5", "200 files"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("broad_discovery_repeat");
-    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(3);
+    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(4);
   });
 
   it("fires broad_discovery_repeat for empty glob patterns", () => {
@@ -133,6 +163,8 @@ describe("execution governor", () => {
       toolResult("3", "blocked"),
       assistantCall("4", "Glob", { glob_pattern: "" }),
       toolResult("4", "blocked"),
+      assistantCall("5", "Glob", { glob_pattern: "" }),
+      toolResult("5", "blocked"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);

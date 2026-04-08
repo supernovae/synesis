@@ -213,9 +213,12 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   );
   const hasEdit = events.some((e) => e.command.startsWith("edit:") || e.command === "edit");
 
+  const BROAD_DISCOVERY_WINDOW = 20;
+  const windowStart = Math.max(0, events.length - BROAD_DISCOVERY_WINDOW);
+
   for (let i = 0; i < events.length; i += 1) {
     const tool = events[i].toolName;
-    if (isBroadDiscoveryCommand(tool, events[i].command)) {
+    if (i >= windowStart && isBroadDiscoveryCommand(tool, events[i].command)) {
       totalBroadDiscoveryCalls += 1;
     }
     if (i === 0) continue;
@@ -237,7 +240,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= 2) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
-  if (totalBroadDiscoveryCalls >= 3 || repeatedBroadDiscoveryCalls >= 2) matchedRules.push("broad_discovery_repeat");
+  if (totalBroadDiscoveryCalls >= 4 || repeatedBroadDiscoveryCalls >= 2) matchedRules.push("broad_discovery_repeat");
   if (repeatedReadSearchCalls >= 3) matchedRules.push("bounded_exploration_budget");
   if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
     matchedRules.push("test_entry_contract");
@@ -272,7 +275,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
     ?? (noEditEvidence
       ? "Apply one focused code change for a single root-cause hypothesis, then run one narrow verification command."
       : "State one root-cause hypothesis and run one narrow verification command.");
-  if (totalBroadDiscoveryCalls >= 3 || repeatedBroadDiscoveryCalls >= 2) {
+  if (totalBroadDiscoveryCalls >= 4 || repeatedBroadDiscoveryCalls >= 2) {
     suggestedNextStep = "Run one targeted repo summary (for example synesis_inspect_repo), then read only 1-3 likely files; do not repeat Glob(\"*\") again.";
   } else if (matchedRules.includes("test_entry_contract")) {
     suggestedNextStep =
