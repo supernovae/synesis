@@ -256,7 +256,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS: z.coerce.number().default(5),
   /** Max recent tool results kept at full fidelity; fallback for single-turn agent loops. 0 disables. */
   SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS: z.coerce.number().default(15),
-  SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS: z.coerce.number().default(120_000),
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS: z.coerce.number().default(60_000),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS: z.coerce.number().default(400),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS: z.coerce.number().default(2000),
 

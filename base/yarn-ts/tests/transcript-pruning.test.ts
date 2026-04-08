@@ -81,6 +81,36 @@ describe("TranscriptPruningService", () => {
       expect(lastRead.content).toContain("version 2");
     });
 
+    it("deduplicates identical file reads even within the recent keep window", () => {
+      const svc = new TranscriptPruningService({ ...defaultConfig, keepTurns: 5, budgetChars: 10 });
+      const content = "package main\nfunc main() {}\n" + "x".repeat(300);
+      const messages = [
+        msg("user", "read all"),
+        fileReadResult("main.go", content),
+        msg("assistant", "got it"),
+        fileReadResult("main.go", content),
+        msg("user", "ok"),
+      ];
+      const result = svc.prune(messages);
+      expect(result.pruned).toBe(true);
+      expect(result.messages[1].content).toContain("FILE_SUPERSEDED");
+      expect(result.messages[3].content).toContain("package main");
+    });
+
+    it("preserves both reads in recent window when content differs", () => {
+      const svc = new TranscriptPruningService({ ...defaultConfig, keepTurns: 5, budgetChars: 10 });
+      const messages = [
+        msg("user", "read all"),
+        fileReadResult("main.go", "package main\nversion 1\n" + "x".repeat(300)),
+        msg("assistant", "editing"),
+        fileReadResult("main.go", "package main\nversion 2\n" + "x".repeat(300)),
+        msg("user", "ok"),
+      ];
+      const result = svc.prune(messages);
+      expect(result.messages[1].content).not.toContain("FILE_SUPERSEDED");
+      expect(result.messages[3].content).not.toContain("FILE_SUPERSEDED");
+    });
+
     it("does not dedup different files", () => {
       const svc = new TranscriptPruningService({ ...defaultConfig, keepTurns: 1, budgetChars: 10 });
       const messages = [
@@ -175,7 +205,28 @@ describe("TranscriptPruningService", () => {
   });
 
   describe("keep window", () => {
-    it("preserves everything in the last N user turns", () => {
+    it("preserves everything in the last N user turns (unique content)", () => {
+      const svc = new TranscriptPruningService({
+        ...defaultConfig,
+        keepTurns: 2,
+        budgetChars: 10,
+        stubMaxChars: 10,
+      });
+      const messages = [
+        msg("user", "turn 1"),
+        msg("tool", "result-a " + "x".repeat(500), "run_command"),
+        msg("user", "turn 2"),
+        msg("tool", "result-b " + "y".repeat(500), "run_command"),
+        msg("user", "turn 3"),
+        msg("tool", "result-c " + "z".repeat(500), "run_command"),
+      ];
+      const result = svc.prune(messages);
+      expect(result.messages[1].content).toContain("TOOL_RESULT_PRUNED");
+      expect(result.messages[3].content).toContain("result-b");
+      expect(result.messages[5].content).toContain("result-c");
+    });
+
+    it("collapses identical content in the recent window via near-duplicate dedup", () => {
       const svc = new TranscriptPruningService({
         ...defaultConfig,
         keepTurns: 2,
@@ -192,9 +243,8 @@ describe("TranscriptPruningService", () => {
         msg("tool", bigContent, "run_command"),
       ];
       const result = svc.prune(messages);
-      expect(result.messages[1].content).toContain("TOOL_RESULT_PRUNED");
-      expect(result.messages[3].content).toBe(bigContent);
       expect(result.messages[5].content).toBe(bigContent);
+      expect(result.messages[3].content).toContain("NEAR_DUPLICATE_OUTPUT");
     });
   });
 
@@ -268,35 +318,32 @@ describe("TranscriptPruningService", () => {
         budgetChars: 10,
         stubMaxChars: 50,
       });
-      const bigOutput = "x".repeat(500);
       const messages = [
         msg("user", "Build me a Go CLI"),
         msg("assistant", "I will build it."),
-        msg("tool", bigOutput, "run_command"),   // tool 1 — old
+        msg("tool", "alpha output " + "a".repeat(500), "run_command"),
         msg("assistant", "Let me check."),
-        msg("tool", bigOutput, "run_command"),   // tool 2 — old
+        msg("tool", "bravo output " + "b".repeat(500), "run_command"),
         msg("assistant", "Fixing."),
-        msg("tool", bigOutput, "run_command"),   // tool 3 — old
+        msg("tool", "charlie output " + "c".repeat(500), "run_command"),
         msg("assistant", "Almost done."),
-        msg("tool", bigOutput, "run_command"),   // tool 4 — kept (last 3)
+        msg("tool", "delta output " + "d".repeat(500), "run_command"),
         msg("assistant", "Running tests."),
-        msg("tool", bigOutput, "run_command"),   // tool 5 — kept
+        msg("tool", "echo output " + "e".repeat(500), "run_command"),
         msg("assistant", "Final check."),
-        msg("tool", "PASS: all tests", "run_command"),  // tool 6 — kept
+        msg("tool", "PASS: all tests", "run_command"),
       ];
       const result = svc.prune(messages);
       expect(result.pruned).toBe(true);
-      // First 3 tool results should be evicted
       expect(result.messages[2].content).toContain("TOOL_RESULT_PRUNED");
       expect(result.messages[4].content).toContain("TOOL_RESULT_PRUNED");
       expect(result.messages[6].content).toContain("TOOL_RESULT_PRUNED");
-      // Last 3 tool results preserved
-      expect(result.messages[8].content).toBe(bigOutput);
-      expect(result.messages[10].content).toBe(bigOutput);
+      expect(result.messages[8].content).toContain("delta output");
+      expect(result.messages[10].content).toContain("echo output");
       expect(result.messages[12].content).toBe("PASS: all tests");
     });
 
-    it("does not prune when tool count is below keepToolResults", () => {
+    it("does not prune unique content when tool count is below keepToolResults", () => {
       const svc = new TranscriptPruningService({
         ...defaultConfig,
         keepTurns: 5,
@@ -304,18 +351,17 @@ describe("TranscriptPruningService", () => {
         budgetChars: 10,
         stubMaxChars: 50,
       });
-      const bigOutput = "x".repeat(500);
       const messages = [
         msg("user", "Do something"),
         msg("assistant", "ok"),
-        msg("tool", bigOutput, "run_command"),
+        msg("tool", "result-alpha " + "a".repeat(500), "run_command"),
         msg("assistant", "done"),
-        msg("tool", bigOutput, "run_command"),
+        msg("tool", "result-beta " + "b".repeat(500), "run_command"),
       ];
       const result = svc.prune(messages);
       expect(result.pruned).toBe(false);
-      expect(result.messages[2].content).toBe(bigOutput);
-      expect(result.messages[4].content).toBe(bigOutput);
+      expect(result.messages[2].content).toContain("result-alpha");
+      expect(result.messages[4].content).toContain("result-beta");
     });
 
     it("uses turn-based pruning when there are enough user turns even with keepToolResults set", () => {

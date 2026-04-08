@@ -77,6 +77,7 @@ import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, run
 import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
+import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
 import { normalizeCommandOutputForComparison } from "./reduction/output-normalization.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
@@ -120,6 +121,7 @@ import {
 } from "./adapters/client-adapter-packs.js";
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
+import { detectCacheStrategy, annotateCacheBreakpoints, computePrefixFingerprint, type CacheStrategy } from "./context/provider-cache-hints.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
@@ -709,12 +711,13 @@ function appendCriticBlock(
 ): Array<{ role: string; content: unknown }> {
   if (!checklist || (checklist.must.length === 0 && checklist.should.length === 0)) return messages;
   const block = completionCriticBlock(checklist);
+  const criticMsg = { role: "system", content: block };
   const next = [...messages];
   const sysIdx = next.findIndex((m) => m.role === "system" && typeof m.content === "string");
   if (sysIdx >= 0) {
-    next[sysIdx] = { ...next[sysIdx], content: `${String(next[sysIdx].content)}\n\n${block}` };
+    next.splice(sysIdx + 1, 0, criticMsg);
   } else {
-    next.unshift({ role: "system", content: block });
+    next.unshift(criticMsg);
   }
   return next;
 }
@@ -889,6 +892,8 @@ interface RequestDiagnostic {
   requestForensicsLcpRatio?: number;
   requestForensicsFirstChangedSection?: string;
   requestForensicsTokenEstimate?: number;
+  cacheStrategy?: string;
+  prefixFingerprint?: string;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -1202,6 +1207,15 @@ const transcriptPruning = new TranscriptPruningService({
   stubMaxChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS,
   assistantCondenseChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS,
 });
+const contentDedupBySession = new Map<string, ContentAddressedDedup>();
+function getContentDedup(sessionKey: string): ContentAddressedDedup {
+  let dedup = contentDedupBySession.get(sessionKey);
+  if (!dedup) {
+    dedup = new ContentAddressedDedup();
+    contentDedupBySession.set(sessionKey, dedup);
+  }
+  return dedup;
+}
 const enrichmentPool = new EnrichmentPool(config);
 if (enrichmentPool.isAvailable()) {
   app.log.info({ poolSize: config.SYNESIS_YARN_WORKER_POOL_SIZE || "auto" }, "worker_pool_enabled");
@@ -1549,6 +1563,7 @@ async function getSessionKey(identity: SessionIdentity): Promise<string> {
         "session_inactivity_rotation"
       );
       sessions.delete(baseKey);
+      contentDedupBySession.delete(baseKey);
       const rotated = `${baseKey}:r${Date.now()}`;
       return rotated;
     }
@@ -3452,6 +3467,7 @@ const sessionEvictionTimer = setInterval(() => {
     if (now - state.record.lastActiveAt > SESSION_TTL_MS) {
       void casSessionSave(state);
       sessions.delete(key);
+      contentDedupBySession.delete(key);
       stablePrefixService.evictSession(key);
     }
   }
@@ -3525,6 +3541,20 @@ app.get("/health/telemetry", async (req, reply) => {
     validationNormalization: validationNormalization.getStats(),
     toolResultReduction: toolResultReduction.getStats(),
     transcriptPruning: transcriptPruning.getStats(),
+    contentAddressedDedup: {
+      activeSessions: contentDedupBySession.size,
+      aggregate: Array.from(contentDedupBySession.values()).reduce(
+        (acc, d) => {
+          const s = d.getStats();
+          return {
+            totalReads: acc.totalReads + s.totalReads,
+            deduplicatedReads: acc.deduplicatedReads + s.deduplicatedReads,
+            charsSaved: acc.charsSaved + s.charsSaved,
+          };
+        },
+        { totalReads: 0, deduplicatedReads: 0, charsSaved: 0 },
+      ),
+    },
     toolArgHardening: { ...toolArgHardeningStats },
     toolSchemaPruning: { ...toolSchemaPruningStats },
     openClawProfile: { ...openClawProfileStats },
@@ -3958,6 +3988,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  const oaiDedup = getContentDedup(sessionKey);
+  const oaiDedupResult = oaiDedup.processMessages(
+    normalizedOpenAI.messages as Array<{ role: string; name?: string; content: unknown }>,
+  );
+  if (oaiDedupResult.dedupCount > 0) {
+    normalizedOpenAI.messages = oaiDedupResult.messages as never;
+  }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
   if (latestUserText && typeof latestUserText.content === "string") {
@@ -5174,6 +5211,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       || resolvedTierOaiStream.baseUrl.includes("localhost")
       || resolvedTierOaiStream.baseUrl.includes("127.0.0.1")
     );
+  const oaiCacheStrategy = detectCacheStrategy(
+    resolvedTierOaiStream?.baseUrl ?? "",
+    resolvedTierOaiStream?.backendModel ?? resolved.resolvedModelId,
+  );
+  const oaiPrefixFingerprint = computePrefixFingerprint(
+    modelMessages as Array<{ role: string; content: unknown }>,
+  );
 
   const flushOpenAIText = (text: string): void => {
     if (!text) return;
@@ -5720,6 +5764,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     requestForensicsLcpRatio: openAiStreamForensicsDone?.lcpRatio,
     requestForensicsFirstChangedSection: openAiStreamForensicsDone?.firstChangedSection,
     requestForensicsTokenEstimate: openAiStreamForensicsDone?.tokenEstimate,
+    cacheStrategy: oaiCacheStrategy !== "none" ? oaiCacheStrategy : undefined,
+    prefixFingerprint: oaiPrefixFingerprint,
   });
   return reply;
 });
@@ -5863,6 +5909,13 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  const claudeDedup = getContentDedup(claudeSessionKey);
+  const claudeDedupResult = claudeDedup.processMessages(
+    normalizedFromClaude.messages as Array<{ role: string; name?: string; content: unknown }>,
+  );
+  if (claudeDedupResult.dedupCount > 0) {
+    normalizedFromClaude.messages = claudeDedupResult.messages as never;
+  }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);
   const priorClaudeChecklistHash = getChecklistSourceHash(session.record.metadata);
   if (latestClaudeUser && typeof latestClaudeUser.content === "string") {
@@ -6723,6 +6776,13 @@ app.post("/v1/messages", async (req, reply) => {
         || resolvedTier.baseUrl.includes("localhost")
         || resolvedTier.baseUrl.includes("127.0.0.1")
       );
+    const claudeCacheStrategy = detectCacheStrategy(
+      resolvedTier?.baseUrl ?? "",
+      resolvedTier?.backendModel ?? resolved.resolvedModelId,
+    );
+    const claudePrefixFingerprint = computePrefixFingerprint(
+      claudeModelMessages as Array<{ role: string; content: unknown }>,
+    );
     let requestToolValidationFailures = 0;
     let requestToolRepairs = 0;
     const emitClaudeTextDelta = (delta: string): void => {
@@ -7371,6 +7431,8 @@ app.post("/v1/messages", async (req, reply) => {
       requestForensicsLcpRatio: claudeStreamForensicsDone?.lcpRatio,
       requestForensicsFirstChangedSection: claudeStreamForensicsDone?.firstChangedSection,
       requestForensicsTokenEstimate: claudeStreamForensicsDone?.tokenEstimate,
+      cacheStrategy: claudeCacheStrategy !== "none" ? claudeCacheStrategy : undefined,
+      prefixFingerprint: claudePrefixFingerprint,
     });
     return reply;
   }

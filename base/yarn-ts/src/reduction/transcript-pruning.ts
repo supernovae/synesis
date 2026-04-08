@@ -92,19 +92,32 @@ export class TranscriptPruningService {
 
   constructor(private readonly config: TranscriptPruningConfig) {}
 
-  prune(messages: MessageLike[]): { messages: MessageLike[]; pruned: boolean } {
+  /**
+   * Compute effective budget, optionally scaled down for small projects.
+   * For projects < 500KB source, use min(configured, 2x project size) so
+   * pruning fires earlier and avoids carrying 30K+ tokens of stale context
+   * for a 160KB codebase.
+   */
+  effectiveBudget(projectSizeChars?: number): number {
+    if (!projectSizeChars || projectSizeChars <= 0) return this.config.budgetChars;
+    const scaled = projectSizeChars * 2;
+    return Math.min(this.config.budgetChars, Math.max(scaled, 20_000));
+  }
+
+  prune(messages: MessageLike[], projectSizeChars?: number): { messages: MessageLike[]; pruned: boolean } {
     this.stats.invocations += 1;
     if (!this.config.enabled) {
       return { messages, pruned: false };
     }
 
+    const budget = this.effectiveBudget(projectSizeChars);
     const totalChars = messages.reduce(
       (sum, m) => sum + contentLength(m.content),
       0,
     );
     this.stats.charsBefore += totalChars;
 
-    if (totalChars <= this.config.budgetChars) {
+    if (totalChars <= budget) {
       this.stats.skippedUnderBudget += 1;
       this.stats.charsAfter += totalChars;
       return { messages, pruned: false };
@@ -187,30 +200,41 @@ export class TranscriptPruningService {
   /**
    * Strategy 2: If the same file was read multiple times, keep only the
    * latest read.  Earlier reads become a one-line stub.
+   *
+   * This applies GLOBALLY (including the recent window) when file content
+   * is identical, and only outside the keep window for modified files.
    */
   private deduplicateFileReads(
     messages: MessageLike[],
     keepFromIndex: number,
   ): MessageLike[] {
     const latestReadIndex = new Map<string, number>();
+    const contentByIndex = new Map<number, string>();
 
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role !== "tool" || !isFileOp(m.name)) continue;
       const fp = extractFilePath(m.content);
       if (!fp) continue;
+      contentByIndex.set(i, contentString(m.content));
       if (!latestReadIndex.has(fp)) {
         latestReadIndex.set(fp, i);
       }
     }
 
     return messages.map((m, i) => {
-      if (i >= keepFromIndex) return m;
       if (m.role !== "tool" || !isFileOp(m.name)) return m;
       const fp = extractFilePath(m.content);
       if (!fp) return m;
       const latest = latestReadIndex.get(fp);
       if (latest === undefined || latest === i) return m;
+
+      if (i >= keepFromIndex) {
+        const currentContent = contentByIndex.get(i) ?? "";
+        const latestContent = contentByIndex.get(latest) ?? "";
+        if (currentContent.length < 200 || currentContent !== latestContent) return m;
+      }
+
       this.stats.fileDeduped += 1;
       return {
         ...m,
@@ -291,7 +315,6 @@ export class TranscriptPruningService {
     }
 
     return messages.map((m, i) => {
-      if (i >= keepFromIndex) return m;
       if (m.role !== "tool") return m;
       const raw = contentString(m.content);
       if (raw.length < 200) return m;

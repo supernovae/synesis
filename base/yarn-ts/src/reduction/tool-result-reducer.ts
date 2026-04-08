@@ -167,7 +167,7 @@ export class ToolResultReductionService {
       }
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
-      if (!this.isExemptFromFileReduction(m.name)) {
+      if (!this.isExemptFromRegistryReduction(m.name)) {
         try {
           reduced = this.registry.reduce({
             raw,
@@ -191,7 +191,7 @@ export class ToolResultReductionService {
         reducedCount += 1;
         return { ...m, content: dispatched.transformed };
       }
-      const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
+      const shouldReduce = Boolean(reduced) || (!this.isExemptFromSizeCompaction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
       if (!shouldReduce) return { ...m, content: raw };
 
       let summary: string;
@@ -337,7 +337,7 @@ export class ToolResultReductionService {
       const dispatch = dispatched[j];
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
-      if (!this.isExemptFromFileReduction(m.name)) {
+      if (!this.isExemptFromRegistryReduction(m.name)) {
         try {
           reduced = this.registry.reduce({
             raw,
@@ -362,7 +362,7 @@ export class ToolResultReductionService {
         continue;
       }
 
-      const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
+      const shouldReduce = Boolean(reduced) || (!this.isExemptFromSizeCompaction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
       if (!shouldReduce) {
         out[idx] = { ...m, content: raw };
         continue;
@@ -459,7 +459,7 @@ export class ToolResultReductionService {
       return taskPruned;
     }
     let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
-    if (!this.isExemptFromFileReduction(toolName)) {
+    if (!this.isExemptFromRegistryReduction(toolName)) {
       try {
         reduced = this.registry.reduce({
           raw,
@@ -482,7 +482,7 @@ export class ToolResultReductionService {
       this.trackTransformation(raw.length, dispatched.transformed.length);
       return dispatched.transformed;
     }
-    const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(toolName) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
+    const shouldReduce = Boolean(reduced) || (!this.isExemptFromSizeCompaction(toolName) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
     if (!shouldReduce) return raw;
     let summary: string;
     if (reduced) {
@@ -757,7 +757,7 @@ export class ToolResultReductionService {
     return chunks.length > 0 ? chunks.join("\n") : fallback;
   }
 
-  private isExemptFromFileReduction(toolName: string | undefined): boolean {
+  private isExemptFromRegistryReduction(toolName: string | undefined): boolean {
     const name = (toolName ?? "").toLowerCase();
     return (
       name === "read" ||
@@ -775,6 +775,18 @@ export class ToolResultReductionService {
       name === "synesis_artifact_retrieve" ||
       name === "agent" ||
       name === "explore" ||
+      name === "taskcreate" ||
+      name === "taskupdate"
+    );
+  }
+
+  private isExemptFromSizeCompaction(toolName: string | undefined): boolean {
+    const name = (toolName ?? "").toLowerCase();
+    return (
+      name === "write" ||
+      name === "edit" ||
+      name === "update" ||
+      name === "glob" ||
       name === "taskcreate" ||
       name === "taskupdate"
     );
