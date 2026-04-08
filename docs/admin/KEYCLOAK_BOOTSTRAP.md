@@ -97,3 +97,25 @@ export SYNESIS_ADMIN_TOKEN='syn-...'
 ## Injecting secrets (OpenShift / Kubernetes)
 
 Prefer **Secrets** (`secretKeyRef`, `envFrom`) for Keycloak admin credentials, PAT material, and any client secrets. Patch the admin deployment after Keycloak Routes and the issuer URL are stable (see `scripts/deploy.sh` patterns for other services).
+
+---
+
+## Troubleshooting
+
+### User registered or signed in under the wrong realm (`master` vs `synesis`)
+
+Self-registration and normal application login must happen in realm **`synesis`**, not **`master`**. The **`master`** realm is for Keycloak operators only.
+
+- In the Keycloak Admin Console, use the realm dropdown and select **`synesis`** before creating users or enabling self-registration.
+- For the account console (password, profile), use the URL under your **`synesis` issuer**, e.g. `https://<keycloak-host>/realms/synesis/account` (match `SYNESIS_KEYCLOAK_ISSUER_URL` on the admin deployment).
+- If someone created an account only in **`master`**, create them again in **`synesis`** (or invite them through your IdP flow for that realm) and assign the appropriate realm roles.
+
+### Logout returns to admin but Keycloak session issues, or blank page after logout
+
+In Keycloak, client **`synesis-admin`** (realm **`synesis`**) must allow:
+
+- **Valid post logout redirect URIs** — include `https://<your-admin-host>/*` (see [`base/keycloak/realm-import.yaml`](../../base/keycloak/realm-import.yaml) for examples). If production was configured manually, align with the live admin URL; a mismatch can block or drop the post-logout redirect.
+
+### Session length and “unexpected” re-login
+
+Browser SSO duration is controlled in Keycloak realm **`synesis`** (not in the admin SPA): **Realm settings → Sessions** (e.g. SSO Session Idle, SSO Session Max) and **Clients → synesis-admin → Advanced** (client session idle/timeouts). Increasing these reduces how often users must sign in again at Keycloak when refresh tokens expire. Tune to your org’s policy.

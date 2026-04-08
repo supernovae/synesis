@@ -1,4 +1,5 @@
 import axios from "axios";
+import { resolveAccessTokenExpiresAtMs } from "../utils/jwtExpiry";
 
 const client = axios.create({
   baseURL: "/api/v1",
@@ -31,8 +32,11 @@ async function attemptRefresh(): Promise<string | null> {
     if (data.refresh_token) {
       localStorage.setItem("synesis_refresh_token", data.refresh_token);
     }
-    if (data.expires_in) {
-      const expiresAt = Date.now() + (data.expires_in as number) * 1000;
+    const expiresAt = resolveAccessTokenExpiresAtMs(
+      newAccess,
+      data.expires_in as number | undefined,
+    );
+    if (expiresAt) {
       localStorage.setItem("synesis_token_expires_at", String(expiresAt));
     }
     return newAccess;

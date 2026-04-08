@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import axios from "axios";
 import type { User, OidcConfig } from "../../types";
+import { resolveAccessTokenExpiresAtMs } from "../../utils/jwtExpiry";
 import { AuthContext } from "./authContext";
 
 const TOKEN_KEY = "synesis_token";
@@ -44,8 +45,9 @@ function persistTokens(
 ) {
   localStorage.setItem(TOKEN_KEY, access);
   if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
-  if (expiresIn) {
-    localStorage.setItem(EXPIRES_KEY, String(Date.now() + expiresIn * 1000));
+  const expiresAt = resolveAccessTokenExpiresAtMs(access, expiresIn);
+  if (expiresAt) {
+    localStorage.setItem(EXPIRES_KEY, String(expiresAt));
   }
   if (idToken) {
     localStorage.setItem(ID_TOKEN_KEY, idToken);
@@ -210,7 +212,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       "";
     const clientId =
       oidcConfig?.client_id || sessionStorage.getItem(OIDC_CLIENT_ID_CACHE_KEY) || "";
-    const oidcEnabled = Boolean((oidcConfig?.enabled ?? true) && issuer && clientId);
+    const oidcConfigured =
+      !loading &&
+      (oidcConfig !== null
+        ? Boolean(oidcConfig.enabled)
+        : Boolean(sessionStorage.getItem(OIDC_ISSUER_CACHE_KEY)));
+    const oidcEnabled = Boolean(oidcConfigured && issuer && clientId);
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
     const idToken = localStorage.getItem(ID_TOKEN_KEY);
@@ -235,7 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     window.location.replace(loginUrl);
-  }, [oidcConfig]);
+  }, [oidcConfig, loading]);
 
   return (
     <AuthContext.Provider

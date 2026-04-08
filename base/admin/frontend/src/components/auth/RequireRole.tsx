@@ -44,7 +44,11 @@ export default function RequireRole({ children, role }: Props) {
       if (suppressAutoOidc) {
         return <Navigate to="/login" state={{ from: location }} replace />;
       }
-      return null;
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-slate-900">
+          <p className="text-slate-400">Redirecting to sign-in…</p>
+        </div>
+      );
     }
     return <Navigate to="/login" state={{ from: location }} replace />;
   }

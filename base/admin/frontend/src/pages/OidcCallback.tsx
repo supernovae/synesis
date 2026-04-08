@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/auth/useAuth";
 import axios from "axios";
+import { resolveAccessTokenExpiresAtMs } from "../utils/jwtExpiry";
 
 const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
 const OIDC_STATE_KEY = "synesis_oidc_state";
@@ -88,8 +89,11 @@ export default function OidcCallback() {
         if (data.refresh_token) {
           localStorage.setItem("synesis_refresh_token", data.refresh_token);
         }
-        if (data.expires_in) {
-          const expiresAt = Date.now() + data.expires_in * 1000;
+        const expiresAt = resolveAccessTokenExpiresAtMs(
+          accessToken,
+          data.expires_in,
+        );
+        if (expiresAt) {
           localStorage.setItem("synesis_token_expires_at", String(expiresAt));
         }
 
