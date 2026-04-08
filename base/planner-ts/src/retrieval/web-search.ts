@@ -242,7 +242,7 @@ export async function searchAndProcess(
 
   const profile = options.profile ?? "web";
   const fetchPages = options.fetchPages ?? true;
-  const maxFetchPages = options.maxFetchPages ?? 2;
+  const maxFetchPages = options.maxFetchPages ?? 3;
   const minRelevance = options.minRelevance ?? 0.5;
 
   const params: Record<string, string> =

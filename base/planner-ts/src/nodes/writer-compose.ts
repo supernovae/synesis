@@ -86,11 +86,13 @@ function renderEvidenceContext(state: GraphState): string {
   const packets = state.evidence_packets ?? [];
   if (packets.length === 0) return "";
 
-  const lines: string[] = [];
+  const lines: string[] = [
+    `Retrieved: ${new Date().toISOString().slice(0, 16)}Z`,
+  ];
   for (const packet of packets.slice(0, 3)) {
     lines.push(`Query: ${packet.query}`);
     lines.push(packet.summary || "No summary available.");
-    for (const source of packet.sources.slice(0, 3)) {
+    for (const source of packet.sources.slice(0, 5)) {
       const authority = String(source.metadata.authority ?? "external");
       const sourceType = source.type === "web" ? "web" : "rag";
       const mark = authorityDatamark(authority, sourceType);
@@ -207,7 +209,15 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
   }
   if (!jsonMode && evidenceHasWebSources(state) && evidenceHasSubstantialSnippets(state)) {
     systemParts.push(
-      "WEB GROUNDING: The Evidence block includes excerpt text retrieved for this turn. Base factual claims (weather, forecasts, news, prices, versions, dates) on those excerpts when they contain relevant detail. Do not refuse or tell the user to \"check a website\" or \"use an app\" solely because the topic is time-sensitive — synthesis from the provided excerpts is exactly what is expected. If excerpts are thin, partial, or clearly boilerplate, say what they show and what is missing.",
+      [
+        "WEB GROUNDING (MANDATORY when web evidence excerpts are present):",
+        "1. The Evidence block contains text retrieved from live web sources JUST NOW. A 'Retrieved:' timestamp shows when the fetch happened.",
+        "2. For time-sensitive topics (weather, forecasts, news, current events, recent releases, prices, scores, comparisons of new products) — ALWAYS synthesize your answer from these excerpts. They are more current than your training data.",
+        "3. NEVER say 'I cannot provide real-time information', 'check a website', 'I don't have access to current data', or similar refusals when the Evidence block contains relevant excerpts. You DO have current data — it is in the excerpts.",
+        "4. When excerpts contain specific data (temperatures, headlines, version numbers, dates), present that data directly with source attribution.",
+        "5. If excerpts are thin or only partially relevant, present what they contain and note what is limited — but still use them.",
+        "6. Prefer evidence excerpts over your training knowledge for any fact that could have changed since your training cutoff.",
+      ].join("\n"),
     );
   }
   if (jsonMode) {

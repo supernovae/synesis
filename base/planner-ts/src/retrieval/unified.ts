@@ -316,6 +316,7 @@ export async function retrieveUnified(
   if (webEnabled) {
     const effectiveWebQuery = webQuery || query.slice(0, 120);
     webPromise = searchAndProcess(effectiveWebQuery, settings.web, {
+      maxFetchPages: forceWeb ? 4 : undefined,
       attribution: {
         source_surface: sourceSurface,
         tool_name: toolName,

@@ -1676,6 +1676,24 @@ export function buildApp(config: AppConfig): FastifyInstance {
                 reasoning_content: `[${describePhase(event.node)}]\n`,
                 system_fingerprint: SYSTEM_FINGERPRINT,
               });
+
+              if (nextNode && nextNode !== "respond") {
+                const previewPhases: Record<string, string> = {
+                  planner: "Thinking through the approach…",
+                  router: "Searching sources…",
+                  writer: "Writing response…",
+                };
+                const preview = previewPhases[nextNode];
+                if (preview) {
+                  writeReasoningDelta(reply.raw, {
+                    id: completionId,
+                    created,
+                    model: responseModel,
+                    reasoning_content: `[${preview}]\n`,
+                    system_fingerprint: SYSTEM_FINGERPRINT,
+                  });
+                }
+              }
             }
           }
         }
