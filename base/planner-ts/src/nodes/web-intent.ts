@@ -11,6 +11,10 @@ const FRESHNESS_RE =
 
 const AS_OF_TODAY_RE = /\b(as\s+of\s+today|today's|updated\s+today|released\s+today)\b/i;
 
+/** Headlines / current-events phrasing (narrow: requires news or headlines near today/this week). */
+const CURRENT_NEWS_RE =
+  /\b(news\s+today|headlines\s+today|what\s+is\s+in\s+the\s+news|what'?s\s+in\s+the\s+news|today'?s\s+news|today'?s\s+headlines|this\s+week'?s\s+news|this\s+week'?s\s+headlines|news\s+headlines)\b/i;
+
 /** Calendar years likely to imply recency-sensitive answers (maintain periodically). */
 const RECENT_YEAR_RE = /\b20(2[4-9]|3\d)\b/;
 
@@ -32,6 +36,7 @@ export function analyzeLiveWebIntent(rawText: string): LiveWebIntentResult {
   if (EXPLICIT_WEB_RE.test(text)) return { needsLiveWeb: true };
   if (FRESHNESS_RE.test(text)) return { needsLiveWeb: true };
   if (AS_OF_TODAY_RE.test(text)) return { needsLiveWeb: true };
+  if (CURRENT_NEWS_RE.test(text)) return { needsLiveWeb: true };
   if (RECENT_YEAR_RE.test(text)) return { needsLiveWeb: true };
 
   if (WEATHER_RE.test(text)) {

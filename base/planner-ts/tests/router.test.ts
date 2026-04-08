@@ -35,6 +35,29 @@ describe("router node", () => {
     expect(LOW_CONFIDENCE_THRESHOLD).toBe(0.4);
   });
 
+  it("uses raw results when summarizer output is empty JSON object", async () => {
+    const state = await runRouter(
+      { task_description: "latest news" },
+      {
+        retrievalClient: new FakeRetrievalClient([
+          {
+            retrieval_source: "web",
+            source_url: "https://news.example/a",
+            title: "Story",
+            text: "Breaking: evidence body for the writer.",
+            score: 0.88,
+          },
+        ]),
+        summarizerOutput: "{}",
+      },
+    );
+    const packet = state.evidence_packets?.[0];
+    expect(packet?.snippets?.length).toBeGreaterThan(0);
+    expect(packet?.snippets?.[0]?.text).toContain("Breaking");
+    expect((packet?.summary ?? "").trim().length).toBeGreaterThan(0);
+    expect(packet?.sources?.[0]?.uri).toBe("https://news.example/a");
+  });
+
   it("builds fallback packet when summarizer output is invalid", async () => {
     const state = await runRouter(
       {

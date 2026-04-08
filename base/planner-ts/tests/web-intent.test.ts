@@ -21,6 +21,12 @@ describe("analyzeLiveWebIntent", () => {
     expect(analyzeLiveWebIntent("weather today 78729").needsLiveWeb).toBe(true);
   });
 
+  it("detects current news / headlines phrasing", () => {
+    expect(analyzeLiveWebIntent("What is in the news today?").needsLiveWeb).toBe(true);
+    expect(analyzeLiveWebIntent("Give me today's headlines").needsLiveWeb).toBe(true);
+    expect(analyzeLiveWebIntent("News headlines for this week").needsLiveWeb).toBe(true);
+  });
+
   it("returns false for generic trivia", () => {
     expect(analyzeLiveWebIntent("What is 2+2?").needsLiveWeb).toBe(false);
     expect(analyzeLiveWebIntent("hi").needsLiveWeb).toBe(false);

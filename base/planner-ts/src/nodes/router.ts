@@ -23,10 +23,22 @@ export const MAX_SNIPPETS_PER_PACKET = 20;
 export const LOW_CONFIDENCE_THRESHOLD = 0.4;
 const FOCUSED_PRESEED_THRESHOLD = 0.6;
 
+function isTriviallyEmptyEvidencePacket(packet: {
+  sources: unknown[];
+  snippets: unknown[];
+  summary: string;
+}): boolean {
+  return (
+    packet.sources.length === 0 &&
+    packet.snippets.length === 0 &&
+    !String(packet.summary ?? "").trim()
+  );
+}
+
 function parseEvidencePacket(query: string, llmOutput: string, rawResults: UnifiedResult[]): EvidencePacket {
   try {
     const parsed = validateWithRepair(llmOutput, EvidencePacketSchema);
-    return {
+    const normalized: EvidencePacket = {
       ...parsed,
       query: parsed.query || query,
       sources: parsed.sources.slice(0, MAX_DOCS_PER_QUERY),
@@ -36,6 +48,10 @@ function parseEvidencePacket(query: string, llmOutput: string, rawResults: Unifi
       })),
       confidence: Math.max(0, Math.min(1, parsed.confidence))
     };
+    if (rawResults.length > 0 && isTriviallyEmptyEvidencePacket(normalized)) {
+      return fallbackPacket(query, rawResults);
+    }
+    return normalized;
   } catch {
     return fallbackPacket(query, rawResults);
   }

@@ -33,6 +33,10 @@ import { isMetadataTagsOnlyJson } from "./writer-metadata-guard.js";
 /** Chunk size when replaying writer output after mermaid sanitization (streaming path). */
 const WRITER_STREAM_MERMAID_CHUNK_CHARS = 256;
 
+/** Snippet excerpts shown to the writer per evidence packet (router caps at 20). */
+const WRITER_EVIDENCE_SNIPPET_CAP = 8;
+const WRITER_EVIDENCE_SNIPPET_MAX_CHARS = 500;
+
 function writerPrefersJsonMode(state: GraphState): boolean {
   const explicitType = String((state.requested_response_format ?? {}).type ?? "").toLowerCase();
   if (explicitType === "json_object") return true;
@@ -82,6 +86,13 @@ function renderEvidenceContext(state: GraphState): string {
       const mark = authorityDatamark(authority, sourceType);
       const docName = String(source.metadata.document_name ?? source.uri);
       lines.push(`${mark} [Source: ${docName} - ${source.uri}]`);
+    }
+    const snippets = packet.snippets ?? [];
+    for (const snippet of snippets.slice(0, WRITER_EVIDENCE_SNIPPET_CAP)) {
+      const excerpt = String(snippet.text ?? "").slice(0, WRITER_EVIDENCE_SNIPPET_MAX_CHARS).trim();
+      if (!excerpt) continue;
+      const uri = String(snippet.source_uri ?? "").trim() || "(unknown source)";
+      lines.push(`Excerpt [${uri}]: ${excerpt}`);
     }
   }
   return lines.join("\n");
