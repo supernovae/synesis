@@ -21,7 +21,7 @@ describe("blocked-discovery-recovery", () => {
     ]);
     expect(out).toContain("code=\"empty_glob_pattern\"");
     expect(out).toContain("Empty glob patterns are disabled");
-    expect(out).toContain("tests_hint=if_user_asks_for_tests_then_search_code:_test.go");
+    expect(out).toContain("tests_hint=if_user_asks_for_tests_then_grep:");
   });
 
   it("builds a generic fallback recovery block when snapshot is unavailable", () => {
@@ -29,9 +29,9 @@ describe("blocked-discovery-recovery", () => {
       { toolName: "Glob", reason: "root_wildcard_glob_blocked" },
     ]);
     const out = buildBlockedDiscoveryRecoveryWithoutSnapshot(base, "no_project_root");
-    expect(out).toContain("Recovery hint:");
+    expect(out).toContain("Recovery:");
     expect(out).toContain("code=\"no_project_root\"");
-    expect(out).toContain("next_action=read_file:README.md|glob:src/*|glob:pkg/**/*_test.go|search_code:<symbol>");
+    expect(out).toContain("next_action=read_file:README.md|read_file:package.json|glob:src/*|grep:<keyword>");
   });
 
   it("builds snapshot recovery with preview entries", () => {

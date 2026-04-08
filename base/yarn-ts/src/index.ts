@@ -1216,6 +1216,37 @@ function getContentDedup(sessionKey: string): ContentAddressedDedup {
   }
   return dedup;
 }
+
+const blockedDiscoveryBySession = new Map<string, number>();
+function recordBlockedDiscovery(sessionKey: string, count: number): number {
+  const prev = blockedDiscoveryBySession.get(sessionKey) ?? 0;
+  const next = prev + count;
+  blockedDiscoveryBySession.set(sessionKey, next);
+  return next;
+}
+function getBlockedDiscoveryCount(sessionKey: string): number {
+  return blockedDiscoveryBySession.get(sessionKey) ?? 0;
+}
+function shouldStripGlobFromTools(sessionKey: string): boolean {
+  return getBlockedDiscoveryCount(sessionKey) >= 2;
+}
+function stripGlobFromTools(tools: unknown[] | undefined): { tools: unknown[] | undefined; stripped: boolean } {
+  if (!Array.isArray(tools) || tools.length === 0) return { tools, stripped: false };
+  const deny = new Set(["glob", "glob_file_search"]);
+  let stripped = false;
+  const filtered = tools.filter((tool) => {
+    if (!tool || typeof tool !== "object") return true;
+    const row = tool as Record<string, unknown>;
+    const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
+    const rawName = (typeof row.name === "string" ? row.name : "")
+      || (nested && typeof nested.name === "string" ? nested.name : "");
+    const name = rawName.trim().toLowerCase();
+    if (!deny.has(name)) return true;
+    stripped = true;
+    return false;
+  });
+  return { tools: filtered, stripped };
+}
 const enrichmentPool = new EnrichmentPool(config);
 if (enrichmentPool.isAvailable()) {
   app.log.info({ poolSize: config.SYNESIS_YARN_WORKER_POOL_SIZE || "auto" }, "worker_pool_enabled");
@@ -1564,6 +1595,7 @@ async function getSessionKey(identity: SessionIdentity): Promise<string> {
       );
       sessions.delete(baseKey);
       contentDedupBySession.delete(baseKey);
+      blockedDiscoveryBySession.delete(baseKey);
       const rotated = `${baseKey}:r${Date.now()}`;
       return rotated;
     }
@@ -3468,6 +3500,7 @@ const sessionEvictionTimer = setInterval(() => {
       void casSessionSave(state);
       sessions.delete(key);
       contentDedupBySession.delete(key);
+      blockedDiscoveryBySession.delete(key);
       stablePrefixService.evictSession(key);
     }
   }
@@ -4181,6 +4214,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           repeatedTestCommands: 0,
           repeatedReadSearchCalls: 0,
           repeatedBroadDiscoveryCalls: 0,
+          totalBroadDiscoveryCalls: 0,
           broadTestRepeat: false,
           noEditEvidence: false,
         },
@@ -4289,6 +4323,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
     }
     return reply.code(400).send(policyRejectOpenAIBody(policyPrecheck));
+  }
+  if (shouldStripGlobFromTools(sessionKey)) {
+    const globStrip = stripGlobFromTools(request.tools as unknown[] | undefined);
+    if (globStrip.stripped) {
+      request.tools = globStrip.tools as never;
+      app.log.warn({ reqId: oaiTraceReqId, sessionKey, sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey) }, "proactive_glob_strip_from_tools");
+    }
   }
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const canRewriteRecovery =
@@ -4760,6 +4801,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
     oaiCollapsedBroadDiscovery = oaiGuarded.collapsedCount;
     if (oaiBlockedBroadDiscovery > 0) {
+      const sessionBlockedTotal = recordBlockedDiscovery(sessionKey, oaiBlockedBroadDiscovery);
       const recovery = await buildBlockedDiscoveryRecoverySnapshot(
         resolved.resolvedModelId,
         oaiGuarded.blockedDetails,
@@ -4769,15 +4811,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
         finalAssistantText?.trim() ?? "",
         recovery.text,
       ].filter(Boolean).join("\n\n");
+      if (sessionBlockedTotal >= 2) {
+        finalAssistantText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
+      }
       recordSessionEvent(
         sessionKey,
         identity.userId,
         identity.orgId,
         "tool_call_blocked_broad_discovery",
         "tool-guardrails",
-        `blocked=${oaiBlockedBroadDiscovery}`,
+        `blocked=${oaiBlockedBroadDiscovery};sessionTotal=${sessionBlockedTotal}`,
         reqId,
-        { blockedDetails: oaiGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
+        { blockedDetails: oaiGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal },
       );
       recordSessionEvent(
         sessionKey,
@@ -4872,6 +4917,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls);
     externalToolCalls = oaiLegacyGuarded.calls;
     if (oaiLegacyGuarded.blockedCount > 0) {
+      const oaiLegacyBlockedTotal = recordBlockedDiscovery(sessionKey, oaiLegacyGuarded.blockedCount);
       const recovery = await buildBlockedDiscoveryRecoverySnapshot(
         resolved.resolvedModelId,
         oaiLegacyGuarded.blockedDetails,
@@ -4881,6 +4927,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         finalAssistantText?.trim() ?? "",
         recovery.text,
       ].filter(Boolean).join("\n\n");
+      if (oaiLegacyBlockedTotal >= 2) {
+        finalAssistantText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
+      }
       oaiBlockedBroadDiscovery += oaiLegacyGuarded.blockedCount;
       recordSessionEvent(
         sessionKey,
@@ -4888,9 +4937,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         identity.orgId,
         "tool_call_blocked_broad_discovery",
         "tool-guardrails",
-        `blocked=${oaiLegacyGuarded.blockedCount}`,
+        `blocked=${oaiLegacyGuarded.blockedCount};sessionTotal=${oaiLegacyBlockedTotal}`,
         reqId,
-        { blockedDetails: oaiLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
+        { blockedDetails: oaiLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal: oaiLegacyBlockedTotal },
       );
       recordSessionEvent(
         sessionKey,
@@ -5391,18 +5440,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     finishReason = normalizeOpenAIStreamFinishReason(finishReason, oaiStreamEmittedToolCalls);
     if (oaiStreamBlockedBroadDiscovery > 0) {
+      recordBlockedDiscovery(sessionKey, oaiStreamBlockedBroadDiscovery);
       recordSessionEvent(
         sessionKey,
         identity.userId,
         identity.orgId,
         "tool_call_blocked_broad_discovery",
         "tool-guardrails",
-        `blocked=${oaiStreamBlockedBroadDiscovery}`,
+        `blocked=${oaiStreamBlockedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(sessionKey)}`,
         reqId,
         {
           blockedDetails: oaiStreamBlockedDetails.slice(0, 5),
           recoveryMode: oaiStreamRecoveryMode,
           topLevelPreview: oaiStreamRecoveryPreviewEntries,
+          sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey),
         },
       );
       recordSessionEvent(
@@ -6096,6 +6147,7 @@ app.post("/v1/messages", async (req, reply) => {
           repeatedTestCommands: 0,
           repeatedReadSearchCalls: 0,
           repeatedBroadDiscoveryCalls: 0,
+          totalBroadDiscoveryCalls: 0,
           broadTestRepeat: false,
           noEditEvidence: false,
         },
@@ -6204,6 +6256,13 @@ app.post("/v1/messages", async (req, reply) => {
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
     }
     return reply.code(400).send(policyRejectClaudeBody(claudePolicyPrecheck));
+  }
+  if (shouldStripGlobFromTools(claudeSessionKey)) {
+    const claudeGlobStrip = stripGlobFromTools(body.tools as unknown[] | undefined);
+    if (claudeGlobStrip.stripped) {
+      body.tools = claudeGlobStrip.tools as never;
+      app.log.warn({ reqId: traceReqId, sessionKey: claudeSessionKey, sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey) }, "proactive_glob_strip_from_tools");
+    }
   }
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const canRewriteRecovery =
@@ -7046,18 +7105,20 @@ app.post("/v1/messages", async (req, reply) => {
       }
       stopReason = normalizeClaudeStreamStopReason(stopReason, claudeStreamEmittedToolCalls);
       if (claudeStreamBlockedBroadDiscovery > 0) {
+        recordBlockedDiscovery(claudeSessionKey, claudeStreamBlockedBroadDiscovery);
         recordSessionEvent(
           claudeSessionKey,
           claudeIdentity.userId,
           claudeIdentity.orgId,
           "tool_call_blocked_broad_discovery",
           "tool-guardrails",
-          `blocked=${claudeStreamBlockedBroadDiscovery}`,
+          `blocked=${claudeStreamBlockedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`,
           traceReqId,
           {
             blockedDetails: claudeStreamBlockedDetails.slice(0, 5),
             recoveryMode: claudeStreamRecoveryMode,
             topLevelPreview: claudeStreamRecoveryPreviewEntries,
+            sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey),
           },
         );
         recordSessionEvent(
@@ -7647,6 +7708,7 @@ app.post("/v1/messages", async (req, reply) => {
   let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
   let finalClaudeText = result.text ?? "";
   if (claudeBlockedBroadDiscovery > 0) {
+    const claudeSessionBlockedTotal = recordBlockedDiscovery(claudeSessionKey, claudeBlockedBroadDiscovery);
     const recovery = await buildBlockedDiscoveryRecoverySnapshot(
       resolved.resolvedModelId,
       claudeGuarded.blockedDetails,
@@ -7656,15 +7718,18 @@ app.post("/v1/messages", async (req, reply) => {
       finalClaudeText.trim(),
       recovery.text,
     ].filter(Boolean).join("\n\n");
+    if (claudeSessionBlockedTotal >= 2) {
+      finalClaudeText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
+    }
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
       claudeIdentity.orgId,
       "tool_call_blocked_broad_discovery",
       "tool-guardrails",
-      `blocked=${claudeBlockedBroadDiscovery}`,
+      `blocked=${claudeBlockedBroadDiscovery};sessionTotal=${claudeSessionBlockedTotal}`,
       reqId,
-      { blockedDetails: claudeGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
+      { blockedDetails: claudeGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal: claudeSessionBlockedTotal },
     );
     recordSessionEvent(
       claudeSessionKey,
@@ -7722,6 +7787,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls);
   externalClaudeToolCalls = claudeLegacyGuarded.calls;
   if (claudeLegacyGuarded.blockedCount > 0) {
+    const claudeLegacyBlockedTotal = recordBlockedDiscovery(claudeSessionKey, claudeLegacyGuarded.blockedCount);
     const recovery = await buildBlockedDiscoveryRecoverySnapshot(
       resolved.resolvedModelId,
       claudeLegacyGuarded.blockedDetails,
@@ -7731,6 +7797,9 @@ app.post("/v1/messages", async (req, reply) => {
       finalClaudeText.trim(),
       recovery.text,
     ].filter(Boolean).join("\n\n");
+    if (claudeLegacyBlockedTotal >= 2) {
+      finalClaudeText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
+    }
     stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
     recordSessionEvent(
       claudeSessionKey,
@@ -7738,9 +7807,9 @@ app.post("/v1/messages", async (req, reply) => {
       claudeIdentity.orgId,
       "tool_call_blocked_broad_discovery",
       "tool-guardrails",
-      `blocked=${claudeLegacyGuarded.blockedCount}`,
+      `blocked=${claudeLegacyGuarded.blockedCount};sessionTotal=${claudeLegacyBlockedTotal}`,
       reqId,
-      { blockedDetails: claudeLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode },
+      { blockedDetails: claudeLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal: claudeLegacyBlockedTotal },
     );
     recordSessionEvent(
       claudeSessionKey,

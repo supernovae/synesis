@@ -41,19 +41,19 @@ export function buildBlockedDiscoveryGuidance(
   const blockedSummary = summarizeBlockedCalls(blocked);
   const guardrailCode = primaryGuardrailCode(blocked);
   const primaryMessage = guardrailCode === "empty_glob_pattern"
-    ? "Empty glob patterns are disabled for performance and reliability. Use an explicit scoped pattern."
-    : "Root-level wildcard globs are disabled for performance. Use scoped discovery first.";
+    ? "Empty glob patterns are disabled. You MUST use an explicit scoped pattern."
+    : "Root-level wildcard globs are disabled. You MUST use scoped discovery.";
   return [
     `Blocked ${blocked.length} broad discovery tool call(s): ${blockedSummary}.`,
-    `${primaryMessage} Use list_dir on '.' first when available, then target a specific subtree (for example src/*).`,
-    `<SYNESIS_TOOL_GUARDRAIL status="blocked" code="${guardrailCode}" version="2">`,
+    `${primaryMessage} Do NOT retry the same call. Instead: Read README.md or package.json, then use a scoped Glob like src/* or tests/*.`,
+    `<SYNESIS_TOOL_GUARDRAIL status="blocked" code="${guardrailCode}" version="3">`,
     `family=${label}`,
     `startup_policy=${label === "minimax" ? "minimax_constrained_discovery" : "default_constrained_discovery"}`,
     `blocked=${blocked.length}`,
     `reasons=${reasons}`,
-    "next_action=list_dir:.|glob:src/*|glob:pkg/**/*_test.go|search_code:<symbol>",
-    "tests_hint=if_user_asks_for_tests_then_search_code:_test.go|test_|spec|jest|vitest|pytest",
-    "message=If list_dir is unavailable, read README.md/go.mod/package.json and then use a scoped glob/search pattern.",
+    "next_action=read_file:README.md|read_file:package.json|glob:src/*|glob:tests/*|grep:<keyword>",
+    "tests_hint=if_user_asks_for_tests_then_grep:_test.go|test_|spec|jest|vitest|pytest",
+    "message=Read README.md/go.mod/package.json first, then use a scoped Glob or Grep. Do NOT call Glob with empty or wildcard patterns.",
     "</SYNESIS_TOOL_GUARDRAIL>",
   ].join("\n");
 }
@@ -64,12 +64,12 @@ export function buildBlockedDiscoveryRecoveryWithoutSnapshot(
 ): string {
   return [
     baseGuidance,
-    "Recovery hint: start with `list_dir` on `.` when available; otherwise read `README.md` and run one scoped `glob` or `search_code` call.",
-    `<SYNESIS_DISCOVERY_RECOVERY status="guided" code="${code}" version="1">`,
+    "Recovery: Read README.md or package.json to discover structure, then use a scoped Glob (e.g. src/*) or Grep.",
+    `<SYNESIS_DISCOVERY_RECOVERY status="guided" code="${code}" version="2">`,
     "entries_total=0",
     "entries_preview=0",
-    "message=Project root preview unavailable. Use one concrete path hint (README.md/go.mod/package.json), then scope to one directory.",
-    "next_action=read_file:README.md|glob:src/*|glob:pkg/**/*_test.go|search_code:<symbol>",
+    "message=Read README.md/go.mod/package.json first to learn the directory layout, then scope Glob/Grep to one directory.",
+    "next_action=read_file:README.md|read_file:package.json|glob:src/*|grep:<keyword>",
     "</SYNESIS_DISCOVERY_RECOVERY>",
   ].join("\n");
 }
@@ -83,11 +83,11 @@ export function buildBlockedDiscoveryRecoveryWithSnapshot(
   return {
     text: [
       baseGuidance,
-      "Recovery hint: pick one directory from the preview and continue with scoped discovery.",
-      "<SYNESIS_DISCOVERY_RECOVERY status=\"guided\" code=\"top_level_snapshot\" version=\"1\">",
+      "Recovery: pick one directory from the preview and use a scoped Glob (e.g. src/*) or Grep to continue.",
+      "<SYNESIS_DISCOVERY_RECOVERY status=\"guided\" code=\"top_level_snapshot\" version=\"2\">",
       `entries_total=${normalized.length}`,
       `entries_preview=${preview.length}`,
-      "message=Use list_dir on one of these directories, then use search_code with a symbol or error string.",
+      "message=Use a scoped Glob on one directory (e.g. src/*), or Grep for a symbol or error string.",
       ...previewLines,
       "</SYNESIS_DISCOVERY_RECOVERY>",
     ].join("\n"),

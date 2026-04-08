@@ -76,14 +76,14 @@ export function broadDiscoverySignature(toolName: string, input: unknown): strin
 export function rootWildcardGuidanceMessage(): string {
   return [
     "Error: Root-level wildcard globs are disabled for performance.",
-    "Use `list_dir` or `ls -F` for top-level discovery, then target a specific subtree (for example `src/*` or `tests/**/*.ts`).",
+    "Read README.md or package.json first, then target a specific subtree (for example `src/*` or `tests/**/*.ts`).",
   ].join(" ");
 }
 
 export function emptyGlobPatternGuidanceMessage(): string {
   return [
-    "Error: Empty glob patterns are not allowed.",
-    "Use a specific pattern such as `src/*`, `pkg/**/*_test.go`, or call `list_dir` first and then scope the glob.",
+    "Error: Empty glob patterns are not allowed. Do NOT retry this call.",
+    "Read README.md or package.json first to learn the directory layout, then use a scoped pattern such as `src/*` or `pkg/**/*_test.go`.",
   ].join(" ");
 }
 

@@ -21,6 +21,7 @@ export interface ExecutionGovernorDecision {
     repeatedTestCommands: number;
     repeatedReadSearchCalls: number;
     repeatedBroadDiscoveryCalls: number;
+    totalBroadDiscoveryCalls: number;
     broadTestRepeat: boolean;
     noEditEvidence: boolean;
   };
@@ -54,8 +55,8 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
   }
   const tool = normalizeString(toolName).toLowerCase();
   if (tool.includes("glob")) {
-    const pattern = normalizeString(row.glob_pattern);
-    if (pattern) return `glob:${pattern}`;
+    const pattern = normalizeString(row.glob_pattern ?? row.pattern ?? row.glob);
+    return pattern ? `glob:${pattern}` : "glob:*";
   }
   if (tool.includes("read_file") || tool === "read") {
     const p = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
@@ -202,6 +203,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
   let repeatedBroadDiscoveryCalls = 0;
+  let totalBroadDiscoveryCalls = 0;
   let broadTestRepeat = false;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
@@ -211,9 +213,13 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   );
   const hasEdit = events.some((e) => e.command.startsWith("edit:") || e.command === "edit");
 
-  for (let i = 1; i < events.length; i += 1) {
-    if (events[i].command !== events[i - 1].command) continue;
+  for (let i = 0; i < events.length; i += 1) {
     const tool = events[i].toolName;
+    if (isBroadDiscoveryCommand(tool, events[i].command)) {
+      totalBroadDiscoveryCalls += 1;
+    }
+    if (i === 0) continue;
+    if (events[i].command !== events[i - 1].command) continue;
     if (tool.includes("run_test") || /\b(go test|npm test|pnpm test|yarn test)\b/i.test(events[i].command)) {
       repeatedTestCommands += 1;
       if (/go test \.\/\.\.\.|^npm test$|^pnpm test$|^yarn test$/i.test(events[i].command)) {
@@ -231,7 +237,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= 2) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
-  if (repeatedBroadDiscoveryCalls >= 4) matchedRules.push("broad_discovery_repeat");
+  if (totalBroadDiscoveryCalls >= 3 || repeatedBroadDiscoveryCalls >= 2) matchedRules.push("broad_discovery_repeat");
   if (repeatedReadSearchCalls >= 3) matchedRules.push("bounded_exploration_budget");
   if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
     matchedRules.push("test_entry_contract");
@@ -249,6 +255,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
       },
@@ -265,7 +272,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
     ?? (noEditEvidence
       ? "Apply one focused code change for a single root-cause hypothesis, then run one narrow verification command."
       : "State one root-cause hypothesis and run one narrow verification command.");
-  if (repeatedBroadDiscoveryCalls >= 4) {
+  if (totalBroadDiscoveryCalls >= 3 || repeatedBroadDiscoveryCalls >= 2) {
     suggestedNextStep = "Run one targeted repo summary (for example synesis_inspect_repo), then read only 1-3 likely files; do not repeat Glob(\"*\") again.";
   } else if (matchedRules.includes("test_entry_contract")) {
     suggestedNextStep =
@@ -287,6 +294,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
       repeatedTestCommands,
       repeatedReadSearchCalls,
       repeatedBroadDiscoveryCalls,
+      totalBroadDiscoveryCalls,
       broadTestRepeat,
       noEditEvidence,
     },
@@ -306,8 +314,8 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
   const testFlow = rules.has("test_entry_contract");
   const explorationLoop = rules.has("bounded_exploration_budget") || rules.has("broad_discovery_repeat");
   const bullet = testFlow
-    ? "Use search_code first for test files/configs (_test, test_, jest.config, vitest, pytest.ini), then read at most 3 highest-signal files."
-    : "Use one narrow discovery action (list_dir on one path), then read at most 3 likely files and stop broad scanning.";
+    ? "Use Grep first for test files/configs (_test, test_, jest.config, vitest, pytest.ini), then Read at most 3 highest-signal files."
+    : "Read README.md or package.json, then use a scoped Glob (e.g. src/*) or Grep. Read at most 3 likely files and stop broad scanning.";
   const globRule = explorationLoop
     ? "Do not call Glob(\"*\") or empty glob patterns. If glob is required, use scoped patterns such as src/* or pkg/**/*_test.go."
     : "Avoid broad discovery loops; each tool call must refine scope.";

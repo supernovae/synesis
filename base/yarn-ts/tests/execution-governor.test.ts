@@ -100,12 +100,43 @@ describe("execution governor", () => {
       toolResult("1", "200 files"),
       assistantCall("2", "Glob", { glob_pattern: "*" }),
       toolResult("2", "200 files"),
-      assistantCall("3", "Glob", { glob_pattern: "*" }),
-      toolResult("3", "200 files"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(false);
-    expect(out.telemetry.repeatedBroadDiscoveryCalls).toBe(2);
+    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(2);
+  });
+
+  it("fires broad_discovery_repeat on 3 total non-consecutive broad calls", () => {
+    const messages = [
+      assistantCall("1", "Glob", { glob_pattern: "*" }),
+      toolResult("1", "200 files"),
+      assistantCall("2", "read", { filePath: "README.md" }),
+      toolResult("2", "# README"),
+      assistantCall("3", "Glob", { glob_pattern: "*" }),
+      toolResult("3", "200 files"),
+      assistantCall("4", "Glob", { glob_pattern: "*" }),
+      toolResult("4", "200 files"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("broad_discovery_repeat");
+    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(3);
+  });
+
+  it("fires broad_discovery_repeat for empty glob patterns", () => {
+    const messages = [
+      assistantCall("1", "Glob", { glob_pattern: "" }),
+      toolResult("1", "blocked"),
+      assistantCall("2", "read", { filePath: "README.md" }),
+      toolResult("2", "# README"),
+      assistantCall("3", "Glob", { glob_pattern: "" }),
+      toolResult("3", "blocked"),
+      assistantCall("4", "Glob", { glob_pattern: "" }),
+      toolResult("4", "blocked"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("broad_discovery_repeat");
   });
 
   it("pauses js test flow without test-entry discovery when user asks for tests", () => {
