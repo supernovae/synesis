@@ -162,7 +162,12 @@ import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
-import { evaluateExecutionGovernor, executionGovernorSoftFailMessage, type GovernorInputMessage } from "./governance/execution-governor.js";
+import {
+  evaluateExecutionGovernor,
+  executionGovernorRecoveryRewriteBlock,
+  executionGovernorSoftFailMessage,
+  type GovernorInputMessage,
+} from "./governance/execution-governor.js";
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
 type SessionState = {
@@ -271,6 +276,26 @@ function applyDiscoveryToolGuardrail(
       argsPreview: blockedInputPreview(callById.get(b.toolCallId)?.input),
     })),
   };
+}
+
+function applyExecutionGovernorToolRestrictions(
+  tools: unknown[] | undefined,
+): { tools: unknown[] | undefined; removed: string[] } {
+  if (!Array.isArray(tools) || tools.length === 0) return { tools, removed: [] };
+  const deny = new Set(["glob", "explore", "agent"]);
+  const removed: string[] = [];
+  const filtered = tools.filter((tool) => {
+    if (!tool || typeof tool !== "object") return true;
+    const row = tool as Record<string, unknown>;
+    const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
+    const rawName = (typeof row.name === "string" ? row.name : "")
+      || (nested && typeof nested.name === "string" ? nested.name : "");
+    const name = rawName.trim().toLowerCase();
+    if (!deny.has(name)) return true;
+    removed.push(rawName || name);
+    return false;
+  });
+  return { tools: filtered, removed };
 }
 
 function extractTextFromUnknownContent(content: unknown): string {
@@ -4229,6 +4254,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(400).send(policyRejectOpenAIBody(policyPrecheck));
   }
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const canRewriteRecovery =
+      oaiExecutionGovernor.matchedRules.includes("bounded_exploration_budget")
+      || oaiExecutionGovernor.matchedRules.includes("broad_discovery_repeat")
+      || oaiExecutionGovernor.matchedRules.includes("test_entry_contract");
+    if (canRewriteRecovery) {
+      const recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
+      (normalizedOpenAI.messages as Array<{ role: string; content: unknown }>).unshift({
+        role: "system",
+        content: recovery,
+      });
+      const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined);
+      request.tools = restricted.tools as never;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "execution_governor_recovery_rewrite",
+        "execution-governor",
+        `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
+        oaiTraceReqId,
+      );
+    } else {
     const started = Date.now();
     const content = executionGovernorSoftFailMessage(oaiExecutionGovernor);
     const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
@@ -4253,6 +4300,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       oaiTraceReqId,
     );
     return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
+    }
   }
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
   const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
@@ -6105,6 +6153,28 @@ app.post("/v1/messages", async (req, reply) => {
     return reply.code(400).send(policyRejectClaudeBody(claudePolicyPrecheck));
   }
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const canRewriteRecovery =
+      claudeExecutionGovernor.matchedRules.includes("bounded_exploration_budget")
+      || claudeExecutionGovernor.matchedRules.includes("broad_discovery_repeat")
+      || claudeExecutionGovernor.matchedRules.includes("test_entry_contract");
+    if (canRewriteRecovery) {
+      const recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
+      (normalizedFromClaude.messages as Array<{ role: string; content: unknown }>).unshift({
+        role: "system",
+        content: recovery,
+      });
+      const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined);
+      body.tools = restricted.tools as never;
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "execution_governor_recovery_rewrite",
+        "execution-governor",
+        `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
+        traceReqId,
+      );
+    } else {
     const started = Date.now();
     const content = executionGovernorSoftFailMessage(claudeExecutionGovernor);
     const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
@@ -6129,6 +6199,7 @@ app.post("/v1/messages", async (req, reply) => {
       traceReqId,
     );
     return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
+    }
   }
 
   const claudeRole = TIER_TO_ROLE[claudeOrchestration.tier];

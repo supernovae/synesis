@@ -254,3 +254,25 @@ export function executionGovernorSoftFailMessage(decision: ExecutionGovernorDeci
     `Next step: ${decision.suggestedNextStep ?? "pick one narrow verification step before continuing."}`,
   ].join(" ");
 }
+
+export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGovernorDecision): string {
+  const rules = new Set(decision.matchedRules);
+  const testFlow = rules.has("test_entry_contract");
+  const explorationLoop = rules.has("bounded_exploration_budget") || rules.has("broad_discovery_repeat");
+  const bullet = testFlow
+    ? "Use search_code first for test files/configs (_test, test_, jest.config, vitest, pytest.ini), then read at most 3 highest-signal files."
+    : "Use one narrow discovery action (list_dir on one path), then read at most 3 likely files and stop broad scanning.";
+  const globRule = explorationLoop
+    ? "Do not call Glob(\"*\") or empty glob patterns. If glob is required, use scoped patterns such as src/* or pkg/**/*_test.go."
+    : "Avoid broad discovery loops; each tool call must refine scope.";
+  return [
+    "<SYNESIS_EXECUTION_RECOVERY status=\"rewrite\" version=\"1\">",
+    `matched_rules=${decision.matchedRules.join(",")}`,
+    "objective=convert broad exploration into bounded hypothesis-driven workflow",
+    `step1=${bullet}`,
+    `step2=${globRule}`,
+    "step3=before any large read, state one concrete hypothesis and one verification command",
+    `next_action=${decision.suggestedNextStep ?? "run one narrow verification step"}`,
+    "</SYNESIS_EXECUTION_RECOVERY>",
+  ].join("\n");
+}

@@ -43,6 +43,7 @@ export function buildBlockedDiscoveryGuidance(
     `blocked=${blocked.length}`,
     `reasons=${reasons}`,
     "next_action=list_dir:.|glob:src/*|search_code:<symbol>",
+    "tests_hint=if_user_asks_for_tests_then_search_code:_test|test_|spec|jest|vitest|pytest",
     "message=Root-level wildcard globs are disabled for performance. Use list_dir on project root, then scope glob/search to a subfolder.",
     "</SYNESIS_TOOL_GUARDRAIL>",
   ].join("\n");

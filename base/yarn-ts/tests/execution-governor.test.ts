@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateExecutionGovernor } from "../src/governance/execution-governor.js";
+import { evaluateExecutionGovernor, executionGovernorRecoveryRewriteBlock } from "../src/governance/execution-governor.js";
 
 function assistantCall(id: string, name: string, args: unknown) {
   return { role: "assistant", content: "", tool_calls: [{ id, function: { name, arguments: args } }] };
@@ -72,6 +72,26 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("broad_discovery_repeat");
     expect(out.telemetry.repeatedBroadDiscoveryCalls).toBeGreaterThanOrEqual(4);
     expect(out.suggestedNextStep).toContain("synesis_inspect_repo");
+  });
+
+  it("formats recovery rewrite block for exploration loops", () => {
+    const messages = [
+      assistantCall("1", "Glob", { glob_pattern: "*" }),
+      toolResult("1", "200 files"),
+      assistantCall("2", "Glob", { glob_pattern: "*" }),
+      toolResult("2", "200 files"),
+      assistantCall("3", "Glob", { glob_pattern: "*" }),
+      toolResult("3", "200 files"),
+      assistantCall("4", "Glob", { glob_pattern: "*" }),
+      toolResult("4", "200 files"),
+      assistantCall("5", "Glob", { glob_pattern: "*" }),
+      toolResult("5", "200 files"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    const block = executionGovernorRecoveryRewriteBlock(out);
+    expect(block).toContain("<SYNESIS_EXECUTION_RECOVERY");
+    expect(block).toContain("Do not call Glob(\"*\")");
+    expect(block).toContain("next_action=");
   });
 
   it("allows initial broad discovery before loop threshold", () => {

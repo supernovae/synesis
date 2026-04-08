@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyDiscoveryGuardrails,
   isRootWildcardGlobCall,
+  isEmptyGlobPatternCall,
   broadDiscoverySignature,
 } from "../../src/tool-collapse/discovery-guardrails.js";
 
@@ -10,6 +11,12 @@ describe("discovery-guardrails", () => {
     expect(isRootWildcardGlobCall("Glob", { glob_pattern: "*" })).toBe(true);
     expect(isRootWildcardGlobCall("glob", { glob_pattern: "**/*" })).toBe(true);
     expect(isRootWildcardGlobCall("glob", { glob_pattern: "src/*" })).toBe(false);
+  });
+
+  it("blocks empty glob patterns", () => {
+    expect(isEmptyGlobPatternCall("Glob", { glob_pattern: "" })).toBe(true);
+    expect(isEmptyGlobPatternCall("glob", { pattern: "   " })).toBe(true);
+    expect(isEmptyGlobPatternCall("glob", { glob_pattern: "src/*" })).toBe(false);
   });
 
   it("creates stable broad discovery signatures", () => {
@@ -35,5 +42,15 @@ describe("discovery-guardrails", () => {
     ]);
     expect(out.calls).toHaveLength(0);
     expect(out.blocked).toHaveLength(2);
+  });
+
+  it("blocks empty glob before collapse", () => {
+    const out = applyDiscoveryGuardrails([
+      { toolCallId: "1", toolName: "glob", input: { glob_pattern: "" } },
+      { toolCallId: "2", toolName: "glob", input: { glob_pattern: "   " } },
+    ]);
+    expect(out.calls).toHaveLength(0);
+    expect(out.blocked).toHaveLength(2);
+    expect(out.blocked[0]?.reason).toBe("empty_glob_pattern_blocked");
   });
 });

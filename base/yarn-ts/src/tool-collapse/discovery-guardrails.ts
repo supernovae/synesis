@@ -43,6 +43,20 @@ export function isRootWildcardGlobCall(toolName: string, input: unknown): boolea
   return pattern === "*" || pattern === "**/*" || pattern === "**";
 }
 
+export function isEmptyGlobPatternCall(toolName: string, input: unknown): boolean {
+  const n = normalizeToolAlias(toolName);
+  if (n !== "glob" && n !== "glob_file_search") return false;
+  const row = asRecord(input);
+  const hasPatternKey =
+    Object.prototype.hasOwnProperty.call(row, "glob_pattern")
+    || Object.prototype.hasOwnProperty.call(row, "pattern")
+    || Object.prototype.hasOwnProperty.call(row, "glob")
+    || Object.prototype.hasOwnProperty.call(row, "query");
+  if (!hasPatternKey) return false;
+  const pattern = normalizePattern(row.glob_pattern ?? row.pattern ?? row.glob ?? row.query);
+  return pattern.length === 0;
+}
+
 export function broadDiscoverySignature(toolName: string, input: unknown): string | null {
   const n = normalizeToolAlias(toolName);
   const row = asRecord(input);
@@ -66,6 +80,13 @@ export function rootWildcardGuidanceMessage(): string {
   ].join(" ");
 }
 
+export function emptyGlobPatternGuidanceMessage(): string {
+  return [
+    "Error: Empty glob patterns are not allowed.",
+    "Use a specific pattern such as `src/*`, `pkg/**/*_test.go`, or call `list_dir` first and then scope the glob.",
+  ].join(" ");
+}
+
 export function applyDiscoveryGuardrails(calls: GuardrailToolCall[]): DiscoveryGuardrailDecision {
   const blocked: DiscoveryGuardrailDecision["blocked"] = [];
   const collapsed: DiscoveryGuardrailDecision["collapsed"] = [];
@@ -73,6 +94,15 @@ export function applyDiscoveryGuardrails(calls: GuardrailToolCall[]): DiscoveryG
   const seenBySignature = new Map<string, string>();
 
   for (const call of calls) {
+    if (isEmptyGlobPatternCall(call.toolName, call.input)) {
+      blocked.push({
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        reason: "empty_glob_pattern_blocked",
+        message: emptyGlobPatternGuidanceMessage(),
+      });
+      continue;
+    }
     if (isRootWildcardGlobCall(call.toolName, call.input)) {
       blocked.push({
         toolCallId: call.toolCallId,
