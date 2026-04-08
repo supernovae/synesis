@@ -100,6 +100,14 @@ export default function YarnOverview() {
     label: fmtBucketLabel(b.bucket),
     okRequests: Math.max(0, b.requests - b.errors - b.escalations),
   }));
+  const liveTaskKept = runtimeTelemetry?.toolResultReduction?.taskPrunedLinesKept ?? 0;
+  const liveTaskDropped = runtimeTelemetry?.toolResultReduction?.taskPrunedLinesDropped ?? 0;
+  const liveTaskTotal = liveTaskKept + liveTaskDropped;
+  const liveTaskKeepRatio = liveTaskTotal > 0 ? (liveTaskKept / liveTaskTotal) * 100 : null;
+  const cumulativeTaskKept = reducerHistory?.cumulative?.task_pruned_lines_kept_total ?? 0;
+  const cumulativeTaskDropped = reducerHistory?.cumulative?.task_pruned_lines_dropped_total ?? 0;
+  const cumulativeTaskTotal = cumulativeTaskKept + cumulativeTaskDropped;
+  const cumulativeTaskKeepRatio = cumulativeTaskTotal > 0 ? (cumulativeTaskKept / cumulativeTaskTotal) * 100 : null;
 
   return (
     <div className="space-y-8">
@@ -414,7 +422,7 @@ export default function YarnOverview() {
           <h2 className="text-sm font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
             Tool-result reducers
           </h2>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-3">
             <ChartCard
               title="Reducer performance"
               subtitle="Live counters (Yarn process — reset when Yarn restarts)"
@@ -457,6 +465,54 @@ export default function YarnOverview() {
                     </div>
                   ))
                 )}
+              </div>
+            </ChartCard>
+            <ChartCard
+              title="Task pruning efficiency"
+              subtitle="Task-conditioned keep/drop ratios (live + persisted)"
+            >
+              <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                <div className="flex items-center justify-between">
+                  <span>Task-pruned outputs (live)</span>
+                  <span className="font-medium">
+                    {(runtimeTelemetry.toolResultReduction.taskPrunedCount ?? 0).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Lines kept (live)</span>
+                  <span className="font-medium">{liveTaskKept.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Lines dropped (live)</span>
+                  <span className="font-medium">{liveTaskDropped.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Keep ratio (live)</span>
+                  <span className="font-medium">
+                    {liveTaskKeepRatio === null ? "—" : `${liveTaskKeepRatio.toFixed(1)}%`}
+                  </span>
+                </div>
+                <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+                <div className="flex items-center justify-between">
+                  <span>Task-pruned outputs (DB)</span>
+                  <span className="font-medium">
+                    {(reducerHistory?.cumulative?.task_pruned_total ?? 0).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Lines kept (DB)</span>
+                  <span className="font-medium">{cumulativeTaskKept.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Lines dropped (DB)</span>
+                  <span className="font-medium">{cumulativeTaskDropped.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Keep ratio (DB)</span>
+                  <span className="font-medium">
+                    {cumulativeTaskKeepRatio === null ? "—" : `${cumulativeTaskKeepRatio.toFixed(1)}%`}
+                  </span>
+                </div>
               </div>
             </ChartCard>
           </div>
