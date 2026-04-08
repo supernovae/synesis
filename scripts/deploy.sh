@@ -1443,6 +1443,9 @@ patch_yarn_feature_flags() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE" "${SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE:-0}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP" "${SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP:-8}" "$container"
 
+    # ── Cache stability: governance bypass for A/B testing ──
+    _flag SYNESIS_YARN_GOVERNANCE_DISABLED              "false"
+
     # ── M10: Prefix cache / token optimization ──
     _flag SYNESIS_YARN_STABLE_PREFIX_ENABLED           "true"
     _flag SYNESIS_YARN_JSON_COMPACTION_ENABLED         "true"
