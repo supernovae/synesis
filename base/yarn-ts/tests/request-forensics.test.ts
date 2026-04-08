@@ -65,7 +65,10 @@ describe("request forensics", () => {
       costUsd: 0.03,
     });
     expect(withMetrics.usage?.tokensIn).toBe(1000);
+    expect(withMetrics.usage?.effectiveInputTokens).toBe(600);
+    expect(withMetrics.usage?.cacheHitRatio).toBe(0.4);
     expect(withMetrics.summary).toContain("usage=1000/120/400");
+    expect(withMetrics.summary).toContain("cache_hit=40%");
   });
 });
 

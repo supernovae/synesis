@@ -179,6 +179,52 @@ async function walkDir(dir: string, maxDepth: number, includeHidden: boolean): P
   return out;
 }
 
+type DirEntryMeta = {
+  path: string;
+  kind: "file" | "dir" | "other";
+  size: number;
+  mtimeMs: number;
+};
+
+async function listDirWithMetadata(
+  projectRoot: string,
+  dir: string,
+  maxDepth: number,
+  includeHidden: boolean,
+): Promise<{ entries: string[]; meta: DirEntryMeta[]; truncated: boolean }> {
+  const entries = await walkDir(dir, maxDepth, includeHidden);
+  const bounded = entries.slice(0, MAX_LIST_ENTRIES);
+  const meta: DirEntryMeta[] = [];
+  for (const rel of bounded) {
+    const abs = path.resolve(dir, rel);
+    try {
+      const stat = await fs.stat(abs);
+      meta.push({
+        path: rel,
+        kind: stat.isDirectory() ? "dir" : stat.isFile() ? "file" : "other",
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+      });
+    } catch {
+      meta.push({
+        path: rel,
+        kind: "other",
+        size: 0,
+        mtimeMs: 0,
+      });
+    }
+  }
+  const truncated = entries.length >= MAX_LIST_ENTRIES;
+  // Ensure path fields are always project-root relative even when dir != "."
+  const dirPrefix = path.relative(path.resolve(projectRoot), path.resolve(dir)).replace(/\\/g, "/");
+  const normalize = (p: string) => (dirPrefix && dirPrefix !== "." ? `${dirPrefix}/${p}` : p);
+  return {
+    entries: bounded.map(normalize),
+    meta: meta.map((m) => ({ ...m, path: normalize(m.path) })),
+    truncated,
+  };
+}
+
 async function walkFilesForSearch(root: string, maxDepth: number): Promise<string[]> {
   const out: string[] = [];
   const queue: Array<{ abs: string; depth: number }> = [{ abs: root, depth: 0 }];
@@ -299,7 +345,14 @@ const ListDirSchema = RootSchema.extend({
 });
 export const listDirTool: McpToolDefinition<
   z.infer<typeof ListDirSchema>,
-  { entries: string[]; count: number; truncated: boolean }
+  {
+    entries: string[];
+    entriesMeta: DirEntryMeta[];
+    count: number;
+    truncated: boolean;
+    depthLimited: boolean;
+    nextAction: string;
+  }
 > = {
   name: "list_dir",
   description: "List directory entries under project root with bounded recursion.",
@@ -307,8 +360,17 @@ export const listDirTool: McpToolDefinition<
   async handler(input) {
     const root = path.resolve(input.projectRoot);
     const dir = resolveInsideRoot(root, input.dir);
-    const entries = await walkDir(dir, input.maxDepth, input.includeHidden);
-    return { entries: entries.slice(0, MAX_LIST_ENTRIES), count: entries.length, truncated: entries.length >= MAX_LIST_ENTRIES };
+    const listed = await listDirWithMetadata(root, dir, input.maxDepth, input.includeHidden);
+    return {
+      entries: listed.entries,
+      entriesMeta: listed.meta,
+      count: listed.entries.length,
+      truncated: listed.truncated,
+      depthLimited: input.maxDepth <= 1,
+      nextAction: listed.truncated
+        ? "Narrow to a sub-directory with list_dir(dir=<path>, maxDepth=1) or search_code(pattern=<symbol>, dir=<path>)."
+        : "Pick one candidate sub-directory/file and continue with scoped list_dir/search_code/read_file.",
+    };
   },
 };
 
@@ -839,7 +901,12 @@ const SearchCodeSchema = RootSchema.extend({
 });
 export const searchCodeTool: McpToolDefinition<
   z.infer<typeof SearchCodeSchema>,
-  { matches: string[]; exitCode: number; stderr: string }
+  {
+    matches: string[];
+    exitCode: number;
+    stderr: string;
+    noResultsGuidance?: string[];
+  }
 > = {
   name: "search_code",
   description:
@@ -868,12 +935,35 @@ export const searchCodeTool: McpToolDefinition<
           }
         }
       }
-      return { matches, exitCode: matches.length > 0 ? 0 : 1, stderr: "" };
+      return {
+        matches,
+        exitCode: matches.length > 0 ? 0 : 1,
+        stderr: "",
+        ...(matches.length === 0
+          ? {
+              noResultsGuidance: [
+                "Try a partial symbol match or shorter regex.",
+                "Broaden dir scope by one level.",
+                "Use list_dir first, then re-run search_code with a scoped dir.",
+              ],
+            }
+          : {}),
+      };
     }
+    const matches = out.stdout.split(/\r?\n/).filter(Boolean).slice(0, input.headLimit);
     return {
-      matches: out.stdout.split(/\r?\n/).filter(Boolean).slice(0, input.headLimit),
+      matches,
       exitCode: out.exitCode,
       stderr: out.stderr,
+      ...(matches.length === 0
+        ? {
+            noResultsGuidance: [
+              "Try a partial symbol match or shorter regex.",
+              "Check spelling/case sensitivity and glob filters.",
+              "Use list_dir on the target folder before retrying search_code.",
+            ],
+          }
+        : {}),
     };
   },
 };

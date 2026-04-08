@@ -1,5 +1,6 @@
 import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
+import { applyDiscoveryGuardrails } from "./discovery-guardrails.js";
 import { collapseToolCalls } from "./tool-call-collapser.js";
 import { executeCollapsePlan, type ToolCollapseExecutor } from "./tool-call-executor.js";
 import { compactExecutionResults } from "./response-compactor.js";
@@ -161,11 +162,35 @@ export class ToolCallInterceptor {
   async processImmediate(calls: ParsedToolCall[]): Promise<InterceptResult> {
     const ctx = this.buildContext();
     const incomingCount = calls.length;
+    const guarded = applyDiscoveryGuardrails(calls);
+    const filteredCalls = guarded.calls as ParsedToolCall[];
+    if (guarded.blocked.length > 0) {
+      this.opts.log?.({
+        msg: "tool_call_blocked_broad_discovery",
+        data: {
+          count: guarded.blocked.length,
+          blocked: guarded.blocked.map((b) => ({ id: b.toolCallId, tool: b.toolName, reason: b.reason })),
+        },
+      });
+    }
+    if (guarded.collapsed.length > 0) {
+      this.opts.log?.({
+        msg: "duplicate_broad_call_collapsed",
+        data: {
+          count: guarded.collapsed.length,
+          collapsed: guarded.collapsed.map((c) => ({
+            duplicateId: c.duplicateToolCallId,
+            canonicalId: c.canonicalToolCallId,
+            signature: c.signature,
+          })),
+        },
+      });
+    }
     let dedupeStats: InterceptDedupeStats | undefined;
     let plan =
       this.opts.dedupeLayer != null
         ? (() => {
-            const dr = this.opts.dedupeLayer.run(calls, incomingCount);
+            const dr = this.opts.dedupeLayer.run(filteredCalls, incomingCount);
             dedupeStats = {
               droppedExact: dr.droppedExactIds.length,
               segmentDroppedReads: dr.segmentDroppedReadIds.length,
@@ -173,7 +198,7 @@ export class ToolCallInterceptor {
             };
             return dr.plan;
           })()
-        : collapseToolCalls(calls);
+        : collapseToolCalls(filteredCalls);
     let validated: ValidatedPlan = validateCollapsePlan(plan, ctx);
 
     if (!validated.ok && this.opts.strictValidation) {
@@ -181,7 +206,7 @@ export class ToolCallInterceptor {
         msg: "tool_collapse_validation_fallback",
         data: { issues: validated.issues.map((i) => i.message).join("; ") },
       });
-      plan = fallbackPassthroughPlan(calls);
+      plan = fallbackPassthroughPlan(filteredCalls);
       validated = validateCollapsePlan(plan, ctx);
     }
 

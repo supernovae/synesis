@@ -36,7 +36,7 @@ describe("execution governor", () => {
       toolResult("3", "FAIL pkg/a in pkg/a/file_test.go"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.pause).toBe(true);
+    expect(out.pause).toBe(false);
     expect(out.matchedRules).not.toContain("no_repeat_without_change");
     expect(out.telemetry.noEditEvidence).toBe(false);
   });
@@ -62,11 +62,51 @@ describe("execution governor", () => {
       toolResult("2", "200 files"),
       assistantCall("3", "Glob", { glob_pattern: "*" }),
       toolResult("3", "200 files"),
+      assistantCall("4", "Glob", { glob_pattern: "*" }),
+      toolResult("4", "200 files"),
+      assistantCall("5", "Glob", { glob_pattern: "*" }),
+      toolResult("5", "200 files"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("broad_discovery_repeat");
-    expect(out.telemetry.repeatedBroadDiscoveryCalls).toBeGreaterThanOrEqual(2);
+    expect(out.telemetry.repeatedBroadDiscoveryCalls).toBeGreaterThanOrEqual(4);
     expect(out.suggestedNextStep).toContain("synesis_inspect_repo");
+  });
+
+  it("allows initial broad discovery before loop threshold", () => {
+    const messages = [
+      assistantCall("1", "Glob", { glob_pattern: "*" }),
+      toolResult("1", "200 files"),
+      assistantCall("2", "Glob", { glob_pattern: "*" }),
+      toolResult("2", "200 files"),
+      assistantCall("3", "Glob", { glob_pattern: "*" }),
+      toolResult("3", "200 files"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.telemetry.repeatedBroadDiscoveryCalls).toBe(2);
+  });
+
+  it("pauses test flow without test-entry discovery when user asks for tests", () => {
+    const messages = [
+      { role: "user", content: "add a comprehensive test suite for retry behavior" },
+      assistantCall("1", "run_test", { preset: "go" }),
+      toolResult("1", "FAIL pkg/a"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("test_entry_contract");
+  });
+
+  it("pauses cleanup flow if TODO harvest is skipped before edits", () => {
+    const messages = [
+      { role: "user", content: "refactor and clean up this package" },
+      assistantCall("1", "str_replace", { filePath: "pkg/a.go", oldString: "x", newString: "y" }),
+      toolResult("1", "ok"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("cleanup_todo_harvest");
   });
 });

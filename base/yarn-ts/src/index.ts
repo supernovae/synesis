@@ -100,6 +100,7 @@ import {
   planToSyntheticToolCalls,
   defaultShellAllowlistFromEnv,
 } from "./tool-collapse/index.js";
+import { applyDiscoveryGuardrails } from "./tool-collapse/discovery-guardrails.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { synesisPolicyErrorExtension } from "./policy/policy-error-extension.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
@@ -167,6 +168,51 @@ type SessionState = {
   toolLoopNoUserAckCount: number;
   record: SessionRecord;
 };
+
+type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
+
+function modelFamilyLabelForGuidance(family: string): string {
+  const lower = family.toLowerCase();
+  if (lower.includes("qwen")) return "qwen";
+  if (lower.includes("kimi")) return "kimi";
+  if (lower.includes("minimax")) return "minimax";
+  if (lower.includes("deepseek")) return "deepseek";
+  return "default";
+}
+
+function buildBlockedDiscoveryGuidance(
+  family: string,
+  blocked: Array<{ toolName: string; reason: string }>,
+): string {
+  const label = modelFamilyLabelForGuidance(family);
+  const reasons = blocked.map((b) => `${b.toolName}:${b.reason}`).join(",");
+  return [
+    "<SYNESIS_TOOL_GUARDRAIL status=\"blocked\" code=\"root_wildcard_glob\" version=\"1\">",
+    `family=${label}`,
+    `blocked=${blocked.length}`,
+    `reasons=${reasons}`,
+    "next_action=list_dir:.|glob:src/*|search_code:<symbol>",
+    "message=Root-level wildcard globs are disabled for performance. Use list_dir on project root, then scope glob/search to a subfolder.",
+    "</SYNESIS_TOOL_GUARDRAIL>",
+  ].join("\n");
+}
+
+function applyDiscoveryToolGuardrail(
+  calls: GuardrailToolCall[],
+): {
+  calls: GuardrailToolCall[];
+  blockedCount: number;
+  collapsedCount: number;
+  blockedDetails: Array<{ toolName: string; reason: string }>;
+} {
+  const guarded = applyDiscoveryGuardrails(calls);
+  return {
+    calls: guarded.calls as GuardrailToolCall[],
+    blockedCount: guarded.blocked.length,
+    collapsedCount: guarded.collapsed.length,
+    blockedDetails: guarded.blocked.map((b) => ({ toolName: b.toolName, reason: b.reason })),
+  };
+}
 
 type TrajectoryBucket = "micro" | "repo" | "feature" | "investigation";
 
@@ -335,6 +381,23 @@ function buildCompletionGapMessage(missingSummary: string): string {
   ].join("\n");
 }
 
+function extractNewFileMentions(text: string): string[] {
+  const out = new Set<string>();
+  const rx = /\b(?:created|added|new file)\b[^.\n]*\b([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_]+)\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(text)) !== null) {
+    if (m[1]) out.add(m[1]);
+    if (out.size >= 12) break;
+  }
+  return [...out];
+}
+
+function hasUsageOrReferenceCue(text: string, filePath: string): boolean {
+  const escaped = filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rx = new RegExp(`\\b(import|use|used by|wired|hooked|referenced|route|register|include)\\b[^\\n]{0,140}${escaped}`, "i");
+  return rx.test(text);
+}
+
 type CompletionGateOutcome = {
   finalText: string;
   applied: boolean;
@@ -464,6 +527,13 @@ function applyCompletionGate(
       ];
     }
   }
+  const newFileNotes: string[] = [];
+  const mentionedNewFiles = extractNewFileMentions(originalText);
+  for (const fp of mentionedNewFiles) {
+    if (!hasUsageOrReferenceCue(originalText, fp) && !hasUsageOrReferenceCue(latestUserPrompt, fp)) {
+      newFileNotes.push(`new file mentioned without usage reference: ${fp}`);
+    }
+  }
   if (report.missingMust.length === 0) {
     return {
       finalText: originalText,
@@ -472,7 +542,7 @@ function applyCompletionGate(
       missingShould: report.missingShould.length,
       blockedByVerification: false,
       blockingVerificationFailures: 0,
-      suggestedNextActions: cliAcceptanceNotes,
+      suggestedNextActions: [...cliAcceptanceNotes, ...newFileNotes],
     };
   }
   const summary = summarizeMissingCoverage(report);
@@ -496,6 +566,7 @@ function applyCompletionGate(
     suggestedNextActions: [
       "continue implementation to close missing must-have requirements",
       ...cliAcceptanceNotes,
+      ...newFileNotes,
     ],
   };
 }
@@ -1223,6 +1294,11 @@ function enrichWithFrameAndManifest(
     }
   }
 
+  const intentGateBlock = buildIntentGateBlock(out);
+  if (intentGateBlock) {
+    volatileBlocks.push({ role: "system", content: intentGateBlock });
+  }
+
   volatileBlocks.push({ role: "system", content: TOOL_EFFICIENCY_GUIDANCE });
 
   const enriched: Array<{ role: string; content: unknown }> = [
@@ -1275,6 +1351,24 @@ When a build or test command fails, read the error output carefully and fix the 
 - After fixing an error, run the narrowest possible verification first.
 - Remove unused imports and fix vet warnings before re-running the full suite.
 </TOOL_EFFICIENCY>`;
+
+function buildIntentGateBlock(messages: Array<{ role: string; content: unknown }>): string | null {
+  const latestUser = [...messages].reverse().find((m) => m.role === "user" && typeof m.content === "string");
+  const text = String(latestUser?.content ?? "").toLowerCase();
+  if (!text) return null;
+  const lines: string[] = [];
+  if (/\b(add|write|create|build).{0,30}\btests?\b/.test(text) || /\bcomprehensive test suite\b/.test(text)) {
+    lines.push("- Test-entry contract: inspect existing test configs/patterns first (jest.config/vitest/pytest.ini/pyproject/package.json), then create or modify tests.");
+  }
+  if (/\b(clean ?up|refactor|harden|polish)\b/.test(text)) {
+    lines.push("- Cleanup-entry contract: run a targeted TODO/FIXME/DEBUG harvest before editing; prioritize highest-impact findings.");
+  }
+  if (/\b(update|implement|build|create|refactor|migrate)\b/.test(text)) {
+    lines.push("- Multi-step contract: state a short phase plan before first write-capable tool call.");
+  }
+  if (lines.length === 0) return null;
+  return ["<SYNESIS_INTENT_GATES>", ...lines, "</SYNESIS_INTENT_GATES>"].join("\n");
+}
 
 const FILE_RE_GLOBAL = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
 
@@ -3940,7 +4034,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       };
   const oaiAggressiveRepeatGuard =
     (oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash))
-    || oaiCommandLoop.broadDiscoveryRepeatCount >= 2;
+    || oaiCommandLoop.broadDiscoveryRepeatCount >= 4;
   const oaiRepeatAwarePivot = oaiAggressiveRepeatGuard
     ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
     : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;
@@ -4425,6 +4519,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     otelSpan.end();
 
     const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+    let finalAssistantText = finalResult.text;
     let externalToolCalls = toolCalls
       .filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME)
       .map((tc) => {
@@ -4482,6 +4577,38 @@ app.post("/v1/chat/completions", async (req, reply) => {
           input: governed.input,
         };
       });
+    let oaiBlockedBroadDiscovery = 0;
+    let oaiCollapsedBroadDiscovery = 0;
+    const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls);
+    externalToolCalls = oaiGuarded.calls;
+    oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
+    oaiCollapsedBroadDiscovery = oaiGuarded.collapsedCount;
+    if (oaiBlockedBroadDiscovery > 0) {
+      finalAssistantText = [
+        finalAssistantText?.trim() ?? "",
+        buildBlockedDiscoveryGuidance(resolved.resolvedModelId, oaiGuarded.blockedDetails),
+      ].filter(Boolean).join("\n\n");
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "tool_call_blocked_broad_discovery",
+        "tool-guardrails",
+        `blocked=${oaiBlockedBroadDiscovery}`,
+        reqId,
+      );
+    }
+    if (oaiCollapsedBroadDiscovery > 0) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "duplicate_broad_call_collapsed",
+        "tool-guardrails",
+        `collapsed=${oaiCollapsedBroadDiscovery}`,
+        reqId,
+      );
+    }
     if (
       config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED &&
       config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM &&
@@ -4519,7 +4646,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         app.log.info({ from: parsedCalls.length, to: synthetic.length, reqId }, "tool_collapse_rewrite_non_stream");
       }
     }
-    let finalAssistantText = finalResult.text;
+    finalAssistantText = finalAssistantText ?? "";
     if (externalToolCalls.length === 0 && finalAssistantText) {
       const parsedLegacy = parseLegacyInlineToolCall(finalAssistantText);
       if (parsedLegacy) {
@@ -4549,6 +4676,36 @@ app.post("/v1/chat/completions", async (req, reply) => {
         finalAssistantText = parsedLegacy.cleanText;
         app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_non_stream");
       }
+    }
+    const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls);
+    externalToolCalls = oaiLegacyGuarded.calls;
+    if (oaiLegacyGuarded.blockedCount > 0) {
+      finalAssistantText = [
+        finalAssistantText?.trim() ?? "",
+        buildBlockedDiscoveryGuidance(resolved.resolvedModelId, oaiLegacyGuarded.blockedDetails),
+      ].filter(Boolean).join("\n\n");
+      oaiBlockedBroadDiscovery += oaiLegacyGuarded.blockedCount;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "tool_call_blocked_broad_discovery",
+        "tool-guardrails",
+        `blocked=${oaiLegacyGuarded.blockedCount}`,
+        reqId,
+      );
+    }
+    if (oaiLegacyGuarded.collapsedCount > 0) {
+      oaiCollapsedBroadDiscovery += oaiLegacyGuarded.collapsedCount;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "duplicate_broad_call_collapsed",
+        "tool-guardrails",
+        `collapsed=${oaiLegacyGuarded.collapsedCount}`,
+        reqId,
+      );
     }
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
     finalAssistantText = applyMarkdownGuardrail(
@@ -4645,6 +4802,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     const oaiLatency = Date.now() - started;
     const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+    const oaiGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+    if (oaiGuidedTrimmed > 0) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "tool_output_truncated_guided",
+        "tool-guardrails",
+        `count=${oaiGuidedTrimmed}`,
+        reqId,
+      );
+    }
     const lastRecallOai = toolResultReduction.getLastRecallDecision();
     const vStateOai = toolResultReduction.getVerificationTracker().getState();
     const oaiSnapshot = buildDecisionSnapshot({
@@ -4800,6 +4969,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let finishReason = "stop";
   const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
   const pendingTextDeltas: string[] = [];
+  const oaiStreamGuardrailAccepted: GuardrailToolCall[] = [];
+  let oaiStreamBlockedBroadDiscovery = 0;
+  let oaiStreamCollapsedBroadDiscovery = 0;
   let oaiStreamGateApplied = false;
   let oaiStreamMissingMust = 0;
   let oaiStreamMissingShould = 0;
@@ -4911,6 +5083,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
               adapterFamily: adapter.family,
             }, "tool_call_streamed");
           }
+          const candidateCall: GuardrailToolCall = {
+            toolCallId: tc.toolCallId ?? "",
+            toolName: governed.toolName,
+            input: governed.input,
+          };
+          const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall]);
+          if (streamGuarded.calls.length === oaiStreamGuardrailAccepted.length) {
+            oaiStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
+            oaiStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
+            if (streamGuarded.blockedCount > 0) {
+              flushOpenAIText(`\n${buildBlockedDiscoveryGuidance(resolved.resolvedModelId, streamGuarded.blockedDetails)}\n`);
+            }
+            continue;
+          }
+          oaiStreamGuardrailAccepted.push(candidateCall);
           const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
           if (existing) {
             existing.name = governed.toolName;
@@ -4954,6 +5141,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
           repairs: oaiStreamToolRepairs,
         },
         "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
+      );
+    }
+    if (oaiStreamBlockedBroadDiscovery > 0) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "tool_call_blocked_broad_discovery",
+        "tool-guardrails",
+        `blocked=${oaiStreamBlockedBroadDiscovery}`,
+        reqId,
+      );
+    }
+    if (oaiStreamCollapsedBroadDiscovery > 0) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "duplicate_broad_call_collapsed",
+        "tool-guardrails",
+        `collapsed=${oaiStreamCollapsedBroadDiscovery}`,
+        reqId,
       );
     }
   } catch (streamErr) {
@@ -5191,6 +5400,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiStreamLatency = Date.now() - started;
   const openAiStreamForensicsDone = finalizeRequestForensics(session, reqId, openAiStreamForensics, oaiStreamUsage);
   const oaiStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+  const oaiStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+  if (oaiStreamGuidedTrimmed > 0) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "tool_output_truncated_guided",
+      "tool-guardrails",
+      `count=${oaiStreamGuidedTrimmed}`,
+      reqId,
+    );
+  }
   const lastRecallOaiStream = toolResultReduction.getLastRecallDecision();
   const vStateOaiStream = toolResultReduction.getVerificationTracker().getState();
   const oaiStreamSnapshot = buildDecisionSnapshot({
@@ -5597,7 +5818,7 @@ app.post("/v1/messages", async (req, reply) => {
       };
   const claudeAggressiveRepeatGuard =
     (claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash))
-    || claudeCommandLoop.broadDiscoveryRepeatCount >= 2;
+    || claudeCommandLoop.broadDiscoveryRepeatCount >= 4;
   const claudeRepeatAwarePivot = claudeAggressiveRepeatGuard
     ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
     : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;
@@ -6232,6 +6453,9 @@ app.post("/v1/messages", async (req, reply) => {
     let claudeStreamCriticBlocked = false;
     const pendingClaudeTextDeltas: string[] = [];
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
+    const claudeStreamGuardrailAccepted: GuardrailToolCall[] = [];
+    let claudeStreamBlockedBroadDiscovery = 0;
+    let claudeStreamCollapsedBroadDiscovery = 0;
     const claudeStreamToolSequence: string[] = [];
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
     const isLocalLikeBaseUrl =
@@ -6426,6 +6650,33 @@ app.post("/v1/messages", async (req, reply) => {
               adapterFamily: claudeAdapter.family,
             }, "claude_tool_call_streamed");
           }
+          const candidateCall: GuardrailToolCall = {
+            toolCallId: tcFull.toolCallId ?? "",
+            toolName: emitToolName,
+            input: finalInput,
+          };
+          const streamGuarded = applyDiscoveryToolGuardrail([...claudeStreamGuardrailAccepted, candidateCall]);
+          if (streamGuarded.calls.length === claudeStreamGuardrailAccepted.length) {
+            claudeStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
+            claudeStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
+            if (streamGuarded.blockedCount > 0) {
+              const guidance = buildBlockedDiscoveryGuidance(resolved.resolvedModelId, streamGuarded.blockedDetails);
+              safeSse(reply, "content_block_start", {
+                type: "content_block_start",
+                index: blockIdx,
+                content_block: { type: "text", text: "" },
+              });
+              safeSse(reply, "content_block_delta", {
+                type: "content_block_delta",
+                index: blockIdx,
+                delta: { type: "text_delta", text: `\n${guidance}\n` },
+              });
+              safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
+              blockIdx++;
+            }
+            continue;
+          }
+          claudeStreamGuardrailAccepted.push(candidateCall);
           claudeStreamToolSequence.push(emitToolName);
 
           const toolCallId = tcFull.toolCallId ?? "";
@@ -6461,6 +6712,28 @@ app.post("/v1/messages", async (req, reply) => {
             repairs: requestToolRepairs,
           },
           "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
+        );
+      }
+      if (claudeStreamBlockedBroadDiscovery > 0) {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "tool_call_blocked_broad_discovery",
+          "tool-guardrails",
+          `blocked=${claudeStreamBlockedBroadDiscovery}`,
+          traceReqId,
+        );
+      }
+      if (claudeStreamCollapsedBroadDiscovery > 0) {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "duplicate_broad_call_collapsed",
+          "tool-guardrails",
+          `collapsed=${claudeStreamCollapsedBroadDiscovery}`,
+          traceReqId,
         );
       }
     } catch (streamErr) {
@@ -6710,6 +6983,18 @@ app.post("/v1/messages", async (req, reply) => {
     }
     const claudeStreamLatency = Date.now() - started;
     const claudeStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+    const claudeStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+    if (claudeStreamGuidedTrimmed > 0) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "tool_output_truncated_guided",
+        "tool-guardrails",
+        `count=${claudeStreamGuidedTrimmed}`,
+        reqId,
+      );
+    }
     const lastRecallClaudeStream = toolResultReduction.getLastRecallDecision();
     const vStateClaudeStream = toolResultReduction.getVerificationTracker().getState();
     const claudeStreamSnapshot = buildDecisionSnapshot({
@@ -6991,10 +7276,42 @@ app.post("/v1/messages", async (req, reply) => {
         input: governed.input,
       };
     });
+  let claudeBlockedBroadDiscovery = 0;
+  let claudeCollapsedBroadDiscovery = 0;
+  const claudeGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls);
+  externalClaudeToolCalls = claudeGuarded.calls;
+  claudeBlockedBroadDiscovery = claudeGuarded.blockedCount;
+  claudeCollapsedBroadDiscovery = claudeGuarded.collapsedCount;
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
   let finalClaudeText = result.text ?? "";
+  if (claudeBlockedBroadDiscovery > 0) {
+    finalClaudeText = [
+      finalClaudeText.trim(),
+      buildBlockedDiscoveryGuidance(resolved.resolvedModelId, claudeGuarded.blockedDetails),
+    ].filter(Boolean).join("\n\n");
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "tool_call_blocked_broad_discovery",
+      "tool-guardrails",
+      `blocked=${claudeBlockedBroadDiscovery}`,
+      reqId,
+    );
+  }
+  if (claudeCollapsedBroadDiscovery > 0) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "duplicate_broad_call_collapsed",
+      "tool-guardrails",
+      `collapsed=${claudeCollapsedBroadDiscovery}`,
+      reqId,
+    );
+  }
   if (externalClaudeToolCalls.length === 0 && finalClaudeText) {
     const parsedLegacy = parseLegacyInlineToolCall(finalClaudeText);
     if (parsedLegacy) {
@@ -7025,6 +7342,35 @@ app.post("/v1/messages", async (req, reply) => {
       stopReason = "tool_use";
       app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_claude_non_stream");
     }
+  }
+  const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls);
+  externalClaudeToolCalls = claudeLegacyGuarded.calls;
+  if (claudeLegacyGuarded.blockedCount > 0) {
+    finalClaudeText = [
+      finalClaudeText.trim(),
+      buildBlockedDiscoveryGuidance(resolved.resolvedModelId, claudeLegacyGuarded.blockedDetails),
+    ].filter(Boolean).join("\n\n");
+    stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "tool_call_blocked_broad_discovery",
+      "tool-guardrails",
+      `blocked=${claudeLegacyGuarded.blockedCount}`,
+      reqId,
+    );
+  }
+  if (claudeLegacyGuarded.collapsedCount > 0) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "duplicate_broad_call_collapsed",
+      "tool-guardrails",
+      `collapsed=${claudeLegacyGuarded.collapsedCount}`,
+      reqId,
+    );
   }
   let claudeGateApplied = false;
   let claudeMissingMust = 0;
@@ -7121,6 +7467,18 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeNonStreamLatency = Date.now() - started;
   const claudeNonStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
+  const claudeNonStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+  if (claudeNonStreamGuidedTrimmed > 0) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "tool_output_truncated_guided",
+      "tool-guardrails",
+      `count=${claudeNonStreamGuidedTrimmed}`,
+      reqId,
+    );
+  }
   const lastRecallClaudeNonStream = toolResultReduction.getLastRecallDecision();
   const vStateClaudeNonStream = toolResultReduction.getVerificationTracker().getState();
   const claudeNonStreamSnapshot = buildDecisionSnapshot({

@@ -25,6 +25,9 @@ function makeConfig(maxRawChars = 100): AppConfig {
     SYNESIS_YARN_WRITE_FLUSH_INTERVAL_MS: 50,
     SYNESIS_YARN_SESSION_TTL_MS: 14_400_000,
     SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS: maxRawChars,
+    SYNESIS_YARN_TOOL_OUTPUT_TRIM_GUIDED_ENABLED: true,
+    SYNESIS_YARN_TOOL_OUTPUT_TRIM_MAX_LINES: 50,
+    SYNESIS_YARN_TOOL_OUTPUT_TRIM_PREVIEW_LINES: 20,
     SYNESIS_YARN_VALIDATION_MAX_FINDINGS: 30,
     SYNESIS_YARN_VALIDATION_INCLUDE_RAW: false,
     SYNESIS_YARN_REDUCERS_ENABLED: true,
@@ -114,5 +117,25 @@ describe("ToolResultReductionService", () => {
     );
     expect(out).toContain("<TOOL_REDUCED");
     expect(out).toContain('family="git"');
+  });
+
+  it("applies guided truncation for oversized discovery outputs", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const lines = Array.from({ length: 120 }, (_, i) => `file_${i}.ts`).join("\n");
+    const out = svc.reduceMessages([
+      { role: "tool", content: lines, name: "glob" },
+    ]);
+    expect(out.reducedCount).toBe(1);
+    expect(String(out.messages[0].content)).toContain('code="tool_output_truncated_guided"');
+    expect(svc.getPerRequestGuidedTruncationDelta()).toBe(1);
+  });
+
+  it("adds deterministic remediation for empty search/list outputs", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const out = svc.reduceMessages([
+      { role: "tool", content: JSON.stringify({ matches: [], exitCode: 1, stderr: "" }), name: "search_code" },
+    ]);
+    expect(out.reducedCount).toBe(1);
+    expect(String(out.messages[0].content)).toContain('code="empty_result_remediation"');
   });
 });

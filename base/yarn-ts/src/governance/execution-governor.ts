@@ -46,6 +46,9 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
   }
   if (!args || typeof args !== "object") return "";
   const row = args as Record<string, unknown>;
+  if (typeof row.preset === "string" && normalizeString(toolName).toLowerCase().includes("run_test")) {
+    return `run_test:${normalizeString(row.preset)}`;
+  }
   for (const k of ["command", "cmd", "script"]) {
     if (typeof row[k] === "string") return normalizeString(row[k]);
   }
@@ -53,6 +56,15 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
   if (tool.includes("glob")) {
     const pattern = normalizeString(row.glob_pattern);
     if (pattern) return `glob:${pattern}`;
+  }
+  if (tool.includes("read_file") || tool === "read") {
+    const p = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
+    if (p) return `read:${p}`;
+  }
+  if (tool.includes("write_file") || tool.includes("apply_patch") || tool.includes("str_replace") || tool === "edit" || tool === "update") {
+    const p = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
+    if (p) return `edit:${p}`;
+    return "edit";
   }
   if (tool.includes("list_files") || tool.includes("read_dir") || tool.includes("read_directory")) {
     const path = normalizeString(row.path || row.dir || row.directory);
@@ -117,15 +129,46 @@ function extractChangedFileHints(messages: GovernorInputMessage[]): string[] {
   return [...hints];
 }
 
+function extractUserText(messages: GovernorInputMessage[]): string {
+  return messages
+    .filter((m) => m.role === "user" && typeof m.content === "string")
+    .map((m) => String(m.content))
+    .join("\n")
+    .toLowerCase();
+}
+
+function needsTestEntryGate(userText: string): boolean {
+  return /\b(add|write|create|build).{0,30}\btests?\b/.test(userText)
+    || /\bcomprehensive test suite\b/.test(userText);
+}
+
+function needsCleanupGate(userText: string): boolean {
+  return /\b(clean ?up|refactor|harden|polish)\b/.test(userText);
+}
+
+function hasTestConfigDiscovery(events: Array<{ command: string; toolName: string }>): boolean {
+  return events.some((e) =>
+    /search:.*(jest\.config|vitest|pytest\.ini|pyproject\.toml|package\.json|go\.mod)/i.test(e.command)
+    || /read:.*(jest\.config|vitest|pytest\.ini|pyproject\.toml|package\.json|go\.mod)/i.test(e.command),
+  );
+}
+
+function hasTodoHarvest(events: Array<{ command: string; toolName: string }>): boolean {
+  return events.some((e) => /search:.*(todo|fixme|debug)/i.test(e.command));
+}
+
 export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): ExecutionGovernorDecision {
   const events = extractCommandEvents(messages);
   const changedFiles = extractChangedFileHints(messages);
+  const userText = extractUserText(messages);
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
   let repeatedBroadDiscoveryCalls = 0;
   let broadTestRepeat = false;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
+  const hasRunTest = events.some((e) => /\b(go test|npm test|pnpm test|yarn test)\b/i.test(e.command) || e.toolName.includes("run_test"));
+  const hasEdit = events.some((e) => e.command.startsWith("edit:") || e.command === "edit");
 
   for (let i = 1; i < events.length; i += 1) {
     if (events[i].command !== events[i - 1].command) continue;
@@ -147,8 +190,14 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= 2) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
-  if (repeatedBroadDiscoveryCalls >= 2) matchedRules.push("broad_discovery_repeat");
+  if (repeatedBroadDiscoveryCalls >= 4) matchedRules.push("broad_discovery_repeat");
   if (repeatedReadSearchCalls >= 3) matchedRules.push("bounded_exploration_budget");
+  if (needsTestEntryGate(userText) && hasRunTest && !hasTestConfigDiscovery(events)) {
+    matchedRules.push("test_entry_contract");
+  }
+  if (needsCleanupGate(userText) && hasEdit && !hasTodoHarvest(events)) {
+    matchedRules.push("cleanup_todo_harvest");
+  }
 
   if (matchedRules.length === 0) {
     return {
@@ -175,8 +224,12 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
     ?? (noEditEvidence
       ? "Apply one focused code change for a single root-cause hypothesis, then run one narrow verification command."
       : "State one root-cause hypothesis and run one narrow verification command.");
-  if (repeatedBroadDiscoveryCalls >= 2) {
+  if (repeatedBroadDiscoveryCalls >= 4) {
     suggestedNextStep = "Run one targeted repo summary (for example synesis_inspect_repo), then read only 1-3 likely files; do not repeat Glob(\"*\") again.";
+  } else if (matchedRules.includes("test_entry_contract")) {
+    suggestedNextStep = "Before running tests, inspect existing test conventions: search_code for jest.config/vitest/pytest.ini/pyproject/package.json and read the nearest existing test file.";
+  } else if (matchedRules.includes("cleanup_todo_harvest")) {
+    suggestedNextStep = "Before edits, run one targeted search_code for TODO|FIXME|DEBUG and rank top cleanup candidates, then patch highest-impact files only.";
   }
 
   return {

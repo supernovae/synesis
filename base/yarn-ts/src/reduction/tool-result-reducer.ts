@@ -39,11 +39,25 @@ export interface ToolResultReductionStats {
   contentDispatchCount: number;
   reducerFailures: number;
   compactionFailures: number;
+  guidedTruncationCount: number;
   enrichedCount: number;
   bypassEligibleCount: number;
   byFamily: Record<string, number>;
   lifecycle: Record<string, { lifecycle: string; successes: number; failures: number; lastError?: string }>;
 }
+
+const GUIDED_TRIM_TOOL_NAMES = new Set<string>([
+  "glob",
+  "list_files",
+  "list_dir",
+  "read_dir",
+  "read_directory",
+  "search_code",
+  "search_files",
+  "codebase_search",
+  "grep",
+  "rg",
+]);
 
 export interface ToolResultReductionResult {
   messages: ToolResultLike[];
@@ -81,6 +95,7 @@ export class ToolResultReductionService {
     contentDispatchCount: 0,
     reducerFailures: 0,
     compactionFailures: 0,
+    guidedTruncationCount: 0,
     enrichedCount: 0,
     bypassEligibleCount: 0,
     byFamily: buildByFamilyStats(),
@@ -125,6 +140,19 @@ export class ToolResultReductionService {
       if (m.role !== "tool") return m;
       const normalized = this.buildReductionInput(m.name, m.content);
       const raw = normalized.raw;
+      const emptyRemediation = this.applyEmptyResultRemediation(m.name, m.content, raw);
+      if (emptyRemediation) {
+        this.trackTransformation(raw.length, emptyRemediation.length);
+        reducedCount += 1;
+        return { ...m, content: emptyRemediation };
+      }
+      const guidedTrim = this.applyGuidedOutputTrim(m.name, raw);
+      if (guidedTrim) {
+        this.stats.guidedTruncationCount += 1;
+        this.trackTransformation(raw.length, guidedTrim.length);
+        reducedCount += 1;
+        return { ...m, content: guidedTrim };
+      }
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
       if (!this.isExemptFromFileReduction(m.name)) {
@@ -271,6 +299,21 @@ export class ToolResultReductionService {
       const m = messages[idx];
       const normalized = toolInputs[j];
       const raw = normalized.raw;
+      const emptyRemediation = this.applyEmptyResultRemediation(m.name, m.content, raw);
+      if (emptyRemediation) {
+        this.trackTransformation(raw.length, emptyRemediation.length);
+        reducedCount += 1;
+        out[idx] = { ...m, content: emptyRemediation };
+        continue;
+      }
+      const guidedTrim = this.applyGuidedOutputTrim(m.name, raw);
+      if (guidedTrim) {
+        this.stats.guidedTruncationCount += 1;
+        this.trackTransformation(raw.length, guidedTrim.length);
+        reducedCount += 1;
+        out[idx] = { ...m, content: guidedTrim };
+        continue;
+      }
       const dispatch = dispatched[j];
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
@@ -379,6 +422,17 @@ export class ToolResultReductionService {
   reduceStandaloneToolResult(content: unknown, toolName?: string): string {
     const normalized = this.buildReductionInput(toolName, content);
     const raw = normalized.raw;
+    const emptyRemediation = this.applyEmptyResultRemediation(toolName, content, raw);
+    if (emptyRemediation) {
+      this.trackTransformation(raw.length, emptyRemediation.length);
+      return emptyRemediation;
+    }
+    const guidedTrim = this.applyGuidedOutputTrim(toolName, raw);
+    if (guidedTrim) {
+      this.stats.guidedTruncationCount += 1;
+      this.trackTransformation(raw.length, guidedTrim.length);
+      return guidedTrim;
+    }
     let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
     if (!this.isExemptFromFileReduction(toolName)) {
       try {
@@ -476,12 +530,21 @@ export class ToolResultReductionService {
   }
 
   private _savedCheckpoint = 0;
+  private _guidedTruncationCheckpoint = 0;
 
   /** Returns estimated tokens saved since the last call (per-request delta). */
   getPerRequestDelta(): number {
     const current = this.stats.tokensSavedEstimateTotal;
     const delta = current - this._savedCheckpoint;
     this._savedCheckpoint = current;
+    return Math.max(0, delta);
+  }
+
+  /** Returns guided truncation count delta since last call. */
+  getPerRequestGuidedTruncationDelta(): number {
+    const current = this.stats.guidedTruncationCount;
+    const delta = current - this._guidedTruncationCheckpoint;
+    this._guidedTruncationCheckpoint = current;
     return Math.max(0, delta);
   }
 
@@ -673,6 +736,67 @@ export class ToolResultReductionService {
       name === "taskcreate" ||
       name === "taskupdate"
     );
+  }
+
+  private applyGuidedOutputTrim(toolName: string | undefined, raw: string): string | null {
+    if (!this.config.SYNESIS_YARN_TOOL_OUTPUT_TRIM_GUIDED_ENABLED) return null;
+    const lowerName = (toolName ?? "").toLowerCase();
+    if (!GUIDED_TRIM_TOOL_NAMES.has(lowerName)) return null;
+    const lines = raw.split("\n");
+    const maxLines = Math.max(1, this.config.SYNESIS_YARN_TOOL_OUTPUT_TRIM_MAX_LINES);
+    const oversizedByLines = lines.length > maxLines;
+    const oversizedByChars = raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
+    if (!oversizedByLines && !oversizedByChars) return null;
+    const previewLines = Math.min(Math.max(1, this.config.SYNESIS_YARN_TOOL_OUTPUT_TRIM_PREVIEW_LINES), lines.length);
+    const preview = oversizedByLines
+      ? lines.slice(0, previewLines).join("\n")
+      : raw.slice(0, Math.min(raw.length, 2400));
+    return [
+      `<SYNESIS_TOOL_GUARDRAIL status="truncated" code="tool_output_truncated_guided" version="1">`,
+      `tool=${toolName ?? "unknown"}`,
+      `lines_total=${lines.length}`,
+      `chars_total=${raw.length}`,
+      `lines_shown=${previewLines}`,
+      `next_action=use_more_specific_path_or_pattern`,
+      `[Truncated] Tool output exceeded guardrail thresholds. Showing a bounded preview.`,
+      preview,
+      "</SYNESIS_TOOL_GUARDRAIL>",
+    ].join("\n");
+  }
+
+  private applyEmptyResultRemediation(
+    toolName: string | undefined,
+    content: unknown,
+    raw: string,
+  ): string | null {
+    const lower = (toolName ?? "").toLowerCase();
+    const isSearchLike = lower.includes("search") || lower.includes("grep") || lower.includes("rg");
+    const isListLike = lower.includes("list_dir") || lower.includes("read_dir") || lower.includes("glob");
+    if (!isSearchLike && !isListLike) return null;
+    let parsed: Record<string, unknown> | null = null;
+    if (content && typeof content === "object" && !Array.isArray(content)) {
+      parsed = content as Record<string, unknown>;
+    } else if (typeof content === "string" && content.trim().startsWith("{")) {
+      try {
+        const row = JSON.parse(content) as unknown;
+        if (row && typeof row === "object" && !Array.isArray(row)) parsed = row as Record<string, unknown>;
+      } catch {
+        parsed = null;
+      }
+    }
+    const matches = Array.isArray(parsed?.matches) ? parsed?.matches : null;
+    const entries = Array.isArray(parsed?.entries) ? parsed?.entries : null;
+    const isEmpty = (matches !== null && matches.length === 0) || (entries !== null && entries.length === 0);
+    if (!isEmpty) return null;
+    return [
+      `<SYNESIS_TOOL_GUARDRAIL status="guided" code="empty_result_remediation" version="1">`,
+      `tool=${toolName ?? "unknown"}`,
+      "reason=empty_result",
+      "next_action=broaden_or_correct_query_then_retry_once",
+      "[No results] Try a partial symbol match, broaden dir scope by one level, or list_dir first to validate path assumptions.",
+      `preview=${raw.slice(0, 240).replace(/\n/g, " ")}`,
+      "</SYNESIS_TOOL_GUARDRAIL>",
+    ].join("\n");
   }
 
   private artifactSummary(raw: string, toolName?: string): string {

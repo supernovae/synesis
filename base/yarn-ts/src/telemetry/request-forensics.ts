@@ -42,6 +42,8 @@ export interface RequestForensicsRecord {
     tokensOut: number;
     tokensCached: number;
     cacheCreationTokens: number;
+    cacheHitRatio: number;
+    effectiveInputTokens: number;
     costUsd: number;
   };
   summary: string;
@@ -134,12 +136,16 @@ export function withUsage(
     tokensOut: usage.outputTokens,
     tokensCached: usage.cachedTokens,
     cacheCreationTokens: usage.cacheCreationTokens,
+    cacheHitRatio: usage.inputTokens > 0 ? Number((usage.cachedTokens / usage.inputTokens).toFixed(4)) : 0,
+    effectiveInputTokens: Math.max(0, usage.inputTokens - usage.cachedTokens),
     costUsd: usage.costUsd,
   };
   return {
     ...record,
     usage: used,
-    summary: `${record.summary} | usage=${used.tokensIn}/${used.tokensOut}/${used.tokensCached}`,
+    summary: `${record.summary} | usage=${used.tokensIn}/${used.tokensOut}/${used.tokensCached} | cache_hit=${Math.round(
+      used.cacheHitRatio * 100,
+    )}% | effective_in=${used.effectiveInputTokens}`,
   };
 }
 

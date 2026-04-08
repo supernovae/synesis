@@ -231,6 +231,23 @@ describe("tool-call-queue", () => {
 });
 
 describe("tool-call-interceptor", () => {
+  it("blocks root wildcard glob before collapse planning", async () => {
+    const ix = new ToolCallInterceptor({
+      workspaceRoot: "/tmp/synesis-tool-collapse-test",
+      shellAllowlist: [],
+      strictValidation: true,
+      execute: false,
+      executor: null,
+    });
+    const r = await ix.processImmediate([
+      { toolCallId: "a", toolName: "glob", input: { glob_pattern: "*" } },
+      { toolCallId: "b", toolName: "read_file", input: { path: "src/a.ts" } },
+    ]);
+    const syn = planToSyntheticToolCalls(r.plan);
+    expect(syn.some((s) => s.toolCallId === "a")).toBe(false);
+    expect(syn.some((s) => s.toolCallId === "b")).toBe(true);
+  });
+
   it("fallback passthrough when strict validation fails", async () => {
     const calls: ParsedToolCall[] = [
       { toolCallId: "a", toolName: "read_file", input: { path: "a.ts" } },

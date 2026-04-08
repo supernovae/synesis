@@ -155,6 +155,16 @@ export class ClientAdapterPacks {
       "</SYNESIS_CODER_WORKFLOW>",
     );
 
+    lines.push(
+      "<SYNESIS_MODEL_SHIMS>",
+      "families=qwen|kimi|minimax|deepseek|default",
+      "- If a discovery tool call is blocked or truncated, immediately pivot to a narrower command in the same turn.",
+      "- Never retry the same broad discovery call after a guardrail response.",
+      "- Preferred recovery order: list_dir at project root -> scoped glob (src/*) -> search_code with explicit symbol/query.",
+      "- When you receive <SYNESIS_TOOL_GUARDRAIL ...>, treat it as authoritative and follow next_action exactly.",
+      "</SYNESIS_MODEL_SHIMS>",
+    );
+
     return lines.join("\n");
   }
 

@@ -147,6 +147,36 @@ describe("coding tools", () => {
     }
   });
 
+  it("returns metadata-first list_dir payload", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-list-"));
+    writeFileSync(path.join(root, "a.ts"), "export const a = 1;\n", "utf8");
+    const out = await listDirTool.handler({
+      projectRoot: root,
+      dir: ".",
+      maxDepth: 1,
+      includeHidden: false,
+    });
+    expect(out.entries.length).toBeGreaterThan(0);
+    expect(out.entriesMeta.length).toBeGreaterThan(0);
+    expect(out.entriesMeta[0]).toHaveProperty("path");
+    expect(out.entriesMeta[0]).toHaveProperty("size");
+    expect(out.entriesMeta[0]).toHaveProperty("mtimeMs");
+    expect(typeof out.nextAction).toBe("string");
+  });
+
+  it("returns deterministic no-result guidance for search_code", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-search-empty-"));
+    writeFileSync(path.join(root, "main.go"), "package main\n", "utf8");
+    const out = await searchCodeTool.handler({
+      projectRoot: root,
+      pattern: "symbol_that_does_not_exist",
+      dir: ".",
+      headLimit: 10,
+    });
+    expect(out.matches).toHaveLength(0);
+    expect(out.noResultsGuidance?.length ?? 0).toBeGreaterThan(0);
+  });
+
   it("run_build returns summary and errorLines on failure", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-buildfail-"));
     writeFileSync(path.join(root, "bad.py"), "def broken(\n", "utf8");
