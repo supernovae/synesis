@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { readdir } from "node:fs/promises";
 import Fastify from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { Registry } from "prom-client";
@@ -101,6 +102,7 @@ import {
   defaultShellAllowlistFromEnv,
 } from "./tool-collapse/index.js";
 import { applyDiscoveryGuardrails } from "./tool-collapse/discovery-guardrails.js";
+import { normalizeClaudeStreamStopReason, normalizeOpenAIStreamFinishReason } from "./tool-collapse/stream-stop-normalizer.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { synesisPolicyErrorExtension } from "./policy/policy-error-extension.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
@@ -189,12 +191,61 @@ function buildBlockedDiscoveryGuidance(
   return [
     "<SYNESIS_TOOL_GUARDRAIL status=\"blocked\" code=\"root_wildcard_glob\" version=\"1\">",
     `family=${label}`,
+    `startup_policy=${label === "minimax" ? "minimax_constrained_discovery" : "default_constrained_discovery"}`,
     `blocked=${blocked.length}`,
     `reasons=${reasons}`,
     "next_action=list_dir:.|glob:src/*|search_code:<symbol>",
     "message=Root-level wildcard globs are disabled for performance. Use list_dir on project root, then scope glob/search to a subfolder.",
     "</SYNESIS_TOOL_GUARDRAIL>",
   ].join("\n");
+}
+
+type DiscoveryRecoverySnapshot = {
+  text: string;
+  entryCount: number;
+  usedTopLevelSnapshot: boolean;
+};
+
+async function buildBlockedDiscoveryRecoverySnapshot(
+  family: string,
+  blocked: Array<{ toolName: string; reason: string }>,
+  projectRoot: string | null | undefined,
+): Promise<DiscoveryRecoverySnapshot> {
+  const base = buildBlockedDiscoveryGuidance(family, blocked);
+  const safeRoot = typeof projectRoot === "string" ? projectRoot.trim() : "";
+  if (!safeRoot) {
+    return { text: base, entryCount: 0, usedTopLevelSnapshot: false };
+  }
+  try {
+    const entries = await readdir(safeRoot, { withFileTypes: true });
+    const normalized = entries
+      .map((entry) => ({ name: entry.name, kind: entry.isDirectory() ? "dir" : "file" }))
+      .filter((entry) => entry.name && !entry.name.startsWith("."))
+      .sort((a, b) => {
+        if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    const preview = normalized.slice(0, 20);
+    if (preview.length === 0) {
+      return { text: base, entryCount: 0, usedTopLevelSnapshot: false };
+    }
+    const previewLines = preview.map((entry) => `- ${entry.kind}:${entry.name}`);
+    return {
+      text: [
+        base,
+        "<SYNESIS_DISCOVERY_RECOVERY status=\"guided\" code=\"top_level_snapshot\" version=\"1\">",
+        `entries_total=${normalized.length}`,
+        `entries_preview=${preview.length}`,
+        "message=Use list_dir on one of these directories, then use search_code with a symbol or error string.",
+        ...previewLines,
+        "</SYNESIS_DISCOVERY_RECOVERY>",
+      ].join("\n"),
+      entryCount: preview.length,
+      usedTopLevelSnapshot: true,
+    };
+  } catch {
+    return { text: base, entryCount: 0, usedTopLevelSnapshot: false };
+  }
 }
 
 function applyDiscoveryToolGuardrail(
@@ -212,6 +263,37 @@ function applyDiscoveryToolGuardrail(
     collapsedCount: guarded.collapsed.length,
     blockedDetails: guarded.blocked.map((b) => ({ toolName: b.toolName, reason: b.reason })),
   };
+}
+
+function extractTextFromUnknownContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const item of content) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      if (typeof row.text === "string" && row.text.trim()) parts.push(row.text.trim());
+      if (typeof row.content === "string" && row.content.trim()) parts.push(row.content.trim());
+    }
+    return parts.join("\n").trim();
+  }
+  if (content && typeof content === "object") {
+    const row = content as Record<string, unknown>;
+    if (typeof row.text === "string") return row.text;
+    if (typeof row.content === "string") return row.content;
+  }
+  return "";
+}
+
+function extractLatestUserPromptFromMessages(
+  messages: Array<{ role: string; content: unknown }>,
+): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role !== "user") continue;
+    const text = extractTextFromUnknownContent(messages[i].content).trim();
+    if (text) return text.slice(0, 4000);
+  }
+  return "";
 }
 
 type TrajectoryBucket = "micro" | "repo" | "feature" | "investigation";
@@ -3765,6 +3847,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const request = parsed.data;
   const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+  const oaiTaskCue = extractLatestUserPromptFromMessages(request.messages as Array<{ role: string; content: unknown }>);
 
   // Sorted tools for cache stability
   if (config.SYNESIS_YARN_SORTED_TOOLS_ENABLED && request.tools) {
@@ -3773,10 +3856,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const reducedOpenAI = enrichmentPool.isAvailable()
     ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
-        toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool),
+        toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue),
       )
     : withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
-        toolResultReduction.reduceMessages(request.messages as never),
+        toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue),
       );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = await validationNormalization.normalizeMessagesAsync(
@@ -4584,9 +4667,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
     oaiCollapsedBroadDiscovery = oaiGuarded.collapsedCount;
     if (oaiBlockedBroadDiscovery > 0) {
+      const recovery = await buildBlockedDiscoveryRecoverySnapshot(
+        resolved.resolvedModelId,
+        oaiGuarded.blockedDetails,
+        effectiveOaiPathCtx.projectRoot,
+      );
       finalAssistantText = [
         finalAssistantText?.trim() ?? "",
-        buildBlockedDiscoveryGuidance(resolved.resolvedModelId, oaiGuarded.blockedDetails),
+        recovery.text,
       ].filter(Boolean).join("\n\n");
       recordSessionEvent(
         sessionKey,
@@ -4597,6 +4685,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         `blocked=${oaiBlockedBroadDiscovery}`,
         reqId,
       );
+      if (recovery.usedTopLevelSnapshot) {
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "blocked_broad_discovery_then_recovery",
+          "tool-guardrails",
+          `top_level_preview=${recovery.entryCount}`,
+          reqId,
+        );
+      }
     }
     if (oaiCollapsedBroadDiscovery > 0) {
       recordSessionEvent(
@@ -4680,9 +4779,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls);
     externalToolCalls = oaiLegacyGuarded.calls;
     if (oaiLegacyGuarded.blockedCount > 0) {
+      const recovery = await buildBlockedDiscoveryRecoverySnapshot(
+        resolved.resolvedModelId,
+        oaiLegacyGuarded.blockedDetails,
+        effectiveOaiPathCtx.projectRoot,
+      );
       finalAssistantText = [
         finalAssistantText?.trim() ?? "",
-        buildBlockedDiscoveryGuidance(resolved.resolvedModelId, oaiLegacyGuarded.blockedDetails),
+        recovery.text,
       ].filter(Boolean).join("\n\n");
       oaiBlockedBroadDiscovery += oaiLegacyGuarded.blockedCount;
       recordSessionEvent(
@@ -4694,6 +4798,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         `blocked=${oaiLegacyGuarded.blockedCount}`,
         reqId,
       );
+      if (recovery.usedTopLevelSnapshot) {
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "blocked_broad_discovery_then_recovery",
+          "tool-guardrails",
+          `top_level_preview=${recovery.entryCount}`,
+          reqId,
+        );
+      }
     }
     if (oaiLegacyGuarded.collapsedCount > 0) {
       oaiCollapsedBroadDiscovery += oaiLegacyGuarded.collapsedCount;
@@ -4803,6 +4918,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiLatency = Date.now() - started;
     const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
     const oaiGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+    const oaiTaskPruned = toolResultReduction.getPerRequestTaskPrunedDelta();
     if (oaiGuidedTrimmed > 0) {
       recordSessionEvent(
         sessionKey,
@@ -4811,6 +4927,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "tool_output_truncated_guided",
         "tool-guardrails",
         `count=${oaiGuidedTrimmed}`,
+        reqId,
+      );
+    }
+    if (oaiTaskPruned > 0) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "task_conditioned_prune_applied",
+        "tool-reducer",
+        `count=${oaiTaskPruned}`,
         reqId,
       );
     }
@@ -4970,6 +5097,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
   const pendingTextDeltas: string[] = [];
   const oaiStreamGuardrailAccepted: GuardrailToolCall[] = [];
+  let oaiStreamEmittedToolCalls = 0;
+  let oaiStreamRecoveryPreviewEntries = 0;
   let oaiStreamBlockedBroadDiscovery = 0;
   let oaiStreamCollapsedBroadDiscovery = 0;
   let oaiStreamGateApplied = false;
@@ -5092,8 +5221,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
           if (streamGuarded.calls.length === oaiStreamGuardrailAccepted.length) {
             oaiStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
             oaiStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
+            const blockedId = tc.toolCallId ?? "";
+            if (blockedId) {
+              const idx = pendingToolCalls.findIndex((p) => p.id === blockedId);
+              if (idx >= 0) pendingToolCalls.splice(idx, 1);
+            }
             if (streamGuarded.blockedCount > 0) {
-              flushOpenAIText(`\n${buildBlockedDiscoveryGuidance(resolved.resolvedModelId, streamGuarded.blockedDetails)}\n`);
+              const recovery = await buildBlockedDiscoveryRecoverySnapshot(
+                resolved.resolvedModelId,
+                streamGuarded.blockedDetails,
+                effectiveOaiPathCtx.projectRoot,
+              );
+              oaiStreamRecoveryPreviewEntries += recovery.entryCount;
+              flushOpenAIText(`\n${recovery.text}\n`);
             }
             continue;
           }
@@ -5105,11 +5245,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
               choices: [{ index: 0, delta: { tool_calls: [{ index: existing.index, function: { arguments: argsStr } }] }, finish_reason: null }]
             })}\n\n`);
+            oaiStreamEmittedToolCalls += 1;
           } else {
             safeWrite(reply.raw, `data: ${JSON.stringify({
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
               choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: governed.toolName, arguments: argsStr } }] }, finish_reason: null }]
             })}\n\n`);
+            oaiStreamEmittedToolCalls += 1;
           }
         }
       } else if (part.type === "tool-input-delta") {
@@ -5143,6 +5285,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
       );
     }
+    finishReason = normalizeOpenAIStreamFinishReason(finishReason, oaiStreamEmittedToolCalls);
     if (oaiStreamBlockedBroadDiscovery > 0) {
       recordSessionEvent(
         sessionKey,
@@ -5153,6 +5296,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         `blocked=${oaiStreamBlockedBroadDiscovery}`,
         reqId,
       );
+      if (oaiStreamRecoveryPreviewEntries > 0) {
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "blocked_broad_discovery_then_recovery",
+          "tool-guardrails",
+          `top_level_preview=${oaiStreamRecoveryPreviewEntries}`,
+          reqId,
+        );
+      }
     }
     if (oaiStreamCollapsedBroadDiscovery > 0) {
       recordSessionEvent(
@@ -5401,6 +5555,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const openAiStreamForensicsDone = finalizeRequestForensics(session, reqId, openAiStreamForensics, oaiStreamUsage);
   const oaiStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
   const oaiStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+  const oaiStreamTaskPruned = toolResultReduction.getPerRequestTaskPrunedDelta();
   if (oaiStreamGuidedTrimmed > 0) {
     recordSessionEvent(
       sessionKey,
@@ -5409,6 +5564,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "tool_output_truncated_guided",
       "tool-guardrails",
       `count=${oaiStreamGuidedTrimmed}`,
+      reqId,
+    );
+  }
+  if (oaiStreamTaskPruned > 0) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "task_conditioned_prune_applied",
+      "tool-reducer",
+      `count=${oaiStreamTaskPruned}`,
       reqId,
     );
   }
@@ -5540,13 +5706,14 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const body: ClaudeMessagesRequest = parsed.data;
   const traceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+  const claudeTaskCue = extractLatestUserPromptFromMessages(body.messages as Array<{ role: string; content: unknown }>);
 
   // Merge top-level `system` into the message list (parity with Anthropic SDK)
   const claudeSystemMsg = claudeSystemToMessage(body.system);
   const rawOpenAIMessages = withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
     claudeMessagesToOpenAI(
       body.messages as never,
-      (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
+      (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName, claudeTaskCue)
     ),
   );
   // Enforce Vercel tool protocol invariants (assistant tool_call -> tool_result adjacency/order)
@@ -6454,6 +6621,8 @@ app.post("/v1/messages", async (req, reply) => {
     const pendingClaudeTextDeltas: string[] = [];
     const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
     const claudeStreamGuardrailAccepted: GuardrailToolCall[] = [];
+    let claudeStreamEmittedToolCalls = 0;
+    let claudeStreamRecoveryPreviewEntries = 0;
     let claudeStreamBlockedBroadDiscovery = 0;
     let claudeStreamCollapsedBroadDiscovery = 0;
     const claudeStreamToolSequence: string[] = [];
@@ -6659,8 +6828,17 @@ app.post("/v1/messages", async (req, reply) => {
           if (streamGuarded.calls.length === claudeStreamGuardrailAccepted.length) {
             claudeStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
             claudeStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
+            const blockedToolCallId = tcFull.toolCallId ?? "";
+            if (blockedToolCallId) {
+              claudeToolBuffer.delete(blockedToolCallId);
+            }
             if (streamGuarded.blockedCount > 0) {
-              const guidance = buildBlockedDiscoveryGuidance(resolved.resolvedModelId, streamGuarded.blockedDetails);
+              const recovery = await buildBlockedDiscoveryRecoverySnapshot(
+                resolved.resolvedModelId,
+                streamGuarded.blockedDetails,
+                effectiveClaudePathCtx.projectRoot,
+              );
+              claudeStreamRecoveryPreviewEntries += recovery.entryCount;
               safeSse(reply, "content_block_start", {
                 type: "content_block_start",
                 index: blockIdx,
@@ -6669,7 +6847,7 @@ app.post("/v1/messages", async (req, reply) => {
               safeSse(reply, "content_block_delta", {
                 type: "content_block_delta",
                 index: blockIdx,
-                delta: { type: "text_delta", text: `\n${guidance}\n` },
+                delta: { type: "text_delta", text: `\n${recovery.text}\n` },
               });
               safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
               blockIdx++;
@@ -6687,6 +6865,7 @@ app.post("/v1/messages", async (req, reply) => {
           safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
           claudeToolBuffer.delete(toolCallId);
+          claudeStreamEmittedToolCalls += 1;
           stopReason = "tool_use";
         } else if ((part as any).type === "error") {
           throw (part as any).error;
@@ -6714,6 +6893,7 @@ app.post("/v1/messages", async (req, reply) => {
           "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
         );
       }
+      stopReason = normalizeClaudeStreamStopReason(stopReason, claudeStreamEmittedToolCalls);
       if (claudeStreamBlockedBroadDiscovery > 0) {
         recordSessionEvent(
           claudeSessionKey,
@@ -6724,6 +6904,17 @@ app.post("/v1/messages", async (req, reply) => {
           `blocked=${claudeStreamBlockedBroadDiscovery}`,
           traceReqId,
         );
+        if (claudeStreamRecoveryPreviewEntries > 0) {
+          recordSessionEvent(
+            claudeSessionKey,
+            claudeIdentity.userId,
+            claudeIdentity.orgId,
+            "blocked_broad_discovery_then_recovery",
+            "tool-guardrails",
+            `top_level_preview=${claudeStreamRecoveryPreviewEntries}`,
+            traceReqId,
+          );
+        }
       }
       if (claudeStreamCollapsedBroadDiscovery > 0) {
         recordSessionEvent(
@@ -6984,6 +7175,7 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeStreamLatency = Date.now() - started;
     const claudeStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
     const claudeStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+    const claudeStreamTaskPruned = toolResultReduction.getPerRequestTaskPrunedDelta();
     if (claudeStreamGuidedTrimmed > 0) {
       recordSessionEvent(
         claudeSessionKey,
@@ -6992,6 +7184,17 @@ app.post("/v1/messages", async (req, reply) => {
         "tool_output_truncated_guided",
         "tool-guardrails",
         `count=${claudeStreamGuidedTrimmed}`,
+        reqId,
+      );
+    }
+    if (claudeStreamTaskPruned > 0) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "task_conditioned_prune_applied",
+        "tool-reducer",
+        `count=${claudeStreamTaskPruned}`,
         reqId,
       );
     }
@@ -7287,9 +7490,14 @@ app.post("/v1/messages", async (req, reply) => {
   let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
   let finalClaudeText = result.text ?? "";
   if (claudeBlockedBroadDiscovery > 0) {
+    const recovery = await buildBlockedDiscoveryRecoverySnapshot(
+      resolved.resolvedModelId,
+      claudeGuarded.blockedDetails,
+      effectiveClaudePathCtx.projectRoot,
+    );
     finalClaudeText = [
       finalClaudeText.trim(),
-      buildBlockedDiscoveryGuidance(resolved.resolvedModelId, claudeGuarded.blockedDetails),
+      recovery.text,
     ].filter(Boolean).join("\n\n");
     recordSessionEvent(
       claudeSessionKey,
@@ -7300,6 +7508,17 @@ app.post("/v1/messages", async (req, reply) => {
       `blocked=${claudeBlockedBroadDiscovery}`,
       reqId,
     );
+    if (recovery.usedTopLevelSnapshot) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "blocked_broad_discovery_then_recovery",
+        "tool-guardrails",
+        `top_level_preview=${recovery.entryCount}`,
+        reqId,
+      );
+    }
   }
   if (claudeCollapsedBroadDiscovery > 0) {
     recordSessionEvent(
@@ -7346,9 +7565,14 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls);
   externalClaudeToolCalls = claudeLegacyGuarded.calls;
   if (claudeLegacyGuarded.blockedCount > 0) {
+    const recovery = await buildBlockedDiscoveryRecoverySnapshot(
+      resolved.resolvedModelId,
+      claudeLegacyGuarded.blockedDetails,
+      effectiveClaudePathCtx.projectRoot,
+    );
     finalClaudeText = [
       finalClaudeText.trim(),
-      buildBlockedDiscoveryGuidance(resolved.resolvedModelId, claudeLegacyGuarded.blockedDetails),
+      recovery.text,
     ].filter(Boolean).join("\n\n");
     stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
     recordSessionEvent(
@@ -7360,6 +7584,17 @@ app.post("/v1/messages", async (req, reply) => {
       `blocked=${claudeLegacyGuarded.blockedCount}`,
       reqId,
     );
+    if (recovery.usedTopLevelSnapshot) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "blocked_broad_discovery_then_recovery",
+        "tool-guardrails",
+        `top_level_preview=${recovery.entryCount}`,
+        reqId,
+      );
+    }
   }
   if (claudeLegacyGuarded.collapsedCount > 0) {
     recordSessionEvent(
@@ -7468,6 +7703,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeNonStreamLatency = Date.now() - started;
   const claudeNonStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
   const claudeNonStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
+  const claudeNonStreamTaskPruned = toolResultReduction.getPerRequestTaskPrunedDelta();
   if (claudeNonStreamGuidedTrimmed > 0) {
     recordSessionEvent(
       claudeSessionKey,
@@ -7476,6 +7712,17 @@ app.post("/v1/messages", async (req, reply) => {
       "tool_output_truncated_guided",
       "tool-guardrails",
       `count=${claudeNonStreamGuidedTrimmed}`,
+      reqId,
+    );
+  }
+  if (claudeNonStreamTaskPruned > 0) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "task_conditioned_prune_applied",
+      "tool-reducer",
+      `count=${claudeNonStreamTaskPruned}`,
       reqId,
     );
   }

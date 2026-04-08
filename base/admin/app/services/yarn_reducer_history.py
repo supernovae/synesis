@@ -43,6 +43,10 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "reducer_failures_delta": 0,
         "tokens_saved_estimate_delta": 0,
         "fallback_to_artifact_delta": 0,
+        "guided_truncation_delta": 0,
+        "task_pruned_delta": 0,
+        "task_pruned_lines_kept_delta": 0,
+        "task_pruned_lines_dropped_delta": 0,
         "lifecycle": {},
     }
     if len(rows) < 2:
@@ -53,6 +57,10 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "reducer_failures_delta": 0,
         "tokens_saved_estimate_delta": 0,
         "fallback_to_artifact_delta": 0,
+        "guided_truncation_delta": 0,
+        "task_pruned_delta": 0,
+        "task_pruned_lines_kept_delta": 0,
+        "task_pruned_lines_dropped_delta": 0,
         "lifecycle": defaultdict(lambda: {"success_delta": 0, "fail_delta": 0}),
     }
 
@@ -68,6 +76,22 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         totals["fallback_to_artifact_delta"] += _monotonic_delta(
             _as_int(prev.get("fallbackToArtifactCount")),
             _as_int(curr.get("fallbackToArtifactCount")),
+        )
+        totals["guided_truncation_delta"] += _monotonic_delta(
+            _as_int(prev.get("guidedTruncationCount")),
+            _as_int(curr.get("guidedTruncationCount")),
+        )
+        totals["task_pruned_delta"] += _monotonic_delta(
+            _as_int(prev.get("taskPrunedCount")),
+            _as_int(curr.get("taskPrunedCount")),
+        )
+        totals["task_pruned_lines_kept_delta"] += _monotonic_delta(
+            _as_int(prev.get("taskPrunedLinesKept")),
+            _as_int(curr.get("taskPrunedLinesKept")),
+        )
+        totals["task_pruned_lines_dropped_delta"] += _monotonic_delta(
+            _as_int(prev.get("taskPrunedLinesDropped")),
+            _as_int(curr.get("taskPrunedLinesDropped")),
         )
 
         prev_l = prev.get("lifecycle") if isinstance(prev.get("lifecycle"), dict) else {}
@@ -86,6 +110,10 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "reducer_failures_delta": totals["reducer_failures_delta"],
         "tokens_saved_estimate_delta": totals["tokens_saved_estimate_delta"],
         "fallback_to_artifact_delta": totals["fallback_to_artifact_delta"],
+        "guided_truncation_delta": totals["guided_truncation_delta"],
+        "task_pruned_delta": totals["task_pruned_delta"],
+        "task_pruned_lines_kept_delta": totals["task_pruned_lines_kept_delta"],
+        "task_pruned_lines_dropped_delta": totals["task_pruned_lines_dropped_delta"],
         "lifecycle": lifecycle_out,
     }
 
@@ -97,6 +125,10 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "reducer_failures_total": 0,
         "tokens_saved_estimate_total": 0,
         "fallback_to_artifact_total": 0,
+        "guided_truncation_total": 0,
+        "task_pruned_total": 0,
+        "task_pruned_lines_kept_total": 0,
+        "task_pruned_lines_dropped_total": 0,
         "lifecycle": {},
     }
     if not rows:
@@ -108,6 +140,10 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "reducer_failures_total": _as_int(first_payload.get("reducerFailures")),
         "tokens_saved_estimate_total": _as_int(first_payload.get("tokensSavedEstimateTotal")),
         "fallback_to_artifact_total": _as_int(first_payload.get("fallbackToArtifactCount")),
+        "guided_truncation_total": _as_int(first_payload.get("guidedTruncationCount")),
+        "task_pruned_total": _as_int(first_payload.get("taskPrunedCount")),
+        "task_pruned_lines_kept_total": _as_int(first_payload.get("taskPrunedLinesKept")),
+        "task_pruned_lines_dropped_total": _as_int(first_payload.get("taskPrunedLinesDropped")),
         "lifecycle": defaultdict(lambda: {"success_total": 0, "fail_total": 0}),
     }
 
@@ -133,6 +169,22 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
             _as_int(prev.get("fallbackToArtifactCount")),
             _as_int(curr.get("fallbackToArtifactCount")),
         )
+        totals["guided_truncation_total"] += _monotonic_delta(
+            _as_int(prev.get("guidedTruncationCount")),
+            _as_int(curr.get("guidedTruncationCount")),
+        )
+        totals["task_pruned_total"] += _monotonic_delta(
+            _as_int(prev.get("taskPrunedCount")),
+            _as_int(curr.get("taskPrunedCount")),
+        )
+        totals["task_pruned_lines_kept_total"] += _monotonic_delta(
+            _as_int(prev.get("taskPrunedLinesKept")),
+            _as_int(curr.get("taskPrunedLinesKept")),
+        )
+        totals["task_pruned_lines_dropped_total"] += _monotonic_delta(
+            _as_int(prev.get("taskPrunedLinesDropped")),
+            _as_int(curr.get("taskPrunedLinesDropped")),
+        )
 
         prev_l = prev.get("lifecycle") if isinstance(prev.get("lifecycle"), dict) else {}
         curr_l = curr.get("lifecycle") if isinstance(curr.get("lifecycle"), dict) else {}
@@ -150,6 +202,10 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "reducer_failures_total": totals["reducer_failures_total"],
         "tokens_saved_estimate_total": totals["tokens_saved_estimate_total"],
         "fallback_to_artifact_total": totals["fallback_to_artifact_total"],
+        "guided_truncation_total": totals["guided_truncation_total"],
+        "task_pruned_total": totals["task_pruned_total"],
+        "task_pruned_lines_kept_total": totals["task_pruned_lines_kept_total"],
+        "task_pruned_lines_dropped_total": totals["task_pruned_lines_dropped_total"],
         "lifecycle": lifecycle_out,
     }
 

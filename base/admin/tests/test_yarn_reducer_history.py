@@ -22,6 +22,10 @@ def test_rollup_consecutive_deltas() -> None:
             "payload": {
                 "reducedCount": 10,
                 "reducerFailures": 1,
+                "guidedTruncationCount": 2,
+                "taskPrunedCount": 1,
+                "taskPrunedLinesKept": 8,
+                "taskPrunedLinesDropped": 20,
                 "lifecycle": {"lint": {"successes": 5, "failures": 0}},
             }
         },
@@ -29,6 +33,10 @@ def test_rollup_consecutive_deltas() -> None:
             "payload": {
                 "reducedCount": 14,
                 "reducerFailures": 2,
+                "guidedTruncationCount": 4,
+                "taskPrunedCount": 3,
+                "taskPrunedLinesKept": 16,
+                "taskPrunedLinesDropped": 50,
                 "lifecycle": {"lint": {"successes": 8, "failures": 1}},
             }
         },
@@ -36,6 +44,10 @@ def test_rollup_consecutive_deltas() -> None:
     r = rollup_reducer_snapshots(rows)
     assert r["reduced_count_delta"] == 4
     assert r["reducer_failures_delta"] == 1
+    assert r["guided_truncation_delta"] == 2
+    assert r["task_pruned_delta"] == 2
+    assert r["task_pruned_lines_kept_delta"] == 8
+    assert r["task_pruned_lines_dropped_delta"] == 30
     assert r["lifecycle"]["lint"]["success_delta"] == 3
     assert r["lifecycle"]["lint"]["fail_delta"] == 1
 
@@ -59,6 +71,10 @@ def test_cumulative_uses_first_snapshot_plus_monotonic_deltas() -> None:
                 "reducerFailures": 1,
                 "tokensSavedEstimateTotal": 100,
                 "fallbackToArtifactCount": 2,
+                "guidedTruncationCount": 3,
+                "taskPrunedCount": 1,
+                "taskPrunedLinesKept": 12,
+                "taskPrunedLinesDropped": 40,
                 "lifecycle": {"lint": {"successes": 5, "failures": 1}},
             },
         },
@@ -69,6 +85,10 @@ def test_cumulative_uses_first_snapshot_plus_monotonic_deltas() -> None:
                 "reducerFailures": 1,
                 "tokensSavedEstimateTotal": 160,
                 "fallbackToArtifactCount": 3,
+                "guidedTruncationCount": 5,
+                "taskPrunedCount": 2,
+                "taskPrunedLinesKept": 19,
+                "taskPrunedLinesDropped": 66,
                 "lifecycle": {"lint": {"successes": 9, "failures": 1}},
             },
         },
@@ -79,6 +99,10 @@ def test_cumulative_uses_first_snapshot_plus_monotonic_deltas() -> None:
                 "reducerFailures": 0,
                 "tokensSavedEstimateTotal": 25,
                 "fallbackToArtifactCount": 0,
+                "guidedTruncationCount": 1,
+                "taskPrunedCount": 1,
+                "taskPrunedLinesKept": 6,
+                "taskPrunedLinesDropped": 11,
                 "lifecycle": {"lint": {"successes": 1, "failures": 0}},
             },
         },
@@ -88,6 +112,10 @@ def test_cumulative_uses_first_snapshot_plus_monotonic_deltas() -> None:
     assert c["reducer_failures_total"] == 1  # 1 + 0 + 0
     assert c["tokens_saved_estimate_total"] == 185  # 100 + 60 + 25
     assert c["fallback_to_artifact_total"] == 3  # 2 + 1 + 0
+    assert c["guided_truncation_total"] == 6  # 3 + 2 + 1
+    assert c["task_pruned_total"] == 3  # 1 + 1 + 1
+    assert c["task_pruned_lines_kept_total"] == 25  # 12 + 7 + 6
+    assert c["task_pruned_lines_dropped_total"] == 77  # 40 + 26 + 11
     assert c["lifecycle"]["lint"]["success_total"] == 10  # 5 + 4 + 1
     assert c["lifecycle"]["lint"]["fail_total"] == 1  # 1 + 0 + 0
 

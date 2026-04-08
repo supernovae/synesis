@@ -28,6 +28,10 @@ function makeConfig(maxRawChars = 100): AppConfig {
     SYNESIS_YARN_TOOL_OUTPUT_TRIM_GUIDED_ENABLED: true,
     SYNESIS_YARN_TOOL_OUTPUT_TRIM_MAX_LINES: 50,
     SYNESIS_YARN_TOOL_OUTPUT_TRIM_PREVIEW_LINES: 20,
+    SYNESIS_YARN_TASK_PRUNING_ENABLED: true,
+    SYNESIS_YARN_TASK_PRUNING_MIN_LINES: 80,
+    SYNESIS_YARN_TASK_PRUNING_KEEP_MAX_LINES: 30,
+    SYNESIS_YARN_TASK_PRUNING_CONTEXT_RADIUS: 1,
     SYNESIS_YARN_VALIDATION_MAX_FINDINGS: 30,
     SYNESIS_YARN_VALIDATION_INCLUDE_RAW: false,
     SYNESIS_YARN_REDUCERS_ENABLED: true,
@@ -137,5 +141,33 @@ describe("ToolResultReductionService", () => {
     ]);
     expect(out.reducedCount).toBe(1);
     expect(String(out.messages[0].content)).toContain('code="empty_result_remediation"');
+  });
+
+  it("applies deterministic task-conditioned pruning with artifact expansion handle", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const lines = Array.from({ length: 140 }, (_, i) => {
+      if (i === 15) return "INFO compiling package";
+      if (i === 56) return "ERROR retry behavior duplicated request id=abc123";
+      if (i === 57) return "stack traceback duplicate request";
+      return `noise line ${i}`;
+    }).join("\n");
+    const out = svc.reduceMessages(
+      [{ role: "tool", content: lines, name: "run_command" }],
+      "add tests for retry behavior duplicate requests",
+    );
+    expect(out.reducedCount).toBe(1);
+    const reduced = String(out.messages[0].content);
+    expect(reduced).toContain('code="task_conditioned_pruning"');
+    expect(reduced).toContain("artifact_handle=");
+    expect(reduced).toContain("retry behavior duplicated request");
+    expect(svc.getPerRequestTaskPrunedDelta()).toBe(1);
+  });
+
+  it("keeps standalone reduction parity by applying content-dispatch before reducers", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const log = Array.from({ length: 90 }, (_, i) => `2026-04-08T10:${String(i % 60).padStart(2, "0")}:00Z INFO run ${i}`).join("\n");
+    const out = svc.reduceStandaloneToolResult(log, "run_command", "investigate log stream");
+    expect(out).not.toBe(log);
+    expect(out.toLowerCase()).toContain("log-stream");
   });
 });

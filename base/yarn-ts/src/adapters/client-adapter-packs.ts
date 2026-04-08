@@ -161,6 +161,7 @@ export class ClientAdapterPacks {
       "- If a discovery tool call is blocked or truncated, immediately pivot to a narrower command in the same turn.",
       "- Never retry the same broad discovery call after a guardrail response.",
       "- Preferred recovery order: list_dir at project root -> scoped glob (src/*) -> search_code with explicit symbol/query.",
+      "- MiniMax startup policy: first discovery action must be list_dir on project root or search_code with an explicit scoped path; never start with glob wildcard discovery.",
       "- When you receive <SYNESIS_TOOL_GUARDRAIL ...>, treat it as authoritative and follow next_action exactly.",
       "</SYNESIS_MODEL_SHIMS>",
     );

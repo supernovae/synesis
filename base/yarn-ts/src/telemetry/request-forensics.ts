@@ -44,6 +44,8 @@ export interface RequestForensicsRecord {
     cacheCreationTokens: number;
     cacheHitRatio: number;
     effectiveInputTokens: number;
+    tokensSavedByReduction?: number;
+    effectiveInputAfterReduction?: number;
     costUsd: number;
   };
   summary: string;
@@ -130,7 +132,9 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
 export function withUsage(
   record: RequestForensicsRecord,
   usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number },
+  reduction?: { tokensSavedByReduction?: number },
 ): RequestForensicsRecord {
+  const savedByReduction = Math.max(0, reduction?.tokensSavedByReduction ?? 0);
   const used = {
     tokensIn: usage.inputTokens,
     tokensOut: usage.outputTokens,
@@ -138,6 +142,8 @@ export function withUsage(
     cacheCreationTokens: usage.cacheCreationTokens,
     cacheHitRatio: usage.inputTokens > 0 ? Number((usage.cachedTokens / usage.inputTokens).toFixed(4)) : 0,
     effectiveInputTokens: Math.max(0, usage.inputTokens - usage.cachedTokens),
+    tokensSavedByReduction: savedByReduction,
+    effectiveInputAfterReduction: Math.max(0, usage.inputTokens - usage.cachedTokens - savedByReduction),
     costUsd: usage.costUsd,
   };
   return {
@@ -145,7 +151,7 @@ export function withUsage(
     usage: used,
     summary: `${record.summary} | usage=${used.tokensIn}/${used.tokensOut}/${used.tokensCached} | cache_hit=${Math.round(
       used.cacheHitRatio * 100,
-    )}% | effective_in=${used.effectiveInputTokens}`,
+    )}% | effective_in=${used.effectiveInputTokens} | reduced_tokens=${savedByReduction} | effective_after_reduction=${used.effectiveInputAfterReduction}`,
   };
 }
 

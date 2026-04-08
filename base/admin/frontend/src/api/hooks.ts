@@ -2206,6 +2206,10 @@ export interface YarnRuntimeTelemetry {
     tokensSavedEstimateTotal: number;
     fallbackToArtifactCount: number;
     reducerFailures: number;
+    guidedTruncationCount?: number;
+    taskPrunedCount?: number;
+    taskPrunedLinesKept?: number;
+    taskPrunedLinesDropped?: number;
     byFamily: Record<string, number>;
     lifecycle: Record<string, { lifecycle: string; successes: number; failures: number; lastError?: string }>;
   };
@@ -2364,6 +2368,10 @@ export interface YarnReducerTelemetryRollup {
   reducer_failures_delta: number;
   tokens_saved_estimate_delta: number;
   fallback_to_artifact_delta: number;
+  guided_truncation_delta: number;
+  task_pruned_delta: number;
+  task_pruned_lines_kept_delta: number;
+  task_pruned_lines_dropped_delta: number;
   lifecycle: Record<string, { success_delta: number; fail_delta: number }>;
 }
 
@@ -2372,6 +2380,10 @@ export interface YarnReducerTelemetryCumulative {
   reducer_failures_total: number;
   tokens_saved_estimate_total: number;
   fallback_to_artifact_total: number;
+  guided_truncation_total: number;
+  task_pruned_total: number;
+  task_pruned_lines_kept_total: number;
+  task_pruned_lines_dropped_total: number;
   lifecycle: Record<string, { success_total: number; fail_total: number }>;
 }
 

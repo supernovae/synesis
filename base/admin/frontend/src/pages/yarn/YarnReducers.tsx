@@ -104,6 +104,10 @@ export default function YarnReducers() {
               <Row label="Reduced outputs (total)" value={cumulative?.reduced_count_total ?? 0} />
               <Row label="Reducer failures (total)" value={cumulative?.reducer_failures_total ?? 0} warn={(cumulative?.reducer_failures_total ?? 0) > 0} />
               <Row label="Fallback to artifact (total)" value={cumulative?.fallback_to_artifact_total ?? 0} />
+              <Row label="Guided truncations (total)" value={cumulative?.guided_truncation_total ?? 0} />
+              <Row label="Task-pruned outputs (total)" value={cumulative?.task_pruned_total ?? 0} />
+              <Row label="Task-pruned lines kept (total)" value={cumulative?.task_pruned_lines_kept_total ?? 0} />
+              <Row label="Task-pruned lines dropped (total)" value={cumulative?.task_pruned_lines_dropped_total ?? 0} />
               {reducerHistory?.scrape_status?.last_error ? (
                 <Row label="Last scrape error" value={reducerHistory.scrape_status.last_error} warn />
               ) : null}
@@ -152,6 +156,22 @@ export default function YarnReducers() {
                   label="Reducer failures"
                   value={trr.reducerFailures}
                   warn={trr.reducerFailures > 0}
+                />
+                <Row
+                  label="Guided truncations"
+                  value={trr.guidedTruncationCount ?? 0}
+                />
+                <Row
+                  label="Task-pruned outputs"
+                  value={trr.taskPrunedCount ?? 0}
+                />
+                <Row
+                  label="Task-pruned lines kept"
+                  value={trr.taskPrunedLinesKept ?? 0}
+                />
+                <Row
+                  label="Task-pruned lines dropped"
+                  value={trr.taskPrunedLinesDropped ?? 0}
                 />
               </div>
             </ChartCard>

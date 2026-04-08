@@ -40,6 +40,9 @@ export interface ToolResultReductionStats {
   reducerFailures: number;
   compactionFailures: number;
   guidedTruncationCount: number;
+  taskPrunedCount: number;
+  taskPrunedLinesKept: number;
+  taskPrunedLinesDropped: number;
   enrichedCount: number;
   bypassEligibleCount: number;
   byFamily: Record<string, number>;
@@ -96,6 +99,9 @@ export class ToolResultReductionService {
     reducerFailures: 0,
     compactionFailures: 0,
     guidedTruncationCount: 0,
+    taskPrunedCount: 0,
+    taskPrunedLinesKept: 0,
+    taskPrunedLinesDropped: 0,
     enrichedCount: 0,
     bypassEligibleCount: 0,
     byFamily: buildByFamilyStats(),
@@ -134,7 +140,7 @@ export class ToolResultReductionService {
     };
   }
 
-  reduceMessages(messages: ToolResultLike[]): ToolResultReductionResult {
+  reduceMessages(messages: ToolResultLike[], taskCue?: string): ToolResultReductionResult {
     let reducedCount = 0;
     const out = messages.map((m) => {
       if (m.role !== "tool") return m;
@@ -152,6 +158,12 @@ export class ToolResultReductionService {
         this.trackTransformation(raw.length, guidedTrim.length);
         reducedCount += 1;
         return { ...m, content: guidedTrim };
+      }
+      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue);
+      if (taskPruned) {
+        this.trackTransformation(raw.length, taskPruned.length);
+        reducedCount += 1;
+        return { ...m, content: taskPruned };
       }
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
@@ -267,9 +279,10 @@ export class ToolResultReductionService {
   async reduceMessagesAsync(
     messages: ToolResultLike[],
     pool: EnrichmentPool,
+    taskCue?: string,
   ): Promise<ToolResultReductionResult> {
     if (!pool.isAvailable()) {
-      return this.reduceMessages(messages);
+      return this.reduceMessages(messages, taskCue);
     }
 
     const toolIndices: number[] = [];
@@ -312,6 +325,13 @@ export class ToolResultReductionService {
         this.trackTransformation(raw.length, guidedTrim.length);
         reducedCount += 1;
         out[idx] = { ...m, content: guidedTrim };
+        continue;
+      }
+      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue);
+      if (taskPruned) {
+        this.trackTransformation(raw.length, taskPruned.length);
+        reducedCount += 1;
+        out[idx] = { ...m, content: taskPruned };
         continue;
       }
       const dispatch = dispatched[j];
@@ -419,7 +439,7 @@ export class ToolResultReductionService {
     return { messages: out, reducedCount };
   }
 
-  reduceStandaloneToolResult(content: unknown, toolName?: string): string {
+  reduceStandaloneToolResult(content: unknown, toolName?: string, taskCue?: string): string {
     const normalized = this.buildReductionInput(toolName, content);
     const raw = normalized.raw;
     const emptyRemediation = this.applyEmptyResultRemediation(toolName, content, raw);
@@ -432,6 +452,11 @@ export class ToolResultReductionService {
       this.stats.guidedTruncationCount += 1;
       this.trackTransformation(raw.length, guidedTrim.length);
       return guidedTrim;
+    }
+    const taskPruned = this.applyTaskConditionedPruning(toolName, raw, taskCue);
+    if (taskPruned) {
+      this.trackTransformation(raw.length, taskPruned.length);
+      return taskPruned;
     }
     let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
     if (!this.isExemptFromFileReduction(toolName)) {
@@ -451,17 +476,14 @@ export class ToolResultReductionService {
         reduced = null;
       }
     }
-    if (!reduced && (this.isExemptFromFileReduction(toolName) || raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS)) {
-      const jsonResult = this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED
-        ? compactJsonArray(raw)
-        : null;
-      if (jsonResult && jsonResult.compressionRatio > 0.2) {
-        this.stats.jsonCompactionCount += 1;
-        this.trackTransformation(raw.length, jsonResult.compacted.length);
-        return jsonResult.compacted;
-      }
-      return raw;
+    const dispatched = reduced || !normalized.allowDispatch ? null : this.contentDispatch?.dispatch(raw);
+    if (!reduced && dispatched?.transformed) {
+      this.stats.contentDispatchCount += 1;
+      this.trackTransformation(raw.length, dispatched.transformed.length);
+      return dispatched.transformed;
     }
+    const shouldReduce = Boolean(reduced) || (!this.isExemptFromFileReduction(toolName) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
+    if (!shouldReduce) return raw;
     let summary: string;
     if (reduced) {
       summary = reduced.summary;
@@ -531,6 +553,7 @@ export class ToolResultReductionService {
 
   private _savedCheckpoint = 0;
   private _guidedTruncationCheckpoint = 0;
+  private _taskPrunedCheckpoint = 0;
 
   /** Returns estimated tokens saved since the last call (per-request delta). */
   getPerRequestDelta(): number {
@@ -545,6 +568,14 @@ export class ToolResultReductionService {
     const current = this.stats.guidedTruncationCount;
     const delta = current - this._guidedTruncationCheckpoint;
     this._guidedTruncationCheckpoint = current;
+    return Math.max(0, delta);
+  }
+
+  /** Returns task-pruned count delta since last call. */
+  getPerRequestTaskPrunedDelta(): number {
+    const current = this.stats.taskPrunedCount;
+    const delta = current - this._taskPrunedCheckpoint;
+    this._taskPrunedCheckpoint = current;
     return Math.max(0, delta);
   }
 
@@ -762,6 +793,77 @@ export class ToolResultReductionService {
       preview,
       "</SYNESIS_TOOL_GUARDRAIL>",
     ].join("\n");
+  }
+
+  private applyTaskConditionedPruning(
+    toolName: string | undefined,
+    raw: string,
+    taskCue?: string,
+  ): string | null {
+    if (!this.config.SYNESIS_YARN_TASK_PRUNING_ENABLED) return null;
+    if (!taskCue || taskCue.trim().length < 8) return null;
+    const lowerName = (toolName ?? "").toLowerCase();
+    if (lowerName === "read_file" || lowerName === "read") return null;
+    const lines = raw.split("\n");
+    const minLines = Math.max(10, this.config.SYNESIS_YARN_TASK_PRUNING_MIN_LINES);
+    if (lines.length < minLines) return null;
+
+    const tokens = this.extractTaskTokens(taskCue);
+    if (tokens.length === 0) return null;
+    const radius = Math.max(0, this.config.SYNESIS_YARN_TASK_PRUNING_CONTEXT_RADIUS);
+    const keepCap = Math.max(10, this.config.SYNESIS_YARN_TASK_PRUNING_KEEP_MAX_LINES);
+    const selected = new Set<number>();
+    const signalRe = /\b(error|exception|failed|failure|panic|traceback|stderr|timeout|denied|unauthorized|forbidden)\b/i;
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+      const lower = line.toLowerCase();
+      const hasSignal = signalRe.test(lower);
+      const hasTaskMatch = tokens.some((t) => lower.includes(t));
+      if (!hasSignal && !hasTaskMatch) continue;
+      const start = Math.max(0, idx - radius);
+      const end = Math.min(lines.length - 1, idx + radius);
+      for (let i = start; i <= end; i++) selected.add(i);
+    }
+
+    if (selected.size === 0) return null;
+    const ordered = [...selected].sort((a, b) => a - b).slice(0, keepCap);
+    const keptLines = ordered.map((idx) => lines[idx]);
+    if (keptLines.length === 0 || keptLines.length >= lines.length) return null;
+
+    const droppedLines = Math.max(0, lines.length - keptLines.length);
+    const artifact = this.artifactStore.putToolResult(raw);
+    this.stats.taskPrunedCount += 1;
+    this.stats.taskPrunedLinesKept += keptLines.length;
+    this.stats.taskPrunedLinesDropped += droppedLines;
+
+    return [
+      `<SYNESIS_TOOL_GUARDRAIL status="task_pruned" code="task_conditioned_pruning" version="1">`,
+      `tool=${toolName ?? "unknown"}`,
+      `task_tokens=${tokens.slice(0, 8).join(",")}`,
+      `lines_total=${lines.length}`,
+      `lines_kept=${keptLines.length}`,
+      `lines_dropped=${droppedLines}`,
+      `artifact_handle=${artifact.id}`,
+      "next_action=request_artifact_handle_if_more_context_needed",
+      "[Task-pruned] Showing high-signal lines aligned to current task cue.",
+      ...keptLines,
+      "</SYNESIS_TOOL_GUARDRAIL>",
+    ].join("\n");
+  }
+
+  private extractTaskTokens(taskCue: string): string[] {
+    const stop = new Set([
+      "the", "and", "for", "with", "from", "that", "this", "have", "into", "then", "than",
+      "tool", "tests", "test", "code", "file", "files", "should", "could", "would", "about",
+      "please", "update", "build", "suite",
+    ]);
+    const parts = taskCue
+      .toLowerCase()
+      .split(/[^a-z0-9_./:-]+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length >= 3 && !stop.has(p));
+    return [...new Set(parts)].slice(0, 20);
   }
 
   private applyEmptyResultRemediation(

@@ -63,12 +63,16 @@ describe("request forensics", () => {
       cachedTokens: 400,
       cacheCreationTokens: 0,
       costUsd: 0.03,
+    }, {
+      tokensSavedByReduction: 120,
     });
     expect(withMetrics.usage?.tokensIn).toBe(1000);
     expect(withMetrics.usage?.effectiveInputTokens).toBe(600);
+    expect(withMetrics.usage?.effectiveInputAfterReduction).toBe(480);
     expect(withMetrics.usage?.cacheHitRatio).toBe(0.4);
     expect(withMetrics.summary).toContain("usage=1000/120/400");
     expect(withMetrics.summary).toContain("cache_hit=40%");
+    expect(withMetrics.summary).toContain("reduced_tokens=120");
   });
 });
 

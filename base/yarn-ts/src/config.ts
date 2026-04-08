@@ -39,6 +39,13 @@ const EnvSchema = z.object({
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_TOOL_OUTPUT_TRIM_MAX_LINES: z.coerce.number().default(50),
   SYNESIS_YARN_TOOL_OUTPUT_TRIM_PREVIEW_LINES: z.coerce.number().default(20),
+  SYNESIS_YARN_TASK_PRUNING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_TASK_PRUNING_MIN_LINES: z.coerce.number().default(80),
+  SYNESIS_YARN_TASK_PRUNING_KEEP_MAX_LINES: z.coerce.number().default(30),
+  SYNESIS_YARN_TASK_PRUNING_CONTEXT_RADIUS: z.coerce.number().default(1),
   SYNESIS_YARN_VALIDATION_MAX_FINDINGS: z.coerce.number().default(30),
   SYNESIS_YARN_VALIDATION_INCLUDE_RAW: z
     .string()
