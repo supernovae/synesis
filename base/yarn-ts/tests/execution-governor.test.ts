@@ -108,15 +108,81 @@ describe("execution governor", () => {
     expect(out.telemetry.repeatedBroadDiscoveryCalls).toBe(2);
   });
 
-  it("pauses test flow without test-entry discovery when user asks for tests", () => {
+  it("pauses js test flow without test-entry discovery when user asks for tests", () => {
     const messages = [
-      { role: "user", content: "add a comprehensive test suite for retry behavior" },
-      assistantCall("1", "run_test", { preset: "go" }),
-      toolResult("1", "FAIL pkg/a"),
+      { role: "user", content: "add a comprehensive test suite for retry behavior in this typescript cli" },
+      assistantCall("1", "bash", { command: "npm test" }),
+      toolResult("1", "FAIL src/retry.test.ts"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("test_entry_contract");
+  });
+
+  it("does not apply test-entry-contract gate to go test workflows", () => {
+    const messages = [
+      { role: "user", content: "add a comprehensive test suite for retry behavior in this go cli" },
+      assistantCall("1", "bash", { command: "go test ./..." }),
+      toolResult("1", "FAIL pkg/config"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("test_entry_contract");
+  });
+
+  it.each([
+    ["rust", "add a comprehensive test suite for this rust crate", "cargo test"],
+    ["java", "add a comprehensive test suite for this java module", "mvn test"],
+    ["kotlin", "add a comprehensive test suite for this kotlin service", "gradle test"],
+    ["csharp", "add a comprehensive test suite for this c# app", "dotnet test"],
+    ["cpp", "add a comprehensive test suite for this c++ project", "ctest"],
+    ["ruby", "add a comprehensive test suite for this ruby gem", "rspec"],
+    ["php", "add a comprehensive test suite for this php library", "phpunit"],
+    ["swift", "add a comprehensive test suite for this swift package", "swift test"],
+  ])("does not force js/python config discovery for %s workflows", (_label, prompt, testCmd) => {
+    const messages = [
+      { role: "user", content: prompt },
+      assistantCall("1", "bash", { command: testCmd }),
+      toolResult("1", "FAIL some_test"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("test_entry_contract");
+  });
+
+  it("still enforces test-entry-contract for javascript workflows", () => {
+    const messages = [
+      { role: "user", content: "add a comprehensive test suite for retry behavior" },
+      assistantCall("1", "bash", { command: "npm test" }),
+      toolResult("1", "FAIL src/retry.test.ts"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("test_entry_contract");
+  });
+
+  it("still enforces test-entry-contract for python workflows", () => {
+    const messages = [
+      { role: "user", content: "add a comprehensive test suite for retry behavior" },
+      assistantCall("1", "bash", { command: "pytest" }),
+      toolResult("1", "FAIL tests/test_retry.py"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("test_entry_contract");
+  });
+
+  it("uses bounded exploration guidance with explicit read cap", () => {
+    const messages = [
+      assistantCall("1", "read_file", { path: "a.go" }),
+      toolResult("1", "ok"),
+      assistantCall("2", "read_file", { path: "a.go" }),
+      toolResult("2", "ok"),
+      assistantCall("3", "read_file", { path: "a.go" }),
+      toolResult("3", "ok"),
+      assistantCall("4", "read_file", { path: "a.go" }),
+      toolResult("4", "ok"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("bounded_exploration_budget");
+    expect(out.suggestedNextStep).toContain("at most 3 files");
   });
 
   it("pauses cleanup flow if TODO harvest is skipped before edits", () => {

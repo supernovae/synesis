@@ -153,6 +153,43 @@ function hasTestConfigDiscovery(events: Array<{ command: string; toolName: strin
   );
 }
 
+type TestRuntime =
+  | "go"
+  | "rust"
+  | "js_ts"
+  | "python"
+  | "java"
+  | "kotlin"
+  | "dotnet"
+  | "cpp"
+  | "ruby"
+  | "php"
+  | "swift"
+  | "unknown";
+
+function inferTestRuntime(
+  events: Array<{ command: string; toolName: string }>,
+  userText: string,
+): TestRuntime {
+  const joined = `${userText}\n${events.map((e) => `${e.toolName} ${e.command}`).join("\n")}`.toLowerCase();
+  if (/\bcargo test\b|\.rs\b|cargo\.toml\b/.test(joined)) return "rust";
+  if (/\bgo test\b|\.go\b|_test\.go\b|\bgo\.mod\b/.test(joined)) return "go";
+  if (/\bmvn test\b|\bgradle test\b|\.java\b|pom\.xml\b/.test(joined)) return "java";
+  if (/\bgradle test\b|\.kt\b|build\.gradle\.kts\b/.test(joined)) return "kotlin";
+  if (/\bdotnet test\b|\.cs\b|\.sln\b|\.csproj\b/.test(joined)) return "dotnet";
+  if (/\bctest\b|\bcmake\b|\.cpp\b|\.cc\b|\.cxx\b|\.c\b|\.h\b|\.hpp\b|cmakelists\.txt\b/.test(joined)) return "cpp";
+  if (/\brspec\b|\.rb\b|gemfile\b/.test(joined)) return "ruby";
+  if (/\bphpunit\b|\.php\b|composer\.json\b/.test(joined)) return "php";
+  if (/\bxcodebuild test\b|swift test\b|\.swift\b|package\.swift\b/.test(joined)) return "swift";
+  if (/\bvitest\b|\bjest\b|\bpnpm test\b|\bnpm test\b|\byarn test\b|\.tsx?\b|package\.json\b/.test(joined)) return "js_ts";
+  if (/\bpytest\b|pyproject\.toml|pytest\.ini|\.py\b/.test(joined)) return "python";
+  return "unknown";
+}
+
+function requiresTestConfigDiscovery(runtime: TestRuntime): boolean {
+  return runtime === "js_ts" || runtime === "python";
+}
+
 function hasTodoHarvest(events: Array<{ command: string; toolName: string }>): boolean {
   return events.some((e) => /search:.*(todo|fixme|debug)/i.test(e.command));
 }
@@ -161,13 +198,17 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   const events = extractCommandEvents(messages);
   const changedFiles = extractChangedFileHints(messages);
   const userText = extractUserText(messages);
+  const testRuntime = inferTestRuntime(events, userText);
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
   let repeatedBroadDiscoveryCalls = 0;
   let broadTestRepeat = false;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
-  const hasRunTest = events.some((e) => /\b(go test|npm test|pnpm test|yarn test)\b/i.test(e.command) || e.toolName.includes("run_test"));
+  const hasRunTest = events.some((e) =>
+    /\b(go test|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/i.test(e.command)
+    || e.toolName.includes("run_test"),
+  );
   const hasEdit = events.some((e) => e.command.startsWith("edit:") || e.command === "edit");
 
   for (let i = 1; i < events.length; i += 1) {
@@ -192,7 +233,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
   if (repeatedBroadDiscoveryCalls >= 4) matchedRules.push("broad_discovery_repeat");
   if (repeatedReadSearchCalls >= 3) matchedRules.push("bounded_exploration_budget");
-  if (needsTestEntryGate(userText) && hasRunTest && !hasTestConfigDiscovery(events)) {
+  if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
     matchedRules.push("test_entry_contract");
   }
   if (needsCleanupGate(userText) && hasEdit && !hasTodoHarvest(events)) {
@@ -227,9 +268,14 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   if (repeatedBroadDiscoveryCalls >= 4) {
     suggestedNextStep = "Run one targeted repo summary (for example synesis_inspect_repo), then read only 1-3 likely files; do not repeat Glob(\"*\") again.";
   } else if (matchedRules.includes("test_entry_contract")) {
-    suggestedNextStep = "Before running tests, inspect existing test conventions: search_code for jest.config/vitest/pytest.ini/pyproject/package.json and read the nearest existing test file.";
+    suggestedNextStep =
+      testRuntime === "python"
+        ? "Before running tests, inspect existing test conventions: search_code for pytest.ini/pyproject.toml and read the nearest existing test file."
+        : "Before running tests, inspect existing test conventions: search_code for jest.config/vitest/package.json and read the nearest existing test file.";
   } else if (matchedRules.includes("cleanup_todo_harvest")) {
     suggestedNextStep = "Before edits, run one targeted search_code for TODO|FIXME|DEBUG and rank top cleanup candidates, then patch highest-impact files only.";
+  } else if (matchedRules.includes("bounded_exploration_budget")) {
+    suggestedNextStep = "State one root-cause hypothesis, then read at most 3 files directly tied to it before applying a patch.";
   }
 
   return {
