@@ -57,6 +57,12 @@ describe("SSE conformance", () => {
 
     const payloads = parseSsePayloads(response.body);
     expect(payloads.length).toBeGreaterThan(2);
+    const roleBootstrap = payloads.find((p) => {
+      const choices = Array.isArray(p.choices) ? p.choices as Array<Record<string, unknown>> : [];
+      const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;
+      return delta.role === "assistant";
+    });
+    expect(roleBootstrap).toBeTruthy();
 
     const phaseDeltas = payloads
       .map((p) => extractReasoningContent(p))
@@ -72,7 +78,9 @@ describe("SSE conformance", () => {
     const choices = Array.isArray(finalChunk.choices) ? (finalChunk.choices as Array<Record<string, unknown>>) : [];
     const firstChoice = choices[0] ?? {};
     expect(firstChoice.finish_reason).toBe("stop");
+    expect(firstChoice.logprobs).toBeNull();
     expect(typeof finalChunk.usage).toBe("object");
+    expect(typeof finalChunk.system_fingerprint).toBe("string");
     expect(typeof finalChunk.run_id).toBe("string");
     expect(String(finalChunk.run_id).length).toBeGreaterThan(0);
 

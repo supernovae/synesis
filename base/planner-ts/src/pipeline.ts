@@ -108,6 +108,10 @@ function scrubInternalScaffolding(output: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function isJsonOutputRequested(state: GraphState): boolean {
+  return String((state.requested_response_format ?? {}).type ?? "").toLowerCase() === "json_object";
+}
+
 export async function entryPipelineNode(state: GraphState): Promise<GraphState> {
   const collector = ensureCollector(state);
   collector.startSpan("entry_pipeline");
@@ -612,6 +616,22 @@ export async function finalScrubberNode(state: GraphState): Promise<GraphState> 
   const collector = ensureCollector(state);
   collector.startSpan("final_scrubber");
   const original = (state.generated_code ?? "").trim();
+  if (isJsonOutputRequested(state)) {
+    collector.endSpan("final_scrubber", {
+      outcome: "json_passthrough",
+      metadata: {
+        original_length: original.length,
+        scrubbed_length: original.length,
+        chars_removed: 0,
+        followup_appended: false,
+      },
+    });
+    return ensureForwarded({
+      ...state,
+      generated_code: original,
+      next_node: "respond",
+    });
+  }
   let scrubbed = scrubInternalScaffolding(original);
 
   const followup = buildClosingFollowup(state);

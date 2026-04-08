@@ -174,8 +174,10 @@ describe("API contract", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.object).toBe("chat.completion");
+    expect(typeof body.system_fingerprint).toBe("string");
     expect(Array.isArray(body.choices)).toBe(true);
     expect(body.choices[0]?.message?.role).toBe("assistant");
+    expect(body.choices[0]?.logprobs).toBeNull();
     expect(body.usage).toBeTruthy();
     expect(typeof body.authz_trace_id).toBe("string");
     expect(body.authz_trace_id.length).toBeGreaterThan(10);
@@ -184,6 +186,29 @@ describe("API contract", () => {
     const responseTraceId = String(response.headers["x-synesis-authz-trace-id"] ?? "");
     expect(responseTraceId.length).toBeGreaterThan(10);
     expect(body.authz_trace_id).toBe(responseTraceId);
+    await app.close();
+  });
+
+  it("supports json_object response_format for non-stream requests", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_PLANNER_TS_LLM_ENABLED: "false",
+      }),
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "return a JSON object with a status field" }],
+        stream: false,
+        response_format: { type: "json_object" },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const content = String(body.choices?.[0]?.message?.content ?? "");
+    expect(() => JSON.parse(content)).not.toThrow();
     await app.close();
   });
 
@@ -531,7 +556,36 @@ describe("API contract", () => {
     const payload = response.body;
     expect(payload).toContain('"reasoning_content"');
     expect(payload).toContain('"chat.completion.chunk"');
+    expect(payload).toContain('"role":"assistant"');
     expect(payload).toContain("[DONE]");
+    await app.close();
+  });
+
+  it("omits final usage chunk payload when stream_options.include_usage=false", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "hello planner" }],
+        stream: true,
+        stream_options: { include_usage: false },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const dataFrames = response.body
+      .split("\n\n")
+      .filter((chunk: string) => chunk.startsWith("data: "))
+      .map((chunk: string) => chunk.slice(6).trim())
+      .filter((chunk: string) => chunk !== "[DONE]");
+    const parsed = dataFrames.map((chunk: string) => JSON.parse(chunk));
+    const finalChunk = [...parsed].reverse().find((payload: Record<string, unknown>) => {
+      const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : [];
+      return choices[0]?.finish_reason === "stop";
+    });
+    expect(finalChunk).toBeTruthy();
+    expect(finalChunk?.usage).toBeUndefined();
     await app.close();
   });
 

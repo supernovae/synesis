@@ -33,6 +33,20 @@ import { isMetadataTagsOnlyJson } from "./writer-metadata-guard.js";
 /** Chunk size when replaying writer output after mermaid sanitization (streaming path). */
 const WRITER_STREAM_MERMAID_CHUNK_CHARS = 256;
 
+function writerPrefersJsonMode(state: GraphState): boolean {
+  const explicitType = String((state.requested_response_format ?? {}).type ?? "").toLowerCase();
+  if (explicitType === "json_object") return true;
+  const inferred = String((state.task_frame ?? {}).requested_format ?? "").toLowerCase();
+  return inferred === "json" || inferred === "json_object" || inferred === "structured_json";
+}
+
+function deterministicJsonDraft(state: GraphState): string {
+  return JSON.stringify({
+    answer: deterministicDraft(state),
+    grounded: false,
+  });
+}
+
 function emitWriterStreamingChunks(text: string, onDelta: (delta: StreamDelta) => void): void {
   if (!text) return;
   for (let i = 0; i < text.length; i += WRITER_STREAM_MERMAID_CHUNK_CHARS) {
@@ -141,6 +155,7 @@ const MERMAID_RULES = [
 
 export function buildWriterMessages(state: GraphState): ChatMessage[] {
   const task = state.task_description ?? "No task provided";
+  const jsonMode = writerPrefersJsonMode(state);
   const planBlock = renderPlanContext(state);
   const evidenceBlock = renderEvidenceContext(state);
   const assumptionBlock = buildAssumptionInstructions(state);
@@ -155,6 +170,12 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     "",
     TRUST_POLICY,
   ];
+  if (jsonMode) {
+    systemParts.push(
+      "JSON OUTPUT MODE: return only one valid JSON object as the full assistant message.",
+      "Do not include markdown fences, prose outside JSON, or trailing commentary.",
+    );
+  }
   if (assumptionBlock) systemParts.push(assumptionBlock);
 
   // --- Dynamic taxonomy suffix (prefix-cache: static above, dynamic below) ---
@@ -238,7 +259,8 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
 }
 
 export async function composeWriterDraft(state: GraphState): Promise<WriterResult> {
-  const fallback = deterministicDraft(state);
+  const jsonMode = writerPrefersJsonMode(state);
+  const fallback = jsonMode ? deterministicJsonDraft(state) : deterministicDraft(state);
   if (!isLlmAvailable()) return { content: fallback, usage: ZERO_USAGE };
 
   try {
@@ -250,11 +272,12 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
       request_id: state.run_id,
       authz_trace_id: state.authz_trace_id,
       traceparent: state.traceparent,
+      response_format: jsonMode ? { type: "json_object" } : undefined,
       messages: buildWriterMessages(state),
     });
     const cfg = loadConfig();
     let content = result.content.trim() || fallback;
-    if (cfg.SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD && isMetadataTagsOnlyJson(content)) {
+    if (!jsonMode && cfg.SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD && isMetadataTagsOnlyJson(content)) {
       process.stderr.write(JSON.stringify({
         level: 30,
         msg: "writer: replaced metadata-only JSON (tags) with prose fallback",
@@ -262,7 +285,7 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
       }) + "\n");
       content = fallback;
     }
-    if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED) {
+    if (!cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED || jsonMode) {
       return { content, usage: result.usage };
     }
     const guarded = enforceMermaidHygiene(content);
@@ -287,7 +310,8 @@ export async function composeWriterDraftStream(
   state: GraphState,
   onDelta: (delta: StreamDelta) => void,
 ): Promise<WriterResult> {
-  const fallback = deterministicDraft(state);
+  const jsonMode = writerPrefersJsonMode(state);
+  const fallback = jsonMode ? deterministicJsonDraft(state) : deterministicDraft(state);
   if (!isLlmAvailable()) {
     onDelta({ content: fallback });
     return { content: fallback, usage: ZERO_USAGE };
@@ -295,7 +319,7 @@ export async function composeWriterDraftStream(
 
   try {
     const cfg = loadConfig();
-    const mermaidGuardEnabled = cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED;
+    const mermaidGuardEnabled = cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED && !jsonMode;
 
     const result = await chatCompletionStream(
       {
@@ -306,6 +330,7 @@ export async function composeWriterDraftStream(
         request_id: state.run_id,
         authz_trace_id: state.authz_trace_id,
         traceparent: state.traceparent,
+        response_format: jsonMode ? { type: "json_object" } : undefined,
         messages: buildWriterMessages(state),
       },
       (delta) => {
@@ -319,7 +344,7 @@ export async function composeWriterDraftStream(
       },
     );
     let content = result.content.trim() || fallback;
-    if (cfg.SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD && isMetadataTagsOnlyJson(content)) {
+    if (!jsonMode && cfg.SYNESIS_PLANNER_TS_WRITER_METADATA_JSON_GUARD && isMetadataTagsOnlyJson(content)) {
       process.stderr.write(JSON.stringify({
         level: 30,
         msg: "writer stream: metadata-only JSON (tags) detected; appending prose fallback",

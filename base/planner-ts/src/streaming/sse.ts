@@ -37,15 +37,18 @@ export function writeContentDelta(
     created: number;
     model: string;
     content: string;
+    system_fingerprint?: string;
   }
 ): void {
-  writeSseData(response, {
+  const body: Record<string, unknown> = {
     id: payload.id,
     object: "chat.completion.chunk",
     created: payload.created,
     model: payload.model,
-    choices: [{ index: 0, delta: { content: payload.content }, finish_reason: null }],
-  });
+    choices: [{ index: 0, delta: { content: payload.content }, logprobs: null, finish_reason: null }],
+  };
+  if (payload.system_fingerprint) body.system_fingerprint = payload.system_fingerprint;
+  writeSseData(response, body);
 }
 
 export function writeReasoningDelta(
@@ -55,15 +58,38 @@ export function writeReasoningDelta(
     created: number;
     model: string;
     reasoning_content: string;
+    system_fingerprint?: string;
   }
 ): void {
-  writeSseData(response, {
+  const body: Record<string, unknown> = {
     id: payload.id,
     object: "chat.completion.chunk",
     created: payload.created,
     model: payload.model,
-    choices: [{ index: 0, delta: { reasoning_content: payload.reasoning_content }, finish_reason: null }],
-  });
+    choices: [{ index: 0, delta: { reasoning_content: payload.reasoning_content }, logprobs: null, finish_reason: null }],
+  };
+  if (payload.system_fingerprint) body.system_fingerprint = payload.system_fingerprint;
+  writeSseData(response, body);
+}
+
+export function writeAssistantRoleDelta(
+  response: ServerResponse,
+  payload: {
+    id: string;
+    created: number;
+    model: string;
+    system_fingerprint?: string;
+  },
+): void {
+  const body: Record<string, unknown> = {
+    id: payload.id,
+    object: "chat.completion.chunk",
+    created: payload.created,
+    model: payload.model,
+    choices: [{ index: 0, delta: { role: "assistant" }, logprobs: null, finish_reason: null }],
+  };
+  if (payload.system_fingerprint) body.system_fingerprint = payload.system_fingerprint;
+  writeSseData(response, body);
 }
 
 /** @deprecated Use writeContentDelta instead */
@@ -95,6 +121,8 @@ export function writeFinalChunk(
     };
     run_id?: string;
     authz_trace_id?: string;
+    include_usage?: boolean;
+    system_fingerprint?: string;
   }
 ): void {
   const body: Record<string, unknown> = {
@@ -102,11 +130,12 @@ export function writeFinalChunk(
     object: "chat.completion.chunk",
     created: payload.created,
     model: payload.model,
-    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-    usage: payload.usage
+    choices: [{ index: 0, delta: {}, logprobs: null, finish_reason: "stop" }],
   };
+  if (payload.include_usage ?? true) body.usage = payload.usage;
   if (payload.run_id) body.run_id = payload.run_id;
   if (payload.authz_trace_id) body.authz_trace_id = payload.authz_trace_id;
+  if (payload.system_fingerprint) body.system_fingerprint = payload.system_fingerprint;
   writeSseData(response, body);
 }
 

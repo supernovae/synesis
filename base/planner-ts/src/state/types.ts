@@ -84,6 +84,8 @@ export interface GraphState {
   error?: string;
   run_id?: string;
   traceparent?: string;
+  requested_response_format?: Record<string, unknown>;
+  stream_include_usage?: boolean;
 
   cynefin_domain?: CynefinDomain;
   domain_profile?: {

@@ -46,6 +46,7 @@ import {
   endSse,
   initSse,
   isSseWritable,
+  writeAssistantRoleDelta,
   writeContentDelta,
   writeReasoningDelta,
   writeFinalChunk,
@@ -71,6 +72,7 @@ type ErrorWithMeta = Error & {
 /** When the graph finishes with no assistant text (and no structured error), surface this instead of an empty message. */
 const EMPTY_ASSISTANT_FALLBACK =
   "I wasn't able to complete a response for this request. Please try again or rephrase your question.";
+const SYSTEM_FINGERPRINT = "synesis-planner-ts-compat-v1";
 
 const SAFE_ERROR_PATTERNS = [
   /^Missing Bearer token$/,
@@ -574,6 +576,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
       },
       run_id: requestBody.conversation_id?.trim() || crypto.randomUUID(),
       traceparent,
+      requested_response_format: requestBody.response_format,
+      stream_include_usage: requestBody.stream_options?.include_usage,
       domain_profile: domainProfile,
       injection_detected: injectionDetected,
       injection_scan_result: injectionScanResult,
@@ -1540,10 +1544,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
           object: "chat.completion",
           created,
           model: state.response_model ?? body.model,
+          system_fingerprint: SYSTEM_FINGERPRINT,
           choices: [
             {
               index: 0,
               message: { role: "assistant", content },
+              logprobs: null,
               finish_reason: "stop"
             }
           ],
@@ -1566,6 +1572,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
       reply.raw.once("close", () => {
         streamRelease?.();
       });
+      writeAssistantRoleDelta(reply.raw, {
+        id: completionId,
+        created,
+        model: responseModel,
+        system_fingerprint: SYSTEM_FINGERPRINT,
+      });
 
       // Immediate pulse so Open WebUI shows "Thinking" right away,
       // before entry_pipeline (classification + taxonomy) completes.
@@ -1574,6 +1586,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         created,
         model: responseModel,
         reasoning_content: "[Synthesizing request]\n",
+        system_fingerprint: SYSTEM_FINGERPRINT,
       });
 
       let finalState: GraphState = initialState;
@@ -1593,6 +1606,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
               created,
               model: responseModel,
               content: delta.content,
+              system_fingerprint: SYSTEM_FINGERPRINT,
             });
           }
           if (delta.reasoning_content) {
@@ -1601,6 +1615,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
               created,
               model: responseModel,
               reasoning_content: delta.reasoning_content,
+              system_fingerprint: SYSTEM_FINGERPRINT,
             });
           }
         };
@@ -1621,6 +1636,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
                 created,
                 model: responseModel,
                 reasoning_content: `[${describePhase(event.node)}]\n`,
+                system_fingerprint: SYSTEM_FINGERPRINT,
               });
             }
           }
@@ -1644,6 +1660,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
             created,
             model: responseModel,
             content,
+            system_fingerprint: SYSTEM_FINGERPRINT,
           });
         }
 
@@ -1689,6 +1706,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
             created,
             model: responseModel,
             content: "\n\nAn error occurred while processing your request. Please try again.",
+            system_fingerprint: SYSTEM_FINGERPRINT,
           });
         }
       }
@@ -1716,6 +1734,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
           },
           run_id: finalState.run_id,
           authz_trace_id: finalState.authz_trace_id,
+          include_usage: finalState.stream_include_usage ?? true,
+          system_fingerprint: SYSTEM_FINGERPRINT,
         });
         endSse(reply.raw);
       }
