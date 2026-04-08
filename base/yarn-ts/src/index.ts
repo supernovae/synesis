@@ -4040,23 +4040,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     return undefined;
   })();
-  const reducedOpenAI = enrichmentPool.isAvailable()
-    ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
-        toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue, oaiPeekWatermark),
-      )
-    : withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
-        toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue, oaiPeekWatermark),
-      );
+  const reducedOpenAI = config.SYNESIS_YARN_GOVERNANCE_DISABLED
+    ? { messages: request.messages as never, reducedCount: 0 }
+    : enrichmentPool.isAvailable()
+      ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
+          toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue, oaiPeekWatermark),
+        )
+      : withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
+          toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue, oaiPeekWatermark),
+        );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = await validationNormalization.normalizeMessagesAsync(
     reducedOpenAI.messages as never,
     runValidationTierCFallback,
   );
-  const prunedOpenAI = transcriptPruning.prune(
-    normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-  );
-  if (prunedOpenAI.pruned) {
-    normalizedOpenAI.messages = prunedOpenAI.messages as never;
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const prunedOpenAI = transcriptPruning.prune(
+      normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+    );
+    if (prunedOpenAI.pruned) {
+      normalizedOpenAI.messages = prunedOpenAI.messages as never;
+    }
   }
   const oaiTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
     request.messages as Array<{ role: string; content: unknown }>,
@@ -4114,12 +4118,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiMsgCount = (request.messages as unknown[]).length;
   const oaiRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, oaiMsgCount - oaiRecentExempt);
-  const oaiDedup = getContentDedup(sessionKey);
-  const oaiDedupResult = oaiDedup.processMessages(
-    normalizedOpenAI.messages as Array<{ role: string; name?: string; content: unknown }>,
-  );
-  if (oaiDedupResult.dedupCount > 0) {
-    normalizedOpenAI.messages = oaiDedupResult.messages as never;
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const oaiDedup = getContentDedup(sessionKey);
+    const oaiDedupResult = oaiDedup.processMessages(
+      normalizedOpenAI.messages as Array<{ role: string; name?: string; content: unknown }>,
+    );
+    if (oaiDedupResult.dedupCount > 0) {
+      normalizedOpenAI.messages = oaiDedupResult.messages as never;
+    }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
@@ -4494,16 +4500,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiSeedDirs,
     session,
   );
-  let oaiEnrichedMsgs = appendCriticBlock(
-    oaiEnriched.messages as Array<{ role: string; content: unknown }>,
-    oaiRequirementChecklist,
-  );
+  let oaiEnrichedMsgs = config.SYNESIS_YARN_GOVERNANCE_DISABLED
+    ? oaiEnriched.messages as Array<{ role: string; content: unknown }>
+    : appendCriticBlock(
+        oaiEnriched.messages as Array<{ role: string; content: unknown }>,
+        oaiRequirementChecklist,
+      );
 
   // Sensemaking is intentionally disabled for regular coding sessions to avoid
   // adding volatile system blocks that degrade prefix cacheability.
   let oaiSensemakingResult: SensemakingResult | undefined;
 
-  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
+  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const { stableMessages, jitterBlock } = splitJitter(oaiEnrichedMsgs);
     oaiEnrichedMsgs = applyJitter(stableMessages, jitterBlock) as typeof oaiEnrichedMsgs;
   }
@@ -4552,7 +4560,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedRequest.tools = webSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
   }
 
-  {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const blocks: string[] = [];
     if (oaiPrefetchResult) {
       const evidenceBlock = formatEvidenceBlock(oaiPrefetchResult);
@@ -5983,11 +5991,11 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Merge top-level `system` into the message list (parity with Anthropic SDK)
   const claudeSystemMsg = claudeSystemToMessage(body.system);
+  const claudeToolReducer = config.SYNESIS_YARN_GOVERNANCE_DISABLED
+    ? undefined
+    : (content: unknown, toolName?: string) => toolResultReduction.reduceStandaloneToolResult(content, toolName, claudeTaskCue);
   const rawOpenAIMessages = withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
-    claudeMessagesToOpenAI(
-      body.messages as never,
-      (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName, claudeTaskCue)
-    ),
+    claudeMessagesToOpenAI(body.messages as never, claudeToolReducer),
   );
   // Enforce Vercel tool protocol invariants (assistant tool_call -> tool_result adjacency/order)
   // on Claude-converted histories to prevent resume-time MissingToolResultsError class failures.
@@ -6008,11 +6016,13 @@ app.post("/v1/messages", async (req, reply) => {
     openAIMessages as never,
     runValidationTierCFallback,
   );
-  const prunedClaude = transcriptPruning.prune(
-    normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-  );
-  if (prunedClaude.pruned) {
-    normalizedFromClaude.messages = prunedClaude.messages as never;
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const prunedClaude = transcriptPruning.prune(
+      normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+    );
+    if (prunedClaude.pruned) {
+      normalizedFromClaude.messages = prunedClaude.messages as never;
+    }
   }
   const claudeTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
     openAIMessages as Array<{ role: string; content: unknown }>,
@@ -6075,12 +6085,14 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeMsgCount = (body.messages as unknown[]).length;
   const claudeRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, claudeMsgCount - claudeRecentExempt);
-  const claudeDedup = getContentDedup(claudeSessionKey);
-  const claudeDedupResult = claudeDedup.processMessages(
-    normalizedFromClaude.messages as Array<{ role: string; name?: string; content: unknown }>,
-  );
-  if (claudeDedupResult.dedupCount > 0) {
-    normalizedFromClaude.messages = claudeDedupResult.messages as never;
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const claudeDedup = getContentDedup(claudeSessionKey);
+    const claudeDedupResult = claudeDedup.processMessages(
+      normalizedFromClaude.messages as Array<{ role: string; name?: string; content: unknown }>,
+    );
+    if (claudeDedupResult.dedupCount > 0) {
+      normalizedFromClaude.messages = claudeDedupResult.messages as never;
+    }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);
   const priorClaudeChecklistHash = getChecklistSourceHash(session.record.metadata);
@@ -6450,16 +6462,18 @@ app.post("/v1/messages", async (req, reply) => {
     claudeSeedDirs,
     session,
   );
-  let enrichedClaudeMsgs = appendCriticBlock(
-    claudeEnriched.messages as Array<{ role: string; content: unknown }>,
-    claudeRequirementChecklist,
-  );
+  let enrichedClaudeMsgs = config.SYNESIS_YARN_GOVERNANCE_DISABLED
+    ? claudeEnriched.messages as Array<{ role: string; content: unknown }>
+    : appendCriticBlock(
+        claudeEnriched.messages as Array<{ role: string; content: unknown }>,
+        claudeRequirementChecklist,
+      );
 
   // Sensemaking is intentionally disabled for regular coding sessions to avoid
   // adding volatile system blocks that degrade prefix cacheability.
   let claudeSensemakingResult: SensemakingResult | undefined;
 
-  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
+  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const { stableMessages, jitterBlock } = splitJitter(enrichedClaudeMsgs);
     enrichedClaudeMsgs = applyJitter(stableMessages, jitterBlock) as typeof enrichedClaudeMsgs;
   }
@@ -6500,7 +6514,7 @@ app.post("/v1/messages", async (req, reply) => {
     session
   ) as never;
 
-  {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeBlocks: string[] = [];
     if (claudePrefetchResult) {
       const claudeEvBlock = formatEvidenceBlock(claudePrefetchResult);
