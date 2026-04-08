@@ -21,7 +21,24 @@ describe("execution governor", () => {
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("broad_to_narrow_verification");
+    expect(out.matchedRules).toContain("no_repeat_without_change");
+    expect(out.telemetry.noEditEvidence).toBe(true);
     expect(out.suggestedNextStep).toContain("go test");
+  });
+
+  it("does not mark no-repeat-without-change when edits are present", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test ./..." }),
+      toolResult("1", "FAIL pkg/a in pkg/a/file_test.go"),
+      assistantCall("2", "apply_patch", { path: "pkg/a/file.go" }),
+      toolResult("2", "updated pkg/a/file.go"),
+      assistantCall("3", "bash", { command: "go test ./..." }),
+      toolResult("3", "FAIL pkg/a in pkg/a/file_test.go"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).not.toContain("no_repeat_without_change");
+    expect(out.telemetry.noEditEvidence).toBe(false);
   });
 
   it("allows non-repetitive flow", () => {

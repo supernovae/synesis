@@ -145,13 +145,8 @@ import {
   type RequestForensicsRecord,
 } from "./telemetry/request-forensics.js";
 import {
-  analyzeGaps,
-  shouldTriggerSensemaking,
-  buildExplorationPlan,
-  formatExplorationPlanBlock,
   createEmptySensemakingStats,
   type SensemakingResult,
-  type GapAnalysisContext,
   type SensemakingStats,
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
@@ -602,6 +597,22 @@ function resolveToolSchemaBudget(
   if (override > 0 && adapterLimit > 0) return Math.min(override, adapterLimit);
   if (override > 0) return override;
   return adapterLimit;
+}
+
+function adjustToolSchemaBudgetForSession(
+  baseBudget: number,
+  phase: WorkflowPhase,
+  clientKind: string,
+): number {
+  if (baseBudget <= 0) return baseBudget;
+  const client = clientKind.toLowerCase();
+  const codingClient = client.includes("claude-code") || client.includes("cursor");
+  if (!codingClient) return baseBudget;
+
+  if (phase === "validation") return Math.max(1, Math.min(baseBudget, 6));
+  if (phase === "implementation") return Math.max(1, Math.min(baseBudget, 8));
+  if (phase === "planning") return Math.max(1, Math.min(baseBudget, 10));
+  return Math.max(1, Math.min(baseBudget, 8));
 }
 
 function parseTierCFallbackJson(raw: string, maxFindings: number): TierCFallbackResult | null {
@@ -4041,47 +4052,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiRequirementChecklist,
   );
 
-  let oaiSensemakingResult: SensemakingResult | undefined;
-  if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
-    const gapCtx: GapAnalysisContext = {
-      recallDecision: oaiRecallDecision,
-      verificationState: oaiVerifState,
-      evidenceConfidence: oaiPrefetchResult?.confidence,
-      evidenceAuthoritative: oaiPrefetchResult?.authoritative,
-      evidencePrefetched: oaiPrefetchResult?.matched,
-      phase: orchestration.phase,
-      decisionPath: orchestration.decisionPath,
-      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
-      languages: preManifest.languages ?? [],
-      userText: String(latestUserText?.content ?? ""),
-      workingFrameGoal: oaiWorkingFrameGoal,
-    };
-    const gaps = analyzeGaps(gapCtx);
-    const trigger = shouldTriggerSensemaking(gaps, orchestration, session.record.consecutiveFailedVerifications, config.SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD);
-    if (trigger.trigger) {
-      const plan = buildExplorationPlan(gaps, gapCtx);
-      oaiSensemakingResult = { triggered: true, reason: trigger.reason, gaps, plan };
-      sensemakingStats.triggeredCount += 1;
-      sensemakingStats.byReason[trigger.reason ?? "unknown"] = (sensemakingStats.byReason[trigger.reason ?? "unknown"] ?? 0) + 1;
-      sensemakingStats.plansGenerated += 1;
-      sensemakingStats.actionsGenerated += plan.forwardPath.length;
-    } else {
-      oaiSensemakingResult = { triggered: false, gaps };
-      sensemakingStats.skippedCount += 1;
-    }
-    const total = gaps.known.length + gaps.unknown.length + gaps.knowBetter.length;
-    sensemakingStats.totalGapsClassified += total;
-    sensemakingStats.knownCount += gaps.known.length;
-    sensemakingStats.unknownCount += gaps.unknown.length;
-    sensemakingStats.knowBetterCount += gaps.knowBetter.length;
-  }
-
-  const oaiExplorationBlock = oaiSensemakingResult?.triggered ? formatExplorationPlanBlock(oaiSensemakingResult) : "";
-  if (oaiExplorationBlock) {
-    oaiEnrichedMsgs.push({ role: "system", content: oaiExplorationBlock });
-  } else if (orchestration.uncertaintyFraming) {
-    oaiEnrichedMsgs.push({ role: "system", content: orchestration.uncertaintyFraming });
-  }
+  // Sensemaking is intentionally disabled for regular coding sessions to avoid
+  // adding volatile system blocks that degrade prefix cacheability.
+  const oaiSensemakingResult: SensemakingResult | undefined = undefined;
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
     const { stableMessages, jitterBlock } = splitJitter(oaiEnrichedMsgs);
@@ -4160,11 +4133,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const { resolved, messages } = resolveResult;
   const { adapter } = resolved;
   const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
-  const toolBudget = resolveToolSchemaBudget(
+  const toolBudget = adjustToolSchemaBudgetForSession(
+    resolveToolSchemaBudget(
     adapter.maxEffectiveTools,
     config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(adapterProfile)
       ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
       : adapterProfile.features.toolSchemaBudgetCap,
+    ),
+    orchestration.phase,
+    oaiClientKind,
   );
   const prunedTools = pruneToolSchemas(
     rawTools,
@@ -5726,47 +5703,9 @@ app.post("/v1/messages", async (req, reply) => {
     claudeRequirementChecklist,
   );
 
-  let claudeSensemakingResult: SensemakingResult | undefined;
-  if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
-    const claudeGapCtx: GapAnalysisContext = {
-      recallDecision: claudeRecallDecision,
-      verificationState: claudeVerifState,
-      evidenceConfidence: claudePrefetchResult?.confidence,
-      evidenceAuthoritative: claudePrefetchResult?.authoritative,
-      evidencePrefetched: claudePrefetchResult?.matched,
-      phase: claudeOrchestration.phase,
-      decisionPath: claudeOrchestration.decisionPath,
-      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
-      languages: claudeManifest.languages ?? [],
-      userText: String(latestClaudeUser?.content ?? ""),
-      workingFrameGoal: claudeWorkingFrameGoal,
-    };
-    const claudeGaps = analyzeGaps(claudeGapCtx);
-    const claudeTrigger = shouldTriggerSensemaking(claudeGaps, claudeOrchestration, session.record.consecutiveFailedVerifications, config.SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD);
-    if (claudeTrigger.trigger) {
-      const claudePlan = buildExplorationPlan(claudeGaps, claudeGapCtx);
-      claudeSensemakingResult = { triggered: true, reason: claudeTrigger.reason, gaps: claudeGaps, plan: claudePlan };
-      sensemakingStats.triggeredCount += 1;
-      sensemakingStats.byReason[claudeTrigger.reason ?? "unknown"] = (sensemakingStats.byReason[claudeTrigger.reason ?? "unknown"] ?? 0) + 1;
-      sensemakingStats.plansGenerated += 1;
-      sensemakingStats.actionsGenerated += claudePlan.forwardPath.length;
-    } else {
-      claudeSensemakingResult = { triggered: false, gaps: claudeGaps };
-      sensemakingStats.skippedCount += 1;
-    }
-    const claudeTotal = claudeGaps.known.length + claudeGaps.unknown.length + claudeGaps.knowBetter.length;
-    sensemakingStats.totalGapsClassified += claudeTotal;
-    sensemakingStats.knownCount += claudeGaps.known.length;
-    sensemakingStats.unknownCount += claudeGaps.unknown.length;
-    sensemakingStats.knowBetterCount += claudeGaps.knowBetter.length;
-  }
-
-  const claudeExplorationBlock = claudeSensemakingResult?.triggered ? formatExplorationPlanBlock(claudeSensemakingResult) : "";
-  if (claudeExplorationBlock) {
-    enrichedClaudeMsgs.push({ role: "system", content: claudeExplorationBlock });
-  } else if (claudeOrchestration.uncertaintyFraming) {
-    enrichedClaudeMsgs.push({ role: "system", content: claudeOrchestration.uncertaintyFraming });
-  }
+  // Sensemaking is intentionally disabled for regular coding sessions to avoid
+  // adding volatile system blocks that degrade prefix cacheability.
+  const claudeSensemakingResult: SensemakingResult | undefined = undefined;
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
     const { stableMessages, jitterBlock } = splitJitter(enrichedClaudeMsgs);
@@ -5865,11 +5804,15 @@ app.post("/v1/messages", async (req, reply) => {
   //   claudeRawTools = webSearch.injectToolClaude(claudeRawTools) as never;
   // }
 
-  const claudeToolBudget = resolveToolSchemaBudget(
-    claudeAdapter.maxEffectiveTools,
-    config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(claudeAdapterProfile)
-      ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
-      : claudeAdapterProfile.features.toolSchemaBudgetCap,
+  const claudeToolBudget = adjustToolSchemaBudgetForSession(
+    resolveToolSchemaBudget(
+      claudeAdapter.maxEffectiveTools,
+      config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(claudeAdapterProfile)
+        ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
+        : claudeAdapterProfile.features.toolSchemaBudgetCap,
+    ),
+    claudeOrchestration.phase,
+    claudeClientKind,
   );
   const prunedClaudeTools = pruneToolSchemas(
     claudeRawTools,

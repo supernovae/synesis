@@ -99,12 +99,13 @@ export class StablePrefixService {
     promptContext?: PromptCompositionContext,
   ): PrefixPartition {
     const stableParts = [BASE_INSTRUCTIONS];
+    const normalizedAdapterBlock = adapterBlock?.replace(/\r\n/g, "\n").trim() ?? "";
     const promptBlocks = this.resolvePromptBlocks(promptSnapshot, promptContext);
     if (promptBlocks.blocks.length > 0) {
       stableParts.push(...promptBlocks.blocks);
     }
-    if (adapterBlock) {
-      stableParts.push(adapterBlock);
+    if (normalizedAdapterBlock) {
+      stableParts.push(normalizedAdapterBlock);
     }
     const stablePrefix = stableParts.join("\n\n");
 
@@ -115,7 +116,7 @@ export class StablePrefixService {
       .slice(0, 16);
     const adapterHash = crypto
       .createHash("sha256")
-      .update(adapterBlock ?? "")
+      .update(normalizedAdapterBlock)
       .digest("hex")
       .slice(0, 16);
 

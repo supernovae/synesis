@@ -21,6 +21,7 @@ export interface ExecutionGovernorDecision {
     repeatedTestCommands: number;
     repeatedReadSearchCalls: number;
     broadTestRepeat: boolean;
+    noEditEvidence: boolean;
   };
 }
 
@@ -92,9 +93,11 @@ function extractChangedFileHints(messages: GovernorInputMessage[]): string[] {
 
 export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): ExecutionGovernorDecision {
   const events = extractCommandEvents(messages);
+  const changedFiles = extractChangedFileHints(messages);
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
   let broadTestRepeat = false;
+  const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
 
   for (let i = 1; i < events.length; i += 1) {
@@ -113,6 +116,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
 
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= 2) matchedRules.push("edit_before_retest");
+  if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
   if (repeatedReadSearchCalls >= 3) matchedRules.push("bounded_exploration_budget");
 
   if (matchedRules.length === 0) {
@@ -120,26 +124,27 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
       pause: false,
       reason: "ok",
       matchedRules: ["allow"],
-      telemetry: { repeatedTestCommands, repeatedReadSearchCalls, broadTestRepeat },
+      telemetry: { repeatedTestCommands, repeatedReadSearchCalls, broadTestRepeat, noEditEvidence },
     };
   }
 
   const latestTest = [...events]
     .reverse()
     .find((e) => /\b(go test|npm test|pnpm test|yarn test)\b/i.test(e.command));
-  const changedFiles = extractChangedFileHints(messages);
   const scoped = latestTest
     ? suggestScopedVerificationCommand(latestTest.command, changedFiles)
     : { suggestedCommand: null };
   const suggestedNextStep = scoped.suggestedCommand
-    ?? "State one root-cause hypothesis and run one narrow verification command.";
+    ?? (noEditEvidence
+      ? "Apply one focused code change for a single root-cause hypothesis, then run one narrow verification command."
+      : "State one root-cause hypothesis and run one narrow verification command.");
 
   return {
     pause: true,
     reason: "Execution governor detected low-yield repetition. Pivot to a narrower, hypothesis-driven step.",
     suggestedNextStep,
     matchedRules,
-    telemetry: { repeatedTestCommands, repeatedReadSearchCalls, broadTestRepeat },
+    telemetry: { repeatedTestCommands, repeatedReadSearchCalls, broadTestRepeat, noEditEvidence },
   };
 }
 

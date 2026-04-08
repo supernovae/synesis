@@ -181,7 +181,19 @@ export function shouldTriggerSensemaking(
   decision: OrchestratorDecision,
   consecutiveFailedVerifications: number,
   gapThreshold = DEFAULT_GAP_THRESHOLD,
+  hardStopOnly = false,
 ): { trigger: boolean; reason?: string } {
+  if (hardStopOnly) {
+    if (
+      consecutiveFailedVerifications >= 4
+      && gaps.unknown.length > 0
+      && (decision.decisionPath === "abstain" || decision.phase === "validation")
+    ) {
+      return { trigger: true, reason: "hard_stop_diagnostics" };
+    }
+    return { trigger: false };
+  }
+
   if (decision.phase === "explore") {
     return { trigger: true, reason: "explore_phase" };
   }

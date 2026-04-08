@@ -179,6 +179,27 @@ describe("Gap Analyzer — analyzeGaps", () => {
 // ========================================
 
 describe("Gap Analyzer — shouldTriggerSensemaking", () => {
+  it("hard-stop-only mode suppresses routine explore/abstain triggers", () => {
+    const gaps = analyzeGaps(baseContext({ languages: [] }));
+    const explore = shouldTriggerSensemaking(gaps, makeDecision({ phase: "explore" }), 0, 0.5, true);
+    const abstain = shouldTriggerSensemaking(gaps, makeDecision({ decisionPath: "abstain" }), 1, 0.5, true);
+    expect(explore.trigger).toBe(false);
+    expect(abstain.trigger).toBe(false);
+  });
+
+  it("hard-stop-only mode triggers only after severe repeated failures", () => {
+    const gaps = analyzeGaps(baseContext({ languages: [] }));
+    const result = shouldTriggerSensemaking(
+      gaps,
+      makeDecision({ decisionPath: "abstain", phase: "validation" }),
+      4,
+      0.5,
+      true,
+    );
+    expect(result.trigger).toBe(true);
+    expect(result.reason).toBe("hard_stop_diagnostics");
+  });
+
   it("triggers on explore phase", () => {
     const gaps = analyzeGaps(baseContext());
     const decision = makeDecision({ phase: "explore" });

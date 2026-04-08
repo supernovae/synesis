@@ -74,12 +74,30 @@ spec:
               value: "20000000"
             - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
               value: "15"
+            - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT
+              value: "9"
             - name: SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT
               value: "4"
             - name: SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT
               value: "2"
             - name: SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED
               value: "true"
+            - name: SYNESIS_YARN_SENSEMAKING_ENABLED
+              value: "false"
+            - name: SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY
+              value: "false"
+            - name: SYNESIS_YARN_TASK_INTAKE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_PLAN_GRAPH_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_MODEL_SELECTION_MODE
+              value: "respect_explicit"
+            - name: SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED
+              value: "false"
             - name: SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
               value: "false"
             # ── Rate limiting ──

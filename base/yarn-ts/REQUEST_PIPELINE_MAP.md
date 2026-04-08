@@ -42,10 +42,18 @@ This map traces the production path from inbound chat request to outbound provid
 - **Can increase token spend**: enrichment blocks, tool schema expansion, replay loops, server-side tool loops.
 - **Can reduce token spend**: tool-result reduction, validation normalization, transcript pruning, schema pruning.
 - **Can break prefix stability**: volatile system blocks merged early, tool ordering drift, synthetic IDs, nondeterministic JSON serialization, provider options churn.
+- **Current coding-session policy**: sensemaking block injection is disabled in normal coding loops; execution governor handles loop pivots without adding volatile exploration system text.
 
 ## Replay Loops
 
 - OpenAI non-stream path can issue up to 3 additional provider calls for server-side tools.
 - Claude non-stream path can issue up to 3 additional provider calls when server-side web search is active.
 - Each round appends assistant/tool messages and re-sends the full current transcript to the provider.
+
+## Post-Deploy Verification Checklist
+
+- `request_forensics_v1`: LCP ratio should trend upward on coding sessions.
+- `request_forensics_v1`: `firstChangedSection=system` frequency should trend downward.
+- Session metrics: cache ratio should increase and `tokens_in` growth slope should flatten.
+- Session events: `sensemaking_triggered` should remain absent for regular coding loops.
 

@@ -1205,11 +1205,13 @@ patch_yarn_debug_and_streams() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS" "${SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS:-10000000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS" "${SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS:-50000000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_BUDGET_MODE" "${SYNESIS_YARN_SESSION_BUDGET_MODE:-audit}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT:-18}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT:-15}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT:-9}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT" "${SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT:-5}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT" "${SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT:-4}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT" "${SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT:-2}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_POLICY_HARD_REJECT_AFTER" "${SYNESIS_YARN_POLICY_HARD_REJECT_AFTER:-5}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_POLICY_HARD_REJECT_AFTER" "${SYNESIS_YARN_POLICY_HARD_REJECT_AFTER:-6}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_ENABLED" "${SYNESIS_YARN_SENSEMAKING_ENABLED:-false}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY" "${SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY:-false}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TASK_INTAKE_ENABLED" "${SYNESIS_YARN_TASK_INTAKE_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_PLAN_GRAPH_ENABLED" "${SYNESIS_YARN_PLAN_GRAPH_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED:-true}" "$container"
@@ -1307,6 +1309,46 @@ verify_yarn_path_governance_envs() {
     [[ "$ok" == "true" ]]
 }
 
+verify_yarn_runtime_envs() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+    local container="yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return 0
+    fi
+
+    local ok="true"
+    _check_runtime_env() {
+        local env_name="$1"
+        local expected="$2"
+        local jp="{.spec.template.spec.containers[?(@.name=='$container')].env[?(@.name=='$env_name')].value}"
+        local actual
+        actual="$(oc get deployment "$deploy" -n "$ns" -o "jsonpath=$jp" 2>/dev/null || true)"
+        if [[ "$actual" != "$expected" ]]; then
+            log "WARNING: Yarn env drift $env_name expected='$expected' actual='${actual:-<unset>}'"
+            ok="false"
+        else
+            log "  Yarn env OK $env_name=$actual"
+        fi
+    }
+
+    _check_runtime_env "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT:-15}"
+    _check_runtime_env "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT:-9}"
+    _check_runtime_env "SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT" "${SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT:-4}"
+    _check_runtime_env "SYNESIS_YARN_POLICY_HARD_REJECT_AFTER" "${SYNESIS_YARN_POLICY_HARD_REJECT_AFTER:-6}"
+    _check_runtime_env "SYNESIS_YARN_SENSEMAKING_ENABLED" "${SYNESIS_YARN_SENSEMAKING_ENABLED:-false}"
+    _check_runtime_env "SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY" "${SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY:-false}"
+    _check_runtime_env "SYNESIS_YARN_TASK_INTAKE_ENABLED" "${SYNESIS_YARN_TASK_INTAKE_ENABLED:-true}"
+    _check_runtime_env "SYNESIS_YARN_PLAN_GRAPH_ENABLED" "${SYNESIS_YARN_PLAN_GRAPH_ENABLED:-true}"
+    _check_runtime_env "SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED:-true}"
+    _check_runtime_env "SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED:-true}"
+    _check_runtime_env "SYNESIS_YARN_MODEL_SELECTION_MODE" "${SYNESIS_YARN_MODEL_SELECTION_MODE:-respect_explicit}"
+    _check_runtime_env "SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED" "${SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED:-false}"
+
+    [[ "$ok" == "true" ]]
+}
+
 # Patch all Yarn feature flags (Phases 7–19).
 # Each flag defaults to the value in config.ts but can be overridden by the
 # corresponding shell env var when running deploy.sh.
@@ -1345,8 +1387,9 @@ patch_yarn_feature_flags() {
     # ── Phase 8: Decision Matrix ──
     _flag SYNESIS_YARN_DECISION_MATRIX_ENABLED         "false"
 
-    # ── Phase 10: Sensemaking ──
-    _flag SYNESIS_YARN_SENSEMAKING_ENABLED             "false"
+    # ── Phase 10: Sensemaking (disabled in regular coding flow) ──
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_ENABLED" "${SYNESIS_YARN_SENSEMAKING_ENABLED:-false}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY" "${SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY:-false}" "$container"
 
     # ── Phase 11: Reliability Hardening ──
     _flag SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED  "false"
@@ -2401,6 +2444,12 @@ if ! verify_yarn_path_governance_envs; then
     log "ERROR: strict Yarn path-governance env validation failed."
     exit 1
 fi
+log ""
+log "Validating Yarn runtime envs (post-apply)..."
+if ! verify_yarn_runtime_envs; then
+    log "ERROR: Yarn runtime env validation failed."
+    exit 1
+fi
 
 log ""
 log "Patching MCP-TS service envs (post-apply)..."
@@ -2556,6 +2605,10 @@ wait_for_deployment synesis-yarn synesis-vision-worker
 wait_for_deployment synesis-yarn synesis-yarn
 if ! verify_yarn_path_governance_envs; then
     log "ERROR: strict Yarn path-governance env validation failed after rollout."
+    exit 1
+fi
+if ! verify_yarn_runtime_envs; then
+    log "ERROR: Yarn runtime env validation failed after rollout."
     exit 1
 fi
 wait_for_deployment synesis-authz openfga

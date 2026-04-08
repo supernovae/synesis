@@ -424,6 +424,10 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD: z.coerce.number().default(0.5),
 
   // Worker thread pool (Phase 16) — offload CPU-bound enrichment to separate cores
