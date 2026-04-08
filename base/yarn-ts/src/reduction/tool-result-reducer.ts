@@ -159,7 +159,7 @@ export class ToolResultReductionService {
         reducedCount += 1;
         return { ...m, content: guidedTrim };
       }
-      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue);
+      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
       if (taskPruned) {
         this.trackTransformation(raw.length, taskPruned.length);
         reducedCount += 1;
@@ -327,7 +327,7 @@ export class ToolResultReductionService {
         out[idx] = { ...m, content: guidedTrim };
         continue;
       }
-      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue);
+      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
       if (taskPruned) {
         this.trackTransformation(raw.length, taskPruned.length);
         reducedCount += 1;
@@ -453,7 +453,7 @@ export class ToolResultReductionService {
       this.trackTransformation(raw.length, guidedTrim.length);
       return guidedTrim;
     }
-    const taskPruned = this.applyTaskConditionedPruning(toolName, raw, taskCue);
+    const taskPruned = this.applyTaskConditionedPruning(toolName, raw, taskCue, normalized.commandHint);
     if (taskPruned) {
       this.trackTransformation(raw.length, taskPruned.length);
       return taskPruned;
@@ -688,7 +688,18 @@ export class ToolResultReductionService {
         allowDispatch: false,
       };
     }
-    return { raw: fallback, commandHint: name || (toolName ?? ""), allowDispatch: true };
+    const commandHint = this.extractCommandHint(row) ?? (name || (toolName ?? ""));
+    return { raw: fallback, commandHint, allowDispatch: true };
+  }
+
+  private extractCommandHint(row: Record<string, unknown>): string | null {
+    if (typeof row.command === "string" && row.command.trim()) return row.command.trim();
+    if (typeof row.cmd === "string" && row.cmd.trim()) return row.cmd.trim();
+    if (Array.isArray(row.argv)) {
+      const parts = row.argv.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+      if (parts.length > 0) return parts.join(" ");
+    }
+    return null;
   }
 
   private gitCommandHintFromToolName(toolName: string): string {
@@ -799,6 +810,7 @@ export class ToolResultReductionService {
     toolName: string | undefined,
     raw: string,
     taskCue?: string,
+    commandHint?: string,
   ): string | null {
     if (!this.config.SYNESIS_YARN_TASK_PRUNING_ENABLED) return null;
     if (!taskCue || taskCue.trim().length < 8) return null;
@@ -807,13 +819,14 @@ export class ToolResultReductionService {
     const lines = raw.split("\n");
     const minLines = Math.max(10, this.config.SYNESIS_YARN_TASK_PRUNING_MIN_LINES);
     if (lines.length < minLines) return null;
+    if (this.shouldBypassTaskPruningForLikelySource(lowerName, lines, commandHint)) return null;
 
     const tokens = this.extractTaskTokens(taskCue);
     if (tokens.length === 0) return null;
     const radius = Math.max(0, this.config.SYNESIS_YARN_TASK_PRUNING_CONTEXT_RADIUS);
     const keepCap = Math.max(10, this.config.SYNESIS_YARN_TASK_PRUNING_KEEP_MAX_LINES);
     const selected = new Set<number>();
-    const signalRe = /\b(error|exception|failed|failure|panic|traceback|stderr|timeout|denied|unauthorized|forbidden)\b/i;
+    const signalRe = /\b(exception|panic|traceback|stderr|timeout|denied|unauthorized|forbidden)\b|error:/i;
 
     for (let idx = 0; idx < lines.length; idx++) {
       const line = lines[idx];
@@ -850,6 +863,46 @@ export class ToolResultReductionService {
       ...keptLines,
       "</SYNESIS_TOOL_GUARDRAIL>",
     ].join("\n");
+  }
+
+  private shouldBypassTaskPruningForLikelySource(
+    lowerName: string,
+    lines: string[],
+    commandHint?: string,
+  ): boolean {
+    const cmd = (commandHint ?? "").toLowerCase();
+    const isCodeReadCommand = /\b(cat|sed|awk|head|tail|less|more|bat|nl)\b/.test(cmd);
+    const isShellLikeTool = lowerName.includes("bash") || lowerName.includes("run_command") || lowerName.includes("shell");
+    if (!isCodeReadCommand && !isShellLikeTool) return false;
+    if (this.hasDiagnosticSignals(lines)) return false;
+    return this.looksLikeSourceCode(lines);
+  }
+
+  private hasDiagnosticSignals(lines: string[]): boolean {
+    const signalRe = /\b(exception|panic|traceback|stderr|timeout|denied|unauthorized|forbidden)\b|error:/i;
+    for (const line of lines.slice(0, 220)) {
+      if (signalRe.test(line)) return true;
+      if (/^\s*(FAIL|E\s{2,}|✗|×)\b/.test(line)) return true;
+    }
+    return false;
+  }
+
+  private looksLikeSourceCode(lines: string[]): boolean {
+    const sample = lines.slice(0, 220);
+    if (sample.length === 0) return false;
+    const codeLineRe =
+      /^\s*(#!\/.*(bash|sh|zsh)|package\s+[\w.]+|import\s+[\w"{].*|from\s+\w+|export\s+|class\s+\w+|interface\s+\w+|type\s+\w+|trait\s+\w+|impl\s+\w+|struct\s+\w+|enum\s+\w+|func\s+\w+|fn\s+\w+|def\s+\w+|const\s+\w+|let\s+\w+|var\s+\w+|public\s+\w+|private\s+\w+|protected\s+\w+|namespace\s+\w+|using\s+[\w.]+;|#include\s+[<"]|\/\/|\/\*|\*\/|if\s+__name__\s*==\s*["']__main__["'])/;
+    let codeLike = 0;
+    for (const line of sample) {
+      if (codeLineRe.test(line)) {
+        codeLike += 1;
+        continue;
+      }
+      if ((line.includes("{") && line.includes("}")) || /;\s*$/.test(line) || /=>\s*\{?/.test(line)) {
+        codeLike += 1;
+      }
+    }
+    return codeLike >= 8 && codeLike / sample.length >= 0.12;
   }
 
   private extractTaskTokens(taskCue: string): string[] {

@@ -48,6 +48,78 @@ function makeConfig(maxRawChars = 100): AppConfig {
 }
 
 describe("ToolResultReductionService", () => {
+  const codeFixtureByLanguage: Record<string, string[]> = {
+    rust: [
+      "use std::collections::HashMap;",
+      "pub struct SessionStore { map: HashMap<String, String> }",
+      "impl SessionStore {",
+      "  pub fn insert(&mut self, k: String, v: String) { self.map.insert(k, v); }",
+      "}",
+    ],
+    python: [
+      "import json",
+      "class SessionStore:",
+      "    def save(self, key: str, value: str) -> None:",
+      "        self._data[key] = value",
+      "if __name__ == '__main__':",
+      "    print('ok')",
+    ],
+    javascript: [
+      "export class SessionStore {",
+      "  constructor() { this.map = new Map(); }",
+      "  save(key, value) { this.map.set(key, value); }",
+      "}",
+      "const run = () => { return true; };",
+    ],
+    go: [
+      "package session",
+      "import \"fmt\"",
+      "type Store struct {}",
+      "func (s *Store) Save(key string, value string) error { return nil }",
+      "func main() { fmt.Println(\"ok\") }",
+    ],
+    shell: [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      "function save_session() {",
+      "  local key=\"$1\"",
+      "  echo \"$key\"",
+      "}",
+    ],
+    cpp: [
+      "#include <string>",
+      "class Store {",
+      "public:",
+      "  std::string Save(const std::string& key) { return key; }",
+      "};",
+    ],
+    csharp: [
+      "using System;",
+      "namespace SessionTool {",
+      "public class Store {",
+      "  public string Save(string key) { return key; }",
+      "}}",
+    ],
+    java: [
+      "package io.synesis.session;",
+      "public class Store {",
+      "  public String save(String key) { return key; }",
+      "}",
+      "import java.util.Map;",
+    ],
+    kotlin: [
+      "package io.synesis.session",
+      "class Store {",
+      "  fun save(key: String): String = key",
+      "}",
+      "import kotlin.collections.MutableMap",
+    ],
+  };
+
+  function expandFixture(lines: string[], total = 180): string {
+    return Array.from({ length: total }, (_, i) => lines[i % lines.length]).join("\n");
+  }
+
   it("keeps small tool outputs unchanged", () => {
     const svc = new ToolResultReductionService(makeConfig(500), new ArtifactStore());
     const out = svc.reduceMessages([
@@ -170,4 +242,55 @@ describe("ToolResultReductionService", () => {
     expect(out).not.toBe(log);
     expect(out.toLowerCase()).toContain("log-stream");
   });
+
+  it("does not task-prune source-like Bash reads", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const code = Array.from({ length: 180 }, (_, i) => {
+      if (i === 0) return "package main";
+      if (i % 6 === 0) return `func testCase${i}() {`;
+      if (i % 6 === 1) return `  value := doThing(${i})`;
+      if (i % 6 === 2) return "  if value != nil {";
+      if (i % 6 === 3) return '    return fmt.Errorf("failed to parse config")';
+      if (i % 6 === 4) return "  }";
+      return "}";
+    }).join("\n");
+    const out = svc.reduceMessages(
+      [{ role: "tool", name: "Bash", content: code }],
+      "add tests for retry behavior and json output",
+    );
+    expect(String(out.messages[0].content)).not.toContain('code="task_conditioned_pruning"');
+    expect(String(out.messages[0].content)).toContain("package main");
+    expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
+  });
+
+  it("keeps task-pruning enabled for diagnostic bash output", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const diag = Array.from({ length: 160 }, (_, i) => {
+      if (i === 50) return "ERROR retry behavior duplicated request id=abc123";
+      if (i === 51) return "stderr: broken pipe during streaming";
+      return `noise line ${i}`;
+    }).join("\n");
+    const out = svc.reduceMessages(
+      [{ role: "tool", name: "run_command", content: diag }],
+      "add tests for retry behavior duplicate requests",
+    );
+    expect(out.reducedCount).toBe(1);
+    expect(String(out.messages[0].content)).toContain('code="task_conditioned_pruning"');
+    expect(svc.getPerRequestTaskPrunedDelta()).toBe(1);
+  });
+
+  it.each(Object.entries(codeFixtureByLanguage))(
+    "does not task-prune source-like reads for %s",
+    (_language, fixtureLines) => {
+      const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+      const content = expandFixture(fixtureLines);
+      const out = svc.reduceMessages(
+        [{ role: "tool", name: "run_command", content: { command: "cat src/file", stdout: content } }],
+        "add tests for retry behavior duplicate requests and api compatibility",
+      );
+      const reduced = String(out.messages[0].content);
+      expect(reduced).not.toContain('code="task_conditioned_pruning"');
+      expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
+    },
+  );
 });
