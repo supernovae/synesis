@@ -293,4 +293,60 @@ describe("ToolResultReductionService", () => {
       expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
     },
   );
+
+  it.each(Object.entries(codeFixtureByLanguage))(
+    "does not task-prune Read tool source results for %s",
+    (_language, fixtureLines) => {
+      const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+      const content = expandFixture(fixtureLines);
+      const out = svc.reduceMessages(
+        [{ role: "tool", name: "Read", content }],
+        "add tests for retry behavior duplicate requests and api compatibility",
+      );
+      const reduced = String(out.messages[0].content);
+      expect(reduced).not.toContain('code="task_conditioned_pruning"');
+      expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
+    },
+  );
+
+  it.each(Object.entries(codeFixtureByLanguage))(
+    "does not task-prune read_file tool source results for %s",
+    (_language, fixtureLines) => {
+      const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+      const content = expandFixture(fixtureLines);
+      const out = svc.reduceMessages(
+        [{ role: "tool", name: "read_file", content }],
+        "add comprehensive test suite for broken pipe handling and retry behavior",
+      );
+      const reduced = String(out.messages[0].content);
+      expect(reduced).not.toContain('code="task_conditioned_pruning"');
+      expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
+    },
+  );
+
+  it("does not task-prune artifact:// WebFetch results containing source code", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const goCode = expandFixture(codeFixtureByLanguage.go);
+    const out = svc.reduceMessages(
+      [{ role: "tool", name: "WebFetch", content: { command: "artifact://art_abc123", stdout: goCode } }],
+      "add tests for retry behavior duplicate requests and api compatibility",
+    );
+    const reduced = String(out.messages[0].content);
+    expect(reduced).not.toContain('code="task_conditioned_pruning"');
+    expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
+  });
+
+  it("still reduces Read tool results that are NOT source code", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const logLines = Array.from({ length: 180 }, (_, i) =>
+      `2026-04-08T12:00:${String(i).padStart(2, "0")}Z INFO  processing request ${i} for user abc`,
+    ).join("\n");
+    const out = svc.reduceMessages(
+      [{ role: "tool", name: "Read", content: logLines }],
+      "add tests for retry behavior duplicate requests and api compatibility",
+    );
+    const reduced = String(out.messages[0].content);
+    expect(reduced).not.toBe(logLines);
+    expect(out.reducedCount).toBeGreaterThanOrEqual(1);
+  });
 });

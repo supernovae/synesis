@@ -873,7 +873,14 @@ export class ToolResultReductionService {
     const cmd = (commandHint ?? "").toLowerCase();
     const isCodeReadCommand = /\b(cat|sed|awk|head|tail|less|more|bat|nl)\b/.test(cmd);
     const isShellLikeTool = lowerName.includes("bash") || lowerName.includes("run_command") || lowerName.includes("shell");
-    if (!isCodeReadCommand && !isShellLikeTool) return false;
+    const isDirectReadTool =
+      lowerName === "read" || lowerName === "read_file" || lowerName === "readfile"
+      || lowerName.startsWith("read_file") || lowerName.startsWith("file_read");
+    const isArtifactFetch =
+      (lowerName === "webfetch" || lowerName === "web_fetch" || lowerName === "fetch")
+      && cmd.includes("artifact://");
+    if (!isCodeReadCommand && !isShellLikeTool && !isDirectReadTool && !isArtifactFetch) return false;
+    if (isDirectReadTool || isArtifactFetch) return this.looksLikeSourceCode(lines);
     if (this.hasDiagnosticSignals(lines)) return false;
     return this.looksLikeSourceCode(lines);
   }
