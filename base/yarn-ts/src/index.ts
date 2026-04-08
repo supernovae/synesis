@@ -3897,7 +3897,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
         pause: false,
         reason: "disabled",
         matchedRules: ["disabled"],
-        telemetry: { repeatedTestCommands: 0, repeatedReadSearchCalls: 0, broadTestRepeat: false },
+        telemetry: {
+          repeatedTestCommands: 0,
+          repeatedReadSearchCalls: 0,
+          broadTestRepeat: false,
+          noEditEvidence: false,
+        },
       };
   const oaiAggressiveRepeatGuard =
     oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash);
@@ -4054,7 +4059,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   // Sensemaking is intentionally disabled for regular coding sessions to avoid
   // adding volatile system blocks that degrade prefix cacheability.
-  const oaiSensemakingResult: SensemakingResult | undefined = undefined;
+  let oaiSensemakingResult: SensemakingResult | undefined;
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
     const { stableMessages, jitterBlock } = splitJitter(oaiEnrichedMsgs);
@@ -5547,7 +5552,12 @@ app.post("/v1/messages", async (req, reply) => {
         pause: false,
         reason: "disabled",
         matchedRules: ["disabled"],
-        telemetry: { repeatedTestCommands: 0, repeatedReadSearchCalls: 0, broadTestRepeat: false },
+        telemetry: {
+          repeatedTestCommands: 0,
+          repeatedReadSearchCalls: 0,
+          broadTestRepeat: false,
+          noEditEvidence: false,
+        },
       };
   const claudeAggressiveRepeatGuard =
     claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash);
@@ -5705,7 +5715,7 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Sensemaking is intentionally disabled for regular coding sessions to avoid
   // adding volatile system blocks that degrade prefix cacheability.
-  const claudeSensemakingResult: SensemakingResult | undefined = undefined;
+  let claudeSensemakingResult: SensemakingResult | undefined;
 
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED) {
     const { stableMessages, jitterBlock } = splitJitter(enrichedClaudeMsgs);
