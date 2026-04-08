@@ -6,9 +6,18 @@ export interface GuardrailToolCall {
   input: unknown;
 }
 
+export interface DiscoveryGuardrailRedirect {
+  toolCallId: string;
+  toolName: string;
+  reason: string;
+  originalPattern: string;
+  redirectedPattern: string;
+}
+
 export interface DiscoveryGuardrailDecision {
   calls: GuardrailToolCall[];
   blocked: Array<{ toolCallId: string; toolName: string; reason: string; message: string }>;
+  redirected: DiscoveryGuardrailRedirect[];
   collapsed: Array<{ duplicateToolCallId: string; canonicalToolCallId: string; signature: string }>;
 }
 
@@ -87,28 +96,53 @@ export function emptyGlobPatternGuidanceMessage(): string {
   ].join(" ");
 }
 
-export function applyDiscoveryGuardrails(calls: GuardrailToolCall[]): DiscoveryGuardrailDecision {
+const DEFAULT_REDIRECT_PATTERN = "*";
+
+function rewriteGlobInput(input: unknown, newPattern: string): unknown {
+  const row = asRecord(input);
+  const patternKey = Object.prototype.hasOwnProperty.call(row, "glob_pattern") ? "glob_pattern"
+    : Object.prototype.hasOwnProperty.call(row, "pattern") ? "pattern"
+    : Object.prototype.hasOwnProperty.call(row, "glob") ? "glob"
+    : Object.prototype.hasOwnProperty.call(row, "query") ? "query"
+    : "glob_pattern";
+  return { ...row, [patternKey]: newPattern };
+}
+
+export function applyDiscoveryGuardrails(
+  calls: GuardrailToolCall[],
+  topLevelDirs?: string[],
+): DiscoveryGuardrailDecision {
   const blocked: DiscoveryGuardrailDecision["blocked"] = [];
+  const redirected: DiscoveryGuardrailRedirect[] = [];
   const collapsed: DiscoveryGuardrailDecision["collapsed"] = [];
   const out: GuardrailToolCall[] = [];
   const seenBySignature = new Map<string, string>();
 
+  const preferredDirs = ["src", "lib", "app", "pkg", "cmd"];
+  const dirSet = new Set(topLevelDirs ?? []);
+  const scopedTarget = preferredDirs.find((d) => dirSet.has(d))
+    ?? topLevelDirs?.[0]
+    ?? null;
+  const redirectPattern = scopedTarget ? `${scopedTarget}/*` : DEFAULT_REDIRECT_PATTERN;
+
   for (const call of calls) {
-    if (isEmptyGlobPatternCall(call.toolName, call.input)) {
-      blocked.push({
+    const emptyGlob = isEmptyGlobPatternCall(call.toolName, call.input);
+    const rootWildcard = !emptyGlob && isRootWildcardGlobCall(call.toolName, call.input);
+
+    if (emptyGlob || rootWildcard) {
+      const originalPattern = emptyGlob ? "" : "*";
+      const reason = emptyGlob ? "empty_glob_pattern_redirected" : "root_wildcard_glob_redirected";
+
+      redirected.push({
         toolCallId: call.toolCallId,
         toolName: call.toolName,
-        reason: "empty_glob_pattern_blocked",
-        message: emptyGlobPatternGuidanceMessage(),
+        reason,
+        originalPattern,
+        redirectedPattern: redirectPattern,
       });
-      continue;
-    }
-    if (isRootWildcardGlobCall(call.toolName, call.input)) {
-      blocked.push({
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        reason: "root_wildcard_glob_blocked",
-        message: rootWildcardGuidanceMessage(),
+      out.push({
+        ...call,
+        input: rewriteGlobInput(call.input, redirectPattern),
       });
       continue;
     }
@@ -128,5 +162,5 @@ export function applyDiscoveryGuardrails(calls: GuardrailToolCall[]): DiscoveryG
     out.push(call);
   }
 
-  return { calls: out, blocked, collapsed };
+  return { calls: out, blocked, redirected, collapsed };
 }

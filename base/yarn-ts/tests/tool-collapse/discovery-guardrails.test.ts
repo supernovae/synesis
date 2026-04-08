@@ -35,22 +35,53 @@ describe("discovery-guardrails", () => {
     expect(out.collapsed).toHaveLength(2);
   });
 
-  it("blocks root wildcard before collapse", () => {
+  it("redirects root wildcard to scoped pattern", () => {
     const out = applyDiscoveryGuardrails([
       { toolCallId: "1", toolName: "glob", input: { glob_pattern: "*" } },
-      { toolCallId: "2", toolName: "glob", input: { glob_pattern: "*" } },
+      { toolCallId: "2", toolName: "glob", input: { glob_pattern: "**/*" } },
     ]);
-    expect(out.calls).toHaveLength(0);
-    expect(out.blocked).toHaveLength(2);
+    expect(out.calls).toHaveLength(2);
+    expect(out.blocked).toHaveLength(0);
+    expect(out.redirected).toHaveLength(2);
+    expect(out.redirected[0]?.reason).toBe("root_wildcard_glob_redirected");
+    expect(out.redirected[0]?.originalPattern).toBe("*");
   });
 
-  it("blocks empty glob before collapse", () => {
+  it("redirects root wildcard to known top-level dir when available", () => {
+    const out = applyDiscoveryGuardrails(
+      [{ toolCallId: "1", toolName: "glob", input: { glob_pattern: "*" } }],
+      ["cmd", "docs", "pkg", "src"],
+    );
+    expect(out.calls).toHaveLength(1);
+    expect(out.redirected).toHaveLength(1);
+    expect(out.redirected[0]?.redirectedPattern).toBe("src/*");
+    const rewrittenInput = out.calls[0]?.input as Record<string, unknown>;
+    expect(rewrittenInput.glob_pattern).toBe("src/*");
+  });
+
+  it("redirects empty glob to scoped pattern", () => {
     const out = applyDiscoveryGuardrails([
       { toolCallId: "1", toolName: "glob", input: { glob_pattern: "" } },
       { toolCallId: "2", toolName: "glob", input: { glob_pattern: "   " } },
     ]);
-    expect(out.calls).toHaveLength(0);
-    expect(out.blocked).toHaveLength(2);
-    expect(out.blocked[0]?.reason).toBe("empty_glob_pattern_blocked");
+    expect(out.calls).toHaveLength(2);
+    expect(out.blocked).toHaveLength(0);
+    expect(out.redirected).toHaveLength(2);
+    expect(out.redirected[0]?.reason).toBe("empty_glob_pattern_redirected");
+  });
+
+  it("uses first top-level dir as fallback when no src/lib/app/pkg/cmd found", () => {
+    const out = applyDiscoveryGuardrails(
+      [{ toolCallId: "1", toolName: "glob", input: { glob_pattern: "" } }],
+      ["frontend", "backend", "scripts"],
+    );
+    expect(out.redirected[0]?.redirectedPattern).toBe("frontend/*");
+  });
+
+  it("falls back to * when no topLevelDirs provided", () => {
+    const out = applyDiscoveryGuardrails(
+      [{ toolCallId: "1", toolName: "glob", input: { glob_pattern: "" } }],
+    );
+    expect(out.redirected[0]?.redirectedPattern).toBe("*");
   });
 });

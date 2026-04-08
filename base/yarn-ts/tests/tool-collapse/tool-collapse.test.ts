@@ -231,7 +231,7 @@ describe("tool-call-queue", () => {
 });
 
 describe("tool-call-interceptor", () => {
-  it("blocks root wildcard glob before collapse planning", async () => {
+  it("redirects root wildcard glob before collapse planning", async () => {
     const ix = new ToolCallInterceptor({
       workspaceRoot: "/tmp/synesis-tool-collapse-test",
       shellAllowlist: [],
@@ -244,7 +244,7 @@ describe("tool-call-interceptor", () => {
       { toolCallId: "b", toolName: "read_file", input: { path: "src/a.ts" } },
     ]);
     const syn = planToSyntheticToolCalls(r.plan);
-    expect(syn.some((s) => s.toolCallId === "a")).toBe(false);
+    expect(syn.some((s) => s.toolCallId === "a")).toBe(true);
     expect(syn.some((s) => s.toolCallId === "b")).toBe(true);
   });
 

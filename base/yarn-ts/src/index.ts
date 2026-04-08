@@ -102,7 +102,7 @@ import {
   planToSyntheticToolCalls,
   defaultShellAllowlistFromEnv,
 } from "./tool-collapse/index.js";
-import { applyDiscoveryGuardrails } from "./tool-collapse/discovery-guardrails.js";
+import { applyDiscoveryGuardrails, type DiscoveryGuardrailRedirect } from "./tool-collapse/discovery-guardrails.js";
 import { normalizeClaudeStreamStopReason, normalizeOpenAIStreamFinishReason } from "./tool-collapse/stream-stop-normalizer.js";
 import {
   buildBlockedDiscoveryGuidance,
@@ -258,25 +258,51 @@ async function buildBlockedDiscoveryRecoverySnapshot(
   }
 }
 
+const topLevelDirCache = new Map<string, { dirs: string[]; cachedAt: number }>();
+const TOP_LEVEL_DIR_CACHE_TTL = 120_000;
+
+async function getCachedTopLevelDirs(projectRoot: string | null | undefined): Promise<string[]> {
+  const root = typeof projectRoot === "string" ? projectRoot.trim() : "";
+  if (!root) return [];
+  const cached = topLevelDirCache.get(root);
+  if (cached && Date.now() - cached.cachedAt < TOP_LEVEL_DIR_CACHE_TTL) return cached.dirs;
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    const dirs = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .map((e) => e.name)
+      .sort();
+    topLevelDirCache.set(root, { dirs, cachedAt: Date.now() });
+    return dirs;
+  } catch {
+    return [];
+  }
+}
+
 function applyDiscoveryToolGuardrail(
   calls: GuardrailToolCall[],
+  topLevelDirs?: string[],
 ): {
   calls: GuardrailToolCall[];
   blockedCount: number;
+  redirectedCount: number;
   collapsedCount: number;
   blockedDetails: BlockedDiscoveryDetail[];
+  redirectedDetails: DiscoveryGuardrailRedirect[];
 } {
-  const guarded = applyDiscoveryGuardrails(calls);
+  const guarded = applyDiscoveryGuardrails(calls, topLevelDirs);
   const callById = new Map(calls.map((call) => [call.toolCallId, call]));
   return {
     calls: guarded.calls as GuardrailToolCall[],
     blockedCount: guarded.blocked.length,
+    redirectedCount: guarded.redirected.length,
     collapsedCount: guarded.collapsed.length,
     blockedDetails: guarded.blocked.map((b) => ({
       toolName: b.toolName,
       reason: b.reason,
       argsPreview: blockedInputPreview(callById.get(b.toolCallId)?.input),
     })),
+    redirectedDetails: guarded.redirected,
   };
 }
 
@@ -4795,11 +4821,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
         };
       });
     let oaiBlockedBroadDiscovery = 0;
+    let oaiRedirectedBroadDiscovery = 0;
     let oaiCollapsedBroadDiscovery = 0;
-    const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls);
+    const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot);
+    const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
     externalToolCalls = oaiGuarded.calls;
     oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
+    oaiRedirectedBroadDiscovery = oaiGuarded.redirectedCount;
     oaiCollapsedBroadDiscovery = oaiGuarded.collapsedCount;
+    if (oaiRedirectedBroadDiscovery > 0) {
+      recordBlockedDiscovery(sessionKey, oaiRedirectedBroadDiscovery);
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "broad_discovery_redirected",
+        "tool-guardrails",
+        `redirected=${oaiRedirectedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(sessionKey)}`,
+        reqId,
+        { redirectedDetails: oaiGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey) },
+      );
+    }
     if (oaiBlockedBroadDiscovery > 0) {
       const sessionBlockedTotal = recordBlockedDiscovery(sessionKey, oaiBlockedBroadDiscovery);
       const recovery = await buildBlockedDiscoveryRecoverySnapshot(
@@ -4914,8 +4956,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
         app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_non_stream");
       }
     }
-    const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls);
+    const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
     externalToolCalls = oaiLegacyGuarded.calls;
+    if (oaiLegacyGuarded.redirectedCount > 0) {
+      oaiRedirectedBroadDiscovery += oaiLegacyGuarded.redirectedCount;
+      recordBlockedDiscovery(sessionKey, oaiLegacyGuarded.redirectedCount);
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "broad_discovery_redirected", "tool-guardrails",
+        `redirected=${oaiLegacyGuarded.redirectedCount};sessionTotal=${getBlockedDiscoveryCount(sessionKey)}`, reqId,
+        { redirectedDetails: oaiLegacyGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey) });
+    }
     if (oaiLegacyGuarded.blockedCount > 0) {
       const oaiLegacyBlockedTotal = recordBlockedDiscovery(sessionKey, oaiLegacyGuarded.blockedCount);
       const recovery = await buildBlockedDiscoveryRecoverySnapshot(
@@ -4931,26 +4980,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         finalAssistantText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
       }
       oaiBlockedBroadDiscovery += oaiLegacyGuarded.blockedCount;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "tool_call_blocked_broad_discovery",
-        "tool-guardrails",
-        `blocked=${oaiLegacyGuarded.blockedCount};sessionTotal=${oaiLegacyBlockedTotal}`,
-        reqId,
-        { blockedDetails: oaiLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal: oaiLegacyBlockedTotal },
-      );
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "blocked_broad_discovery_then_recovery",
-        "tool-guardrails",
-        `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
-        reqId,
-        { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
-      );
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "tool_call_blocked_broad_discovery", "tool-guardrails",
+        `blocked=${oaiLegacyGuarded.blockedCount};sessionTotal=${oaiLegacyBlockedTotal}`, reqId,
+        { blockedDetails: oaiLegacyGuarded.blockedDetails.slice(0, 5), sessionBlockedTotal: oaiLegacyBlockedTotal });
     }
     if (oaiLegacyGuarded.collapsedCount > 0) {
       oaiCollapsedBroadDiscovery += oaiLegacyGuarded.collapsedCount;
@@ -5363,12 +5395,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
               adapterFamily: adapter.family,
             }, "tool_call_streamed");
           }
-          const candidateCall: GuardrailToolCall = {
+          let candidateCall: GuardrailToolCall = {
             toolCallId: tc.toolCallId ?? "",
             toolName: governed.toolName,
             input: governed.input,
           };
-          const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall]);
+          const oaiStreamTopDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot);
+          const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall], oaiStreamTopDirs);
+          if (streamGuarded.redirectedCount > 0) {
+            oaiStreamBlockedBroadDiscovery += streamGuarded.redirectedCount;
+            recordBlockedDiscovery(sessionKey, streamGuarded.redirectedCount);
+            const redirectedCall = streamGuarded.calls[streamGuarded.calls.length - 1];
+            if (redirectedCall) {
+              candidateCall = redirectedCall as GuardrailToolCall;
+              argsStr = JSON.stringify(redirectedCall.input);
+            }
+          }
           if (streamGuarded.calls.length === oaiStreamGuardrailAccepted.length) {
             oaiStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
             oaiStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
@@ -7027,12 +7069,22 @@ app.post("/v1/messages", async (req, reply) => {
               adapterFamily: claudeAdapter.family,
             }, "claude_tool_call_streamed");
           }
-          const candidateCall: GuardrailToolCall = {
+          let candidateCall: GuardrailToolCall = {
             toolCallId: tcFull.toolCallId ?? "",
             toolName: emitToolName,
             input: finalInput,
           };
-          const streamGuarded = applyDiscoveryToolGuardrail([...claudeStreamGuardrailAccepted, candidateCall]);
+          const claudeStreamTopDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot);
+          const streamGuarded = applyDiscoveryToolGuardrail([...claudeStreamGuardrailAccepted, candidateCall], claudeStreamTopDirs);
+          if (streamGuarded.redirectedCount > 0) {
+            claudeStreamBlockedBroadDiscovery += streamGuarded.redirectedCount;
+            recordBlockedDiscovery(claudeSessionKey, streamGuarded.redirectedCount);
+            const redirectedCall = streamGuarded.calls[streamGuarded.calls.length - 1];
+            if (redirectedCall) {
+              candidateCall = redirectedCall as GuardrailToolCall;
+              finalInput = redirectedCall.input;
+            }
+          }
           if (streamGuarded.calls.length === claudeStreamGuardrailAccepted.length) {
             claudeStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
             claudeStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
@@ -7698,15 +7750,24 @@ app.post("/v1/messages", async (req, reply) => {
       };
     });
   let claudeBlockedBroadDiscovery = 0;
+  let claudeRedirectedBroadDiscovery = 0;
   let claudeCollapsedBroadDiscovery = 0;
-  const claudeGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls);
+  const claudeTopLevelDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot);
+  const claudeGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
   externalClaudeToolCalls = claudeGuarded.calls;
   claudeBlockedBroadDiscovery = claudeGuarded.blockedCount;
+  claudeRedirectedBroadDiscovery = claudeGuarded.redirectedCount;
   claudeCollapsedBroadDiscovery = claudeGuarded.collapsedCount;
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
   let finalClaudeText = result.text ?? "";
+  if (claudeRedirectedBroadDiscovery > 0) {
+    recordBlockedDiscovery(claudeSessionKey, claudeRedirectedBroadDiscovery);
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "broad_discovery_redirected", "tool-guardrails",
+      `redirected=${claudeRedirectedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`, reqId,
+      { redirectedDetails: claudeGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey) });
+  }
   if (claudeBlockedBroadDiscovery > 0) {
     const claudeSessionBlockedTotal = recordBlockedDiscovery(claudeSessionKey, claudeBlockedBroadDiscovery);
     const recovery = await buildBlockedDiscoveryRecoverySnapshot(
@@ -7784,8 +7845,15 @@ app.post("/v1/messages", async (req, reply) => {
       app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_claude_non_stream");
     }
   }
-  const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls);
+  const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
   externalClaudeToolCalls = claudeLegacyGuarded.calls;
+  if (claudeLegacyGuarded.redirectedCount > 0) {
+    claudeRedirectedBroadDiscovery += claudeLegacyGuarded.redirectedCount;
+    recordBlockedDiscovery(claudeSessionKey, claudeLegacyGuarded.redirectedCount);
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "broad_discovery_redirected", "tool-guardrails",
+      `redirected=${claudeLegacyGuarded.redirectedCount};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`, reqId,
+      { redirectedDetails: claudeLegacyGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey) });
+  }
   if (claudeLegacyGuarded.blockedCount > 0) {
     const claudeLegacyBlockedTotal = recordBlockedDiscovery(claudeSessionKey, claudeLegacyGuarded.blockedCount);
     const recovery = await buildBlockedDiscoveryRecoverySnapshot(
@@ -7809,7 +7877,7 @@ app.post("/v1/messages", async (req, reply) => {
       "tool-guardrails",
       `blocked=${claudeLegacyGuarded.blockedCount};sessionTotal=${claudeLegacyBlockedTotal}`,
       reqId,
-      { blockedDetails: claudeLegacyGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal: claudeLegacyBlockedTotal },
+      { blockedDetails: claudeLegacyGuarded.blockedDetails.slice(0, 5), sessionBlockedTotal: claudeLegacyBlockedTotal },
     );
     recordSessionEvent(
       claudeSessionKey,
