@@ -46,6 +46,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_TASK_PRUNING_MIN_LINES: z.coerce.number().default(80),
   SYNESIS_YARN_TASK_PRUNING_KEEP_MAX_LINES: z.coerce.number().default(30),
   SYNESIS_YARN_TASK_PRUNING_CONTEXT_RADIUS: z.coerce.number().default(1),
+  SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT: z.coerce.number().default(8),
   SYNESIS_YARN_VALIDATION_MAX_FINDINGS: z.coerce.number().default(30),
   SYNESIS_YARN_VALIDATION_INCLUDE_RAW: z
     .string()
@@ -255,7 +256,7 @@ const EnvSchema = z.object({
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS: z.coerce.number().default(5),
   /** Max recent tool results kept at full fidelity; fallback for single-turn agent loops. 0 disables. */
-  SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS: z.coerce.number().default(15),
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS: z.coerce.number().default(25),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS: z.coerce.number().default(60_000),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS: z.coerce.number().default(400),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS: z.coerce.number().default(2000),

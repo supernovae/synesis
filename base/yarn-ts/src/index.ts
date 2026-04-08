@@ -1348,6 +1348,7 @@ function enrichWithFrameAndManifest(
   promptContext?: { tier?: string; role?: string; modelFamily?: string; node?: string },
   pathHints?: { projectRoot: string | null; shellCwd: string | null } | null,
   governanceBlocks?: string[],
+  topLevelDirs?: string[],
 ): EnrichResult {
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
@@ -1363,7 +1364,10 @@ function enrichWithFrameAndManifest(
       promptProfileIds: [],
       promptProfileHashes: [],
     };
-  const systemPrefix = partition.stablePrefix;
+  let systemPrefix = partition.stablePrefix;
+  if (topLevelDirs && topLevelDirs.length > 0 && pathHints?.projectRoot) {
+    systemPrefix += `\n<PROJECT_ROOT path="${pathHints.projectRoot}" dirs="${topLevelDirs.join(",")}" />`;
+  }
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
   if (volatileAdapterBlock) {
@@ -4364,10 +4368,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       || oaiExecutionGovernor.matchedRules.includes("test_entry_contract");
     if (canRewriteRecovery) {
       const recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
-      (normalizedOpenAI.messages as Array<{ role: string; content: unknown }>).unshift({
-        role: "system",
-        content: recovery,
-      });
+      const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; content: unknown }>;
+      const oaiFirstSysEnd = oaiMsgs.findIndex((m, idx) => idx > 0 && m.role !== "system");
+      const oaiInsertIdx = oaiFirstSysEnd > 0 ? oaiFirstSysEnd : (oaiMsgs[0]?.role === "system" ? 1 : 0);
+      oaiMsgs.splice(oaiInsertIdx, 0, { role: "system", content: recovery });
       const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined);
       request.tools = restricted.tools as never;
       recordSessionEvent(
@@ -4413,6 +4417,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     role: oaiRole,
     modelFamily: inferModelFamily(oaiBackendModel),
   };
+  const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot);
   const oaiEnriched = enrichWithFrameAndManifest(
     normalizedOpenAI.messages as never,
     sessionKey,
@@ -4423,6 +4428,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiTaskIntake ? [formatTaskIntakeBlock(oaiTaskIntake)] : []),
       ...(oaiPlanGraph ? [formatPlanGraphBlock(oaiPlanGraph)] : []),
     ],
+    oaiSeedDirs,
   );
   let oaiEnrichedMsgs = appendCriticBlock(
     oaiEnriched.messages as Array<{ role: string; content: unknown }>,
@@ -6313,10 +6319,10 @@ app.post("/v1/messages", async (req, reply) => {
       || claudeExecutionGovernor.matchedRules.includes("test_entry_contract");
     if (canRewriteRecovery) {
       const recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
-      (normalizedFromClaude.messages as Array<{ role: string; content: unknown }>).unshift({
-        role: "system",
-        content: recovery,
-      });
+      const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; content: unknown }>;
+      const claudeFirstSysEnd = claudeMsgs.findIndex((m, idx) => idx > 0 && m.role !== "system");
+      const claudeInsertIdx = claudeFirstSysEnd > 0 ? claudeFirstSysEnd : (claudeMsgs[0]?.role === "system" ? 1 : 0);
+      claudeMsgs.splice(claudeInsertIdx, 0, { role: "system", content: recovery });
       const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined);
       body.tools = restricted.tools as never;
       recordSessionEvent(
@@ -6363,6 +6369,7 @@ app.post("/v1/messages", async (req, reply) => {
     role: claudeRole,
     modelFamily: inferModelFamily(claudeBackendModel),
   };
+  const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot);
   const claudeEnriched = enrichWithFrameAndManifest(
     normalizedFromClaude.messages as never,
     claudeSessionKey,
@@ -6373,6 +6380,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudeTaskIntake ? [formatTaskIntakeBlock(claudeTaskIntake)] : []),
       ...(claudePlanGraph ? [formatPlanGraphBlock(claudePlanGraph)] : []),
     ],
+    claudeSeedDirs,
   );
   let enrichedClaudeMsgs = appendCriticBlock(
     claudeEnriched.messages as Array<{ role: string; content: unknown }>,

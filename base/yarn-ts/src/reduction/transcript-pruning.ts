@@ -100,8 +100,8 @@ export class TranscriptPruningService {
    */
   effectiveBudget(projectSizeChars?: number): number {
     if (!projectSizeChars || projectSizeChars <= 0) return this.config.budgetChars;
-    const scaled = projectSizeChars * 2;
-    return Math.min(this.config.budgetChars, Math.max(scaled, 20_000));
+    const scaled = projectSizeChars * 3;
+    return Math.min(this.config.budgetChars, Math.max(scaled, 60_000));
   }
 
   prune(messages: MessageLike[], projectSizeChars?: number): { messages: MessageLike[]; pruned: boolean } {

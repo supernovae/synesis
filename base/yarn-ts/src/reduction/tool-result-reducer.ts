@@ -141,8 +141,11 @@ export class ToolResultReductionService {
   }
 
   reduceMessages(messages: ToolResultLike[], taskCue?: string): ToolResultReductionResult {
+    const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
+    const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
+
     let reducedCount = 0;
-    const out = messages.map((m) => {
+    const out = messages.map((m, msgIdx) => {
       if (m.role !== "tool") return m;
       const normalized = this.buildReductionInput(m.name, m.content);
       const raw = normalized.raw;
@@ -159,11 +162,13 @@ export class ToolResultReductionService {
         reducedCount += 1;
         return { ...m, content: guidedTrim };
       }
-      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
-      if (taskPruned) {
-        this.trackTransformation(raw.length, taskPruned.length);
-        reducedCount += 1;
-        return { ...m, content: taskPruned };
+      if (!recentToolProtected.has(msgIdx)) {
+        const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
+        if (taskPruned) {
+          this.trackTransformation(raw.length, taskPruned.length);
+          reducedCount += 1;
+          return { ...m, content: taskPruned };
+        }
       }
 
       let reduced: ReturnType<ReducerRegistry["reduce"]> = null;
@@ -303,6 +308,8 @@ export class ToolResultReductionService {
     }
 
     const dispatched = await Promise.all(dispatchPromises);
+    const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
+    const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
 
     let reducedCount = 0;
     const out = [...messages];
@@ -327,12 +334,14 @@ export class ToolResultReductionService {
         out[idx] = { ...m, content: guidedTrim };
         continue;
       }
-      const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
-      if (taskPruned) {
-        this.trackTransformation(raw.length, taskPruned.length);
-        reducedCount += 1;
-        out[idx] = { ...m, content: taskPruned };
-        continue;
+      if (!recentToolProtected.has(idx)) {
+        const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
+        if (taskPruned) {
+          this.trackTransformation(raw.length, taskPruned.length);
+          reducedCount += 1;
+          out[idx] = { ...m, content: taskPruned };
+          continue;
+        }
       }
       const dispatch = dispatched[j];
 
@@ -982,4 +991,22 @@ export class ToolResultReductionService {
       "</TOOL_RESULT_SUMMARY>"
     ].join("\n");
   }
+}
+
+/**
+ * Build a set of message indices for the most recent N tool results.
+ * These are exempt from task-conditioned pruning to prevent the agent
+ * from seeing stubs of content it just read and re-reading in a loop.
+ */
+function computeRecentToolProtectedSet(
+  messages: ToolResultLike[],
+  recentCount: number,
+): Set<number> {
+  if (recentCount <= 0) return new Set();
+  const toolIndices: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "tool") toolIndices.push(i);
+  }
+  const startFrom = Math.max(0, toolIndices.length - recentCount);
+  return new Set(toolIndices.slice(startFrom));
 }

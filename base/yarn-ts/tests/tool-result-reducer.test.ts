@@ -32,6 +32,7 @@ function makeConfig(maxRawChars = 100): AppConfig {
     SYNESIS_YARN_TASK_PRUNING_MIN_LINES: 80,
     SYNESIS_YARN_TASK_PRUNING_KEEP_MAX_LINES: 30,
     SYNESIS_YARN_TASK_PRUNING_CONTEXT_RADIUS: 1,
+    SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT: 8,
     SYNESIS_YARN_VALIDATION_MAX_FINDINGS: 30,
     SYNESIS_YARN_VALIDATION_INCLUDE_RAW: false,
     SYNESIS_YARN_REDUCERS_ENABLED: true,
@@ -223,8 +224,11 @@ describe("ToolResultReductionService", () => {
       if (i === 57) return "stack traceback duplicate request";
       return `noise line ${i}`;
     }).join("\n");
+    const recentPadding = Array.from({ length: 9 }, (_, i) => ({
+      role: "tool" as const, name: "read_file", content: `line ${i}`,
+    }));
     const out = svc.reduceMessages(
-      [{ role: "tool", content: lines, name: "run_command" }],
+      [{ role: "tool", content: lines, name: "run_command" }, ...recentPadding],
       "add tests for retry behavior duplicate requests",
     );
     expect(out.reducedCount).toBe(1);
@@ -270,8 +274,11 @@ describe("ToolResultReductionService", () => {
       if (i === 51) return "stderr: broken pipe during streaming";
       return `noise line ${i}`;
     }).join("\n");
+    const recentPadding = Array.from({ length: 9 }, (_, i) => ({
+      role: "tool" as const, name: "read_file", content: `line ${i}`,
+    }));
     const out = svc.reduceMessages(
-      [{ role: "tool", name: "run_command", content: diag }],
+      [{ role: "tool", name: "run_command", content: diag }, ...recentPadding],
       "add tests for retry behavior duplicate requests",
     );
     expect(out.reducedCount).toBe(1);
