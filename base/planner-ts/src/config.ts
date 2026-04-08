@@ -184,7 +184,8 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
-  SYNESIS_WEB_SEARCH_URL: z.string().default("http://searxng.synesis-search.svc.cluster.local:8080"),
+  /** Empty disables router web retrieval unless set (e.g. in deployment). Avoids accidental live calls in tests. */
+  SYNESIS_WEB_SEARCH_URL: z.string().default(""),
   SYNESIS_WEB_SEARCH_TIMEOUT_MS: z.coerce.number().default(5000),
   SYNESIS_WEB_SEARCH_MAX_RESULTS: z.coerce.number().default(5),
   SYNESIS_ENGINE_AUTHORITY_MAP: z.string().default("{}"),

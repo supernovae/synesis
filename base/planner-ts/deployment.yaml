@@ -138,6 +138,17 @@ spec:
                   name: synesis-internal-service-auth
                   key: token
                   optional: true
+            # RAG + web (router retrieveUnified). Embedder required for Milvus vector path; web can use defaults when unset.
+            - name: SYNESIS_EMBEDDER_URL
+              value: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
+            - name: SYNESIS_MILVUS_HOST
+              value: "synesis-milvus.synesis-rag.svc.cluster.local"
+            - name: SYNESIS_MILVUS_PORT
+              value: "19530"
+            - name: SYNESIS_WEB_SEARCH_ENABLED
+              value: "true"
+            - name: SYNESIS_WEB_SEARCH_URL
+              value: "http://searxng.synesis-search.svc.cluster.local:8080"
             # Postgres DSN for PAT resolution + web_search_log rows (Admin Integrations → Web Search).
             - name: SYNESIS_PLANNER_TS_ADMIN_DB_URL
               valueFrom:

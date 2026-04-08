@@ -47,6 +47,26 @@ export interface RetrievalSettings {
 
 const MIN_RAG_FOR_GATING = 3;
 const WEB_GRACE_MS = 500;
+
+function logWebRetrievalDiagnostic(
+  level: "warn" | "info",
+  msg: string,
+  meta: Record<string, unknown>,
+): void {
+  try {
+    process.stderr.write(
+      JSON.stringify({
+        level: level === "warn" ? 40 : 30,
+        time: Date.now(),
+        msg,
+        component: "retrieveUnified",
+        ...meta,
+      }) + "\n",
+    );
+  } catch {
+    /* ignore */
+  }
+}
 const ORIGINAL_WEIGHT = 0.3;
 const CODE_INTENT_RE = /\b(code|coding|implement|implementation|function|method|class|interface|api|snippet|example|debug|bug|compile|syntax|refactor|test)\b/i;
 
@@ -320,10 +340,38 @@ export async function retrieveUnified(
   let webResults: SearchResult[] = [];
   if (webPromise) {
     try {
-      webResults = await Promise.race([
-        webPromise,
-        new Promise<SearchResult[]>((resolve) => setTimeout(() => resolve([]), WEB_GRACE_MS)),
-      ]);
+      if (forceWeb) {
+        webResults = await webPromise;
+        if (webResults.length === 0) {
+          logWebRetrievalDiagnostic("info", "web_retrieval_force_empty", {
+            force_web: true,
+            query: query.slice(0, 120),
+          });
+        }
+      } else {
+        let graceWon = false;
+        const graceMs = WEB_GRACE_MS;
+        let graceTimer: ReturnType<typeof setTimeout> | undefined;
+        const gracePromise = new Promise<SearchResult[]>((resolve) => {
+          graceTimer = setTimeout(() => {
+            graceWon = true;
+            resolve([]);
+          }, graceMs);
+        });
+        const webTracked = webPromise.finally(() => {
+          if (graceTimer !== undefined) clearTimeout(graceTimer);
+        });
+        webResults = await Promise.race([webTracked, gracePromise]);
+        if (graceWon) {
+          webDegraded = true;
+          degradationNotes.push(`Web: ${graceMs}ms grace elapsed before search returned`);
+          logWebRetrievalDiagnostic("warn", "web_retrieval_grace_timeout", {
+            grace_ms: graceMs,
+            force_web: false,
+            query: query.slice(0, 120),
+          });
+        }
+      }
     } catch {
       webDegraded = true;
     }

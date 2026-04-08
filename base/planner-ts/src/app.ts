@@ -30,7 +30,7 @@ import { SessionManager } from "./context/session-manager.js";
 import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph, streamGraph } from "./graph.js";
 import { getLlmResilienceStats, setPricingContext } from "./llm/client.js";
-import { setRetrievalClient, directStreamPipeline } from "./pipeline.js";
+import { setRetrievalClient, directStreamPipeline, isRetrievalClientRegistered } from "./pipeline.js";
 import { UnifiedRetrievalClient } from "./retrieval/client.js";
 import { retrieveContext } from "./retrieval/rag-client.js";
 import { searchAndProcess, setWebSearchObserver } from "./retrieval/web-search.js";
@@ -272,8 +272,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
     app.log.warn({ err }, "pricing registry startup failed (non-fatal)");
   });
 
-  if (config.SYNESIS_EMBEDDER_URL) {
+  const embedderConfigured = Boolean(config.SYNESIS_EMBEDDER_URL?.trim());
+  const webSearchConfigured =
+    config.SYNESIS_WEB_SEARCH_ENABLED && Boolean(config.SYNESIS_WEB_SEARCH_URL?.trim());
+  if (embedderConfigured || webSearchConfigured) {
     setRetrievalClient(new UnifiedRetrievalClient(config));
+    if (!embedderConfigured && webSearchConfigured) {
+      app.log.warn(
+        { webSearchUrl: "configured", embedder: "not_set" },
+        "retrieval: unified client active for web-only path (RAG will return empty until embedder is set)",
+      );
+    }
   }
 
   setWebSearchObserver(async (payload) => {
@@ -759,6 +768,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       milvus_host: config.SYNESIS_MILVUS_HOST ? "configured" : "not_set",
       web_search_enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
       web_search_url: config.SYNESIS_WEB_SEARCH_URL ? "configured" : "not_set",
+      unified_retrieval_client_registered: isRetrievalClientRegistered(),
       cohesion_lock_enabled: config.SYNESIS_COHESION_LOCK_ENABLED,
       gliner_service_url: config.SYNESIS_GLINER_SERVICE_URL ? "configured" : "not_set",
       rag_strategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,

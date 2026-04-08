@@ -47,6 +47,22 @@ const ABSOLUTE_MIN_RELEVANCE = 0.3;
 const PAGE_FETCH_TIMEOUT_MS = 4000;
 const MAX_PAGE_CONTENT_CHARS = 4000;
 
+function logSearxngDiagnostic(msg: string, meta: Record<string, unknown>): void {
+  try {
+    process.stderr.write(
+      JSON.stringify({
+        level: 40,
+        time: Date.now(),
+        msg,
+        component: "querySearxng",
+        ...meta,
+      }) + "\n",
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
 async function querySearxng(
   query: string,
   config: WebSearchConfig,
@@ -69,10 +85,21 @@ async function querySearxng(
       signal: controller.signal,
       headers: { Accept: "application/json" },
     });
-    if (!resp.ok) return [];
+    if (!resp.ok) {
+      logSearxngDiagnostic("searxng_http_error", {
+        status: resp.status,
+        query: query.slice(0, 200),
+      });
+      return [];
+    }
     const data = (await resp.json()) as SearxngResponse;
     return (data.results ?? []).slice(0, config.maxResults);
-  } catch {
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    logSearxngDiagnostic("searxng_request_failed", {
+      error: detail.slice(0, 300),
+      query: query.slice(0, 200),
+    });
     return [];
   } finally {
     clearTimeout(timer);

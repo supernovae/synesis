@@ -34,6 +34,11 @@ export function setRetrievalClient(client: RetrievalClient): void {
   _retrievalClient = client;
 }
 
+/** True after `setRetrievalClient` (unified RAG+web path); false means router uses NullRetrievalClient. */
+export function isRetrievalClientRegistered(): boolean {
+  return _retrievalClient !== undefined;
+}
+
 function ensureForwarded(state: GraphState): GraphState {
   return {
     ...state,
