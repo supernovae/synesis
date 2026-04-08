@@ -356,4 +356,26 @@ describe("ToolResultReductionService", () => {
     expect(reduced).not.toBe(logLines);
     expect(out.reducedCount).toBeGreaterThanOrEqual(1);
   });
+
+  it("respects pruning watermark -- messages above watermark are not task-pruned", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const longOutput = Array.from({ length: 200 }, (_, i) =>
+      `line ${i}: some output that is not relevant to the task at hand`,
+    ).join("\n");
+    const messages = [
+      { role: "tool" as const, name: "bash", content: longOutput },
+      { role: "tool" as const, name: "bash", content: longOutput },
+      { role: "tool" as const, name: "bash", content: longOutput },
+    ];
+    const withoutWatermark = svc.reduceMessages(messages, "fix the login bug");
+    const svc2 = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const withWatermark = svc2.reduceMessages(messages, "fix the login bug", 0);
+    const wmContent1 = String(withWatermark.messages[1].content);
+    const wmContent2 = String(withWatermark.messages[2].content);
+    expect(wmContent1).toBe(longOutput);
+    expect(wmContent2).toBe(longOutput);
+    const noWmContent0 = String(withoutWatermark.messages[0].content);
+    const wmContent0 = String(withWatermark.messages[0].content);
+    expect(noWmContent0).toBe(wmContent0);
+  });
 });

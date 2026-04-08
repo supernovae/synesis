@@ -182,6 +182,9 @@ type SessionState = {
   toolLoopAckAnchorUserHash: string;
   toolLoopNoUserAckCount: number;
   record: SessionRecord;
+  lastVolatileContent?: string;
+  lastVolatileHash?: string;
+  pruningWatermark: number;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -1349,6 +1352,7 @@ function enrichWithFrameAndManifest(
   pathHints?: { projectRoot: string | null; shellCwd: string | null } | null,
   governanceBlocks?: string[],
   topLevelDirs?: string[],
+  sessionState?: SessionState | null,
 ): EnrichResult {
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
@@ -1368,6 +1372,20 @@ function enrichWithFrameAndManifest(
   const effectiveRoot = pathHints?.projectRoot ?? pathHints?.shellCwd;
   if (topLevelDirs && topLevelDirs.length > 0 && effectiveRoot) {
     systemPrefix += `\n<PROJECT_ROOT path="${effectiveRoot}" dirs="${topLevelDirs.join(",")}" />`;
+  }
+
+  if (config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const enriched: Array<{ role: string; content: unknown }> = [
+      { role: "system", content: systemPrefix },
+      ...out,
+    ];
+    return {
+      messages: enriched,
+      prefixHash: partition.prefixHash,
+      prefixChangeReasons: partition.prefixChangeReasons,
+      promptProfileIds: partition.promptProfileIds,
+      promptProfileHashes: partition.promptProfileHashes,
+    };
   }
 
   const volatileBlocks: Array<{ role: string; content: string }> = [];
@@ -1492,9 +1510,23 @@ function enrichWithFrameAndManifest(
 
   volatileBlocks.push({ role: "system", content: TOOL_EFFICIENCY_GUIDANCE });
 
+  const volatileConcat = volatileBlocks.map((b) => b.content).join("\n---\n");
+  const volatileHash = crypto.createHash("sha256").update(volatileConcat).digest("hex").slice(0, 16);
+
+  let resolvedVolatile: string;
+  if (sessionState?.lastVolatileHash === volatileHash && sessionState.lastVolatileContent) {
+    resolvedVolatile = sessionState.lastVolatileContent;
+  } else {
+    resolvedVolatile = volatileConcat;
+    if (sessionState) {
+      sessionState.lastVolatileHash = volatileHash;
+      sessionState.lastVolatileContent = volatileConcat;
+    }
+  }
+
   const enriched: Array<{ role: string; content: unknown }> = [
     { role: "system", content: systemPrefix },
-    ...volatileBlocks,
+    ...(resolvedVolatile ? [{ role: "system", content: resolvedVolatile }] : []),
     ...out
   ];
 
@@ -1724,7 +1756,8 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     awaitingToolLoopUserAck: metaAwaitingAck,
     toolLoopAckAnchorUserHash: metaAckAnchorHash,
     toolLoopNoUserAckCount: Number.isFinite(metaNoAckCount) ? metaNoAckCount : 0,
-    record
+    record,
+    pruningWatermark: 0,
   };
   sessions.set(key, state);
   return state;
@@ -3737,7 +3770,19 @@ app.get("/v1/diagnostics/recent", async (req, reply) => {
   if (!requireInternalToken(req as never)) {
     return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
   }
-  return { diagnostics: [...diagnosticRing], count: diagnosticRing.length };
+  if (diagnosticRing.length > 0) {
+    return { diagnostics: [...diagnosticRing], count: diagnosticRing.length, source: "memory" };
+  }
+  const recentIds = await diagnosticStore.listRecentDiagnostics(DIAGNOSTIC_RING_MAX);
+  if (recentIds.length === 0) {
+    return { diagnostics: [], count: 0, source: "redis_empty" };
+  }
+  const redisDiags: RequestDiagnostic[] = [];
+  for (const id of recentIds) {
+    const d = await diagnosticStore.getDiagnostic(id);
+    if (d) redisDiags.push(d as unknown as RequestDiagnostic);
+  }
+  return { diagnostics: redisDiags, count: redisDiags.length, source: "redis" };
 });
 
 app.get("/v1/diagnostics/:requestId", async (req, reply) => {
@@ -3981,12 +4026,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
     request.tools = sortToolSchemas(request.tools) as never;
   }
 
+  const oaiPeekWatermark = (() => {
+    const id: SessionIdentity = {
+      userId: request.user || authUser.userId,
+      orgId: authUser.orgId,
+      conversationId: request.conversation_id || "",
+      clientKind: String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
+      displayName: authUser.displayName,
+    };
+    const existingKey = `${id.userId}:${id.conversationId}:${id.clientKind}`;
+    for (const [k, v] of sessions) {
+      if (k.includes(existingKey) || k.includes(id.conversationId)) return v.pruningWatermark;
+    }
+    return undefined;
+  })();
   const reducedOpenAI = enrichmentPool.isAvailable()
     ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
-        toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue),
+        toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue, oaiPeekWatermark),
       )
     : withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
-        toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue),
+        toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue, oaiPeekWatermark),
       );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = await validationNormalization.normalizeMessagesAsync(
@@ -4052,6 +4111,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  const oaiMsgCount = (request.messages as unknown[]).length;
+  const oaiRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
+  session.pruningWatermark = Math.max(session.pruningWatermark, oaiMsgCount - oaiRecentExempt);
   const oaiDedup = getContentDedup(sessionKey);
   const oaiDedupResult = oaiDedup.processMessages(
     normalizedOpenAI.messages as Array<{ role: string; name?: string; content: unknown }>,
@@ -4235,7 +4297,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiCommandLoop = analyzeRecentCommandLoop(
     normalizedOpenAI.messages as Array<ToolLoopMessage>,
   );
-  const oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+  const oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? evaluateExecutionGovernor(normalizedOpenAI.messages as Array<GovernorInputMessage>)
     : {
         pause: false,
@@ -4370,9 +4432,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (canRewriteRecovery) {
       const recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
       const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; content: unknown }>;
-      const oaiFirstSysEnd = oaiMsgs.findIndex((m, idx) => idx > 0 && m.role !== "system");
-      const oaiInsertIdx = oaiFirstSysEnd > 0 ? oaiFirstSysEnd : (oaiMsgs[0]?.role === "system" ? 1 : 0);
-      oaiMsgs.splice(oaiInsertIdx, 0, { role: "system", content: recovery });
+      const lastUserIdx = oaiMsgs.map((m) => m.role).lastIndexOf("user");
+      const oaiTailIdx = lastUserIdx > 0 ? lastUserIdx : oaiMsgs.length;
+      oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
       const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined);
       request.tools = restricted.tools as never;
       recordSessionEvent(
@@ -4430,6 +4492,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiPlanGraph ? [formatPlanGraphBlock(oaiPlanGraph)] : []),
     ],
     oaiSeedDirs,
+    session,
   );
   let oaiEnrichedMsgs = appendCriticBlock(
     oaiEnriched.messages as Array<{ role: string; content: unknown }>,
@@ -6009,6 +6072,9 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  const claudeMsgCount = (body.messages as unknown[]).length;
+  const claudeRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
+  session.pruningWatermark = Math.max(session.pruningWatermark, claudeMsgCount - claudeRecentExempt);
   const claudeDedup = getContentDedup(claudeSessionKey);
   const claudeDedupResult = claudeDedup.processMessages(
     normalizedFromClaude.messages as Array<{ role: string; name?: string; content: unknown }>,
@@ -6186,7 +6252,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeCommandLoop = analyzeRecentCommandLoop(
     normalizedFromClaude.messages as Array<ToolLoopMessage>,
   );
-  const claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+  const claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? evaluateExecutionGovernor(normalizedFromClaude.messages as Array<GovernorInputMessage>)
     : {
         pause: false,
@@ -6321,9 +6387,9 @@ app.post("/v1/messages", async (req, reply) => {
     if (canRewriteRecovery) {
       const recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
       const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; content: unknown }>;
-      const claudeFirstSysEnd = claudeMsgs.findIndex((m, idx) => idx > 0 && m.role !== "system");
-      const claudeInsertIdx = claudeFirstSysEnd > 0 ? claudeFirstSysEnd : (claudeMsgs[0]?.role === "system" ? 1 : 0);
-      claudeMsgs.splice(claudeInsertIdx, 0, { role: "system", content: recovery });
+      const claudeLastUserIdx = claudeMsgs.map((m) => m.role).lastIndexOf("user");
+      const claudeTailIdx = claudeLastUserIdx > 0 ? claudeLastUserIdx : claudeMsgs.length;
+      claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
       const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined);
       body.tools = restricted.tools as never;
       recordSessionEvent(
@@ -6382,6 +6448,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudePlanGraph ? [formatPlanGraphBlock(claudePlanGraph)] : []),
     ],
     claudeSeedDirs,
+    session,
   );
   let enrichedClaudeMsgs = appendCriticBlock(
     claudeEnriched.messages as Array<{ role: string; content: unknown }>,

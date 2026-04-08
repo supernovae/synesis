@@ -229,7 +229,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
         broadTestRepeat = true;
       }
     }
-    if (tool.includes("search") || tool.includes("read")) {
+    if (i >= windowStart && (tool.includes("search") || tool.includes("read"))) {
       repeatedReadSearchCalls += 1;
     }
     if (isBroadDiscoveryCommand(tool, events[i].command)) {
@@ -241,7 +241,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   if (repeatedTestCommands >= 2) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
   if (totalBroadDiscoveryCalls >= 4 || repeatedBroadDiscoveryCalls >= 2) matchedRules.push("broad_discovery_repeat");
-  if (repeatedReadSearchCalls >= 3) matchedRules.push("bounded_exploration_budget");
+  if (repeatedReadSearchCalls >= 5) matchedRules.push("bounded_exploration_budget");
   if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
     matchedRules.push("test_entry_contract");
   }

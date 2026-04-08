@@ -241,11 +241,39 @@ describe("execution governor", () => {
       toolResult("3", "ok"),
       assistantCall("4", "read_file", { path: "a.go" }),
       toolResult("4", "ok"),
+      assistantCall("5", "read_file", { path: "a.go" }),
+      toolResult("5", "ok"),
+      assistantCall("6", "read_file", { path: "a.go" }),
+      toolResult("6", "ok"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("bounded_exploration_budget");
     expect(out.suggestedNextStep).toContain("at most 3 files");
+  });
+
+  it("does not trigger bounded_exploration_budget for reads outside sliding window", () => {
+    const padMessages: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < 6; i++) {
+      padMessages.push(
+        assistantCall(`old${i}`, "read_file", { path: "a.go" }),
+        toolResult(`old${i}`, "ok"),
+      );
+    }
+    for (let i = 0; i < 18; i++) {
+      padMessages.push(
+        assistantCall(`edit${i}`, "str_replace", { filePath: `f${i}.go`, oldString: "x", newString: "y" }),
+        toolResult(`edit${i}`, "ok"),
+      );
+    }
+    padMessages.push(
+      assistantCall("recent1", "read_file", { path: "c.go" }),
+      toolResult("recent1", "ok"),
+      assistantCall("recent2", "read_file", { path: "c.go" }),
+      toolResult("recent2", "ok"),
+    );
+    const out = evaluateExecutionGovernor(padMessages);
+    expect(out.matchedRules).not.toContain("bounded_exploration_budget");
   });
 
   it("pauses cleanup flow if TODO harvest is skipped before edits", () => {

@@ -140,7 +140,7 @@ export class ToolResultReductionService {
     };
   }
 
-  reduceMessages(messages: ToolResultLike[], taskCue?: string): ToolResultReductionResult {
+  reduceMessages(messages: ToolResultLike[], taskCue?: string, pruningWatermark?: number): ToolResultReductionResult {
     const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
     const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
 
@@ -162,7 +162,8 @@ export class ToolResultReductionService {
         reducedCount += 1;
         return { ...m, content: guidedTrim };
       }
-      if (!recentToolProtected.has(msgIdx)) {
+      const aboveWatermark = pruningWatermark !== undefined && msgIdx > pruningWatermark;
+      if (!recentToolProtected.has(msgIdx) && !aboveWatermark) {
         const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
         if (taskPruned) {
           this.trackTransformation(raw.length, taskPruned.length);
@@ -285,9 +286,10 @@ export class ToolResultReductionService {
     messages: ToolResultLike[],
     pool: EnrichmentPool,
     taskCue?: string,
+    pruningWatermark?: number,
   ): Promise<ToolResultReductionResult> {
     if (!pool.isAvailable()) {
-      return this.reduceMessages(messages, taskCue);
+      return this.reduceMessages(messages, taskCue, pruningWatermark);
     }
 
     const toolIndices: number[] = [];
@@ -334,7 +336,8 @@ export class ToolResultReductionService {
         out[idx] = { ...m, content: guidedTrim };
         continue;
       }
-      if (!recentToolProtected.has(idx)) {
+      const asyncAboveWatermark = pruningWatermark !== undefined && idx > pruningWatermark;
+      if (!recentToolProtected.has(idx) && !asyncAboveWatermark) {
         const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
         if (taskPruned) {
           this.trackTransformation(raw.length, taskPruned.length);
@@ -833,7 +836,7 @@ export class ToolResultReductionService {
     taskCue?: string,
     commandHint?: string,
   ): string | null {
-    if (!this.config.SYNESIS_YARN_TASK_PRUNING_ENABLED) return null;
+    if (!this.config.SYNESIS_YARN_TASK_PRUNING_ENABLED || (this.config as Record<string, unknown>).SYNESIS_YARN_GOVERNANCE_DISABLED) return null;
     if (!taskCue || taskCue.trim().length < 8) return null;
     const lowerName = (toolName ?? "").toLowerCase();
     if (lowerName === "read_file" || lowerName === "read") return null;
