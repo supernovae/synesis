@@ -33,6 +33,8 @@ export interface GraphState {
   risk_score?: number;
   plan_required?: boolean;
   task_is_trivial?: boolean;
+  /** When true, unified retrieval should prefer web (SearXNG) and not drop it to zero on L-RAG gating. */
+  force_live_web?: boolean;
   rag_mode?: "disabled" | "light" | "normal";
   requested_effort_mode?: "auto" | "pulse" | "core" | "horizon";
   recommended_effort_mode?: "pulse" | "core" | "horizon";

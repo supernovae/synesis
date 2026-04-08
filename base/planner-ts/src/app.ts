@@ -50,6 +50,7 @@ import {
   writeContentDelta,
   writeReasoningDelta,
   writeFinalChunk,
+  writeStatusEvent,
 } from "./streaming/sse.js";
 import { describePhase } from "./streaming/phases.js";
 import type { GraphState } from "./state/types.js";
@@ -1629,6 +1630,24 @@ export function buildApp(config: AppConfig): FastifyInstance {
           for await (const event of streamGraph(initialState, writerDeltaHandler)) {
             if (!isSseWritable(reply.raw)) break;
             finalState = event.state;
+
+            const nextNode = event.state.next_node;
+            if (
+              (event.node === "plan_gate" || event.node === "critic") &&
+              nextNode === "router"
+            ) {
+              writeStatusEvent(reply.raw, {
+                description: "Gathering evidence…",
+                done: false,
+                detail: "Searching sources and ranking relevance",
+              });
+            }
+            if (event.node === "router") {
+              writeStatusEvent(reply.raw, {
+                description: "Gathering evidence…",
+                done: true,
+              });
+            }
 
             if (event.node !== "respond") {
               writeReasoningDelta(reply.raw, {

@@ -59,6 +59,15 @@ export interface WriterResult {
   usage: LlmUsage;
 }
 
+function evidenceHasWebSources(state: GraphState): boolean {
+  for (const packet of state.evidence_packets ?? []) {
+    for (const source of packet.sources ?? []) {
+      if (source.type === "web") return true;
+    }
+  }
+  return false;
+}
+
 function renderEvidenceContext(state: GraphState): string {
   const packets = state.evidence_packets ?? [];
   if (packets.length === 0) return "";
@@ -170,6 +179,11 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     "",
     TRUST_POLICY,
   ];
+  if (!jsonMode && evidenceHasWebSources(state)) {
+    systemParts.push(
+      "When the evidence includes web search results (sources with type \"web\"), start with a concise **Sources consulted** section: at most four bullet lines naming distinct hosts or page titles from that evidence, then a line containing only ---, then the main answer. This is an explicit exception to avoiding meta headings: the preamble is required for transparency when web evidence is present.",
+    );
+  }
   if (jsonMode) {
     systemParts.push(
       "JSON OUTPUT MODE: return only one valid JSON object as the full assistant message.",

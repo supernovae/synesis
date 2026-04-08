@@ -144,7 +144,8 @@ function detectPersona(rawText: string): string {
 // ---------------------------------------------------------------------------
 
 const GLOBAL_CONSTRAINT_RE = /\b(all|every|each|always|never|entire|whole|throughout)\b/i;
-const EVIDENCE_RE = /\b(cite|evidence|sources?|references?|RAG|retriev|ground)\b/i;
+const EVIDENCE_RE =
+  /\b(cite|evidence|sources?|references?|RAG|retriev|ground|search\s+the\s+web|web\s+search|look\s+up\s+online)\b/i;
 const ARTIFACT_TYPE_RE = /\b(json|yaml|yml|xml|csv|toml|code|diagram|mermaid|table|sql)\b/gi;
 const NEGATIVE_RE = /^(do not|don't|never|avoid|no |must not|should not|cannot)\b/i;
 

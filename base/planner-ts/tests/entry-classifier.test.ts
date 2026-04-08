@@ -32,4 +32,24 @@ describe("entry classifier and effort routing", () => {
     expect(state.selected_effort_mode).toBe("horizon");
     expect(Number((state.execution_policy ?? {}).critique_passes ?? 0)).toBe(2);
   });
+
+  it("escalates live-web prompts to planner (not trivial writer fast path)", async () => {
+    const state = await classifyEntry({
+      task_description:
+        "Can you tell me the difference between minimax 2.5 and minimax 2.7 - please search the web if you need newer information.",
+    });
+    expect(state.force_live_web).toBe(true);
+    expect(state.task_is_trivial).toBe(false);
+    expect(state.next_node).toBe("planner");
+    expect(state.rag_mode).not.toBe("disabled");
+  });
+
+  it("escalates weather + zip to planner with retrieval enabled", async () => {
+    const state = await classifyEntry({
+      task_description: "weather today 78729",
+    });
+    expect(state.force_live_web).toBe(true);
+    expect(state.next_node).toBe("planner");
+    expect(state.rag_mode).not.toBe("disabled");
+  });
 });

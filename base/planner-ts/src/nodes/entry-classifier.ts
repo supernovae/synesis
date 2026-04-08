@@ -12,6 +12,7 @@ import { getScoringEngine, initScoringEngineFromSnapshot, type ScoringResult } f
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 import { resolveTaxonomyMetadataAsync } from "../taxonomy/taxonomy-prompt-factory.js";
 import { resolveActiveVertical } from "../taxonomy/vertical-prompts.js";
+import { analyzeLiveWebIntent } from "./web-intent.js";
 
 type EffortMode = "pulse" | "core" | "horizon";
 
@@ -162,12 +163,21 @@ export async function classifyEntry(
     scoring.planSession ||
     difficulty >= scoring.routingThresholds.planRequiredAbove;
   const followUp = isFollowUp(state);
-  const taskIsTrivial = !followUp && difficulty < scoring.routingThresholds.bypassSupervisorBelow;
+  const taskIsTrivialBase = !followUp && difficulty < scoring.routingThresholds.bypassSupervisorBelow;
 
+  const liveWebIntent = analyzeLiveWebIntent(text);
+  const forceLiveWeb = liveWebIntent.needsLiveWeb;
+  let taskIsTrivial = taskIsTrivialBase;
   let ragMode: GraphState["rag_mode"] =
     difficulty < 0.2 ? "disabled" : difficulty < 0.45 ? "light" : "normal";
   if (inputPlanRequired && ragMode === "disabled") {
     ragMode = "light";
+  }
+  if (forceLiveWeb) {
+    taskIsTrivial = false;
+    if (ragMode === "disabled") {
+      ragMode = "light";
+    }
   }
 
   const selectedMode = recommendEffortMode(
@@ -229,6 +239,7 @@ export async function classifyEntry(
     task_size: taskSize,
     plan_required: planRequired,
     task_is_trivial: taskIsTrivial,
+    force_live_web: forceLiveWeb,
     rag_mode: ragMode,
     taxonomy_metadata: taxonomy,
     cynefin_domain: cynefinDomain,

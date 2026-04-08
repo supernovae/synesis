@@ -1,12 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { runRouter, LOW_CONFIDENCE_THRESHOLD, MAX_DOCS_PER_QUERY, MAX_SNIPPETS_PER_PACKET } from "../src/nodes/router.js";
 import type { RetrievalClient } from "../src/retrieval/client.js";
-import type { UnifiedResult } from "../src/retrieval/types.js";
+import type { RetrievalBundle, UnifiedResult, UnifiedRetrievalRequest } from "../src/retrieval/types.js";
 
 class FakeRetrievalClient implements RetrievalClient {
   constructor(private readonly results: UnifiedResult[]) {}
   async retrieve(): Promise<UnifiedResult[]> {
     return this.results;
+  }
+}
+
+class CapturingUnifiedClient implements RetrievalClient {
+  lastUnified?: UnifiedRetrievalRequest;
+  async retrieve(): Promise<UnifiedResult[]> {
+    return [];
+  }
+  async retrieveUnified(request: UnifiedRetrievalRequest): Promise<RetrievalBundle> {
+    this.lastUnified = request;
+    return {
+      results: [],
+      cohesion_lock: null,
+      rag_degraded: false,
+      web_degraded: false,
+      degradation_notes: "",
+      phase_timings: {},
+    };
   }
 }
 
@@ -38,6 +56,18 @@ describe("router node", () => {
     expect(state.evidence_packets?.length).toBe(1);
     expect(state.evidence_packets?.[0]?.sources[0]?.uri).toBe("https://example.com/doc");
     expect(state.next_node).toBe("writer");
+  });
+
+  it("passes forceWeb to retrieveUnified when force_live_web is set", async () => {
+    const client = new CapturingUnifiedClient();
+    await runRouter({ task_description: "latest news", force_live_web: true }, { retrievalClient: client });
+    expect(client.lastUnified?.forceWeb).toBe(true);
+  });
+
+  it("does not set forceWeb by default", async () => {
+    const client = new CapturingUnifiedClient();
+    await runRouter({ task_description: "latest news" }, { retrievalClient: client });
+    expect(client.lastUnified?.forceWeb).toBe(false);
   });
 
   it("respects summarizer structured output", async () => {

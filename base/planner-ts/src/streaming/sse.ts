@@ -3,6 +3,8 @@ import type { ServerResponse } from "node:http";
 export interface StatusEventPayload {
   description: string;
   done: boolean;
+  /** Short subtext shown under the phase (generic; no user prompt text). */
+  detail?: string;
   node?: string;
   authz_trace_id?: string;
 }
@@ -26,8 +28,20 @@ export function writeSseData(response: ServerResponse, payload: unknown): boolea
   } catch { return false; }
 }
 
+/** Open WebUI expects `event.type === "status"` with a nested `data` object (not a bare payload). */
 export function writeStatusEvent(response: ServerResponse, payload: StatusEventPayload): void {
-  writeSseData(response, { event: payload });
+  const data: Record<string, unknown> = {
+    description: payload.description,
+    done: payload.done,
+    hidden: false,
+  };
+  if (payload.detail) data.detail = payload.detail;
+  writeSseData(response, {
+    event: {
+      type: "status",
+      data,
+    },
+  });
 }
 
 export function writeContentDelta(

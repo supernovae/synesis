@@ -189,6 +189,7 @@ export async function runRouter(
         topK: MAX_DOCS_PER_QUERY,
         domainHints,
         skipWeb,
+        forceWeb: Boolean(state.force_live_web),
         preseededLock,
         callerOrgId: state.org_id,
         callerTenantIds: state.tenant_ids,
