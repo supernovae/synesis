@@ -53,4 +53,20 @@ describe("execution governor", () => {
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(false);
   });
+
+  it("pauses repeated broad discovery loop on glob star", () => {
+    const messages = [
+      assistantCall("1", "Glob", { glob_pattern: "*" }),
+      toolResult("1", "200 files"),
+      assistantCall("2", "Glob", { glob_pattern: "*" }),
+      toolResult("2", "200 files"),
+      assistantCall("3", "Glob", { glob_pattern: "*" }),
+      toolResult("3", "200 files"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("broad_discovery_repeat");
+    expect(out.telemetry.repeatedBroadDiscoveryCalls).toBeGreaterThanOrEqual(2);
+    expect(out.suggestedNextStep).toContain("synesis_inspect_repo");
+  });
 });

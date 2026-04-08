@@ -11,6 +11,7 @@ const CORE_TOOL_NAMES = new Set([
 /** Prefer keeping catalog search tools over web when the adapter tool budget forces pruning. */
 const SYNESIS_KNOWLEDGE_FIRST_TOOLS = new Set(["synesis_knowledge_search", "search_developer_docs"]);
 const SYNESIS_WEB_SEARCH_TOOLS = new Set(["synesis_web_search", "web_search"]);
+const SYNESIS_DISCOVERY_SUMMARY_TOOLS = new Set(["synesis_inspect_repo"]);
 const CODING_SESSION_ESSENTIAL_TOOLS = new Set([
   "bash",
   "shell",
@@ -49,6 +50,7 @@ function scoreTool(
   let score = 0;
   if (CORE_TOOL_NAMES.has(name)) score += 100;
   if (CODING_SESSION_ESSENTIAL_TOOLS.has(norm)) score += 60;
+  if (SYNESIS_DISCOVERY_SUMMARY_TOOLS.has(norm)) score += 72;
   if (SYNESIS_KNOWLEDGE_FIRST_TOOLS.has(norm)) score += 28;
   else if (SYNESIS_WEB_SEARCH_TOOLS.has(norm)) score += 14;
   if (recentTools.has(norm)) score += 40;

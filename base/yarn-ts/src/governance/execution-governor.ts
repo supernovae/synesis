@@ -20,6 +20,7 @@ export interface ExecutionGovernorDecision {
   telemetry: {
     repeatedTestCommands: number;
     repeatedReadSearchCalls: number;
+    repeatedBroadDiscoveryCalls: number;
     broadTestRepeat: boolean;
     noEditEvidence: boolean;
   };
@@ -30,13 +31,13 @@ function normalizeString(v: unknown): string {
   return "";
 }
 
-function parseArgsToCommand(args: unknown): string {
+function parseArgsToCommand(toolName: string, args: unknown): string {
   if (typeof args === "string") {
     const t = args.trim();
     if (t.startsWith("{")) {
       try {
         const row = JSON.parse(t) as Record<string, unknown>;
-        return parseArgsToCommand(row);
+        return parseArgsToCommand(toolName, row);
       } catch {
         return normalizeString(args);
       }
@@ -47,6 +48,19 @@ function parseArgsToCommand(args: unknown): string {
   const row = args as Record<string, unknown>;
   for (const k of ["command", "cmd", "script"]) {
     if (typeof row[k] === "string") return normalizeString(row[k]);
+  }
+  const tool = normalizeString(toolName).toLowerCase();
+  if (tool.includes("glob")) {
+    const pattern = normalizeString(row.glob_pattern);
+    if (pattern) return `glob:${pattern}`;
+  }
+  if (tool.includes("list_files") || tool.includes("read_dir") || tool.includes("read_directory")) {
+    const path = normalizeString(row.path || row.dir || row.directory);
+    if (path) return `list:${path}`;
+  }
+  if (tool.includes("search") || tool.includes("grep")) {
+    const query = normalizeString(row.query || row.pattern);
+    if (query) return `search:${query}`;
   }
   return "";
 }
@@ -60,7 +74,7 @@ function extractCommandEvents(messages: GovernorInputMessage[]): Array<{ command
         const id = normalizeString(call.id);
         if (!id) continue;
         const toolName = normalizeString(call.function?.name ?? call.name).toLowerCase();
-        const command = parseArgsToCommand(call.function?.arguments ?? call.input);
+        const command = parseArgsToCommand(toolName, call.function?.arguments ?? call.input);
         if (!command) continue;
         callById.set(id, { command, toolName });
       }
@@ -74,6 +88,18 @@ function extractCommandEvents(messages: GovernorInputMessage[]): Array<{ command
     out.push(item);
   }
   return out;
+}
+
+function isBroadDiscoveryCommand(toolName: string, command: string): boolean {
+  const tool = normalizeString(toolName).toLowerCase();
+  const cmd = normalizeString(command).toLowerCase();
+  if (tool.includes("glob")) {
+    return cmd === "glob:*" || cmd === "glob:**/*" || cmd.startsWith("glob:**/");
+  }
+  if (tool.includes("list_files") || tool.includes("read_dir") || tool.includes("read_directory")) {
+    return cmd === "list:." || cmd === "list:/" || cmd === "list:";
+  }
+  return false;
 }
 
 function extractChangedFileHints(messages: GovernorInputMessage[]): string[] {
@@ -96,6 +122,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   const changedFiles = extractChangedFileHints(messages);
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
+  let repeatedBroadDiscoveryCalls = 0;
   let broadTestRepeat = false;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
@@ -112,11 +139,15 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
     if (tool.includes("search") || tool.includes("read")) {
       repeatedReadSearchCalls += 1;
     }
+    if (isBroadDiscoveryCommand(tool, events[i].command)) {
+      repeatedBroadDiscoveryCalls += 1;
+    }
   }
 
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= 2) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
+  if (repeatedBroadDiscoveryCalls >= 2) matchedRules.push("broad_discovery_repeat");
   if (repeatedReadSearchCalls >= 3) matchedRules.push("bounded_exploration_budget");
 
   if (matchedRules.length === 0) {
@@ -124,7 +155,13 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
       pause: false,
       reason: "ok",
       matchedRules: ["allow"],
-      telemetry: { repeatedTestCommands, repeatedReadSearchCalls, broadTestRepeat, noEditEvidence },
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
     };
   }
 
@@ -134,17 +171,26 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   const scoped = latestTest
     ? suggestScopedVerificationCommand(latestTest.command, changedFiles)
     : { suggestedCommand: null };
-  const suggestedNextStep = scoped.suggestedCommand
+  let suggestedNextStep = scoped.suggestedCommand
     ?? (noEditEvidence
       ? "Apply one focused code change for a single root-cause hypothesis, then run one narrow verification command."
       : "State one root-cause hypothesis and run one narrow verification command.");
+  if (repeatedBroadDiscoveryCalls >= 2) {
+    suggestedNextStep = "Run one targeted repo summary (for example synesis_inspect_repo), then read only 1-3 likely files; do not repeat Glob(\"*\") again.";
+  }
 
   return {
     pause: true,
     reason: "Execution governor detected low-yield repetition. Pivot to a narrower, hypothesis-driven step.",
     suggestedNextStep,
     matchedRules,
-    telemetry: { repeatedTestCommands, repeatedReadSearchCalls, broadTestRepeat, noEditEvidence },
+    telemetry: {
+      repeatedTestCommands,
+      repeatedReadSearchCalls,
+      repeatedBroadDiscoveryCalls,
+      broadTestRepeat,
+      noEditEvidence,
+    },
   };
 }
 

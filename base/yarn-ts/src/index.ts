@@ -2447,7 +2447,7 @@ function hashTextSignal(value: unknown): string {
   return crypto.createHash("sha256").update(text.slice(0, 4000)).digest("hex");
 }
 
-const SHELLISH_TOOL_NAMES = new Set([
+const LOOP_TRACKED_TOOL_NAMES = new Set([
   "bash",
   "shell",
   "terminal",
@@ -2455,6 +2455,10 @@ const SHELLISH_TOOL_NAMES = new Set([
   "run_terminal_command",
   "execute_command",
   "run_bash",
+  "glob",
+  "list_files",
+  "read_dir",
+  "read_directory",
 ]);
 
 type ToolLoopMessage = {
@@ -2473,6 +2477,7 @@ type CommandLoopSignal = {
   commandSignatureHash: string;
   commandRepeatCount: number;
   failureSignatureHash: string;
+  broadDiscoveryRepeatCount: number;
 };
 
 function parseJsonObjectLoose(raw: string): Record<string, unknown> | null {
@@ -2504,7 +2509,25 @@ function commandFromArgs(args: unknown): string {
       return v.replace(/\s+/g, " ").trim().slice(0, 512);
     }
   }
+  const globPattern = row.glob_pattern;
+  if (typeof globPattern === "string" && globPattern.trim()) {
+    return `glob:${globPattern.replace(/\s+/g, " ").trim().slice(0, 256)}`;
+  }
+  const path = row.path ?? row.dir ?? row.directory;
+  if (typeof path === "string" && path.trim()) {
+    return `path:${path.replace(/\s+/g, " ").trim().slice(0, 256)}`;
+  }
   return "";
+}
+
+function isBroadDiscoveryLoopCall(toolName: string, command: string): boolean {
+  const tool = toolName.toLowerCase();
+  const cmd = command.toLowerCase();
+  if (tool === "glob") {
+    return cmd === "glob:*" || cmd === "glob:**/*" || cmd.startsWith("glob:**/");
+  }
+  return (tool === "list_files" || tool === "read_dir" || tool === "read_directory")
+    && (cmd === "path:." || cmd === "path:/" || cmd === "path:");
 }
 
 function normalizedToolOutputSignal(content: unknown): string {
@@ -2520,18 +2543,18 @@ function looksLikeFailureSignal(value: string): boolean {
 }
 
 function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSignal {
-  const callMap = new Map<string, { command: string }>();
-  const history: Array<{ command: string; failureHash: string }> = [];
+  const callMap = new Map<string, { command: string; toolName: string }>();
+  const history: Array<{ command: string; toolName: string; failureHash: string }> = [];
   for (const message of messages) {
     if (message.role === "assistant" && Array.isArray(message.tool_calls)) {
       for (const call of message.tool_calls) {
         const id = typeof call.id === "string" ? call.id : "";
         if (!id) continue;
         const toolName = String(call.function?.name ?? call.name ?? "").toLowerCase();
-        if (!SHELLISH_TOOL_NAMES.has(toolName)) continue;
+        if (!LOOP_TRACKED_TOOL_NAMES.has(toolName)) continue;
         const command = commandFromArgs(call.function?.arguments ?? call.input);
         if (!command) continue;
-        callMap.set(id, { command });
+        callMap.set(id, { command, toolName });
       }
       continue;
     }
@@ -2542,18 +2565,27 @@ function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSigna
     if (!call) continue;
     const out = normalizedToolOutputSignal(message.content);
     const failureHash = looksLikeFailureSignal(out) ? hashTextSignal(out) : "";
-    history.push({ command: call.command, failureHash });
+    history.push({ command: call.command, toolName: call.toolName, failureHash });
   }
   if (history.length === 0) {
-    return { commandSignatureHash: "", commandRepeatCount: 0, failureSignatureHash: "" };
+    return {
+      commandSignatureHash: "",
+      commandRepeatCount: 0,
+      failureSignatureHash: "",
+      broadDiscoveryRepeatCount: 0,
+    };
   }
 
   const latest = history[history.length - 1];
   let commandRepeatCount = 0;
   let failureRepeatCount = 0;
+  let broadDiscoveryRepeatCount = 0;
   for (let i = history.length - 1; i >= 0; i -= 1) {
     if (history[i].command !== latest.command) break;
     commandRepeatCount += 1;
+    if (isBroadDiscoveryLoopCall(history[i].toolName, history[i].command)) {
+      broadDiscoveryRepeatCount += 1;
+    }
     if (latest.failureHash && history[i].failureHash === latest.failureHash) {
       failureRepeatCount += 1;
     }
@@ -2563,6 +2595,7 @@ function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSigna
     commandSignatureHash: hashTextSignal(latest.command),
     commandRepeatCount,
     failureSignatureHash: failureRepeatCount >= 2 ? latest.failureHash : "",
+    broadDiscoveryRepeatCount,
   };
 }
 
@@ -3900,12 +3933,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
         telemetry: {
           repeatedTestCommands: 0,
           repeatedReadSearchCalls: 0,
+          repeatedBroadDiscoveryCalls: 0,
           broadTestRepeat: false,
           noEditEvidence: false,
         },
       };
   const oaiAggressiveRepeatGuard =
-    oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash);
+    (oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash))
+    || oaiCommandLoop.broadDiscoveryRepeatCount >= 2;
   const oaiRepeatAwarePivot = oaiAggressiveRepeatGuard
     ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
     : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;
@@ -5555,12 +5590,14 @@ app.post("/v1/messages", async (req, reply) => {
         telemetry: {
           repeatedTestCommands: 0,
           repeatedReadSearchCalls: 0,
+          repeatedBroadDiscoveryCalls: 0,
           broadTestRepeat: false,
           noEditEvidence: false,
         },
       };
   const claudeAggressiveRepeatGuard =
-    claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash);
+    (claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash))
+    || claudeCommandLoop.broadDiscoveryRepeatCount >= 2;
   const claudeRepeatAwarePivot = claudeAggressiveRepeatGuard
     ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
     : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;

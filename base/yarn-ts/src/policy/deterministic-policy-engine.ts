@@ -246,7 +246,7 @@ export class DeterministicPolicyEngine {
       return {
         allow: true,
         pivotPrompt:
-          `System: You have made ${ctx.consecutiveToolCalls} consecutive tool calls without a stable resolution. Do not repeat the same broad verification command. First explain the root-cause hypothesis, then run one narrower command that validates that hypothesis. (${toolCallsLimit - ctx.consecutiveToolCalls} calls remaining before circuit breaker)`,
+          `System: You have made ${ctx.consecutiveToolCalls} consecutive tool calls without a stable resolution. Do not repeat broad discovery calls (for example Glob("*")) or broad verification commands. First explain one root-cause hypothesis, then run one narrower action (prefer targeted file reads or one repo-summary call), and proceed only after new signal. (${toolCallsLimit - ctx.consecutiveToolCalls} calls remaining before circuit breaker)`,
         matchedRules
       };
     }
@@ -291,7 +291,7 @@ export class DeterministicPolicyEngine {
         return {
           allow: true,
           pivotPrompt:
-            `System: You have attempted this ${next} times without success. Do not rerun the same command unless code or inputs changed. Analyze the root cause, propose a different strategy, and validate with the narrowest possible command first. (${hardLimit - next} attempts remaining before circuit breaker)`,
+            `System: You have attempted this ${next} times without success. Do not rerun the same command unless code, path, or inputs changed. Avoid repeating broad discovery commands; switch to one targeted strategy and validate with the narrowest possible command first. (${hardLimit - next} attempts remaining before circuit breaker)`,
           matchedRules
         };
       }
