@@ -12,6 +12,7 @@ These credentials are **created or updated by `./scripts/deploy.sh`** (or the Ad
 
 - `reconcile_provider_api_keys` — heal missing `OPENROUTER_API_KEY`, restart `litellm-proxy`
 - `reconcile_litellm_webui_secrets` — align `webui-api-key` with `litellm-secrets` or generate both; restart `open-webui` if fixed (keys are for planner auth alignment, not WebUI→LiteLLM routing)
+- `patch_planner_retrieval_and_web` — **default on** (`SYNESIS_DEPLOY_PLANNER_RETRIEVAL` unset or `true`): sets `synesis-planner-ts` env for TEI embedder, Milvus, SearXNG URL, and web search enabled so router retrieval does not depend on image defaults alone. Set `SYNESIS_DEPLOY_PLANNER_RETRIEVAL=false` to disable. Planner **web_search_log** still needs Secret `synesis-admin-db-url` in `synesis-planner` (same as `patch_admin_db_urls` for admin Yarn). See [WEB_SEARCH.md](WEB_SEARCH.md) (section *planner-ts and deploy.sh*).
 
 **Personal Access Tokens** (`syn-*`) are stored in **Postgres** (`personal_access_tokens`); they are not affected by Kustomize Secret applies.
 

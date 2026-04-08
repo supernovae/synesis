@@ -72,6 +72,18 @@ set -euo pipefail
 #   - SYNESIS_YARN_REQUEST_FORENSICS_ENABLED (default true via deploy.sh patch) — provider-boundary request forensics (LCP/first-change/breakdown).
 #   - SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD (default false) and MAX_PREVIEW_CHARS (default 4000) — optional payload preview capture.
 #
+# Planner-ts — RAG + SearXNG + Admin web_search_log (post-apply patch, survives manifest drift):
+#   Default: SYNESIS_DEPLOY_PLANNER_RETRIEVAL=true (or unset) — patches synesis-planner-ts with:
+#     SYNESIS_EMBEDDER_URL, SYNESIS_MILVUS_HOST, SYNESIS_MILVUS_PORT,
+#     SYNESIS_WEB_SEARCH_ENABLED, SYNESIS_WEB_SEARCH_URL (in-cluster TEI, Milvus, SearXNG).
+#   web_search_log rows require Secret synesis-admin-db-url (admin-url) in synesis-planner —
+#     created by patch_admin_db_urls when CNPG synesis-admin-db-app password is ready (same as Yarn/admin).
+#   Disable unified retrieval + web for planner: SYNESIS_DEPLOY_PLANNER_RETRIEVAL=false
+#     (clears embedder URL and disables web search; router uses NullRetrievalClient).
+#   Override service URLs if your cluster DNS differs:
+#     SYNESIS_PLANNER_EMBEDDER_URL, SYNESIS_PLANNER_MILVUS_HOST, SYNESIS_PLANNER_MILVUS_PORT,
+#     SYNESIS_PLANNER_SEARXNG_URL, SYNESIS_PLANNER_WEB_SEARCH_ENABLED (default true when retrieval on).
+#
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
 #   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
@@ -1479,6 +1491,43 @@ patch_planner_feature_flags() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE" "${SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE:-audit}" "$container"
 }
 
+# Reconcile planner-ts unified retrieval (TEI + Milvus + SearXNG) on every deploy so OpenShift/Kustomize
+# applies do not leave SYNESIS_WEB_SEARCH_URL empty (planner-ts default) or drop service URLs.
+# Admin Integrations → Web Search log: requires synesis-admin-db-url in synesis-planner (see patch_admin_db_urls).
+patch_planner_retrieval_and_web() {
+    local ns="synesis-planner"
+    local deploy="synesis-planner-ts"
+    local container="planner-ts"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    if is_true "${SYNESIS_DEPLOY_PLANNER_RETRIEVAL:-true}"; then
+        local embedder="${SYNESIS_PLANNER_EMBEDDER_URL:-http://embedder.synesis-rag.svc.cluster.local:8080/v1}"
+        local milvus_host="${SYNESIS_PLANNER_MILVUS_HOST:-synesis-milvus.synesis-rag.svc.cluster.local}"
+        local milvus_port="${SYNESIS_PLANNER_MILVUS_PORT:-19530}"
+        local searx="${SYNESIS_PLANNER_SEARXNG_URL:-http://searxng.synesis-search.svc.cluster.local:8080}"
+        local web_on="${SYNESIS_PLANNER_WEB_SEARCH_ENABLED:-true}"
+        log "  SYNESIS_DEPLOY_PLANNER_RETRIEVAL enabled — patching $ns/$deploy (embedder, Milvus, SearXNG)"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_EMBEDDER_URL" "$embedder" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_MILVUS_HOST" "$milvus_host" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_MILVUS_PORT" "$milvus_port" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_WEB_SEARCH_ENABLED" "$web_on" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_WEB_SEARCH_URL" "$searx" "$container"
+        if oc get secret synesis-admin-db-url -n "$ns" &>/dev/null; then
+            log "    synesis-admin-db-url present — SYNESIS_PLANNER_TS_ADMIN_DB_URL (web_search_log) can resolve"
+        else
+            log "WARNING: synesis-admin-db-url missing in $ns — planner web_search_log persistence disabled until admin DB secret is synced"
+        fi
+    else
+        log "  SYNESIS_DEPLOY_PLANNER_RETRIEVAL disabled — clearing planner-ts embedder and web search URL"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_WEB_SEARCH_ENABLED" "false" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_WEB_SEARCH_URL" "" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_EMBEDDER_URL" "" "$container"
+    fi
+}
+
 # Ensure MCP-TS has the internal service token and admin DB URL.
 patch_mcp_ts_envs() {
     local ns="synesis-yarn"
@@ -2437,6 +2486,10 @@ patch_yarn_feature_flags
 log ""
 log "Patching planner-ts feature flags (post-apply)..."
 patch_planner_feature_flags
+
+log ""
+log "Patching planner-ts RAG + web search (post-apply)..."
+patch_planner_retrieval_and_web
 
 log ""
 log "Validating Yarn strict path-governance envs (post-apply)..."

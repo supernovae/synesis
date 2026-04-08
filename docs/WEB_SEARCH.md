@@ -203,13 +203,21 @@ All web search settings are environment variables (prefixed `SYNESIS_`):
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `WEB_SEARCH_ENABLED` | `true` | Master switch for all web search |
-| `WEB_SEARCH_URL` | `http://searxng.synesis-search.svc.cluster.local:8080` | SearXNG service URL |
+| `WEB_SEARCH_URL` | *(empty in planner-ts code; set in cluster)* | SearXNG service URL. **`./scripts/deploy.sh`** patches the in-cluster default when `SYNESIS_DEPLOY_PLANNER_RETRIEVAL` is on. |
 | `WEB_SEARCH_TIMEOUT_SECONDS` | `5` | HTTP timeout per search call |
 | `WEB_SEARCH_MAX_RESULTS` | `5` | Max results returned per query |
 | `SEARCH_SOURCES_PATH` | `/etc/synesis/search_sources.yaml` | Path to the search source catalog |
 | `WEB_SEARCH_ROUTER_ENABLED` | `true` | Enable router retrieval searches |
 | `WEB_SEARCH_EXECUTOR_ERROR_ENABLED` | `true` | Enable executor error resolution searches |
 | `WEB_SEARCH_CRITIC_ENABLED` | `false` | Enable critic vulnerability fact-checking |
+
+### planner-ts and `./scripts/deploy.sh`
+
+- **Unified retrieval** registers when `SYNESIS_EMBEDDER_URL` is set **or** `SYNESIS_WEB_SEARCH_URL` is non-empty.
+- **Post-apply** `patch_planner_retrieval_and_web` (default **on**): sets TEI, Milvus, SearXNG URL, and web enabled on `synesis-planner-ts` so values persist across applies. **Off:** `SYNESIS_DEPLOY_PLANNER_RETRIEVAL=false`.
+- **URL overrides:** `SYNESIS_PLANNER_EMBEDDER_URL`, `SYNESIS_PLANNER_MILVUS_HOST`, `SYNESIS_PLANNER_MILVUS_PORT`, `SYNESIS_PLANNER_SEARXNG_URL`, `SYNESIS_PLANNER_WEB_SEARCH_ENABLED`.
+- **Admin `web_search_log`:** Secret `synesis-admin-db-url` / `admin-url` in `synesis-planner` (from `patch_admin_db_urls`). See [DEPLOY_SECRETS.md](DEPLOY_SECRETS.md).
+- **Verify:** `GET /debug/retrieval-config` with internal bearer token — `unified_retrieval_client_registered`, `web_search_url`, `embedder_url`.
 
 ## Resilience
 
