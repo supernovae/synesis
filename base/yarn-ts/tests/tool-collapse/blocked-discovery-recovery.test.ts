@@ -15,6 +15,15 @@ describe("blocked-discovery-recovery", () => {
     expect(out).toContain("startup_policy=minimax_constrained_discovery");
   });
 
+  it("uses empty glob guardrail code when empty patterns are blocked", () => {
+    const out = buildBlockedDiscoveryGuidance("synesis-core", [
+      { toolName: "Glob", reason: "empty_glob_pattern_blocked", argsPreview: "{\"glob_pattern\":\"\"}" },
+    ]);
+    expect(out).toContain("code=\"empty_glob_pattern\"");
+    expect(out).toContain("Empty glob patterns are disabled");
+    expect(out).toContain("tests_hint=if_user_asks_for_tests_then_search_code:_test.go");
+  });
+
   it("builds a generic fallback recovery block when snapshot is unavailable", () => {
     const base = buildBlockedDiscoveryGuidance("synesis-core", [
       { toolName: "Glob", reason: "root_wildcard_glob_blocked" },
@@ -22,7 +31,7 @@ describe("blocked-discovery-recovery", () => {
     const out = buildBlockedDiscoveryRecoveryWithoutSnapshot(base, "no_project_root");
     expect(out).toContain("Recovery hint:");
     expect(out).toContain("code=\"no_project_root\"");
-    expect(out).toContain("next_action=list_dir:.|glob:src/*|search_code:<symbol>");
+    expect(out).toContain("next_action=read_file:README.md|glob:src/*|glob:pkg/**/*_test.go|search_code:<symbol>");
   });
 
   it("builds snapshot recovery with preview entries", () => {

@@ -27,6 +27,11 @@ function summarizeBlockedCalls(blocked: BlockedDiscoveryDetail[]): string {
   return samples.join(", ") + extra;
 }
 
+function primaryGuardrailCode(blocked: BlockedDiscoveryDetail[]): "empty_glob_pattern" | "root_wildcard_glob" {
+  if (blocked.some((b) => b.reason === "empty_glob_pattern_blocked")) return "empty_glob_pattern";
+  return "root_wildcard_glob";
+}
+
 export function buildBlockedDiscoveryGuidance(
   family: string,
   blocked: BlockedDiscoveryDetail[],
@@ -34,17 +39,21 @@ export function buildBlockedDiscoveryGuidance(
   const label = modelFamilyLabelForGuidance(family);
   const reasons = blocked.map((b) => `${b.toolName}:${b.reason}`).join(",");
   const blockedSummary = summarizeBlockedCalls(blocked);
+  const guardrailCode = primaryGuardrailCode(blocked);
+  const primaryMessage = guardrailCode === "empty_glob_pattern"
+    ? "Empty glob patterns are disabled for performance and reliability. Use an explicit scoped pattern."
+    : "Root-level wildcard globs are disabled for performance. Use scoped discovery first.";
   return [
     `Blocked ${blocked.length} broad discovery tool call(s): ${blockedSummary}.`,
-    "Root-level wildcard globs are disabled for performance. Use list_dir on '.' first, then target a specific subtree (for example src/*).",
-    "<SYNESIS_TOOL_GUARDRAIL status=\"blocked\" code=\"root_wildcard_glob\" version=\"2\">",
+    `${primaryMessage} Use list_dir on '.' first when available, then target a specific subtree (for example src/*).`,
+    `<SYNESIS_TOOL_GUARDRAIL status="blocked" code="${guardrailCode}" version="2">`,
     `family=${label}`,
     `startup_policy=${label === "minimax" ? "minimax_constrained_discovery" : "default_constrained_discovery"}`,
     `blocked=${blocked.length}`,
     `reasons=${reasons}`,
-    "next_action=list_dir:.|glob:src/*|search_code:<symbol>",
-    "tests_hint=if_user_asks_for_tests_then_search_code:_test|test_|spec|jest|vitest|pytest",
-    "message=Root-level wildcard globs are disabled for performance. Use list_dir on project root, then scope glob/search to a subfolder.",
+    "next_action=list_dir:.|glob:src/*|glob:pkg/**/*_test.go|search_code:<symbol>",
+    "tests_hint=if_user_asks_for_tests_then_search_code:_test.go|test_|spec|jest|vitest|pytest",
+    "message=If list_dir is unavailable, read README.md/go.mod/package.json and then use a scoped glob/search pattern.",
     "</SYNESIS_TOOL_GUARDRAIL>",
   ].join("\n");
 }
@@ -55,12 +64,12 @@ export function buildBlockedDiscoveryRecoveryWithoutSnapshot(
 ): string {
   return [
     baseGuidance,
-    "Recovery hint: start with `list_dir` on `.` and then continue with a scoped `glob` or `search_code` call.",
+    "Recovery hint: start with `list_dir` on `.` when available; otherwise read `README.md` and run one scoped `glob` or `search_code` call.",
     `<SYNESIS_DISCOVERY_RECOVERY status="guided" code="${code}" version="1">`,
     "entries_total=0",
     "entries_preview=0",
-    "message=Project root preview unavailable. Use list_dir:. then scope to one directory.",
-    "next_action=list_dir:.|glob:src/*|search_code:<symbol>",
+    "message=Project root preview unavailable. Use one concrete path hint (README.md/go.mod/package.json), then scope to one directory.",
+    "next_action=read_file:README.md|glob:src/*|glob:pkg/**/*_test.go|search_code:<symbol>",
     "</SYNESIS_DISCOVERY_RECOVERY>",
   ].join("\n");
 }
