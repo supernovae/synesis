@@ -174,6 +174,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS: z.coerce.number().default(3),
   SYNESIS_YARN_MODEL_SELECTION_MODE: z
     .enum(["respect_explicit", "preference", "lock"])
     .default("respect_explicit"),

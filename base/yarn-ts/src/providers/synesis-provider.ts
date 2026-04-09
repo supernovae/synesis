@@ -2,6 +2,12 @@ import { customProvider } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
+import { createDashScopeCacheFetch } from "./dashscope-cache-interceptor.js";
+
+export interface DashScopeCacheOpts {
+  enabled: boolean;
+  maxMarkers: number;
+}
 
 export class SynesisProviderRegistry {
   private tierMap = new Map<string, TierConfig>();
@@ -26,14 +32,21 @@ export class SynesisProviderRegistry {
     ];
   }
 
-  resolve(modelId: string, fallbackModelId: string): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
+  resolve(
+    modelId: string,
+    fallbackModelId: string,
+    dashScopeCache?: DashScopeCacheOpts,
+  ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const selected = this.tierMap.get(modelId) ?? this.tierMap.get(fallbackModelId);
     if (!selected) {
       throw new Error(`No tier config available for ${modelId} or fallback ${fallbackModelId}`);
     }
+    const isDashScope = selected.baseUrl.toLowerCase().includes("dashscope");
+    const wrapFetch = isDashScope && dashScopeCache?.enabled;
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
-      apiKey: selected.apiKey
+      apiKey: selected.apiKey,
+      ...(wrapFetch ? { fetch: createDashScopeCacheFetch(globalThis.fetch, dashScopeCache!.maxMarkers) } : {}),
     });
     const provider = customProvider({
       languageModels: {

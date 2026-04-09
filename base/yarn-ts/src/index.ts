@@ -38,7 +38,7 @@ import {
   type PromptSnapshot,
   type RoleAssignmentConfig,
 } from "./providers/admin-tier-registry.js";
-import { SynesisProviderRegistry } from "./providers/synesis-provider.js";
+import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import { SessionStore, type SessionRecord } from "./state/session-store.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
@@ -1948,9 +1948,14 @@ type ResolveResult =
   | { ok: true; resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
   | { ok: false; error: string };
 
+const dashScopeCacheOpts: DashScopeCacheOpts = {
+  enabled: config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_ENABLED,
+  maxMarkers: config.SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS,
+};
+
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   try {
-    const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER);
+    const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER, dashScopeCacheOpts);
     const sanitized = sanitizeToolCalls(request.messages as never);
     const messages = openAIMessagesToModelMessages(sanitized);
     return { ok: true, resolved, messages };
@@ -4263,7 +4268,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const orchestration = phaseOrchestrator.decide({
     requestedModel: request.model,
-    modelSelectionMode: config.SYNESIS_YARN_MODEL_SELECTION_MODE,
+    modelSelectionMode: config.SYNESIS_YARN_GOVERNANCE_DISABLED ? "lock" : config.SYNESIS_YARN_MODEL_SELECTION_MODE,
     latestUserText: String(latestUserText?.content ?? ""),
     workingPhase: oaiWorkingPhase,
     planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
@@ -6223,7 +6228,7 @@ app.post("/v1/messages", async (req, reply) => {
 
   const claudeOrchestration = phaseOrchestrator.decide({
     requestedModel: body.model,
-    modelSelectionMode: config.SYNESIS_YARN_MODEL_SELECTION_MODE,
+    modelSelectionMode: config.SYNESIS_YARN_GOVERNANCE_DISABLED ? "lock" : config.SYNESIS_YARN_MODEL_SELECTION_MODE,
     latestUserText: String(latestClaudeUser?.content ?? ""),
     workingPhase: claudeWorkingPhase,
     planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,

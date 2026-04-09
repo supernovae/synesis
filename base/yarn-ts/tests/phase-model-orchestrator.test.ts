@@ -97,4 +97,18 @@ describe("PhaseModelOrchestrator", () => {
     });
     expect(d.tier).toBe("synesis-core");
   });
+
+  it("lock mode overrides high-risk escalation for explicit pulse (governance-disabled scenario)", () => {
+    const o = new PhaseModelOrchestrator();
+    const d = o.decide({
+      requestedModel: "synesis-pulse",
+      modelSelectionMode: "lock",
+      latestUserText: "fix production security migration bug",
+      riskProfile: "high",
+    });
+    expect(d.tier).toBe("synesis-pulse");
+    expect(d.selectedModel).toBe("synesis-pulse");
+    expect(d.reasons).toContain("explicit_model_lock");
+    expect(d.escalated).toBe(false);
+  });
 });

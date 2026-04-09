@@ -23,7 +23,7 @@
  * - Cache hit tracking helpers for forensics
  */
 
-export type CacheStrategy = "anthropic_explicit" | "openrouter_auto" | "deepseek_auto" | "none";
+export type CacheStrategy = "anthropic_explicit" | "dashscope_explicit" | "openrouter_auto" | "deepseek_auto" | "none";
 
 export function detectCacheStrategy(baseUrl: string, backendModel: string): CacheStrategy {
   const url = baseUrl.toLowerCase();
@@ -41,6 +41,10 @@ export function detectCacheStrategy(baseUrl: string, backendModel: string): Cach
 
   if (model.includes("deepseek") && !url.includes("openrouter")) {
     return "deepseek_auto";
+  }
+
+  if (url.includes("dashscope")) {
+    return "dashscope_explicit";
   }
 
   return "none";
@@ -75,7 +79,7 @@ export function annotateCacheBreakpoints(
     breakpointsPlaced: 0,
   };
 
-  if (strategy === "none" || strategy === "openrouter_auto" || strategy === "deepseek_auto") {
+  if (strategy === "none" || strategy === "openrouter_auto" || strategy === "deepseek_auto" || strategy === "dashscope_explicit") {
     let prefixBytes = 0;
     for (const m of messages) {
       if (m.role !== "system") break;

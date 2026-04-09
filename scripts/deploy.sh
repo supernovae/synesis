@@ -1446,6 +1446,10 @@ patch_yarn_feature_flags() {
     # ── Cache stability: governance bypass for A/B testing ──
     _flag SYNESIS_YARN_GOVERNANCE_DISABLED              "false"
 
+    # ── DashScope explicit cache markers ──
+    _flag SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_ENABLED "false"
+    _flag SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS      "3"
+
     # ── M10: Prefix cache / token optimization ──
     _flag SYNESIS_YARN_STABLE_PREFIX_ENABLED           "true"
     _flag SYNESIS_YARN_JSON_COMPACTION_ENABLED         "true"
