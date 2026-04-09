@@ -30,6 +30,20 @@ const VOLATILE_PATTERNS: RegExp[] = [
   /Workspace Path:/i,
   /elapsed_ms/,
   /running_for_ms/,
+  // Cursor/IDE conversation summary and state (changes every turn)
+  /Previous conversation summary/i,
+  /<previous_conversation_summary>/,
+  /\[Previous conversation summary\]/i,
+  /Summary of changes so far/i,
+  /edit history in their session/i,
+  // Dynamic agent transcripts / chat references
+  /<agent_transcripts>/,
+  /agent-transcripts/,
+  // Per-turn todo state injected by IDE
+  /<todo_update>/,
+  /NOTE: There was an active todo list/i,
+  // Dynamic linter errors section
+  /linter errors/i,
 ];
 
 const SEMI_STABLE_PATTERNS: RegExp[] = [
@@ -37,8 +51,6 @@ const SEMI_STABLE_PATTERNS: RegExp[] = [
   /<\/task_notification>/,
   /<WORKING_FRAME>/,
   /<\/WORKING_FRAME>/,
-  /\btodo_update\b/i,
-  /NOTE: There was an active todo list/i,
   /<system_reminder>/,
   /<\/system_reminder>/,
   /<previous_tool_call>/,

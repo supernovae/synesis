@@ -48,8 +48,6 @@ const PROJECT_GUIDANCE_PATTERNS = [
 const TASK_FRAME_PATTERNS = [
   /<WORKING_FRAME>/,
   /<ARCHITECTURAL_STATE>/,
-  /<todo_update>/,
-  /NOTE: There was an active todo list/,
   /<system_reminder>/,
 ];
 
@@ -59,6 +57,16 @@ const LIVE_CONTEXT_PATTERNS = [
   /<terminal_files_information>/,
   /Workspace Path:/i,
   /Today's date:/i,
+  /<agent_transcripts>/,
+  /agent-transcripts/,
+  /<todo_update>/,
+  /NOTE: There was an active todo list/i,
+  /Previous conversation summary/i,
+  /<previous_conversation_summary>/,
+  /\[Previous conversation summary\]/i,
+  /Summary of changes so far/i,
+  /edit history in their session/i,
+  /linter errors/i,
 ];
 
 type SectionType = "core" | "project_guidance" | "task_frame" | "live_context";
@@ -155,6 +163,11 @@ function categoryFromSectionType(type: SectionType): SegmentCategory {
 
 /**
  * Parse an OpenAI messages array into semantic segments for prefix optimization.
+ *
+ * The first system message is treated as the Synesis stable prefix (server-controlled).
+ * Subsequent system messages are from the IDE client and may contain mixed
+ * stable/volatile content — unmatched sections in those messages are classified
+ * as live_context (volatile) rather than core, to avoid cache-busting.
  */
 export function parseRequest(
   messages: ChatMessage[],
@@ -172,17 +185,28 @@ export function parseRequest(
   const liveIndices: number[] = [];
 
   const lastUserIdx = findLastUserIndex(messages);
-  let historyStart = -1;
+  let systemMsgCount = 0;
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
 
     if (msg.role === "system") {
       const text = messageText(msg);
+      const isFirstSystem = systemMsgCount === 0;
+      systemMsgCount++;
+
       const sections = splitSystemMessage(text);
 
       for (const section of sections) {
-        switch (section.type) {
+        // For the first system message (Synesis prefix), "core" sections stay core.
+        // For subsequent system messages (IDE client), "core" sections are
+        // reclassified as live_context because they likely contain per-turn
+        // dynamic content that doesn't match our known patterns.
+        const effectiveType = (!isFirstSystem && section.type === "core")
+          ? "live_context" as SectionType
+          : section.type;
+
+        switch (effectiveType) {
           case "core":
             coreTexts.push(section.text);
             if (!coreIndices.includes(i)) coreIndices.push(i);
@@ -202,11 +226,11 @@ export function parseRequest(
         }
       }
     } else if (msg.role === "tool" || (msg.role === "assistant" && msg.tool_calls)) {
-      if (historyStart === -1) historyStart = i;
+      // conversation history
     } else if (msg.role === "user" && i !== lastUserIdx) {
-      if (historyStart === -1) historyStart = i;
+      // conversation history
     } else if (msg.role === "assistant") {
-      if (historyStart === -1) historyStart = i;
+      // conversation history
     }
   }
 
