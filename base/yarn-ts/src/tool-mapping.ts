@@ -1,6 +1,6 @@
 import { jsonSchema } from "ai";
 import type { ToolSet, Tool, ModelMessage } from "ai";
-import { stableJsonStringify } from "./compat/sorted-tools.js";
+import { sortObjectKeys, stableJsonStringify } from "./compat/sorted-tools.js";
 
 interface OpenAIChatMessage {
   role: string;
@@ -234,7 +234,7 @@ export function openAIToolsToSDK(tools: OpenAITool[] | undefined): ToolSet | und
     if (!fn?.name) continue;
     out[fn.name] = {
       description: fn.description ?? "",
-      inputSchema: jsonSchema(fn.parameters ?? { type: "object", properties: {} })
+      inputSchema: jsonSchema(sortObjectKeys(fn.parameters ?? { type: "object", properties: {} }) as Record<string, unknown>)
     } as Tool;
   }
   return Object.keys(out).length > 0 ? out : undefined;
@@ -248,7 +248,7 @@ export function claudeToolsToSDK(tools: ClaudeTool[] | undefined): ToolSet | und
     if (!t.name) continue;
     out[t.name] = {
       description: t.description ?? "",
-      inputSchema: jsonSchema(t.input_schema ?? { type: "object", properties: {} })
+      inputSchema: jsonSchema(sortObjectKeys(t.input_schema ?? { type: "object", properties: {} }) as Record<string, unknown>)
     } as Tool;
   }
   return Object.keys(out).length > 0 ? out : undefined;

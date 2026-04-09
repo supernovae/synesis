@@ -80,6 +80,8 @@ export interface ClientMetadata {
 
 export interface OptimizedRequest {
   messages: ChatMessage[];
+  /** Canonicalized tool definitions — sorted by name, deterministic JSON key order. */
+  tools: ToolDefinition[] | undefined;
   /** Message indices where explicit cache markers should be placed (empty for non-explicit providers). */
   markerIndices: number[];
   diagnostics: PrefixDiagnostics;

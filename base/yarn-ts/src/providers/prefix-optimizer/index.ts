@@ -113,7 +113,13 @@ export class PrefixOptimizer {
       logPrefixDiagnostics(diagnostics, previousDiag, null);
     }
 
-    return { messages: rebuilt, markerIndices, diagnostics, clientMetadata };
+    return {
+      messages: rebuilt,
+      tools: canonicalTools.length > 0 ? canonicalTools : tools,
+      markerIndices,
+      diagnostics,
+      clientMetadata,
+    };
   }
 
   /**

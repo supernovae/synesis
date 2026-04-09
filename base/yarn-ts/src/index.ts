@@ -4610,6 +4610,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         sessionKey,
       );
       normalizedRequest.messages = optimized.messages as never;
+      if (optimized.tools) {
+        normalizedRequest.tools = optimized.tools as never;
+      }
 
       const cm = optimized.clientMetadata;
       if (cm && (!effectiveOaiPathCtx.projectRoot || !effectiveOaiPathCtx.shellCwd)) {
@@ -6617,6 +6620,9 @@ app.post("/v1/messages", async (req, reply) => {
         claudeSessionKey,
       );
       openAIShape.messages = optimized.messages as never;
+      if (optimized.tools) {
+        openAIShape.tools = optimized.tools as never;
+      }
 
       const cm = optimized.clientMetadata;
       if (cm && (!effectiveClaudePathCtx.projectRoot || !effectiveClaudePathCtx.shellCwd)) {
