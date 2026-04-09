@@ -168,9 +168,21 @@ export function createDashScopeCacheFetch(
         return nativeFetch(input, init);
       }
 
-      const indices = getMarkerIndices
+      let indices = getMarkerIndices
         ? getMarkerIndices()
         : selectBreakpoints(body.messages, maxMarkers);
+
+      // Align with Qwen Code reference implementation: for streaming requests,
+      // ALWAYS mark the last message (creates a cache block covering the entire
+      // conversation prefix, enabling multi-turn cache reuse).
+      const isStreaming = body.stream === true;
+      if (isStreaming && body.messages.length > 0) {
+        const lastIdx = body.messages.length - 1;
+        const indicesSet = new Set(indices);
+        if (!indicesSet.has(lastIdx)) {
+          indices = [...indices, lastIdx];
+        }
+      }
 
       // --- PRE-INJECTION diagnostics (content before any markers) ---
       const encoder = new TextEncoder();
@@ -199,10 +211,11 @@ export function createDashScopeCacheFetch(
       } catch { /* ignore */ }
 
       body.messages = injectCacheMarkers(body.messages, indices);
-      if (Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0) {
+      // Qwen Code ref: tool cache_control only for streaming requests
+      if (isStreaming && Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0) {
         body.tools = injectToolCacheMarker(body.tools);
       }
-      const hasStream = body.stream === true;
+      const hasStream = isStreaming;
 
       const boundaryIdx = indices.length > 0 ? indices[indices.length - 1] : -1;
       const toolsJson = Array.isArray(body.tools) && body.tools.length > 0
