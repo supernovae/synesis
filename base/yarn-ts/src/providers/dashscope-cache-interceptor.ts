@@ -95,21 +95,25 @@ export function selectBreakpoints(messages: ChatMessage[], maxMarkers: number): 
 /**
  * Inject cache_control markers at specified message indices.
  *
- * CRITICAL: ALL messages are normalized to array content format, not
- * just marked ones. If only marked messages were converted, the old
- * boundary message would flip from array→string when the boundary
- * moves forward on the next turn, changing the prefix bytes and
- * preventing DashScope from matching the cached prefix.
+ * With the fixed-position marker strategy, the marker never moves,
+ * so we only need to convert MARKED messages to array format. Non-marked
+ * messages keep their original format (string or array), preserving
+ * byte-level stability of the prefix across requests.
+ *
+ * DashScope docs confirm that string content "A" matches cached
+ * array content [{"type":"text","text":"A","cache_control":...}]
+ * — the platform normalizes content format for cache key computation.
  */
 export function injectCacheMarkers(messages: ChatMessage[], markerIndices: number[]): ChatMessage[] {
   const indices = new Set(markerIndices);
 
   return messages.map((msg, idx) => {
-    const blocks = ensureArrayContent(msg);
     if (indices.has(idx)) {
+      const blocks = ensureArrayContent(msg);
       tagLastBlock(blocks);
+      return { ...msg, content: blocks };
     }
-    return { ...msg, content: blocks };
+    return msg;
   });
 }
 

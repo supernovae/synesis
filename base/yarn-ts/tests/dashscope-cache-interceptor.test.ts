@@ -81,7 +81,7 @@ describe("injectCacheMarkers", () => {
     expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  it("normalizes all messages to array content (no cache_control on unmarked)", () => {
+  it("only converts marked messages to array content, leaves unmarked as-is", () => {
     const msgs = [
       { role: "system", content: "sys" },
       { role: "user", content: "q1" },
@@ -89,13 +89,14 @@ describe("injectCacheMarkers", () => {
       { role: "user", content: "q2" },
     ];
     const result = injectCacheMarkers(msgs, [0]);
-    // All messages get array content for format consistency
-    const q1 = result[1].content as Array<{ type: string; text?: string; cache_control?: unknown }>;
-    expect(Array.isArray(q1)).toBe(true);
-    expect(q1[0].text).toBe("q1");
-    expect(q1[0].cache_control).toBeUndefined();
-    // Marked message has cache_control
+    // Unmarked messages keep their original string format
+    expect(typeof result[1].content).toBe("string");
+    expect(result[1].content).toBe("q1");
+    expect(typeof result[2].content).toBe("string");
+    expect(result[2].content).toBe("a1");
+    // Marked message gets array with cache_control
     const sys = result[0].content as Array<{ type: string; text?: string; cache_control?: unknown }>;
+    expect(Array.isArray(sys)).toBe(true);
     expect(sys[0].cache_control).toEqual({ type: "ephemeral" });
   });
 });
