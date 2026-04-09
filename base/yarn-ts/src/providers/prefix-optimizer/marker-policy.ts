@@ -5,21 +5,29 @@
  * This is the only provider-specific component in the prefix optimizer.
  * The rest of the optimizer is provider-agnostic.
  *
- * DashScope: up to 4 markers, min 1024 tokens before each marker
- * Anthropic: providerOptions.anthropic.cacheControl (future)
- * None: empty array (implicit KV-cache from stable-first layout)
+ * Strategy for multi-turn coding sessions:
+ *   Marker 1: core_instructions (stable forever, ~300 tokens)
+ *   Marker 2: conversation boundary — last message before the latest user turn
+ *             This is the BIG win. Each turn appends a few messages at the end.
+ *             The entire prefix up to the previous turn's last message is
+ *             identical, so caching here gives 80-90% hit rates.
+ *   Marker 3 (tool-level): added by the interceptor on the last tool definition
+ *
+ * DashScope constraints:
+ *   - Max 4 markers per request
+ *   - Min 1024 tokens per cache block
+ *   - Cache searches backward up to 20 content blocks from each marker
+ *   - Cache valid for 5 minutes (resets on hit)
+ *
+ * The 20-block limit means the conversation boundary marker works as long as
+ * each turn adds fewer than 20 messages. Typical tool-calling turns add 2-4
+ * messages (assistant + tool_result pairs), so this is well within limits.
  */
 
 import type { ChatMessage, MarkerBackend, ParsedSegment, PrefixDiagnostics, SegmentCategory } from "./types.js";
 
 const DASHSCOPE_MAX_MARKERS = 4;
 const DASHSCOPE_MIN_TOKENS = 1024;
-
-const CACHEABLE_CATEGORIES: Set<SegmentCategory> = new Set([
-  "core_instructions",
-  "project_guidance",
-  "task_frame",
-]);
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 3.5);
@@ -35,9 +43,6 @@ function messageText(msg: ChatMessage): string {
 
 /**
  * Find which rebuilt message index corresponds to a given segment category.
- * The request-rebuilder creates system messages in order:
- * core_instructions, project_guidance, task_frame, live_context.
- * This finds the message index for a given category by scanning the rebuilt array.
  */
 function findMessageIndexForCategory(
   messages: ChatMessage[],
@@ -65,19 +70,47 @@ function findMessageIndexForCategory(
 }
 
 /**
+ * Find the conversation boundary: the last message before latest_user_turn.
+ *
+ * In the rebuilt message array, the layout is:
+ *   [system...] [conversation_history...] [tool_results...] [latest_user_turn]
+ *
+ * The boundary is the index of the last message that ISN'T the latest user turn.
+ * Caching up to this point means the entire conversation prefix from prior turns
+ * gets cached, which is the biggest win (~80-90% of tokens).
+ */
+function findConversationBoundary(
+  messages: ChatMessage[],
+  segments: ParsedSegment[],
+): number {
+  const userTurnSeg = segments.find((s) => s.category === "latest_user_turn");
+  if (!userTurnSeg || userTurnSeg.sourceIndices.length === 0) return -1;
+  if (messages.length < 3) return -1;
+
+  // The latest_user_turn is always last in the rebuilt array.
+  // The conversation boundary is the message right before it.
+  const boundaryIdx = messages.length - 2;
+
+  // Sanity: don't mark a system message as boundary (that's just the prefix)
+  if (messages[boundaryIdx]?.role === "system") return -1;
+
+  return boundaryIdx;
+}
+
+/**
  * Compute marker placements for DashScope explicit caching.
  */
 function computeDashScopeMarkers(
   messages: ChatMessage[],
   segments: ParsedSegment[],
-  previousDiagnostics: PrefixDiagnostics | null,
+  _previousDiagnostics: PrefixDiagnostics | null,
   maxMarkers: number,
 ): number[] {
   const limit = Math.min(maxMarkers, DASHSCOPE_MAX_MARKERS);
   const markers: number[] = [];
 
+  // Marker 1: core_instructions (stable forever)
   let cumulativeTokens = 0;
-
   const coreIdx = findMessageIndexForCategory(messages, segments, "core_instructions");
   if (coreIdx >= 0) {
     cumulativeTokens += estimateTokens(messageText(messages[coreIdx]));
@@ -88,28 +121,16 @@ function computeDashScopeMarkers(
 
   if (markers.length >= limit) return markers;
 
-  const projectIdx = findMessageIndexForCategory(messages, segments, "project_guidance");
-  if (projectIdx >= 0) {
-    cumulativeTokens += estimateTokens(messageText(messages[projectIdx]));
-    if (cumulativeTokens >= DASHSCOPE_MIN_TOKENS) {
-      markers.push(projectIdx);
+  // Marker 2: conversation boundary (last message before latest user turn)
+  // This is the high-value marker — caches the entire prior-turn prefix.
+  const boundaryIdx = findConversationBoundary(messages, segments);
+  if (boundaryIdx >= 0 && boundaryIdx > (markers[markers.length - 1] ?? -1)) {
+    let boundaryTokens = 0;
+    for (let i = 0; i <= boundaryIdx; i++) {
+      boundaryTokens += estimateTokens(messageText(messages[i]));
     }
-  }
-
-  if (markers.length >= limit) return markers;
-
-  const frameSeg = segments.find((s) => s.category === "task_frame");
-  if (frameSeg && frameSeg.content.trim()) {
-    const frameIdx = findMessageIndexForCategory(messages, segments, "task_frame");
-    if (frameIdx >= 0) {
-      const frameUnchanged = previousDiagnostics !== null &&
-        previousDiagnostics.frameHash === frameSeg.hash;
-      if (frameUnchanged) {
-        cumulativeTokens += estimateTokens(messageText(messages[frameIdx]));
-        if (cumulativeTokens >= DASHSCOPE_MIN_TOKENS) {
-          markers.push(frameIdx);
-        }
-      }
+    if (boundaryTokens >= DASHSCOPE_MIN_TOKENS) {
+      markers.push(boundaryIdx);
     }
   }
 
@@ -133,9 +154,6 @@ export function computeMarkerPlacements(
     case "dashscope":
       return computeDashScopeMarkers(messages, segments, previousDiagnostics, maxMarkers);
     case "anthropic":
-      // Future: Anthropic uses providerOptions, not content-block markers.
-      // For now, same logic as DashScope but the interceptor would use
-      // a different injection mechanism.
       return computeDashScopeMarkers(messages, segments, previousDiagnostics, maxMarkers);
     case "none":
       return [];

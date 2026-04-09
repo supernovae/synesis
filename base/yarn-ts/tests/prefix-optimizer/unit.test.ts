@@ -370,17 +370,22 @@ describe("request rebuilder", () => {
 describe("marker policy", () => {
   const segments: ParsedSegment[] = [
     { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "core1", sourceIndices: [0], tokenEstimate: 1200 },
-    { category: "project_guidance", stability: "stable", content: "y".repeat(4000), hash: "proj1", sourceIndices: [0], tokenEstimate: 1200 },
-    { category: "task_frame", stability: "semi_stable", content: "z".repeat(1000), hash: "frame1", sourceIndices: [0], tokenEstimate: 300 },
-    { category: "live_context", stability: "volatile", content: "volatile", hash: "v1", sourceIndices: [0], tokenEstimate: 5 },
-    { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u1", sourceIndices: [4], tokenEstimate: 5 },
+    { category: "live_context", stability: "volatile", content: "volatile stuff", hash: "v1", sourceIndices: [0], tokenEstimate: 50 },
+    { category: "conversation_history", stability: "volatile", content: "history...", hash: "h1", sourceIndices: [2, 3, 4, 5], tokenEstimate: 5000 },
+    { category: "tool_results", stability: "volatile", content: "results...", hash: "t1", sourceIndices: [6, 7, 8], tokenEstimate: 15000 },
+    { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u1", sourceIndices: [9], tokenEstimate: 5 },
   ];
 
   const messages: ChatMessage[] = [
     { role: "system", content: "x".repeat(4000) },
-    { role: "system", content: "y".repeat(4000) },
-    { role: "system", content: "z".repeat(1000) },
-    { role: "system", content: "volatile" },
+    { role: "system", content: "volatile stuff" },
+    { role: "user", content: "turn 1" },
+    { role: "assistant", content: "response 1" },
+    { role: "user", content: "turn 2" },
+    { role: "assistant", content: "response 2" },
+    { role: "tool", content: "result 1", tool_call_id: "c1" },
+    { role: "tool", content: "result 2", tool_call_id: "c2" },
+    { role: "assistant", content: "final response" },
     { role: "user", content: "hello" },
   ];
 
@@ -388,44 +393,41 @@ describe("marker policy", () => {
     expect(computeMarkerPlacements(messages, segments, null, "none")).toEqual([]);
   });
 
-  it("places markers on stable segments for dashscope", () => {
+  it("places core marker and conversation boundary marker for dashscope", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
     expect(markers).toContain(0);
-    expect(markers).toContain(1);
-    expect(markers.length).toBeLessThanOrEqual(4);
+    expect(markers).toContain(8);
+    expect(markers.length).toBe(2);
   });
 
-  it("skips task_frame marker when frame hash changed", () => {
-    const prevDiag = {
-      coreHash: "core1", projectHash: "proj1", toolsetHash: "", frameHash: "OLD",
-      volatileHash: "", userTurnHash: "", markerBackend: "dashscope" as const,
-      markerCount: 2, markerIndices: [0, 1], segmentSizes: {}, cacheMissReason: null,
-      totalTokenEstimate: 2000,
-    };
-    const markers = computeMarkerPlacements(messages, segments, prevDiag, "dashscope");
-    expect(markers).not.toContain(2);
-  });
-
-  it("places task_frame marker when frame hash unchanged", () => {
-    const prevDiag = {
-      coreHash: "core1", projectHash: "proj1", toolsetHash: "", frameHash: "frame1",
-      volatileHash: "", userTurnHash: "", markerBackend: "dashscope" as const,
-      markerCount: 2, markerIndices: [0, 1], segmentSizes: {}, cacheMissReason: null,
-      totalTokenEstimate: 2000,
-    };
-    const markers = computeMarkerPlacements(messages, segments, prevDiag, "dashscope");
-    expect(markers).toContain(2);
-  });
-
-  it("never places markers on volatile segments", () => {
+  it("conversation boundary is last message before latest_user_turn", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    expect(markers).not.toContain(3);
-    expect(markers).not.toContain(4);
+    const boundaryIdx = markers[markers.length - 1];
+    expect(messages[boundaryIdx].role).not.toBe("user");
+    expect(boundaryIdx).toBe(messages.length - 2);
+  });
+
+  it("never places markers on the latest_user_turn itself", () => {
+    const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
+    expect(markers).not.toContain(9);
   });
 
   it("respects max markers limit", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope", 1);
     expect(markers.length).toBeLessThanOrEqual(1);
+  });
+
+  it("skips boundary if only system messages + user turn", () => {
+    const tinyMessages: ChatMessage[] = [
+      { role: "system", content: "x".repeat(4000) },
+      { role: "user", content: "hello" },
+    ];
+    const tinySegments: ParsedSegment[] = [
+      { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "c", sourceIndices: [0], tokenEstimate: 1200 },
+      { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [1], tokenEstimate: 5 },
+    ];
+    const markers = computeMarkerPlacements(tinyMessages, tinySegments, null, "dashscope");
+    expect(markers).toEqual([0]);
   });
 });
 

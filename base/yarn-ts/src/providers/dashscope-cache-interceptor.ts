@@ -187,12 +187,15 @@ export function createDashScopeCacheFetch(
         }
       } catch { /* crypto not available in all envs */ }
 
+      const boundaryIdx = indices.length > 1 ? indices[indices.length - 1] : -1;
+
       console.log(JSON.stringify({
         level: 20,
         msg: "dashscope_cache_markers_injected",
         messageCount: body.messages.length,
         markerIndices: indices,
         markerCount: indices.length,
+        boundaryIdx,
         optimizerActive: !!getMarkerIndices,
         stream: hasStream,
         url: String(input).replace(/\?.*/, ""),
@@ -202,6 +205,7 @@ export function createDashScopeCacheFetch(
         msg0Len: markedMsg0?.length ?? 0,
         toolsLen: toolsJson?.length ?? 0,
         toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+        toolsMarked: Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0,
       }));
 
       const resp = await nativeFetch(input, { ...init, body: JSON.stringify(body) });
