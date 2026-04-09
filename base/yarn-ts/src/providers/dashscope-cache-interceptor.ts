@@ -175,6 +175,7 @@ export function createDashScopeCacheFetch(
       let toolsHash = "";
       let prefixSliceHash = "";
       let prevBoundaryHash = "";
+      const msgHashes: string[] = [];
       try {
         const encoder = new TextEncoder();
         async function sha256Hex16(data: string): Promise<string> {
@@ -192,7 +193,16 @@ export function createDashScopeCacheFetch(
           const prevSlice = JSON.stringify(body.messages.slice(0, boundaryIdx - 1));
           prevBoundaryHash = await sha256Hex16(prevSlice);
         }
+        // Hash first 6 individual messages to find which one changes
+        const diagCount = Math.min(6, body.messages.length);
+        for (let i = 0; i < diagCount; i++) {
+          msgHashes.push(await sha256Hex16(JSON.stringify(body.messages[i])));
+        }
       } catch { /* crypto not available in all envs */ }
+
+      // Log keys of first message to detect unexpected properties
+      const msg0Keys = body.messages.length > 0 ? Object.keys(body.messages[0]).sort().join(",") : "";
+      const msg1Keys = body.messages.length > 1 ? Object.keys(body.messages[1]).sort().join(",") : "";
 
       console.log(JSON.stringify({
         level: 20,
@@ -207,6 +217,9 @@ export function createDashScopeCacheFetch(
         toolsHash,
         prefixSliceHash,
         prevBoundaryHash,
+        msgHashes,
+        msg0Keys,
+        msg1Keys,
         toolsLen: toolsJson?.length ?? 0,
         toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
         toolsMarked: Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0,
