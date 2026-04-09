@@ -215,7 +215,13 @@ export function createDashScopeCacheFetch(
         }
       } catch { /* ignore */ }
 
-      const msg0Keys = body.messages.length > 0 ? Object.keys(body.messages[0]).sort().join(",") : "";
+      // Log all non-message/tool body fields to find extra cache-key contributors
+      const bodyMeta: Record<string, unknown> = {};
+      for (const key of Object.keys(body)) {
+        if (key !== "messages" && key !== "tools") {
+          bodyMeta[key] = body[key];
+        }
+      }
 
       console.log(JSON.stringify({
         level: 20,
@@ -229,15 +235,12 @@ export function createDashScopeCacheFetch(
         url: String(input).replace(/\?.*/, ""),
         toolsHash,
         prefixSliceHash,
-        preInjectionHashes,
-        postInjectionHashes,
-        msg0Keys,
+        preInjectionHashes: preInjectionHashes.slice(0, 4),
+        postInjectionHashes: postInjectionHashes.slice(0, 4),
         preMsg0Role,
         preMsg0ContentType,
-        preMsg0Snippet,
-        toolsLen: toolsJson?.length ?? 0,
+        bodyMeta,
         toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
-        toolsMarked: Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0,
       }));
 
       const resp = await nativeFetch(input, { ...init, body: JSON.stringify(body) });
@@ -266,12 +269,15 @@ export function createDashScopeCacheFetch(
           if (lastUsage) {
             try {
               const parsed = JSON.parse(lastUsage);
+              const rawDetails = parsed?.usage?.prompt_tokens_details;
               console.log(JSON.stringify({
                 level: 20,
                 msg: "dashscope_response_usage",
-                cached_tokens: parsed?.usage?.prompt_tokens_details?.cached_tokens ?? "MISSING",
-                cache_creation: parsed?.usage?.prompt_tokens_details?.cache_creation_input_tokens ?? "MISSING",
+                cached_tokens: rawDetails?.cached_tokens ?? "MISSING",
+                cache_creation: rawDetails?.cache_creation_input_tokens ?? "MISSING",
                 prompt_tokens: parsed?.usage?.prompt_tokens ?? "MISSING",
+                raw_prompt_details: rawDetails ?? "NONE",
+                usage_keys: parsed?.usage ? Object.keys(parsed.usage).sort() : "NONE",
               }));
             } catch { /* ignore parse error */ }
           }
