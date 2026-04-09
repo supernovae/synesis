@@ -135,6 +135,33 @@ export function createDashScopeCacheFetch(
       body.messages = injectCacheMarkers(body.messages, indices);
       const hasStream = body.stream === true;
 
+      const markedMsg0 = indices.includes(0) && body.messages.length > 0
+        ? JSON.stringify(body.messages[0])
+        : null;
+      const toolsJson = Array.isArray(body.tools) && body.tools.length > 0
+        ? JSON.stringify(body.tools)
+        : null;
+
+      let msg0Hash = "";
+      let toolsHash = "";
+      let fullPrefixHash = "";
+      try {
+        const encoder = new TextEncoder();
+        if (markedMsg0) {
+          const h = await crypto.subtle.digest("SHA-256", encoder.encode(markedMsg0));
+          msg0Hash = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+        }
+        if (toolsJson) {
+          const h = await crypto.subtle.digest("SHA-256", encoder.encode(toolsJson));
+          toolsHash = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+        }
+        const fullPrefix = (markedMsg0 ?? "") + (toolsJson ?? "");
+        if (fullPrefix) {
+          const h = await crypto.subtle.digest("SHA-256", encoder.encode(fullPrefix));
+          fullPrefixHash = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+        }
+      } catch { /* crypto not available in all envs */ }
+
       console.log(JSON.stringify({
         level: 20,
         msg: "dashscope_cache_markers_injected",
@@ -144,6 +171,12 @@ export function createDashScopeCacheFetch(
         optimizerActive: !!getMarkerIndices,
         stream: hasStream,
         url: String(input).replace(/\?.*/, ""),
+        msg0Hash,
+        toolsHash,
+        fullPrefixHash,
+        msg0Len: markedMsg0?.length ?? 0,
+        toolsLen: toolsJson?.length ?? 0,
+        toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
       }));
 
       const resp = await nativeFetch(input, { ...init, body: JSON.stringify(body) });
