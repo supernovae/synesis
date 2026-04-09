@@ -227,6 +227,39 @@ export function createDashScopeCacheFetch(
         }
       }
 
+      // Count consecutive leading system messages and capture role sequence
+      let leadingSystemCount = 0;
+      const roleSeq: string[] = [];
+      for (let i = 0; i < Math.min(6, body.messages.length); i++) {
+        roleSeq.push(body.messages[i]?.role ?? "?");
+        if (body.messages[i]?.role === "system" && leadingSystemCount === i) {
+          leadingSystemCount++;
+        }
+      }
+
+      // Capture content snippets for first 3 messages (pre-injection)
+      const msgSnippets: string[] = [];
+      for (let i = 0; i < Math.min(3, body.messages.length); i++) {
+        const c = body.messages[i]?.content;
+        const txt = typeof c === "string" ? c : JSON.stringify(c);
+        msgSnippets.push(`msg[${i}]:${body.messages[i]?.role}:${txt.length}ch:"${txt.slice(0, 80)}"`);
+      }
+
+      // Capture request headers
+      const headerKeys: string[] = [];
+      try {
+        if (init?.headers) {
+          const h = init.headers;
+          if (h instanceof Headers) {
+            h.forEach((_v, k) => headerKeys.push(k));
+          } else if (Array.isArray(h)) {
+            for (const [k] of h) headerKeys.push(k);
+          } else {
+            headerKeys.push(...Object.keys(h as Record<string, string>));
+          }
+        }
+      } catch { /* ignore */ }
+
       console.log(JSON.stringify({
         level: 20,
         msg: "dashscope_cache_markers_injected",
@@ -245,9 +278,29 @@ export function createDashScopeCacheFetch(
         preMsg0ContentType,
         bodyMeta,
         toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+        leadingSystemCount,
+        roleSeq,
+        msgSnippets,
+        headerKeys: headerKeys.sort(),
       }));
 
-      const resp = await nativeFetch(input, { ...init, body: JSON.stringify(body) });
+      const serializedBody = JSON.stringify(body);
+
+      // Hash the full serialized body for cross-request comparison
+      let fullBodyHash = "";
+      try {
+        fullBodyHash = await sha256Hex16(serializedBody);
+      } catch { /* ignore */ }
+
+      console.log(JSON.stringify({
+        level: 20,
+        msg: "dashscope_outbound_body",
+        fullBodyHash,
+        bodyBytes: serializedBody.length,
+        bodyPrefix200: serializedBody.slice(0, 200),
+      }));
+
+      const resp = await nativeFetch(input, { ...init, body: serializedBody });
       if (!hasStream) return resp;
 
       const origBody = resp.body;
