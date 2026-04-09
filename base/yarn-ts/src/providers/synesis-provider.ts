@@ -2,7 +2,7 @@ import { customProvider } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
-import { createDashScopeCacheFetch } from "./dashscope-cache-interceptor.js";
+import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
 import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
 
 export interface DashScopeCacheOpts {
@@ -55,53 +55,26 @@ export class SynesisProviderRegistry {
   resolve(
     modelId: string,
     fallbackModelId: string,
-    dashScopeCache?: DashScopeCacheOpts,
+    _dashScopeCache?: DashScopeCacheOpts,
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const selected = this.tierMap.get(modelId) ?? this.tierMap.get(fallbackModelId);
     if (!selected) {
       throw new Error(`No tier config available for ${modelId} or fallback ${fallbackModelId}`);
     }
-    const isDashScope = selected.baseUrl.toLowerCase().includes("dashscope");
-    const wrapFetch = isDashScope && dashScopeCache?.enabled;
-
-    if (wrapFetch) {
-      const optimizer = this.prefixOptimizer;
-      const sessionKey = this.currentSessionKey;
-      const getMarkerIndices = optimizer && sessionKey
-        ? () => optimizer.getMarkerIndicesForSession(sessionKey)
-        : undefined;
-
-      console.log(JSON.stringify({
-        level: 20,
-        msg: "dashscope_cache_interceptor_active",
-        tier: selected.id,
-        baseUrl: selected.baseUrl.replace(/\/\/[^@]+@/, "//***@"),
-        backendModel: selected.backendModel,
-        maxMarkers: dashScopeCache!.maxMarkers,
-        optimizerActive: !!getMarkerIndices,
-      }));
-
-      const upstream = createOpenAI({
-        baseURL: selected.baseUrl,
-        apiKey: selected.apiKey,
-        fetch: createDashScopeCacheFetch(
-          globalThis.fetch,
-          dashScopeCache!.maxMarkers,
-          getMarkerIndices,
-        ),
-      });
-      const provider = customProvider({
-        languageModels: {
-          [selected.id]: upstream.chat(selected.backendModel)
-        }
-      });
-      const adapter = resolveAdapter(selected.backendModel, selected.baseUrl);
-      return { model: provider.languageModel(selected.id), resolvedModelId: selected.id, adapter };
-    }
+    // Detect provider type for telemetry tagging
+    const providerTag = selected.baseUrl.toLowerCase().includes("dashscope") ? "dashscope"
+      : selected.baseUrl.toLowerCase().includes("openrouter") ? "openrouter"
+      : selected.baseUrl.toLowerCase().includes("localhost") || selected.baseUrl.toLowerCase().includes("vllm") ? "vllm"
+      : "generic";
 
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
       apiKey: selected.apiKey,
+      fetch: createUsageTelemetryFetch(globalThis.fetch, {
+        provider: providerTag,
+        tier: selected.id,
+        model: selected.backendModel,
+      }),
     });
     const provider = customProvider({
       languageModels: {
