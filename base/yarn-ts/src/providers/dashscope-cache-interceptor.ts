@@ -150,6 +150,12 @@ export function createDashScopeCacheFetch(
   maxMarkers = 3,
   getMarkerIndices?: () => number[],
 ): typeof globalThis.fetch {
+  // Replay cache test state: save body from first request and replay it on second
+  let replayTestBody: string | null = null;
+  let replayTestUrl: string | null = null;
+  let replayTestHeaders: Record<string, string> | null = null;
+  let replayTestDone = false;
+
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (!init?.body || typeof init.body !== "string") {
       return nativeFetch(input, init);
@@ -299,6 +305,58 @@ export function createDashScopeCacheFetch(
         bodyBytes: serializedBody.length,
         bodyPrefix200: serializedBody.slice(0, 200),
       }));
+
+      // --- Replay cache test: on 2nd+ request, replay the first request's body
+      //     to verify DashScope caching works from this exact Node.js context.
+      if (!replayTestDone && replayTestBody && replayTestUrl) {
+        replayTestDone = true;
+        (async () => {
+          try {
+            // Wait for the first request's cache to be created
+            await new Promise(r => setTimeout(r, 8000));
+            // Replay the exact same body with non-streaming
+            const replayBody = JSON.parse(replayTestBody!);
+            replayBody.stream = false;
+            delete replayBody.stream_options;
+            replayBody.max_tokens = 10;
+            const replayResp = await globalThis.fetch(new URL(replayTestUrl!), {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...replayTestHeaders! },
+              body: JSON.stringify(replayBody),
+            });
+            const replayJson = await replayResp.json() as { usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number } } };
+            const rd = replayJson?.usage?.prompt_tokens_details;
+            console.log(JSON.stringify({
+              level: 30,
+              msg: "dashscope_replay_cache_test",
+              result: (rd?.cached_tokens ?? 0) > 0 ? "CACHE_HIT" : "CACHE_MISS",
+              prompt_tokens: replayJson?.usage?.prompt_tokens ?? "?",
+              cached_tokens: rd?.cached_tokens ?? 0,
+              cache_creation: rd?.cache_creation_input_tokens ?? 0,
+              bodyBytesMatch: replayTestBody!.length === serializedBody.length,
+            }));
+          } catch (err) {
+            console.log(JSON.stringify({ level: 40, msg: "dashscope_replay_test_error", error: String(err) }));
+          }
+        })();
+      }
+      if (!replayTestBody) {
+        replayTestBody = serializedBody;
+        replayTestUrl = String(input);
+        try {
+          const h: Record<string, string> = {};
+          if (init?.headers) {
+            if (init.headers instanceof Headers) {
+              init.headers.forEach((v, k) => { if (k.toLowerCase() !== "content-length") h[k] = v; });
+            } else if (!Array.isArray(init.headers)) {
+              for (const [k, v] of Object.entries(init.headers as Record<string, string>)) {
+                if (k.toLowerCase() !== "content-length") h[k] = v;
+              }
+            }
+          }
+          replayTestHeaders = h;
+        } catch { replayTestHeaders = {}; }
+      }
 
       const resp = await nativeFetch(input, { ...init, body: serializedBody });
       if (!hasStream) return resp;
