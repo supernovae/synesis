@@ -161,6 +161,32 @@ export function createDashScopeCacheFetch(
         ? getMarkerIndices()
         : selectBreakpoints(body.messages, maxMarkers);
 
+      // --- PRE-INJECTION diagnostics (content before any markers) ---
+      const encoder = new TextEncoder();
+      async function sha256Hex16(data: string): Promise<string> {
+        const h = await crypto.subtle.digest("SHA-256", encoder.encode(data));
+        return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+      }
+
+      const preInjectionHashes: string[] = [];
+      let preMsg0Role = "";
+      let preMsg0ContentType = "";
+      let preMsg0Snippet = "";
+      try {
+        const diagCount = Math.min(8, body.messages.length);
+        for (let i = 0; i < diagCount; i++) {
+          preInjectionHashes.push(await sha256Hex16(JSON.stringify(body.messages[i])));
+        }
+        if (body.messages.length > 0) {
+          const m0 = body.messages[0];
+          preMsg0Role = m0.role ?? "";
+          preMsg0ContentType = typeof m0.content === "string" ? "string"
+            : Array.isArray(m0.content) ? "array" : typeof m0.content;
+          const t = typeof m0.content === "string" ? m0.content : JSON.stringify(m0.content);
+          preMsg0Snippet = t.slice(0, 120);
+        }
+      } catch { /* ignore */ }
+
       body.messages = injectCacheMarkers(body.messages, indices);
       if (Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0) {
         body.tools = injectToolCacheMarker(body.tools);
@@ -174,14 +200,8 @@ export function createDashScopeCacheFetch(
 
       let toolsHash = "";
       let prefixSliceHash = "";
-      let prevBoundaryHash = "";
-      const msgHashes: string[] = [];
+      const postInjectionHashes: string[] = [];
       try {
-        const encoder = new TextEncoder();
-        async function sha256Hex16(data: string): Promise<string> {
-          const h = await crypto.subtle.digest("SHA-256", encoder.encode(data));
-          return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
-        }
         if (toolsJson) {
           toolsHash = await sha256Hex16(toolsJson);
         }
@@ -189,20 +209,13 @@ export function createDashScopeCacheFetch(
           const slice = JSON.stringify(body.messages.slice(0, boundaryIdx + 1));
           prefixSliceHash = await sha256Hex16(slice);
         }
-        if (boundaryIdx >= 2) {
-          const prevSlice = JSON.stringify(body.messages.slice(0, boundaryIdx - 1));
-          prevBoundaryHash = await sha256Hex16(prevSlice);
-        }
-        // Hash first 6 individual messages to find which one changes
-        const diagCount = Math.min(6, body.messages.length);
+        const diagCount = Math.min(8, body.messages.length);
         for (let i = 0; i < diagCount; i++) {
-          msgHashes.push(await sha256Hex16(JSON.stringify(body.messages[i])));
+          postInjectionHashes.push(await sha256Hex16(JSON.stringify(body.messages[i])));
         }
-      } catch { /* crypto not available in all envs */ }
+      } catch { /* ignore */ }
 
-      // Log keys of first message to detect unexpected properties
       const msg0Keys = body.messages.length > 0 ? Object.keys(body.messages[0]).sort().join(",") : "";
-      const msg1Keys = body.messages.length > 1 ? Object.keys(body.messages[1]).sort().join(",") : "";
 
       console.log(JSON.stringify({
         level: 20,
@@ -216,10 +229,12 @@ export function createDashScopeCacheFetch(
         url: String(input).replace(/\?.*/, ""),
         toolsHash,
         prefixSliceHash,
-        prevBoundaryHash,
-        msgHashes,
+        preInjectionHashes,
+        postInjectionHashes,
         msg0Keys,
-        msg1Keys,
+        preMsg0Role,
+        preMsg0ContentType,
+        preMsg0Snippet,
         toolsLen: toolsJson?.length ?? 0,
         toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
         toolsMarked: Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0,
