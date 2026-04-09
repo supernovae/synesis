@@ -1,36 +1,36 @@
 /**
  * Provider Cache Hints
  *
- * Annotates messages with cache control markers for providers that support
- * explicit prompt caching. Currently, two strategies:
+ * Strategies for prefix cache reuse across providers:
  *
- * 1. **Anthropic (via @ai-sdk/anthropic)**: `cache_control: { type: "ephemeral" }`
- *    on system message parts. Not yet active since Yarn uses createOpenAI.
+ * 1. **OpenRouter auto**: Sticky routing to same inference endpoint per
+ *    account/model/conversation. Works for Claude, DeepSeek, Qwen, Gemini, GPT.
+ *    No annotations needed — just stable message prefix ordering.
  *
- * 2. **OpenRouter**: Automatic prefix caching for supported models (Claude, DeepSeek).
- *    No annotations needed — just stable prefixes, which enrichWithFrameAndManifest
- *    + appendCriticBlock now provide (critic is a separate system message).
+ * 2. **DeepSeek direct**: Automatic prefix caching (1024+ token prefix).
+ *    No annotations needed; prefix stability is sufficient.
  *
- * 3. **DeepSeek**: Automatic prefix caching (first 1024+ tokens cached at provider).
- *    No annotation needed; prefix stability is sufficient.
+ * 3. **Implicit prefix**: vLLM, RunPod, DashScope, and other inference
+ *    engines that benefit from stable prefix ordering via KV-cache reuse.
+ *    No explicit markers (DashScope explicit caching was tested and found to
+ *    use full-body matching, not prefix matching — see alibaba-ticket).
  *
- * 4. **MiniMax**: No documented prompt caching API. Prefix stability may help
- *    via implicit KV-cache reuse on their side.
- *
- * This module provides:
- * - Detection of provider caching capability from the baseUrl / model name
- * - A message annotator for future Anthropic SDK integration
- * - Cache hit tracking helpers for forensics
+ * 4. **Anthropic explicit**: `cache_control: { type: "ephemeral" }` on
+ *    system message parts. Not yet active since Yarn uses createOpenAI.
  */
 
-export type CacheStrategy = "anthropic_explicit" | "dashscope_explicit" | "openrouter_auto" | "deepseek_auto" | "none";
+export type CacheStrategy = "anthropic_explicit" | "openrouter_auto" | "deepseek_auto" | "implicit_prefix" | "none";
 
 export function detectCacheStrategy(baseUrl: string, backendModel: string): CacheStrategy {
   const url = baseUrl.toLowerCase();
   const model = backendModel.toLowerCase();
 
   if (url.includes("openrouter.ai")) {
-    if (model.includes("claude") || model.includes("anthropic") || model.includes("deepseek")) {
+    // OpenRouter sticky routing supports implicit caching for these provider families
+    if (model.includes("claude") || model.includes("anthropic")
+      || model.includes("deepseek") || model.includes("qwen")
+      || model.includes("gemini") || model.includes("openai")
+      || model.includes("gpt-")) {
       return "openrouter_auto";
     }
   }
@@ -43,8 +43,10 @@ export function detectCacheStrategy(baseUrl: string, backendModel: string): Cach
     return "deepseek_auto";
   }
 
-  if (url.includes("dashscope")) {
-    return "dashscope_explicit";
+  // vLLM, DashScope, and other inference engines benefit from stable
+  // prefix ordering but don't need explicit markers.
+  if (url.includes("dashscope") || url.includes("vllm") || url.includes("localhost") || url.includes("runpod")) {
+    return "implicit_prefix";
   }
 
   return "none";
@@ -79,7 +81,7 @@ export function annotateCacheBreakpoints(
     breakpointsPlaced: 0,
   };
 
-  if (strategy === "none" || strategy === "openrouter_auto" || strategy === "deepseek_auto" || strategy === "dashscope_explicit") {
+  if (strategy === "none" || strategy === "openrouter_auto" || strategy === "deepseek_auto" || strategy === "implicit_prefix") {
     let prefixBytes = 0;
     for (const m of messages) {
       if (m.role !== "system") break;
