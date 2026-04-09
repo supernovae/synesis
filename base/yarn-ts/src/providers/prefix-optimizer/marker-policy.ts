@@ -47,28 +47,31 @@ function messageText(msg: ChatMessage): string {
 }
 
 /**
- * Find the conversation boundary: the last message before latest_user_turn.
+ * Find the conversation boundary: the last prior-turn message.
  *
  * In the rebuilt message array, the layout is:
- *   [system...] [prior-turn messages in original order...] [latest_user_turn]
+ *   [stable-system...] [prior-turn messages...] [live_context(system)] [latest_user_turn]
  *
- * The boundary is the last message before the user turn. Caching up to
- * this point means the entire prefix (system + all prior turns) gets
- * cached.  Each subsequent turn, the new boundary is only a few messages
- * past the old one — well within DashScope's 20-block search limit.
+ * The boundary is the last non-system message before live_context and
+ * the user turn. This is the end of the stable, append-only prefix.
+ * Each turn appends a few messages here; the previous boundary is
+ * always within DashScope's 20-block search window.
  */
 function findConversationBoundary(
   messages: ChatMessage[],
-  segments: ParsedSegment[],
+  _segments: ParsedSegment[],
 ): number {
-  const userTurnSeg = segments.find((s) => s.category === "latest_user_turn");
-  if (!userTurnSeg || userTurnSeg.sourceIndices.length === 0) return -1;
   if (messages.length < 3) return -1;
 
-  const boundaryIdx = messages.length - 2;
-  if (messages[boundaryIdx]?.role === "system") return -1;
-
-  return boundaryIdx;
+  // Walk backward from the end: skip user turn(s) and any trailing
+  // system messages (live_context). The boundary is the first
+  // non-system message we hit going backward.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const role = messages[i]?.role;
+    if (role === "user" || role === "system") continue;
+    return i;
+  }
+  return -1;
 }
 
 /**

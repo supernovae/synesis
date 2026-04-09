@@ -328,7 +328,7 @@ describe("frame compactor", () => {
 /* ── Request Rebuilder ──────────────────────────────────────── */
 
 describe("request rebuilder", () => {
-  it("places stable content before volatile content", () => {
+  it("places stable content before conversation, live_context after conversation", () => {
     const segments: ParsedSegment[] = [
       { category: "core_instructions", stability: "stable", content: "You are an AI assistant.", hash: "a1", sourceIndices: [0], tokenEstimate: 10 },
       { category: "project_guidance", stability: "stable", content: "# Conventions\nUse strict mode.", hash: "b1", sourceIndices: [0], tokenEstimate: 10 },
@@ -342,13 +342,17 @@ describe("request rebuilder", () => {
 
     const rebuilt = rebuildRequest(segments, original);
 
+    // Stable system messages first
     expect(rebuilt[0].role).toBe("system");
     expect(rebuilt[0].content).toContain("AI assistant");
     expect(rebuilt[1].role).toBe("system");
     expect((rebuilt[1].content as string)).toContain("Conventions");
-    expect(rebuilt[2].role).toBe("system");
-    expect((rebuilt[2].content as string)).toContain("Today's date");
 
+    // live_context is second-to-last (after any conversation, before user turn)
+    expect(rebuilt[rebuilt.length - 2].role).toBe("system");
+    expect((rebuilt[rebuilt.length - 2].content as string)).toContain("Today's date");
+
+    // user turn is last
     const lastMsg = rebuilt[rebuilt.length - 1];
     expect(lastMsg.role).toBe("user");
     expect(lastMsg.content).toContain("Fix the bug");
@@ -376,38 +380,42 @@ describe("marker policy", () => {
     { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u1", sourceIndices: [9], tokenEstimate: 5 },
   ];
 
+  // Simulates the rebuilt message array with the new layout:
+  // [stable systems] [conversation interleaved] [live_context system] [user turn]
   const messages: ChatMessage[] = [
-    { role: "system", content: "x".repeat(4000) },
-    { role: "system", content: "volatile stuff" },
-    { role: "user", content: "turn 1" },
-    { role: "assistant", content: "response 1" },
-    { role: "user", content: "turn 2" },
-    { role: "assistant", content: "response 2" },
-    { role: "tool", content: "result 1", tool_call_id: "c1" },
-    { role: "tool", content: "result 2", tool_call_id: "c2" },
-    { role: "assistant", content: "final response" },
-    { role: "user", content: "hello" },
+    { role: "system", content: "x".repeat(4000) },     // 0: core_instructions
+    { role: "user", content: "turn 1" },                // 1: conv history
+    { role: "assistant", content: "response 1" },       // 2: conv history
+    { role: "user", content: "turn 2" },                // 3: conv history
+    { role: "assistant", content: "response 2" },       // 4: conv history
+    { role: "tool", content: "result 1", tool_call_id: "c1" }, // 5: tool results
+    { role: "tool", content: "result 2", tool_call_id: "c2" }, // 6: tool results
+    { role: "assistant", content: "final response" },   // 7: tool results
+    { role: "system", content: "volatile stuff" },      // 8: live_context (after conv!)
+    { role: "user", content: "hello" },                 // 9: latest user turn
   ];
 
   it("returns empty array for none backend", () => {
     expect(computeMarkerPlacements(messages, segments, null, "none")).toEqual([]);
   });
 
-  it("places single boundary marker for dashscope (no distant marker at 0)", () => {
+  it("places single boundary marker at last conversation message (before live_context)", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    expect(markers).toEqual([8]);
+    // Boundary is the last non-system, non-user message (assistant at idx 7)
+    expect(markers).toEqual([7]);
     expect(markers).not.toContain(0);
   });
 
-  it("conversation boundary is last message before latest_user_turn", () => {
+  it("conversation boundary skips trailing system (live_context) and user messages", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    expect(markers[0]).toBe(messages.length - 2);
     expect(messages[markers[0]].role).toBe("assistant");
+    expect(markers[0]).toBe(7);
   });
 
-  it("never places markers on the latest_user_turn itself", () => {
+  it("never places markers on live_context or latest_user_turn", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    expect(markers).not.toContain(9);
+    expect(markers).not.toContain(8); // live_context
+    expect(markers).not.toContain(9); // user turn
   });
 
   it("respects max markers limit", () => {
@@ -415,7 +423,7 @@ describe("marker policy", () => {
     expect(markers.length).toBeLessThanOrEqual(1);
   });
 
-  it("returns empty when only system + user (boundary would be system)", () => {
+  it("returns empty when only system + user (no conversation messages)", () => {
     const tinyMessages: ChatMessage[] = [
       { role: "system", content: "x".repeat(4000) },
       { role: "user", content: "hello" },
@@ -440,6 +448,24 @@ describe("marker policy", () => {
       { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [2], tokenEstimate: 5 },
     ];
     const markers = computeMarkerPlacements(threeMessages, threeSegments, null, "dashscope");
+    expect(markers).toEqual([1]);
+  });
+
+  it("handles live_context between conversation and user turn correctly", () => {
+    const withLive: ChatMessage[] = [
+      { role: "system", content: "x".repeat(4000) },
+      { role: "assistant", content: "y".repeat(4000) },
+      { role: "system", content: "live context stuff" },  // live_context
+      { role: "user", content: "hello" },
+    ];
+    const withLiveSegments: ParsedSegment[] = [
+      { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "c", sourceIndices: [0], tokenEstimate: 1200 },
+      { category: "conversation_history", stability: "volatile", content: "y".repeat(4000), hash: "h", sourceIndices: [1], tokenEstimate: 1200 },
+      { category: "live_context", stability: "volatile", content: "live context stuff", hash: "l", sourceIndices: [2], tokenEstimate: 10 },
+      { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [3], tokenEstimate: 5 },
+    ];
+    const markers = computeMarkerPlacements(withLive, withLiveSegments, null, "dashscope");
+    // Boundary is the assistant at idx 1 (skipping system live_context and user)
     expect(markers).toEqual([1]);
   });
 });
