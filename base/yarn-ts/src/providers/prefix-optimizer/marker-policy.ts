@@ -5,19 +5,21 @@
  * This is the only provider-specific component in the prefix optimizer.
  * The rest of the optimizer is provider-agnostic.
  *
- * Strategy — single conversation-boundary marker:
+ * Strategy — FIXED-POSITION markers:
  *
- *   DashScope searches backward up to 20 content blocks from each marker.
- *   With 400+ messages, a marker at index 0 and another at ~406 are
- *   separated by far more than 20 blocks — the first marker's cache can
- *   never be found from the second marker.  Keeping TWO distant markers
- *   means DashScope re-creates 100% of tokens every turn.
+ *   DashScope's cache_control annotation becomes part of the serialized
+ *   message bytes. When a marker moves (e.g., from msg[120] to msg[125]),
+ *   the old position loses its cache_control, changing the bytes at that
+ *   position and preventing DashScope from matching the cached prefix.
  *
- *   Instead we use a SINGLE marker at the conversation boundary (last
- *   message before the latest user turn).  Each turn appends only a few
- *   messages, so the previous turn's boundary is always within 20 blocks
- *   of the new boundary.  DashScope finds the prior cache and creates
- *   only the increment, giving 80-95% cache hit rates.
+ *   Fix: place markers at FIXED positions that NEVER change across turns.
+ *   The rebuilt message layout is:
+ *     [system: core_instructions] [system: project_guidance] [system: task_frame]
+ *     [prior-turn messages...] [system: live_context] [user: latest turn]
+ *
+ *   Marker 1 (fixed): end of stable system messages (last system msg
+ *     before conversation history). This caches the system prompt prefix
+ *     which is identical every turn → guaranteed cache hit.
  *
  *   The interceptor also marks the last tool definition (separate from
  *   message markers), as required by DashScope for tool-schema caching.
@@ -47,55 +49,54 @@ function messageText(msg: ChatMessage): string {
 }
 
 /**
- * Find the conversation boundary: the last prior-turn message.
+ * Find the last stable system message index: the end of the system
+ * prefix before conversation history begins.
  *
- * In the rebuilt message array, the layout is:
- *   [stable-system...] [prior-turn messages...] [live_context(system)] [latest_user_turn]
+ * In the rebuilt layout:
+ *   [system: core] [system: project] [system: frame] [conversation...] [system: live] [user]
  *
- * The boundary is the last non-system message before live_context and
- * the user turn. This is the end of the stable, append-only prefix.
- * Each turn appends a few messages here; the previous boundary is
- * always within DashScope's 20-block search window.
+ * We want the index of the LAST leading system message (before the first
+ * non-system message). This position never changes across turns because
+ * the stable system categories are always emitted first.
  */
-function findConversationBoundary(
-  messages: ChatMessage[],
-  _segments: ParsedSegment[],
-): number {
-  if (messages.length < 3) return -1;
-
-  // Walk backward from the end: skip user turn(s) and any trailing
-  // system messages (live_context). The boundary is the first
-  // non-system message we hit going backward.
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const role = messages[i]?.role;
-    if (role === "user" || role === "system") continue;
-    return i;
+function findStableSystemEnd(messages: ChatMessage[]): number {
+  let lastSystemIdx = -1;
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i]?.role === "system") {
+      lastSystemIdx = i;
+    } else {
+      break;
+    }
   }
-  return -1;
+  return lastSystemIdx;
 }
 
 /**
  * Compute marker placements for DashScope explicit caching.
+ *
+ * Uses a single fixed-position marker at the end of the stable system
+ * prefix. This position is byte-identical across turns, ensuring
+ * DashScope always matches the cached prefix.
  */
 function computeDashScopeMarkers(
   messages: ChatMessage[],
-  segments: ParsedSegment[],
+  _segments: ParsedSegment[],
   _previousDiagnostics: PrefixDiagnostics | null,
   maxMarkers: number,
 ): number[] {
   const limit = Math.min(maxMarkers, DASHSCOPE_MAX_MARKERS);
   if (limit <= 0) return [];
 
-  const boundaryIdx = findConversationBoundary(messages, segments);
-  if (boundaryIdx < 0) return [];
+  const systemEnd = findStableSystemEnd(messages);
+  if (systemEnd < 0) return [];
 
   let totalTokens = 0;
-  for (let i = 0; i <= boundaryIdx; i++) {
+  for (let i = 0; i <= systemEnd; i++) {
     totalTokens += estimateTokens(messageText(messages[i]));
   }
   if (totalTokens < DASHSCOPE_MIN_TOKENS) return [];
 
-  return [boundaryIdx];
+  return [systemEnd];
 }
 
 /**

@@ -374,48 +374,59 @@ describe("request rebuilder", () => {
 describe("marker policy", () => {
   const segments: ParsedSegment[] = [
     { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "core1", sourceIndices: [0], tokenEstimate: 1200 },
+    { category: "project_guidance", stability: "stable", content: "y".repeat(4000), hash: "proj1", sourceIndices: [0], tokenEstimate: 1200 },
     { category: "live_context", stability: "volatile", content: "volatile stuff", hash: "v1", sourceIndices: [0], tokenEstimate: 50 },
-    { category: "conversation_history", stability: "volatile", content: "history...", hash: "h1", sourceIndices: [2, 3, 4, 5], tokenEstimate: 5000 },
-    { category: "tool_results", stability: "volatile", content: "results...", hash: "t1", sourceIndices: [6, 7, 8], tokenEstimate: 15000 },
-    { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u1", sourceIndices: [9], tokenEstimate: 5 },
+    { category: "conversation_history", stability: "volatile", content: "history...", hash: "h1", sourceIndices: [3, 4, 5, 6], tokenEstimate: 5000 },
+    { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u1", sourceIndices: [10], tokenEstimate: 5 },
   ];
 
   // Simulates the rebuilt message array with the new layout:
-  // [stable systems] [conversation interleaved] [live_context system] [user turn]
+  // [stable system: core] [stable system: project_guidance] [conversation interleaved]
+  // [task_frame system] [live_context system] [user turn]
   const messages: ChatMessage[] = [
     { role: "system", content: "x".repeat(4000) },     // 0: core_instructions
-    { role: "user", content: "turn 1" },                // 1: conv history
-    { role: "assistant", content: "response 1" },       // 2: conv history
-    { role: "user", content: "turn 2" },                // 3: conv history
-    { role: "assistant", content: "response 2" },       // 4: conv history
-    { role: "tool", content: "result 1", tool_call_id: "c1" }, // 5: tool results
-    { role: "tool", content: "result 2", tool_call_id: "c2" }, // 6: tool results
-    { role: "assistant", content: "final response" },   // 7: tool results
-    { role: "system", content: "volatile stuff" },      // 8: live_context (after conv!)
-    { role: "user", content: "hello" },                 // 9: latest user turn
+    { role: "system", content: "y".repeat(4000) },     // 1: project_guidance
+    { role: "user", content: "turn 1" },                // 2: conv history
+    { role: "assistant", content: "response 1" },       // 3: conv history
+    { role: "user", content: "turn 2" },                // 4: conv history
+    { role: "assistant", content: "response 2" },       // 5: conv history
+    { role: "tool", content: "result 1", tool_call_id: "c1" }, // 6: tool results
+    { role: "assistant", content: "final response" },   // 7: conv/tool
+    { role: "system", content: "task frame stuff" },    // 8: task_frame (volatile)
+    { role: "system", content: "volatile stuff" },      // 9: live_context
+    { role: "user", content: "hello" },                 // 10: latest user turn
   ];
 
   it("returns empty array for none backend", () => {
     expect(computeMarkerPlacements(messages, segments, null, "none")).toEqual([]);
   });
 
-  it("places single boundary marker at last conversation message (before live_context)", () => {
+  it("places fixed marker at end of stable system prefix", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    // Boundary is the last non-system, non-user message (assistant at idx 7)
-    expect(markers).toEqual([7]);
-    expect(markers).not.toContain(0);
+    // Fixed marker at last leading system message (project_guidance at idx 1)
+    expect(markers).toEqual([1]);
+    // Must NOT be on conversation, task_frame, live_context, or user
+    expect(markers).not.toContain(7);
+    expect(markers).not.toContain(8);
+    expect(markers).not.toContain(9);
+    expect(markers).not.toContain(10);
   });
 
-  it("conversation boundary skips trailing system (live_context) and user messages", () => {
+  it("marker is always on a system message", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    expect(messages[markers[0]].role).toBe("assistant");
-    expect(markers[0]).toBe(7);
+    expect(messages[markers[0]].role).toBe("system");
   });
 
-  it("never places markers on live_context or latest_user_turn", () => {
-    const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    expect(markers).not.toContain(8); // live_context
-    expect(markers).not.toContain(9); // user turn
+  it("marker position does not change when conversation grows", () => {
+    // Add more conversation messages — marker should stay at idx 1
+    const longerMessages: ChatMessage[] = [
+      ...messages.slice(0, 2), // system prefix (idx 0-1)
+      { role: "user", content: "extra turn" },
+      { role: "assistant", content: "extra response" },
+      ...messages.slice(2), // rest of conversation
+    ];
+    const markers = computeMarkerPlacements(longerMessages, segments, null, "dashscope");
+    expect(markers).toEqual([1]); // Still at idx 1
   });
 
   it("respects max markers limit", () => {
@@ -423,50 +434,30 @@ describe("marker policy", () => {
     expect(markers.length).toBeLessThanOrEqual(1);
   });
 
-  it("returns empty when only system + user (no conversation messages)", () => {
+  it("returns marker when system prefix has enough tokens", () => {
+    const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
+    expect(markers.length).toBe(1);
+  });
+
+  it("returns empty when system prefix is too small", () => {
     const tinyMessages: ChatMessage[] = [
-      { role: "system", content: "x".repeat(4000) },
+      { role: "system", content: "tiny" },  // well under 1024 tokens
       { role: "user", content: "hello" },
     ];
     const tinySegments: ParsedSegment[] = [
-      { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "c", sourceIndices: [0], tokenEstimate: 1200 },
+      { category: "core_instructions", stability: "stable", content: "tiny", hash: "c", sourceIndices: [0], tokenEstimate: 5 },
       { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [1], tokenEstimate: 5 },
     ];
     const markers = computeMarkerPlacements(tinyMessages, tinySegments, null, "dashscope");
     expect(markers).toEqual([]);
   });
 
-  it("places boundary marker when there is at least one non-system message before user turn", () => {
-    const threeMessages: ChatMessage[] = [
-      { role: "system", content: "x".repeat(4000) },
-      { role: "assistant", content: "y".repeat(4000) },
+  it("returns empty when only user messages (no system prefix)", () => {
+    const noSystem: ChatMessage[] = [
       { role: "user", content: "hello" },
     ];
-    const threeSegments: ParsedSegment[] = [
-      { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "c", sourceIndices: [0], tokenEstimate: 1200 },
-      { category: "conversation_history", stability: "volatile", content: "y".repeat(4000), hash: "h", sourceIndices: [1], tokenEstimate: 1200 },
-      { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [2], tokenEstimate: 5 },
-    ];
-    const markers = computeMarkerPlacements(threeMessages, threeSegments, null, "dashscope");
-    expect(markers).toEqual([1]);
-  });
-
-  it("handles live_context between conversation and user turn correctly", () => {
-    const withLive: ChatMessage[] = [
-      { role: "system", content: "x".repeat(4000) },
-      { role: "assistant", content: "y".repeat(4000) },
-      { role: "system", content: "live context stuff" },  // live_context
-      { role: "user", content: "hello" },
-    ];
-    const withLiveSegments: ParsedSegment[] = [
-      { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "c", sourceIndices: [0], tokenEstimate: 1200 },
-      { category: "conversation_history", stability: "volatile", content: "y".repeat(4000), hash: "h", sourceIndices: [1], tokenEstimate: 1200 },
-      { category: "live_context", stability: "volatile", content: "live context stuff", hash: "l", sourceIndices: [2], tokenEstimate: 10 },
-      { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [3], tokenEstimate: 5 },
-    ];
-    const markers = computeMarkerPlacements(withLive, withLiveSegments, null, "dashscope");
-    // Boundary is the assistant at idx 1 (skipping system live_context and user)
-    expect(markers).toEqual([1]);
+    const markers = computeMarkerPlacements(noSystem, [], null, "dashscope");
+    expect(markers).toEqual([]);
   });
 });
 
