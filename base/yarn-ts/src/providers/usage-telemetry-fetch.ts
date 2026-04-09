@@ -26,10 +26,27 @@ export function createUsageTelemetryFetch(
 
     let isStreaming = false;
     let messageCount = 0;
+    let prefixHashes: string[] | undefined;
+    let toolsHash: string | undefined;
     try {
       const body = JSON.parse(init.body);
       isStreaming = body?.stream === true;
       messageCount = Array.isArray(body?.messages) ? body.messages.length : 0;
+      // Hash first 5 messages + tools to diagnose prefix cache breaks
+      if (Array.isArray(body?.messages)) {
+        prefixHashes = body.messages.slice(0, 5).map((m: Record<string, unknown>, i: number) => {
+          const s = JSON.stringify(m);
+          let h = 0;
+          for (let j = 0; j < s.length; j++) h = ((h << 5) - h + s.charCodeAt(j)) | 0;
+          return `${i}:${String(m.role ?? "?").slice(0, 1)}:${(h >>> 0).toString(16).padStart(8, "0")}:${s.length}`;
+        });
+      }
+      if (Array.isArray(body?.tools)) {
+        const ts = JSON.stringify(body.tools);
+        let h = 0;
+        for (let j = 0; j < ts.length; j++) h = ((h << 5) - h + ts.charCodeAt(j)) | 0;
+        toolsHash = `${body.tools.length}t:${(h >>> 0).toString(16).padStart(8, "0")}:${ts.length}`;
+      }
     } catch { /* not JSON, pass through */ }
 
     const resp = await nativeFetch(input, init);
@@ -76,6 +93,8 @@ export function createUsageTelemetryFetch(
               cache_creation: creation,
               cache_hit_pct: prompt > 0 ? Math.round((cached / prompt) * 100) : 0,
               message_count: messageCount,
+              ...(prefixHashes ? { prefix_hashes: prefixHashes } : {}),
+              ...(toolsHash ? { tools_hash: toolsHash } : {}),
             }));
           } catch { /* ignore parse error */ }
         }
