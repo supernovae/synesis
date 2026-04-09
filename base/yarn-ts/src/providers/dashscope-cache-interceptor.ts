@@ -349,27 +349,57 @@ export function createDashScopeCacheFetch(
         (async () => {
           try {
             await new Promise(r => setTimeout(r, 8000));
-            const replayBody = JSON.parse(_replayBody!);
-            replayBody.stream = false;
-            delete replayBody.stream_options;
-            replayBody.max_tokens = 10;
-            const replayResp = await globalThis.fetch(new URL(_replayUrl!), {
+
+            // Test A: Replay EXACT same body (proves cache works at all)
+            const replayBodyA = JSON.parse(_replayBody!);
+            replayBodyA.stream = false;
+            delete replayBodyA.stream_options;
+            replayBodyA.max_tokens = 10;
+            const respA = await globalThis.fetch(new URL(_replayUrl!), {
               method: "POST",
               headers: { "Content-Type": "application/json", ..._replayHeaders! },
-              body: JSON.stringify(replayBody),
+              body: JSON.stringify(replayBodyA),
             });
-            const replayJson = await replayResp.json() as { usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number } } };
-            const rd = replayJson?.usage?.prompt_tokens_details;
+            const jsonA = await respA.json() as { usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number } } };
+            const rdA = jsonA?.usage?.prompt_tokens_details;
             console.log(JSON.stringify({
               level: 30,
               msg: "dashscope_replay_cache_test",
-              result: (rd?.cached_tokens ?? 0) > 0 ? "CACHE_HIT" : "CACHE_MISS",
-              prompt_tokens: replayJson?.usage?.prompt_tokens ?? "?",
-              cached_tokens: rd?.cached_tokens ?? 0,
-              cache_creation: rd?.cache_creation_input_tokens ?? 0,
-              replayRequestCount: _replayRequestCount,
-              savedBodyBytes: _replayBody!.length,
-              currentBodyBytes: serializedBody.length,
+              test: "A_exact_body",
+              result: (rdA?.cached_tokens ?? 0) > 0 ? "CACHE_HIT" : "CACHE_MISS",
+              prompt_tokens: jsonA?.usage?.prompt_tokens ?? "?",
+              cached_tokens: rdA?.cached_tokens ?? 0,
+              cache_creation: rdA?.cache_creation_input_tokens ?? 0,
+            }));
+
+            // Test B: Same prefix (msg[0] + tools) but DIFFERENT trailing messages
+            // This tells us if DashScope caches by prefix or full body
+            await new Promise(r => setTimeout(r, 2000));
+            const replayBodyB = JSON.parse(_replayBody!);
+            replayBodyB.stream = false;
+            delete replayBodyB.stream_options;
+            replayBodyB.max_tokens = 10;
+            // Keep msg[0] (system with cache_control) but replace all other messages
+            replayBodyB.messages = [
+              replayBodyB.messages[0],
+              { role: "user", content: "What is 2+2?" },
+            ];
+            const respB = await globalThis.fetch(new URL(_replayUrl!), {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ..._replayHeaders! },
+              body: JSON.stringify(replayBodyB),
+            });
+            const jsonB = await respB.json() as { usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number } } };
+            const rdB = jsonB?.usage?.prompt_tokens_details;
+            console.log(JSON.stringify({
+              level: 30,
+              msg: "dashscope_replay_cache_test",
+              test: "B_prefix_only",
+              result: (rdB?.cached_tokens ?? 0) > 0 ? "CACHE_HIT" : "CACHE_MISS",
+              prompt_tokens: jsonB?.usage?.prompt_tokens ?? "?",
+              cached_tokens: rdB?.cached_tokens ?? 0,
+              cache_creation: rdB?.cache_creation_input_tokens ?? 0,
+              msgCount: 2,
             }));
           } catch (err) {
             console.log(JSON.stringify({ level: 40, msg: "dashscope_replay_test_error", error: String(err) }));
