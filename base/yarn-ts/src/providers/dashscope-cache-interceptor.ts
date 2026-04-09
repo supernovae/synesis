@@ -1,19 +1,16 @@
 /**
- * DashScope Explicit Cache Interceptor
+ * DashScope Explicit Cache Marker Injector
  *
- * Wraps native fetch to inject `cache_control: { type: "ephemeral" }` markers
- * into outgoing DashScope chat completion requests. DashScope supports up to
- * 4 markers per request; each creates a prefix-cache block from the start of
- * the messages array to the marker position.
+ * Thin fetch wrapper that injects `cache_control: { type: "ephemeral" }`
+ * markers at message indices determined by the PrefixOptimizer.
  *
- * Marker placement strategy (most-stable → least-stable):
- *   1. Last system message — nearly 100% hit rate across turns
- *   2. Boundary between system block and conversation history
- *   3. Last message before the final user turn — high hit rate for tool loops
- *   4. Final user message — helps retry scenarios within the same turn
+ * The optimizer (application layer) decides WHERE markers go based on
+ * semantic content stability. This interceptor (transport layer) only
+ * applies the markers to the serialized request body and captures
+ * response usage for diagnostics.
  *
- * Cost model: creation = 125% of input cost (one-time per 5 min TTL),
- * cache read = 10% of input cost.
+ * Also supports a legacy fallback mode (selectBreakpoints) when the
+ * optimizer is not active.
  */
 
 interface ContentBlock {
@@ -47,8 +44,8 @@ function tagLastBlock(blocks: ContentBlock[]): ContentBlock[] {
 }
 
 /**
- * Compute message indices that should receive cache_control markers,
- * ordered by priority (most stable first). Returns at most `maxMarkers`.
+ * Legacy breakpoint selection — used only when the PrefixOptimizer is not active.
+ * Computes message indices from role boundaries (least accurate but still functional).
  */
 export function selectBreakpoints(messages: ChatMessage[], maxMarkers: number): number[] {
   if (messages.length === 0 || maxMarkers <= 0) return [];
@@ -65,18 +62,14 @@ export function selectBreakpoints(messages: ChatMessage[], maxMarkers: number): 
     }
   }
 
-  // Marker 1: last system message (most stable)
   if (lastSystemIdx >= 0) {
     indices.push(lastSystemIdx);
   }
 
-  // Marker 2: first non-system message (system/conversation boundary)
-  // Only distinct from marker 1 when there's a gap
   if (firstNonSystemIdx >= 0 && firstNonSystemIdx !== lastSystemIdx && !indices.includes(firstNonSystemIdx)) {
     indices.push(firstNonSystemIdx);
   }
 
-  // Find the final user message index
   let finalUserIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "user") {
@@ -85,7 +78,6 @@ export function selectBreakpoints(messages: ChatMessage[], maxMarkers: number): 
     }
   }
 
-  // Marker 3: last message before the final user turn (history boundary)
   if (finalUserIdx > 0) {
     const historyBoundary = finalUserIdx - 1;
     if (!indices.includes(historyBoundary)) {
@@ -93,7 +85,6 @@ export function selectBreakpoints(messages: ChatMessage[], maxMarkers: number): 
     }
   }
 
-  // Marker 4: final user message (retry scenarios)
   if (finalUserIdx >= 0 && !indices.includes(finalUserIdx)) {
     indices.push(finalUserIdx);
   }
@@ -102,14 +93,14 @@ export function selectBreakpoints(messages: ChatMessage[], maxMarkers: number): 
 }
 
 /**
- * Inject cache_control markers into a cloned messages array.
+ * Inject cache_control markers at specified message indices.
  */
-export function injectCacheMarkers(messages: ChatMessage[], maxMarkers: number): ChatMessage[] {
-  const breakpoints = new Set(selectBreakpoints(messages, maxMarkers));
-  if (breakpoints.size === 0) return messages;
+export function injectCacheMarkers(messages: ChatMessage[], markerIndices: number[]): ChatMessage[] {
+  const indices = new Set(markerIndices);
+  if (indices.size === 0) return messages;
 
   return messages.map((msg, idx) => {
-    if (!breakpoints.has(idx)) return msg;
+    if (!indices.has(idx)) return msg;
     const blocks = tagLastBlock(ensureArrayContent(msg));
     return { ...msg, content: blocks };
   });
@@ -117,11 +108,14 @@ export function injectCacheMarkers(messages: ChatMessage[], maxMarkers: number):
 
 /**
  * Create a fetch wrapper that injects DashScope cache markers.
- * Pass this as the `fetch` option to `createOpenAI()`.
+ *
+ * When `getMarkerIndices` is provided (optimizer active), uses those indices.
+ * Otherwise falls back to legacy selectBreakpoints.
  */
 export function createDashScopeCacheFetch(
   nativeFetch: typeof globalThis.fetch,
   maxMarkers = 3,
+  getMarkerIndices?: () => number[],
 ): typeof globalThis.fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (!init?.body || typeof init.body !== "string") {
@@ -134,26 +128,31 @@ export function createDashScopeCacheFetch(
         return nativeFetch(input, init);
       }
 
-      const breakpoints = selectBreakpoints(body.messages, maxMarkers);
-      body.messages = injectCacheMarkers(body.messages, maxMarkers);
+      const indices = getMarkerIndices
+        ? getMarkerIndices()
+        : selectBreakpoints(body.messages, maxMarkers);
+
+      body.messages = injectCacheMarkers(body.messages, indices);
       const hasStream = body.stream === true;
-      const hasStreamOptions = !!body.stream_options;
+
       console.log(JSON.stringify({
         level: 20,
         msg: "dashscope_cache_markers_injected",
         messageCount: body.messages.length,
-        breakpointIndices: breakpoints,
-        markerCount: breakpoints.length,
+        markerIndices: indices,
+        markerCount: indices.length,
+        optimizerActive: !!getMarkerIndices,
         stream: hasStream,
-        streamOptions: hasStreamOptions,
         url: String(input).replace(/\?.*/, ""),
       }));
+
       const resp = await nativeFetch(input, { ...init, body: JSON.stringify(body) });
       if (!hasStream) return resp;
-      // Tee the stream to capture the final usage chunk for diagnostics
+
       const origBody = resp.body;
       if (!origBody) return resp;
       const [forSDK, forDiag] = origBody.tee();
+
       (async () => {
         try {
           const reader = forDiag.getReader();
@@ -184,6 +183,7 @@ export function createDashScopeCacheFetch(
           }
         } catch { /* ignore stream read error */ }
       })();
+
       return new Response(forSDK, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
     } catch {
       return nativeFetch(input, init);

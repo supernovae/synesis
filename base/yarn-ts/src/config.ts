@@ -179,6 +179,11 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS: z.coerce.number().default(3),
+  /** Enable the provider-agnostic prefix optimizer (stable-first message layout). */
+  SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_MODEL_SELECTION_MODE: z
     .enum(["respect_explicit", "preference", "lock"])
     .default("respect_explicit"),

@@ -3,6 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createDashScopeCacheFetch } from "./dashscope-cache-interceptor.js";
+import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
 
 export interface DashScopeCacheOpts {
   enabled: boolean;
@@ -11,12 +12,31 @@ export interface DashScopeCacheOpts {
 
 export class SynesisProviderRegistry {
   private tierMap = new Map<string, TierConfig>();
+  private prefixOptimizer: PrefixOptimizer | null = null;
+  private currentSessionKey: string | null = null;
 
   updateTiers(tiers: TierConfig[]): void {
     this.tierMap.clear();
     for (const tier of tiers) {
       this.tierMap.set(tier.id, tier);
     }
+  }
+
+  /**
+   * Set the prefix optimizer instance.
+   * Called once at startup from index.ts.
+   */
+  setPrefixOptimizer(optimizer: PrefixOptimizer): void {
+    this.prefixOptimizer = optimizer;
+  }
+
+  /**
+   * Set the current session key for marker index lookup.
+   * Must be called before resolve() so the fetch interceptor
+   * can look up the correct marker indices.
+   */
+  setCurrentSessionKey(sessionKey: string): void {
+    this.currentSessionKey = sessionKey;
   }
 
   getAvailableModels(): Array<{ id: string; object: "model"; owned_by: string; created: number }> {
@@ -43,7 +63,14 @@ export class SynesisProviderRegistry {
     }
     const isDashScope = selected.baseUrl.toLowerCase().includes("dashscope");
     const wrapFetch = isDashScope && dashScopeCache?.enabled;
+
     if (wrapFetch) {
+      const optimizer = this.prefixOptimizer;
+      const sessionKey = this.currentSessionKey;
+      const getMarkerIndices = optimizer && sessionKey
+        ? () => optimizer.getMarkerIndicesForSession(sessionKey)
+        : undefined;
+
       console.log(JSON.stringify({
         level: 20,
         msg: "dashscope_cache_interceptor_active",
@@ -51,12 +78,30 @@ export class SynesisProviderRegistry {
         baseUrl: selected.baseUrl.replace(/\/\/[^@]+@/, "//***@"),
         backendModel: selected.backendModel,
         maxMarkers: dashScopeCache!.maxMarkers,
+        optimizerActive: !!getMarkerIndices,
       }));
+
+      const upstream = createOpenAI({
+        baseURL: selected.baseUrl,
+        apiKey: selected.apiKey,
+        fetch: createDashScopeCacheFetch(
+          globalThis.fetch,
+          dashScopeCache!.maxMarkers,
+          getMarkerIndices,
+        ),
+      });
+      const provider = customProvider({
+        languageModels: {
+          [selected.id]: upstream.chat(selected.backendModel)
+        }
+      });
+      const adapter = resolveAdapter(selected.backendModel, selected.baseUrl);
+      return { model: provider.languageModel(selected.id), resolvedModelId: selected.id, adapter };
     }
+
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
       apiKey: selected.apiKey,
-      ...(wrapFetch ? { fetch: createDashScopeCacheFetch(globalThis.fetch, dashScopeCache!.maxMarkers) } : {}),
     });
     const provider = customProvider({
       languageModels: {

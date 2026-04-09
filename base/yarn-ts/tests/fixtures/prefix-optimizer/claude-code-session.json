@@ -1,0 +1,144 @@
+{
+  "description": "Realistic multi-turn Claude Code session with mixed stable/volatile system content",
+  "turns": [
+    {
+      "label": "turn_1",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an AI coding assistant provided by Synesis.\n\nYou operate in Cursor.\n\n<tone_and_style>\n- Only use emojis if the user explicitly requests it.\n- Output text to communicate with the user.\n- NEVER create files unless absolutely necessary.\n</tone_and_style>\n\n<making_code_changes>\n1. You MUST use the Read tool before editing.\n2. NEVER generate extremely long hashes.\n3. Do NOT add comments that just narrate what the code does.\n</making_code_changes>\n\n<citing_code>\nUse CODE REFERENCES for existing code.\nUse MARKDOWN CODE BLOCKS for new code.\n</citing_code>\n\n<tool_calling>\nFollow these rules regarding tool calls:\n1. Don't refer to tool names when speaking to the USER.\n2. Use specialized tools instead of terminal commands.\n</tool_calling>\n\n<rules>\n<always_applied_workspace_rules>\n<always_applied_workspace_rule name=\"/Users/testuser/src/myproject/.cursor/rules/conventions.mdc\">\n# Project Conventions\n\n- Use TypeScript strict mode\n- Prefer functional components\n- Use Zod for validation\n- Tests must pass before committing\n</always_applied_workspace_rule>\n</always_applied_workspace_rules>\n</rules>\n\n<agent_skills>\nAvailable skills for the agent.\n</agent_skills>\n\n<user_info>\nOS Version: darwin 25.4.0\nShell: zsh\nWorkspace Path: /Users/testuser/src/myproject\nIs directory a git repo: Yes\nToday's date: Tuesday Apr 8, 2026\n</user_info>\n\n<open_and_recently_viewed_files>\nRecently viewed files:\n- /Users/testuser/src/myproject/src/index.ts\n- /Users/testuser/src/myproject/src/config.ts\n\nFiles currently open:\n- /Users/testuser/src/myproject/src/index.ts\n</open_and_recently_viewed_files>"
+        },
+        {
+          "role": "user",
+          "content": "Fix the bug in auth.ts where login fails for users with special characters in their password"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "description": "Read the contents of a file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "The file path to read" }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "description": "Write content to a file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "The file path to write" },
+                "content": { "type": "string", "description": "The content to write" }
+              },
+              "required": ["path", "content"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "description": "Execute a bash command in the terminal",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "command": { "type": "string", "description": "The command to execute" }
+              },
+              "required": ["command"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "turn_2",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an AI coding assistant provided by Synesis.\n\nYou operate in Cursor.\n\n<tone_and_style>\n- Only use emojis if the user explicitly requests it.\n- Output text to communicate with the user.\n- NEVER create files unless absolutely necessary.\n</tone_and_style>\n\n<making_code_changes>\n1. You MUST use the Read tool before editing.\n2. NEVER generate extremely long hashes.\n3. Do NOT add comments that just narrate what the code does.\n</making_code_changes>\n\n<citing_code>\nUse CODE REFERENCES for existing code.\nUse MARKDOWN CODE BLOCKS for new code.\n</citing_code>\n\n<tool_calling>\nFollow these rules regarding tool calls:\n1. Don't refer to tool names when speaking to the USER.\n2. Use specialized tools instead of terminal commands.\n</tool_calling>\n\n<rules>\n<always_applied_workspace_rules>\n<always_applied_workspace_rule name=\"/Users/testuser/src/myproject/.cursor/rules/conventions.mdc\">\n# Project Conventions\n\n- Use TypeScript strict mode\n- Prefer functional components\n- Use Zod for validation\n- Tests must pass before committing\n</always_applied_workspace_rule>\n</always_applied_workspace_rules>\n</rules>\n\n<agent_skills>\nAvailable skills for the agent.\n</agent_skills>\n\n<user_info>\nOS Version: darwin 25.4.0\nShell: zsh\nWorkspace Path: /Users/testuser/src/myproject\nIs directory a git repo: Yes\nToday's date: Tuesday Apr 8, 2026\n</user_info>\n\n<open_and_recently_viewed_files>\nRecently viewed files:\n- /Users/testuser/src/myproject/src/auth.ts\n- /Users/testuser/src/myproject/src/index.ts\n\nFiles currently open:\n- /Users/testuser/src/myproject/src/auth.ts\n</open_and_recently_viewed_files>"
+        },
+        {
+          "role": "user",
+          "content": "Fix the bug in auth.ts where login fails for users with special characters in their password"
+        },
+        {
+          "role": "assistant",
+          "content": "I'll read the auth.ts file to understand the current implementation.",
+          "tool_calls": [
+            {
+              "id": "call_001",
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "arguments": "{\"path\": \"src/auth.ts\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_001",
+          "content": "export function login(username: string, password: string) {\n  const encoded = encodeURIComponent(password);\n  return fetch(`/api/login?user=${username}&pass=${encoded}`);\n}"
+        },
+        {
+          "role": "user",
+          "content": "That looks right, now add tests for the special character cases"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "description": "Read the contents of a file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "The file path to read" }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "description": "Write content to a file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "The file path to write" },
+                "content": { "type": "string", "description": "The content to write" }
+              },
+              "required": ["path", "content"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "description": "Execute a bash command in the terminal",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "command": { "type": "string", "description": "The command to execute" }
+              },
+              "required": ["command"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

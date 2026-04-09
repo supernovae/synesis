@@ -56,7 +56,7 @@ describe("injectCacheMarkers", () => {
       { role: "system", content: "system prompt" },
       { role: "user", content: "hello" },
     ];
-    const result = injectCacheMarkers(msgs, 3);
+    const result = injectCacheMarkers(msgs, [0, 1]);
     const sys = result[0];
     expect(Array.isArray(sys.content)).toBe(true);
     const blocks = sys.content as Array<{ type: string; text?: string; cache_control?: { type: string } }>;
@@ -75,7 +75,7 @@ describe("injectCacheMarkers", () => {
       },
       { role: "user", content: "hi" },
     ];
-    const result = injectCacheMarkers(msgs, 3);
+    const result = injectCacheMarkers(msgs, [0, 1]);
     const blocks = result[0].content as Array<{ type: string; text?: string; cache_control?: { type: string } }>;
     expect(blocks[0].cache_control).toBeUndefined();
     expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
@@ -88,7 +88,7 @@ describe("injectCacheMarkers", () => {
       { role: "assistant", content: "a1" },
       { role: "user", content: "q2" },
     ];
-    const result = injectCacheMarkers(msgs, 1);
+    const result = injectCacheMarkers(msgs, [0]);
     expect(result[1].content).toBe("q1");
     expect(result[2].content).toBe("a1");
     expect(result[3].content).toBe("q2");

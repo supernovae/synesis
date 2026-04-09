@@ -39,6 +39,7 @@ import {
   type RoleAssignmentConfig,
 } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
+import { PrefixOptimizer, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import { SessionStore, type SessionRecord } from "./state/session-store.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
@@ -1073,6 +1074,21 @@ const securityIngestConfig = {
   adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
 };
 const tierRegistry = new SynesisProviderRegistry();
+
+const prefixOptimizerMarkerBackend: MarkerBackend =
+  config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_ENABLED ? "dashscope" : "none";
+const prefixOptimizer = config.SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED
+  ? new PrefixOptimizer({
+      markerBackend: prefixOptimizerMarkerBackend,
+      maxMarkers: config.SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS,
+      enableReduction: true,
+      enableDiagnosticLogging: true,
+    })
+  : null;
+if (prefixOptimizer) {
+  tierRegistry.setPrefixOptimizer(prefixOptimizer);
+}
+
 const roleAssignmentRegistry = new Map<string, RoleAssignmentConfig>();
 let promptSnapshotRegistry: PromptSnapshot | null = null;
 const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS, config.SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS);
@@ -4585,6 +4601,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
 
+  if (prefixOptimizer) {
+    try {
+      tierRegistry.setCurrentSessionKey(sessionKey);
+      const optimized = prefixOptimizer.optimize(
+        normalizedRequest.messages as never,
+        normalizedRequest.tools as never,
+        sessionKey,
+      );
+      normalizedRequest.messages = optimized.messages as never;
+    } catch (err) {
+      app.log.warn({ err, sessionKey }, "prefix_optimizer_oai_error");
+    }
+  }
+
   const resolveResult = runOpenAIRequest(normalizedRequest);
   if (!resolveResult.ok) {
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "resolve_failure", "tier-registry", resolveResult.error, reqId);
@@ -6552,6 +6582,20 @@ app.post("/v1/messages", async (req, reply) => {
   // if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED && !body.stream) {
   //   openAIShape.tools = webSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
   // }
+
+  if (prefixOptimizer) {
+    try {
+      tierRegistry.setCurrentSessionKey(claudeSessionKey);
+      const optimized = prefixOptimizer.optimize(
+        openAIShape.messages as never,
+        openAIShape.tools as never,
+        claudeSessionKey,
+      );
+      openAIShape.messages = optimized.messages as never;
+    } catch (err) {
+      app.log.warn({ err, sessionKey: claudeSessionKey }, "prefix_optimizer_claude_error");
+    }
+  }
 
   const claudeResolveResult = runOpenAIRequest(openAIShape);
   if (!claudeResolveResult.ok) {
