@@ -94,14 +94,21 @@ export function selectBreakpoints(messages: ChatMessage[], maxMarkers: number): 
 
 /**
  * Inject cache_control markers at specified message indices.
+ *
+ * CRITICAL: ALL messages are normalized to array content format, not
+ * just marked ones. If only marked messages were converted, the old
+ * boundary message would flip from array→string when the boundary
+ * moves forward on the next turn, changing the prefix bytes and
+ * preventing DashScope from matching the cached prefix.
  */
 export function injectCacheMarkers(messages: ChatMessage[], markerIndices: number[]): ChatMessage[] {
   const indices = new Set(markerIndices);
-  if (indices.size === 0) return messages;
 
   return messages.map((msg, idx) => {
-    if (!indices.has(idx)) return msg;
-    const blocks = tagLastBlock(ensureArrayContent(msg));
+    const blocks = ensureArrayContent(msg);
+    if (indices.has(idx)) {
+      tagLastBlock(blocks);
+    }
     return { ...msg, content: blocks };
   });
 }
