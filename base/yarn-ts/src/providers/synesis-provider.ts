@@ -43,6 +43,16 @@ export class SynesisProviderRegistry {
     }
     const isDashScope = selected.baseUrl.toLowerCase().includes("dashscope");
     const wrapFetch = isDashScope && dashScopeCache?.enabled;
+    if (wrapFetch) {
+      console.log(JSON.stringify({
+        level: 20,
+        msg: "dashscope_cache_interceptor_active",
+        tier: selected.id,
+        baseUrl: selected.baseUrl.replace(/\/\/[^@]+@/, "//***@"),
+        backendModel: selected.backendModel,
+        maxMarkers: dashScopeCache!.maxMarkers,
+      }));
+    }
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
       apiKey: selected.apiKey,

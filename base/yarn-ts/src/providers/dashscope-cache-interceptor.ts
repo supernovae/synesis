@@ -134,7 +134,16 @@ export function createDashScopeCacheFetch(
         return nativeFetch(input, init);
       }
 
+      const breakpoints = selectBreakpoints(body.messages, maxMarkers);
       body.messages = injectCacheMarkers(body.messages, maxMarkers);
+      console.log(JSON.stringify({
+        level: 20,
+        msg: "dashscope_cache_markers_injected",
+        messageCount: body.messages.length,
+        breakpointIndices: breakpoints,
+        markerCount: breakpoints.length,
+        url: String(input).replace(/\?.*/, ""),
+      }));
       return nativeFetch(input, { ...init, body: JSON.stringify(body) });
     } catch {
       return nativeFetch(input, init);
