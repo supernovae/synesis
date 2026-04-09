@@ -361,7 +361,53 @@ export function createDashScopeCacheFetch(
         } catch { _replayHeaders = {}; }
       }
 
+      // Compare prefix bytes with saved replay body (detect subtle prefix drift)
+      if (_replayBody) {
+        const savedPrefix = _replayBody.slice(0, 500);
+        const currentPrefix = serializedBody.slice(0, 500);
+        const prefixMatch = savedPrefix === currentPrefix;
+        if (!prefixMatch) {
+          let firstDiffIdx = 0;
+          for (let i = 0; i < Math.min(savedPrefix.length, currentPrefix.length); i++) {
+            if (savedPrefix[i] !== currentPrefix[i]) { firstDiffIdx = i; break; }
+          }
+          console.log(JSON.stringify({
+            level: 30,
+            msg: "dashscope_prefix_drift_detected",
+            firstDiffIdx,
+            saved: savedPrefix.slice(Math.max(0, firstDiffIdx - 20), firstDiffIdx + 40),
+            current: currentPrefix.slice(Math.max(0, firstDiffIdx - 20), firstDiffIdx + 40),
+          }));
+        } else {
+          console.log(JSON.stringify({
+            level: 20,
+            msg: "dashscope_prefix_stable",
+            prefixBytesChecked: 500,
+          }));
+        }
+      }
+
       const resp = await nativeFetch(input, { ...init, body: serializedBody });
+
+      // Capture response headers for load-balancer / server routing info
+      try {
+        const respHeaders: Record<string, string> = {};
+        resp.headers.forEach((v, k) => {
+          const kl = k.toLowerCase();
+          if (kl.includes("server") || kl.includes("request-id") || kl.includes("dashscope")
+              || kl.includes("x-") || kl === "via" || kl === "cf-ray") {
+            respHeaders[k] = v;
+          }
+        });
+        if (Object.keys(respHeaders).length > 0) {
+          console.log(JSON.stringify({
+            level: 20,
+            msg: "dashscope_response_headers",
+            headers: respHeaders,
+          }));
+        }
+      } catch { /* ignore */ }
+
       if (!hasStream) return resp;
 
       const origBody = resp.body;
