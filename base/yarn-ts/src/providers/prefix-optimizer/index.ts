@@ -16,6 +16,7 @@
 
 import type {
   ChatMessage,
+  ClientMetadata,
   MarkerBackend,
   OptimizedRequest,
   PrefixDiagnostics,
@@ -27,6 +28,7 @@ import { extractCompactFrame } from "./frame-compactor.js";
 import { rebuildRequest } from "./request-rebuilder.js";
 import { computeMarkerPlacements } from "./marker-policy.js";
 import { buildDiagnostics, logPrefixDiagnostics } from "./diagnostics.js";
+import { extractMetadataFromMessages } from "./metadata-extractor.js";
 
 export interface PrefixOptimizerOpts {
   markerBackend: MarkerBackend;
@@ -64,6 +66,8 @@ export class PrefixOptimizer {
     sessionKey: string,
   ): OptimizedRequest {
     const previousDiag = this.sessionDiagnostics.get(sessionKey) ?? null;
+
+    const clientMetadata = extractMetadataFromMessages(messages);
 
     const { tools: canonicalTools, hash: toolsetHash } = canonicalizeTools(tools);
 
@@ -109,7 +113,7 @@ export class PrefixOptimizer {
       logPrefixDiagnostics(diagnostics, previousDiag, null);
     }
 
-    return { messages: rebuilt, markerIndices, diagnostics };
+    return { messages: rebuilt, markerIndices, diagnostics, clientMetadata };
   }
 
   /**
@@ -143,7 +147,7 @@ export class PrefixOptimizer {
   }
 }
 
-export { type OptimizedRequest, type PrefixDiagnostics, type MarkerBackend } from "./types.js";
+export { type OptimizedRequest, type PrefixDiagnostics, type MarkerBackend, type ClientMetadata } from "./types.js";
 export { canonicalizeTools } from "./tool-canonicalizer.js";
 export { parseRequest } from "./request-parser.js";
 export { classifyVolatility, splitAtVolatileBoundary } from "./volatility.js";
@@ -151,3 +155,4 @@ export { rebuildRequest, countSystemPrefix } from "./request-rebuilder.js";
 export { computeMarkerPlacements } from "./marker-policy.js";
 export { buildDiagnostics, logPrefixDiagnostics, generateMissReport } from "./diagnostics.js";
 export { canonicalizeMessage, canonicalStringify, normalizeWhitespace } from "./serializer.js";
+export { extractClientMetadata, extractMetadataFromMessages } from "./metadata-extractor.js";

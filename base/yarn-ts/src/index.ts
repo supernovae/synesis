@@ -4203,7 +4203,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (tool result missing/denied)", oaiTraceReqId);
     }
   }
-  const effectiveOaiPathCtx = mergeSessionPathHints(oaiPathCtx, session);
+  let effectiveOaiPathCtx = mergeSessionPathHints(oaiPathCtx, session);
   const effectiveOaiAdapterBlock = (() => {
     const ctxBlock = toSessionExecutionContextSystemBlock(effectiveOaiPathCtx);
     if (!ctxBlock) return adapterBlock;
@@ -4610,6 +4610,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
         sessionKey,
       );
       normalizedRequest.messages = optimized.messages as never;
+
+      const cm = optimized.clientMetadata;
+      if (cm && (!effectiveOaiPathCtx.projectRoot || !effectiveOaiPathCtx.shellCwd)) {
+        effectiveOaiPathCtx = {
+          ...effectiveOaiPathCtx,
+          projectRoot: effectiveOaiPathCtx.projectRoot ?? cm.projectRoot,
+          shellCwd: effectiveOaiPathCtx.shellCwd ?? cm.shellCwd,
+          shell: effectiveOaiPathCtx.shell ?? cm.shell ?? undefined,
+          platform: effectiveOaiPathCtx.platform ?? cm.platform ?? undefined,
+          osVersion: effectiveOaiPathCtx.osVersion ?? cm.osVersion ?? undefined,
+        };
+        if (cm.projectRoot || cm.shellCwd) {
+          setSessionWorkspaceContext(session, "ready", oaiTraceReqId, {
+            reason: "Extracted from client system message",
+            projectRoot: cm.projectRoot ?? undefined,
+            cwd: cm.shellCwd ?? undefined,
+            shell: cm.shell ?? undefined,
+            os: cm.platform ?? undefined,
+          });
+          app.log.info(
+            { sessionKey, projectRoot: cm.projectRoot, shellCwd: cm.shellCwd, shell: cm.shell, platform: cm.platform },
+            "prefix_optimizer_metadata_backfill",
+          );
+        }
+      }
     } catch (err) {
       app.log.warn({ err, sessionKey }, "prefix_optimizer_oai_error");
     }
@@ -6184,7 +6209,7 @@ app.post("/v1/messages", async (req, reply) => {
       recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (tool result missing/denied)", traceReqId);
     }
   }
-  const effectiveClaudePathCtx = mergeSessionPathHints(claudePathCtx, session);
+  let effectiveClaudePathCtx = mergeSessionPathHints(claudePathCtx, session);
   const effectiveClaudeAdapterBlock = (() => {
     const ctxBlock = toSessionExecutionContextSystemBlock(effectiveClaudePathCtx);
     if (!ctxBlock) return claudeAdapterBlock;
@@ -6592,6 +6617,33 @@ app.post("/v1/messages", async (req, reply) => {
         claudeSessionKey,
       );
       openAIShape.messages = optimized.messages as never;
+
+      const cm = optimized.clientMetadata;
+      if (cm && (!effectiveClaudePathCtx.projectRoot || !effectiveClaudePathCtx.shellCwd)) {
+        const patched: typeof effectiveClaudePathCtx = {
+          ...effectiveClaudePathCtx,
+          projectRoot: effectiveClaudePathCtx.projectRoot ?? cm.projectRoot,
+          shellCwd: effectiveClaudePathCtx.shellCwd ?? cm.shellCwd,
+          shell: effectiveClaudePathCtx.shell ?? cm.shell ?? undefined,
+          platform: effectiveClaudePathCtx.platform ?? cm.platform ?? undefined,
+          osVersion: effectiveClaudePathCtx.osVersion ?? cm.osVersion ?? undefined,
+        };
+        effectiveClaudePathCtx = patched;
+
+        if (cm.projectRoot || cm.shellCwd) {
+          setSessionWorkspaceContext(session, "ready", traceReqId, {
+            reason: "Extracted from client system message",
+            projectRoot: cm.projectRoot ?? undefined,
+            cwd: cm.shellCwd ?? undefined,
+            shell: cm.shell ?? undefined,
+            os: cm.platform ?? undefined,
+          });
+          app.log.info(
+            { sessionKey: claudeSessionKey, projectRoot: cm.projectRoot, shellCwd: cm.shellCwd, shell: cm.shell, platform: cm.platform },
+            "prefix_optimizer_metadata_backfill",
+          );
+        }
+      }
     } catch (err) {
       app.log.warn({ err, sessionKey: claudeSessionKey }, "prefix_optimizer_claude_error");
     }

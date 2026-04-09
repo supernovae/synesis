@@ -64,11 +64,27 @@ export interface ParsedSegment {
   tokenEstimate: number;
 }
 
+export interface ClientMetadata {
+  workspacePath: string | null;
+  projectRoot: string | null;
+  shellCwd: string | null;
+  osVersion: string | null;
+  platform: string | null;
+  shell: string | null;
+  gitIsRepo: boolean | null;
+  gitRepoPath: string | null;
+  currentDate: string | null;
+  openFiles: string[];
+  recentFiles: string[];
+}
+
 export interface OptimizedRequest {
   messages: ChatMessage[];
   /** Message indices where explicit cache markers should be placed (empty for non-explicit providers). */
   markerIndices: number[];
   diagnostics: PrefixDiagnostics;
+  /** Metadata extracted from IDE client system messages (project root, OS, shell, open files, etc.). */
+  clientMetadata: ClientMetadata;
 }
 
 export interface PrefixDiagnostics {

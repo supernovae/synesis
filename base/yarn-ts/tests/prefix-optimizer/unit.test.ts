@@ -14,6 +14,10 @@ import {
   buildDiagnostics,
   generateMissReport,
 } from "../../src/providers/prefix-optimizer/diagnostics.js";
+import {
+  extractClientMetadata,
+  extractMetadataFromMessages,
+} from "../../src/providers/prefix-optimizer/metadata-extractor.js";
 import type {
   ChatMessage,
   ToolDefinition,
@@ -464,5 +468,143 @@ describe("diagnostics", () => {
     const prev = buildDiagnostics(segments, [0, 1], "dashscope", null);
     const report = generateMissReport(prev, prev);
     expect(report).toContain("cache hits expected");
+  });
+});
+
+/* ── Client Metadata Extractor ──────────────────────────────── */
+
+describe("metadata extractor", () => {
+  const CLAUDE_CODE_USER_INFO = `<user_info>
+OS Version: darwin 25.4.0
+
+Shell: zsh
+
+Workspace Path: /Users/bymiller/src/synesis
+
+Is directory a git repo: Yes, at /Users/bymiller/src/synesis
+
+Today's date: Tuesday Apr 8, 2026
+
+Terminals folder: /Users/bymiller/.cursor/projects/Users-bymiller-src-synesis/terminals
+</user_info>`;
+
+  const OPEN_FILES_BLOCK = `<open_and_recently_viewed_files>
+Recently viewed files (recent at the top, oldest at the bottom):
+- /Users/bymiller/src/synesis/base/yarn-ts/src/index.ts (total lines: 8302)
+- /Users/bymiller/src/synesis/base/yarn-ts/src/config.ts (total lines: 200)
+
+Files that are currently open and visible in the user's IDE:
+- /Users/bymiller/src/synesis/base/yarn-ts/tests/prefix-optimizer/unit.test.ts (total lines: 469)
+- /Users/bymiller/.cursor/projects/terminals/1.txt (total lines: 136)
+
+Note: these files may or may not be relevant to the current conversation.
+</open_and_recently_viewed_files>`;
+
+  it("extracts workspace path from <user_info>", () => {
+    const meta = extractClientMetadata(CLAUDE_CODE_USER_INFO);
+    expect(meta.workspacePath).toBe("/Users/bymiller/src/synesis");
+    expect(meta.projectRoot).toBe("/Users/bymiller/src/synesis");
+    expect(meta.shellCwd).toBe("/Users/bymiller/src/synesis");
+  });
+
+  it("extracts OS and shell info", () => {
+    const meta = extractClientMetadata(CLAUDE_CODE_USER_INFO);
+    expect(meta.osVersion).toBe("darwin 25.4.0");
+    expect(meta.platform).toBe("darwin");
+    expect(meta.shell).toBe("zsh");
+  });
+
+  it("extracts git repo info", () => {
+    const meta = extractClientMetadata(CLAUDE_CODE_USER_INFO);
+    expect(meta.gitIsRepo).toBe(true);
+    expect(meta.gitRepoPath).toBe("/Users/bymiller/src/synesis");
+  });
+
+  it("extracts current date", () => {
+    const meta = extractClientMetadata(CLAUDE_CODE_USER_INFO);
+    expect(meta.currentDate).toBe("Tuesday Apr 8, 2026");
+  });
+
+  it("extracts open and recent files", () => {
+    const meta = extractClientMetadata(OPEN_FILES_BLOCK);
+    expect(meta.recentFiles).toEqual([
+      "/Users/bymiller/src/synesis/base/yarn-ts/src/index.ts",
+      "/Users/bymiller/src/synesis/base/yarn-ts/src/config.ts",
+    ]);
+    expect(meta.openFiles).toEqual([
+      "/Users/bymiller/src/synesis/base/yarn-ts/tests/prefix-optimizer/unit.test.ts",
+      "/Users/bymiller/.cursor/projects/terminals/1.txt",
+    ]);
+  });
+
+  it("extracts from combined system message", () => {
+    const combined = `${CLAUDE_CODE_USER_INFO}\n\n${OPEN_FILES_BLOCK}`;
+    const meta = extractClientMetadata(combined);
+    expect(meta.projectRoot).toBe("/Users/bymiller/src/synesis");
+    expect(meta.shell).toBe("zsh");
+    expect(meta.recentFiles.length).toBeGreaterThan(0);
+    expect(meta.openFiles.length).toBeGreaterThan(0);
+  });
+
+  it("handles git repo: No", () => {
+    const noGit = `<user_info>
+OS Version: linux 6.1.0
+Shell: bash
+Workspace Path: /home/dev/project
+Is directory a git repo: No
+Today's date: Monday Apr 7, 2026
+</user_info>`;
+    const meta = extractClientMetadata(noGit);
+    expect(meta.gitIsRepo).toBe(false);
+    expect(meta.gitRepoPath).toBeNull();
+    expect(meta.workspacePath).toBe("/home/dev/project");
+    expect(meta.platform).toBe("linux");
+  });
+
+  it("returns empty metadata for content without user_info", () => {
+    const meta = extractClientMetadata("You are a helpful coding assistant.");
+    expect(meta.projectRoot).toBeNull();
+    expect(meta.shell).toBeNull();
+    expect(meta.openFiles).toEqual([]);
+  });
+
+  it("extracts from messages array via extractMetadataFromMessages", () => {
+    const messages = [
+      { role: "system", content: "You are a helpful assistant." },
+      { role: "system", content: CLAUDE_CODE_USER_INFO },
+      { role: "user", content: "Fix my code" },
+    ];
+    const meta = extractMetadataFromMessages(messages);
+    expect(meta.projectRoot).toBe("/Users/bymiller/src/synesis");
+    expect(meta.shell).toBe("zsh");
+  });
+
+  it("extracts from messages with content block arrays", () => {
+    const messages = [
+      { role: "system", content: [
+        { type: "text", text: "System instructions" },
+        { type: "text", text: CLAUDE_CODE_USER_INFO },
+      ]},
+      { role: "user", content: "Help" },
+    ];
+    const meta = extractMetadataFromMessages(messages);
+    expect(meta.workspacePath).toBe("/Users/bymiller/src/synesis");
+  });
+
+  it("derives projectRoot from open files when no user_info", () => {
+    const meta = extractClientMetadata(OPEN_FILES_BLOCK);
+    expect(meta.projectRoot).not.toBeNull();
+  });
+
+  it("handles loose patterns without <user_info> tags", () => {
+    const loose = `OS Version: windows 10.0.22631
+Shell: powershell
+Workspace Path: C:\\Users\\dev\\project
+Is directory a git repo: Yes, at C:\\Users\\dev\\project
+Today's date: Wednesday Apr 9, 2026`;
+    const meta = extractClientMetadata(loose);
+    expect(meta.osVersion).toBe("windows 10.0.22631");
+    expect(meta.shell).toBe("powershell");
+    expect(meta.workspacePath).toBe("C:\\Users\\dev\\project");
   });
 });
