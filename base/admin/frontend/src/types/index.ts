@@ -301,7 +301,7 @@ export interface ActiveCostEntry {
   monthly_fixed_cost: number;
   cost_formula: string;
   notes: string;
-  pricing_source: "manual" | "litellm" | "bundled" | "infra_calc" | "unknown";
+  pricing_source: "manual" | "litellm" | "bundled" | "infra_calc" | "fallback_base" | "unknown";
 }
 
 export interface InfraInstanceType {

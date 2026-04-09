@@ -811,6 +811,27 @@ async def update_model_cost(
     return result
 
 
+@router.put("/costs/internal")
+async def update_model_cost_internal(
+    data: dict = Body(...),
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    """Internal service write path for cost rates (bootstrap / automation)."""
+    result = await upsert_model_cost(data)
+    actor_name = getattr(_principal, "service_name", None) or getattr(_principal, "username", "service")
+    await record_admin_audit(
+        user=_principal if isinstance(_principal, UserInfo) else UserInfo(
+            user_id="service", username=actor_name, email="",
+            role="platform_admin", org_id="synesis", groups=[],
+        ),
+        action="models.cost_update_internal",
+        status="success",
+        summary=f"Internal cost update for role={result.get('role', data.get('role'))}",
+        detail={"cost": result},
+    )
+    return result
+
+
 @router.get("/costs/by-model")
 async def costs_by_model(
     _user: UserInfo = Depends(require_org_admin),

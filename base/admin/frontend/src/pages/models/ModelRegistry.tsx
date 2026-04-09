@@ -12,8 +12,10 @@ import {
   usePipelineServices,
   useDiscoverModels,
   useProviderDefaults,
+  useActiveCosts,
+  useUpdateModelCost,
 } from "../../api/hooks";
-import type { ModelDeployment, ProviderInfo, DiscoveredModel } from "../../types";
+import type { ModelDeployment, ProviderInfo, DiscoveredModel, ActiveCostEntry } from "../../types";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
 import {
@@ -30,6 +32,7 @@ import {
   Search,
   Wand2,
   RefreshCw,
+  DollarSign,
 } from "lucide-react";
 
 const SOURCE_ICON: Record<string, typeof Cloud> = {
@@ -112,6 +115,12 @@ export default function ModelRegistry() {
   const deactivateMut = useDeactivateRole();
   const syncYaml = useSyncModelsFromYaml();
   const reconcileMut = useReconcileModels();
+  const { data: costsData } = useActiveCosts();
+  const costByRole = useMemo(() => {
+    const m = new Map<string, ActiveCostEntry>();
+    for (const c of costsData?.roles ?? []) m.set(c.role, c);
+    return m;
+  }, [costsData]);
 
   const { data: govData } = useProviderGovernance();
   const catalogData = useMemo(
@@ -303,6 +312,7 @@ export default function ModelRegistry() {
                           {r.endpoint}
                         </p>
                       )}
+                      <RateCardBadge cost={costByRole.get(r.role)} />
                     </div>
                   ) : (
                     <p className="mt-3 text-xs text-gray-400">No model assigned</p>
@@ -360,6 +370,7 @@ export default function ModelRegistry() {
           deactivateMut={deactivateMut}
           onClose={closeEditModal}
           onSave={handleSave}
+          cost={costByRole.get(editing.role)}
         />
       )}
 
@@ -368,6 +379,66 @@ export default function ModelRegistry() {
         <div className="fixed bottom-4 right-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-lg dark:border-green-800 dark:bg-green-950 dark:text-green-300">
           Sync complete: {reconcileMut.data.added} added, {reconcileMut.data.removed} removed, {reconcileMut.data.unchanged} unchanged
         </div>
+      )}
+    </div>
+  );
+}
+
+const PRICING_SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
+  manual: { bg: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", label: "set" },
+  litellm: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "litellm" },
+  bundled: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "bundled" },
+  infra_calc: { bg: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400", label: "infra" },
+  fallback_base: { bg: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", label: "fallback" },
+  unknown: { bg: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400", label: "unknown" },
+};
+
+function fmtRate(v: number): string {
+  if (v >= 1) return `$${v.toFixed(2)}`;
+  if (v >= 0.01) return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(4)}`;
+}
+
+function RateCardBadge({ cost }: { cost?: ActiveCostEntry }) {
+  if (!cost) return null;
+  const src = cost.pricing_source ?? "unknown";
+  const style = PRICING_SOURCE_STYLES[src] ?? PRICING_SOURCE_STYLES.unknown;
+  const isFallback = src === "fallback_base";
+  return (
+    <div className={`mt-2 rounded border px-2 py-1.5 ${isFallback ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20" : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50"}`}>
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1">
+          <DollarSign className="h-3 w-3 text-gray-400" />
+          <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">Rate Card</span>
+        </div>
+        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${style.bg}`}>
+          {style.label}
+        </span>
+      </div>
+      <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
+        <div>
+          <span className="text-gray-400">in</span>{" "}
+          <span className={`font-mono font-medium ${isFallback ? "text-amber-700 dark:text-amber-400" : "text-gray-700 dark:text-gray-300"}`}>
+            {fmtRate(cost.input_per_million)}
+          </span>
+        </div>
+        <div>
+          <span className="text-gray-400">out</span>{" "}
+          <span className={`font-mono font-medium ${isFallback ? "text-amber-700 dark:text-amber-400" : "text-gray-700 dark:text-gray-300"}`}>
+            {fmtRate(cost.output_per_million)}
+          </span>
+        </div>
+        <div>
+          <span className="text-gray-400">cache</span>{" "}
+          <span className="font-mono font-medium text-gray-700 dark:text-gray-300">
+            {cost.input_cached_per_million != null ? fmtRate(cost.input_cached_per_million) : "—"}
+          </span>
+        </div>
+      </div>
+      {isFallback && (
+        <p className="mt-1 text-[9px] text-amber-600 dark:text-amber-400">
+          Using fallback rates — click edit to set real pricing
+        </p>
       )}
     </div>
   );
@@ -494,6 +565,7 @@ function EditModal({
   deactivateMut,
   onClose,
   onSave,
+  cost,
 }: {
   editing: EditState;
   setEditing: (s: EditState) => void;
@@ -504,8 +576,19 @@ function EditModal({
   deactivateMut: ReturnType<typeof useDeactivateRole>;
   onClose: () => void;
   onSave: () => void;
+  cost?: ActiveCostEntry;
 }) {
   const [showExplorer, setShowExplorer] = useState(false);
+  const updateCostMut = useUpdateModelCost();
+  const [pricingEdit, setPricingEdit] = useState<{
+    input_per_million: string;
+    output_per_million: string;
+    input_cached_per_million: string;
+  }>({
+    input_per_million: cost?.input_per_million?.toString() ?? "",
+    output_per_million: cost?.output_per_million?.toString() ?? "",
+    input_cached_per_million: cost?.input_cached_per_million?.toString() ?? "",
+  });
   const prov = providers[editing.provider];
   const supportsDiscovery = prov?.supports_discovery ?? false;
 
@@ -726,6 +809,89 @@ function EditModal({
             type="number"
             hint="LiteLLM default — planner sets its own temps per node (0.1 planner, 0.3 writer)"
           />
+          {/* Rate Card / Pricing */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/50">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <DollarSign className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Rate Card
+                </span>
+                <span className="text-[10px] text-gray-400">(USD per 1M tokens)</span>
+              </div>
+              {cost && (
+                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${(PRICING_SOURCE_STYLES[cost.pricing_source ?? "unknown"] ?? PRICING_SOURCE_STYLES.unknown).bg}`}>
+                  {(PRICING_SOURCE_STYLES[cost.pricing_source ?? "unknown"] ?? PRICING_SOURCE_STYLES.unknown).label}
+                </span>
+              )}
+            </div>
+            {cost?.pricing_source === "fallback_base" && (
+              <div className="mb-2 flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>Using fallback rates ($1.00/$5.00) — costs are over-reported. Set real provider rates below.</span>
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-gray-500 dark:text-gray-400">Input</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={pricingEdit.input_per_million}
+                  onChange={(e) => setPricingEdit({ ...pricingEdit, input_per_million: e.target.value })}
+                  placeholder="0.40"
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs tabular-nums dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                />
+              </div>
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-gray-500 dark:text-gray-400">Output</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={pricingEdit.output_per_million}
+                  onChange={(e) => setPricingEdit({ ...pricingEdit, output_per_million: e.target.value })}
+                  placeholder="2.40"
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs tabular-nums dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                />
+              </div>
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-gray-500 dark:text-gray-400">Cached In</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={pricingEdit.input_cached_per_million}
+                  onChange={(e) => setPricingEdit({ ...pricingEdit, input_cached_per_million: e.target.value })}
+                  placeholder="auto"
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs tabular-nums dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                />
+              </div>
+            </div>
+            <p className="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500">
+              Cached rate defaults to 10% of input if blank. Saved independently from model assignment.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const inp = parseFloat(pricingEdit.input_per_million);
+                const out = parseFloat(pricingEdit.output_per_million);
+                const cached = pricingEdit.input_cached_per_million.trim()
+                  ? parseFloat(pricingEdit.input_cached_per_million)
+                  : null;
+                if (isNaN(inp) || isNaN(out) || inp < 0 || out < 0) return;
+                updateCostMut.mutate({
+                  role: editing.role,
+                  input_per_million: inp,
+                  output_per_million: out,
+                  input_cached_per_million: cached,
+                });
+              }}
+              disabled={updateCostMut.isPending}
+              className="mt-2 w-full rounded bg-gray-200 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-300 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+            >
+              {updateCostMut.isPending ? "Saving rates..." : updateCostMut.isSuccess ? "Rates saved" : "Save Rate Card"}
+            </button>
+          </div>
+
           <Field
             label="Fallback Models"
             value={editing.fallbacks}
