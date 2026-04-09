@@ -106,6 +106,28 @@ export function injectCacheMarkers(messages: ChatMessage[], markerIndices: numbe
   });
 }
 
+interface ToolDef {
+  type: string;
+  function: Record<string, unknown>;
+  cache_control?: { type: string };
+  [key: string]: unknown;
+}
+
+/**
+ * Add cache_control to the last tool definition.
+ * DashScope requires this for proper cache keying of tool schemas
+ * (per Qwen Code reference implementation).
+ */
+export function injectToolCacheMarker(tools: ToolDef[]): ToolDef[] {
+  if (tools.length === 0) return tools;
+  const result = [...tools];
+  result[result.length - 1] = {
+    ...result[result.length - 1],
+    cache_control: { type: "ephemeral" },
+  };
+  return result;
+}
+
 /**
  * Create a fetch wrapper that injects DashScope cache markers.
  *
@@ -133,6 +155,9 @@ export function createDashScopeCacheFetch(
         : selectBreakpoints(body.messages, maxMarkers);
 
       body.messages = injectCacheMarkers(body.messages, indices);
+      if (Array.isArray(body.tools) && body.tools.length > 0 && indices.length > 0) {
+        body.tools = injectToolCacheMarker(body.tools);
+      }
       const hasStream = body.stream === true;
 
       const markedMsg0 = indices.includes(0) && body.messages.length > 0
