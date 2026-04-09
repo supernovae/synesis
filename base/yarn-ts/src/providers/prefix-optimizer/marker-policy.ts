@@ -5,26 +5,31 @@
  * This is the only provider-specific component in the prefix optimizer.
  * The rest of the optimizer is provider-agnostic.
  *
- * Strategy for multi-turn coding sessions:
- *   Marker 1: core_instructions (stable forever, ~300 tokens)
- *   Marker 2: conversation boundary — last message before the latest user turn
- *             This is the BIG win. Each turn appends a few messages at the end.
- *             The entire prefix up to the previous turn's last message is
- *             identical, so caching here gives 80-90% hit rates.
- *   Marker 3 (tool-level): added by the interceptor on the last tool definition
+ * Strategy — single conversation-boundary marker:
+ *
+ *   DashScope searches backward up to 20 content blocks from each marker.
+ *   With 400+ messages, a marker at index 0 and another at ~406 are
+ *   separated by far more than 20 blocks — the first marker's cache can
+ *   never be found from the second marker.  Keeping TWO distant markers
+ *   means DashScope re-creates 100% of tokens every turn.
+ *
+ *   Instead we use a SINGLE marker at the conversation boundary (last
+ *   message before the latest user turn).  Each turn appends only a few
+ *   messages, so the previous turn's boundary is always within 20 blocks
+ *   of the new boundary.  DashScope finds the prior cache and creates
+ *   only the increment, giving 80-95% cache hit rates.
+ *
+ *   The interceptor also marks the last tool definition (separate from
+ *   message markers), as required by DashScope for tool-schema caching.
  *
  * DashScope constraints:
- *   - Max 4 markers per request
+ *   - Max 4 markers per request (we use 1 message + 1 tool = 2)
  *   - Min 1024 tokens per cache block
- *   - Cache searches backward up to 20 content blocks from each marker
+ *   - Backward search limit: 20 content blocks from each marker
  *   - Cache valid for 5 minutes (resets on hit)
- *
- * The 20-block limit means the conversation boundary marker works as long as
- * each turn adds fewer than 20 messages. Typical tool-calling turns add 2-4
- * messages (assistant + tool_result pairs), so this is well within limits.
  */
 
-import type { ChatMessage, MarkerBackend, ParsedSegment, PrefixDiagnostics, SegmentCategory } from "./types.js";
+import type { ChatMessage, MarkerBackend, ParsedSegment, PrefixDiagnostics } from "./types.js";
 
 const DASHSCOPE_MAX_MARKERS = 4;
 const DASHSCOPE_MIN_TOKENS = 1024;
@@ -42,42 +47,15 @@ function messageText(msg: ChatMessage): string {
 }
 
 /**
- * Find which rebuilt message index corresponds to a given segment category.
- */
-function findMessageIndexForCategory(
-  messages: ChatMessage[],
-  segments: ParsedSegment[],
-  category: SegmentCategory,
-): number {
-  const segment = segments.find((s) => s.category === category);
-  if (!segment || !segment.content.trim()) return -1;
-
-  let systemIdx = 0;
-  const categoryOrder: SegmentCategory[] = [
-    "core_instructions", "project_guidance", "task_frame", "live_context",
-  ];
-
-  for (const cat of categoryOrder) {
-    if (cat === category) break;
-    const seg = segments.find((s) => s.category === cat);
-    if (seg && seg.content.trim()) systemIdx++;
-  }
-
-  if (systemIdx < messages.length && messages[systemIdx]?.role === "system") {
-    return systemIdx;
-  }
-  return -1;
-}
-
-/**
  * Find the conversation boundary: the last message before latest_user_turn.
  *
  * In the rebuilt message array, the layout is:
- *   [system...] [conversation_history...] [tool_results...] [latest_user_turn]
+ *   [system...] [prior-turn messages in original order...] [latest_user_turn]
  *
- * The boundary is the index of the last message that ISN'T the latest user turn.
- * Caching up to this point means the entire conversation prefix from prior turns
- * gets cached, which is the biggest win (~80-90% of tokens).
+ * The boundary is the last message before the user turn. Caching up to
+ * this point means the entire prefix (system + all prior turns) gets
+ * cached.  Each subsequent turn, the new boundary is only a few messages
+ * past the old one — well within DashScope's 20-block search limit.
  */
 function findConversationBoundary(
   messages: ChatMessage[],
@@ -87,11 +65,7 @@ function findConversationBoundary(
   if (!userTurnSeg || userTurnSeg.sourceIndices.length === 0) return -1;
   if (messages.length < 3) return -1;
 
-  // The latest_user_turn is always last in the rebuilt array.
-  // The conversation boundary is the message right before it.
   const boundaryIdx = messages.length - 2;
-
-  // Sanity: don't mark a system message as boundary (that's just the prefix)
   if (messages[boundaryIdx]?.role === "system") return -1;
 
   return boundaryIdx;
@@ -107,34 +81,18 @@ function computeDashScopeMarkers(
   maxMarkers: number,
 ): number[] {
   const limit = Math.min(maxMarkers, DASHSCOPE_MAX_MARKERS);
-  const markers: number[] = [];
+  if (limit <= 0) return [];
 
-  // Marker 1: core_instructions (stable forever)
-  let cumulativeTokens = 0;
-  const coreIdx = findMessageIndexForCategory(messages, segments, "core_instructions");
-  if (coreIdx >= 0) {
-    cumulativeTokens += estimateTokens(messageText(messages[coreIdx]));
-    if (cumulativeTokens >= DASHSCOPE_MIN_TOKENS) {
-      markers.push(coreIdx);
-    }
-  }
-
-  if (markers.length >= limit) return markers;
-
-  // Marker 2: conversation boundary (last message before latest user turn)
-  // This is the high-value marker — caches the entire prior-turn prefix.
   const boundaryIdx = findConversationBoundary(messages, segments);
-  if (boundaryIdx >= 0 && boundaryIdx > (markers[markers.length - 1] ?? -1)) {
-    let boundaryTokens = 0;
-    for (let i = 0; i <= boundaryIdx; i++) {
-      boundaryTokens += estimateTokens(messageText(messages[i]));
-    }
-    if (boundaryTokens >= DASHSCOPE_MIN_TOKENS) {
-      markers.push(boundaryIdx);
-    }
-  }
+  if (boundaryIdx < 0) return [];
 
-  return markers;
+  let totalTokens = 0;
+  for (let i = 0; i <= boundaryIdx; i++) {
+    totalTokens += estimateTokens(messageText(messages[i]));
+  }
+  if (totalTokens < DASHSCOPE_MIN_TOKENS) return [];
+
+  return [boundaryIdx];
 }
 
 /**

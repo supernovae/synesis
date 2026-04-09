@@ -393,18 +393,16 @@ describe("marker policy", () => {
     expect(computeMarkerPlacements(messages, segments, null, "none")).toEqual([]);
   });
 
-  it("places core marker and conversation boundary marker for dashscope", () => {
+  it("places single boundary marker for dashscope (no distant marker at 0)", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    expect(markers).toContain(0);
-    expect(markers).toContain(8);
-    expect(markers.length).toBe(2);
+    expect(markers).toEqual([8]);
+    expect(markers).not.toContain(0);
   });
 
   it("conversation boundary is last message before latest_user_turn", () => {
     const markers = computeMarkerPlacements(messages, segments, null, "dashscope");
-    const boundaryIdx = markers[markers.length - 1];
-    expect(messages[boundaryIdx].role).not.toBe("user");
-    expect(boundaryIdx).toBe(messages.length - 2);
+    expect(markers[0]).toBe(messages.length - 2);
+    expect(messages[markers[0]].role).toBe("assistant");
   });
 
   it("never places markers on the latest_user_turn itself", () => {
@@ -417,7 +415,7 @@ describe("marker policy", () => {
     expect(markers.length).toBeLessThanOrEqual(1);
   });
 
-  it("skips boundary if only system messages + user turn", () => {
+  it("returns empty when only system + user (boundary would be system)", () => {
     const tinyMessages: ChatMessage[] = [
       { role: "system", content: "x".repeat(4000) },
       { role: "user", content: "hello" },
@@ -427,7 +425,22 @@ describe("marker policy", () => {
       { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [1], tokenEstimate: 5 },
     ];
     const markers = computeMarkerPlacements(tinyMessages, tinySegments, null, "dashscope");
-    expect(markers).toEqual([0]);
+    expect(markers).toEqual([]);
+  });
+
+  it("places boundary marker when there is at least one non-system message before user turn", () => {
+    const threeMessages: ChatMessage[] = [
+      { role: "system", content: "x".repeat(4000) },
+      { role: "assistant", content: "y".repeat(4000) },
+      { role: "user", content: "hello" },
+    ];
+    const threeSegments: ParsedSegment[] = [
+      { category: "core_instructions", stability: "stable", content: "x".repeat(4000), hash: "c", sourceIndices: [0], tokenEstimate: 1200 },
+      { category: "conversation_history", stability: "volatile", content: "y".repeat(4000), hash: "h", sourceIndices: [1], tokenEstimate: 1200 },
+      { category: "latest_user_turn", stability: "volatile", content: "hello", hash: "u", sourceIndices: [2], tokenEstimate: 5 },
+    ];
+    const markers = computeMarkerPlacements(threeMessages, threeSegments, null, "dashscope");
+    expect(markers).toEqual([1]);
   });
 });
 

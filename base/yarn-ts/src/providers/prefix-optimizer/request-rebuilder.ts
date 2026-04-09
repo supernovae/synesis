@@ -6,39 +6,33 @@
  *   2. system — project_guidance (stable)
  *   3. system — task_frame (semi-stable)
  *   4. system — live_context (volatile)
- *   5. conversation history — prior turns (volatile, reduced)
+ *   5. prior-turn messages in ORIGINAL order (conversation_history + tool_results interleaved)
  *   6. user — latest user turn (volatile)
  *
- * Messages 1-2 are stable across turns and accumulate KV-cache.
- * Message 3 is semi-stable (cacheable when frame unchanged).
- * Messages 4+ are volatile and never explicitly cached.
+ * CRITICAL for prefix caching: conversation_history and tool_results are
+ * kept in their original interleaved order. If we separated them into
+ * distinct groups, inserting new messages would shift the prefix —
+ * DashScope (and any KV-cache) requires byte-identical prefixes to hit.
  */
 
 import type { ChatMessage, ParsedSegment, SegmentCategory } from "./types.js";
 import { canonicalizeMessage } from "./serializer.js";
 
-/**
- * Canonical ordering of segment categories.
- * This is the heart of the prefix optimizer: stable content first, volatile last.
- */
-const CATEGORY_ORDER: SegmentCategory[] = [
+const SYSTEM_CATEGORIES: SegmentCategory[] = [
   "core_instructions",
   "project_guidance",
   "task_frame",
   "live_context",
-  "conversation_history",
-  "tool_results",
-  "latest_user_turn",
 ];
 
 /**
  * Rebuild an optimized messages array from parsed segments
  * and the original messages.
  *
- * The key insight: system message content is split across multiple
- * new system messages ordered by stability. Conversation history
- * and tool results retain their original structure (role, tool_call_id, etc.)
- * but are placed after the stable prefix.
+ * System message content is split into new system messages ordered by
+ * stability. Conversation history and tool results are appended in
+ * their ORIGINAL message order (preserving the prefix for caching).
+ * Latest user turn is always last.
  */
 export function rebuildRequest(
   segments: ParsedSegment[],
@@ -53,27 +47,32 @@ export function rebuildRequest(
 
   const rebuilt: ChatMessage[] = [];
 
-  for (const category of CATEGORY_ORDER) {
+  // 1. Emit system messages in stability order
+  for (const category of SYSTEM_CATEGORIES) {
     const segment = segmentMap.get(category);
-    if (!segment || !segment.content.trim()) continue;
-
-    switch (category) {
-      case "core_instructions":
-      case "project_guidance":
-      case "task_frame":
-      case "live_context":
-        rebuilt.push(canonicalizeMessage({ role: "system", content: segment.content }));
-        break;
-
-      case "conversation_history":
-      case "tool_results":
-        appendOriginalMessages(rebuilt, segment.sourceIndices, originalMessages);
-        break;
-
-      case "latest_user_turn":
-        appendOriginalMessages(rebuilt, segment.sourceIndices, originalMessages);
-        break;
+    if (segment && segment.content.trim()) {
+      rebuilt.push(canonicalizeMessage({ role: "system", content: segment.content }));
     }
+  }
+
+  // 2. Merge conversation_history + tool_results source indices and sort
+  //    by original position. This preserves the interleaved order from
+  //    the client (assistant → tool_call → tool_result → assistant → ...),
+  //    ensuring the prefix is append-only across turns.
+  const priorTurnIndices = new Set<number>();
+  for (const cat of ["conversation_history", "tool_results"] as SegmentCategory[]) {
+    const seg = segmentMap.get(cat);
+    if (seg) {
+      for (const idx of seg.sourceIndices) priorTurnIndices.add(idx);
+    }
+  }
+  const sortedPriorIndices = [...priorTurnIndices].sort((a, b) => a - b);
+  appendOriginalMessages(rebuilt, sortedPriorIndices, originalMessages);
+
+  // 3. Latest user turn last
+  const userTurnSeg = segmentMap.get("latest_user_turn");
+  if (userTurnSeg && userTurnSeg.sourceIndices.length > 0) {
+    appendOriginalMessages(rebuilt, userTurnSeg.sourceIndices, originalMessages);
   }
 
   return rebuilt;
