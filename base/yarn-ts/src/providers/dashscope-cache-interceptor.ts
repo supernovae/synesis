@@ -145,17 +145,18 @@ export function injectToolCacheMarker(tools: ToolDef[]): ToolDef[] {
  * When `getMarkerIndices` is provided (optimizer active), uses those indices.
  * Otherwise falls back to legacy selectBreakpoints.
  */
+// Module-level replay cache test state (persists across closure recreation)
+let _replayBody: string | null = null;
+let _replayUrl: string | null = null;
+let _replayHeaders: Record<string, string> | null = null;
+let _replayDone = false;
+let _replayRequestCount = 0;
+
 export function createDashScopeCacheFetch(
   nativeFetch: typeof globalThis.fetch,
   maxMarkers = 3,
   getMarkerIndices?: () => number[],
 ): typeof globalThis.fetch {
-  // Replay cache test state: save body from first request and replay it on second
-  let replayTestBody: string | null = null;
-  let replayTestUrl: string | null = null;
-  let replayTestHeaders: Record<string, string> | null = null;
-  let replayTestDone = false;
-
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (!init?.body || typeof init.body !== "string") {
       return nativeFetch(input, init);
@@ -306,22 +307,22 @@ export function createDashScopeCacheFetch(
         bodyPrefix200: serializedBody.slice(0, 200),
       }));
 
-      // --- Replay cache test: on 2nd+ request, replay the first request's body
-      //     to verify DashScope caching works from this exact Node.js context.
-      if (!replayTestDone && replayTestBody && replayTestUrl) {
-        replayTestDone = true;
+      // --- Replay cache test: on 2nd request, replay the 1st request's exact body
+      //     directly via globalThis.fetch to prove DashScope caching works from
+      //     this Node.js process. Module-level state persists across closure recreation.
+      _replayRequestCount++;
+      if (!_replayDone && _replayBody && _replayUrl && _replayRequestCount >= 2) {
+        _replayDone = true;
         (async () => {
           try {
-            // Wait for the first request's cache to be created
             await new Promise(r => setTimeout(r, 8000));
-            // Replay the exact same body with non-streaming
-            const replayBody = JSON.parse(replayTestBody!);
+            const replayBody = JSON.parse(_replayBody!);
             replayBody.stream = false;
             delete replayBody.stream_options;
             replayBody.max_tokens = 10;
-            const replayResp = await globalThis.fetch(new URL(replayTestUrl!), {
+            const replayResp = await globalThis.fetch(new URL(_replayUrl!), {
               method: "POST",
-              headers: { "Content-Type": "application/json", ...replayTestHeaders! },
+              headers: { "Content-Type": "application/json", ..._replayHeaders! },
               body: JSON.stringify(replayBody),
             });
             const replayJson = await replayResp.json() as { usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number } } };
@@ -333,16 +334,18 @@ export function createDashScopeCacheFetch(
               prompt_tokens: replayJson?.usage?.prompt_tokens ?? "?",
               cached_tokens: rd?.cached_tokens ?? 0,
               cache_creation: rd?.cache_creation_input_tokens ?? 0,
-              bodyBytesMatch: replayTestBody!.length === serializedBody.length,
+              replayRequestCount: _replayRequestCount,
+              savedBodyBytes: _replayBody!.length,
+              currentBodyBytes: serializedBody.length,
             }));
           } catch (err) {
             console.log(JSON.stringify({ level: 40, msg: "dashscope_replay_test_error", error: String(err) }));
           }
         })();
       }
-      if (!replayTestBody) {
-        replayTestBody = serializedBody;
-        replayTestUrl = String(input);
+      if (!_replayBody) {
+        _replayBody = serializedBody;
+        _replayUrl = String(input);
         try {
           const h: Record<string, string> = {};
           if (init?.headers) {
@@ -354,8 +357,8 @@ export function createDashScopeCacheFetch(
               }
             }
           }
-          replayTestHeaders = h;
-        } catch { replayTestHeaders = {}; }
+          _replayHeaders = h;
+        } catch { _replayHeaders = {}; }
       }
 
       const resp = await nativeFetch(input, { ...init, body: serializedBody });
