@@ -136,15 +136,55 @@ export function createDashScopeCacheFetch(
 
       const breakpoints = selectBreakpoints(body.messages, maxMarkers);
       body.messages = injectCacheMarkers(body.messages, maxMarkers);
+      const hasStream = body.stream === true;
+      const hasStreamOptions = !!body.stream_options;
       console.log(JSON.stringify({
         level: 20,
         msg: "dashscope_cache_markers_injected",
         messageCount: body.messages.length,
         breakpointIndices: breakpoints,
         markerCount: breakpoints.length,
+        stream: hasStream,
+        streamOptions: hasStreamOptions,
         url: String(input).replace(/\?.*/, ""),
       }));
-      return nativeFetch(input, { ...init, body: JSON.stringify(body) });
+      const resp = await nativeFetch(input, { ...init, body: JSON.stringify(body) });
+      if (!hasStream) return resp;
+      // Tee the stream to capture the final usage chunk for diagnostics
+      const origBody = resp.body;
+      if (!origBody) return resp;
+      const [forSDK, forDiag] = origBody.tee();
+      (async () => {
+        try {
+          const reader = forDiag.getReader();
+          const decoder = new TextDecoder();
+          let lastUsage = "";
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const text = decoder.decode(value, { stream: true });
+            for (const line of text.split("\n")) {
+              if (line.startsWith("data: ") && line.includes('"usage"') && !line.includes('"usage":null')) {
+                lastUsage = line.slice(6);
+              }
+            }
+          }
+          if (lastUsage) {
+            try {
+              const parsed = JSON.parse(lastUsage);
+              console.log(JSON.stringify({
+                level: 20,
+                msg: "dashscope_response_usage",
+                cached_tokens: parsed?.usage?.prompt_tokens_details?.cached_tokens ?? "MISSING",
+                cache_creation: parsed?.usage?.prompt_tokens_details?.cache_creation_input_tokens ?? "MISSING",
+                prompt_tokens: parsed?.usage?.prompt_tokens ?? "MISSING",
+              }));
+            } catch { /* ignore parse error */ }
+          }
+        } catch { /* ignore stream read error */ }
+      })();
+      return new Response(forSDK, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
     } catch {
       return nativeFetch(input, init);
     }
