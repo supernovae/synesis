@@ -299,12 +299,32 @@ export function createDashScopeCacheFetch(
         fullBodyHash = await sha256Hex16(serializedBody);
       } catch { /* ignore */ }
 
+      // Capture the exact structure of marked messages to verify cache_control injection
+      const markedMsgStructures: string[] = [];
+      for (const idx of indices) {
+        const m = body.messages[idx];
+        if (m && Array.isArray(m.content)) {
+          const lastBlock = m.content[m.content.length - 1];
+          markedMsgStructures.push(
+            `msg[${idx}]:role=${m.role},blocks=${m.content.length},lastBlockKeys=${Object.keys(lastBlock ?? {}).sort().join(",")},hasCC=${!!lastBlock?.cache_control},textLen=${(lastBlock?.text ?? "").length}`
+          );
+        }
+      }
+      // Check if tools have cache_control
+      let toolCCInfo = "no_tools";
+      if (Array.isArray(body.tools) && body.tools.length > 0) {
+        const lastTool = body.tools[body.tools.length - 1];
+        toolCCInfo = `count=${body.tools.length},lastHasCC=${!!lastTool?.cache_control}`;
+      }
+
       console.log(JSON.stringify({
         level: 20,
         msg: "dashscope_outbound_body",
         fullBodyHash,
         bodyBytes: serializedBody.length,
         bodyPrefix200: serializedBody.slice(0, 200),
+        markedMsgStructures,
+        toolCCInfo,
       }));
 
       // --- Replay cache test: on 2nd request, replay the 1st request's exact body
