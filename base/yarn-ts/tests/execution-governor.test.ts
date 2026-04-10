@@ -276,14 +276,34 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("bounded_exploration_budget");
   });
 
-  it("pauses cleanup flow if TODO harvest is skipped before edits", () => {
+  it("keeps cleanup_todo_harvest advisory when it is the only matched rule", () => {
     const messages = [
       { role: "user", content: "refactor and clean up this package" },
       assistantCall("1", "str_replace", { filePath: "pkg/a.go", oldString: "x", newString: "y" }),
       toolResult("1", "ok"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.pause).toBe(true);
+    expect(out.pause).toBe(false);
     expect(out.matchedRules).toContain("cleanup_todo_harvest");
+  });
+
+  it("does not trigger cleanup gate from generic 'harden' wording", () => {
+    const messages = [
+      { role: "user", content: "please harden this flow and continue implementing the feature" },
+      assistantCall("1", "str_replace", { filePath: "pkg/a.go", oldString: "x", newString: "y" }),
+      toolResult("1", "ok"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("cleanup_todo_harvest");
+  });
+
+  it("respects explicit user opt-out for TODO/FIXME harvest", () => {
+    const messages = [
+      { role: "user", content: "implement output post-processing, do not run TODO/FIXME harvest" },
+      assistantCall("1", "str_replace", { filePath: "pkg/a.go", oldString: "x", newString: "y" }),
+      toolResult("1", "ok"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("cleanup_todo_harvest");
   });
 });

@@ -144,7 +144,13 @@ function needsTestEntryGate(userText: string): boolean {
 }
 
 function needsCleanupGate(userText: string): boolean {
-  return /\b(clean ?up|refactor|harden|polish)\b/.test(userText);
+  return /\b(clean ?up|technical debt|dead code|todo|fixme|debug logging|polish)\b/.test(userText)
+    || /\brefactor\b/.test(userText);
+}
+
+function shouldSkipCleanupHarvest(userText: string): boolean {
+  return /\b(do not|don't|skip|without)\b.{0,30}\b(todo|fixme|debug)\b.{0,20}\b(harvest|search)\b/.test(userText)
+    || /\b(do not|don't|skip|without)\b.{0,40}\bcleanup[_ -]?todo[_ -]?harvest\b/.test(userText);
 }
 
 function hasTestConfigDiscovery(events: Array<{ command: string; toolName: string }>): boolean {
@@ -245,7 +251,8 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
     matchedRules.push("test_entry_contract");
   }
-  if (needsCleanupGate(userText) && hasEdit && !hasTodoHarvest(events)) {
+  const cleanupHarvestRequested = needsCleanupGate(userText) && !shouldSkipCleanupHarvest(userText);
+  if (cleanupHarvestRequested && hasEdit && !hasTodoHarvest(events)) {
     matchedRules.push("cleanup_todo_harvest");
   }
 
@@ -286,6 +293,25 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
     suggestedNextStep = "Before edits, run one targeted search_code for TODO|FIXME|DEBUG and rank top cleanup candidates, then patch highest-impact files only.";
   } else if (matchedRules.includes("bounded_exploration_budget")) {
     suggestedNextStep = "State one root-cause hypothesis, then read at most 3 files directly tied to it before applying a patch.";
+  }
+
+  const onlyCleanupHarvest =
+    matchedRules.length === 1 && matchedRules[0] === "cleanup_todo_harvest";
+  if (onlyCleanupHarvest) {
+    return {
+      pause: false,
+      reason: "cleanup_todo_harvest advisory only",
+      suggestedNextStep,
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
   }
 
   return {
