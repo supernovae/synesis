@@ -14,7 +14,8 @@ const RoleSchema = z.object({
   endpoint: z.string().optional(),
   provider: z.string().optional(),
   api_key_env: z.string().optional(),
-  litellm_params: z.record(z.string(), z.any()).nullable().optional()
+  litellm_params: z.record(z.string(), z.any()).nullable().optional(),
+  adapter_hint: z.string().nullable().optional(),
 });
 
 const RolesEnvelopeSchema = z.object({
@@ -70,6 +71,7 @@ export interface TierConfig {
   outputPerM: number;
   cachedPerM: number | null;
   pricingSource: PricingSource;
+  adapterHint?: string | null;
 }
 
 export interface RoleAssignmentConfig {
@@ -79,6 +81,7 @@ export interface RoleAssignmentConfig {
   baseUrl: string;
   apiKey: string;
   provider: string;
+  adapterHint?: string | null;
 }
 
 export interface TierRegistrySnapshot {
@@ -181,6 +184,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       baseUrl: endpoint,
       apiKey,
       provider,
+      adapterHint: row.adapter_hint ?? null,
     });
     const tierId = ROLE_TO_TIER[row.role];
     if (!tierId) {
@@ -208,6 +212,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       outputPerM: rates.output_per_million,
       cachedPerM: rates.cached_input_per_million,
       pricingSource,
+      adapterHint: row.adapter_hint ?? null,
     });
   }
   return { tiers: out, roleAssignments, promptSnapshot };

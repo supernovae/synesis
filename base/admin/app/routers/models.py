@@ -310,6 +310,7 @@ async def assign_model_to_role(
             max_tokens=data.get("max_tokens", 8192),
             temperature=data.get("temperature", 0.1),
             fallbacks=data.get("fallbacks"),
+            adapter_hint=data.get("adapter_hint"),
             description=data.get("description", ""),
             notes=data.get("notes", ""),
         )

@@ -447,6 +447,7 @@ def _deployment_to_dict(row: ModelDeployment, maps: ProviderGovernanceMaps) -> d
         "gpu_config": row.gpu_config,
         "litellm_model_id": row.litellm_model_id,
         "fallbacks": row.fallbacks,
+        "adapter_hint": row.adapter_hint,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
 
@@ -491,6 +492,7 @@ async def get_role_assignments() -> list[dict]:
                 "profile": "",
                 "source": "",
                 "gpu_config": None,
+                "adapter_hint": None,
             }
         assignments.append(d)
     return assignments
@@ -506,6 +508,7 @@ async def assign_role(
     max_tokens: int = 8192,
     temperature: float = 0.1,
     fallbacks: list[str] | None = None,
+    adapter_hint: str | None = None,
     description: str = "",
     notes: str = "",
 ) -> dict:
@@ -573,6 +576,7 @@ async def assign_role(
             description=description,
             notes=notes,
             fallbacks=norm_fallbacks,
+            adapter_hint=adapter_hint or None,
         )
         session.add(row)
         await session.commit()

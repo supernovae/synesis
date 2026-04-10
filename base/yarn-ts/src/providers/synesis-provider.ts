@@ -81,7 +81,7 @@ export class SynesisProviderRegistry {
         [selected.id]: upstream.chat(selected.backendModel)
       }
     });
-    const adapter = resolveAdapter(selected.backendModel, selected.baseUrl);
+    const adapter = resolveAdapter(selected.backendModel, selected.baseUrl, selected.adapterHint);
     return {
       model: provider.languageModel(selected.id),
       resolvedModelId: selected.id,
@@ -98,6 +98,7 @@ export class SynesisProviderRegistry {
     backendModel: string,
     baseUrl: string,
     apiKey: string,
+    adapterHint?: string | null,
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const upstream = createOpenAI({
       baseURL: baseUrl,
@@ -108,7 +109,7 @@ export class SynesisProviderRegistry {
         [modelId]: upstream.chat(backendModel),
       },
     });
-    const adapter = resolveAdapter(backendModel, baseUrl);
+    const adapter = resolveAdapter(backendModel, baseUrl, adapterHint);
     return {
       model: provider.languageModel(modelId),
       resolvedModelId: modelId,

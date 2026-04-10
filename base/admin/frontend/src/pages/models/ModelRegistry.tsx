@@ -77,10 +77,20 @@ interface EditState {
   max_tokens: string;
   temperature: string;
   fallbacks: string;
+  adapter_hint: string;
 }
 
+const ADAPTER_FAMILIES = [
+  { value: "", label: "Auto-detect" },
+  { value: "qwen3-coder", label: "Qwen3-Coder" },
+  { value: "deepseek", label: "DeepSeek" },
+  { value: "kimi", label: "Kimi / Moonshot" },
+  { value: "minimax", label: "MiniMax" },
+  { value: "generic", label: "Generic OpenAI" },
+] as const;
+
 function emptyEdit(role: string): EditState {
-  return { role, provider: "openrouter", model: "", endpoint: "", api_key_env: "", max_tokens: "8192", temperature: "0.1", fallbacks: "" };
+  return { role, provider: "openrouter", model: "", endpoint: "", api_key_env: "", max_tokens: "8192", temperature: "0.1", fallbacks: "", adapter_hint: "" };
 }
 
 function editFromDeployment(d: ModelDeployment): EditState {
@@ -95,6 +105,7 @@ function editFromDeployment(d: ModelDeployment): EditState {
     max_tokens: String(mt),
     temperature: String(temp),
     fallbacks: (d.fallbacks ?? []).join(", "),
+    adapter_hint: d.adapter_hint ?? "",
   };
 }
 
@@ -193,6 +204,7 @@ export default function ModelRegistry() {
         max_tokens: parsedMaxTokens > 0 ? parsedMaxTokens : 8192,
         temperature: !isNaN(parsedTemp) && parsedTemp >= 0 ? parsedTemp : 0.1,
         fallbacks: fbList.length ? fbList : undefined,
+        adapter_hint: editing.adapter_hint || null,
       },
       { onSuccess: () => closeEditModal() },
     );
@@ -898,6 +910,23 @@ function EditModal({
             onChange={(v) => setEditing({ ...editing, fallbacks: v })}
             placeholder="comma-separated served names"
           />
+
+          {/* Adapter / Shim override */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Adapter Hint</label>
+            <select
+              value={editing.adapter_hint}
+              onChange={(e) => setEditing({ ...editing, adapter_hint: e.target.value })}
+              className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              {ADAPTER_FAMILIES.map((af) => (
+                <option key={af.value} value={af.value}>{af.label}</option>
+              ))}
+            </select>
+            <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+              Override model-family detection for tool prompts and behavior shims. Auto-detect infers from the model name.
+            </p>
+          </div>
 
           <div className="flex items-center justify-between gap-2 pt-2">
             {roles.find((r) => r.role === editing.role)?.assigned && (

@@ -439,15 +439,35 @@ function hasNativeQwenToolParser(baseUrl?: string): boolean {
   return false;
 }
 
+export const KNOWN_ADAPTER_FAMILIES = [
+  "qwen3-coder", "deepseek", "kimi", "minimax", "generic",
+] as const;
+export type AdapterFamily = (typeof KNOWN_ADAPTER_FAMILIES)[number];
+
 /**
  * Resolve adapter from the backend model name (e.g. "Qwen/Qwen3-Coder-480B-A35B-Instruct").
- * Pattern-matches against known model families. Falls back to GenericOpenAIAdapter.
+ * When `adapterHint` is set (from admin Model Registry), it overrides regex auto-detection.
+ * Otherwise pattern-matches against known model families. Falls back to GenericOpenAIAdapter.
  */
-export function resolveAdapter(backendModel: string, baseUrl?: string): ModelAdapter {
+export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHint?: string | null): ModelAdapter {
+  const hint = (adapterHint ?? "").trim().toLowerCase();
+  if (hint && (KNOWN_ADAPTER_FAMILIES as readonly string[]).includes(hint)) {
+    return resolveByFamily(hint as AdapterFamily, baseUrl);
+  }
   const m = backendModel.toLowerCase();
   if (/qwen3.*coder/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
   if (/kimi|moonshot/i.test(m)) return new GenericOpenAIAdapter("kimi");
   if (/minimax|abab/i.test(m)) return new GenericOpenAIAdapter("minimax");
   return new GenericOpenAIAdapter("generic");
+}
+
+function resolveByFamily(family: AdapterFamily, baseUrl?: string): ModelAdapter {
+  switch (family) {
+    case "qwen3-coder": return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
+    case "deepseek": return new DeepSeekAdapter();
+    case "kimi": return new GenericOpenAIAdapter("kimi");
+    case "minimax": return new GenericOpenAIAdapter("minimax");
+    case "generic": return new GenericOpenAIAdapter("generic");
+  }
 }

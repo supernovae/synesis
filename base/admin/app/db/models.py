@@ -232,6 +232,7 @@ class ModelDeployment(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     litellm_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     fallbacks: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    adapter_hint: Mapped[str | None] = mapped_column(String(32), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

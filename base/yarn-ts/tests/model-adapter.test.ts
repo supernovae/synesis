@@ -4,6 +4,7 @@ import {
   Qwen3CoderAdapter,
   GenericOpenAIAdapter,
   DeepSeekAdapter,
+  KNOWN_ADAPTER_FAMILIES,
   constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
   validateToolArgs,
@@ -88,6 +89,81 @@ describe("resolveAdapter", () => {
       "https://openrouter.ai/api/v1"
     ) as Qwen3CoderAdapter;
     expect(adapter.nativeToolParser).toBe(false);
+  });
+});
+
+describe("resolveAdapter with adapterHint", () => {
+  it("overrides auto-detect when hint is qwen3-coder", () => {
+    const adapter = resolveAdapter("some-unknown-model", undefined, "qwen3-coder");
+    expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
+    expect(adapter.family).toBe("qwen3-coder");
+  });
+
+  it("overrides auto-detect when hint is deepseek", () => {
+    const adapter = resolveAdapter("my-custom-model-v1", undefined, "deepseek");
+    expect(adapter).toBeInstanceOf(DeepSeekAdapter);
+    expect(adapter.family).toBe("deepseek");
+  });
+
+  it("overrides auto-detect when hint is kimi", () => {
+    const adapter = resolveAdapter("custom-finetuned-v2", undefined, "kimi");
+    expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
+    expect(adapter.family).toBe("kimi");
+  });
+
+  it("overrides auto-detect when hint is minimax", () => {
+    const adapter = resolveAdapter("my-model", undefined, "minimax");
+    expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
+    expect(adapter.family).toBe("minimax");
+  });
+
+  it("overrides auto-detect when hint is generic", () => {
+    const adapter = resolveAdapter("qwen3-coder-next", undefined, "generic");
+    expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
+    expect(adapter.family).toBe("generic");
+  });
+
+  it("falls back to auto-detect when hint is null", () => {
+    const adapter = resolveAdapter("deepseek-v3-0324", undefined, null);
+    expect(adapter).toBeInstanceOf(DeepSeekAdapter);
+  });
+
+  it("falls back to auto-detect when hint is empty string", () => {
+    const adapter = resolveAdapter("qwen3-coder-next", undefined, "");
+    expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
+  });
+
+  it("falls back to auto-detect when hint is unknown value", () => {
+    const adapter = resolveAdapter("qwen3-coder-next", undefined, "nonexistent-family");
+    expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
+  });
+
+  it("hint qwen3-coder respects baseUrl for nativeToolParser", () => {
+    const adapter = resolveAdapter(
+      "my-custom-model",
+      "http://my-vllm.synesis-models.svc.cluster.local:8080/v1",
+      "qwen3-coder",
+    ) as Qwen3CoderAdapter;
+    expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
+    expect(adapter.nativeToolParser).toBe(true);
+  });
+
+  it("hint qwen3-coder sets nativeToolParser false for OpenRouter", () => {
+    const adapter = resolveAdapter(
+      "my-custom-model",
+      "https://openrouter.ai/api/v1",
+      "qwen3-coder",
+    ) as Qwen3CoderAdapter;
+    expect(adapter.nativeToolParser).toBe(false);
+  });
+
+  it("KNOWN_ADAPTER_FAMILIES contains all expected families", () => {
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("qwen3-coder");
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("deepseek");
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("kimi");
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("minimax");
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("generic");
+    expect(KNOWN_ADAPTER_FAMILIES).toHaveLength(5);
   });
 });
 
