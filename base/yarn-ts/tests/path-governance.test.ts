@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { governToolCall } from "../src/path-governance/tool-call-governance.js";
 
 describe("governToolCall", () => {
-  it("normalizes duplicate leading file segments", () => {
+  it("normalizes duplicate leading file segments for write tools", () => {
     const out = governToolCall({
-      toolName: "Read",
-      input: { file_path: "repo/repo/main.go" },
+      toolName: "Write",
+      input: { file_path: "repo/repo/main.go", content: "package main" },
       projectRoot: "/Users/me/repo",
       enforcePathRoot: true,
       blockBashPathDrift: true,
@@ -15,16 +15,38 @@ describe("governToolCall", () => {
     expect(out.normalizedPath).toBe(true);
   });
 
-  it("clamps outside-root traversal to basename", () => {
+  it("clamps outside-root traversal to basename for write tools", () => {
     const out = governToolCall({
-      toolName: "Read",
-      input: { file_path: "../../etc/passwd" },
+      toolName: "Write",
+      input: { file_path: "../../etc/passwd", content: "hacked" },
       projectRoot: "/Users/me/repo",
       enforcePathRoot: true,
       blockBashPathDrift: true,
     });
     expect(out.input.file_path).toBe("passwd");
     expect(out.constrainedToRoot).toBe(true);
+  });
+
+  it("does NOT constrain Read paths — reads are non-destructive", () => {
+    const outside = governToolCall({
+      toolName: "Read",
+      input: { file_path: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(outside.constrainedToRoot).toBe(false);
+    expect(outside.input.file_path).toBe("/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md");
+
+    const traversal = governToolCall({
+      toolName: "Read",
+      input: { file_path: "../../etc/passwd" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(traversal.constrainedToRoot).toBe(false);
+    expect(traversal.input.file_path).toBe("../../etc/passwd");
   });
 
   it("uses shell_cwd as anchor when project_root missing", () => {

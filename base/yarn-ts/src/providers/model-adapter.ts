@@ -593,7 +593,7 @@ export function constrainFileToolPathToProjectRoot(
   input: Record<string, unknown>,
 ): { input: Record<string, unknown>; constrained: boolean } {
   if (!projectRoot?.trim()) return { input, constrained: false };
-  if (!["Write", "Read", "Edit", "Update"].includes(toolName)) return { input, constrained: false };
+  if (!["Write", "Edit", "Update"].includes(toolName)) return { input, constrained: false };
   const fp = input.file_path;
   if (typeof fp !== "string" || !fp.trim()) return { input, constrained: false };
 

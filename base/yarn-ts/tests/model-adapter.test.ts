@@ -449,18 +449,18 @@ describe("normalizeWorkspaceRelativeFilePath", () => {
 
 describe("constrainFileToolPathToProjectRoot", () => {
   it("passes through without project root", () => {
-    const r = constrainFileToolPathToProjectRoot(null, "Read", { file_path: "../x.go" });
+    const r = constrainFileToolPathToProjectRoot(null, "Write", { file_path: "../x.go" });
     expect(r.constrained).toBe(false);
     expect(r.input.file_path).toBe("../x.go");
   });
 
   it("leaves in-repo relative paths unchanged", () => {
-    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Read", { file_path: "pkg/a.go" });
+    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Write", { file_path: "pkg/a.go" });
     expect(r.constrained).toBe(false);
   });
 
-  it("clamps paths outside project root to basename", () => {
-    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Read", { file_path: "../../etc/passwd" });
+  it("clamps write paths outside project root to basename", () => {
+    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Write", { file_path: "../../etc/passwd" });
     expect(r.constrained).toBe(true);
     expect(r.input.file_path).toBe("passwd");
   });
@@ -468,7 +468,7 @@ describe("constrainFileToolPathToProjectRoot", () => {
   it("converts in-root absolute paths to project-relative paths", () => {
     const r = constrainFileToolPathToProjectRoot(
       "/Users/bymiller/src/calc",
-      "Read",
+      "Edit",
       { file_path: "/Users/bymiller/src/calc/main.go" },
     );
     expect(r.constrained).toBe(true);
@@ -478,7 +478,7 @@ describe("constrainFileToolPathToProjectRoot", () => {
   it("handles missing-leading-slash host paths by treating them as absolute", () => {
     const r = constrainFileToolPathToProjectRoot(
       "/Users/bymiller/src/calc",
-      "Read",
+      "Write",
       { file_path: "Users/bymiller/src/calc/main.go" },
     );
     expect(r.constrained).toBe(true);
@@ -488,11 +488,29 @@ describe("constrainFileToolPathToProjectRoot", () => {
   it("clamps Windows absolute paths on non-Windows hosts", () => {
     const r = constrainFileToolPathToProjectRoot(
       "/Users/bymiller/src/calc",
-      "Read",
+      "Update",
       { file_path: "C:/Users/dev/other/secret.go" },
     );
     expect(r.constrained).toBe(true);
     expect(r.input.file_path).toBe("secret.go");
+  });
+
+  it("does NOT constrain Read paths — reads are non-destructive", () => {
+    const outside = constrainFileToolPathToProjectRoot(
+      "/tmp/proj",
+      "Read",
+      { file_path: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+    );
+    expect(outside.constrained).toBe(false);
+    expect(outside.input.file_path).toBe("/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md");
+
+    const traversal = constrainFileToolPathToProjectRoot(
+      "/tmp/proj",
+      "Read",
+      { file_path: "../../etc/passwd" },
+    );
+    expect(traversal.constrained).toBe(false);
+    expect(traversal.input.file_path).toBe("../../etc/passwd");
   });
 });
 
