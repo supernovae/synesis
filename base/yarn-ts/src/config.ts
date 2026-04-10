@@ -123,6 +123,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_QWEN_STAGNATION_WINDOW: z.coerce.number().default(8),
+  SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD: z.coerce.number().default(3),
+  SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT: z.coerce.number().default(4),
+  SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT: z.coerce.number().default(3),
+  SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS: z.coerce.number().default(2),
 
   // Per-user rate limiting (sliding window)
   SYNESIS_YARN_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),

@@ -14,6 +14,14 @@ export interface RecentToolCall {
   args?: Record<string, unknown>;
 }
 
+export interface QwenPivotOptions {
+  recentAssistantText?: string | null;
+  stagnationWindow?: number;
+  stagnationThreshold?: number;
+  planNoActionLimit?: number;
+  editRetryLimit?: number;
+}
+
 export interface ModelAdapter {
   readonly family: string;
 
@@ -44,7 +52,7 @@ export interface ModelAdapter {
    * Detect model-specific early pivot condition (e.g. read-loop).
    * Returns a pivot prompt string when intervention is needed, null otherwise.
    */
-  getEarlyPivotPrompt?(recentToolCalls: RecentToolCall[]): string | null;
+  getEarlyPivotPrompt?(recentToolCalls: RecentToolCall[], options?: QwenPivotOptions): string | null;
 
   /**
    * Detect consecutive calls to the same tool and return a nudge prompt.
@@ -89,6 +97,71 @@ const CLAUDE_CODE_PARAM_ALIASES: Record<string, Record<string, string>> = {
   Grep: { query: "pattern", search: "pattern", regex: "pattern", path: "target_directory", directory: "target_directory" },
   WebFetch: { url: "url" },
 };
+
+const IMPLEMENT_INTENT_RE =
+  /\b(i('| a)?ll|let me|i need to|i should|i can)\b.{0,40}\b(implement|add|fix|update|enhance|complete|continue)\b/i;
+
+const FINGERPRINT_ARG_KEYS = [
+  "file_path",
+  "old_string",
+  "new_string",
+  "command",
+  "pattern",
+  "glob_pattern",
+] as const;
+
+function truncateForFingerprint(value: string, max = 80): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, max)}…`;
+}
+
+function isActionToolCall(call: RecentToolCall): boolean {
+  const t = call.toolName.trim().toLowerCase();
+  if (t === "edit" || t === "update" || t === "write") return true;
+  if (t !== "bash") return false;
+  const cmdRaw = call.args?.command;
+  if (typeof cmdRaw !== "string") return false;
+  const cmd = cmdRaw.toLowerCase();
+  return /\b(test|build|lint|vet)\b/.test(cmd);
+}
+
+export function fingerprintToolCall(call: RecentToolCall): string {
+  const tool = call.toolName.trim().toLowerCase();
+  const args = call.args ?? {};
+  const canonicalArgs: Record<string, unknown> = { ...args };
+  if (canonicalArgs.file_path === undefined && canonicalArgs.path !== undefined) {
+    canonicalArgs.file_path = canonicalArgs.path;
+  }
+  delete canonicalArgs.path;
+  const rawPath =
+    (typeof call.filePath === "string" && call.filePath.trim()) ||
+    (typeof canonicalArgs.file_path === "string" && canonicalArgs.file_path.trim()) ||
+    (typeof canonicalArgs.filename === "string" && canonicalArgs.filename.trim()) ||
+    "";
+  const normalizedPath = rawPath
+    ? normalizeWorkspaceRelativeFilePath(rawPath).toLowerCase()
+    : "";
+  const parts: string[] = [`t:${tool}`];
+  if (normalizedPath) parts.push(`p:${normalizedPath}`);
+
+  for (const key of FINGERPRINT_ARG_KEYS) {
+    const raw = canonicalArgs[key];
+    if (raw === undefined || raw === null) continue;
+    let normalized = "";
+    if (key === "file_path" && typeof raw === "string") {
+      normalized = normalizeWorkspaceRelativeFilePath(raw).toLowerCase();
+    } else if (typeof raw === "string") {
+      normalized = truncateForFingerprint(raw);
+    } else if (typeof raw === "number" || typeof raw === "boolean") {
+      normalized = String(raw);
+    } else {
+      normalized = truncateForFingerprint(JSON.stringify(raw));
+    }
+    if (normalized) parts.push(`${key}:${normalized}`);
+  }
+  return parts.join("|");
+}
 
 export class Qwen3CoderAdapter implements ModelAdapter {
   readonly family = "qwen3-coder";
@@ -198,37 +271,33 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     return { input: result, remapped };
   }
 
-  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[]): string | null {
+  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
     if (recentToolCalls.length < 3) return null;
 
-    // Check for 3+ consecutive identical Edit/Update calls (error-retry loop) first
-    const editRetries = this._detectEditRetryLoop(recentToolCalls);
+    const planNoActionLimit = Math.max(1, options.planNoActionLimit ?? 4);
+    const editRetryLimit = Math.max(2, options.editRetryLimit ?? 3);
+    const stagnationWindow = Math.max(3, options.stagnationWindow ?? 8);
+    const stagnationThreshold = Math.max(2, options.stagnationThreshold ?? 3);
+
+    const noAction = this._detectPlanWithoutAction(
+      recentToolCalls,
+      options.recentAssistantText,
+      planNoActionLimit,
+    );
+    if (noAction) return noAction;
+
+    // Ordered checks: edit-retry before broader repeated-intent/read loops.
+    const editRetries = this._detectEditRetryLoop(recentToolCalls, editRetryLimit);
     if (editRetries) return editRetries;
 
-    const READ_LIKE = new Set(["Read", "cat", "head", "tail", "read"]);
-    const EDIT_LIKE = new Set(["Edit", "Update", "Write", "edit", "update", "write"]);
+    const repeatedIntent = this._detectRepeatedIntentLoop(
+      recentToolCalls,
+      stagnationWindow,
+      stagnationThreshold,
+    );
+    if (repeatedIntent) return repeatedIntent;
 
-    // Check for 3+ consecutive read-like calls without any edit in between
-    const tail = recentToolCalls.slice(-6);
-    const readCalls: RecentToolCall[] = [];
-    for (let i = tail.length - 1; i >= 0; i--) {
-      if (READ_LIKE.has(tail[i].toolName)) {
-        readCalls.push(tail[i]);
-      } else if (EDIT_LIKE.has(tail[i].toolName)) {
-        break;
-      } else {
-        break;
-      }
-    }
-
-    if (readCalls.length < 3) return null;
-
-    const filePaths = readCalls.map((c) => c.filePath).filter(Boolean);
-    const uniqueFiles = [...new Set(filePaths)];
-    if (uniqueFiles.length === 0) return null;
-
-    const fileList = uniqueFiles.slice(0, 4).join(", ");
-    return `You have read ${fileList} multiple times. You have enough context. Write the code change now using Edit or Bash. Do not read these files again.`;
+    return this._detectReadLoop(recentToolCalls, stagnationThreshold);
   }
 
   dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
@@ -276,9 +345,74 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     return hint ? description + hint : description;
   }
 
-  /** Detect 3+ consecutive identical Edit/Update calls (the error-retry loop). */
-  private _detectEditRetryLoop(recentToolCalls: RecentToolCall[]): string | null {
-    if (recentToolCalls.length < 3) return null;
+  private _detectPlanWithoutAction(
+    recentToolCalls: RecentToolCall[],
+    recentAssistantText: string | null | undefined,
+    noActionLimit: number,
+  ): string | null {
+    const text = (recentAssistantText ?? "").trim();
+    if (!text || !IMPLEMENT_INTENT_RE.test(text)) return null;
+    const tail = recentToolCalls.slice(-noActionLimit);
+    if (tail.length < noActionLimit) return null;
+    if (tail.some((c) => isActionToolCall(c))) return null;
+    return "You stated an implementation plan but did not execute it. Your next step must be exactly one concrete action: (1) Edit/Write code, (2) run a test/build command, or (3) state a blocker and pick a different strategy.";
+  }
+
+  private _detectRepeatedIntentLoop(
+    recentToolCalls: RecentToolCall[],
+    window: number,
+    threshold: number,
+  ): string | null {
+    const tail = recentToolCalls.slice(-window);
+    const counts = new Map<string, { count: number; sample: RecentToolCall }>();
+    for (const call of tail) {
+      if (isActionToolCall(call)) continue;
+      const sig = fingerprintToolCall(call);
+      const prev = counts.get(sig);
+      if (prev) {
+        prev.count += 1;
+      } else {
+        counts.set(sig, { count: 1, sample: call });
+      }
+    }
+    let top: { count: number; sample: RecentToolCall } | null = null;
+    for (const value of counts.values()) {
+      if (value.count >= threshold && (!top || value.count > top.count)) {
+        top = value;
+      }
+    }
+    if (!top) return null;
+    const target = top.sample.filePath?.trim()
+      || (typeof top.sample.args?.file_path === "string" ? top.sample.args.file_path : "")
+      || "the same target";
+    return `You are repeating the same intent on ${target} (${top.count} times) without forward progress. Stop repeating this call pattern. Make one concrete change now (Edit/Write or test/build), and do not re-read or re-search ${target} until after that action.`;
+  }
+
+  private _detectReadLoop(recentToolCalls: RecentToolCall[], threshold: number): string | null {
+    const READ_LIKE = new Set(["Read", "cat", "head", "tail", "read"]);
+    const EDIT_LIKE = new Set(["Edit", "Update", "Write", "edit", "update", "write"]);
+    const tail = recentToolCalls.slice(-Math.max(6, threshold + 2));
+    const readCalls: RecentToolCall[] = [];
+    for (let i = tail.length - 1; i >= 0; i--) {
+      if (READ_LIKE.has(tail[i].toolName)) {
+        readCalls.push(tail[i]);
+      } else if (EDIT_LIKE.has(tail[i].toolName)) {
+        break;
+      } else {
+        break;
+      }
+    }
+    if (readCalls.length < threshold) return null;
+    const filePaths = readCalls.map((c) => c.filePath).filter(Boolean);
+    const uniqueFiles = [...new Set(filePaths)];
+    if (uniqueFiles.length === 0) return null;
+    const fileList = uniqueFiles.slice(0, 4).join(", ");
+    return `You have read ${fileList} multiple times. You have enough context. Write the code change now using Edit or Bash. Do not read these files again.`;
+  }
+
+  /** Detect repeated Edit/Update calls to the same file (error-retry loop). */
+  private _detectEditRetryLoop(recentToolCalls: RecentToolCall[], minRetries: number): string | null {
+    if (recentToolCalls.length < minRetries) return null;
 
     const tail = recentToolCalls.slice(-5);
     const EDIT_TOOLS = new Set(["Edit", "Update", "edit", "update"]);
@@ -296,7 +430,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       consecutiveEdits++;
     }
 
-    if (consecutiveEdits >= 3 && editFile) {
+    if (consecutiveEdits >= minRetries && editFile) {
       return `You have attempted to edit ${editFile} ${consecutiveEdits} times and it keeps failing. STOP retrying the same edit. Re-read the file first to see its current content, then construct a new Edit with the correct old_string that matches the actual file content.`;
     }
     return null;

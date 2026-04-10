@@ -10,6 +10,7 @@ import {
   validateToolArgs,
   repairWriteToolCall,
   repairBashToolCall,
+  fingerprintToolCall,
   normalizeHallucinatedLinuxWritePath,
   normalizeWorkspaceRelativeFilePath,
   type RecentToolCall,
@@ -555,7 +556,7 @@ describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
     const result = adapter.getEarlyPivotPrompt!(calls);
     expect(result).not.toBeNull();
     expect(result).toContain("main.go");
-    expect(result).toContain("multiple times");
+    expect(result).toContain("repeating the same intent");
   });
 
   it("returns pivot when 3+ reads of different files without edits", () => {
@@ -598,6 +599,59 @@ describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
       { toolName: "Bash", filePath: undefined },
     ];
     expect(adapter.getEarlyPivotPrompt!(calls)).toBeNull();
+  });
+
+  it("detects plan-without-action when implementation intent is stated", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "doctor.go" },
+      { toolName: "Read", filePath: "doctor.go" },
+      { toolName: "Grep", args: { pattern: "stream" } },
+      { toolName: "Read", filePath: "doctor.go" },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls, {
+      recentAssistantText: "Let me implement the enhanced doctor diagnostics feature now.",
+      planNoActionLimit: 4,
+    });
+    expect(result).not.toBeNull();
+    expect(result).toContain("implementation plan");
+  });
+
+  it("does not trigger plan-without-action when an edit action exists", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "doctor.go" },
+      { toolName: "Edit", filePath: "doctor.go", args: { old_string: "x", new_string: "y" } },
+      { toolName: "Read", filePath: "doctor.go" },
+      { toolName: "Read", filePath: "doctor.go" },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls, {
+      recentAssistantText: "I'll implement this now.",
+      planNoActionLimit: 4,
+      stagnationThreshold: 4,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("collapses path/file_path aliases into the same stagnation fingerprint", () => {
+    const a = fingerprintToolCall({ toolName: "Read", args: { path: "cmd/main.go" } });
+    const b = fingerprintToolCall({ toolName: "Read", args: { file_path: "cmd/main.go" } });
+    expect(a).toBe(b);
+  });
+
+  it("detects repeated-intent loop across alias variants", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", args: { path: "cmd/main.go" } },
+      { toolName: "Read", args: { file_path: "cmd/main.go" } },
+      { toolName: "Read", args: { path: "cmd/main.go" } },
+      { toolName: "Read", args: { file_path: "cmd/main.go" } },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls, {
+      recentAssistantText: "Continue implementation.",
+      planNoActionLimit: 10,
+      stagnationWindow: 6,
+      stagnationThreshold: 3,
+    });
+    expect(result).not.toBeNull();
+    expect(result).toContain("repeating the same intent");
   });
 });
 

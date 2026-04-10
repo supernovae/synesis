@@ -803,6 +803,92 @@ function extractRecentToolCallDetails(messages: Array<{ role: string; content: u
   return calls;
 }
 
+function extractRecentAssistantText(messages: Array<{ role: string; content: unknown }>): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "assistant") continue;
+    const content = m.content;
+    if (typeof content === "string" && content.trim()) return content.trim();
+    if (Array.isArray(content)) {
+      const text = content
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (!part || typeof part !== "object") return "";
+          const row = part as Record<string, unknown>;
+          return typeof row.text === "string" ? row.text : "";
+        })
+        .join("\n")
+        .trim();
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+function detectQwenLoopRisk(recentToolCalls: RecentToolCall[]): boolean {
+  const tail = recentToolCalls.slice(-8).map((c) => c.toolName.toLowerCase());
+  if (tail.length < 4) return false;
+  const readSearch = new Set(["read", "grep", "glob", "find", "rg", "cat", "head", "tail"]);
+  let run = 0;
+  let maxRun = 0;
+  for (const t of tail) {
+    if (readSearch.has(t)) {
+      run += 1;
+      if (run > maxRun) maxRun = run;
+    } else {
+      run = 0;
+    }
+  }
+  return maxRun >= 3;
+}
+
+function prioritizeWriteCapableTools(tools: unknown[], prioritize: boolean): unknown[] {
+  if (!prioritize) return tools;
+  const writeLike: unknown[] = [];
+  const others: unknown[] = [];
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object") {
+      others.push(tool);
+      continue;
+    }
+    const row = tool as Record<string, unknown>;
+    const openAIName = row.type === "function" && row.function && typeof row.function === "object"
+      ? (row.function as Record<string, unknown>).name
+      : undefined;
+    const directName = row.name;
+    const name = typeof openAIName === "string" ? openAIName : (typeof directName === "string" ? directName : "");
+    if (name && isWriteCapableToolName(name)) {
+      writeLike.push(tool);
+    } else {
+      others.push(tool);
+    }
+  }
+  return [...writeLike, ...others];
+}
+
+const qwenResumeInterventionTurnBySession = new Map<string, number>();
+
+function shouldSuppressQwenIntervention(sessionKey: string, turnMarker: number): boolean {
+  const cooldownTurns = Math.max(0, config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS);
+  if (cooldownTurns <= 0) return false;
+  const last = qwenResumeInterventionTurnBySession.get(sessionKey);
+  if (last === undefined) return false;
+  return turnMarker - last <= cooldownTurns;
+}
+
+function markQwenIntervention(sessionKey: string, turnMarker: number): void {
+  qwenResumeInterventionTurnBySession.set(sessionKey, turnMarker);
+}
+
+function classifyQwenPivotEvent(prompt: string): string {
+  const p = prompt.toLowerCase();
+  if (p.includes("implementation plan")) return "adapter_qwen_plan_no_action";
+  if (p.includes("repeating the same intent")) return "adapter_qwen_repeated_intent";
+  if (p.includes("attempted to edit")) return "adapter_qwen_edit_retry";
+  if (p.includes("you have read")) return "adapter_qwen_read_loop";
+  return "adapter_qwen_early_pivot";
+}
+
 function enrichToolSchemasForAdapter(
   tools: unknown[],
   adapter: ModelAdapter,
@@ -4726,6 +4812,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orchestration.phase,
     oaiClientKind,
   );
+  const oaiRecentCallsForSteering = extractRecentToolCallDetails(
+    normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+  );
+  const qwenLoopRiskOpenAI = adapter.family === "qwen3-coder" && detectQwenLoopRisk(oaiRecentCallsForSteering);
   const prunedTools = pruneToolSchemas(
     rawTools,
     toolBudget,
@@ -4737,7 +4827,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     toolSchemaPruningStats.requestsPruned += 1;
     toolSchemaPruningStats.toolsPrunedTotal += prunedTools.prunedCount;
   }
-  const effectiveTools = enrichToolSchemasForAdapter(prunedTools.tools, adapter);
+  const prioritizedTools = prioritizeWriteCapableTools(prunedTools.tools, qwenLoopRiskOpenAI);
+  const effectiveTools = enrichToolSchemasForAdapter(prioritizedTools, adapter);
   const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
@@ -4751,22 +4842,49 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   // Adapter-specific early pivot and same-tool dampening (fires after generic governance)
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !policyPrecheck.pivotPrompt && adapter.family === "qwen3-coder") {
-    const oaiRecentCalls = extractRecentToolCallDetails(
-      normalizedRequest.messages as Array<{ role: string; content: unknown }>
+    const oaiRecentCalls = oaiRecentCallsForSteering;
+    const oaiRecentAssistantText = extractRecentAssistantText(
+      normalizedRequest.messages as Array<{ role: string; content: unknown }>,
     );
+    const turnMarker = (normalizedRequest.messages as Array<{ role: string; content: unknown }>).length;
     if (adapter.getEarlyPivotPrompt) {
-      const earlyPivot = adapter.getEarlyPivotPrompt(oaiRecentCalls);
+      const earlyPivot = adapter.getEarlyPivotPrompt(oaiRecentCalls, {
+        recentAssistantText: oaiRecentAssistantText,
+        stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
+        stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
+        planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
+        editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
+      });
       if (earlyPivot) {
-        modelMessages = [...modelMessages, { role: "system" as const, content: earlyPivot }] as typeof modelMessages;
-        app.log.info({ sessionKey, family: adapter.family, pivotLen: earlyPivot.length }, "adapter_early_pivot_oai");
+        if (shouldSuppressQwenIntervention(sessionKey, turnMarker)) {
+          app.log.info(
+            { sessionKey, family: adapter.family, turnMarker },
+            "adapter_qwen_cooldown_suppressed",
+          );
+        } else {
+          modelMessages = [...modelMessages, { role: "system" as const, content: earlyPivot }] as typeof modelMessages;
+          markQwenIntervention(sessionKey, turnMarker);
+          app.log.info(
+            { sessionKey, family: adapter.family, pivotLen: earlyPivot.length },
+            classifyQwenPivotEvent(earlyPivot),
+          );
+        }
       }
     }
     if (adapter.dampenConsecutiveSameTools) {
       const oaiToolNames = oaiRecentCalls.map((c) => c.toolName);
       const dampening = adapter.dampenConsecutiveSameTools(oaiToolNames);
       if (dampening) {
-        modelMessages = [...modelMessages, { role: "system" as const, content: dampening }] as typeof modelMessages;
-        app.log.info({ sessionKey, family: adapter.family, dampenLen: dampening.length }, "adapter_dampening_oai");
+        if (shouldSuppressQwenIntervention(sessionKey, turnMarker)) {
+          app.log.info(
+            { sessionKey, family: adapter.family, turnMarker },
+            "adapter_qwen_cooldown_suppressed",
+          );
+        } else {
+          modelMessages = [...modelMessages, { role: "system" as const, content: dampening }] as typeof modelMessages;
+          markQwenIntervention(sessionKey, turnMarker);
+          app.log.info({ sessionKey, family: adapter.family, dampenLen: dampening.length }, "adapter_dampening_oai");
+        }
       }
     }
   }
@@ -6775,6 +6893,11 @@ app.post("/v1/messages", async (req, reply) => {
     claudeOrchestration.phase,
     claudeClientKind,
   );
+  const claudeRecentCallsForSteering = extractRecentToolCallDetails(
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+  );
+  const qwenLoopRiskClaude =
+    claudeAdapter.family === "qwen3-coder" && detectQwenLoopRisk(claudeRecentCallsForSteering);
   const prunedClaudeTools = pruneToolSchemas(
     claudeRawTools,
     claudeToolBudget,
@@ -6786,7 +6909,8 @@ app.post("/v1/messages", async (req, reply) => {
     toolSchemaPruningStats.requestsPruned += 1;
     toolSchemaPruningStats.toolsPrunedTotal += prunedClaudeTools.prunedCount;
   }
-  const effectiveClaudeTools = enrichToolSchemasForAdapter(prunedClaudeTools.tools, claudeAdapter);
+  const prioritizedClaudeTools = prioritizeWriteCapableTools(prunedClaudeTools.tools, qwenLoopRiskClaude);
+  const effectiveClaudeTools = enrichToolSchemasForAdapter(prioritizedClaudeTools, claudeAdapter);
   const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
@@ -6801,22 +6925,49 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Adapter-specific early pivot and same-tool dampening (Claude path)
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudePolicyPrecheck.pivotPrompt && claudeAdapter.family === "qwen3-coder") {
-    const claudeRecentCalls = extractRecentToolCallDetails(
-      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>
+    const claudeRecentCalls = claudeRecentCallsForSteering;
+    const claudeRecentAssistantText = extractRecentAssistantText(
+      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
     );
+    const turnMarker = (normalizedFromClaude.messages as Array<{ role: string; content: unknown }>).length;
     if (claudeAdapter.getEarlyPivotPrompt) {
-      const earlyPivot = claudeAdapter.getEarlyPivotPrompt(claudeRecentCalls);
+      const earlyPivot = claudeAdapter.getEarlyPivotPrompt(claudeRecentCalls, {
+        recentAssistantText: claudeRecentAssistantText,
+        stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
+        stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
+        planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
+        editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
+      });
       if (earlyPivot) {
-        claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: earlyPivot }] as typeof claudeModelMessages;
-        app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, pivotLen: earlyPivot.length }, "adapter_early_pivot_claude");
+        if (shouldSuppressQwenIntervention(claudeSessionKey, turnMarker)) {
+          app.log.info(
+            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
+            "adapter_qwen_cooldown_suppressed",
+          );
+        } else {
+          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: earlyPivot }] as typeof claudeModelMessages;
+          markQwenIntervention(claudeSessionKey, turnMarker);
+          app.log.info(
+            { sessionKey: claudeSessionKey, family: claudeAdapter.family, pivotLen: earlyPivot.length },
+            classifyQwenPivotEvent(earlyPivot),
+          );
+        }
       }
     }
     if (claudeAdapter.dampenConsecutiveSameTools) {
       const claudeToolNames = claudeRecentCalls.map((c) => c.toolName);
       const dampening = claudeAdapter.dampenConsecutiveSameTools(claudeToolNames);
       if (dampening) {
-        claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: dampening }] as typeof claudeModelMessages;
-        app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, dampenLen: dampening.length }, "adapter_dampening_claude");
+        if (shouldSuppressQwenIntervention(claudeSessionKey, turnMarker)) {
+          app.log.info(
+            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
+            "adapter_qwen_cooldown_suppressed",
+          );
+        } else {
+          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: dampening }] as typeof claudeModelMessages;
+          markQwenIntervention(claudeSessionKey, turnMarker);
+          app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, dampenLen: dampening.length }, "adapter_dampening_claude");
+        }
       }
     }
   }
