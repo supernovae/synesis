@@ -584,8 +584,21 @@ export function normalizeFileToolArgs(
 }
 
 /**
- * When project_root is known (client-provided absolute path), ensure file_path resolves under it.
- * Outside paths are clamped to basename under root (best-effort). Uses path.resolve string rules only.
+ * Normalise file_path for Read / Write / Edit / Update tool calls.
+ *
+ * Design principle: the **client** (Claude Code) is the security boundary.
+ * It prompts the user for permission on sensitive paths and controls what
+ * actually executes on disk.  Yarn should:
+ *
+ *  1. Fix hallucinated paths      — `/home/user/…`, `C:\Users\…` on macOS
+ *  2. Normalise in-root absolutes — `/Users/me/proj/main.go` → `main.go`
+ *  3. Pass through legitimate out-of-root absolutes unchanged so the client
+ *     can apply its own permission model (e.g. `~/.claude/plans/`).
+ *
+ * Only truly foreign / hallucinated paths (Linux sandbox, Windows-on-Unix)
+ * are clamped to basename.  Relative traversals (`../../x`) are left alone
+ * because `normalizeWorkspaceRelativeFilePath` already stripped hallucinated
+ * prefixes; what remains is intentional.
  */
 export function constrainFileToolPathToProjectRoot(
   projectRoot: string | null | undefined,
@@ -593,7 +606,7 @@ export function constrainFileToolPathToProjectRoot(
   input: Record<string, unknown>,
 ): { input: Record<string, unknown>; constrained: boolean } {
   if (!projectRoot?.trim()) return { input, constrained: false };
-  if (!["Write", "Edit", "Update"].includes(toolName)) return { input, constrained: false };
+  if (!["Write", "Read", "Edit", "Update"].includes(toolName)) return { input, constrained: false };
   const fp = input.file_path;
   if (typeof fp !== "string" || !fp.trim()) return { input, constrained: false };
 
@@ -603,8 +616,7 @@ export function constrainFileToolPathToProjectRoot(
   const withHostSlash = maybeHostLikeNoSlash ? `/${raw}` : raw;
   const looksWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(withHostSlash);
 
-  // On non-Windows hosts, treat Windows drive-letter paths as foreign absolute paths
-  // and clamp to basename under root rather than creating "C:" directories in-repo.
+  // Windows drive-letter paths on a non-Windows host are always hallucinated.
   if (looksWindowsAbsolute && path.sep !== "\\") {
     const base = path.basename(withHostSlash.replace(/\\/g, "/"));
     const clamped =
@@ -618,18 +630,24 @@ export function constrainFileToolPathToProjectRoot(
   const rel = path.relative(root, resolved);
   const inside =
     rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+
   if (inside) {
+    // In-root absolute → project-relative (convenience, not security).
     const normalizedRel = (rel || ".").split(path.sep).join("/");
     const prev = raw.replace(/\\/g, "/");
     if (normalizedRel === prev) return { input, constrained: false };
     return { input: { ...input, file_path: normalizedRel }, constrained: true };
   }
-  const base = path.basename(resolved);
-  const clamped =
-    base && base !== "." && base !== ".."
-      ? base.split(path.sep).join("/")
-      : "file";
-  return { input: { ...input, file_path: clamped }, constrained: true };
+
+  // Out-of-root: pass through legitimate absolute paths to the client.
+  // The client (Claude Code) enforces its own read/write permission model.
+  if (path.isAbsolute(withHostSlash)) {
+    return { input, constrained: false };
+  }
+
+  // Relative traversal (e.g. ../../foo) — leave as-is; normalizeWorkspaceRelativeFilePath
+  // already stripped hallucinated prefixes.
+  return { input, constrained: false };
 }
 
 export function validateToolArgs(

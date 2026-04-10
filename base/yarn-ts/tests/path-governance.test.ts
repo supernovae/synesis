@@ -15,41 +15,29 @@ describe("governToolCall", () => {
     expect(out.normalizedPath).toBe(true);
   });
 
-  it("clamps outside-root traversal to basename for write tools", () => {
-    const out = governToolCall({
+  it("passes through out-of-root paths to the client (client enforces permissions)", () => {
+    const traversal = governToolCall({
       toolName: "Write",
       input: { file_path: "../../etc/passwd", content: "hacked" },
       projectRoot: "/Users/me/repo",
       enforcePathRoot: true,
       blockBashPathDrift: true,
     });
-    expect(out.input.file_path).toBe("passwd");
-    expect(out.constrainedToRoot).toBe(true);
-  });
-
-  it("does NOT constrain Read paths — reads are non-destructive", () => {
-    const outside = governToolCall({
-      toolName: "Read",
-      input: { file_path: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
-      projectRoot: "/Users/me/repo",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-    });
-    expect(outside.constrainedToRoot).toBe(false);
-    expect(outside.input.file_path).toBe("/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md");
-
-    const traversal = governToolCall({
-      toolName: "Read",
-      input: { file_path: "../../etc/passwd" },
-      projectRoot: "/Users/me/repo",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-    });
     expect(traversal.constrainedToRoot).toBe(false);
     expect(traversal.input.file_path).toBe("../../etc/passwd");
+
+    const absolute = governToolCall({
+      toolName: "Edit",
+      input: { file_path: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md", old_string: "- [ ]", new_string: "- [x]" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+    });
+    expect(absolute.constrainedToRoot).toBe(false);
+    expect(absolute.input.file_path).toBe("/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md");
   });
 
-  it("uses shell_cwd as anchor when project_root missing", () => {
+  it("passes through out-of-root paths when shell_cwd is anchor", () => {
     const out = governToolCall({
       toolName: "Write",
       input: { file_path: "/tmp/outside.go", content: "package main" },
@@ -57,8 +45,8 @@ describe("governToolCall", () => {
       enforcePathRoot: true,
       blockBashPathDrift: true,
     });
-    expect(out.input.file_path).toBe("outside.go");
-    expect(out.constrainedToRoot).toBe(true);
+    expect(out.constrainedToRoot).toBe(false);
+    expect(out.input.file_path).toBe("/tmp/outside.go");
   });
 
   it("blocks dangerous rm -rf shell command", () => {
@@ -207,7 +195,7 @@ describe("governToolCall", () => {
     expect(out.validationMissing).toEqual([]);
   });
 
-  it("recovers absolute out-of-root Edit path to candidate Glob lookup", () => {
+  it("passes through absolute out-of-root Edit path to client", () => {
     const out = governToolCall({
       toolName: "Edit",
       input: {
@@ -219,24 +207,36 @@ describe("governToolCall", () => {
       enforcePathRoot: true,
       blockBashPathDrift: true,
     });
-    expect(out.toolName).toBe("Glob");
-    expect(out.input).toEqual({ glob_pattern: "**/vector_store.py" });
+    expect(out.toolName).toBe("Edit");
+    expect(out.constrainedToRoot).toBe(false);
+    expect(out.input.file_path).toBe("/Users/someone/other-project/src/vector_store.py");
   });
 
-  it("keeps governed file paths inside project root across mixed path styles", () => {
+  it("clamps hallucinated paths but passes through legitimate ones", () => {
     const root = "/Users/me/repo";
-    const cases = [
-      "main.go",
-      "./pkg/main.go",
-      "repo/repo/main.go",
-      "../../etc/passwd",
-      "/Users/me/repo/cmd/app.go",
-      "Users/me/repo/cmd/app.go",
-      "/tmp/outside.go",
-      "C:/Users/dev/secret.go",
-      "C:\\Users\\dev\\secret.go",
+
+    const hallucinated: Array<[string, string]> = [
+      ["C:/Users/dev/secret.go", "secret.go"],
+      ["C:\\Users\\dev\\secret.go", "secret.go"],
     ];
-    for (const filePath of cases) {
+    for (const [filePath, expected] of hallucinated) {
+      const out = governToolCall({
+        toolName: "Write",
+        input: { file_path: filePath, content: "package main" },
+        projectRoot: root,
+        enforcePathRoot: true,
+        blockBashPathDrift: true,
+      });
+      expect(out.constrainedToRoot).toBe(true);
+      expect(out.input.file_path).toBe(expected);
+    }
+
+    const inRoot: Array<[string, string]> = [
+      ["main.go", "main.go"],
+      ["/Users/me/repo/cmd/app.go", "cmd/app.go"],
+      ["Users/me/repo/cmd/app.go", "cmd/app.go"],
+    ];
+    for (const [filePath, expected] of inRoot) {
       const out = governToolCall({
         toolName: "Write",
         input: { file_path: filePath, content: "package main" },
@@ -245,9 +245,25 @@ describe("governToolCall", () => {
         blockBashPathDrift: true,
       });
       const governedPath = String(out.input.file_path ?? "");
-      // Invariant: governed file path is never absolute and cannot traverse upward.
       expect(path.isAbsolute(governedPath)).toBe(false);
-      expect(governedPath.includes("..")).toBe(false);
+      expect(governedPath).toBe(expected);
+    }
+
+    const passThrough = [
+      "../../etc/passwd",
+      "/tmp/outside.go",
+      "/Users/someone/.claude/plans/plan.md",
+    ];
+    for (const filePath of passThrough) {
+      const out = governToolCall({
+        toolName: "Write",
+        input: { file_path: filePath, content: "package main" },
+        projectRoot: root,
+        enforcePathRoot: true,
+        blockBashPathDrift: true,
+      });
+      expect(out.constrainedToRoot).toBe(false);
+      expect(out.input.file_path).toBe(filePath);
     }
   });
 });

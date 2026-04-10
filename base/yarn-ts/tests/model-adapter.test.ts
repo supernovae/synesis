@@ -459,12 +459,6 @@ describe("constrainFileToolPathToProjectRoot", () => {
     expect(r.constrained).toBe(false);
   });
 
-  it("clamps write paths outside project root to basename", () => {
-    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Write", { file_path: "../../etc/passwd" });
-    expect(r.constrained).toBe(true);
-    expect(r.input.file_path).toBe("passwd");
-  });
-
   it("converts in-root absolute paths to project-relative paths", () => {
     const r = constrainFileToolPathToProjectRoot(
       "/Users/bymiller/src/calc",
@@ -495,22 +489,28 @@ describe("constrainFileToolPathToProjectRoot", () => {
     expect(r.input.file_path).toBe("secret.go");
   });
 
-  it("does NOT constrain Read paths — reads are non-destructive", () => {
-    const outside = constrainFileToolPathToProjectRoot(
-      "/tmp/proj",
-      "Read",
+  it("passes through out-of-root absolute paths to the client", () => {
+    const plans = constrainFileToolPathToProjectRoot(
+      "/Users/bymiller/src/calc",
+      "Write",
       { file_path: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
     );
-    expect(outside.constrained).toBe(false);
-    expect(outside.input.file_path).toBe("/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md");
+    expect(plans.constrained).toBe(false);
+    expect(plans.input.file_path).toBe("/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md");
 
-    const traversal = constrainFileToolPathToProjectRoot(
-      "/tmp/proj",
-      "Read",
-      { file_path: "../../etc/passwd" },
+    const tmp = constrainFileToolPathToProjectRoot(
+      "/Users/me/repo",
+      "Edit",
+      { file_path: "/tmp/scratch.go" },
     );
-    expect(traversal.constrained).toBe(false);
-    expect(traversal.input.file_path).toBe("../../etc/passwd");
+    expect(tmp.constrained).toBe(false);
+    expect(tmp.input.file_path).toBe("/tmp/scratch.go");
+  });
+
+  it("passes through relative traversals to the client", () => {
+    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Write", { file_path: "../../etc/passwd" });
+    expect(r.constrained).toBe(false);
+    expect(r.input.file_path).toBe("../../etc/passwd");
   });
 });
 
