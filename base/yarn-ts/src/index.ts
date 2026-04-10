@@ -4890,6 +4890,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
+  const adapterSampling = adapter.defaultSamplingParams?.();
+  const oaiEffectiveTemp = request.temperature ?? adapterSampling?.temperature;
+  const oaiEffectiveTopP = adapterSampling?.top_p;
   const oaiContextAdmission = evaluateContextAdmission(
     modelMessages as Array<{ role: string; content: unknown }>,
     effectiveTools as unknown[],
@@ -4965,6 +4968,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         model: resolved.model as never,
         messages: currentMessages,
         maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
+        ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
+        ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
@@ -5060,6 +5065,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           model: resolved.model as never,
           messages: currentMessages,
           maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
+          ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
+          ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
         });
@@ -5591,6 +5598,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     model: resolved.model as never,
     messages: modelMessages,
     maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
+    ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
+    ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
     ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
@@ -6976,6 +6985,9 @@ app.post("/v1/messages", async (req, reply) => {
   const providerOptions = body.thinking
     ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
     : adapterClaudeProviderOptions;
+  const claudeAdapterSampling = claudeAdapter.defaultSamplingParams?.();
+  const claudeEffectiveTemp = body.temperature ?? claudeAdapterSampling?.temperature;
+  const claudeEffectiveTopP = claudeAdapterSampling?.top_p;
   const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
   const claudeContextAdmission = evaluateContextAdmission(
     claudeModelMessages as Array<{ role: string; content: unknown }>,
@@ -7035,7 +7047,8 @@ app.post("/v1/messages", async (req, reply) => {
           model: resolved.model as never,
           messages: currentMessages,
           maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-          ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+          ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
           ...(sdkStop ? { stopSequences: sdkStop } : {}),
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
@@ -7109,7 +7122,8 @@ app.post("/v1/messages", async (req, reply) => {
         model: resolved.model as never,
         messages: currentMessages,
         maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+        ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
         ...(sdkStop ? { stopSequences: sdkStop } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
@@ -7281,7 +7295,8 @@ app.post("/v1/messages", async (req, reply) => {
       model: resolved.model as never,
       messages: claudeModelMessages,
       maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-      ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+      ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
@@ -8039,7 +8054,8 @@ app.post("/v1/messages", async (req, reply) => {
         model: resolved.model as never,
         messages: currentMessages,
         maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+        ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
         ...(sdkStop ? { stopSequences: sdkStop } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),

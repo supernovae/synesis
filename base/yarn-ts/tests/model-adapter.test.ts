@@ -292,6 +292,24 @@ describe("GenericOpenAIAdapter", () => {
   });
 });
 
+describe("defaultSamplingParams", () => {
+  it("Qwen3CoderAdapter returns recommended sampling", () => {
+    const adapter = new Qwen3CoderAdapter();
+    const params = adapter.defaultSamplingParams();
+    expect(params).toEqual({ temperature: 1.0, top_p: 0.95 });
+  });
+
+  it("GenericOpenAIAdapter has no defaultSamplingParams", () => {
+    const adapter = new GenericOpenAIAdapter();
+    expect(adapter.defaultSamplingParams).toBeUndefined();
+  });
+
+  it("DeepSeekAdapter has no defaultSamplingParams", () => {
+    const adapter = new DeepSeekAdapter();
+    expect(adapter.defaultSamplingParams).toBeUndefined();
+  });
+});
+
 describe("DeepSeekAdapter", () => {
   const adapter = new DeepSeekAdapter();
 

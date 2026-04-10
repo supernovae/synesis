@@ -150,7 +150,7 @@ async def seed_model_deployments(*, force: bool = False) -> int:
                 service_name = role_def.get("service_name", role_name)
                 namespace = role_def.get("namespace", "synesis-models")
                 endpoint = f"http://{service_name}.{namespace}.svc.cluster.local:8080/v1"
-                lp = build_litellm_params("vllm", served_name, endpoint=endpoint, max_tokens=32768, temperature=0.2)
+                lp = build_litellm_params("vllm", served_name, endpoint=endpoint, max_tokens=32768, temperature=0.3)
                 row = ModelDeployment(
                     role=role_name,
                     model=model,
@@ -281,7 +281,7 @@ def resolve_deployment_routing_for_parts(
     prov_info = PROVIDER_CATALOG.get(p, PROVIDER_CATALOG["custom"])
     lp_stored = dict(stored_litellm_params or {})
     mt = int(max_tokens if max_tokens is not None else lp_stored.get("max_tokens") or 8192)
-    temp = float(temperature if temperature is not None else lp_stored.get("temperature") or 0.1)
+    temp = float(temperature if temperature is not None else lp_stored.get("temperature") or 0.3)
     resolved_endpoint = _resolve_role_endpoint(
         provider=p,
         endpoint_field=endpoint_field,
@@ -506,7 +506,7 @@ async def assign_role(
     endpoint: str = "",
     api_key_env: str = "",
     max_tokens: int = 8192,
-    temperature: float = 0.1,
+    temperature: float = 0.3,
     fallbacks: list[str] | None = None,
     adapter_hint: str | None = None,
     description: str = "",
@@ -516,6 +516,11 @@ async def assign_role(
 
     Deactivates the previous assignment (writing history), then creates or
     updates the active deployment for this role.  Returns the new assignment dict.
+
+    NOTE: Coder roles (coder-pulse, coder-core, coder-horizon) should use
+    temperature=1.0 per the Qwen3-Coder-Next model card.  Yarn's adapter
+    layer enforces this as a fallback, but setting it here keeps the admin
+    registry honest.
     """
     if role not in KNOWN_ROLES:
         raise ValueError(f"Unknown role: {role}")

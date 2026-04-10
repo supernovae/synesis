@@ -65,6 +65,13 @@ export interface ModelAdapter {
    * Returns the (possibly enriched) description.
    */
   enrichToolDescription?(toolName: string, description: string): string;
+
+  /**
+   * Model-recommended sampling defaults (temperature, top_p, etc.).
+   * Yarn uses these as fallback when the client request omits sampling params.
+   * Client-specified values always take precedence.
+   */
+  defaultSamplingParams?(): { temperature?: number; top_p?: number } | undefined;
 }
 
 export interface ToolArgValidationResult {
@@ -177,6 +184,10 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
   constructor(nativeToolParser = false) {
     this.nativeToolParser = nativeToolParser;
+  }
+
+  defaultSamplingParams(): { temperature: number; top_p: number } {
+    return { temperature: 1.0, top_p: 0.95 };
   }
 
   toolSystemPrompt(toolCount: number): string | undefined {

@@ -85,8 +85,7 @@ spec:
             - --gpu-memory-utilization=0.90
             - --generation-config=vllm
             - --enable-auto-tool-choice
-            - --tool-call-parser=hermes
-            - --enable-prefix-caching
+            - --tool-call-parser=qwen3_xml
             - --enable-chunked-prefill
           resources:
             limits:

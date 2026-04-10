@@ -59,14 +59,13 @@ Key vLLM args (from `base/model-serving/deployment-vllm-coder.yaml`):
 --max-model-len=65536
 --gpu-memory-utilization=0.90
 --enable-auto-tool-choice
---tool-call-parser=hermes          # ⚠ MIGRATE to qwen3_coder — see "XML Tool Calling" section below
---enable-prefix-caching
+--tool-call-parser=qwen3_xml
 --enable-chunked-prefill
 ```
 
 - **Architecture**: 30B MoE with 3B active parameters per token. Same Qwen3-Coder family as the 80B Next model.
 - **FP8 weights ~15GB** — fits easily on a single L40S with full 65K context and ~25GB headroom.
-- **Prefix caching**: Enabled — caches repeated system prompts from IDE clients.
+- **Prefix caching**: **Disabled** for Qwen3-Coder models — [vLLM #34361](https://github.com/vllm-project/vllm/issues/34361) documents silent corruption.
 - **Separate endpoint**: IDEs (Cursor, Claude Code) connect directly — not routed through the planner.
 - **Upgrade path**: Medium/large profiles use Qwen3-Coder-Next-FP8 (80B, TP=2) for max quality.
 
@@ -89,12 +88,33 @@ Plenty of headroom. The 30B-A3B model is the right fit for single-GPU deployment
 --max-model-len=65536
 --gpu-memory-utilization=0.90
 --enable-auto-tool-choice
---tool-call-parser=hermes          # ⚠ MIGRATE to qwen3_coder — see "XML Tool Calling" section below
+--tool-call-parser=qwen3_xml
 ```
 
 - **Architecture**: 80B MoE with 512 experts, 10 active per token (~3B active). Hybrid attention (gated attention + DeltaNet).
 - **FP8 weights ~46GB** — requires TP=2 (2 GPUs). Will OOM on any single GPU.
 - **Why not single-GPU?**: All 512 expert weight tensors must reside in VRAM even though only 10 are active per token. FP8 compresses from ~80GB to ~46GB but that still exceeds any single 48GB card.
+
+### RunPod / Single-GPU: Qwen3-Coder-Next-NVFP4
+
+For RunPod or single-GPU deployment with NF4 quantization (~20GB VRAM):
+
+```
+vllm serve RedHatAI/Qwen3-Coder-Next-NVFP4 \
+  --host 0.0.0.0 --port 8000 \
+  --tensor-parallel-size 1 \
+  --gpu-memory-utilization 0.70 \
+  --max-model-len 262144 \
+  --enforce-eager \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_xml \
+  --enable-prompt-tokens-details
+```
+
+- **NF4 quantization**: Fits on a single 48GB GPU. Quality is lower than FP8 but sufficient for agentic coding.
+- **`--enforce-eager`**: Disables CUDA graphs. Required for some NF4 quantized models to avoid memory fragmentation.
+- **No `--enable-prefix-caching`**: Prefix caching has known corruption bugs with Qwen-Coder-Next ([vLLM #34361](https://github.com/vllm-project/vllm/issues/34361)).
+- **256K context**: Full context support at NF4; reduce `--max-model-len` if OOM.
 
 ## Critic: DeepSeek R1-Distill-Qwen-32B FP8
 
@@ -150,16 +170,15 @@ Key vLLM args (from `base/model-serving/deployment-vllm-router.yaml`):
 
 Substantial headroom (~21 GB free). Could increase `--max-model-len` to 65536 or raise `--max-num-seqs` for higher concurrency if needed.
 
-## Qwen3-Coder: XML Tool Calling (qwen3\_coder parser)
+## Qwen3-Coder: XML Tool Calling (qwen3\_xml parser)
 
-**Status**: Ready to deploy on vLLM. This is the highest-priority upgrade for
-Yarn/IDE tool-call reliability.
+**Status**: Deployed. All coder deployments use `--tool-call-parser=qwen3_xml`.
 
-### Why this matters
+### Why qwen3\_xml (not qwen3\_coder or hermes)
 
 The Qwen3-Coder model family was explicitly trained with an **XML tool calling
-format** (`qwen3_coder`) designed for string-heavy arguments — the model can emit
-multi-line code blocks inside `<parameter>` tags without JSON escaping. The
+format** designed for string-heavy arguments — the model can emit multi-line code
+blocks inside `<parameter>` tags without JSON escaping. The
 [Qwen3-Coder-Next technical report](https://arxiv.org/html/2603.00729v1) (§4.2.2)
 states:
 
@@ -167,6 +186,12 @@ states:
 > multi-line code. To address this, we also introduce an XML-style tool calling
 > format, `qwen3_coder`, which is designed for string-heavy arguments and allows
 > the model to emit long code snippets without nested quoting."
+
+**Parser choice matters.** The `qwen3_coder` parser (the older, model-card-recommended
+parser) has a critical bug: **long inputs with tool calls produce an infinite stream of
+`!!!` with `next_token_id=0`** ([HuggingFace discussion #17](https://huggingface.co/Qwen/Qwen3-Coder-Next/discussions/17),
+[vLLM #33965](https://github.com/vllm-project/vllm/pull/33965)). The `qwen3_xml`
+parser is the vLLM-recommended replacement and handles streaming correctly.
 
 When we route through providers that force JSON tool calling (e.g., DeepInfra),
 the model struggles to serialize code containing quotes and newlines into JSON
@@ -177,11 +202,9 @@ not a fix.
 
 ### vLLM deployment flags
 
-Replace `--tool-call-parser=hermes` with:
-
 ```
 --enable-auto-tool-choice
---tool-call-parser=qwen3_coder
+--tool-call-parser=qwen3_xml
 ```
 
 vLLM has the `Qwen3CoderToolParser` merged since [PR #25028](https://github.com/vllm-project/vllm/pull/25028)
@@ -293,19 +316,40 @@ in the Model Registry for any coder role. Set `DASHSCOPE_API_KEY` env var.
 
 ### Migration checklist
 
-- [ ] Update `base/model-serving/deployment-vllm-coder.yaml`: change
-  `--tool-call-parser=hermes` to `--tool-call-parser=qwen3_coder`
-- [ ] Download `qwen3coder_tool_parser.py` and `chat_template.jinja` from
-  the [HF repo](https://huggingface.co/Qwen/Qwen3-Coder-480B-A35B-Instruct)
-  if using the newer parser (optional — built-in parser works)
+- [x] Update `base/model-serving/deployment-vllm-coder.yaml`: use `--tool-call-parser=qwen3_xml`
+- [x] Update `models.yaml` vllm_args: all coder entries use `qwen3_xml`
+- [x] Remove `--enable-prefix-caching` from coder deployments
 - [ ] Test with Claude Code: Write tool calls with code content containing
   quotes and newlines should now succeed without the Bash heredoc fallback
 - [ ] Verify `repairWriteToolCall` stops triggering (check for absence of
   `write_tool_repaired_to_bash_heredoc` log events)
 - [ ] Consider adding `--chat-template` flag if the built-in template lags
   the HF repo version
-- [ ] Update `Qwen3CoderAdapter.toolSystemPrompt()` to return `undefined`
-  when the backend is vLLM with XML parser (adapter can check `baseUrl`)
+
+## Sampling Best Practices
+
+The Qwen3-Coder-Next model card recommends: `temperature=1.0`, `top_p=0.95`, `top_k=40`.
+
+**Why this matters for tool-calling agents:** At low temperature (e.g. 0.2), this
+MoE model with only 3B active parameters has an extremely peaked probability
+distribution. Once the model starts a repetitive pattern (e.g. re-reading the same
+file), there is near-zero probability of sampling an alternative token to break out.
+This is the single biggest amplifier of the model's inherent loop tendency.
+
+Yarn's `Qwen3CoderAdapter.defaultSamplingParams()` returns `{ temperature: 1.0, top_p: 0.95 }`
+as a fallback when clients don't send sampling params. Client-specified values always
+take precedence.
+
+### Known community issues
+
+| Issue | Source | Impact |
+|-------|--------|--------|
+| `qwen3_coder` parser: infinite `!!!` on long inputs | [HF #17](https://huggingface.co/Qwen/Qwen3-Coder-Next/discussions/17) | Use `qwen3_xml` instead |
+| Prefix caching corruption | [vLLM #34361](https://github.com/vllm-project/vllm/issues/34361) | Disable `--enable-prefix-caching` for coder |
+| Duplicate tool names lose arguments | [vLLM PR #33965](https://github.com/vllm-project/vllm/pull/33965) | Fixed in recent vLLM; `qwen3_xml` not affected |
+| Read-tool loop (re-reading same file) | [qwen-code #2201](https://github.com/QwenLM/qwen-code/issues/2201) | Known model limitation; Yarn adapter mitigates |
+| Repetition loop (same sentence) | [qwen-code #1403](https://github.com/QwenLM/qwen-code/issues/1403) | Increase temperature; model limitation |
+| `repetition_penalty` crashes vLLM | [vLLM #28307](https://github.com/vllm-project/vllm/issues/28307) | Do not use `repetition_penalty` with Qwen3 |
 
 ## Common Troubleshooting
 
@@ -318,6 +362,8 @@ in the Model Registry for any coder role. Set `DASHSCOPE_API_KEY` env var.
 | No reasoning content (Qwen3 general) | Ensure `--enable-reasoning --reasoning-parser=qwen3` on the general model |
 | FP8 KV cache + prefix caching | These are mutually exclusive in current vLLM. Choose one. |
 | Router returning `<think>` tags | Router uses Qwen2.5-14B (no native thinking). Remove `--reasoning-parser` if present. |
+| Coder infinite `!!!` stream | Switch `--tool-call-parser=qwen3_coder` to `qwen3_xml` |
+| Coder silent corruption | Disable `--enable-prefix-caching` for coder models |
 
 ## Deployment strategy (Recreate vs RollingUpdate)
 

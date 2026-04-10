@@ -236,8 +236,7 @@ profiles:
           - "--gpu-memory-utilization=0.90"
           - "--max-model-len=65536"
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=hermes"
-          - "--enable-prefix-caching"
+          - "--tool-call-parser=qwen3_xml"
           - "--enable-chunked-prefill"
         notes: >
           Pulse tier: Qwen3-Coder-30B-A3B MoE (3B active) at FP8 (~15 GB).
@@ -322,8 +321,7 @@ profiles:
           - "--gpu-memory-utilization=0.45"
           - "--max-model-len=65536"
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=hermes"
-          - "--enable-prefix-caching"
+          - "--tool-call-parser=qwen3_xml"
         notes: >
           Pulse tier: Qwen3-Coder-30B-A3B MoE (3B active, ~15 GB weights).
           Shares GPU 1 with Core via memory budgeting.
@@ -343,7 +341,7 @@ profiles:
           - "--gpu-memory-utilization=0.90"
           - "--max-model-len=65536"
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=hermes"
+          - "--tool-call-parser=qwen3_xml"
         notes: >
           Core tier: Qwen3-Coder-Next FP8 across 2 L40S with TP=2. Full 65K context.
 
@@ -422,8 +420,7 @@ profiles:
           - "--gpu-memory-utilization=0.90"
           - "--max-model-len=65536"
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=hermes"
-          - "--enable-prefix-caching"
+          - "--tool-call-parser=qwen3_xml"
         notes: >
           Pulse tier: Qwen3-Coder-30B-A3B MoE (3B active) on dedicated GPU.
 
@@ -442,7 +439,7 @@ profiles:
           - "--gpu-memory-utilization=0.90"
           - "--max-model-len=65536"
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=hermes"
+          - "--tool-call-parser=qwen3_xml"
         hpa:
           min_replicas: 2
           max_replicas: 4
