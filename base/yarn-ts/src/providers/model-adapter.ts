@@ -8,6 +8,12 @@ import path from "node:path";
  * Adapters are resolved automatically from the TierConfig.backendModel string.
  */
 
+export interface RecentToolCall {
+  toolName: string;
+  filePath?: string;
+  args?: Record<string, unknown>;
+}
+
 export interface ModelAdapter {
   readonly family: string;
 
@@ -33,6 +39,24 @@ export interface ModelAdapter {
 
   /** Max tool definitions this model handles well (for future schema pruning). */
   maxEffectiveTools?: number;
+
+  /**
+   * Detect model-specific early pivot condition (e.g. read-loop).
+   * Returns a pivot prompt string when intervention is needed, null otherwise.
+   */
+  getEarlyPivotPrompt?(recentToolCalls: RecentToolCall[]): string | null;
+
+  /**
+   * Detect consecutive calls to the same tool and return a nudge prompt.
+   * Returns null when no intervention is needed.
+   */
+  dampenConsecutiveSameTools?(recentToolNames: string[]): string | null;
+
+  /**
+   * Append model-specific usage hints to a tool's description string.
+   * Returns the (possibly enriched) description.
+   */
+  enrichToolDescription?(toolName: string, description: string): string;
 }
 
 export interface ToolArgValidationResult {
@@ -85,6 +109,16 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   toolSystemPrompt(toolCount: number): string | undefined {
     if (toolCount === 0) return undefined;
 
+    const workflowDiscipline = [
+      "",
+      "## Workflow discipline",
+      "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command — never re-read the same file.",
+      "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have.",
+      "- **Progressive narrowing**: Each tool call must produce NEW information or make a change. If a search returns results, act on them — do not search again with slightly different terms.",
+      "- **File offset awareness**: When reading large files, use offset/limit parameters to read specific sections. Do not re-read from line 1 if you already have the beginning.",
+      "- **Edit failures**: If an Edit/Update call fails, do NOT retry with identical arguments. Re-read the file to get current content, then adjust your old_string to match exactly.",
+    ].join("\n");
+
     // Backend with native XML parser handles tool calls correctly — minimal guidance only
     if (this.nativeToolParser) {
       return [
@@ -94,6 +128,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
         "Use RELATIVE file paths (e.g., `hello.go`, `cmd/main.go`), not absolute paths.",
         "For file tools, paths are workspace-relative. Do NOT prefix paths with the workspace folder name.",
         "Do NOT assume shell `cd` changes file-tool path roots.",
+        workflowDiscipline,
       ].join("\n");
     }
 
@@ -135,6 +170,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "## Directories (avoid getting lost):",
       "Do not `mkdir` and `cd` into a folder that repeats the project name multiple times (e.g. `aws-cost-calculator/aws-cost-calculator/...`).",
       "If the workspace is empty or you are already at the project root, create files there (`main.go`, `go.mod`) instead of nesting duplicate path segments.",
+      workflowDiscipline,
     ].join("\n");
   }
 
@@ -160,6 +196,110 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       }
     }
     return { input: result, remapped };
+  }
+
+  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[]): string | null {
+    if (recentToolCalls.length < 3) return null;
+
+    // Check for 3+ consecutive identical Edit/Update calls (error-retry loop) first
+    const editRetries = this._detectEditRetryLoop(recentToolCalls);
+    if (editRetries) return editRetries;
+
+    const READ_LIKE = new Set(["Read", "cat", "head", "tail", "read"]);
+    const EDIT_LIKE = new Set(["Edit", "Update", "Write", "edit", "update", "write"]);
+
+    // Check for 3+ consecutive read-like calls without any edit in between
+    const tail = recentToolCalls.slice(-6);
+    const readCalls: RecentToolCall[] = [];
+    for (let i = tail.length - 1; i >= 0; i--) {
+      if (READ_LIKE.has(tail[i].toolName)) {
+        readCalls.push(tail[i]);
+      } else if (EDIT_LIKE.has(tail[i].toolName)) {
+        break;
+      } else {
+        break;
+      }
+    }
+
+    if (readCalls.length < 3) return null;
+
+    const filePaths = readCalls.map((c) => c.filePath).filter(Boolean);
+    const uniqueFiles = [...new Set(filePaths)];
+    if (uniqueFiles.length === 0) return null;
+
+    const fileList = uniqueFiles.slice(0, 4).join(", ");
+    return `You have read ${fileList} multiple times. You have enough context. Write the code change now using Edit or Bash. Do not read these files again.`;
+  }
+
+  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
+    if (recentToolNames.length < 3) return null;
+
+    const READ_SEARCH_TOOLS = new Set(["Read", "cat", "head", "tail", "read"]);
+    const GREP_FIND_TOOLS = new Set(["Grep", "grep", "find", "Glob", "glob", "rg"]);
+
+    const tail = recentToolNames.slice(-6);
+    let consecutiveCount = 1;
+    const lastTool = tail[tail.length - 1];
+    for (let i = tail.length - 2; i >= 0; i--) {
+      if (tail[i] === lastTool) {
+        consecutiveCount++;
+      } else {
+        break;
+      }
+    }
+
+    const isReadSearch = READ_SEARCH_TOOLS.has(lastTool);
+    const isGrepFind = GREP_FIND_TOOLS.has(lastTool);
+    const threshold = (isReadSearch || isGrepFind) ? 3 : lastTool === "Bash" ? 6 : 4;
+
+    if (consecutiveCount < threshold) return null;
+
+    if (isReadSearch) {
+      return `You have called ${lastTool} ${consecutiveCount} times consecutively. You have enough information — make your edit now using Edit or Write. Do not read again.`;
+    }
+    if (isGrepFind) {
+      return `You have called ${lastTool} ${consecutiveCount} times consecutively. Narrow your approach: act on the results you have, or try a different tool.`;
+    }
+    return `You have called ${lastTool} ${consecutiveCount} times consecutively. Vary your approach: if gathering info, now act on it. If something is failing, re-read the error and try a different strategy.`;
+  }
+
+  enrichToolDescription(toolName: string, description: string): string {
+    const hints: Record<string, string> = {
+      Read: " [Qwen hint: Read a file ONCE. After reading, make your edit. Do not re-read the same file.]",
+      Edit: " [Qwen hint: PREFERRED for code changes. If the edit fails, re-read the file to get current content before retrying with corrected old_string.]",
+      Update: " [Qwen hint: PREFERRED for code changes. If the update fails, re-read the file to get current content before retrying with corrected old_string.]",
+      Bash: " [Qwen hint: Use for running tests, builds, and creating files via heredoc. Do not use cat to read files — use the Read tool instead.]",
+      Grep: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
+      Glob: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
+    };
+    const hint = hints[toolName];
+    return hint ? description + hint : description;
+  }
+
+  /** Detect 3+ consecutive identical Edit/Update calls (the error-retry loop). */
+  private _detectEditRetryLoop(recentToolCalls: RecentToolCall[]): string | null {
+    if (recentToolCalls.length < 3) return null;
+
+    const tail = recentToolCalls.slice(-5);
+    const EDIT_TOOLS = new Set(["Edit", "Update", "edit", "update"]);
+
+    let consecutiveEdits = 0;
+    let editFile: string | undefined;
+    for (let i = tail.length - 1; i >= 0; i--) {
+      const call = tail[i];
+      if (!EDIT_TOOLS.has(call.toolName)) break;
+      if (editFile === undefined) {
+        editFile = call.filePath;
+      } else if (call.filePath !== editFile) {
+        break;
+      }
+      consecutiveEdits++;
+    }
+
+    if (consecutiveEdits >= 3 && editFile) {
+      return `You have attempted to edit ${editFile} ${consecutiveEdits} times and it keeps failing. STOP retrying the same edit. Re-read the file first to see its current content, then construct a new Edit with the correct old_string that matches the actual file content.`;
+    }
+    return null;
   }
 }
 

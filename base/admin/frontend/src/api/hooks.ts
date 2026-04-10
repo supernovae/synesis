@@ -500,7 +500,7 @@ export function useRoleAssignments() {
 export function useAssignRole() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ role, ...data }: { role: string; provider: string; model: string; endpoint?: string; api_key_env?: string; max_tokens?: number; temperature?: number; fallbacks?: string[]; description?: string; notes?: string }) =>
+    mutationFn: ({ role, ...data }: { role: string; provider: string; model: string; endpoint?: string; api_key_env?: string; max_tokens?: number; temperature?: number; fallbacks?: string[]; adapter_hint?: string | null; description?: string; notes?: string }) =>
       client.put(`/models/roles/${role}`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });

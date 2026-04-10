@@ -12,6 +12,7 @@ import {
   repairBashToolCall,
   normalizeHallucinatedLinuxWritePath,
   normalizeWorkspaceRelativeFilePath,
+  type RecentToolCall,
 } from "../src/providers/model-adapter.js";
 
 describe("resolveAdapter", () => {
@@ -504,5 +505,215 @@ describe("validateToolArgs", () => {
   it("passes through unknown tools as valid", () => {
     expect(validateToolArgs("UnknownTool", { a: 1 }))
       .toEqual({ valid: true, missing: [] });
+  });
+});
+
+describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
+  it("includes workflow discipline section (JSON backend)", () => {
+    const adapter = new Qwen3CoderAdapter(false);
+    const prompt = adapter.toolSystemPrompt(10)!;
+    expect(prompt).toContain("## Workflow discipline");
+    expect(prompt).toContain("Read-then-act");
+    expect(prompt).toContain("Plan commitment");
+    expect(prompt).toContain("Progressive narrowing");
+    expect(prompt).toContain("File offset awareness");
+    expect(prompt).toContain("Edit failures");
+  });
+
+  it("includes workflow discipline section (native parser)", () => {
+    const adapter = new Qwen3CoderAdapter(true);
+    const prompt = adapter.toolSystemPrompt(10)!;
+    expect(prompt).toContain("## Workflow discipline");
+    expect(prompt).toContain("Read-then-act");
+  });
+
+  it("workflow discipline is deterministic (cache-safe)", () => {
+    const adapter = new Qwen3CoderAdapter(false);
+    const a = adapter.toolSystemPrompt(10);
+    const b = adapter.toolSystemPrompt(10);
+    expect(a).toBe(b);
+  });
+});
+
+describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
+  const adapter = new Qwen3CoderAdapter();
+
+  it("returns null for fewer than 3 tool calls", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "main.go" },
+      { toolName: "Read", filePath: "main.go" },
+    ];
+    expect(adapter.getEarlyPivotPrompt!(calls)).toBeNull();
+  });
+
+  it("returns pivot when 3+ consecutive reads of same file", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "main.go" },
+      { toolName: "Read", filePath: "main.go" },
+      { toolName: "Read", filePath: "main.go" },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls);
+    expect(result).not.toBeNull();
+    expect(result).toContain("main.go");
+    expect(result).toContain("multiple times");
+  });
+
+  it("returns pivot when 3+ reads of different files without edits", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "a.go" },
+      { toolName: "Read", filePath: "b.go" },
+      { toolName: "Read", filePath: "a.go" },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls);
+    expect(result).not.toBeNull();
+    expect(result).toContain("a.go");
+  });
+
+  it("returns null when reads are broken by an edit", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "main.go" },
+      { toolName: "Edit", filePath: "main.go" },
+      { toolName: "Read", filePath: "main.go" },
+    ];
+    expect(adapter.getEarlyPivotPrompt!(calls)).toBeNull();
+  });
+
+  it("detects edit retry loop (3+ identical edits)", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Edit", filePath: "output.go", args: { old_string: "foo" } },
+      { toolName: "Edit", filePath: "output.go", args: { old_string: "foo" } },
+      { toolName: "Edit", filePath: "output.go", args: { old_string: "foo" } },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls);
+    expect(result).not.toBeNull();
+    expect(result).toContain("output.go");
+    expect(result).toContain("keeps failing");
+    expect(result).toContain("Re-read the file");
+  });
+
+  it("returns null for mixed tool calls without a loop", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "a.go" },
+      { toolName: "Grep", filePath: undefined },
+      { toolName: "Bash", filePath: undefined },
+    ];
+    expect(adapter.getEarlyPivotPrompt!(calls)).toBeNull();
+  });
+});
+
+describe("Qwen3CoderAdapter.dampenConsecutiveSameTools", () => {
+  const adapter = new Qwen3CoderAdapter();
+
+  it("returns null for fewer than 3 tool names", () => {
+    expect(adapter.dampenConsecutiveSameTools!(["Read", "Read"])).toBeNull();
+  });
+
+  it("returns dampening for 3 consecutive Read calls", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["Read", "Read", "Read"]);
+    expect(result).not.toBeNull();
+    expect(result).toContain("Read");
+    expect(result).toContain("3 times");
+    expect(result).toContain("make your edit");
+  });
+
+  it("returns dampening for 3 consecutive Grep calls", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["Grep", "Grep", "Grep"]);
+    expect(result).not.toBeNull();
+    expect(result).toContain("Grep");
+    expect(result).toContain("Narrow your approach");
+  });
+
+  it("returns null for 3 consecutive Bash calls (higher threshold)", () => {
+    expect(adapter.dampenConsecutiveSameTools!(["Bash", "Bash", "Bash"])).toBeNull();
+  });
+
+  it("returns dampening for 6 consecutive Bash calls", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["Bash", "Bash", "Bash", "Bash", "Bash", "Bash"]);
+    expect(result).not.toBeNull();
+    expect(result).toContain("Bash");
+    expect(result).toContain("6 times");
+  });
+
+  it("returns dampening for 4 consecutive unknown tool calls", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["Write", "Write", "Write", "Write"]);
+    expect(result).not.toBeNull();
+    expect(result).toContain("Write");
+    expect(result).toContain("4 times");
+  });
+
+  it("returns null when last tool differs from predecessors", () => {
+    expect(adapter.dampenConsecutiveSameTools!(["Read", "Read", "Edit"])).toBeNull();
+  });
+
+  it("only counts from the tail", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["Bash", "Read", "Read", "Read"]);
+    expect(result).not.toBeNull();
+    expect(result).toContain("Read");
+  });
+});
+
+describe("Qwen3CoderAdapter.enrichToolDescription", () => {
+  const adapter = new Qwen3CoderAdapter();
+
+  it("enriches Read tool description", () => {
+    const result = adapter.enrichToolDescription!("Read", "Read a file.");
+    expect(result).toContain("[Qwen hint:");
+    expect(result).toContain("ONCE");
+  });
+
+  it("enriches Edit tool description", () => {
+    const result = adapter.enrichToolDescription!("Edit", "Edit a file.");
+    expect(result).toContain("[Qwen hint:");
+    expect(result).toContain("PREFERRED");
+  });
+
+  it("enriches Update tool description", () => {
+    const result = adapter.enrichToolDescription!("Update", "Update a file.");
+    expect(result).toContain("[Qwen hint:");
+    expect(result).toContain("PREFERRED");
+  });
+
+  it("enriches Bash tool description", () => {
+    const result = adapter.enrichToolDescription!("Bash", "Run a command.");
+    expect(result).toContain("[Qwen hint:");
+    expect(result).toContain("Read tool");
+  });
+
+  it("enriches Grep tool description", () => {
+    const result = adapter.enrichToolDescription!("Grep", "Search files.");
+    expect(result).toContain("[Qwen hint:");
+    expect(result).toContain("Search once");
+  });
+
+  it("enriches Glob tool description", () => {
+    const result = adapter.enrichToolDescription!("Glob", "Find files.");
+    expect(result).toContain("[Qwen hint:");
+  });
+
+  it("leaves unknown tool descriptions unchanged", () => {
+    const desc = "Some unknown tool.";
+    expect(adapter.enrichToolDescription!("UnknownTool", desc)).toBe(desc);
+  });
+
+  it("is idempotent (appending hint twice doesn't break)", () => {
+    const first = adapter.enrichToolDescription!("Read", "Read a file.");
+    const second = adapter.enrichToolDescription!("Read", first);
+    expect(second).toContain("[Qwen hint:");
+  });
+});
+
+describe("GenericOpenAIAdapter has no behavioral shim methods", () => {
+  const adapter = new GenericOpenAIAdapter();
+
+  it("has no getEarlyPivotPrompt", () => {
+    expect(adapter.getEarlyPivotPrompt).toBeUndefined();
+  });
+
+  it("has no dampenConsecutiveSameTools", () => {
+    expect(adapter.dampenConsecutiveSameTools).toBeUndefined();
+  });
+
+  it("has no enrichToolDescription", () => {
+    expect(adapter.enrichToolDescription).toBeUndefined();
   });
 });

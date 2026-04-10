@@ -772,6 +772,71 @@ function extractRecentToolNames(messages: Array<{ role: string; content: unknown
   return names;
 }
 
+function extractRecentToolCallDetails(messages: Array<{ role: string; content: unknown }>): RecentToolCall[] {
+  const calls: RecentToolCall[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m || typeof m !== "object") continue;
+    const row = m as Record<string, unknown>;
+    const toolCalls = row.tool_calls;
+    if (!Array.isArray(toolCalls)) continue;
+    for (const tc of toolCalls) {
+      if (!tc || typeof tc !== "object") continue;
+      const fn = (tc as Record<string, unknown>).function;
+      if (!fn || typeof fn !== "object") continue;
+      const name = (fn as Record<string, unknown>).name;
+      if (typeof name !== "string" || !name.trim()) continue;
+      let args: Record<string, unknown> | undefined;
+      const rawArgs = (fn as Record<string, unknown>).arguments;
+      if (typeof rawArgs === "string") {
+        try { args = JSON.parse(rawArgs); } catch { /* ignore */ }
+      } else if (rawArgs && typeof rawArgs === "object") {
+        args = rawArgs as Record<string, unknown>;
+      }
+      const filePath = args?.file_path ?? args?.path ?? args?.filename;
+      calls.push({
+        toolName: name.trim(),
+        filePath: typeof filePath === "string" ? filePath : undefined,
+        args,
+      });
+    }
+  }
+  return calls;
+}
+
+function enrichToolSchemasForAdapter(
+  tools: unknown[],
+  adapter: ModelAdapter,
+): unknown[] {
+  if (!adapter.enrichToolDescription || adapter.family !== "qwen3-coder") return tools;
+  return tools.map((tool) => {
+    if (!tool || typeof tool !== "object") return tool;
+    const t = tool as Record<string, unknown>;
+    // OpenAI format: { type: "function", function: { name, description, ... } }
+    if (t.type === "function" && t.function && typeof t.function === "object") {
+      const fn = t.function as Record<string, unknown>;
+      const name = fn.name;
+      const desc = fn.description;
+      if (typeof name === "string" && typeof desc === "string") {
+        const enriched = adapter.enrichToolDescription!(name, desc);
+        if (enriched !== desc) {
+          return { ...t, function: { ...fn, description: enriched } };
+        }
+      }
+      return tool;
+    }
+    // Claude format: { name, description, ... }
+    const name = t.name;
+    const desc = t.description;
+    if (typeof name === "string" && typeof desc === "string") {
+      const enriched = adapter.enrichToolDescription!(name, desc);
+      if (enriched !== desc) {
+        return { ...t, description: enriched };
+      }
+    }
+    return tool;
+  });
+}
+
 function extractRequestedToolNames(userText: string, tools: unknown[]): string[] {
   const t = userText.toLowerCase();
   if (!t.trim()) return [];
@@ -1943,7 +2008,7 @@ async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<Ti
   }
 }
 
-import type { ModelAdapter } from "./providers/model-adapter.js";
+import type { ModelAdapter, RecentToolCall } from "./providers/model-adapter.js";
 import {
   repairBashToolCall,
   repairWriteToolCall,
@@ -4672,17 +4737,40 @@ app.post("/v1/chat/completions", async (req, reply) => {
     toolSchemaPruningStats.requestsPruned += 1;
     toolSchemaPruningStats.toolsPrunedTotal += prunedTools.prunedCount;
   }
-  const effectiveTools = prunedTools.tools;
+  const effectiveTools = enrichToolSchemasForAdapter(prunedTools.tools, adapter);
   const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
   const modelToolPrompt = mergeToolSystemPrompts(
     adapter.toolSystemPrompt?.(effectiveTools.length),
-    buildRetrievalPolicyToolPromptFragment(effectiveTools),
+    buildRetrievalPolicyToolPromptFragment(effectiveTools as unknown[]),
   );
-  const modelMessages = modelToolPrompt
+  let modelMessages = modelToolPrompt
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
     : messages;
+
+  // Adapter-specific early pivot and same-tool dampening (fires after generic governance)
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !policyPrecheck.pivotPrompt && adapter.family === "qwen3-coder") {
+    const oaiRecentCalls = extractRecentToolCallDetails(
+      normalizedRequest.messages as Array<{ role: string; content: unknown }>
+    );
+    if (adapter.getEarlyPivotPrompt) {
+      const earlyPivot = adapter.getEarlyPivotPrompt(oaiRecentCalls);
+      if (earlyPivot) {
+        modelMessages = [...modelMessages, { role: "system" as const, content: earlyPivot }] as typeof modelMessages;
+        app.log.info({ sessionKey, family: adapter.family, pivotLen: earlyPivot.length }, "adapter_early_pivot_oai");
+      }
+    }
+    if (adapter.dampenConsecutiveSameTools) {
+      const oaiToolNames = oaiRecentCalls.map((c) => c.toolName);
+      const dampening = adapter.dampenConsecutiveSameTools(oaiToolNames);
+      if (dampening) {
+        modelMessages = [...modelMessages, { role: "system" as const, content: dampening }] as typeof modelMessages;
+        app.log.info({ sessionKey, family: adapter.family, dampenLen: dampening.length }, "adapter_dampening_oai");
+      }
+    }
+  }
+
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
   const oaiContextAdmission = evaluateContextAdmission(
     modelMessages as Array<{ role: string; content: unknown }>,
@@ -6698,18 +6786,40 @@ app.post("/v1/messages", async (req, reply) => {
     toolSchemaPruningStats.requestsPruned += 1;
     toolSchemaPruningStats.toolsPrunedTotal += prunedClaudeTools.prunedCount;
   }
-  const effectiveClaudeTools = prunedClaudeTools.tools;
+  const effectiveClaudeTools = enrichToolSchemasForAdapter(prunedClaudeTools.tools, claudeAdapter);
   const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
 
   const claudeModelToolPrompt = mergeToolSystemPrompts(
     claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length),
-    buildRetrievalPolicyToolPromptFragment(effectiveClaudeTools),
+    buildRetrievalPolicyToolPromptFragment(effectiveClaudeTools as unknown[]),
   );
-  const claudeModelMessages = claudeModelToolPrompt
+  let claudeModelMessages = claudeModelToolPrompt
     ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)
     : messages;
+
+  // Adapter-specific early pivot and same-tool dampening (Claude path)
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudePolicyPrecheck.pivotPrompt && claudeAdapter.family === "qwen3-coder") {
+    const claudeRecentCalls = extractRecentToolCallDetails(
+      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>
+    );
+    if (claudeAdapter.getEarlyPivotPrompt) {
+      const earlyPivot = claudeAdapter.getEarlyPivotPrompt(claudeRecentCalls);
+      if (earlyPivot) {
+        claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: earlyPivot }] as typeof claudeModelMessages;
+        app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, pivotLen: earlyPivot.length }, "adapter_early_pivot_claude");
+      }
+    }
+    if (claudeAdapter.dampenConsecutiveSameTools) {
+      const claudeToolNames = claudeRecentCalls.map((c) => c.toolName);
+      const dampening = claudeAdapter.dampenConsecutiveSameTools(claudeToolNames);
+      if (dampening) {
+        claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: dampening }] as typeof claudeModelMessages;
+        app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, dampenLen: dampening.length }, "adapter_dampening_claude");
+      }
+    }
+  }
 
   const adapterClaudeProviderOptions = claudeAdapter.providerOptions?.();
   const providerOptions = body.thinking
