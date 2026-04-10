@@ -795,6 +795,8 @@ export class ToolResultReductionService {
   private isExemptFromSizeCompaction(toolName: string | undefined): boolean {
     const name = (toolName ?? "").toLowerCase();
     return (
+      name === "read" ||
+      name === "read_file" ||
       name === "write" ||
       name === "edit" ||
       name === "update" ||

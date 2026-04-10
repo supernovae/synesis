@@ -866,15 +866,13 @@ function prioritizeWriteCapableTools(tools: unknown[], prioritize: boolean): unk
   return [...writeLike, ...others];
 }
 
-interface QwenInterventionState {
+interface QwenPivotState {
   lastTurnMarker: number;
-  /** How many consecutive pivots the model has ignored (same pattern next turn). */
+  /** How many consecutive pivots the model has ignored (same pattern fires again). */
   consecutiveIgnored: number;
-  /** The classification of the last pivot that fired. */
-  lastPivotKind: string;
 }
 
-const qwenInterventionBySession = new Map<string, QwenInterventionState>();
+const qwenInterventionBySession = new Map<string, Map<string, QwenPivotState>>();
 
 /**
  * Decide whether to suppress a pivot injection.
@@ -893,15 +891,17 @@ function shouldSuppressQwenIntervention(
   turnMarker: number,
   pivotKind: string,
 ): "allow" | "suppress" | "hard_stop" {
-  const state = qwenInterventionBySession.get(sessionKey);
+  const byKind = qwenInterventionBySession.get(sessionKey);
+  if (!byKind) return "allow";
+  const state = byKind.get(pivotKind);
   if (!state) return "allow";
-
-  const gap = turnMarker - state.lastTurnMarker;
-  const cooldownTurns = Math.max(0, config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS);
 
   if (state.consecutiveIgnored >= 5) {
     return "hard_stop";
   }
+
+  const gap = turnMarker - state.lastTurnMarker;
+  const cooldownTurns = Math.max(0, config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS);
 
   if (gap <= cooldownTurns && state.consecutiveIgnored === 0) {
     return "suppress";
@@ -911,16 +911,17 @@ function shouldSuppressQwenIntervention(
 }
 
 function markQwenIntervention(sessionKey: string, turnMarker: number, pivotKind: string): void {
-  const state = qwenInterventionBySession.get(sessionKey);
-  if (state && state.lastPivotKind === pivotKind) {
+  let byKind = qwenInterventionBySession.get(sessionKey);
+  if (!byKind) {
+    byKind = new Map();
+    qwenInterventionBySession.set(sessionKey, byKind);
+  }
+  const state = byKind.get(pivotKind);
+  if (state) {
     state.consecutiveIgnored += 1;
     state.lastTurnMarker = turnMarker;
   } else {
-    qwenInterventionBySession.set(sessionKey, {
-      lastTurnMarker: turnMarker,
-      consecutiveIgnored: 0,
-      lastPivotKind: pivotKind,
-    });
+    byKind.set(pivotKind, { lastTurnMarker: turnMarker, consecutiveIgnored: 0 });
   }
 }
 
@@ -4912,8 +4913,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
             { sessionKey, family: adapter.family, turnMarker, pivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
-          const hardStopMsg = "HARD STOP: You have ignored multiple intervention warnings and continue repeating the same failing pattern. You MUST stop calling this tool and ask the user for guidance. Do not make another tool call.";
-          modelMessages = [...modelMessages, { role: "system" as const, content: hardStopMsg }] as typeof modelMessages;
+          const hardStopContent = `I've been stuck in a loop repeating the same actions (${pivotKind.replace("adapter_qwen_", "")}). I need your guidance to proceed differently. What would you like me to do?`;
+          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+          session.awaitingToolLoopUserAck = true;
+          session.history.push({ role: "assistant", content: hardStopContent });
+          persistSessionAndUsage(session, oaiTraceReqId, orchestration.selectedModel, hardStopUsage, 0, "stop", 0);
+          maybeCheckpoint(session);
+          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_hard_stop", "adapter", `${pivotKind}: model ignored 5+ pivots`, oaiTraceReqId);
+          return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream);
         } else if (decision === "suppress") {
           app.log.info(
             { sessionKey, family: adapter.family, turnMarker },
@@ -7024,8 +7031,14 @@ app.post("/v1/messages", async (req, reply) => {
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
-          const hardStopMsg = "HARD STOP: You have ignored multiple intervention warnings and continue repeating the same failing pattern. You MUST stop calling this tool and ask the user for guidance. Do not make another tool call.";
-          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: hardStopMsg }] as typeof claudeModelMessages;
+          const hardStopContent = `I've been stuck in a loop repeating the same actions (${pivotKind.replace("adapter_qwen_", "")}). I need your guidance to proceed differently. What would you like me to do?`;
+          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+          session.awaitingToolLoopUserAck = true;
+          session.history.push({ role: "assistant", content: hardStopContent });
+          persistSessionAndUsage(session, traceReqId, claudeOrchestration.selectedModel, hardStopUsage, 0, "end_turn", 0);
+          maybeCheckpoint(session);
+          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_hard_stop", "adapter", `${pivotKind}: model ignored 5+ pivots`, traceReqId);
+          return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream);
         } else if (decision === "suppress") {
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
