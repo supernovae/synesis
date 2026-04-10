@@ -65,7 +65,7 @@ Key vLLM args (from `base/model-serving/deployment-vllm-coder.yaml`):
 
 - **Architecture**: 30B MoE with 3B active parameters per token. Same Qwen3-Coder family as the 80B Next model.
 - **FP8 weights ~15GB** — fits easily on a single L40S with full 65K context and ~25GB headroom.
-- **Prefix caching**: **Disabled** for Qwen3-Coder models — [vLLM #34361](https://github.com/vllm-project/vllm/issues/34361) documents silent corruption.
+- **Prefix caching**: Enabled — caches repeated system prompts from IDE clients.
 - **Separate endpoint**: IDEs (Cursor, Claude Code) connect directly — not routed through the planner.
 - **Upgrade path**: Medium/large profiles use Qwen3-Coder-Next-FP8 (80B, TP=2) for max quality.
 

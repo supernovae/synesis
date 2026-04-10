@@ -866,18 +866,66 @@ function prioritizeWriteCapableTools(tools: unknown[], prioritize: boolean): unk
   return [...writeLike, ...others];
 }
 
-const qwenResumeInterventionTurnBySession = new Map<string, number>();
-
-function shouldSuppressQwenIntervention(sessionKey: string, turnMarker: number): boolean {
-  const cooldownTurns = Math.max(0, config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS);
-  if (cooldownTurns <= 0) return false;
-  const last = qwenResumeInterventionTurnBySession.get(sessionKey);
-  if (last === undefined) return false;
-  return turnMarker - last <= cooldownTurns;
+interface QwenInterventionState {
+  lastTurnMarker: number;
+  /** How many consecutive pivots the model has ignored (same pattern next turn). */
+  consecutiveIgnored: number;
+  /** The classification of the last pivot that fired. */
+  lastPivotKind: string;
 }
 
-function markQwenIntervention(sessionKey: string, turnMarker: number): void {
-  qwenResumeInterventionTurnBySession.set(sessionKey, turnMarker);
+const qwenInterventionBySession = new Map<string, QwenInterventionState>();
+
+/**
+ * Decide whether to suppress a pivot injection.
+ *
+ * The old logic used a flat cooldown that suppressed every pivot within N turns —
+ * this caused the model to loop indefinitely because it never saw the warning.
+ *
+ * New logic: after the first pivot fires, allow one cooldown turn. If the adapter
+ * detects the SAME pattern on the very next evaluation, that means the model
+ * ignored the pivot. We stop suppressing and let escalating messages through.
+ * After IGNORED_PIVOT_HARD_STOP consecutive ignored pivots, return "hard_stop"
+ * so the caller can abort the request.
+ */
+function shouldSuppressQwenIntervention(
+  sessionKey: string,
+  turnMarker: number,
+  pivotKind: string,
+): "allow" | "suppress" | "hard_stop" {
+  const state = qwenInterventionBySession.get(sessionKey);
+  if (!state) return "allow";
+
+  const gap = turnMarker - state.lastTurnMarker;
+  const cooldownTurns = Math.max(0, config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS);
+
+  if (state.consecutiveIgnored >= 5) {
+    return "hard_stop";
+  }
+
+  if (gap <= cooldownTurns && state.consecutiveIgnored === 0) {
+    return "suppress";
+  }
+
+  return "allow";
+}
+
+function markQwenIntervention(sessionKey: string, turnMarker: number, pivotKind: string): void {
+  const state = qwenInterventionBySession.get(sessionKey);
+  if (state && state.lastPivotKind === pivotKind) {
+    state.consecutiveIgnored += 1;
+    state.lastTurnMarker = turnMarker;
+  } else {
+    qwenInterventionBySession.set(sessionKey, {
+      lastTurnMarker: turnMarker,
+      consecutiveIgnored: 0,
+      lastPivotKind: pivotKind,
+    });
+  }
+}
+
+function resetQwenInterventionOnUserTurn(sessionKey: string): void {
+  qwenInterventionBySession.delete(sessionKey);
 }
 
 function classifyQwenPivotEvent(prompt: string): string {
@@ -4464,6 +4512,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       session.awaitingToolLoopUserAck = false;
       session.toolLoopNoUserAckCount = 0;
       session.toolLoopAckAnchorUserHash = "";
+      resetQwenInterventionOnUserTurn(sessionKey);
     } else {
       session.toolLoopNoUserAckCount += 1;
     }
@@ -4856,17 +4905,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
         editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
       });
       if (earlyPivot) {
-        if (shouldSuppressQwenIntervention(sessionKey, turnMarker)) {
+        const pivotKind = classifyQwenPivotEvent(earlyPivot);
+        const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, pivotKind);
+        if (decision === "hard_stop") {
+          app.log.warn(
+            { sessionKey, family: adapter.family, turnMarker, pivotKind },
+            "adapter_qwen_ignored_pivot_hard_stop",
+          );
+          const hardStopMsg = "HARD STOP: You have ignored multiple intervention warnings and continue repeating the same failing pattern. You MUST stop calling this tool and ask the user for guidance. Do not make another tool call.";
+          modelMessages = [...modelMessages, { role: "system" as const, content: hardStopMsg }] as typeof modelMessages;
+        } else if (decision === "suppress") {
           app.log.info(
             { sessionKey, family: adapter.family, turnMarker },
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
           modelMessages = [...modelMessages, { role: "system" as const, content: earlyPivot }] as typeof modelMessages;
-          markQwenIntervention(sessionKey, turnMarker);
+          markQwenIntervention(sessionKey, turnMarker, pivotKind);
           app.log.info(
             { sessionKey, family: adapter.family, pivotLen: earlyPivot.length },
-            classifyQwenPivotEvent(earlyPivot),
+            pivotKind,
           );
         }
       }
@@ -4875,14 +4933,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
       const oaiToolNames = oaiRecentCalls.map((c) => c.toolName);
       const dampening = adapter.dampenConsecutiveSameTools(oaiToolNames);
       if (dampening) {
-        if (shouldSuppressQwenIntervention(sessionKey, turnMarker)) {
+        const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, "dampening");
+        if (decision === "suppress") {
           app.log.info(
             { sessionKey, family: adapter.family, turnMarker },
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
           modelMessages = [...modelMessages, { role: "system" as const, content: dampening }] as typeof modelMessages;
-          markQwenIntervention(sessionKey, turnMarker);
+          markQwenIntervention(sessionKey, turnMarker, "dampening");
           app.log.info({ sessionKey, family: adapter.family, dampenLen: dampening.length }, "adapter_dampening_oai");
         }
       }
@@ -6526,11 +6585,21 @@ app.post("/v1/messages", async (req, reply) => {
     body.messages as Array<{ role: string; content: unknown }>,
   );
   const latestClaudeUserHash = hashTextSignal(latestClaudeUser?.content ?? "");
+  const claudeUserIsRealAck = (() => {
+    if (!latestClaudeUser) return false;
+    const content = latestClaudeUser.content;
+    if (typeof content === "string") return content.trim().length > 0;
+    if (!Array.isArray(content)) return false;
+    return (content as Array<{ type?: string }>).some(
+      (b) => b.type === "text",
+    );
+  })();
   if (session.awaitingToolLoopUserAck) {
-    if (latestClaudeUserHash && latestClaudeUserHash !== session.toolLoopAckAnchorUserHash) {
+    if (claudeUserIsRealAck && latestClaudeUserHash !== session.toolLoopAckAnchorUserHash) {
       session.awaitingToolLoopUserAck = false;
       session.toolLoopNoUserAckCount = 0;
       session.toolLoopAckAnchorUserHash = "";
+      resetQwenInterventionOnUserTurn(claudeSessionKey);
     } else {
       session.toolLoopNoUserAckCount += 1;
     }
@@ -6948,17 +7017,26 @@ app.post("/v1/messages", async (req, reply) => {
         editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
       });
       if (earlyPivot) {
-        if (shouldSuppressQwenIntervention(claudeSessionKey, turnMarker)) {
+        const pivotKind = classifyQwenPivotEvent(earlyPivot);
+        const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
+        if (decision === "hard_stop") {
+          app.log.warn(
+            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind },
+            "adapter_qwen_ignored_pivot_hard_stop",
+          );
+          const hardStopMsg = "HARD STOP: You have ignored multiple intervention warnings and continue repeating the same failing pattern. You MUST stop calling this tool and ask the user for guidance. Do not make another tool call.";
+          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: hardStopMsg }] as typeof claudeModelMessages;
+        } else if (decision === "suppress") {
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
           claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: earlyPivot }] as typeof claudeModelMessages;
-          markQwenIntervention(claudeSessionKey, turnMarker);
+          markQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, pivotLen: earlyPivot.length },
-            classifyQwenPivotEvent(earlyPivot),
+            pivotKind,
           );
         }
       }
@@ -6967,14 +7045,15 @@ app.post("/v1/messages", async (req, reply) => {
       const claudeToolNames = claudeRecentCalls.map((c) => c.toolName);
       const dampening = claudeAdapter.dampenConsecutiveSameTools(claudeToolNames);
       if (dampening) {
-        if (shouldSuppressQwenIntervention(claudeSessionKey, turnMarker)) {
+        const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, "dampening");
+        if (decision === "suppress") {
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
           claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: dampening }] as typeof claudeModelMessages;
-          markQwenIntervention(claudeSessionKey, turnMarker);
+          markQwenIntervention(claudeSessionKey, turnMarker, "dampening");
           app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, dampenLen: dampening.length }, "adapter_dampening_claude");
         }
       }
