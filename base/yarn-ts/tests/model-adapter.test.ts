@@ -761,6 +761,20 @@ describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
     expect(result).toContain("maintaining a plan file");
     expect(result).toContain("Execute exactly one Edit/Write");
   });
+
+  it("allows extra read context immediately after compile/type errors", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "cmd/synesis/doctor.go" },
+      { toolName: "Read", filePath: "internal/api/client.go" },
+      { toolName: "Read", filePath: "cmd/synesis/doctor.go" },
+      { toolName: "Read", filePath: "internal/api/client.go" },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls, {
+      stagnationThreshold: 3,
+      recentToolResultText: "Error: Exit code 1\nundefined: api.Options\ncannot use []api.Message as *api.ChatRequest",
+    });
+    expect(result).toBeNull();
+  });
 });
 
 describe("Qwen3CoderAdapter.dampenConsecutiveSameTools", () => {

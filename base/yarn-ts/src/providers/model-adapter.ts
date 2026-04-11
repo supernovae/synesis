@@ -17,6 +17,7 @@ export interface RecentToolCall {
 export interface QwenPivotOptions {
   recentAssistantText?: string | null;
   recentUserPrompt?: string | null;
+  recentToolResultText?: string | null;
   stagnationWindow?: number;
   stagnationThreshold?: number;
   planNoActionLimit?: number;
@@ -319,7 +320,12 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     );
     if (repeatedIntent) return repeatedIntent;
 
-    return this._detectReadLoop(recentToolCalls, stagnationThreshold, userIntent);
+    return this._detectReadLoop(
+      recentToolCalls,
+      stagnationThreshold,
+      userIntent,
+      options.recentToolResultText ?? null,
+    );
   }
 
   dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
@@ -471,6 +477,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     recentToolCalls: RecentToolCall[],
     threshold: number,
     userIntent: "show" | "edit" | "unknown" = "unknown",
+    recentToolResultText: string | null = null,
   ): string | null {
     const READ_LIKE = new Set(["Read", "cat", "head", "tail", "read"]);
     const EDIT_LIKE = new Set(["Edit", "Update", "Write", "edit", "update", "write"]);
@@ -499,6 +506,17 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     if (uniqueFiles.length === 0) return null;
     const fileList = uniqueFiles.slice(0, 4).join(", ");
     const primaryFile = uniqueFiles[0] ?? "";
+    const toolText = (recentToolResultText ?? "").toLowerCase();
+    const hasCompileLikeError =
+      /\bassignment mismatch\b/.test(toolText)
+      || /\bundefined:\b/.test(toolText)
+      || /\bcannot use\b/.test(toolText)
+      || /\bnot enough arguments\b/.test(toolText)
+      || /\btoo many arguments\b/.test(toolText)
+      || /\berror: exit code\b/.test(toolText);
+    if (hasCompileLikeError && readCalls.length < effectiveThreshold + 2) {
+      return null;
+    }
     const isPlanFile = primaryFile.includes("/.claude/plans/") || primaryFile.includes("\\.claude\\plans\\");
     if (userIntent === "edit" && isPlanFile) {
       return `You are maintaining a plan file (${fileList}). STOP re-reading it. Execute exactly one Edit/Write now to mark completed items, then continue with the next task.`;

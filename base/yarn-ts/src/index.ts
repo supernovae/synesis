@@ -825,6 +825,32 @@ function extractRecentAssistantText(messages: Array<{ role: string; content: unk
   return null;
 }
 
+function extractRecentToolResultText(messages: Array<{ role: string; content: unknown }>): string | null {
+  const chunks: string[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "tool" && m.role !== "tool_result") continue;
+    const content = m.content;
+    if (typeof content === "string" && content.trim()) {
+      chunks.push(content.trim());
+    } else if (Array.isArray(content)) {
+      const text = content
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (!part || typeof part !== "object") return "";
+          const row = part as Record<string, unknown>;
+          return typeof row.text === "string" ? row.text : "";
+        })
+        .join("\n")
+        .trim();
+      if (text) chunks.push(text);
+    }
+    if (chunks.length >= 4) break;
+  }
+  if (chunks.length === 0) return null;
+  return chunks.join("\n").slice(0, 6000);
+}
+
 function detectQwenLoopRisk(recentToolCalls: RecentToolCall[]): boolean {
   const tail = recentToolCalls.slice(-8).map((c) => c.toolName.toLowerCase());
   if (tail.length < 4) return false;
@@ -5262,11 +5288,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiRecentAssistantText = extractRecentAssistantText(
       normalizedRequest.messages as Array<{ role: string; content: unknown }>,
     );
+    const oaiRecentToolResultText = extractRecentToolResultText(
+      normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+    );
     const turnMarker = nextQwenInterventionTurn(sessionKey);
     if (adapter.getEarlyPivotPrompt) {
       const earlyPivot = adapter.getEarlyPivotPrompt(oaiRecentCalls, {
         recentAssistantText: oaiRecentAssistantText,
         recentUserPrompt: oaiTaskCue,
+        recentToolResultText: oaiRecentToolResultText,
         stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
         stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
         planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
@@ -7224,11 +7254,15 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeRecentAssistantText = extractRecentAssistantText(
       normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
     );
+    const claudeRecentToolResultText = extractRecentToolResultText(
+      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+    );
     const turnMarker = nextQwenInterventionTurn(claudeSessionKey);
     if (claudeAdapter.getEarlyPivotPrompt) {
       const earlyPivot = claudeAdapter.getEarlyPivotPrompt(claudeRecentCalls, {
         recentAssistantText: claudeRecentAssistantText,
         recentUserPrompt: claudeTaskCue,
+        recentToolResultText: claudeRecentToolResultText,
         stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
         stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
         planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
