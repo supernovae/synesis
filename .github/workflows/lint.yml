@@ -182,10 +182,6 @@ jobs:
       - name: Install root workspace dependencies
         run: npm ci
 
-      - name: Install planner-ts dependencies
-        working-directory: base/planner-ts
-        run: npm ci
-
       - name: Build workspace packages
         run: |
           npm run build -w packages/synesis-telemetry

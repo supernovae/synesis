@@ -24,7 +24,7 @@ This document is the **inventory** of how we validate Synesis: what runs automat
 
 ### 2.1 Automated unit tests (CI + local)
 
-- **Command:** `cd base/planner-ts && npm ci && npm test` (Vitest).
+- **Command:** `npm ci && npm test -w synesis-planner-ts` from repo root (Vitest).
 - **Scope:** TypeScript tests under `base/planner-ts/tests/` (graph, retrieval, router governance, etc.).
 - **Shared:** `npm run test -w @synesis/context-trust` runs from root in CI after planner-ts Vitest.
 
@@ -124,7 +124,7 @@ We do **not** clone or run OpenAI’s full upstream suites against Synesis in CI
 
 ```bash
 # Planner-ts (matches CI intent)
-cd base/planner-ts && npm ci && npm test
+npm ci && npm test -w synesis-planner-ts
 
 # Yarn-ts
 cd base/yarn-ts && npm ci && npx vitest run

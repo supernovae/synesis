@@ -35,7 +35,7 @@ Planner-ts unit tests are deterministic. Run anytime without deployment:
 ```bash
 make mock-tests
 # Or manually:
-cd base/planner-ts && npm ci && npm test
+npm ci && npm test -w synesis-planner-ts
 ```
 
 Routing and graph behavior are covered by Vitest under `base/planner-ts/tests/`. Prompt fixtures for live checks live under `tests/prompts/`.
