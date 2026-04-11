@@ -27,7 +27,10 @@ CORE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"you\s+are\s+now\s+(?:a|an)\s", re.IGNORECASE),
     re.compile(r"pretend\s+you\s+are", re.IGNORECASE),
     re.compile(r"act\s+as\s+if\s+you", re.IGNORECASE),
-    re.compile(r"system\s*:\s*", re.IGNORECASE),
+    re.compile(
+        r"(?:^|\n)\s*system\s*:\s*(?:ignore|disregard|forget|override|follow\s+these\s+instructions|you\s+are\s+now|pretend|act\s+as)",
+        re.IGNORECASE,
+    ),
     re.compile(r"<\|im_start\|>\s*system", re.IGNORECASE),
     re.compile(r"###\s*human\s*:", re.IGNORECASE),
     re.compile(r"\[INST\]\s*", re.IGNORECASE),
@@ -61,12 +64,20 @@ WEB_PATTERNS: list[re.Pattern[str]] = [
 # Tier 3: Output compliance indicators
 # ---------------------------------------------------------------------------
 OUTPUT_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"^system\s*:", re.IGNORECASE | re.MULTILINE),
+    re.compile(
+        r"(?:^|\n)\s*system\s*:\s*(?:you\s+are|ignore|disregard|forget|override|follow\s+these\s+instructions)",
+        re.IGNORECASE,
+    ),
     re.compile(r"(?:my|the)\s+system\s+prompt\s+(?:is|says|reads)", re.IGNORECASE),
     re.compile(r"(?:here\s+(?:is|are)\s+)?my\s+(?:original\s+)?instructions?:", re.IGNORECASE),
     re.compile(r"I\s+(?:will|can|shall)\s+now\s+(?:act|behave|operate)\s+as", re.IGNORECASE),
     re.compile(r"(?:DAN|developer)\s+mode\s+(?:enabled|activated)", re.IGNORECASE),
     re.compile(r"<\|im_start\|>", re.IGNORECASE),
+]
+
+CODE_NOISE_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"^(show|print|repeat|echo)\s+(?:system\s+)?prompt$", re.IGNORECASE),
+    re.compile(r"^(show|print|repeat|echo)\s+instructions?$", re.IGNORECASE),
 ]
 
 
@@ -111,6 +122,39 @@ def _excerpt_around(text: str, patterns: list[re.Pattern[str]], max_chars: int =
     return ""
 
 
+def _is_code_like(text: str) -> bool:
+    sample = text[:4000]
+    if not sample.strip():
+        return False
+    lines = sample.splitlines()[:80]
+    score = 0
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        if re.search(r"^(//|#|/\*|\*|--)\s*", line):
+            score += 1
+        if re.search(r"[{}()[\];]", line):
+            score += 1
+        if re.search(r"(^|\s)(func|class|def|const|let|var|return|if|for|while|import|export|package)\b", line):
+            score += 1
+        if re.search(r"[:=]-?=?|=>", line):
+            score += 1
+        if re.search(r"\b[A-Za-z_]\w*\s*\(", line):
+            score += 1
+    return score >= 4
+
+
+def _filter_code_noise(matches: list[str]) -> list[str]:
+    out: list[str] = []
+    for m in matches:
+        mt = m.strip()
+        if any(p.search(mt) for p in CODE_NOISE_PATTERNS):
+            continue
+        out.append(m)
+    return out
+
+
 def scan_text(text: str, source: str = "unknown", max_scan_chars: int = 32_000) -> ScanResult:
     """Tier-1 core scan (user input, RAG, conversation history)."""
     if not text:
@@ -151,6 +195,8 @@ def scan_web_content(text: str, source: str = "web", max_scan_chars: int = 32_00
             seen.add(f)
     b64_found = detect_base64_payloads(text, CORE_PATTERNS, max_chars=max_scan_chars)
     all_found = core_found + web_found + b64_found
+    if _is_code_like(text):
+        all_found = _filter_code_noise(all_found)
     excerpt = _excerpt_around(normalized, CORE_PATTERNS + WEB_PATTERNS, max_scan_chars) if all_found else ""
     event_type = _classify_patterns(all_found) if all_found else EventType.UNKNOWN
     confidence = min(0.5 + 0.12 * len(all_found), 1.0) if all_found else 0.0

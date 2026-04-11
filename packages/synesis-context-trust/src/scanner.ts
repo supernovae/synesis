@@ -23,7 +23,7 @@ const CORE_PATTERNS: RegExp[] = [
   /you\s+are\s+now\s+(?:a|an)\s/i,
   /pretend\s+you\s+are/i,
   /act\s+as\s+if\s+you/i,
-  /system\s*:\s*/i,
+  /(?:^|\n)\s*system\s*:\s*(?:ignore|disregard|forget|override|follow\s+these\s+instructions|you\s+are\s+now|pretend|act\s+as)/i,
   /<\|im_start\|>\s*system/i,
   /###\s*human\s*:/i,
   /\[INST\]\s*/i,
@@ -57,12 +57,17 @@ const WEB_PATTERNS: RegExp[] = [
 // Tier 3: Output compliance indicators
 // ---------------------------------------------------------------------------
 const OUTPUT_PATTERNS: RegExp[] = [
-  /^system\s*:/im,
+  /(?:^|\n)\s*system\s*:\s*(?:you\s+are|ignore|disregard|forget|override|follow\s+these\s+instructions)/i,
   /(?:my|the)\s+system\s+prompt\s+(?:is|says|reads)/i,
   /(?:here\s+(?:is|are)\s+)?my\s+(?:original\s+)?instructions?:/i,
   /I\s+(?:will|can|shall)\s+now\s+(?:act|behave|operate)\s+as/i,
   /(?:DAN|developer)\s+mode\s+(?:enabled|activated)/i,
   /<\|im_start\|>/i,
+];
+
+const CODE_NOISE_PATTERNS: RegExp[] = [
+  /^(show|print|repeat|echo)\s+(?:system\s+)?prompt$/i,
+  /^(show|print|repeat|echo)\s+instructions?$/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -129,6 +134,27 @@ function excerptAround(text: string, patterns: RegExp[], maxChars = 32_000): str
   return "";
 }
 
+function isCodeLike(text: string): boolean {
+  const sample = text.slice(0, 4000);
+  if (!sample.trim()) return false;
+  const lines = sample.split(/\r?\n/).slice(0, 80);
+  let score = 0;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/^(\/\/|#|\/\*|\*|--)\s*/.test(line)) score += 1;
+    if (/[{}()[\];]/.test(line)) score += 1;
+    if (/(^|\s)(func|class|def|const|let|var|return|if|for|while|import|export|package)\b/.test(line)) score += 1;
+    if (/[:=]-?=?|=>/.test(line)) score += 1;
+    if (/\b[A-Za-z_]\w*\s*\(/.test(line)) score += 1;
+  }
+  return score >= 4;
+}
+
+function filterCodeNoise(matches: string[]): string[] {
+  return matches.filter((m) => !CODE_NOISE_PATTERNS.some((pat) => pat.test(m.trim())));
+}
+
 // ---------------------------------------------------------------------------
 // Public scan functions
 // ---------------------------------------------------------------------------
@@ -159,7 +185,10 @@ export function scanWebContent(text: string, source = "web", maxScanChars = 32_0
   }
 
   const b64Found = detectBase64Payloads(text, CORE_PATTERNS, maxScanChars);
-  const allFound = [...coreFound, ...webFound, ...b64Found];
+  let allFound = [...coreFound, ...webFound, ...b64Found];
+  if (isCodeLike(text)) {
+    allFound = filterCodeNoise(allFound);
+  }
   const excerpt = allFound.length > 0 ? excerptAround(normalized, [...CORE_PATTERNS, ...WEB_PATTERNS], maxScanChars) : "";
   const eventType = allFound.length > 0 ? classifyPatterns(allFound) : "unknown";
   const confidence = allFound.length > 0 ? Math.min(0.5 + 0.12 * allFound.length, 1.0) : 0;

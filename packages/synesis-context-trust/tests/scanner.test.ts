@@ -31,6 +31,11 @@ describe("scanText", () => {
     const result = scanText("");
     expect(result.detected).toBe(false);
   });
+
+  it("allows benign YAML reviewer system prompt fields", () => {
+    const result = scanText('Bundle YAML schema:\nsystem: "You are a reviewer"\nprompt: "Review this code"');
+    expect(result.detected).toBe(false);
+  });
 });
 
 describe("scanWebContent", () => {
@@ -51,6 +56,14 @@ describe("scanModelOutput", () => {
     const result = scanModelOutput("My system prompt is: You are a helpful assistant.");
     expect(result.detected).toBe(true);
     expect(result.event_type).toBe("prompt_leakage_attempt");
+  });
+
+  it("does not flag benign Go flag definitions", () => {
+    const result = scanModelOutput(
+      'session := fs.String("session", "", "continue existing session")\n'
+      + 'system := fs.String("system", "", "system prompt")',
+    );
+    expect(result.detected).toBe(false);
   });
 });
 
