@@ -637,6 +637,20 @@ describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
     expect(adapter.getEarlyPivotPrompt!(calls)).toBeNull();
   });
 
+  it("detects git introspection loop and demands concrete action", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Bash", args: { command: "git status && git log --oneline -5" } },
+      { toolName: "Bash", args: { command: "git diff --name-only" } },
+      { toolName: "Bash", args: { command: "git status && git diff --cached --name-only" } },
+      { toolName: "Bash", args: { command: "git diff pkg/output/output.go" } },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls);
+    expect(result).not.toBeNull();
+    expect(result).toContain("looping on git inspection commands");
+    expect(result).toContain("STOP running git status/diff/log");
+    expect(result).toContain("pkg/output/output.go");
+  });
+
   it("detects plan-without-action when implementation intent is stated", () => {
     const calls: RecentToolCall[] = [
       { toolName: "Read", filePath: "doctor.go" },

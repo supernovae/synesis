@@ -303,6 +303,9 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const editRetries = this._detectEditRetryLoop(recentToolCalls, editRetryLimit);
     if (editRetries) return editRetries;
 
+    const gitIntrospectionLoop = this._detectGitIntrospectionLoop(recentToolCalls);
+    if (gitIntrospectionLoop) return gitIntrospectionLoop;
+
     const repeatedIntent = this._detectRepeatedIntentLoop(
       recentToolCalls,
       stagnationWindow,
@@ -412,6 +415,36 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       return `STOP. You already have the contents of ${target}. The user asked to see it. Respond to the user NOW with the content you have. Do NOT call any more tools.`;
     }
     return `You are repeating the same intent on ${target} (${top.count} times) without forward progress. Stop repeating this call pattern. Make one concrete change now (Edit/Write or test/build), and do not re-read or re-search ${target} until after that action.`;
+  }
+
+  private _detectGitIntrospectionLoop(recentToolCalls: RecentToolCall[]): string | null {
+    const tail = recentToolCalls.slice(-8);
+    if (tail.length < 4) return null;
+    let gitIntrospectionCount = 0;
+    let lastTarget = "";
+    for (const call of tail) {
+      const tool = call.toolName.trim().toLowerCase();
+      if (tool !== "bash") continue;
+      const cmd = typeof call.args?.command === "string" ? call.args.command.toLowerCase() : "";
+      if (!cmd) continue;
+      const isGitInspect =
+        /\bgit\s+status\b/.test(cmd)
+        || /\bgit\s+diff\b/.test(cmd)
+        || /\bgit\s+log\b/.test(cmd)
+        || /\bgit\s+show\b/.test(cmd);
+      const isGitAction =
+        /\bgit\s+add\b/.test(cmd)
+        || /\bgit\s+commit\b/.test(cmd)
+        || /\bgit\s+checkout\b/.test(cmd)
+        || /\bgit\s+restore\b/.test(cmd);
+      if (!isGitInspect || isGitAction) continue;
+      gitIntrospectionCount += 1;
+      const m = cmd.match(/[\w./-]+\.(go|ts|tsx|js|jsx|py|rs|java|md|json|yaml|yml)\b/);
+      if (m?.[0]) lastTarget = m[0];
+    }
+    if (gitIntrospectionCount < 4) return null;
+    const target = lastTarget || "the modified file";
+    return `You are looping on git inspection commands (${gitIntrospectionCount} times). STOP running git status/diff/log. Next action must be concrete: Edit/Write ${target}, OR stage+commit if done. Do not run more git inspection commands until after that action.`;
   }
 
   private _detectReadLoop(
