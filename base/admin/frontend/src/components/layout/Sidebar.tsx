@@ -84,7 +84,7 @@ const navigation: NavItem[] = [
     ],
   },
   {
-    label: "Yarn Fabric",
+    label: "Coder",
     icon: Sparkles,
     minRole: "org_admin",
     children: [
@@ -123,7 +123,7 @@ const navigation: NavItem[] = [
     ],
   },
   {
-    label: "Pipeline",
+    label: "Chat pipeline",
     icon: Workflow,
     minRole: "org_admin",
     children: [

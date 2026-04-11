@@ -225,8 +225,8 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             for scripts (e.g. bootstrap), <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">curl</code>, and
             automation. They are <strong>not</strong> a separate &quot;Cursor-only&quot;
             product — the same tokens work wherever the docs say to send a PAT to
-            Synesis Admin. Other products (IDEs, Yarn) may accept the same format
-            when documented.
+            Synesis Admin. Other products (IDEs, Coder API clients) may accept the
+            same format when documented.
           </p>
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
             Note: token role is captured when the token is created. If your org
@@ -248,10 +248,10 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             </div>
             <div>
               <h2 className="text-lg font-medium text-gray-900 dark:text-white">
-                Front-end & coder connectivity
+                Chat &amp; Coder connectivity
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Endpoints and Claude Code setup for Synesis models
+                Chat API, Coder API, and Claude Code setup for Synesis models
               </p>
             </div>
           </div>
@@ -287,10 +287,10 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
                 <Globe className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
-                OpenAI API
+                Chat API
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                OpenAI-compatible API endpoint for Synesis clients.
+                OpenAI-compatible chat endpoint (Synesis Chat / pipeline front-door).
               </p>
               <a
                 href={openAiUrl}
@@ -314,7 +314,7 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
                 <Code2 className="h-4 w-4 text-violet-700 dark:text-violet-400" />
-                Coder API (Yarn)
+                Coder API
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-300">
                 Claude-compatible endpoint for coding agents and IDE integrations,
@@ -356,8 +356,8 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
               </button>
             </div>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-              Use your Synesis PAT (coder scope) and point your client/agent to the
-              Coder API. The snippet below shows a Claude Code example.
+              Use your Synesis PAT (Coder API scope) and point your client/agent to
+              the Coder API. The snippet below shows a Claude Code example.
               Some clients append <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">/v1</code>{" "}
               automatically, so if requests fail check for a double suffix like{" "}
               <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">/v1/v1</code>{" "}

@@ -88,7 +88,7 @@ export default function YarnPerformance() {
             Performance
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Bucketed requests, latency, cost, and token volume
+            Coder API — bucketed requests, latency, cost, and token volume
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

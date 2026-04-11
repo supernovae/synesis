@@ -114,7 +114,7 @@ export default function FeedbackList() {
           className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"
         >
           <option value="all">All sources</option>
-          <option value="planner">Planner / classifier</option>
+          <option value="planner">Chat (classifier)</option>
           <option value="openwebui">Open WebUI</option>
         </select>
         <select
@@ -164,7 +164,9 @@ export default function FeedbackList() {
               key: "source",
               label: "Source",
               render: (r) => (
-                <span className="capitalize">{r.source === "openwebui" ? "Open WebUI" : "Planner"}</span>
+                <span className="capitalize">
+                  {r.source === "openwebui" ? "Open WebUI" : "Chat (classifier)"}
+                </span>
               ),
             },
             {
@@ -246,7 +248,7 @@ export default function FeedbackList() {
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Feedback workspace</h3>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {selected.source === "planner" ? "Planner / classifier vote" : "Open WebUI evaluation"}
+              {selected.source === "planner" ? "Chat (classifier) vote" : "Open WebUI evaluation"}
             </p>
 
             <div className="mt-4 space-y-3 text-sm">

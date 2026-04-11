@@ -188,7 +188,7 @@ export default function WebSearch() {
               <label className="block text-xs font-medium text-gray-500 mb-1">Source Surface</label>
               <input
                 type="text"
-                placeholder="e.g. yarn_chat"
+                placeholder="e.g. yarn_chat (Coder in-chat)"
                 value={surfaceFilter}
                 onChange={(e) => { setSurfaceFilter(e.target.value); setLogPage(1); }}
                 className="rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"

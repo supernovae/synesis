@@ -57,7 +57,7 @@ export default function YarnReducers() {
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Real-time tool-output reduction and artifact compaction metrics from
-          the live Yarn process. Historical data persists across restarts.
+          the live Coder runtime. Historical data persists across restarts.
         </p>
       </div>
 
@@ -66,7 +66,7 @@ export default function YarnReducers() {
       ) : !trr ? (
         <EmptyState
           title="No reducer telemetry available"
-          description="Reducer metrics appear after Yarn processes tool results that match a reducer family. Possible reasons for no data: the service hasn't started, no tool-calling requests have been made, tool outputs were too small to trigger reduction (under max raw chars), or reducers are disabled via SYNESIS_YARN_REDUCERS_ENABLED=false."
+          description="Reducer metrics appear after the Coder runtime processes tool results that match a reducer family. Possible reasons for no data: the service hasn't started, no tool-calling requests have been made, tool outputs were too small to trigger reduction (under max raw chars), or reducers are disabled via SYNESIS_YARN_REDUCERS_ENABLED=false."
         />
       ) : (
         <>
@@ -88,7 +88,7 @@ export default function YarnReducers() {
 
           <ChartCard
             title="Persisted Cumulative Totals"
-            subtitle="DB-backed reducer counters (survive admin/yarn reloads)"
+            subtitle="DB-backed reducer counters (survive admin / Coder runtime reloads)"
           >
             <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
               <Row label="Snapshots captured" value={reducerHistory?.snapshot_count ?? 0} />
@@ -117,7 +117,7 @@ export default function YarnReducers() {
           <div className="grid gap-4 lg:grid-cols-2">
             <ChartCard
               title="Overall Performance"
-              subtitle="Live reducer metrics from current Yarn process"
+              subtitle="Live reducer metrics from the current Coder process"
             >
               <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
                 <Row label="Total transformed outputs" value={trr.reducedCount} />
@@ -208,7 +208,7 @@ export default function YarnReducers() {
 
           <ChartCard
             title="Reducer Lifecycle"
-            subtitle="Health uses DB cumulative totals; state uses live Yarn status"
+            subtitle="Health uses DB cumulative totals; state uses live Coder runtime status"
           >
             {Object.keys(cumulative?.lifecycle || {}).length === 0 ? (
               <p className="text-sm text-gray-500">
@@ -381,7 +381,7 @@ export default function YarnReducers() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {!trr
                     ? "Awaiting first request — historical data will appear after compaction events are recorded."
-                    : `No historical compaction data in this period. Compaction checkpoints occur after ${12} tool calls or when history reaches 60 messages. The admin telemetry scraper must also be running and able to reach Yarn's /metrics endpoint.`}
+                    : `No historical compaction data in this period. Compaction checkpoints occur after ${12} tool calls or when history reaches 60 messages. The admin telemetry scraper must also be running and able to reach the Coder runtime /metrics endpoint.`}
                 </p>
               </ChartCard>
             )}

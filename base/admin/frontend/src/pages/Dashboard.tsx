@@ -93,11 +93,11 @@ export default function Dashboard() {
         <MetricCard
           label="Traces (24h)"
           value={m?.traces_24h ?? "---"}
-          subtitle="LangGraph pipeline rows only (excludes Yarn traces)"
+          subtitle="LangGraph pipeline rows only (excludes Coder traces)"
           icon={Activity}
         />
         <MetricCard
-          label="Pipeline usage (24h)"
+          label="Chat pipeline (24h)"
           value={`$${Number(pipeSpend).toFixed(4)}`}
           subtitle="estimated · planner_usage_log"
           icon={DollarSign}
@@ -106,7 +106,7 @@ export default function Dashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
-          label="Yarn / IDE (24h)"
+          label="Coder / IDE (24h)"
           value={`$${Number(yarnSpend).toFixed(4)}`}
           subtitle="estimated · yarn_usage_log"
           icon={DollarSign}
@@ -114,7 +114,7 @@ export default function Dashboard() {
         <MetricCard
           label="Platform usage (24h)"
           value={`$${Number(platformSpend).toFixed(4)}`}
-          subtitle="pipeline + Yarn (estimated)"
+          subtitle="pipeline + Coder (estimated)"
           icon={DollarSign}
         />
       </div>

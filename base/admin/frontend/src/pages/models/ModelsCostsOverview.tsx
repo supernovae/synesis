@@ -26,7 +26,7 @@ export default function ModelsCostsOverview() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Models & Costs</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Unified view of pipeline usage and Yarn / IDE spend.
+          Unified view of Chat pipeline usage and Coder / IDE spend.
         </p>
       </div>
 
@@ -65,7 +65,7 @@ export default function ModelsCostsOverview() {
               </div>
               <div className="mt-3 grid gap-4 sm:grid-cols-3">
                 <dl className="space-y-1 text-sm">
-                  <dt className="font-medium text-gray-700 dark:text-gray-300">Pipeline (LangGraph)</dt>
+                  <dt className="font-medium text-gray-700 dark:text-gray-300">Chat (pipeline)</dt>
                   <dd className="text-lg font-semibold text-gray-900 dark:text-white">
                     {fmtCost(Number(spend.planner_estimated_usd || 0))}
                     <span className="ml-1 text-xs font-normal text-gray-500">est.</span>
@@ -78,7 +78,7 @@ export default function ModelsCostsOverview() {
                   )}
                 </dl>
                 <dl className="space-y-1 text-sm">
-                  <dt className="font-medium text-gray-700 dark:text-gray-300">Yarn</dt>
+                  <dt className="font-medium text-gray-700 dark:text-gray-300">Coder</dt>
                   <dd className="text-lg font-semibold text-gray-900 dark:text-white">
                     {fmtCost(Number(spend.yarn_estimated_usd || 0))}
                     <span className="ml-1 text-xs font-normal text-gray-500">est.</span>
@@ -106,7 +106,7 @@ export default function ModelsCostsOverview() {
             <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <Gauge className="h-5 w-5" />
-                <h2 className="font-semibold text-gray-900 dark:text-white">Pipeline</h2>
+                <h2 className="font-semibold text-gray-900 dark:text-white">Chat (pipeline)</h2>
               </div>
               <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -137,7 +137,7 @@ export default function ModelsCostsOverview() {
             <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
                 <Sparkles className="h-5 w-5" />
-                <h2 className="font-semibold text-gray-900 dark:text-white">Yarn / IDE</h2>
+                <h2 className="font-semibold text-gray-900 dark:text-white">Coder / IDE</h2>
               </div>
               {yarn ? (
                 <dl className="mt-3 space-y-2 text-sm">
@@ -172,13 +172,13 @@ export default function ModelsCostsOverview() {
                       to="/yarn"
                       className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
                     >
-                      Open Yarn Fabric →
+                      Open Coder overview →
                     </Link>
                   </div>
                 </dl>
               ) : (
                 <p className="mt-3 text-sm text-gray-500">
-                  Yarn totals require org admin or higher, or no data yet.
+                  Coder totals require org admin or higher, or no data yet.
                 </p>
               )}
             </div>

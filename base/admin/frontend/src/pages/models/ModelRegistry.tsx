@@ -811,7 +811,7 @@ function EditModal({
             onChange={(v) => setEditing({ ...editing, max_tokens: v })}
             onBlur={() => { if (!editing.max_tokens.trim() || Number(editing.max_tokens) <= 0) setEditing({ ...editing, max_tokens: "8192" }); }}
             type="number"
-            hint="LiteLLM default — planner overrides per call with its own budget"
+            hint="LiteLLM default — Chat service overrides per call with its own budget"
           />
           <Field
             label="Temperature"
@@ -819,7 +819,7 @@ function EditModal({
             onChange={(v) => setEditing({ ...editing, temperature: v })}
             onBlur={() => { const n = Number(editing.temperature); if (editing.temperature.trim() === "" || isNaN(n) || n < 0) setEditing({ ...editing, temperature: "0.1" }); }}
             type="number"
-            hint="LiteLLM default — planner sets its own temps per node (0.1 planner, 0.3 writer)"
+            hint="LiteLLM default — Chat pipeline sets its own temps per node (0.1 planner node, 0.3 writer)"
           />
           {/* Rate Card / Pricing */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/50">

@@ -38,10 +38,10 @@ export default function YarnSessions() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-            Yarn Sessions
+            Coder sessions
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Agent sessions aggregated from Yarn usage
+            Agent sessions aggregated from Coder usage
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 p-0.5 dark:border-gray-700">
@@ -68,7 +68,7 @@ export default function YarnSessions() {
       {isLoading && !data ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : sessions.length === 0 ? (
-        <EmptyState title="No sessions found" description="Try a different time range or wait for Yarn traffic." />
+        <EmptyState title="No sessions found" description="Try a different time range or wait for Coder API traffic." />
       ) : (
         <>
           <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">

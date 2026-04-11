@@ -970,7 +970,7 @@ export default function TraceDetail() {
                 </span>
               </div>
               <div>
-                <p className="mb-1 text-xs font-medium text-gray-500">Planner Confidence</p>
+                <p className="mb-1 text-xs font-medium text-gray-500">Chat confidence</p>
                 <span className="font-mono text-sm font-medium text-gray-900 dark:text-white">
                   {(trace.sensemaking.planner_confidence * 100).toFixed(0)}%
                 </span>

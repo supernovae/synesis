@@ -173,7 +173,7 @@ export default function ConflictGroups() {
         <p className="mt-1 text-sm text-gray-500">
           Technology conflict groups discovered by the LLM fallback during anchor
           resolution. Approve groups to promote them to the fast deterministic
-          path on next planner restart.
+          path on next Chat (planner) service restart.
         </p>
       </div>
 
@@ -229,7 +229,7 @@ export default function ConflictGroups() {
       {groups.length === 0 && !isLoading ? (
         <EmptyState
           title="No conflict groups discovered yet"
-          description="When the planner encounters unfamiliar technology choices, it will discover and persist new conflict groups here for review."
+          description="When the Chat pipeline encounters unfamiliar technology choices, it will discover and persist new conflict groups here for review."
         />
       ) : (
         <DataTable

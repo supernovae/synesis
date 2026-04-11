@@ -120,7 +120,7 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
             <p className="font-medium">Historical spend reconciliation</p>
             <p className="text-blue-800/90 dark:text-blue-300/90">
               Pull provider-billed USD for supported providers (OpenRouter / DeepInfra) and backfill
-              actual cost fields used by Usage & spend and Yarn views.
+              actual cost fields used by Usage & spend and Coder views.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -146,7 +146,7 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
         </div>
         {reconcileSpendMut.data?.summary && (
           <p className="mt-2 text-xs text-blue-800 dark:text-blue-300">
-            Updated rows: Yarn {reconcileSpendMut.data.summary.yarn_updated}, Planner{" "}
+            Updated rows: Coder {reconcileSpendMut.data.summary.yarn_updated}, Chat{" "}
             {reconcileSpendMut.data.summary.planner_updated}, Traces{" "}
             {reconcileSpendMut.data.summary.trace_updated}.
           </p>

@@ -82,7 +82,7 @@ export default function LanguagePacks() {
       <EmptyState
         icon={AlertCircle}
         title="Could not load language packs"
-        description="Ensure the Yarn service is running and accessible."
+        description="Ensure the Coder runtime is running and accessible."
       />
     );
   }
@@ -92,7 +92,7 @@ export default function LanguagePacks() {
       <EmptyState
         icon={Package}
         title="No language packs registered"
-        description="Language packs are loaded when the Yarn service starts."
+        description="Language packs are loaded when the Coder runtime starts."
       />
     );
   }
@@ -108,7 +108,7 @@ export default function LanguagePacks() {
       <div>
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Language Intelligence Packs</h1>
         <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-          Conformance matrix showing capability coverage per language.
+          Coder runtime — conformance matrix showing capability coverage per language.
         </p>
       </div>
 

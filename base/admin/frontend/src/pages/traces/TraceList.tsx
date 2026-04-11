@@ -206,7 +206,7 @@ export default function TraceList() {
           <MetricCard
             label="Traces (24h)"
             value={stats.total_traces_24h}
-            subtitle="pipeline rows only (excl. Yarn)"
+            subtitle="pipeline rows only (excl. Coder)"
             icon={Activity}
           />
           <MetricCard
@@ -232,8 +232,8 @@ export default function TraceList() {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            { id: "planner" as const, label: "Pipeline (LangGraph)" },
-            { id: "yarn" as const, label: "Yarn" },
+            { id: "planner" as const, label: "Chat (pipeline)" },
+            { id: "yarn" as const, label: "Coder" },
             { id: "all" as const, label: "All" },
           ]
         ).map((tab) => (

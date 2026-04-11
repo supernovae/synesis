@@ -40,7 +40,7 @@ const KNOWN_ROLES = [
 ] as const;
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  router: "Fast LLM — entry_pipeline, planner, plan_gate, router nodes",
+  router: "Fast LLM — entry_pipeline, planner (Chat), plan_gate, router nodes",
   general: "Writer + final_scrubber — general reasoning & synthesis",
   "general-pulse": "Front-end fast effort tier — lightweight synthesis, lower-latency responses",
   "general-core": "Front-end balanced effort tier — default quality/cost trade-off",
@@ -49,7 +49,7 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
   "coder-pulse": "Fast coder tier — lightweight completions, tab-complete (Claude Haiku class)",
   "coder-core": "Balanced coder tier — agentic tasks, IDE default (Claude Sonnet class)",
   "coder-horizon": "Deep reasoning coder tier — architecture, complex debugging (Claude Opus class)",
-  "coder-compaction": "Context compaction — small fast model for sawtooth trajectory summarization in Yarn coder sessions",
+  "coder-compaction": "Context compaction — small fast model for sawtooth trajectory summarization in Coder sessions",
   summarizer: "Pivot history summarization — router evidence compression",
 };
 

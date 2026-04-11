@@ -70,7 +70,7 @@ export default function YarnSessionDetail() {
           className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
         >
           <ArrowLeft className="h-4 w-4" />
-          Sessions
+          Coder sessions
         </button>
       </div>
 
@@ -87,7 +87,7 @@ export default function YarnSessionDetail() {
         <>
           <div>
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              Session
+              Coder session
             </h1>
             <p className="mt-1 break-all font-mono text-xs text-gray-500 dark:text-gray-400">
               {data.session.session_key}

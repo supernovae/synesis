@@ -16,7 +16,7 @@ type TargetType = "default" | "tier" | "role" | "model_family" | "node";
 const TARGET_TYPE_OPTIONS: TargetType[] = ["default", "tier", "role", "model_family", "node"];
 
 function serviceHeadingLabel(s: Service): string {
-  return s === "yarn" ? "Yarn" : "Planner (planner-ts)";
+  return s === "yarn" ? "Coder (yarn-ts)" : "Chat (planner-ts)";
 }
 
 export default function PromptLibrary() {
@@ -124,22 +124,22 @@ export default function PromptLibrary() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Prompt Library</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Each tab is a separate service scope: Yarn
-          (IDE agent) vs Planner (planner-ts planning step). Profile names use{" "}
+          Each tab is a separate service scope: Coder
+          (IDE agent runtime, yarn-ts) vs Chat (planning step, planner-ts). Profile names use{" "}
           <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">&lt;service&gt;-default-base</code> for
           the catch-all default in that scope—so{" "}
           <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">yarn-default-base</code> and{" "}
           <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">planner-default-base</code> are the same
-          pattern; &quot;planner&quot; in the name is the service, not a mistake. Yarn also ships extra overlays (e.g. coder
+          pattern; <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">planner</code> in the filename is the internal service key, not a mistake. Coder also ships extra overlays (e.g. coder
           models) beside that default.
         </p>
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-          Switching Yarn / Planner clears the profile editor and assignment form; unsaved profile edits prompt before discard.
+          Switching Coder / Chat clears the profile editor and assignment form; unsaved profile edits prompt before discard.
         </p>
         {service === "planner" && (
           <p className="mt-2 text-sm text-amber-900 dark:text-amber-100/90">
-            <span className="font-medium">Planner tab:</span> Assigned profiles are{" "}
-            <strong>appended after</strong> the built-in planner system text (JSON schema, trust rules,
+            <span className="font-medium">Chat tab:</span> Assigned profiles are{" "}
+            <strong>appended after</strong> the built-in Chat planning system text (JSON schema, trust rules,
             taxonomy). They do not replace it. Use profiles for tone and model-family habits (e.g. Kimi);
             avoid asking for prose or markdown answers — the pipeline requires parseable JSON. The server
             also appends a final JSON-only reminder after all profiles.
@@ -153,14 +153,14 @@ export default function PromptLibrary() {
           onClick={() => switchService("yarn")}
           className={`rounded px-3 py-1.5 text-sm ${service === "yarn" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}
         >
-          Yarn
+          Coder
         </button>
         <button
           type="button"
           onClick={() => switchService("planner")}
           className={`rounded px-3 py-1.5 text-sm ${service === "planner" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}
         >
-          Planner
+          Chat
         </button>
       </div>
 

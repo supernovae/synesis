@@ -275,10 +275,10 @@ function DiscoverPreviewResult({ result }: { result: DiscoveryResult }) {
 
       <div className="text-[10px] text-gray-400 dark:text-gray-500 italic">
         {result.suggested_corpus_class === "coder_enriched"
-          ? "This source will be available to Yarn/Coder via RAG MCP."
+          ? "This source will be available to the Coder API via RAG MCP."
           : result.suggested_corpus_class === "hybrid"
-            ? "This source will be available to both Planner/OpenWebUI and Yarn/Coder."
-            : "This source will be available to Planner/OpenWebUI for general knowledge."}
+            ? "This source will be available to both Chat (Open WebUI) and Coder."
+            : "This source will be available to Chat (Open WebUI) for general knowledge."}
       </div>
     </div>
   );

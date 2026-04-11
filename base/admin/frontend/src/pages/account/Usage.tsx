@@ -109,7 +109,7 @@ export default function Usage() {
             Usage
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Planner and Coder usage for your account over the selected period.
+            Chat and Coder usage for your account over the selected period.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
@@ -135,7 +135,7 @@ export default function Usage() {
         <>
           <div className="grid gap-4 xl:grid-cols-3">
             <UsageSummarySection
-              title="Planner Usage"
+              title="Chat usage"
               subtitle={plannerHasData ? `past ${period}h` : "no data"}
               requests={plannerRequests}
               tokens={plannerTokens}
@@ -146,9 +146,9 @@ export default function Usage() {
                   ? plannerErrors > 0
                     ? `${plannerErrors} errors`
                     : summary?.source === "planner_usage_log"
-                      ? "metered from planner usage logs"
+                      ? "metered from Chat pipeline usage logs"
                       : undefined
-                  : "No planner usage recorded for this period."
+                  : "No Chat pipeline usage recorded for this period."
               }
             />
             <UsageSummarySection
@@ -179,8 +179,8 @@ export default function Usage() {
               avgLatencyMs={totalLatency}
               details={
                 totalHasData
-                  ? `Combined planner + coder totals`
-                  : "No planner or coder usage recorded for this period."
+                  ? `Combined Chat + Coder totals`
+                  : "No Chat or Coder usage recorded for this period."
               }
             />
           </div>
@@ -276,7 +276,7 @@ export default function Usage() {
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
-              No planner time-series buckets for this period.
+              No Chat pipeline time-series buckets for this period.
             </div>
           )}
         </>

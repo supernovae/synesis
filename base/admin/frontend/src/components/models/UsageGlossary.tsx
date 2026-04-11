@@ -9,7 +9,7 @@ export function UsageGlossaryBanner({ className = "" }: { className?: string }) 
       <p className="font-medium">How we count usage</p>
       <ul className="mt-2 list-inside list-disc space-y-1 text-blue-900/90 dark:text-blue-200/90">
         <li>
-          <strong>Estimated</strong> — configured $/M rates × tokens; LangGraph pipeline uses{" "}
+          <strong>Estimated</strong> — configured $/M rates × tokens; Chat (LangGraph) pipeline uses{" "}
           <code className="rounded bg-blue-100 px-1 dark:bg-blue-900">planner_usage_log</code> when
           populated (trace rows as fallback), not a provider invoice.
         </li>
@@ -18,7 +18,7 @@ export function UsageGlossaryBanner({ className = "" }: { className?: string }) 
           metering rows.
         </li>
         <li>
-          <strong>Yarn / IDE</strong> — separate path (<code className="rounded bg-blue-100 px-1 dark:bg-blue-900">yarn_usage_log</code>
+          <strong>Coder / IDE</strong> — separate path (<code className="rounded bg-blue-100 px-1 dark:bg-blue-900">yarn_usage_log</code>
           ), shown alongside pipeline totals on the{" "}
           <Link to="/models/overview" className="font-medium underline">
             Overview

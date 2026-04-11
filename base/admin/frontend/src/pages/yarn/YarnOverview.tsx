@@ -79,7 +79,7 @@ const QUICK_LINKS = [
   {
     to: "/yarn/verification",
     title: "Verification",
-    description: "Health probe and smoke checks against Yarn",
+    description: "Health probe and smoke checks against the Coder runtime",
     icon: AlertTriangle,
   },
 ];
@@ -114,10 +114,10 @@ export default function YarnOverview() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-            Yarn Ops
+            Coder
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Agent runtime overview and key metrics
+            Coder (IDE / agent runtime) overview and key metrics
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
@@ -143,8 +143,8 @@ export default function YarnOverview() {
         <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : !overview || overview.total_requests === 0 ? (
         <EmptyState
-          title="No Yarn usage in this period"
-          description="Metrics appear after the Yarn service records sessions and usage in the admin database."
+          title="No Coder usage in this period"
+          description="Metrics appear after the Coder runtime records sessions and usage in the admin database."
         />
       ) : (
         <>
@@ -320,7 +320,7 @@ export default function YarnOverview() {
           <div className="grid gap-4 lg:grid-cols-2">
             <ChartCard
               title="Requests over time"
-              subtitle="Bucketed traffic from Yarn usage log"
+              subtitle="Bucketed traffic from Coder usage log"
             >
               {chartData.length === 0 ? (
                 <p className="text-sm text-gray-500">No bucket data for this range.</p>
@@ -425,7 +425,7 @@ export default function YarnOverview() {
           <div className="grid gap-4 lg:grid-cols-3">
             <ChartCard
               title="Reducer performance"
-              subtitle="Live counters (Yarn process — reset when Yarn restarts)"
+              subtitle="Live counters (Coder process — reset when the runtime restarts)"
             >
               <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
                 <div className="flex items-center justify-between">
@@ -621,7 +621,7 @@ export default function YarnOverview() {
                 {reducerHistory.snapshot_count < 2 ? (
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {reducerHistory.snapshot_count === 0
-                      ? "No snapshots yet — the admin background job records reducer stats when Yarn is reachable."
+                      ? "No snapshots yet — the admin background job records reducer stats when the Coder runtime is reachable."
                       : "Need at least two snapshots to compute stable deltas for this window."}
                   </p>
                 ) : null}

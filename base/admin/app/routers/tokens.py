@@ -5,8 +5,13 @@ Tokens are HMAC-SHA256 hashed (with server pepper) or SHA-256 hashed before
 storage.  The plaintext token is returned exactly once at creation time.
 
 Each token carries *scopes* that control which service endpoints it may reach:
-  - ``model:readonly``  / ``model:readwrite``  → Planner / front-door LLM
-  - ``coder:readonly``  / ``coder:readwrite``  → Yarn developer fabric
+  - ``model:readonly`` / ``model:readwrite`` → Chat (planner) OpenAI-compatible API
+  - ``coder:readonly`` / ``coder:readwrite`` → Coder (Yarn) OpenAI-compatible API
+
+  The ``readwrite`` suffix is accepted for backward compatibility; authorization
+  treats ``model:*`` and ``coder:*`` as the same invoke capability as
+  ``readonly`` for these routes (admin REST remains role-gated separately).
+
 Tokens without explicit scopes (pre-migration) are treated as
 ``["model:readonly"]`` for backward compatibility.
 """

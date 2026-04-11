@@ -292,7 +292,7 @@ export default function CriticAnalytics() {
         <ul className="mt-2 space-y-1 text-xs text-gray-500">
           <li>
             <strong>Async critic:</strong> Enabled by default (runs after response delivery).
-            Toggle via <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_CRITIC_BACKGROUND=false</code> in planner deployment.
+            Toggle via <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_CRITIC_BACKGROUND=false</code> in the Chat (planner-ts) deployment.
           </li>
           <li>
             <strong>Manual critic:</strong> Use the <Play className="inline h-3 w-3" /> button on any evaluation to re-run the critic with a different model.

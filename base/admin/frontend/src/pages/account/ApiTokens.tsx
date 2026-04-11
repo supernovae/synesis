@@ -8,21 +8,19 @@ import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { useAuth } from "../../components/auth/useAuth";
 
 type ScopeTarget = "model" | "coder";
-type ScopeLevel = "readonly" | "readwrite";
 
+/** User-facing names; wire format remains model:/coder: for compatibility. */
 const SCOPE_LABELS: Record<ScopeTarget, string> = {
-  model: "Model",
-  coder: "Coder",
-};
-
-const LEVEL_LABELS: Record<ScopeLevel, string> = {
-  readonly: "Read-only (Application)",
-  readwrite: "User (Read-write)",
+  model: "Chat API",
+  coder: "Coder API",
 };
 
 function scopeDisplayLabel(scope: string): string {
-  const [target, level] = scope.split(":") as [ScopeTarget, ScopeLevel];
-  return `${SCOPE_LABELS[target] ?? target} · ${LEVEL_LABELS[level] ?? level}`;
+  const [target] = scope.split(":") as [ScopeTarget, string];
+  if (target === "model" || target === "coder") {
+    return SCOPE_LABELS[target];
+  }
+  return scope;
 }
 
 function roleBadgeLabel(role: string): string {
@@ -53,10 +51,6 @@ export default function ApiTokens() {
   const [selectedTargets, setSelectedTargets] = useState<Set<ScopeTarget>>(
     () => new Set(["model"]),
   );
-  const [levels, setLevels] = useState<Record<ScopeTarget, ScopeLevel>>({
-    model: "readonly",
-    coder: "readonly",
-  });
   const [tokenIntent, setTokenIntent] = useState<
     "admin" | "model" | "coder" | "hybrid"
   >("admin");
@@ -69,23 +63,18 @@ export default function ApiTokens() {
   function applyTokenIntent(intent: "admin" | "model" | "coder" | "hybrid") {
     setTokenIntent(intent);
     if (intent === "admin") {
-      // Admin API access is role-gated; keep minimum non-empty service scope.
       setSelectedTargets(new Set(["model"]));
-      setLevels((prev) => ({ ...prev, model: "readonly" }));
       return;
     }
     if (intent === "model") {
       setSelectedTargets(new Set(["model"]));
-      setLevels((prev) => ({ ...prev, model: "readwrite" }));
       return;
     }
     if (intent === "coder") {
       setSelectedTargets(new Set(["coder"]));
-      setLevels((prev) => ({ ...prev, coder: "readwrite" }));
       return;
     }
     setSelectedTargets(new Set(["model", "coder"]));
-    setLevels((prev) => ({ ...prev, model: "readwrite", coder: "readwrite" }));
   }
 
   function toggleTarget(t: ScopeTarget) {
@@ -100,8 +89,9 @@ export default function ApiTokens() {
     });
   }
 
+  /** Service scopes always use read-only suffix; access is invoke-only for these APIs. */
   function buildScopes(): string[] {
-    return Array.from(selectedTargets).map((t) => `${t}:${levels[t]}`);
+    return Array.from(selectedTargets).map((t) => `${t}:readonly`);
   }
 
   const { data: tokens = [], isLoading } = useQuery<PersonalAccessToken[]>({
@@ -149,8 +139,8 @@ export default function ApiTokens() {
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Create tokens to connect third-party tools (IDEs, scripts, agents) to
-          Synesis services. Each token is scoped to specific services and access
-          levels.
+          Synesis services. Each token is scoped to specific services; Synesis
+          Admin REST access follows your account role.
         </p>
       </div>
 
@@ -165,9 +155,9 @@ export default function ApiTokens() {
           </strong>{" "}
           access is controlled by your{" "}
           <strong className="font-medium">account role</strong> stored on the
-          token when it is created — not by the Planner/Yarn scope checkboxes
-          below. Those scopes only affect Model/Coder service routes (and
-          related gateway checks).
+          token when it is created — not by the Chat API / Coder API scope
+          checkboxes below. Those scopes only gate the Chat and Coder HTTP APIs
+          (and related policy checks).
         </p>
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -179,18 +169,18 @@ export default function ApiTokens() {
             },
             {
               key: "model" as const,
-              title: "Model API",
-              subtitle: "Planner / LLM front-door",
+              title: "Chat API",
+              subtitle: "Chat / Open WebUI & compatible clients",
             },
             {
               key: "coder" as const,
               title: "Coder API",
-              subtitle: "Yarn / IDE integrations",
+              subtitle: "IDE & agent runtime",
             },
             {
               key: "hybrid" as const,
               title: "Hybrid",
-              subtitle: "Model + coder APIs",
+              subtitle: "Chat API + Coder API",
             },
           ].map((intent) => (
             <button
@@ -236,9 +226,8 @@ export default function ApiTokens() {
                 /api/v1/…
               </code>{" "}
               according to the role captured at creation time (see &quot;API
-              role&quot; on your token after you generate it). Changing
-              &quot;User (Read-write)&quot; under Model only affects Planner
-              access, not admin write APIs.
+              role&quot; on your token after you generate it). Chat API / Coder
+              API scopes do not grant admin write access.
             </p>
           </div>
         )}
@@ -273,15 +262,15 @@ export default function ApiTokens() {
           </div>
         </div>
 
-        {/* Scope selection — planner/yarn only; admin API uses role (see above) */}
         <div className="mt-4">
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
-            Planner &amp; Yarn (service scopes)
+            Chat API &amp; Coder API (service scopes)
           </label>
           <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-            Optional access to Model (planner) and Coder (Yarn) endpoints. Does
-            not upgrade Synesis Admin REST permissions — use an account with
-            org/platform admin for automation scripts against the admin API.
+            Optional access to the Chat and Coder HTTP APIs. Scopes are
+            invoke-only (read-only) for these routes — they do not change Synesis
+            Admin configuration. Use an org- or platform-admin account for admin
+            REST automation.
           </p>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             {(["model", "coder"] as const).map((target) => {
@@ -295,45 +284,24 @@ export default function ApiTokens() {
                       : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
                   }`}
                 >
-                  <label className="flex cursor-pointer items-center gap-2">
+                  <label className="flex cursor-pointer items-start gap-2">
                     <input
                       type="checkbox"
                       checked={active}
                       onChange={() => toggleTarget(target)}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">
-                      {SCOPE_LABELS[target]}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {target === "model"
-                        ? "— Planner / LLM API"
-                        : "— Yarn developer fabric"}
+                    <span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">
+                        {SCOPE_LABELS[target]}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                        {target === "model"
+                          ? "OpenAI-compatible chat completions (Synesis Chat / pipeline front-door)."
+                          : "OpenAI-compatible completions & messages for IDE and coding agents."}
+                      </span>
                     </span>
                   </label>
-                  {active && (
-                    <div className="ml-6 mt-2 flex gap-3">
-                      {(["readonly", "readwrite"] as const).map((lvl) => (
-                        <label
-                          key={lvl}
-                          className="flex cursor-pointer items-center gap-1.5"
-                        >
-                          <input
-                            type="radio"
-                            name={`level-${target}`}
-                            checked={levels[target] === lvl}
-                            onChange={() =>
-                              setLevels((prev) => ({ ...prev, [target]: lvl }))
-                            }
-                            className="h-3.5 w-3.5 border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-xs text-gray-600 dark:text-gray-300">
-                            {LEVEL_LABELS[lvl]}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -435,7 +403,7 @@ export default function ApiTokens() {
                       <span
                         key={s}
                         className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400"
-                        title="Planner / Yarn service scope"
+                        title="Chat API / Coder API service scope"
                       >
                         {scopeDisplayLabel(s)}
                       </span>

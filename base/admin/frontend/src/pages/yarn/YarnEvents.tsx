@@ -64,7 +64,7 @@ export default function YarnEvents() {
             Events &amp; Errors
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Yarn usage log — filter to incidents or browse everything
+            Coder usage log — filter to incidents or browse everything
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -133,7 +133,7 @@ export default function YarnEvents() {
           description={
             errorsOnly
               ? "No escalations or error finish reasons matched."
-              : "No Yarn usage rows for the selected period."
+              : "No Coder usage rows for the selected period."
           }
         />
       ) : (

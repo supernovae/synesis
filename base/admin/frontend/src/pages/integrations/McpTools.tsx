@@ -16,7 +16,7 @@ export default function McpTools() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">MCP integrations</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Two services: <strong>synesis-mcp-ts</strong> (coder / Yarn agent tools — Streamable HTTP, PAT + FGA) and{" "}
+          Two services: <strong>synesis-mcp-ts</strong> (Coder API agent tools — Streamable HTTP, PAT + FGA) and{" "}
           <strong>synesis-admin-mcp-ts</strong> (Admin console tools — Streamable HTTP, same JWT/PAT and RBAC as the
           Admin REST API).
         </p>

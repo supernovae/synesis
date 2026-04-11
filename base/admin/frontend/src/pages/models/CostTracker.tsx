@@ -181,7 +181,7 @@ export default function CostTracker() {
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage & spend</h1>
           <p className="mt-1 text-sm text-gray-500">
             Rolled up from <span className="font-medium">trace JSON llm_calls</span> (per-role), not
-            planner_usage_log; Yarn / IDE spend is on{" "}
+            planner_usage_log; Coder / IDE spend is on{" "}
             <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Overview
             </Link>

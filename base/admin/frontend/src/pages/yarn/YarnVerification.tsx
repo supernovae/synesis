@@ -28,7 +28,7 @@ export default function YarnVerification() {
             Verification
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Live health probe and on-demand smoke checks against the Yarn service
+            Live health probe and on-demand smoke checks against the Coder runtime
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -68,7 +68,7 @@ export default function YarnVerification() {
       ) : health ? (
         <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
           <h2 className="text-sm font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            Yarn service health
+            Coder runtime health
           </h2>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <StatusBadge
@@ -119,7 +119,7 @@ export default function YarnVerification() {
 
           {verifyMutation.isError && checks.length === 0 ? (
             <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">
-              The admin API could not run verification (see error above). If Yarn pods are down or{" "}
+              The admin API could not run verification (see error above). If Coder runtime pods are down or{" "}
               <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">SYNESIS_YARN_URL</code> is wrong,
               fix the deployment and try again.
             </p>

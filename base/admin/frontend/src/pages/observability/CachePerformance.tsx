@@ -139,7 +139,7 @@ function OptimizationsCard({
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
-        Yarn Token Efficiency
+        Coder token efficiency
       </h3>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tp && (
@@ -235,7 +235,7 @@ export default function CachePerformance() {
             Prefix Cache Performance
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Provider-level prefix cache metrics for Planner and Yarn
+            Provider-level prefix cache metrics for Chat (planner-ts) and Coder (yarn-ts)
           </p>
         </div>
         <EmptyState title="No cache data" icon={Database} />
@@ -252,7 +252,7 @@ export default function CachePerformance() {
           Prefix Cache Performance
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Prometheus counters from planner-ts and yarn-ts (/metrics), plus live session stats from /health.
+          Prometheus counters from the Chat service (planner-ts) and Coder runtime (yarn-ts) at /metrics, plus live session stats from /health.
           History below comes from periodic snapshots in Postgres when enabled.
         </p>
       </div>
@@ -260,14 +260,14 @@ export default function CachePerformance() {
       {/* Service-level prefix cache cards */}
       <div className="grid gap-4 lg:grid-cols-2">
         {data.planner && (
-          <PrefixCacheCard label="Planner" metrics={data.planner} />
+          <PrefixCacheCard label="Chat (planner-ts)" metrics={data.planner} />
         )}
         {data.yarn && (
-          <PrefixCacheCard label="Yarn" metrics={data.yarn} />
+          <PrefixCacheCard label="Coder (yarn-ts)" metrics={data.yarn} />
         )}
       </div>
 
-      {/* Yarn optimization stats */}
+      {/* Coder runtime optimization stats */}
       {data.yarn?.optimizations && (
         <OptimizationsCard optimizations={data.yarn.optimizations} />
       )}
@@ -312,7 +312,7 @@ export default function CachePerformance() {
                   stroke="#3b82f6"
                   strokeWidth={2}
                   dot={false}
-                  name="Planner"
+                  name="Chat"
                 />
                 <Line
                   type="monotone"
@@ -320,7 +320,7 @@ export default function CachePerformance() {
                   stroke="#8b5cf6"
                   strokeWidth={2}
                   dot={false}
-                  name="Yarn"
+                  name="Coder"
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -350,14 +350,14 @@ export default function CachePerformance() {
               )}
               {data.redis.total_keys != null && (
                 <MetricCard
-                  label="Active sessions (planner)"
+                  label="Active sessions (Chat)"
                   value={data.redis.total_keys}
                   icon={Key}
                 />
               )}
             </div>
             <p className="mt-2 text-xs text-gray-500">
-              “Active sessions” mirrors planner-ts session count (Redis-backed when REDIS_URL is set), not raw
+              “Active sessions” mirrors the Chat service (planner-ts) session count (Redis-backed when REDIS_URL is set), not raw
               Redis DBSIZE.
             </p>
           </div>
@@ -372,23 +372,23 @@ export default function CachePerformance() {
               {data.sessions.planner && (
                 <>
                   <MetricCard
-                    label="Planner store"
+                    label="Chat session store"
                     value={data.sessions.planner.backend}
                     icon={Key}
                   />
                   <MetricCard
-                    label="Planner sessions"
+                    label="Chat sessions"
                     value={data.sessions.planner.count}
                     icon={Database}
                   />
                   <MetricCard
-                    label="Planner w/ checkpoint"
+                    label="Chat w/ checkpoint"
                     value={data.sessions.planner.checkpoints}
                     icon={Activity}
                   />
                   {data.sessions.planner.total_history_entries != null ? (
                     <MetricCard
-                      label="Planner history msgs"
+                      label="Chat history msgs"
                       value={data.sessions.planner.total_history_entries}
                       icon={Activity}
                     />
@@ -398,20 +398,20 @@ export default function CachePerformance() {
               {data.sessions.yarn && (
                 <>
                   <MetricCard
-                    label="Yarn active sessions"
+                    label="Coder active sessions"
                     value={data.sessions.yarn.active}
                     icon={Activity}
                   />
                   {data.sessions.yarn.total_history_entries != null ? (
                     <MetricCard
-                      label="Yarn history msgs"
+                      label="Coder history msgs"
                       value={data.sessions.yarn.total_history_entries}
                       icon={Database}
                     />
                   ) : null}
                   {data.sessions.yarn.checkpointed_sessions != null ? (
                     <MetricCard
-                      label="Yarn checkpointed"
+                      label="Coder checkpointed"
                       value={data.sessions.yarn.checkpointed_sessions}
                       icon={Target}
                     />

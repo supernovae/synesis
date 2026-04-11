@@ -48,7 +48,7 @@ export function EffortRoutingPreviewPanel({ showTitle = true }: { showTitle?: bo
               <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Effort Routing Preview</h1>
             </div>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              Preview planner effort recommendations without running the full graph.
+              Preview Chat pipeline effort recommendations without running the full graph.
             </p>
           </>
         ) : null}

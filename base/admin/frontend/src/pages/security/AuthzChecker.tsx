@@ -34,9 +34,9 @@ function CheckForm() {
   }
 
   const presets = [
-    { label: "Planner invoke", rel: "can_invoke", obj: "planner_endpoint:chat_completions" },
-    { label: "Yarn completions", rel: "can_invoke", obj: "yarn_endpoint:completions" },
-    { label: "Yarn messages", rel: "can_invoke", obj: "yarn_endpoint:messages" },
+    { label: "Chat API invoke", rel: "can_invoke", obj: "planner_endpoint:chat_completions" },
+    { label: "Coder API completions", rel: "can_invoke", obj: "yarn_endpoint:completions" },
+    { label: "Coder API messages", rel: "can_invoke", obj: "yarn_endpoint:messages" },
     { label: "RAG public read", rel: "can_read_public", obj: "rag_catalog:default" },
     { label: "Platform admin", rel: "admin", obj: "platform:synesis" },
     { label: "Admin read", rel: "can_read", obj: "admin_endpoint:dashboard" },

@@ -49,10 +49,10 @@ export default function DomainBrowser() {
             onClick={() => exportMutation.mutate()}
             disabled={exportMutation.isPending}
             className="inline-flex items-center gap-1 rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            title="Export DB to YAML for planner reload"
+            title="Export DB to YAML for Chat service reload"
           >
             <Upload className="h-3.5 w-3.5" />
-            Apply to Planner
+            Apply to Chat service
           </button>
         </div>
       </div>
@@ -65,7 +65,7 @@ export default function DomainBrowser() {
       )}
       {exportMutation.isSuccess && (
         <div className="rounded border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
-          Exported to YAML. Restart the planner to pick up changes.
+          Exported to YAML. Restart the Chat (planner) service to pick up changes.
         </div>
       )}
 
