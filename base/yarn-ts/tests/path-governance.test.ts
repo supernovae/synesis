@@ -136,6 +136,60 @@ describe("governToolCall", () => {
     expect(out.input.original_tool).toBe("Write");
   });
 
+  it("blocks destructive placeholder overwrite for Claude plan files (Write)", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: "No plan file exists yet. This is a fresh session.\n",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanPlaceholderBlocked");
+    expect(out.blockedWriteCapable).toBe(true);
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("plan_placeholder_blocked");
+    expect(out.input.original_tool).toBe("Write");
+  });
+
+  it("blocks destructive placeholder overwrite for Claude plan files (Edit)", () => {
+    const out = governToolCall({
+      toolName: "Edit",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        old_string: "# Existing plan",
+        new_string: "No plan file exists yet. This is a fresh session.\n",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanPlaceholderBlocked");
+    expect(out.blockedWriteCapable).toBe(true);
+    expect(out.input.reason).toBe("plan_placeholder_blocked");
+    expect(out.input.original_tool).toBe("Edit");
+  });
+
+  it("allows normal writes to Claude plan files", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: "# Working Plan\n- [ ] task A\n",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Write");
+    expect(out.blockedWriteCapable).toBe(false);
+  });
+
   it("emits structured JSON for Write validation failure", () => {
     const out = governToolCall({
       toolName: "Write",

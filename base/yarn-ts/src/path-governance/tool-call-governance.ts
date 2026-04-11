@@ -101,6 +101,14 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     return out;
   }
 
+  const planPlaceholderProtection = maybeBlockPlanPlaceholderWrite(logicalName, out.input, opts.clientKind);
+  if (planPlaceholderProtection) {
+    out.toolName = planPlaceholderProtection.toolName;
+    out.input = planPlaceholderProtection.input;
+    out.blockedWriteCapable = true;
+    return out;
+  }
+
   if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
     const command = out.input.command;
     if (typeof command === "string" && command.trim()) {
@@ -258,6 +266,60 @@ function isWriteCapableTool(logicalName: string): boolean {
   return logicalName === "Write"
     || logicalName === "Edit"
     || logicalName === "Update";
+}
+
+function maybeBlockPlanPlaceholderWrite(
+  logicalName: string,
+  input: Record<string, unknown>,
+  clientKind?: string,
+): { toolName: string; input: Record<string, unknown> } | null {
+  if (!isWriteCapableTool(logicalName)) return null;
+  const filePath = typeof input.file_path === "string" ? input.file_path.trim() : "";
+  if (!filePath) return null;
+  const isClaudePlanFile =
+    filePath.includes("/.claude/plans/")
+    && filePath.toLowerCase().endsWith(".md");
+  if (!isClaudePlanFile) return null;
+
+  const writeBody = logicalName === "Write"
+    ? String(input.content ?? "")
+    : String(input.new_string ?? "");
+  const lowerBody = writeBody.toLowerCase();
+  if (!lowerBody.includes("no plan file exists yet")
+    || !lowerBody.includes("this is a fresh session")) {
+    return null;
+  }
+
+  const message = "Synesis Yarn blocked destructive placeholder overwrite for a Claude plan file. Re-read the plan and preserve existing tasks instead of writing a 'fresh session' placeholder.";
+  if (clientKind === "claude-code") {
+    return {
+      toolName: "Synesis_Error_PlanPlaceholderBlocked",
+      input: {
+        synesis_error: true,
+        reason: "plan_placeholder_blocked",
+        original_tool: logicalName,
+        file_path: filePath,
+        message,
+        retryable: true,
+      },
+    };
+  }
+  return {
+    toolName: "Bash",
+    input: {
+      command: buildStructuredErrorBashCommand({
+        synesis_error: true,
+        schema_version: 1,
+        category: "policy",
+        reason: "plan_placeholder_blocked",
+        original_tool: logicalName,
+        file_path: filePath,
+        message,
+        retryable: true,
+      }),
+      description: "Blocked destructive placeholder write to Claude plan file",
+    },
+  };
 }
 
 function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | null): string | null {
