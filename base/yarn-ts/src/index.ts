@@ -6335,9 +6335,29 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Merge top-level `system` into the message list (parity with Anthropic SDK)
   const claudeSystemMsg = claudeSystemToMessage(body.system);
+  // Build a map of tool_use_id → command from Claude messages so the
+  // standalone tool-result reducer can recover Bash commands from the
+  // originating tool_use block (tool results are plain stdout text).
+  const claudeToolCallCmdMap = new Map<string, string>();
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    for (const cm of body.messages as Array<{ role: string; content: unknown }>) {
+      if (cm.role !== "assistant" || !Array.isArray(cm.content)) continue;
+      for (const block of cm.content as Array<{ type?: string; id?: string; input?: Record<string, unknown> }>) {
+        if (block.type !== "tool_use" || !block.id) continue;
+        const cmd = typeof block.input?.command === "string" ? block.input.command.trim() : "";
+        if (cmd) claudeToolCallCmdMap.set(block.id, cmd);
+      }
+    }
+  }
   const claudeToolReducer = config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? undefined
-    : (content: unknown, toolName?: string) => toolResultReduction.reduceStandaloneToolResult(content, toolName, claudeTaskCue);
+    : (content: unknown, toolName?: string, toolUseId?: string) =>
+        toolResultReduction.reduceStandaloneToolResult(
+          content,
+          toolName,
+          claudeTaskCue,
+          (toolUseId && claudeToolCallCmdMap.get(toolUseId)) || undefined,
+        );
   const rawOpenAIMessages = withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
     claudeMessagesToOpenAI(body.messages as never, claudeToolReducer),
   );

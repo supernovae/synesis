@@ -381,6 +381,32 @@ describe("ToolResultReductionService", () => {
     expect(reduced).not.toContain("read_cache_stub");
   });
 
+  it("recovers Bash command from assistant tool_use and bypasses task-pruning for cat commands", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const planContent = Array.from({ length: 80 }, (_, i) =>
+      `## Section ${i}\n| Feature | Status |\n|---------|--------|\n| Item ${i} | pending |`,
+    ).join("\n");
+    const messages = [
+      {
+        role: "assistant" as const,
+        content: undefined,
+        tool_calls: [{
+          id: "call_abc123",
+          type: "function" as const,
+          function: {
+            name: "Bash",
+            arguments: JSON.stringify({ command: "cat /Users/me/.claude/plans/plan.md" }),
+          },
+        }],
+      },
+      { role: "tool" as const, name: "Bash", content: planContent, tool_call_id: "call_abc123" },
+    ];
+    const out = svc.reduceMessages(messages, "implement clipboard and bundle features");
+    const reduced = String(out.messages[1].content);
+    expect(reduced).not.toContain('code="task_conditioned_pruning"');
+    expect(reduced).toBe(planContent);
+  });
+
   it("respects pruning watermark -- messages above watermark are not task-pruned", () => {
     const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
     const longOutput = Array.from({ length: 200 }, (_, i) =>

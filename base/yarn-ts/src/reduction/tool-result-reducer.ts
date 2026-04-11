@@ -140,9 +140,53 @@ export class ToolResultReductionService {
     };
   }
 
+  /**
+   * Scan assistant messages for tool_use blocks and build a map from
+   * tool_call_id → command string.  This lets the reducer recover the
+   * original Bash/shell command when the tool RESULT is just stdout text.
+   */
+  private buildToolCallCommandMap(messages: ToolResultLike[]): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      // OpenAI format: tool_calls array
+      const toolCalls = (m as unknown as Record<string, unknown>).tool_calls;
+      if (Array.isArray(toolCalls)) {
+        for (const tc of toolCalls) {
+          const id = typeof tc?.id === "string" ? tc.id : "";
+          const args = typeof tc?.function?.arguments === "string"
+            ? tc.function.arguments
+            : "";
+          if (!id || !args) continue;
+          try {
+            const parsed = JSON.parse(args);
+            const cmd = typeof parsed?.command === "string" ? parsed.command.trim() : "";
+            if (cmd) map.set(id, cmd);
+          } catch { /* ignore parse errors */ }
+        }
+        continue;
+      }
+      // Claude format: content array with tool_use blocks
+      const content = (m as unknown as Record<string, unknown>).content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (block?.type !== "tool_use") continue;
+        const id = typeof block.id === "string" ? block.id : "";
+        const input = block.input;
+        if (!id || !input || typeof input !== "object") continue;
+        const cmd = typeof (input as Record<string, unknown>).command === "string"
+          ? ((input as Record<string, unknown>).command as string).trim()
+          : "";
+        if (cmd) map.set(id, cmd);
+      }
+    }
+    return map;
+  }
+
   reduceMessages(messages: ToolResultLike[], taskCue?: string, pruningWatermark?: number): ToolResultReductionResult {
     const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
     const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
+    const toolCallCmds = this.buildToolCallCommandMap(messages);
 
     let reducedCount = 0;
     const out = messages.map((m, msgIdx) => {
@@ -168,9 +212,10 @@ export class ToolResultReductionService {
         reducedCount += 1;
         return { ...m, content: guidedTrim };
       }
+      const resolvedHint = (m.tool_call_id && toolCallCmds.get(m.tool_call_id)) || normalized.commandHint;
       const aboveWatermark = pruningWatermark !== undefined && msgIdx > pruningWatermark;
       if (!recentToolProtected.has(msgIdx) && !aboveWatermark) {
-        const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
+        const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, resolvedHint);
         if (taskPruned) {
           this.trackTransformation(raw.length, taskPruned.length);
           reducedCount += 1;
@@ -185,7 +230,7 @@ export class ToolResultReductionService {
             raw,
             context: {
               toolName: m.name,
-              command: normalized.commandHint,
+              command: resolvedHint,
               profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
               maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
               minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
@@ -318,6 +363,7 @@ export class ToolResultReductionService {
     const dispatched = await Promise.all(dispatchPromises);
     const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
     const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
+    const toolCallCmds = this.buildToolCallCommandMap(messages);
 
     let reducedCount = 0;
     const out = [...messages];
@@ -349,9 +395,10 @@ export class ToolResultReductionService {
         out[idx] = { ...m, content: guidedTrim };
         continue;
       }
+      const resolvedHint = (m.tool_call_id && toolCallCmds.get(m.tool_call_id)) || normalized.commandHint;
       const asyncAboveWatermark = pruningWatermark !== undefined && idx > pruningWatermark;
       if (!recentToolProtected.has(idx) && !asyncAboveWatermark) {
-        const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, normalized.commandHint);
+        const taskPruned = this.applyTaskConditionedPruning(m.name, raw, taskCue, resolvedHint);
         if (taskPruned) {
           this.trackTransformation(raw.length, taskPruned.length);
           reducedCount += 1;
@@ -368,7 +415,7 @@ export class ToolResultReductionService {
             raw,
             context: {
               toolName: m.name,
-              command: normalized.commandHint,
+              command: resolvedHint,
               profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
               maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
               minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE,
@@ -464,7 +511,7 @@ export class ToolResultReductionService {
     return { messages: out, reducedCount };
   }
 
-  reduceStandaloneToolResult(content: unknown, toolName?: string, taskCue?: string): string {
+  reduceStandaloneToolResult(content: unknown, toolName?: string, taskCue?: string, commandHintOverride?: string): string {
     const normalized = this.buildReductionInput(toolName, content);
     const raw = normalized.raw;
     const cacheStub = this.applyReadCacheStubRemediation(toolName, raw);
@@ -477,13 +524,14 @@ export class ToolResultReductionService {
       this.trackTransformation(raw.length, emptyRemediation.length);
       return emptyRemediation;
     }
+    const resolvedHint = commandHintOverride || normalized.commandHint;
     const guidedTrim = this.applyGuidedOutputTrim(toolName, raw);
     if (guidedTrim) {
       this.stats.guidedTruncationCount += 1;
       this.trackTransformation(raw.length, guidedTrim.length);
       return guidedTrim;
     }
-    const taskPruned = this.applyTaskConditionedPruning(toolName, raw, taskCue, normalized.commandHint);
+    const taskPruned = this.applyTaskConditionedPruning(toolName, raw, taskCue, resolvedHint);
     if (taskPruned) {
       this.trackTransformation(raw.length, taskPruned.length);
       return taskPruned;
@@ -495,7 +543,7 @@ export class ToolResultReductionService {
           raw,
           context: {
             toolName,
-            command: normalized.commandHint,
+            command: resolvedHint,
             profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
             maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
             minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE

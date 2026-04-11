@@ -307,7 +307,7 @@ interface ClaudeMessage {
   content: string | ClaudeContentBlock[];
 }
 
-type ReduceToolResultFn = (content: unknown, toolName?: string) => string;
+type ReduceToolResultFn = (content: unknown, toolName?: string, toolUseId?: string) => string;
 
 export function claudeMessagesToOpenAI(
   messages: ClaudeMessage[],
@@ -344,7 +344,7 @@ export function claudeMessagesToOpenAI(
         ? tr.content
         : JSON.stringify(tr.content ?? "");
       const resultContent = reduceToolResult
-        ? reduceToolResult(baseResultContent, tr.name)
+        ? reduceToolResult(baseResultContent, tr.name, tr.tool_use_id)
         : baseResultContent;
       out.push({
         role: "tool",
