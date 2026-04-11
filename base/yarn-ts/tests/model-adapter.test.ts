@@ -794,6 +794,7 @@ describe("Qwen3CoderAdapter.dampenConsecutiveSameTools", () => {
     expect(result).not.toBeNull();
     expect(result).toContain("Bash");
     expect(result).toContain("6 times");
+    expect(result).toContain("Do exactly one concrete action");
   });
 
   it("returns dampening for 4 consecutive unknown tool calls", () => {

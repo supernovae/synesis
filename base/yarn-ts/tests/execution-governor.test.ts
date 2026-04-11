@@ -52,6 +52,24 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_already_green");
   });
 
+  it("pauses sustained broad green verification loops even with command variation", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go build ./... && echo Build successful" }),
+      toolResult("1", "Build successful"),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("2", "ok pkg/a (cached)"),
+      assistantCall("3", "bash", { command: "go build ./..." }),
+      toolResult("3", "Build successful"),
+      assistantCall("4", "bash", { command: "go test ./... && echo done" }),
+      toolResult("4", "ok pkg/a (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_green_repeat_block");
+    expect(out.matchedRules).toContain("verification_already_green");
+    expect(out.matchedRules).toContain("verification_green_repeat_block");
+  });
+
   it("does not mark no-repeat-without-change when edits are present", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test ./..." }),

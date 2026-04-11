@@ -181,6 +181,7 @@ type SessionState = {
   awaitingToolLoopUserAck: boolean;
   toolLoopAckAnchorUserHash: string;
   toolLoopNoUserAckCount: number;
+  blockBroadVerificationUntilEdit: boolean;
   record: SessionRecord;
   lastVolatileContent?: string;
   lastVolatileHash?: string;
@@ -1993,6 +1994,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
   const metaAwaitingAck = record.metadata?.awaiting_tool_loop_user_ack === true;
   const metaAckAnchorHash = String(record.metadata?.tool_loop_ack_anchor_user_hash ?? "");
   const metaNoAckCount = Number(record.metadata?.tool_loop_no_user_ack_count ?? 0);
+  const metaBlockBroadVerification = record.metadata?.block_broad_verification_until_edit === true;
   const history: SessionState["history"] = [];
 
   if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED) {
@@ -2029,6 +2031,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     awaitingToolLoopUserAck: metaAwaitingAck,
     toolLoopAckAnchorUserHash: metaAckAnchorHash,
     toolLoopNoUserAckCount: Number.isFinite(metaNoAckCount) ? metaNoAckCount : 0,
+    blockBroadVerificationUntilEdit: metaBlockBroadVerification,
     record,
     pruningWatermark: 0,
   };
@@ -2444,6 +2447,7 @@ function persistSessionAndUsage(
   state.record.metadata.awaiting_tool_loop_user_ack = state.awaitingToolLoopUserAck;
   state.record.metadata.tool_loop_ack_anchor_user_hash = state.toolLoopAckAnchorUserHash;
   state.record.metadata.tool_loop_no_user_ack_count = state.toolLoopNoUserAckCount;
+  state.record.metadata.block_broad_verification_until_edit = state.blockBroadVerificationUntilEdit;
 
   void distributedCounters.setConsecutiveToolCalls(
     state.record.sessionKey,
@@ -4888,6 +4892,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
           noEditEvidence: false,
         },
       };
+  if (oaiExecutionGovernor.matchedRules.includes("verification_green_repeat_block")) {
+    session.blockBroadVerificationUntilEdit = true;
+  }
   const oaiAggressiveRepeatGuard =
     (oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash))
     || oaiCommandLoop.broadDiscoveryRepeatCount >= 4;
@@ -5582,6 +5589,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
           toolArgHardeningStats.repairedBashCount += 1;
           app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
         }
+        if (isWriteCapableToolName(hard.toolName)) {
+          session.blockBroadVerificationUntilEdit = false;
+        }
         const governed = governToolCall({
           toolName: hard.toolName,
           input: hard.input,
@@ -5593,6 +5603,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           blockWriteCapableTools: openClawStrictGovernance,
           clientKind: oaiClientKind,
           restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
+          blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
         });
         trackGovernedHardening(governed);
         maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, tc.toolCallId);
@@ -6064,6 +6075,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
             oaiStreamToolRepairs += 1;
             app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
           }
+          if (isWriteCapableToolName(hard.toolName)) {
+            session.blockBroadVerificationUntilEdit = false;
+          }
           const governed = governToolCall({
             toolName: hard.toolName,
             input: hard.input,
@@ -6075,6 +6089,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             blockWriteCapableTools: openClawStrictGovernance,
             clientKind: oaiClientKind,
             restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
+            blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
           });
           trackGovernedHardening(governed);
           maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, tc.toolCallId);
@@ -6814,6 +6829,9 @@ app.post("/v1/messages", async (req, reply) => {
           noEditEvidence: false,
         },
       };
+  if (claudeExecutionGovernor.matchedRules.includes("verification_green_repeat_block")) {
+    session.blockBroadVerificationUntilEdit = true;
+  }
   const claudeAggressiveRepeatGuard =
     (claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash))
     || claudeCommandLoop.broadDiscoveryRepeatCount >= 4;
@@ -7770,6 +7788,9 @@ app.post("/v1/messages", async (req, reply) => {
           }
           let emitToolName = hard.toolName;
           let finalInput = hard.input;
+          if (isWriteCapableToolName(emitToolName)) {
+            session.blockBroadVerificationUntilEdit = false;
+          }
 
           const governed = governToolCall({
             toolName: emitToolName,
@@ -7782,6 +7803,7 @@ app.post("/v1/messages", async (req, reply) => {
             blockWriteCapableTools: claudeOpenClawStrictGovernance,
             clientKind: claudeClientKind,
             restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
+            blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
           });
           emitToolName = governed.toolName;
           finalInput = governed.input;
@@ -8375,6 +8397,9 @@ app.post("/v1/messages", async (req, reply) => {
         toolArgHardeningStats.repairedBashCount += 1;
         app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
       }
+      if (isWriteCapableToolName(hard.toolName)) {
+        session.blockBroadVerificationUntilEdit = false;
+      }
       const governed = governToolCall({
         toolName: hard.toolName,
         input: hard.input,
@@ -8386,6 +8411,7 @@ app.post("/v1/messages", async (req, reply) => {
         blockWriteCapableTools: claudeOpenClawStrictGovernance,
         clientKind: claudeClientKind,
         restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
+        blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
       });
       trackGovernedHardening(governed);
       maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, claudeClientKind, governed, tc.toolCallId);

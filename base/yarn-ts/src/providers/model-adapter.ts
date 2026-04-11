@@ -351,6 +351,9 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     if (isGrepFind) {
       return `You have called ${lastTool} ${consecutiveCount} times consecutively. Narrow your approach: act on the results you have, or try a different tool.`;
     }
+    if (lastTool === "Bash") {
+      return `You have called Bash ${consecutiveCount} times consecutively. STOP broad verification loops. Do exactly one concrete action now: (1) Read the target file for the next feature, then (2) apply one Edit/Write. Do NOT run broad go test/go build again until after that edit.`;
+    }
     return `You have called ${lastTool} ${consecutiveCount} times consecutively. Vary your approach: if gathering info, now act on it. If something is failing, re-read the error and try a different strategy.`;
   }
 

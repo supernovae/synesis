@@ -189,6 +189,34 @@ describe("governToolCall", () => {
     expect(out.input.reason).toBe("plan_execution_scope");
   });
 
+  it("blocks broad verification bash when green-repeat guard is active", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "go test ./... && go build ./..." },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      blockBroadVerificationForGreen: true,
+    });
+    expect(out.toolName).toBe("Synesis_Error_VerificationLoop");
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("verification_green_repeat_block");
+  });
+
+  it("allows broad verification bash when green-repeat guard is inactive", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "go test ./... && go build ./..." },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      blockBroadVerificationForGreen: false,
+    });
+    expect(out.toolName).toBe("Bash");
+  });
+
   it("normalizes alias tool names for validation without renaming output tool", () => {
     const out = governToolCall({
       toolName: "read_file",

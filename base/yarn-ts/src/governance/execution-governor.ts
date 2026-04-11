@@ -201,6 +201,24 @@ function hasTodoHarvest(events: Array<{ command: string; toolName: string }>): b
   return events.some((e) => /search:.*(todo|fixme|debug)/i.test(e.command));
 }
 
+function isBroadVerificationCommand(command: string): boolean {
+  const cmd = normalizeString(command).toLowerCase();
+  if (!cmd) return false;
+  return /\bgo\s+test\s+\.\/\.\.\./.test(cmd)
+    || /\bgo\s+build\s+\.\/\.\.\./.test(cmd)
+    || /\bgo\s+vet\s+\.\/\.\.\./.test(cmd)
+    || /\bnpm\s+test\b/.test(cmd)
+    || /\bpnpm\s+test\b/.test(cmd)
+    || /\byarn\s+test\b/.test(cmd);
+}
+
+function isVerificationCommand(toolName: string, command: string): boolean {
+  const tool = normalizeString(toolName).toLowerCase();
+  const cmd = normalizeString(command).toLowerCase();
+  return tool.includes("run_test")
+    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(cmd);
+}
+
 function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
   // Only inspect tool/tool_result payloads. User/assistant narration can contain
   // words like "invalid tool parameters" that should not block green verification bypass.
@@ -224,6 +242,7 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   let repeatedReadSearchCalls = 0;
   let repeatedBroadDiscoveryCalls = 0;
   let totalBroadDiscoveryCalls = 0;
+  let broadVerificationCommands = 0;
   let broadTestRepeat = false;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
@@ -238,17 +257,27 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
 
   for (let i = 0; i < events.length; i += 1) {
     const tool = events[i].toolName;
+    const currentIsBroadVerification = isBroadVerificationCommand(events[i].command);
     if (i >= windowStart && isBroadDiscoveryCommand(tool, events[i].command)) {
       totalBroadDiscoveryCalls += 1;
     }
-    if (i === 0) continue;
-    if (events[i].command !== events[i - 1].command) continue;
-    if (tool.includes("run_test") || /\b(go test|npm test|pnpm test|yarn test)\b/i.test(events[i].command)) {
-      repeatedTestCommands += 1;
-      if (/go test \.\/\.\.\.|^npm test$|^pnpm test$|^yarn test$/i.test(events[i].command)) {
-        broadTestRepeat = true;
-      }
+    if (i >= windowStart && currentIsBroadVerification) {
+      broadVerificationCommands += 1;
     }
+    if (i === 0) continue;
+    const previousIsBroadVerification = isBroadVerificationCommand(events[i - 1].command);
+    if (
+      isVerificationCommand(tool, events[i].command)
+      && isVerificationCommand(events[i - 1].toolName, events[i - 1].command)
+      && (
+        events[i].command === events[i - 1].command
+        || (currentIsBroadVerification && previousIsBroadVerification)
+      )
+    ) {
+      repeatedTestCommands += 1;
+      if (currentIsBroadVerification || previousIsBroadVerification) broadTestRepeat = true;
+    }
+    if (events[i].command !== events[i - 1].command) continue;
     if (i >= windowStart && (tool.includes("search") || tool.includes("read"))) {
       repeatedReadSearchCalls += 1;
     }
@@ -287,12 +316,23 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   }
 
   // Avoid trapping the model in repeated broad verification when output is already green.
+  if (broadVerificationCommands >= 3) {
+    broadTestRepeat = true;
+    if (!matchedRules.includes("broad_to_narrow_verification")) matchedRules.push("broad_to_narrow_verification");
+  }
+
   if (broadTestRepeat && repeatedTestCommands >= 1 && !hasFailures) {
     matchedRules.push("verification_already_green");
+    const shouldPause = broadVerificationCommands >= 4;
+    if (shouldPause) matchedRules.push("verification_green_repeat_block");
     return {
-      pause: false,
-      reason: "verification_already_green",
-      suggestedNextStep: "Verification is already passing. Stop re-running broad go vet/go test checks and continue implementing the next requested feature.",
+      pause: shouldPause,
+      reason: shouldPause
+        ? "verification_green_repeat_block"
+        : "verification_already_green",
+      suggestedNextStep: shouldPause
+        ? "Verification is already green. Stop broad go test/go build checks now. Make exactly one concrete code edit for the next requested feature, then run one narrow verification command."
+        : "Verification is already passing. Stop re-running broad go vet/go test checks and continue implementing the next requested feature.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,

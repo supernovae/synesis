@@ -18,6 +18,7 @@ export interface GovernToolCallOptions {
   blockWriteCapableTools?: boolean;
   clientKind?: string;
   restrictDiscoveryForPlanWork?: boolean;
+  blockBroadVerificationForGreen?: boolean;
 }
 
 export interface GovernedToolCall {
@@ -76,6 +77,19 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   if (planScopeProtection) {
     out.toolName = planScopeProtection.toolName;
     out.input = planScopeProtection.input;
+    out.blockedUnsafeShell = true;
+    return out;
+  }
+
+  const broadVerificationProtection = maybeBlockBroadVerificationForGreen(
+    logicalName,
+    out.input,
+    opts.clientKind,
+    !!opts.blockBroadVerificationForGreen,
+  );
+  if (broadVerificationProtection) {
+    out.toolName = broadVerificationProtection.toolName;
+    out.input = broadVerificationProtection.input;
     out.blockedUnsafeShell = true;
     return out;
   }
@@ -559,6 +573,55 @@ function maybeBlockBroadDiscoveryForPlanWork(
     }
   }
   return null;
+}
+
+function maybeBlockBroadVerificationForGreen(
+  logicalName: string,
+  input: Record<string, unknown>,
+  clientKind: string | undefined,
+  enabled: boolean,
+): { toolName: string; input: Record<string, unknown> } | null {
+  if (!enabled) return null;
+  const lower = logicalName.trim().toLowerCase();
+  if (lower !== "bash") return null;
+  const cmd = typeof input.command === "string" ? input.command.toLowerCase() : "";
+  if (!cmd) return null;
+  const broadVerification =
+    /\bgo\s+test\s+\.\/\.\.\./.test(cmd)
+    || /\bgo\s+build\s+\.\/\.\.\./.test(cmd)
+    || /\bgo\s+vet\s+\.\/\.\.\./.test(cmd)
+    || /\bnpm\s+test\b/.test(cmd)
+    || /\bpnpm\s+test\b/.test(cmd)
+    || /\byarn\s+test\b/.test(cmd);
+  if (!broadVerification) return null;
+  const message = "Synesis Yarn blocked repeated broad verification while results are already green. Make one concrete Edit/Write first, then run one narrow verification command.";
+  if (clientKind === "claude-code") {
+    return {
+      toolName: "Synesis_Error_VerificationLoop",
+      input: {
+        synesis_error: true,
+        reason: "verification_green_repeat_block",
+        original_tool: logicalName,
+        message,
+        retryable: true,
+      },
+    };
+  }
+  return {
+    toolName: "Bash",
+    input: {
+      command: buildStructuredErrorBashCommand({
+        synesis_error: true,
+        schema_version: 1,
+        category: "policy",
+        reason: "verification_green_repeat_block",
+        original_tool: logicalName,
+        message,
+        retryable: true,
+      }),
+      description: "Blocked repeated broad verification command",
+    },
+  };
 }
 
 function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | null): string | null {
