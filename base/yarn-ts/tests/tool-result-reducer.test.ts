@@ -357,6 +357,30 @@ describe("ToolResultReductionService", () => {
     expect(out.reducedCount).toBeGreaterThanOrEqual(1);
   });
 
+  it("replaces Claude Code 'Unchanged since last read' cache stubs with recovery hint", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const out = svc.reduceMessages(
+      [{ role: "tool", name: "Read", content: "Unchanged since last read" }],
+      "implement the plan tasks",
+    );
+    const reduced = String(out.messages[0].content);
+    expect(reduced).toContain("read_cache_stub");
+    expect(reduced).toContain("Bash(cat");
+    expect(reduced).not.toBe("Unchanged since last read");
+    expect(out.reducedCount).toBe(1);
+  });
+
+  it("does not fire cache-stub remediation on normal Read results", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const normalContent = "const x = 42;\nexport default x;";
+    const out = svc.reduceMessages(
+      [{ role: "tool", name: "Read", content: normalContent }],
+      "implement the plan tasks",
+    );
+    const reduced = String(out.messages[0].content);
+    expect(reduced).not.toContain("read_cache_stub");
+  });
+
   it("respects pruning watermark -- messages above watermark are not task-pruned", () => {
     const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
     const longOutput = Array.from({ length: 200 }, (_, i) =>

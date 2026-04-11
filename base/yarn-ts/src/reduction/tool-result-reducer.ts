@@ -149,6 +149,12 @@ export class ToolResultReductionService {
       if (m.role !== "tool") return m;
       const normalized = this.buildReductionInput(m.name, m.content);
       const raw = normalized.raw;
+      const cacheStub = this.applyReadCacheStubRemediation(m.name, raw);
+      if (cacheStub) {
+        this.trackTransformation(raw.length, cacheStub.length);
+        reducedCount += 1;
+        return { ...m, content: cacheStub };
+      }
       const emptyRemediation = this.applyEmptyResultRemediation(m.name, m.content, raw);
       if (emptyRemediation) {
         this.trackTransformation(raw.length, emptyRemediation.length);
@@ -321,6 +327,13 @@ export class ToolResultReductionService {
       const m = messages[idx];
       const normalized = toolInputs[j];
       const raw = normalized.raw;
+      const cacheStub = this.applyReadCacheStubRemediation(m.name, raw);
+      if (cacheStub) {
+        this.trackTransformation(raw.length, cacheStub.length);
+        reducedCount += 1;
+        out[idx] = { ...m, content: cacheStub };
+        continue;
+      }
       const emptyRemediation = this.applyEmptyResultRemediation(m.name, m.content, raw);
       if (emptyRemediation) {
         this.trackTransformation(raw.length, emptyRemediation.length);
@@ -454,6 +467,11 @@ export class ToolResultReductionService {
   reduceStandaloneToolResult(content: unknown, toolName?: string, taskCue?: string): string {
     const normalized = this.buildReductionInput(toolName, content);
     const raw = normalized.raw;
+    const cacheStub = this.applyReadCacheStubRemediation(toolName, raw);
+    if (cacheStub) {
+      this.trackTransformation(raw.length, cacheStub.length);
+      return cacheStub;
+    }
     const emptyRemediation = this.applyEmptyResultRemediation(toolName, content, raw);
     if (emptyRemediation) {
       this.trackTransformation(raw.length, emptyRemediation.length);
@@ -951,6 +969,38 @@ export class ToolResultReductionService {
       .map((p) => p.trim())
       .filter((p) => p.length >= 3 && !stop.has(p));
     return [...new Set(parts)].slice(0, 20);
+  }
+
+  /**
+   * Claude Code caches file reads and returns "Unchanged since last read"
+   * instead of re-sending the content. This breaks when Yarn has pruned the
+   * original read from the context — the model sees a stub but has no content.
+   * Detect these stubs and replace with a recovery hint.
+   */
+  private applyReadCacheStubRemediation(
+    toolName: string | undefined,
+    raw: string,
+  ): string | null {
+    const lower = (toolName ?? "").toLowerCase();
+    if (lower !== "read" && lower !== "read_file" && lower !== "readfile") return null;
+    const trimmed = raw.trim().toLowerCase();
+    if (
+      trimmed.includes("unchanged since last read") ||
+      trimmed.includes("file unchanged") ||
+      (trimmed.length < 120 && trimmed.includes("unchanged"))
+    ) {
+      return [
+        `<SYNESIS_TOOL_GUARDRAIL status="guided" code="read_cache_stub" version="1">`,
+        `tool=${toolName ?? "Read"}`,
+        `reason=client_returned_cache_stub`,
+        `next_action=use_bash_cat_to_read_file_content`,
+        `[Cache stub] The client returned "Unchanged since last read" instead of file content.`,
+        `The previous read was pruned from context so you do not have the content.`,
+        `Use Bash(cat <file_path>) to retrieve the full file content.`,
+        `</SYNESIS_TOOL_GUARDRAIL>`,
+      ].join("\n");
+    }
+    return null;
   }
 
   private applyEmptyResultRemediation(

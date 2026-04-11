@@ -414,6 +414,11 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       }
     }
     if (readCalls.length < threshold) return null;
+    // If the model is adapting (switching between Read and Bash on the same
+    // file), give it extra room — only fire when the SAME fingerprint appears
+    // repeatedly without any tool change.
+    const readTools = new Set(readCalls.map((c) => c.toolName));
+    if (readTools.size > 1 && readCalls.length < threshold + 2) return null;
     const filePaths = readCalls.map((c) => c.filePath).filter(Boolean);
     const uniqueFiles = [...new Set(filePaths)];
     if (uniqueFiles.length === 0) return null;
