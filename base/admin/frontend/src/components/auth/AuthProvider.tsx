@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import axios from "axios";
 import type { User, OidcConfig } from "../../types";
 import { resolveAccessTokenExpiresAtMs } from "../../utils/jwtExpiry";
@@ -78,6 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [oidcConfig, setOidcConfig] = useState<OidcConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Breaks self-reference cycle for `scheduleRefresh` inside the refresh callback (react-hooks/immutability). */
+  const scheduleRefreshRef = useRef<() => void>(() => {});
 
   // Proactively refresh the access token before it expires.
   // If the token is already nearly expired (< 60s), refresh immediately.
@@ -110,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           data.id_token,
         );
         setAuth((prev) => ({ ...prev, token: data.access_token }));
-        scheduleRefresh();
+        scheduleRefreshRef.current();
       } catch {
         // Retry once after 10 seconds before giving up
         refreshTimerRef.current = setTimeout(async () => {
@@ -130,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               data.id_token,
             );
             setAuth((prev) => ({ ...prev, token: data.access_token }));
-            scheduleRefresh();
+            scheduleRefreshRef.current();
           } catch {
             // Give up — user will be redirected on next 401
           }
@@ -144,6 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshTimerRef.current = setTimeout(doRefresh, delay);
     }
   }, []);
+
+  useLayoutEffect(() => {
+    scheduleRefreshRef.current = scheduleRefresh;
+  }, [scheduleRefresh]);
 
   useEffect(() => {
     return () => {

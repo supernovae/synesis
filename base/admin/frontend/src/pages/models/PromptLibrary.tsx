@@ -38,7 +38,10 @@ export default function PromptLibrary() {
   const upsertAssignment = useUpsertPromptAssignment();
   const deleteAssignment = useDeletePromptAssignment();
 
-  const profiles = profilesQ.data?.profiles ?? [];
+  const profiles = useMemo(
+    () => profilesQ.data?.profiles ?? [],
+    [profilesQ.data?.profiles],
+  );
   const assignments = assignmentsQ.data?.assignments ?? [];
 
   const profileById = useMemo(() => {

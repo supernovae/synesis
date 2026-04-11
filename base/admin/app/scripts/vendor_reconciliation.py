@@ -166,11 +166,7 @@ async def reconcile_costs(
                     cost = await fetch_deepinfra_cost(client, trace.trace_id, deepinfra_key)
 
                 if cost is not None:
-                    await session.execute(
-                        update(Trace)
-                        .where(Trace.id == trace.id)
-                        .values(actual_cost_usd=cost)
-                    )
+                    await session.execute(update(Trace).where(Trace.id == trace.id).values(actual_cost_usd=cost))
                     trace_updated += 1
 
             await session.commit()

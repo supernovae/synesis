@@ -102,4 +102,3 @@ async def test_web_search_log_returns_attribution_fields():
     assert row["request_id"] == "req-1"
     assert row["tool_name"] == "synesis_web_search"
     assert row["query_hash"] == "hash-1"
-

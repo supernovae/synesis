@@ -64,4 +64,3 @@ def downgrade() -> None:
         batch.drop_column("tenant_id")
         batch.drop_column("user_id")
         batch.drop_column("org_id")
-

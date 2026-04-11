@@ -25,7 +25,10 @@ interface ProviderKeysPanelProps {
 
 export default function ProviderKeysPanel({ governance, isLoading }: ProviderKeysPanelProps) {
   const keys = governance?.provider_secret_keys ?? [];
-  const providersList = governance?.providers ?? [];
+  const providersList = useMemo(
+    () => governance?.providers ?? [],
+    [governance?.providers],
+  );
   const { data: restartStatus } = useLitellmRestartStatus();
   const setKeyMut = useSetProviderKey();
   const deleteKeyMut = useDeleteProviderKey();

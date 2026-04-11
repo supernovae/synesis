@@ -273,8 +273,12 @@ async def aggregate_traces_period(
             q = select(
                 func.count().label("n"),
                 func.coalesce(func.sum(Trace.total_tokens), 0).label("total_tokens"),
-                func.coalesce(func.sum(func.cast(Trace.full_record["tokens"]["prompt_tokens"].astext, sa.Integer)), 0).label("tokens_in"),
-                func.coalesce(func.sum(func.cast(Trace.full_record["tokens"]["cached_prompt_tokens"].astext, sa.Integer)), 0).label("tokens_cached"),
+                func.coalesce(
+                    func.sum(func.cast(Trace.full_record["tokens"]["prompt_tokens"].astext, sa.Integer)), 0
+                ).label("tokens_in"),
+                func.coalesce(
+                    func.sum(func.cast(Trace.full_record["tokens"]["cached_prompt_tokens"].astext, sa.Integer)), 0
+                ).label("tokens_cached"),
                 func.coalesce(func.sum(Trace.estimated_cost_usd), 0).label("estimated_cost_usd"),
                 func.coalesce(func.sum(Trace.actual_cost_usd), 0).label("actual_cost_usd"),
                 func.coalesce(func.avg(Trace.total_duration_ms), 0).label("avg_duration_ms"),

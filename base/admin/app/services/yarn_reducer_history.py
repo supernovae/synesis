@@ -67,8 +67,12 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for i in range(1, len(rows)):
         prev = rows[i - 1].get("payload") or {}
         curr = rows[i].get("payload") or {}
-        totals["reduced_count_delta"] += _monotonic_delta(_as_int(prev.get("reducedCount")), _as_int(curr.get("reducedCount")))
-        totals["reducer_failures_delta"] += _monotonic_delta(_as_int(prev.get("reducerFailures")), _as_int(curr.get("reducerFailures")))
+        totals["reduced_count_delta"] += _monotonic_delta(
+            _as_int(prev.get("reducedCount")), _as_int(curr.get("reducedCount"))
+        )
+        totals["reducer_failures_delta"] += _monotonic_delta(
+            _as_int(prev.get("reducerFailures")), _as_int(curr.get("reducerFailures"))
+        )
         totals["tokens_saved_estimate_delta"] += _monotonic_delta(
             _as_int(prev.get("tokensSavedEstimateTotal")),
             _as_int(curr.get("tokensSavedEstimateTotal")),
@@ -156,7 +160,9 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for i in range(1, len(rows)):
         prev = rows[i - 1].get("payload") or {}
         curr = rows[i].get("payload") or {}
-        totals["reduced_count_total"] += _monotonic_delta(_as_int(prev.get("reducedCount")), _as_int(curr.get("reducedCount")))
+        totals["reduced_count_total"] += _monotonic_delta(
+            _as_int(prev.get("reducedCount")), _as_int(curr.get("reducedCount"))
+        )
         totals["reducer_failures_total"] += _monotonic_delta(
             _as_int(prev.get("reducerFailures")),
             _as_int(curr.get("reducerFailures")),

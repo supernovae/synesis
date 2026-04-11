@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 import { useAuth } from "../auth/useAuth";
@@ -228,31 +228,36 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     () => navigation.filter((item) => roleRank(userRole) >= requiredRank(item.minRole)),
     [userRole],
   );
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
+  /** Explicit user toggles; when absent for a label, expansion follows active route (see `expanded`). */
+  const [manualExpanded, setManualExpanded] = useState<Record<string, boolean>>({});
+
+  const autoExpanded = useMemo(() => {
+    const m: Record<string, boolean> = {};
     for (const item of allowedNavigation) {
       if (item.children && isGroupActive(item.children, pathname)) {
-        init[item.label] = true;
+        m[item.label] = true;
       }
     }
-    return init;
-  });
-
-  useEffect(() => {
-    setExpanded((prev) => {
-      let next = prev;
-      for (const item of allowedNavigation) {
-        if (item.children && isGroupActive(item.children, pathname) && !prev[item.label]) {
-          if (next === prev) next = { ...prev };
-          next[item.label] = true;
-        }
-      }
-      return next;
-    });
+    return m;
   }, [pathname, allowedNavigation]);
 
+  const expanded = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    for (const item of allowedNavigation) {
+      if (!item.children) continue;
+      const label = item.label;
+      out[label] =
+        label in manualExpanded ? manualExpanded[label] : (autoExpanded[label] ?? false);
+    }
+    return out;
+  }, [allowedNavigation, autoExpanded, manualExpanded]);
+
   function toggle(label: string) {
-    setExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
+    setManualExpanded((prev) => {
+      const cur =
+        label in prev ? prev[label] : (autoExpanded[label] ?? false);
+      return { ...prev, [label]: !cur };
+    });
   }
 
   return (

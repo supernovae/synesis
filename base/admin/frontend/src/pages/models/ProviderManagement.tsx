@@ -81,11 +81,10 @@ export default function ProviderManagement() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState<CreateForm>({ ...EMPTY_CREATE });
 
-  const providersRaw: ProviderConfigInfo[] = data?.providers ?? [];
-  const providers = useMemo(
-    () => [...providersRaw].sort((a, b) => a.label.localeCompare(b.label)),
-    [providersRaw],
-  );
+  const providers = useMemo(() => {
+    const raw: ProviderConfigInfo[] = data?.providers ?? [];
+    return [...raw].sort((a, b) => a.label.localeCompare(b.label));
+  }, [data?.providers]);
 
   useEffect(() => {
     if (location.hash === "#provider-api-keys") {
@@ -93,12 +92,12 @@ export default function ProviderManagement() {
     }
   }, [location.hash, location.pathname]);
 
-  useEffect(() => {
+  const resetKeyEditor = () => {
     setKeyInputValue("");
     setShowKeyPlain(false);
     setKeyMut.reset();
     deleteKeyMut.reset();
-  }, [editingKey]);
+  };
 
   const enabledCount = providers.filter((v) => v.enabled).length;
   const keyReadyCount = providers.filter((v) => {
@@ -107,6 +106,7 @@ export default function ProviderManagement() {
   }).length;
 
   const openEdit = (v: ProviderConfigInfo) => {
+    resetKeyEditor();
     setEditingKey(v.key);
     setEditForm({
       enabled: v.enabled,
@@ -151,6 +151,7 @@ export default function ProviderManagement() {
     }
     updateMut.mutate(payload as Parameters<typeof updateMut.mutate>[0], {
       onSuccess: () => {
+        resetKeyEditor();
         setEditingKey(null);
         setEditForm(null);
       },
@@ -555,6 +556,7 @@ export default function ProviderManagement() {
                         href="#provider-api-keys"
                         className="text-indigo-700 underline dark:text-indigo-400"
                         onClick={() => {
+                          resetKeyEditor();
                           setEditingKey(null);
                           setEditForm(null);
                         }}
@@ -637,6 +639,7 @@ export default function ProviderManagement() {
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   onClick={() => {
+                    resetKeyEditor();
                     setEditingKey(null);
                     setEditForm(null);
                   }}

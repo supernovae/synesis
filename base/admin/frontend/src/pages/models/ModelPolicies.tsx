@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   GitBranch,
@@ -433,13 +433,16 @@ function RoleCard({ role }: { role: string }) {
 export default function ModelPolicies() {
   const { data: allPolicies, isLoading } = useModelPolicies();
   const [searchParams] = useSearchParams();
-  const [showEffortPreview, setShowEffortPreview] = useState(searchParams.get("preview") === "1");
+  const searchStr = searchParams.toString();
+  const previewInUrl = searchParams.get("preview") === "1";
+  const [userExpandedNoUrl, setUserExpandedNoUrl] = useState(false);
+  /** When non-null, user hid the preview panel for this exact query string (see `showEffortPreview`). */
+  const [dismissedPreviewForQuery, setDismissedPreviewForQuery] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (searchParams.get("preview") === "1") {
-      setShowEffortPreview(true);
-    }
-  }, [searchParams]);
+  const showEffortPreview = previewInUrl
+    ? dismissedPreviewForQuery !== searchStr
+    : userExpandedNoUrl;
+
   const configuredRoles = useMemo(
     () =>
       allPolicies?.policies
@@ -469,7 +472,15 @@ export default function ModelPolicies() {
           </p>
         </div>
         <button
-          onClick={() => setShowEffortPreview((v) => !v)}
+          type="button"
+          onClick={() => {
+            if (previewInUrl) {
+              if (showEffortPreview) setDismissedPreviewForQuery(searchStr);
+              else setDismissedPreviewForQuery(null);
+            } else {
+              setUserExpandedNoUrl((v) => !v);
+            }
+          }}
           className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
         >
           {showEffortPreview ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}

@@ -536,15 +536,19 @@ async def get_yarn_intelligence(
             """
         )
         trajectory_row = (
-            await session.execute(
-                trajectory_sql,
-                {
-                    "cutoff": cutoff,
-                    "uid": scope_user_id or "",
-                    "oid": scope_org_id or "",
-                },
+            (
+                await session.execute(
+                    trajectory_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
 
         bucket_sql = text(
             """
@@ -561,15 +565,19 @@ async def get_yarn_intelligence(
             """
         )
         bucket_rows = (
-            await session.execute(
-                bucket_sql,
-                {
-                    "cutoff": cutoff,
-                    "uid": scope_user_id or "",
-                    "oid": scope_org_id or "",
-                },
+            (
+                await session.execute(
+                    bucket_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         trajectory_bucket_counts = {str(r["bucket"]): int(r["count"]) for r in bucket_rows}
 
     requests = int(row.requests or 0)

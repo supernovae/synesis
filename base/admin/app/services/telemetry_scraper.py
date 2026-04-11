@@ -176,7 +176,12 @@ async def _persist_compaction_snapshot(
 
 async def scrape_all() -> dict:
     """Run a full scrape cycle for both planner-ts and yarn-ts."""
-    global _last_planner, _last_yarn, _last_yarn_reducer_success_at, _last_yarn_reducer_error_at, _last_yarn_reducer_error
+    global \
+        _last_planner, \
+        _last_yarn, \
+        _last_yarn_reducer_success_at, \
+        _last_yarn_reducer_error_at, \
+        _last_yarn_reducer_error
 
     planner_metrics, yarn_metrics, planner_health, yarn_health = await asyncio.gather(
         _scrape_metrics(PLANNER_TS_URL),

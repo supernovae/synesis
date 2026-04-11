@@ -29,7 +29,6 @@ export default function Login() {
       return;
     }
     if (sessionStorage.getItem(SUPPRESS_AUTO_KEY) === "1") {
-      setOidcManual(true);
       return;
     }
     loginWithOidc();

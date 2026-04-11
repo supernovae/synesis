@@ -93,7 +93,10 @@ _TOOLS: list[dict[str, Any]] = [
                     "default": 24,
                     "description": "Start of window (hours ago); maps to since/until on the API",
                 },
-                "org_id": {"type": "string", "description": "Optional org filter (platform admin); else caller org scope"},
+                "org_id": {
+                    "type": "string",
+                    "description": "Optional org filter (platform admin); else caller org scope",
+                },
             },
         },
     },
@@ -171,7 +174,11 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "page": {"type": "integer", "default": 1},
                 "page_size": {"type": "integer", "default": 20, "description": "Max 100"},
-                "active_since_hours": {"type": "integer", "default": 168, "description": "Only sessions active in this window"},
+                "active_since_hours": {
+                    "type": "integer",
+                    "default": 168,
+                    "description": "Only sessions active in this window",
+                },
             },
         },
     },

@@ -821,9 +821,15 @@ async def update_model_cost_internal(
     result = await upsert_model_cost(data)
     actor_name = getattr(_principal, "service_name", None) or getattr(_principal, "username", "service")
     await record_admin_audit(
-        user=_principal if isinstance(_principal, UserInfo) else UserInfo(
-            user_id="service", username=actor_name, email="",
-            role="platform_admin", org_id="synesis", groups=[],
+        user=_principal
+        if isinstance(_principal, UserInfo)
+        else UserInfo(
+            user_id="service",
+            username=actor_name,
+            email="",
+            role="platform_admin",
+            org_id="synesis",
+            groups=[],
         ),
         action="models.cost_update_internal",
         status="success",

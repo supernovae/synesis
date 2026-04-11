@@ -20,12 +20,13 @@ export default function AdminAssistant() {
   const chatMutation = useAssistantChat();
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Accept context passed from trace assistant via navigation state
+  // Accept context passed from trace assistant via navigation state (one-shot).
   useEffect(() => {
     const navState = location.state as { context?: string } | null;
     if (navState?.context) {
+      // Syncing router state into local field; not derivable without remounting the route.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional hydration from location.state
       setContext(navState.context);
-      // Clear navigation state so refresh doesn't re-apply
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);

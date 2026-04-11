@@ -5,6 +5,7 @@ Open WebUI stores chat default in user.settings JSON (SQLite on PVC). If the UI
 validates selected IDs against an empty /models list, it can persist [''].
 This runs after pod start (postStart) and waits for webui.db to exist.
 """
+
 from __future__ import annotations
 
 import json
@@ -71,9 +72,7 @@ def main() -> None:
 
     conn = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
-        cur = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='user'"
-        )
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
         if not cur.fetchone():
             return
         rows = conn.execute("SELECT id, settings FROM user").fetchall()
