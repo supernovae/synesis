@@ -233,10 +233,17 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
 }
 
 export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): ExecutionGovernorDecision {
-  const events = extractCommandEvents(messages);
-  const changedFiles = extractChangedFileHints(messages);
+  const lastUserIdx = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "user") return i;
+    }
+    return -1;
+  })();
+  const turnMessages = lastUserIdx >= 0 ? messages.slice(lastUserIdx + 1) : messages;
+  const events = extractCommandEvents(turnMessages);
+  const changedFiles = extractChangedFileHints(turnMessages);
   const userText = extractUserText(messages);
-  const hasFailures = hasFailureSignals(messages);
+  const hasFailures = hasFailureSignals(turnMessages);
   const testRuntime = inferTestRuntime(events, userText);
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
