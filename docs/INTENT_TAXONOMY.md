@@ -151,4 +151,4 @@ At classification time:
 |---|---|---|
 | Semantic Router (Aurelio Labs) | Cosine similarity over route embeddings for fast, training-free intent classification | Core architecture: route utterances + mean embeddings + cosine margin |
 | VecStat/NormStat (ICLR 2026) | Training-free embedding methods are more robust to ambiguous and OOD prompts than keyword classifiers | Validates that embedding-based classification outperforms the regex approach |
-| Routesplain ([arxiv 2511.09373](https://arxiv.org/abs/2511.09373)) | Interpretable concept-based routing for software tasks outperforms black-box and keyword baselines | Informs the utterance design — concepts like "propose architecture" vs "write function" |
+| Routesplain ([AWESOME_PAPERS.MD](AWESOME_PAPERS.MD#routing-and-taxonomy)) | Interpretable concept-based routing for software tasks outperforms black-box and keyword baselines | Informs the utterance design — concepts like "propose architecture" vs "write function" |

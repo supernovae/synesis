@@ -98,7 +98,7 @@ Faceted search allows users to explore multiple dimensions simultaneously. Facet
 
 ### 2.10 Retrieval-Augmented Generation
 
-**Lewis, P., Perez, E., Piktus, A., et al. (2020).** "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks." *NeurIPS 2020*. [arXiv:2005.11401](https://arxiv.org/abs/2005.11401)
+**Lewis, P., Perez, E., Piktus, A., et al. (2020).** "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks." *NeurIPS 2020* — link in [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD#rag-and-retrieval).
 
 Augmenting generation with retrieved evidence reduces hallucination, grounds responses in verifiable sources, and enables domain specialization without model retraining.
 
@@ -106,7 +106,7 @@ Augmenting generation with retrieved evidence reduces hallucination, grounds res
 
 ### 2.11 Human–AI Collaborative Sensemaking
 
-**Zhang, Y. et al. (2025).** "What to Make Sense of in the Era of LLM? A Perspective from the Structure and Efforts in Sensemaking." [arXiv:2603.08604](https://arxiv.org/abs/2603.08604)
+**Zhang, Y. et al. (2025).** "What to Make Sense of in the Era of LLM? A Perspective from the Structure and Efforts in Sensemaking." — [arXiv:2603.08604](https://arxiv.org/abs/2603.08604) (also indexed in [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD#sensemaking-cognition-and-design-theory)).
 
 Sensemaking with LLMs emphasizes human-AI collaboration and complementary roles rather than full automation. The system should support sensemaking by constraining when it answers, how it labels uncertainty, and when it hands back to the user.
 
@@ -116,18 +116,7 @@ Sensemaking with LLMs emphasizes human-AI collaboration and complementary roles 
 
 ## 3. Prompt Injection and Trust Research
 
-These papers inform the security architecture. Full implementation details are in [SECURITY.md](SECURITY.md).
-
-| Paper | Link | Key Insight |
-|-------|------|-------------|
-| **Spotlighting** (Hines et al., 2024) | [arXiv:2403.14720](https://arxiv.org/abs/2403.14720) | Delimiting + datamarking separates data from instructions |
-| **Prompt Fencing** (2025) | [arXiv:2511.19727](https://arxiv.org/abs/2511.19727) | Structured trust boundaries with verifiable delimiters |
-| **CaMeL** (Debenedetti et al., 2025) | [arXiv:2503.18813](https://arxiv.org/abs/2503.18813) | Control/data flow separation prevents indirect injection |
-| **TrustRAG** (2025) | [arXiv:2501.00879](https://arxiv.org/abs/2501.00879) | RAG corpus poisoning detection via pre-retrieval filtering |
-| **SD-RAG** (2026) | [arXiv:2601.11199](https://arxiv.org/abs/2601.11199) | Sanitization-first retrieval defense |
-| **ICON** (2026) | [arXiv:2602.20708](https://arxiv.org/abs/2602.20708) | Inference-time correction of compromised outputs |
-| **Instruction Hierarchy** (Wallace et al., 2024) | [arXiv:2404.13208](https://arxiv.org/abs/2404.13208) | System > user > tool priority enforced by training |
-| **OWASP LLM Top 10** | [owasp.org/llm-top-10](https://owasp.org/www-project-top-10-for-large-language-model-applications/) | LLM01 (Prompt Injection), LLM06 (Sensitive Info Disclosure) |
+Security-oriented papers and OWASP mapping are centralized in [AWESOME_PAPERS.MD — Security and prompt injection](AWESOME_PAPERS.MD#security-and-prompt-injection). Implementation details: [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -221,6 +210,7 @@ See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for the redirect and pointers to [WOR
 
 | Document | Description |
 |----------|-------------|
+| [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD) | Curated arXiv and primary references (security, RAG, critic, sensemaking) |
 | [DESIGN_THEORY.md](DESIGN_THEORY.md) | Cynefin domain mapping, clarify-first behavior, epistemic discipline |
 | [SECURITY.md](SECURITY.md) | Trust envelopes, 9-layer prompt injection defense, attribution |
 | [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) | Domain behavior configuration via YAML |

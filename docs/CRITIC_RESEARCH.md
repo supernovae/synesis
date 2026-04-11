@@ -4,6 +4,8 @@ This document captures the research foundation for the Synesis critic node's
 evaluation rubric. It should be updated as we iterate on critic behavior and
 as new research becomes available.
 
+**Canonical paper links:** [AWESOME_PAPERS.MD — Critic, judges, and evaluation](AWESOME_PAPERS.MD#critic-judges-and-evaluation).
+
 ---
 
 ## 1. Context and Current State
@@ -471,18 +473,4 @@ All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
 
 ## 5. References
 
-| ID | Paper | arXiv | Year |
-|----|-------|-------|------|
-| 1 | ResearchRubrics: Evaluating Deep Research Agents | 2511.07685 | 2025 |
-| 2 | RAG-Zeval: Rule-Guided RAG Evaluation | 2505.22430 | 2025 |
-| 3 | ARES: Automated RAG Evaluation System | 2311.09476 | 2023 |
-| 4 | GER-Eval: LLM-Designed Evaluation Rubrics | 2602.08672 | 2026 |
-| 5 | Latent Judges: Score Compression in LLM-as-Judge | 2509.24678 | 2025 |
-| 6 | Causal Judge Evaluation: Calibration | 2512.11150 | 2025 |
-| 7 | CLEAR: Actionable Error Analysis | 2507.18392 | 2025 |
-| 8 | ManyIFEval: Instruction Following Degrades with Count | 2311.07911 | 2023 |
-| 9 | Multi-Dimensional Constraint Framework | 2505.07591 | 2025 |
-| 10 | WildIFEval: Instruction Following in the Wild | 2503.06573 | 2025 |
-| 11 | BEAVER: Deterministic LLM Verifier | 2512.05439 | 2025 |
-| 12 | FActScore: Atomic Evaluation of Factual Precision | 2305.14251 | 2023 |
-| 13 | TraceLLM: Requirements Traceability with LLMs | 2602.01253 | 2026 |
+Numbered list → titles and URLs: [AWESOME_PAPERS.MD — Critic, judges, and evaluation](AWESOME_PAPERS.MD#critic-judges-and-evaluation) (same ordering as sections 2.1–2.11 above).

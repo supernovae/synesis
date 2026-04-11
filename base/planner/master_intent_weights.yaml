@@ -10,7 +10,7 @@
 #
 # USAGE: Replace intent_weights.yaml with this file, or merge via SYNESIS_ENTRY_CLASSIFIER_CONFIG.
 # Plugins (plugins/weights/*.yaml) add vertical-specific depth; master covers the baseline.
-# See docs/TAXONOMY.md for full coverage matrix.
+# See docs/TAXONOMY.md (coverage matrix) and docs/TAXONOMY_CANONICAL.md (canonical domain IDs).
 
 thresholds:
   easy_max: 4

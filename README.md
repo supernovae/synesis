@@ -269,7 +269,7 @@ synesis/
 │   ├── sandbox/                # Isolated code execution (warm pool + Jobs)
 │   ├── search/                 # SearXNG meta-search engine
 │   ├── webui/                  # Open WebUI chat frontend
-│   ├── yarn/                   # Synesis Yarn — OpenAI-compatible IDE/agent runtime
+│   ├── yarn-ts/                # Synesis Yarn (TypeScript) — OpenAI-compatible IDE/agent runtime
 │   ├── security/               # Shared guardrails core (scanner, policy matrix, metrics)
 │   ├── admin/                  # Admin UI — model registry, provider governance, security console, traces
 │   ├── postgres/               # CloudNativePG cluster (admin + trace DB)
@@ -291,6 +291,7 @@ synesis/
 
 | Document | Description |
 |----------|-------------|
+| [docs/AWESOME_PAPERS.MD](docs/AWESOME_PAPERS.MD) | Curated papers and primary references (security, RAG, critic, sensemaking, routing) |
 | [docs/SYSTEMS_THEORY.md](docs/SYSTEMS_THEORY.md) | Research foundations: sensemaking, Cynefin, JCS, Safety-II, information foraging, trust research |
 | [docs/DESIGN_THEORY.md](docs/DESIGN_THEORY.md) | Cynefin domain mapping, clarify-first behavior, epistemic discipline |
 | [docs/WORKFLOW_PLANNER.MD](docs/WORKFLOW_PLANNER.MD) | Full graph flow, retries, clarification resume, router-governed evidence |

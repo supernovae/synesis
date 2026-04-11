@@ -44,7 +44,7 @@ Synesis is designed as a **joint cognitive system**: the human and the AI share 
 - **Escalation and refusal** — Authorization policy (`base/planner-ts/src/auth/policy-engine.ts`) enforces access control refusal. The critic detects when a draft describes a routing/escalation system but omits refusal/out-of-scope handling (`missing_escalation_refusal_policy`). The critic routing (`base/planner-ts/src/nodes/critic-routing.ts`) supports `blocked_external` and `needs_input` terminal conditions. The deterministic critic sets `need_more_evidence` when blocking issues exist but retrievable evidence is expected.
 - **Clarify-first** — When the situation is chaotic, we ask instead of answering. The human supplies the missing structure; we don't fabricate it.
 
-Research on sensemaking with LLMs (e.g. *What to Make Sense of in the Era of LLM?* [arXiv:2603.08604]) emphasizes **human–AI collaboration** and complementary roles rather than full automation. Our design aligns with that: the system supports sensemaking by constraining when we answer, how we label uncertainty, and when we hand back to the user.
+Research on sensemaking with LLMs (e.g. *What to Make Sense of in the Era of LLM?*, indexed in [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD#sensemaking-cognition-and-design-theory)) emphasizes **human–AI collaboration** and complementary roles rather than full automation. Our design aligns with that: the system supports sensemaking by constraining when we answer, how we label uncertainty, and when we hand back to the user.
 
 ## Generalization across complex domains
 
@@ -76,6 +76,6 @@ This keeps the system useful across **broad complex/complicated domains** (archi
 ## References
 
 - Cynefin framework: sense-making over categorization; ordered (Clear, Complicated) vs unordered (Complex, Chaotic) domains.
-- *What to Make Sense of in the Era of LLM? A Perspective from the Structure and Efforts in Sensemaking* — arXiv:2603.08604 (human–AI collaborative sensemaking).
+- *What to Make Sense of in the Era of LLM? A Perspective from the Structure and Efforts in Sensemaking* — [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD#sensemaking-cognition-and-design-theory).
 - Data-Frame theory (Klein et al.): sensemaking as fitting data into frames and frames around data — used in domain profiling and frame coherence classification.
 - Hollnagel (Synesis namesake): productivity, quality, safety, and reliability as emergent from the same adaptive processes — aligned with shared infrastructure (taxonomy, critic, retrieval) that surrounds every agent.

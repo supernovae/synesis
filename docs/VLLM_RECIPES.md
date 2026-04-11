@@ -179,7 +179,7 @@ Substantial headroom (~21 GB free). Could increase `--max-model-len` to 65536 or
 The Qwen3-Coder model family was explicitly trained with an **XML tool calling
 format** designed for string-heavy arguments — the model can emit multi-line code
 blocks inside `<parameter>` tags without JSON escaping. The
-[Qwen3-Coder-Next technical report](https://arxiv.org/html/2603.00729v1) (§4.2.2)
+[Qwen3-Coder-Next technical report](https://arxiv.org/html/2603.00729v1) (§4.2.2; also [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD#models-and-serving-technical-reports))
 states:
 
 > "JSON is a widely used protocol, it often introduces heavy escaping overhead for

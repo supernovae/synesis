@@ -98,6 +98,8 @@ This file is intentionally practical, not perfection-seeking. We optimize for me
 
 ## Research Basis (papers, docs, and practical systems)
 
+**Centralized arXiv / model reports:** [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD) (sections on routing, context, models, and agent-coding writeups).
+
 ## Primary evidence
 
 - SWE-agent (NeurIPS 2024): interface design (ACI) strongly affects agent engineering performance.

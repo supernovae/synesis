@@ -55,7 +55,7 @@ auth → policy → content-type dispatch → tool result reduction (55 families
 
 ### E4: Attention-Aware Context Positioning
 
-**Based on:** Liu et al. 2023 "Lost in the Middle" (arxiv.org/abs/2307.03172)
+**Based on:** Liu et al. 2023 "Lost in the Middle" — [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD#context-attention-and-long-prompts)
 
 **Concept:** LLMs attend strongly to beginning and end of context (U-curve), poorly to the middle. System blocks are now positioned accordingly.
 

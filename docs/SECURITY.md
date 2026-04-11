@@ -233,16 +233,7 @@ flowchart LR
 
 ## Research References
 
-| Paper | Link | Key Insight | How We Use It |
-|-------|------|-------------|---------------|
-| Spotlighting | [arXiv:2403.14720](https://arxiv.org/abs/2403.14720) | Delimiting + datamarking separates data from instructions | TrustPacketV1 envelopes + `[R:authority]`/`[W]` provenance |
-| Prompt Fencing | [arXiv:2511.19727](https://arxiv.org/abs/2511.19727) | Structured trust boundaries with verifiable delimiters | Informed deterministic JSON envelope approach |
-| CaMeL | [arXiv:2503.18813](https://arxiv.org/abs/2503.18813) | Control/data flow separation prevents indirect injection | Node-level trust boundary design; router-only retrieval |
-| TrustRAG | [arXiv:2501.00879](https://arxiv.org/abs/2501.00879) | RAG corpus poisoning detection via pre-retrieval filtering | Index-time scanning + admin review queue |
-| SD-RAG | [arXiv:2601.11199](https://arxiv.org/abs/2601.11199) | Sanitization-first retrieval defense | Web content scanning in production retrieval path |
-| ICON | [arXiv:2602.20708](https://arxiv.org/abs/2602.20708) | Inference-time correction of compromised outputs | Output guardrail layer (scanModelOutput) |
-| Instruction Hierarchy | [arXiv:2404.13208](https://arxiv.org/abs/2404.13208) | System > user > tool priority enforced by training | Trust policy tiers (trusted > semi_trusted > untrusted) |
-| OWASP LLM Top 10 | [owasp.org/llm-top-10](https://owasp.org/www-project-top-10-for-large-language-model-applications/) | LLM01 (Prompt Injection), LLM06 (Sensitive Info Disclosure) | Pattern coverage + error sanitization + attribution traceability |
+Paper titles, links, and how each maps to controls are maintained in **[AWESOME_PAPERS.MD — Security and prompt injection](AWESOME_PAPERS.MD#security-and-prompt-injection)** so this document stays implementation-focused.
 
 ## Freshness Scoring
 

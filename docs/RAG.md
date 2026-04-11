@@ -16,7 +16,7 @@ The active planner runtime (`base/planner-ts/`) retrieves evidence through the u
 
 ### Planned parity items (from Python reference)
 
-Archived retrieval parity history is tracked in [deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](deprecated/PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md):
+Retrieval parity and remaining items are tracked in [PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md):
 
 - **Keyword query distillation** — distilling the user query into focused keyphrases via the keyword-service before retrieval. Prevents keyword pollution that causes irrelevant matches.
 - **Multi-query expansion** — generating 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via RRF.
@@ -33,14 +33,14 @@ BGE runs as a dedicated microservice (`bge-reranker`) following the ML service b
 
 ## Research Basis
 
-The retrieval pipeline is informed by the following research:
+Retrieval-related papers (IterKey, CAR, HyDE, L-RAG, Higress-RAG, RRF, original RAG) are listed with links in **[AWESOME_PAPERS.MD — RAG and retrieval](AWESOME_PAPERS.MD#rag-and-retrieval)**. The bullets below stay as a **Synesis mapping** only:
 
-- **IterKey** (arXiv:2505.08450) — Iterative keyword generation for RAG retrieval. Demonstrates 5-20% accuracy improvement over raw BM25 queries. Basis for the keyword query distillation step.
-- **Cluster-based Adaptive Retrieval (CAR)** (arXiv:2511.14769) — Detects transition points in query-document similarity distances to dynamically determine retrieval depth. Achieves 60% token reduction and 10% hallucination reduction. Basis for the similarity-gap adaptive top-K.
-- **Reciprocal Rank Fusion (RRF)** (Cormack et al., 2009) — Score-agnostic rank fusion for combining heterogeneous retrieval sources. Used for merging vector + BM25 results, for merging RAG + web results in unified retrieval, and for merging multi-query variant results in the Router.
-- **HyDE** (arXiv:2212.10496) — Hypothetical Document Embeddings for zero-shot dense retrieval. The Router generates a hypothetical answer to the query and embeds it for vector search, improving recall on domain-specific documents.
-- **L-RAG** (arXiv:2601.06551) — Entropy-based gating that skips retrieval when not needed. Basis for the adaptive web gating logic that caps web results when RAG is strong.
-- **Higress-RAG** (arXiv:2602.23374) — Full-link RRF fusion across retrieval sources with CRAG and adaptive routing. Informed the unified retrieval architecture.
+- **IterKey** — keyword query distillation before retrieval.
+- **CAR** — similarity-gap adaptive top-K after reranking.
+- **RRF** — merge vector + BM25, RAG + web, and multi-query lanes without score calibration.
+- **HyDE** — hypothetical document embedding for dense recall.
+- **L-RAG** — adaptive web gating when RAG scores are already strong.
+- **Higress-RAG** — informed unified multi-source retrieval layout.
 
 ## Resilience
 

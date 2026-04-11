@@ -2,7 +2,7 @@
 
 Drop industry-specific "Rules of Law" YAML files here. Synesis absorbs them at startup.
 
-**See [docs/TAXONOMY.md](../../docs/TAXONOMY.md)** for the full Intent Hierarchy and 95% coverage design.
+**See [docs/TAXONOMY_CANONICAL.md](../../docs/TAXONOMY_CANONICAL.md)** (canonical domain IDs) and **[docs/TAXONOMY.md](../../docs/TAXONOMY.md)** (full intent hierarchy / coverage design).
 
 ## Taxonomy Overview ("The 95%")
 
