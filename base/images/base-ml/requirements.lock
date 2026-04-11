@@ -87,9 +87,9 @@ httpx==0.28.1 \
     --hash=sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc \
     --hash=sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad
     # via huggingface-hub, -c base/images/base-api/requirements.lock
-huggingface-hub==1.9.0 \
-    --hash=sha256:0ea5be7a56135c91797cae6ad726e38eaeb6eb4b77cefff5c9d38ba0ecf874f7 \
-    --hash=sha256:2999328c058d39fd19ab748dd09bd4da2fbaa4f4c1ddea823eab103051e14a1f
+huggingface-hub==1.10.1 \
+    --hash=sha256:696c53cf9c2ac9befbfb5dd41d05392a031c69fc6930d1ed9671debd405b6fff \
+    --hash=sha256:6b981107a62fbe68c74374418983399c632e35786dcd14642a9f2972633c8b5a
     # via tokenizers, transformers
 idna==3.11 \
     --hash=sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea \
@@ -551,9 +551,9 @@ regex==2026.4.4 \
     --hash=sha256:fe896e07a5a2462308297e515c0054e9ec2dd18dfdc9427b19900b37dfe6f40b \
     --hash=sha256:ffa81f81b80047ba89a3c69ae6a0f78d06f4a42ce5126b0eb2a0a10ad44e0b2e
     # via transformers
-rich==14.3.3 \
-    --hash=sha256:793431c1f8619afa7d3b52b2cdec859562b950ea0d4b6b505397612db8d5362d \
-    --hash=sha256:b8daa0b9e4eef54dd8cf7c86c03713f53241884e814f4e2f5fb342fe520f639b
+rich==14.3.4 \
+    --hash=sha256:07e7adb4690f68864777b1450859253bed81a99a31ac321ac1817b2313558952 \
+    --hash=sha256:817e02727f2b25b40ef56f5aa2217f400c8489f79ca8f46ea2b70dd5e14558a9
     # via typer
 safetensors==0.7.0 \
     --hash=sha256:0071bffba4150c2f46cae1432d31995d77acfd9f8db598b5d1a2ce67e8440ad2 \
@@ -652,9 +652,9 @@ tqdm==4.67.3 \
     --hash=sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb \
     --hash=sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf
     # via huggingface-hub, transformers
-transformers==5.5.0 \
-    --hash=sha256:821a9ff0961abbb29eb1eb686d78df1c85929fdf213a3fe49dc6bd94f9efa944 \
-    --hash=sha256:c8db656cf51c600cd8c75f06b20ef85c72e8b8ff9abc880c5d3e8bc70e0ddcbd
+transformers==5.5.3 \
+    --hash=sha256:3f60128e840b40d352655903552e1eed4f94ed49369a4d43e1bc067bd32d3f50 \
+    --hash=sha256:e48f3ec31dd96505e96e66b63a1e43e1ad7a65749e108d9227caaf51051cdb02
     # via -r base/images/base-ml/requirements.txt
 triton==3.6.0 \
     --hash=sha256:0b3a97e8ed304dfa9bd23bb41ca04cdf6b2e617d5e782a8653d616037a5d537d \
