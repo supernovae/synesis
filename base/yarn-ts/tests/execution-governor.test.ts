@@ -26,6 +26,19 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("go test");
   });
 
+  it("does not pause repeated broad tests when verification is already green", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test ./..." }),
+      toolResult("1", "ok pkg/a (cached)"),
+      assistantCall("2", "bash", { command: "go test ./..." }),
+      toolResult("2", "ok pkg/a (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).toContain("verification_already_green");
+    expect(out.suggestedNextStep).toContain("Stop re-running broad go vet/go test checks");
+  });
+
   it("does not mark no-repeat-without-change when edits are present", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test ./..." }),

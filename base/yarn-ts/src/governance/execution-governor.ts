@@ -201,10 +201,19 @@ function hasTodoHarvest(events: Array<{ command: string; toolName: string }>): b
   return events.some((e) => /search:.*(todo|fixme|debug)/i.test(e.command));
 }
 
+function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
+  const joined = messages
+    .map((m) => (typeof m.content === "string" ? m.content : ""))
+    .join("\n")
+    .toLowerCase();
+  return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
+}
+
 export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): ExecutionGovernorDecision {
   const events = extractCommandEvents(messages);
   const changedFiles = extractChangedFileHints(messages);
   const userText = extractUserText(messages);
+  const hasFailures = hasFailureSignals(messages);
   const testRuntime = inferTestRuntime(events, userText);
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
@@ -261,6 +270,25 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
       pause: false,
       reason: "ok",
       matchedRules: ["allow"],
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  // Avoid trapping the model in repeated broad verification when output is already green.
+  if (broadTestRepeat && repeatedTestCommands >= 1 && !hasFailures) {
+    matchedRules.push("verification_already_green");
+    return {
+      pause: false,
+      reason: "verification_already_green",
+      suggestedNextStep: "Verification is already passing. Stop re-running broad go vet/go test checks and continue implementing the next requested feature.",
+      matchedRules,
       telemetry: {
         repeatedTestCommands,
         repeatedReadSearchCalls,
