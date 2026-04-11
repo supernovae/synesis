@@ -1,5 +1,5 @@
-# Yarn context trust (Python — retired)
+# Yarn context trust (redirect)
 
-The Python Yarn runtime has been removed. Context-trust behavior for the supported runtime is documented in **[YARN_TS_CONTEXT_TRUST.md](YARN_TS_CONTEXT_TRUST.md)** and implemented under `base/yarn-ts/`.
+See **[`docs/coder/YARN_TS_CONTEXT_TRUST.md`](coder/YARN_TS_CONTEXT_TRUST.md)** and the **[coder documentation hub](coder/README.md)**.
 
-For the active TypeScript implementation, see [`YARN_TS_CONTEXT_TRUST.md`](./YARN_TS_CONTEXT_TRUST.md).
+The historical Python Yarn runtime has been removed.

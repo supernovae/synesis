@@ -2,7 +2,7 @@
 
 Synesis employs defense-in-depth against prompt injection across both **planner-ts** (RAG-grounded knowledge pipeline) and **yarn-ts** (IDE/agent completion runtime). Both runtimes share a unified trust envelope based on `TrustPacketV1` JSON packets from the `@synesis/context-trust` shared package.
 
-For internet exposure and edge controls, see [`docs/CLOUDFLARE_EDGE_HARDENING.md`](./CLOUDFLARE_EDGE_HARDENING.md). For yarn-ts specifics, see [`docs/YARN_TS_CONTEXT_TRUST.md`](./YARN_TS_CONTEXT_TRUST.md).
+For internet exposure and edge controls, see [`docs/CLOUDFLARE_EDGE_HARDENING.md`](./CLOUDFLARE_EDGE_HARDENING.md). For yarn-ts specifics, see [`docs/coder/YARN_TS_CONTEXT_TRUST.md`](./coder/YARN_TS_CONTEXT_TRUST.md).
 
 ## Threat Model
 

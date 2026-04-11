@@ -82,7 +82,7 @@ Use `budget_utilization` to detect under-use (wasted headroom) or near-saturatio
 
 **LiteLLM:** Each request’s effective generation limit is the minimum of the **LiteLLM route** `max_tokens` (from admin Model Registry / static gateway config) and the **provider** limit. Planner-ts still sends `max_tokens` on each node; the gateway may clamp further.
 
-**Legacy Python planner** (`base/planner/`): separate runtime; this doc aligns *intent* and formulas; it does not imply a shared on-disk config with planner-ts.
+**`base/planner/`:** YAML ontology and taxonomy assets for **chat** (planner-ts), not a separate Python API runtime. This doc’s *intent* and formulas align with planner-ts behavior; some historical file references below may still cite old filenames — prefer `base/planner-ts/src/` when in doubt.
 
 
 ### Executor (text-mode responses)
@@ -276,7 +276,7 @@ Quick lookup for where to change each type of limit:
 Yarn's token and tool budgets follow a similar philosophy to the planner — scale
 with context, enforce via ledger — but substitute **interaction mode + client
 preset** for task difficulty. See
-[docs/CLIENT_ADAPTER_PACKS_M7.md](CLIENT_ADAPTER_PACKS_M7.md) for the full
+[docs/development/CLIENT_ADAPTER_PACKS_M7.md](development/CLIENT_ADAPTER_PACKS_M7.md) for the full
 architecture: session ledger, per-turn caps, tool-output budgets, JSON presets,
 and compatibility negotiation.
 

@@ -150,4 +150,4 @@ pgvector is not used for active chat state. It may be added later as an optional
 
 ---
 
-Back to [README](../README.md) | See also: [OpenWebUI](OPENWEBUI.md), [Planner Python↔TS feature gap tracker](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md)
+Back to [README](../README.md) | See also: [OpenWebUI](./OPENWEBUI.md), [Chat feature tracker](../development/chat-planner-ts-feature-tracker.md)

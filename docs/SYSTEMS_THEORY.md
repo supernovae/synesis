@@ -202,7 +202,7 @@ Older documentation described a separate **two-tier intent anchor** pipeline (`S
 - **Ontology merge → `ScoringEngine`**: `intent_weights.yaml` + `plugins/weights/*.yaml` merged into a `MergedOntologySnapshot` with intent classes, domain keywords, complexity/risk weights, pairings, and vertical prompts.
 - **Taxonomy resolution**: `taxonomy-prompt-factory.ts` + optional `semantic-taxonomy.ts` embedding cross-check.
 
-See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for the redirect and pointers to [WORKFLOW_PLANNER.MD](WORKFLOW_PLANNER.MD).
+See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for the redirect and pointers to [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD).
 
 ---
 
@@ -214,7 +214,7 @@ See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for the redirect and pointers to [WOR
 | [DESIGN_THEORY.md](DESIGN_THEORY.md) | Cynefin domain mapping, clarify-first behavior, epistemic discipline |
 | [SECURITY.md](SECURITY.md) | Trust envelopes, 9-layer prompt injection defense, attribution |
 | [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) | Domain behavior configuration via YAML |
-| [WORKFLOW_PLANNER.MD](WORKFLOW_PLANNER.MD) | Full pipeline flow, router-governed evidence, anti-oscillation |
+| [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) | Full pipeline flow, router-governed evidence, anti-oscillation |
 | [CRITIC_RESEARCH.md](CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric |
 | [INDEXERS.md](INDEXERS.md) | RAG indexer, v13 schema, trust attribution fields |
 | [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md) | Feedback loops, quality signals, HITL review |

@@ -1,6 +1,8 @@
-# Synesis Coder/Yarn Blueprint
+# Synesis **Coder** (yarn-ts) — design hub
 
-This directory defines the production design for Synesis Coder/Yarn as a capability-first platform.
+**Coder** is the Synesis product surface for **IDE and agent coding**: OpenAI- and Anthropic-compatible APIs, tool calling, session intelligence, and governance hooks. The supported implementation is **`base/yarn-ts/`** (TypeScript).
+
+This directory collects **capability and architecture** notes for coder. For “how do I connect Claude Code / Cursor?” see **[`docs/clients/CLIENTS.md`](../clients/CLIENTS.md)** and **[`docs/clients/CLAUDECODE.md`](../clients/CLAUDECODE.md)**.
 
 The intent is to keep model reasoning in the loop while reducing avoidable ambiguity through deterministic evidence, stronger retrieval, and organization-level governance. These are building blocks, not mandatory gates.
 
@@ -28,13 +30,27 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [`implementation-phases.md`](./implementation-phases.md)
 - [`migration-map-from-milestones.md`](./migration-map-from-milestones.md)
 
-## Existing References
+## Runtime & operations (moved here from `docs/` root)
 
-- [`/Users/bymiller/src/synesis/docs/wip/INTENTIONAL_RECALL_COMPOSITION_M11.md`](/Users/bymiller/src/synesis/docs/wip/INTENTIONAL_RECALL_COMPOSITION_M11.md)
-- [`/Users/bymiller/src/synesis/docs/WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md`](/Users/bymiller/src/synesis/docs/WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md)
-- [`/Users/bymiller/src/synesis/docs/VALIDATION_NORMALIZATION_M1.md`](/Users/bymiller/src/synesis/docs/VALIDATION_NORMALIZATION_M1.md)
-- [`/Users/bymiller/src/synesis/docs/TOOL_RESULT_REDUCTION_M2.md`](/Users/bymiller/src/synesis/docs/TOOL_RESULT_REDUCTION_M2.md)
-- [`/Users/bymiller/src/synesis/docs/DETERMINISTIC_POLICY_ENGINE_M4.md`](/Users/bymiller/src/synesis/docs/DETERMINISTIC_POLICY_ENGINE_M4.md)
-- [`/Users/bymiller/src/synesis/docs/PHASE_MODEL_ORCHESTRATOR_M5.md`](/Users/bymiller/src/synesis/docs/PHASE_MODEL_ORCHESTRATOR_M5.md)
-- [`/Users/bymiller/src/synesis/docs/CONTEXT_OPTIMIZATION_M10.md`](/Users/bymiller/src/synesis/docs/CONTEXT_OPTIMIZATION_M10.md)
-- [`/Users/bymiller/src/synesis/docs/SAFETY_HARDENING_M11.md`](/Users/bymiller/src/synesis/docs/SAFETY_HARDENING_M11.md)
+- [YARN_TS_SAWTOOTH_ARCHITECTURE.md](./YARN_TS_SAWTOOTH_ARCHITECTURE.md) — session / context architecture
+- [YARN_TS_CONTEXT_TRUST.md](./YARN_TS_CONTEXT_TRUST.md) — trust envelopes for coder
+- [YARN_OPENAI_COMPAT_AND_VALUE_ADD.md](./YARN_OPENAI_COMPAT_AND_VALUE_ADD.md) — OpenAI compatibility (retired-path notice + pointer to `base/yarn-ts`)
+- [YARN_TOOL_COLLAPSE.md](./YARN_TOOL_COLLAPSE.md) — tool-call batching
+- [YARN_SESSION_DEBUGGING.md](./YARN_SESSION_DEBUGGING.md) — troubleshooting
+- [YARN_COST_ANALYSIS.md](./YARN_COST_ANALYSIS.md) — cost notes
+- [YARN_PERFORMANCE_REVIEW_FINDINGS.md](./YARN_PERFORMANCE_REVIEW_FINDINGS.md) — performance review
+
+**Redirects at `docs/` root:** [YARN_RUNTIME.md](../YARN_RUNTIME.md) (stub) · [YARN_CONTEXT_TRUST.md](../YARN_CONTEXT_TRUST.md) (stub)
+
+## Milestone program (M1–M11, engineering archive)
+
+Canonical copies live under **[`docs/development/`](../development/README.md#milestone-program-m1m11)**. Quick links:
+
+- [WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md](../development/WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md)
+- [VALIDATION_NORMALIZATION_M1.md](../development/VALIDATION_NORMALIZATION_M1.md)
+- [TOOL_RESULT_REDUCTION_M2.md](../development/TOOL_RESULT_REDUCTION_M2.md)
+- [DETERMINISTIC_POLICY_ENGINE_M4.md](../development/DETERMINISTIC_POLICY_ENGINE_M4.md)
+- [PHASE_MODEL_ORCHESTRATOR_M5.md](../development/PHASE_MODEL_ORCHESTRATOR_M5.md)
+- [SESSION_INTELLIGENCE_DASHBOARD_M6.md](../development/SESSION_INTELLIGENCE_DASHBOARD_M6.md)
+- [CONTEXT_OPTIMIZATION_M10.md](../development/CONTEXT_OPTIMIZATION_M10.md)
+- [SAFETY_HARDENING_M11.md](../development/SAFETY_HARDENING_M11.md)

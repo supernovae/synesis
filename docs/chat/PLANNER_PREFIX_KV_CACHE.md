@@ -56,12 +56,12 @@ each `LLMCallRecord` stores aggregate `prompt_tokens` / `completion_tokens` / `t
 cache dashboards. Until then, rely on **LiteLLM spend logs** or **model-server metrics**
 for cache verification.
 
-See [WORKFLOW_PLANNER.MD — LiteLLM, spend logs, and prompt-cache tokens](../WORKFLOW_PLANNER.MD#litellm-spend-logs-and-prompt-cache-tokens).
+See [WORKFLOW_PLANNER.MD — LiteLLM, spend logs, and prompt-cache tokens](./WORKFLOW_PLANNER.MD#litellm-spend-logs-and-prompt-cache-tokens).
 
 ## References
 
 - Planner prompt layout: `base/planner/app/nodes/planner_node.py` — `_build_knowledge_planner_prompt`, task/user message assembly
 - Graph entry point (entry always runs first): `base/planner/app/graph.py` — `set_entry_point("entry_pipeline")`
 - Clarification pending context + plan reuse: `base/planner/app/graph.py` (`store_pending_question`), `base/planner/app/main.py` (pending restore), `base/planner/app/clarification_helpers.py`
-- High-level pipeline, routing, retries: `docs/WORKFLOW_PLANNER.MD` — graph flow and routing tables
+- High-level pipeline, routing, retries: `docs/chat/WORKFLOW_PLANNER.MD` — graph flow and routing tables
 - Tracer schema: `base/planner/app/synesis_tracer.py` — `LLMCallRecord`

@@ -4,7 +4,7 @@
 
 This document describes how to train and tune LoRA adapters for the Router and Critic roles in the Synesis graph.
 
-**Related:** [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md), [WORKFLOW_PLANNER.MD](WORKFLOW_PLANNER.MD), [models.yaml](../models.yaml)
+**Related:** [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md), [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD), [models.yaml](../models.yaml)
 
 ---
 

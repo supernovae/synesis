@@ -1,5 +1,9 @@
-# Yarn Agent Runtime (Python — retired)
+# Yarn runtime (redirect)
 
-The Python Yarn runtime (`base/yarn/`) has been removed. The TypeScript runtime (`base/yarn-ts/`) is the sole supported Yarn implementation.
+**Coder** documentation for the TypeScript Yarn runtime now lives under **[`docs/coder/`](coder/README.md)**.
 
-For architecture, configuration, deployment, and debugging, use **[`base/yarn-ts/README.md`](../base/yarn-ts/README.md)** and **[YARN_TS_SAWTOOTH_ARCHITECTURE.md](YARN_TS_SAWTOOTH_ARCHITECTURE.md)** / **[YARN_TS_CONTEXT_TRUST.md](YARN_TS_CONTEXT_TRUST.md)** as needed.
+- **Runbook & API surface:** [`base/yarn-ts/README.md`](../base/yarn-ts/README.md)
+- **Architecture:** [coder/YARN_TS_SAWTOOTH_ARCHITECTURE.md](coder/YARN_TS_SAWTOOTH_ARCHITECTURE.md)
+- **Context trust:** [coder/YARN_TS_CONTEXT_TRUST.md](coder/YARN_TS_CONTEXT_TRUST.md)
+
+The historical Python Yarn service has been removed; do not use `base/yarn/` documentation.

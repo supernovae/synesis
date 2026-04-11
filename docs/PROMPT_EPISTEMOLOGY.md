@@ -1,6 +1,6 @@
 # Prompt epistemology and taxonomy layering
 
-This document records **design decisions** for how Synesis composes LLM prompts across nodes: what is universal, what is taxonomy-steered, how regulated domains are handled, and how the critic relates to taxonomy. It complements [WORKFLOW_PLANNER.MD](../WORKFLOW_PLANNER.MD) (graph flow) and [performance.md](performance.md) (prefix caching).
+This document records **design decisions** for how Synesis composes LLM prompts across nodes: what is universal, what is taxonomy-steered, how regulated domains are handled, and how the critic relates to taxonomy. It complements [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) (graph flow) and [performance.md](performance.md) (prefix caching).
 
 ## Goals
 
@@ -74,7 +74,7 @@ L0 should be the **largest** shared prefix per model endpoint. L2 varies per req
 
 ## Related documents
 
-- [WORKFLOW_PLANNER.MD](../WORKFLOW_PLANNER.MD) — graph nodes and routing; links here for prompt layering.
+- [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) — graph nodes and routing; links here for prompt layering.
 - [.cursor/rules/planner-prompt-hygiene.mdc](../.cursor/rules/planner-prompt-hygiene.mdc) — what not to encode in generic planner nodes.
 - [.cursor/rules/prefix-cache-prompt-ordering.mdc](../.cursor/rules/prefix-cache-prompt-ordering.mdc) — static-before-dynamic ordering.
 

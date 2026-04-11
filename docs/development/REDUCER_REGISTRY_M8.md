@@ -98,7 +98,7 @@ This is where ordering matters — specific families MUST precede their generic 
 |------|---------|
 | Run regression tests | `npm test` (249 tests, all 55 families) |
 | Benchmark reducers | `npm run bench:reducers` |
-| Live verification | `npm run verify:live` (requires Yarn URL + PAT: `SYNESIS_TEST_PAT_TOKEN` or `SYNESIS_TEST_AUTH`; see `docs/CI_GITHUB_VALIDATION.md`) |
+| Live verification | `npm run verify:live` (requires Yarn URL + PAT: `SYNESIS_TEST_PAT_TOKEN` or `SYNESIS_TEST_AUTH`; see `docs/development/CI_GITHUB_VALIDATION.md`) |
 | Add a new reducer | Create `src/reduction/reducers/<name>.ts`, register in `registry.ts`, add fixtures, update `ReducerFamily` type |
 
 Fixtures live in:

@@ -2,7 +2,7 @@
 
 Run these after push + deploy to validate intent flow and prompting against the release you want to regression-test.
 
-**CI inventory:** see [TESTING.md](./TESTING.md) for what runs on every PR vs manual-only.
+**CI inventory:** see [TESTING.md](./TESTING.md) for what runs on every PR vs manual-only. For the **milestone (M1–M11) archive** and other engineering indexes, see [development README](./README.md).
 
 ---
 

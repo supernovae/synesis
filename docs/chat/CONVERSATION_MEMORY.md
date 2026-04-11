@@ -2,8 +2,8 @@
 
 Synesis keeps **per-scope** state in the **planner** so the agent can resolve references (“fix that script”, “the previous one”), resume **plan approval** and **needs_input** flows, and apply **context pivots** (language / code-vs-text / domain) without losing safety. This page describes **what is implemented today** (L1 vs L2), how keys are formed, and **gaps vs typical user expectations** for “saved” conversations.
 
-**Code:** [`base/planner/app/conversation_memory.py`](../base/planner/app/conversation_memory.py), [`base/planner/app/history_summarizer.py`](../base/planner/app/history_summarizer.py), [`base/planner/app/main.py`](../base/planner/app/main.py) (`_resolve_user_id`, `_memory_scope_key`, pivot + `archive_to_l2`).  
-**Workflow:** [WORKFLOW_PLANNER.MD](../WORKFLOW_PLANNER.MD) (plan approval, needs_input).  
+**Code (planner-ts):** `base/planner-ts/src/context/session-store.ts`, `session-manager.ts`, and request handling in `app.ts` (scope keys, pending flows, Redis-backed session store when configured).  
+**Workflow:** [WORKFLOW_PLANNER.MD](./WORKFLOW_PLANNER.MD) (plan approval, needs_input).  
 **OOM / graph state:** [PLANNER_MEMORY.md](PLANNER_MEMORY.md) (separate from conversation turns).
 
 ---
@@ -61,7 +61,7 @@ So **multi-chat clients must send a stable `conversation_id` per chat**; otherwi
 
 ## L2: Redis (when `L2_ARCHIVE_REDIS_URL` is set)
 
-Configured in [`config.py`](../base/planner/app/config.py) as **`l2_archive_redis_url`** (e.g. `redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2`).
+Configured via **`SYNESIS_PLANNER_TS_REDIS_URL`** (and related Redis env vars in `base/planner-ts/src/config.ts`) when using the Redis session backend (e.g. `redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2`).
 
 ### A) Pending question checkpoint
 
@@ -145,4 +145,4 @@ Users often expect **saved conversations** to:
 
 ---
 
-Back to [README](../README.md) | See also: [Workflow](../WORKFLOW_PLANNER.MD), [Planner memory / OOM](PLANNER_MEMORY.md)
+Back to [README](../README.md) | See also: [Workflow](./WORKFLOW_PLANNER.MD), [Planner memory / OOM](PLANNER_MEMORY.md)

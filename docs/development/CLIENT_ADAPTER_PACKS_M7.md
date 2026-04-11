@@ -430,7 +430,7 @@ client preset:
   [docs/claude_code_compat.md](claude_code_compat.md) document conversation ID
   resolution per client.
 - **Safety and policy:** [docs/SECURITY.md](SECURITY.md) and
-  [docs/SAFETY_HARDENING_M11.md](SAFETY_HARDENING_M11.md) cover the policy
+  [SAFETY_HARDENING_M11.md](./SAFETY_HARDENING_M11.md) cover the policy
   engine and trust pipeline that budget caps integrate with.
 
 ---

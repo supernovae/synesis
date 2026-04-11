@@ -103,7 +103,7 @@ Canonical order: **entry → planner → plan gate → router → writer → (cr
 
 ### Key Design Decisions
 
-- **Unified planner-first graph** — every chat turn hits entry → planner → plan gate before retrieval. Plan gate validates the structured plan and can retry the planner with repair feedback. See [docs/WORKFLOW_PLANNER.MD](docs/WORKFLOW_PLANNER.MD).
+- **Unified planner-first graph** — every chat turn hits entry → planner → plan gate before retrieval. Plan gate validates the structured plan and can retry the planner with repair feedback. See [docs/chat/WORKFLOW_PLANNER.MD](docs/chat/WORKFLOW_PLANNER.MD).
 - **Router-governed evidence** — after the plan passes the gate, the router is the sole retrieval orchestrator (RAG + web). Evidence flows as structured packets with trust envelopes and attribution metadata.
 - **Unified retrieval with RRF** — parallel RAG and web searches merged via Reciprocal Rank Fusion. RAG uses Milvus hybrid search (dense + sparse) with adaptive top-K, cross-encoder reranking (BGE or FlashRank), authority weighting, and freshness scoring.
 - **Evidence-aware critic** — 6-axis scoring with `evidence_utilization`, deterministic citation rate check, and a strict depth gate that blocks shallow responses at high difficulty.
@@ -229,13 +229,13 @@ The admin service serves the React SPA and a JSON API under `/api/v1`. **Interac
 
 Operator UX conventions and backlog: [base/admin/README.md](base/admin/README.md), [docs/admin/TODO.md](docs/admin/TODO.md).
 
-See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examples, and Open WebUI setup.
+See [docs/user/USERGUIDE.md](docs/user/USERGUIDE.md) for detailed configuration, API examples, and Open WebUI setup.
 
 ## Capabilities
 
 | Capability | Description | Documentation |
 |-----------|-------------|---------------|
-| **Knowledge Pipeline** | Sensemaking-driven domain profiling, Cynefin-aware clarification, structured planning, evidence-gated writing, multi-axis critic | [docs/WORKFLOW_PLANNER.MD](docs/WORKFLOW_PLANNER.MD) |
+| **Knowledge Pipeline** | Sensemaking-driven domain profiling, Cynefin-aware clarification, structured planning, evidence-gated writing, multi-axis critic | [docs/chat/WORKFLOW_PLANNER.MD](docs/chat/WORKFLOW_PLANNER.MD) |
 | **Taxonomy-Driven Prompt Shaping** | ~190 domain entries with persona, depth, epistemic guidance, output style — compiled at startup with Pydantic validation | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
 | **Hybrid RAG** | Milvus hybrid search (dense + sparse), RRF merge of RAG + web, cross-encoder reranking, authority-weighted provenance, freshness scoring | [docs/RAG.md](docs/RAG.md) |
 | **Knowledge Indexers** | Queue-driven indexer with handler plugins: code (tree-sitter AST), API specs, docs, license, web pages — content managed via admin UI | [docs/INDEXERS.md](docs/INDEXERS.md) |
@@ -243,17 +243,17 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 | **Web Search** | Self-hosted SearXNG for live grounding — no API keys, no tracking | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
 | **Trust & Safety** | 9-layer prompt injection defense, TrustPacketV1 envelopes, attribution metadata, HITL review, shared guardrails core | [docs/SECURITY.md](docs/SECURITY.md) |
 | **Admin Operations** | Model registry, provider governance, security console, RAG review with trust/freshness pivots, traces | [base/admin/README.md](base/admin/README.md) |
-| **Conversation Memory** | L1 in-process turns + pending state; optional Redis L2 for pending checkpoints and pivot archives | [docs/CONVERSATION_MEMORY.md](docs/CONVERSATION_MEMORY.md) |
+| **Conversation Memory** | L1 in-process turns + pending state; optional Redis L2 for pending checkpoints and pivot archives | [docs/chat/CONVERSATION_MEMORY.md](docs/chat/CONVERSATION_MEMORY.md) |
 | **Observability** | Perses dashboards (COO), Prometheus metrics, per-profile model panels, span-based pipeline tracing | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
-| **Open WebUI** | Themed child image, direct connection to planner-ts, SSE phase streaming, background critic | [docs/OPENWEBUI.md](docs/OPENWEBUI.md) |
-| **Anti-Oscillation Framework** | Immutable frame, decision ledger, monotonic reducers, deterministic validators, oscillation detection | [docs/WORKFLOW_PLANNER.MD](docs/WORKFLOW_PLANNER.MD) |
+| **Open WebUI** | Themed child image, direct connection to planner-ts, SSE phase streaming, background critic | [docs/chat/OPENWEBUI.md](docs/chat/OPENWEBUI.md) |
+| **Anti-Oscillation Framework** | Immutable frame, decision ledger, monotonic reducers, deterministic validators, oscillation detection | [docs/chat/WORKFLOW_PLANNER.MD](docs/chat/WORKFLOW_PLANNER.MD) |
 
 ## Project Structure
 
 ```
 synesis/
 ├── models.yaml                 # Build-time reference for model roles, profiles, and codegen
-├── docs/                       # Architecture, guides, and capability deep-dives
+├── docs/                       # Doc hub: platform + chat/ (planner-ts) + coder/ (yarn-ts) + user/ + development/
 ├── base/
 │   ├── planner-ts/             # Fastify + TypeScript pipeline (primary planner runtime)
 │   │   ├── src/graph.ts        # entry_pipeline → planner → plan_gate → router → writer → critic|scrubber → respond
@@ -289,12 +289,15 @@ synesis/
 
 ## Documentation
 
+Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**chat** vs **coder** vs **platform** vs **user/clients** vs **engineering**).
+
 | Document | Description |
 |----------|-------------|
+| [docs/README.md](docs/README.md) | Documentation map (chat, coder, platform, user, development) |
 | [docs/AWESOME_PAPERS.MD](docs/AWESOME_PAPERS.MD) | Curated papers and primary references (security, RAG, critic, sensemaking, routing) |
 | [docs/SYSTEMS_THEORY.md](docs/SYSTEMS_THEORY.md) | Research foundations: sensemaking, Cynefin, JCS, Safety-II, information foraging, trust research |
 | [docs/DESIGN_THEORY.md](docs/DESIGN_THEORY.md) | Cynefin domain mapping, clarify-first behavior, epistemic discipline |
-| [docs/WORKFLOW_PLANNER.MD](docs/WORKFLOW_PLANNER.MD) | Full graph flow, retries, clarification resume, router-governed evidence |
+| [docs/chat/WORKFLOW_PLANNER.MD](docs/chat/WORKFLOW_PLANNER.MD) | Full graph flow, retries, clarification resume, router-governed evidence |
 | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) | How to customize model behavior via YAML configuration |
 | [docs/INTENT_TAXONOMY.md](docs/INTENT_TAXONOMY.md) | Intent classes, BM25 routing, critic behavior by intent |
 | [docs/TAXONOMY.md](docs/TAXONOMY.md) | Full taxonomy coverage design — domain entries across categories |
@@ -303,17 +306,18 @@ synesis/
 | [docs/ADMIN_QUALITY_UI.md](docs/ADMIN_QUALITY_UI.md) | Feedback loops, quality signals, HITL review, freshness scoring |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | Code execution sandbox, warm pool, security controls |
 | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) | SearXNG integration, search profiles, auto-trigger logic |
-| [docs/CONVERSATION_MEMORY.md](docs/CONVERSATION_MEMORY.md) | L1/L2 memory, scope key, Redis pending + pivot archive |
+| [docs/chat/CONVERSATION_MEMORY.md](docs/chat/CONVERSATION_MEMORY.md) | L1/L2 memory, scope key, Redis pending + pivot archive |
 | [docs/SECURITY.md](docs/SECURITY.md) | Trust envelopes, 9-layer prompt injection defense, attribution, admin review |
-| [docs/YARN_RUNTIME.md](docs/YARN_RUNTIME.md) | Yarn IDE/agent runtime architecture, trust model, tool-calling |
+| [docs/coder/README.md](docs/coder/README.md) | **Coder** (yarn-ts): IDE/agent runtime, governance, RAG integration |
+| [docs/YARN_RUNTIME.md](docs/YARN_RUNTIME.md) | Short redirect to coder + `base/yarn-ts` (legacy filename) |
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Perses dashboards, metrics catalog, logging levels |
 | [docs/HARDWARE_SIZING.md](docs/HARDWARE_SIZING.md) | GPU memory, bandwidth, cluster sizing by profile |
 | [docs/COST_ESTIMATE.md](docs/COST_ESTIMATE.md) | Cloud cost estimates by profile |
 | [docs/VLLM_RECIPES.md](docs/VLLM_RECIPES.md) | Model-specific vLLM args and troubleshooting |
-| [docs/OPENWEBUI.md](docs/OPENWEBUI.md) | Open WebUI setup, troubleshooting, available models |
-| [docs/TESTING.md](docs/TESTING.md) | CI workflows, test inventory, local test instructions |
+| [docs/chat/OPENWEBUI.md](docs/chat/OPENWEBUI.md) | Open WebUI setup, troubleshooting, available models |
+| [docs/development/README.md](docs/development/README.md) | **Engineering hub:** CI/test inventory (**TESTING**), milestone M1–M11 archive, GitHub validation secrets, parity trackers |
 | [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric |
-| [docs/PLANNER_PREFIX_KV_CACHE.md](docs/PLANNER_PREFIX_KV_CACHE.md) | Prefix / KV cache expectations, LiteLLM usage |
+| [docs/chat/PLANNER_PREFIX_KV_CACHE.md](docs/chat/PLANNER_PREFIX_KV_CACHE.md) | Prefix / KV cache expectations, LiteLLM usage |
 | [docs/LORA_TRAINING_GUIDE.md](docs/LORA_TRAINING_GUIDE.md) | LoRA adapter training strategy per model role |
 | [docs/admin/TODO.md](docs/admin/TODO.md) | Admin UI backlog: API explorer, MCP roadmap, doc/UX gaps |
 

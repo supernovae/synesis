@@ -51,9 +51,11 @@ Notes on why planner memory can balloon for a single user, instrumentation added
 
 ---
 
-## References
+## References (planner-ts)
 
-- Planner request handling: `base/planner/app/main.py` — `_sample_memory_and_log`, `_get_rss_mib`, `_get_cgroup_mib`
-- Metrics: `base/planner/app/api_metrics.py` — `record_memory_after_request`, `synesis_planner_memory_*`
-- Graph routing and caps: `base/planner/app/graph.py` — `route_after_critic`, `with_timeout`; `base/planner/app/config.py` — `max_iterations`, `oscillation_threshold`
-- State reducers: `base/planner/app/reducers.py` — `_merge_evidence_packets`; `base/planner/app/state.py` — GraphState
+- Request lifecycle, streaming, metrics: `base/planner-ts/src/app.ts`
+- Graph routing, iterations, oscillation: `base/planner-ts/src/graph.ts`
+- Limits and env configuration: `base/planner-ts/src/config.ts`
+- Graph state types / reducers: `base/planner-ts/src/state/` (and related `nodes/*`)
+
+> Some paragraphs above still describe Python-era logging field names; when they diverge from code, treat **`base/planner-ts/src`** as source of truth and open a doc cleanup PR.

@@ -176,6 +176,6 @@ To override or extend the theme, edit `synesis-theme.css`, rebuild the image (`.
 
 ## See also
 
-- [FEEDBACK_API.md](FEEDBACK_API.md) — Feedback API, run context, sync script
-- [USERGUIDE.md](USERGUIDE.md) — User-facing triggers, /why, /reclassify
+- [FEEDBACK_API.md](../FEEDBACK_API.md) — Feedback API, run context, sync script
+- [USERGUIDE.md](../user/USERGUIDE.md) — User-facing triggers, /why, /reclassify
 - [integrations/openwebui-synesis-feedback/README.md](../integrations/openwebui-synesis-feedback/README.md) — Plugin build and install

@@ -107,4 +107,4 @@ Two guards prevent this:
 ## References
 
 - Open WebUI streaming: ensure `stream: true` and compatible API
-- SSE status format: see `OPENWEBUI_PHASES.md`
+- SSE status format: see [`docs/chat/OPENWEBUI_PHASES.md`](chat/OPENWEBUI_PHASES.md)

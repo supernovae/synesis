@@ -14,9 +14,9 @@ The active planner runtime (`base/planner-ts/`) retrieves evidence through the u
 
 4. **Unified RRF Merge**: RAG results and web search results are merged via a second RRF pass in `retrieveUnified()`, producing a single ranked evidence list with source provenance.
 
-### Planned parity items (from Python reference)
+### Planned parity items (engineering tracker)
 
-Retrieval parity and remaining items are tracked in [PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md):
+Retrieval parity and remaining items are tracked in [development/chat-planner-ts-feature-tracker.md](development/chat-planner-ts-feature-tracker.md):
 
 - **Keyword query distillation** — distilling the user query into focused keyphrases via the keyword-service before retrieval. Prevents keyword pollution that causes irrelevant matches.
 - **Multi-query expansion** — generating 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via RRF.

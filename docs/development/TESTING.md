@@ -2,7 +2,7 @@
 
 This document is the **inventory** of how we validate Synesis: what runs automatically, what needs secrets or live APIs, and where to extend coverage. Use it when adding features or tuning CI.
 
-**Related:** [OPENAI_COMPAT_PROBING.md](./OPENAI_COMPAT_PROBING.md) (HTTP probe + streaming `usage` semantics), [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets).
+**Related:** [OPENAI_COMPAT_PROBING.md](../chat/OPENAI_COMPAT_PROBING.md) (HTTP probe + streaming `usage` semantics), [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets).
 
 ---
 
@@ -114,7 +114,7 @@ We do **not** clone or run OpenAI’s full upstream suites against Synesis in CI
 
 **Practical next steps (backlog):**
 
-1. Maintain a short checklist in this doc (or in `docs/OPENAI_COMPAT_PROBING.md`) mapping **cookbook recipes** → **implemented?** → **test file**.
+1. Maintain a short checklist in this doc (or in `docs/chat/OPENAI_COMPAT_PROBING.md`) mapping **cookbook recipes** → **implemented?** → **test file**.
 2. Optional dev dependency: run a **minimal** subset of `openai` Python client calls against a **local** planner in a non-CI script (similar to the probe, but using the official client for serialization parity).
 3. Keep **CI** bounded: mocked `TestClient` tests + ruff; live and SDK-heavy checks stay manual or optional workflows.
 
@@ -273,7 +273,7 @@ python tests/prompts/run_test_suite.py \
 
 ### 9.4 GitHub secrets and variables
 
-Canonical list: **[CI_GITHUB_VALIDATION.md](../CI_GITHUB_VALIDATION.md)**.
+Canonical list: **[CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md)**.
 
 | Name | Type | Where | Purpose |
 |------|------|-------|---------|

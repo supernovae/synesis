@@ -72,7 +72,7 @@ data: {"event": {"type": "status", "data": {"description": "› Gathering eviden
 
 planner-ts uses `LangGraph` `.stream({ streamMode: "updates" })` and emits
 `reasoning_content` deltas for phase descriptions, plus `content` deltas for
-the writer output. Key differences from the Python planner:
+the writer output. **Implementation today is planner-ts only** (`base/planner-ts/`). The bullets below are a **historical** comparison vs an older Python implementation:
 
 ### Early SSE pulse
 

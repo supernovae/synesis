@@ -1,6 +1,6 @@
 # Synesis Performance Notes
 
-Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW_PLANNER.MD](../WORKFLOW_PLANNER.MD). Model roles: [models.yaml](../models.yaml) (build-time reference; runtime routing via admin Model Registry → LiteLLM). **vLLM flags, GPU sizing, OOM tuning:** [VLLM_RECIPES.md](VLLM_RECIPES.md) (do not duplicate here).
+Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD). Model roles: [models.yaml](../models.yaml) (build-time reference; runtime routing via admin Model Registry → LiteLLM). **vLLM flags, GPU sizing, OOM tuning:** [VLLM_RECIPES.md](VLLM_RECIPES.md) (do not duplicate here).
 
 ---
 
@@ -74,7 +74,7 @@ Put **static** system content first and **per-request** suffix + user messages l
 ## References
 
 - [VLLM_RECIPES.md](VLLM_RECIPES.md)
-- [WORKFLOW_PLANNER.MD](../WORKFLOW_PLANNER.MD)
+- [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD)
 - [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md)
 - [models.yaml](../models.yaml)
 - [base/planner/app/config.py](../base/planner/app/config.py)

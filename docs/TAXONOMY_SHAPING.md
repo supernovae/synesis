@@ -19,7 +19,7 @@ experts) by editing YAML alone.
 > entry classification via the `ScoringEngine` with embedded weights from
 > `intent_weights.yaml`. Full L2 taxonomy resolution (runtime YAML compilation,
 > `TaxonomyPromptFactory`, Pydantic validation) is tracked as a parity item in
-> [PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md](PLANNER_PYTHON_TS_FEATURE_GAP_TRACKER.md).
+> [development/chat-planner-ts-feature-tracker.md](development/chat-planner-ts-feature-tracker.md).
 > The YAML schema and extension points documented below remain the target
 > contract for both runtimes.
 

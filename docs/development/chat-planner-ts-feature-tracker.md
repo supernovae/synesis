@@ -1,41 +1,29 @@
-# Python vs TypeScript Planner Feature Gap Tracker
+# Chat (planner-ts) feature tracker
 
-Working document to track parity between `base/planner` (Python) and `base/planner-ts` (TypeScript), and decide what to implement next vs intentionally keep different.
+Engineering working document for **chat** — the TypeScript planner pipeline in `base/planner-ts/`. It records **capability status** (`parity` / `partial` / `missing`) and implementation notes.
+
+> **`base/planner/` today:** YAML ontology, taxonomy, and prompt assets consumed by planner-ts — **not** a Python chat runtime. Older rows in this file may still mention a retired Python planner for historical comparison; treat those bullets as **archive** unless the row is explicitly refreshed.
 
 ## Scope and intent
 
-- Compare runtime behavior and operational features, not only type/schema parity.
+- Compare runtime behavior and operational features for planner-ts, not only type/schema parity.
 - Mark each item as:
-  - `parity` (implemented in TS with equivalent behavior),
+  - `parity` (implemented with intended behavior),
   - `partial` (implemented but materially different),
-  - `missing` (not present in TS today).
+  - `missing` (not present today).
 - Use this as a decision log for follow-up implementation.
 
-## Current parity snapshot
+## Current snapshot (graph + governance)
 
-### Core planner graph and governance
-
-- `parity` LangGraph node pipeline exists in TS (`entry_pipeline -> planner -> plan_gate -> router -> writer -> critic/final_scrubber -> respond`).
-  - Python: `base/planner/app/graph.py`
-  - TS: `base/planner-ts/src/graph.ts`
-- `parity` deterministic gates/validators exist (plan gate, contract validation, oscillation routing).
-  - Python: `base/planner/app/nodes/*`, `base/planner/app/graph.py`
-  - TS: `base/planner-ts/src/nodes/plan-gate.ts`, `contract-validator.ts`, `oscillation-detector.ts`
-- `parity` critic background mode exists.
-  - Python: `base/planner/app/config.py` (`critic_background`), graph routing
-  - TS: `base/planner-ts/src/config.ts` + `graph.ts` + background critic spawn in `app.ts`
-- `parity` model tier surface exists (`Auto/Pulse/Core/Horizon` list and request mapping).
-  - Python: model normalization path in `main.py`
-  - TS: `base/planner-ts/src/model-tiers.ts`, `app.ts`
+- `parity` LangGraph node pipeline (`entry_pipeline -> planner -> plan_gate -> router -> writer -> critic/final_scrubber -> respond`) — `base/planner-ts/src/graph.ts`
+- `parity` deterministic gates/validators (plan gate, contract validation, oscillation routing) — `base/planner-ts/src/nodes/plan-gate.ts`, `contract-validator.ts`, `oscillation-detector.ts`
+- `parity` critic background mode — `base/planner-ts/src/config.ts`, `graph.ts`, background critic spawn in `app.ts`
+- `parity` model tier surface (`Auto/Pulse/Core/Horizon`) — `base/planner-ts/src/model-tiers.ts`, `app.ts`
 
 ### Complexity and effort routing
 
-- `parity` TS now has full YAML-driven scoring engine with BM25 intent classification, split-axis scoring (complexity/risk/domain), brevity weights, risk veto, and deliverable counting.
-  - Python: `entry_classifier_engine.py` `ScoringEngine`, `entry_pipeline.py`, `effort_router.py`
-  - TS: `base/planner-ts/src/nodes/scoring-engine.ts`, `entry-classifier.ts`
-- `parity` Direct-stream fast path for trivial tasks — bypasses full graph and streams LLM directly.
-  - Python: writer `direct_stream_request` in `base/planner/app/nodes/writer.py`
-  - TS: `base/planner-ts/src/pipeline.ts` `directStreamPipeline()`
+- `parity` YAML-driven scoring engine with BM25 intent classification, split-axis scoring, brevity weights, risk veto, deliverable counting — `base/planner-ts/src/nodes/scoring-engine.ts`, `entry-classifier.ts`
+- `parity` Direct-stream fast path for trivial tasks — `base/planner-ts/src/pipeline.ts` (`directStreamPipeline()`)
 
 ## Key gaps (highest impact)
 
@@ -219,12 +207,12 @@ Files:
   - Backend selected by presence of `SYNESIS_PLANNER_TS_REDIS_URL` env var.
   - Purge API: `DELETE /v1/memory/:conversationId` for explicit lifecycle management.
   - evidence: `base/planner-ts/src/context/session-store.ts`, `base/planner-ts/src/context/session-manager.ts`, `base/planner-ts/src/app.ts`
-  - docs: `docs/PLANNER_MEMORY_LIFECYCLE.md`
+  - docs: `docs/chat/PLANNER_MEMORY_LIFECYCLE.md`
 
 ## Decision backlog (recommended order)
 
 1. ~~Add TS provider-level prefix caching policy and capability-aware LLM request wiring.~~ **Done.** See `base/planner-ts/src/llm/client.ts`.
-2. ~~Add TS Redis-backed L1/L2 session persistence (keep in-memory as fallback).~~ **Done.** See `base/planner-ts/src/context/session-store.ts`, `docs/PLANNER_MEMORY_LIFECYCLE.md`.
+2. ~~Add TS Redis-backed L1/L2 session persistence (keep in-memory as fallback).~~ **Done.** See `base/planner-ts/src/context/session-store.ts`, `docs/chat/PLANNER_MEMORY_LIFECYCLE.md`.
 3. ~~Add TS direct-stream fast path for trivial/easy-no-retrieval tasks.~~ **Done.** See `base/planner-ts/src/pipeline.ts` `directStreamPipeline()`.
 4. Add TS UI-helper and slash-command pre-routing (`/why`, `/reclassify`, helper prompt filter) — decision: admin-gated.
 5. ~~Add TS pivot detection and controlled memory reset/summarization.~~ **Partial.** Frame-aware structured compaction landed (domain profiling, topic threads, user facts, arc classification). Explicit pivot detection + memory reset planned. See `docs/SESSION_FRAME_COMPACTION.md`.

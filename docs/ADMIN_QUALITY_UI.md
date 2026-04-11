@@ -1,6 +1,6 @@
 # Admin Quality & RAG Feedback
 
-This document is the **source of truth** for how corpus quality, retrieval gaps, and model/critic signals surface in the **Synesis admin SPA**. The runtime is **planner-ts** (TypeScript); the Python planner has been removed.
+This document is the **source of truth** for how corpus quality, retrieval gaps, and model/critic signals surface in the **Synesis admin SPA**. The **chat** runtime is **planner-ts** (TypeScript) only.
 
 **Related:** offline tooling and CI in [QUALITY_PIPELINE.md](QUALITY_PIPELINE.md); trust envelope and attribution in [SECURITY.md](SECURITY.md); indexer schema and pipeline in [INDEXERS.md](INDEXERS.md).
 

@@ -20,7 +20,7 @@ How to get the behavior you want. Synesis uses a deterministic EntryClassifier b
 
 ## 1. Task Size and Routing
 
-Synesis classifies your request before any LLM runs. The canonical graph flow is **entry_pipeline → planner → plan_gate → router → writer → critic → respond** (see [WORKFLOW_PLANNER.MD](WORKFLOW_PLANNER.MD)):
+Synesis classifies your request before any LLM runs. The canonical graph flow is **entry_pipeline → planner → plan_gate → router → writer → critic → respond** (see [WORKFLOW_PLANNER.MD](../chat/WORKFLOW_PLANNER.MD)):
 
 | Tier | Path | When |
 |------|------|------|
@@ -231,6 +231,6 @@ Thumbs up/down are stored via `POST /v1/feedback` with classification context. U
 
 ## See Also
 
-- [WORKFLOW_PLANNER.MD](WORKFLOW_PLANNER.MD) — Full graph, node roles, routing logic
+- [WORKFLOW_PLANNER.MD](../chat/WORKFLOW_PLANNER.MD) — Full graph, node roles, routing logic
 - [FEEDBACK_API.md](FEEDBACK_API.md) — Thumbs up/down storage for classifier tuning
 - [README.md](../README.md) — Deployment, configuration, quick start

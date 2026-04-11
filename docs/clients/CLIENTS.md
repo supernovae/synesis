@@ -56,5 +56,5 @@ Use these terms in user docs and product-facing setup instructions.
 - [Agent Client Protocol (ACP) with Synesis](ACP_SYNESIS.md) — stdio bridge for **Zed**, **JetBrains**, **OpenCode**, **Neovim** (see linked pages)
 - [HTTPS-first clients (no ACP)](ACP_HTTP_CLIENTS.md) — Cursor, VS Code agents, Roo, etc.
 - [Structured clarification metadata](SYNESIS_CLARIFICATION.md)
-- [Planner OpenAI compatibility](../PLANNER_OPENAI_COMPATIBILITY.md)
+- [Chat OpenAI compatibility (planner-ts)](../chat/PLANNER_OPENAI_COMPATIBILITY.md)
 - [Yarn runtime details](../YARN_RUNTIME.md)

@@ -1,6 +1,6 @@
 # OpenAI-compatible API probing
 
-See **[CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md)** for GitHub Variables/Secrets aligned with CI. See also **[TESTING.md](./TESTING.md)** for the broader CI vs manual test matrix.
+See **[CI_GITHUB_VALIDATION.md](../development/CI_GITHUB_VALIDATION.md)** for GitHub Variables/Secrets aligned with CI. See also **[TESTING.md](../development/TESTING.md)** for the broader CI vs manual test matrix.
 
 ## Synesis probe (HTTP)
 

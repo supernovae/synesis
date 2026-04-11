@@ -148,7 +148,7 @@ Enable diagnostic persistence to Redis and OpenTelemetry tracing.
 | `SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED` | `true` |
 | `SYNESIS_YARN_DIAGNOSTIC_REDIS_TTL_S` | `86400` (default, 24h) |
 | `SYNESIS_YARN_OTEL_ENABLED` | `true` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `<your collector OTLP HTTP URL>` (e.g. `http://otel-collector:4318/v1/traces` — Synesis uses **OTLP/HTTP protobuf** via OpenTelemetry JS SDK 2.x; see [`docs/dependency-migrations.md`](../dependency-migrations.md)) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `<your collector OTLP HTTP URL>` (e.g. `http://otel-collector:4318/v1/traces` — Synesis uses **OTLP/HTTP protobuf** via OpenTelemetry JS SDK 2.x; see [`docs/development/dependency-migrations.md`](../dependency-migrations.md)) |
 
 ### Health gates
 

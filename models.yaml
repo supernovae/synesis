@@ -14,7 +14,7 @@
 #   - base/planner/deployment.yaml      (SYNESIS_*_MODEL_URL env vars)
 #   - docs/COST_ESTIMATE.md
 #
-# See docs/WORKFLOW_PLANNER.MD and the V3 architecture plan for context.
+# See docs/chat/WORKFLOW_PLANNER.MD and the V3 architecture plan for context.
 # ============================================================================
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ Thank you for your interest in contributing! This document provides guidelines t
 
 ## Development Checks
 
-For intent-flow and prompting validation (unit tests + live integration), see [docs/DEVELOPMENT_CHECKS.md](docs/DEVELOPMENT_CHECKS.md):
+For intent-flow and prompting validation (unit tests + live integration), see [docs/development/DEVELOPMENT_CHECKS.md](docs/development/DEVELOPMENT_CHECKS.md):
 - **Unit tests** (no deploy): `pytest tests/test_intent_validation.py tests/test_graph_routing.py`
 - **Live validation** (after deploy): `oc port-forward` + `python scripts/validate-intent-live.py`
 

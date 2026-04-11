@@ -422,7 +422,7 @@ The `synesis-internal-service-auth` secret is synced to `synesis-validation` by 
 
 1. Create a `validation` environment in GitHub Settings > Environments
 2. Restrict to `main` branch (or specific branches for staging)
-3. Add variables `SYNESIS_PLANNER_EVAL_URL`, optional `SYNESIS_YARN_EVAL_URL`, secrets `SYNESIS_INTERNAL_SERVICE_TOKEN` (internal app token for RAG) and `SYNESIS_TEST_PAT_TOKEN` (PAT for live chat-style workflows) — see `docs/CI_GITHUB_VALIDATION.md`
+3. Add variables `SYNESIS_PLANNER_EVAL_URL`, optional `SYNESIS_YARN_EVAL_URL`, secrets `SYNESIS_INTERNAL_SERVICE_TOKEN` (internal app token for RAG) and `SYNESIS_TEST_PAT_TOKEN` (PAT for live chat-style workflows) — see `docs/development/CI_GITHUB_VALIDATION.md`
 4. Add variable: `SYNESIS_VALIDATION_ENABLED=true` when workflows use it
 5. Do **not** echo secrets in workflow steps; use `::add-mask::` if intermediate variables are needed
 

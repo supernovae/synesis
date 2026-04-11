@@ -1,6 +1,6 @@
 # Intent Taxonomy — Critic-Aware Routing
 
-> **Status: IMPLEMENTED.** Intent classes use BM25-scored keyword matching (term frequency saturation, document length normalization, IDF weighting). The `intent_weights.yaml` file defines keywords per intent class; the ScoringEngine scores all intents simultaneously and picks the highest (code intents preferred within 10% ties). Code/knowledge disambiguation (`is_code_task`) uses a semantic intent classifier based on cosine similarity against route embeddings (see section 7). See `entry_classifier_engine.py`, `semantic_intent.py`, and `docs/WORKFLOW_PLANNER.MD` research references.
+> **Status: IMPLEMENTED (planner-ts).** Intent classes use BM25-scored keyword matching (term frequency saturation, document length normalization, IDF weighting). The `intent_weights.yaml` file defines keywords per intent class; the ScoringEngine scores all intents simultaneously and picks the highest (code intents preferred within 10% ties). Code/knowledge disambiguation (`is_code_task`) uses semantic signals aligned with route embeddings (see section 7). Implementation: `base/planner-ts/src/nodes/scoring-engine.ts`, `entry-classifier.ts`, and related taxonomy helpers. Graph flow: [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD).
 
 **Design:** Intent class × Domain vertical → routing + critic behavior.
 
@@ -119,13 +119,13 @@ Intent classification is defined in `intent_weights.yaml` under the `intent_clas
 
 The highest-scoring intent wins. When a code intent scores within 10% of the best non-code intent, the code intent is preferred (preserving code-priority for ambiguous prompts). Default when nothing matches: `general` (text/document path).
 
-See `entry_classifier_engine.py` for the implementation and `docs/WORKFLOW_PLANNER.MD` for the research references.
+See `base/planner-ts/src/nodes/entry-classifier.ts` and `scoring-engine.ts` for the implementation and [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) for graph context.
 
 ---
 
 ## 7. Semantic Intent Classifier — Code vs Knowledge
 
-After BM25 intent classification determines the `intent_class`, the `is_code_task` flag is determined by a **semantic intent classifier** (`semantic_intent.py`). This replaces the former regex-based `code_rescue` pattern that was brittle for ambiguous prompts (e.g., "architecture supporting Python workflows" was incorrectly classified as code because bare language names triggered the regex).
+After BM25 intent classification determines the `intent_class`, the `is_code_task` flag is determined by **semantic classification** in planner-ts (embedding similarity against route definitions). This replaces brittle regex-only heuristics for ambiguous prompts (e.g., prose that mentions programming languages without requesting code changes).
 
 ### How It Works
 
