@@ -4900,6 +4900,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (adapter.getEarlyPivotPrompt) {
       const earlyPivot = adapter.getEarlyPivotPrompt(oaiRecentCalls, {
         recentAssistantText: oaiRecentAssistantText,
+        recentUserPrompt: oaiTaskCue,
         stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
         stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
         planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
@@ -7038,6 +7039,7 @@ app.post("/v1/messages", async (req, reply) => {
     if (claudeAdapter.getEarlyPivotPrompt) {
       const earlyPivot = claudeAdapter.getEarlyPivotPrompt(claudeRecentCalls, {
         recentAssistantText: claudeRecentAssistantText,
+        recentUserPrompt: claudeTaskCue,
         stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
         stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
         planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,

@@ -16,6 +16,7 @@ export interface RecentToolCall {
 
 export interface QwenPivotOptions {
   recentAssistantText?: string | null;
+  recentUserPrompt?: string | null;
   stagnationWindow?: number;
   stagnationThreshold?: number;
   planNoActionLimit?: number;
@@ -289,6 +290,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const editRetryLimit = Math.max(2, options.editRetryLimit ?? 3);
     const stagnationWindow = Math.max(3, options.stagnationWindow ?? 8);
     const stagnationThreshold = Math.max(2, options.stagnationThreshold ?? 3);
+    const userIntent = this._classifyUserIntent(options.recentUserPrompt);
 
     const noAction = this._detectPlanWithoutAction(
       recentToolCalls,
@@ -305,10 +307,11 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       recentToolCalls,
       stagnationWindow,
       stagnationThreshold,
+      userIntent,
     );
     if (repeatedIntent) return repeatedIntent;
 
-    return this._detectReadLoop(recentToolCalls, stagnationThreshold);
+    return this._detectReadLoop(recentToolCalls, stagnationThreshold, userIntent);
   }
 
   dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
@@ -335,7 +338,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     if (consecutiveCount < threshold) return null;
 
     if (isReadSearch) {
-      return `You have called ${lastTool} ${consecutiveCount} times consecutively. You have enough information — make your edit now using Edit or Write. Do not read again.`;
+      return `You have called ${lastTool} ${consecutiveCount} times consecutively. You already have the file contents. STOP reading and respond to the user or make your edit. Do NOT call ${lastTool} again.`;
     }
     if (isGrepFind) {
       return `You have called ${lastTool} ${consecutiveCount} times consecutively. Narrow your approach: act on the results you have, or try a different tool.`;
@@ -369,10 +372,19 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     return "You stated an implementation plan but did not execute it. Your next step must be exactly one concrete action: (1) Edit/Write code, (2) run a test/build command, or (3) state a blocker and pick a different strategy.";
   }
 
+  private _classifyUserIntent(prompt?: string | null): "show" | "edit" | "unknown" {
+    if (!prompt) return "unknown";
+    const lower = prompt.toLowerCase();
+    if (/\b(show|display|print|read|view|see|what('s| is)|current|status|check)\b/.test(lower)) return "show";
+    if (/\b(implement|fix|change|edit|update|add|create|build|write|refactor|delete|remove)\b/.test(lower)) return "edit";
+    return "unknown";
+  }
+
   private _detectRepeatedIntentLoop(
     recentToolCalls: RecentToolCall[],
     window: number,
     threshold: number,
+    userIntent: "show" | "edit" | "unknown" = "unknown",
   ): string | null {
     const tail = recentToolCalls.slice(-window);
     const counts = new Map<string, { count: number; sample: RecentToolCall }>();
@@ -396,10 +408,17 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const target = top.sample.filePath?.trim()
       || (typeof top.sample.args?.file_path === "string" ? top.sample.args.file_path : "")
       || "the same target";
+    if (userIntent === "show") {
+      return `STOP. You already have the contents of ${target}. The user asked to see it. Respond to the user NOW with the content you have. Do NOT call any more tools.`;
+    }
     return `You are repeating the same intent on ${target} (${top.count} times) without forward progress. Stop repeating this call pattern. Make one concrete change now (Edit/Write or test/build), and do not re-read or re-search ${target} until after that action.`;
   }
 
-  private _detectReadLoop(recentToolCalls: RecentToolCall[], threshold: number): string | null {
+  private _detectReadLoop(
+    recentToolCalls: RecentToolCall[],
+    threshold: number,
+    userIntent: "show" | "edit" | "unknown" = "unknown",
+  ): string | null {
     const READ_LIKE = new Set(["Read", "cat", "head", "tail", "read"]);
     const EDIT_LIKE = new Set(["Edit", "Update", "Write", "edit", "update", "write"]);
     const tail = recentToolCalls.slice(-Math.max(6, threshold + 2));
@@ -413,17 +432,23 @@ export class Qwen3CoderAdapter implements ModelAdapter {
         break;
       }
     }
-    if (readCalls.length < threshold) return null;
+    // Fire earlier (threshold - 1) when user intent is "show" — the model
+    // already has the content and should just display it.
+    const effectiveThreshold = userIntent === "show" ? Math.max(2, threshold - 1) : threshold;
+    if (readCalls.length < effectiveThreshold) return null;
     // If the model is adapting (switching between Read and Bash on the same
     // file), give it extra room — only fire when the SAME fingerprint appears
     // repeatedly without any tool change.
     const readTools = new Set(readCalls.map((c) => c.toolName));
-    if (readTools.size > 1 && readCalls.length < threshold + 2) return null;
+    if (readTools.size > 1 && readCalls.length < effectiveThreshold + 2) return null;
     const filePaths = readCalls.map((c) => c.filePath).filter(Boolean);
     const uniqueFiles = [...new Set(filePaths)];
     if (uniqueFiles.length === 0) return null;
     const fileList = uniqueFiles.slice(0, 4).join(", ");
-    return `You have read ${fileList} multiple times. You have enough context. Write the code change now using Edit or Bash. Do not read these files again.`;
+    if (userIntent === "show") {
+      return `STOP. You already have the contents of ${fileList}. The user asked to see/show it. Respond to the user NOW with the content you have. Do NOT read the file again.`;
+    }
+    return `You have read ${fileList} multiple times. You have enough context. Make your change now using Edit/Write or run a test/build. Do not read these files again.`;
   }
 
   /** Detect repeated Edit/Update calls to the same file (error-retry loop). */
