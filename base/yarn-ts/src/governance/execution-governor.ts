@@ -202,10 +202,15 @@ function hasTodoHarvest(events: Array<{ command: string; toolName: string }>): b
 }
 
 function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
+  // Only inspect tool/tool_result payloads. User/assistant narration can contain
+  // words like "invalid tool parameters" that should not block green verification bypass.
   const joined = messages
+    .filter((m) => m.role === "tool" || m.role === "tool_result")
     .map((m) => (typeof m.content === "string" ? m.content : ""))
     .join("\n")
     .toLowerCase();
+  if (!joined.trim()) return false;
+  if (/validation_failed|invalid tool parameters|synesis_error/.test(joined)) return false;
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
 }
 

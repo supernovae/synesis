@@ -39,6 +39,19 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("Stop re-running broad go vet/go test checks");
   });
 
+  it("keeps verification_already_green when non-tool narration mentions invalid parameters", () => {
+    const messages = [
+      { role: "assistant", content: "Invalid tool parameters encountered earlier; continuing." },
+      assistantCall("1", "bash", { command: "go test ./..." }),
+      toolResult("1", "ok pkg/a (cached)"),
+      assistantCall("2", "bash", { command: "go test ./..." }),
+      toolResult("2", "ok pkg/a (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).toContain("verification_already_green");
+  });
+
   it("does not mark no-repeat-without-change when edits are present", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test ./..." }),
