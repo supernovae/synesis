@@ -99,4 +99,4 @@ Tune from measured telemetry, not ad hoc edits.
 ## Reference
 
 - Observability source of truth: `docs/OBSERVABILITY.md`
-- Historical research archive: `docs/deprecated/PLANNER_TS_SCALABILITY_RESEARCH.md`
+- Historical research notes: [PLANNER_TS_SCALABILITY_RESEARCH.md](./PLANNER_TS_SCALABILITY_RESEARCH.md)

@@ -3,7 +3,7 @@
 # Split axes: complexity (tier) | risk (veto) | domain (RAG only).
 # Easy < 5 | Medium 5-15 | Hard > 15 | Risk >= 15 → veto to hard
 #
-# See master_intent_weights.yaml and docs/TAXONOMY.md.
+# See master_intent_weights.yaml, docs/TAXONOMY_CANONICAL.md (domain IDs), docs/TAXONOMY.md (coverage design).
 # Plugins in plugins/weights/*.yaml add vertical-specific depth.
 
 thresholds:
