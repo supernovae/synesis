@@ -906,7 +906,8 @@ export class ToolResultReductionService {
       (lowerName === "webfetch" || lowerName === "web_fetch" || lowerName === "fetch")
       && cmd.includes("artifact://");
     if (!isCodeReadCommand && !isShellLikeTool && !isDirectReadTool && !isArtifactFetch) return false;
-    if (isDirectReadTool || isArtifactFetch) return this.looksLikeSourceCode(lines);
+    if (isDirectReadTool || isArtifactFetch) return true;
+    if (isCodeReadCommand && isShellLikeTool) return true;
     if (this.hasDiagnosticSignals(lines)) return false;
     return this.looksLikeSourceCode(lines);
   }
