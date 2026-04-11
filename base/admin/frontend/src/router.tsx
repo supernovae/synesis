@@ -32,6 +32,7 @@ const IngestionSources = lazy(() => import("./pages/rag/IngestionSources"));
 const RetrievalGaps = lazy(() => import("./pages/rag/RetrievalGaps"));
 const CuratorProposals = lazy(() => import("./pages/rag/CuratorProposals"));
 const TestingLabs = lazy(() => import("./pages/rag/TestingLabs"));
+const FeedbackLoop = lazy(() => import("./pages/rag/FeedbackLoop"));
 
 const DomainBrowser = lazy(() => import("./pages/taxonomy/DomainBrowser"));
 const CoverageMap = lazy(() => import("./pages/taxonomy/CoverageMap"));
@@ -188,6 +189,7 @@ export const router = createBrowserRouter([
       { path: "rag/retrieval-gaps", element: <RetrievalGaps /> },
       { path: "rag/curator", element: <CuratorProposals /> },
       { path: "rag/testing-labs", element: <TestingLabs /> },
+      { path: "rag/feedback-loop", element: <FeedbackLoop /> },
 
       { path: "taxonomy", element: <DomainBrowser /> },
       { path: "taxonomy/coverage", element: <CoverageMap /> },

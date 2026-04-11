@@ -168,6 +168,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.developer_hub import router as developer_hub_router
 from app.routers.evals import router as evals_router
 from app.routers.feedback import router as feedback_router
+from app.routers.feedback_loop import router as feedback_loop_router
 from app.routers.governance import router as governance_router
 from app.routers.ingestion import router as ingestion_router
 from app.routers.ingestion_staged import router as ingestion_staged_router
@@ -208,6 +209,7 @@ app.include_router(pipeline_router)
 app.include_router(planner_usage_router)
 app.include_router(integrations_router)
 app.include_router(feedback_router)
+app.include_router(feedback_loop_router)
 app.include_router(governance_router)
 app.include_router(observability_router)
 app.include_router(patterns_router)

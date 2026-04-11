@@ -4904,7 +4904,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedOpenAI.messages as Array<ToolLoopMessage>,
   );
   const oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? evaluateExecutionGovernor(normalizedOpenAI.messages as Array<GovernorInputMessage>)
+    ? evaluateExecutionGovernor(
+      normalizedOpenAI.messages as Array<GovernorInputMessage>,
+      config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+    )
     : {
         pause: false,
         reason: "disabled",
@@ -6845,7 +6848,10 @@ app.post("/v1/messages", async (req, reply) => {
     normalizedFromClaude.messages as Array<ToolLoopMessage>,
   );
   const claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? evaluateExecutionGovernor(normalizedFromClaude.messages as Array<GovernorInputMessage>)
+    ? evaluateExecutionGovernor(
+      normalizedFromClaude.messages as Array<GovernorInputMessage>,
+      config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+    )
     : {
         pause: false,
         reason: "disabled",

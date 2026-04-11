@@ -70,6 +70,35 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_green_repeat_block");
   });
 
+  it("safety_strict profile gives more room before pausing broad green loops", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go build ./... && echo Build successful" }),
+      toolResult("1", "Build successful"),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("2", "ok pkg/a (cached)"),
+      assistantCall("3", "bash", { command: "go build ./..." }),
+      toolResult("3", "Build successful"),
+      assistantCall("4", "bash", { command: "go test ./... && echo done" }),
+      toolResult("4", "ok pkg/a (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages, "safety_strict");
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).toContain("verification_already_green");
+    expect(out.matchedRules).not.toContain("verification_green_repeat_block");
+  });
+
+  it("strict_control profile pauses earlier for repeated verification", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test ./..." }),
+      toolResult("1", "FAIL pkg/a"),
+      assistantCall("2", "bash", { command: "go test ./..." }),
+      toolResult("2", "FAIL pkg/a"),
+    ];
+    const out = evaluateExecutionGovernor(messages, "strict_control");
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("edit_before_retest");
+  });
+
   it("does not re-pause on stale loop history after a new user turn", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go build ./... && echo Build successful" }),

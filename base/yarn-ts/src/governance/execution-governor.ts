@@ -27,6 +27,54 @@ export interface ExecutionGovernorDecision {
   };
 }
 
+export type GovernanceProfileName = "safety_strict" | "balanced_completion" | "strict_control";
+
+interface GovernorThresholds {
+  repeatedTestPauseThreshold: number;
+  repeatedReadSearchPauseThreshold: number;
+  totalBroadDiscoveryPauseThreshold: number;
+  repeatedBroadDiscoveryPauseThreshold: number;
+  broadVerificationNoticeThreshold: number;
+  broadVerificationBlockThreshold: number;
+}
+
+const BALANCED_THRESHOLDS: GovernorThresholds = {
+  repeatedTestPauseThreshold: 2,
+  repeatedReadSearchPauseThreshold: 5,
+  totalBroadDiscoveryPauseThreshold: 4,
+  repeatedBroadDiscoveryPauseThreshold: 2,
+  broadVerificationNoticeThreshold: 3,
+  broadVerificationBlockThreshold: 4,
+};
+
+function thresholdsForProfile(profile: GovernanceProfileName): GovernorThresholds {
+  if (profile === "safety_strict") {
+    return {
+      ...BALANCED_THRESHOLDS,
+      // Safety-first profile: keep hard runaway controls, reduce behavioral policing.
+      repeatedTestPauseThreshold: 4,
+      repeatedReadSearchPauseThreshold: 8,
+      totalBroadDiscoveryPauseThreshold: 8,
+      repeatedBroadDiscoveryPauseThreshold: 4,
+      broadVerificationNoticeThreshold: 6,
+      broadVerificationBlockThreshold: 8,
+    };
+  }
+  if (profile === "strict_control") {
+    return {
+      ...BALANCED_THRESHOLDS,
+      // Debug/forensics profile: nudge earlier and harder.
+      repeatedTestPauseThreshold: 1,
+      repeatedReadSearchPauseThreshold: 3,
+      totalBroadDiscoveryPauseThreshold: 3,
+      repeatedBroadDiscoveryPauseThreshold: 1,
+      broadVerificationNoticeThreshold: 2,
+      broadVerificationBlockThreshold: 3,
+    };
+  }
+  return BALANCED_THRESHOLDS;
+}
+
 function normalizeString(v: unknown): string {
   if (typeof v === "string") return v.replace(/\s+/g, " ").trim();
   return "";
@@ -232,7 +280,11 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
 }
 
-export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): ExecutionGovernorDecision {
+export function evaluateExecutionGovernor(
+  messages: GovernorInputMessage[],
+  profile: GovernanceProfileName = "balanced_completion",
+): ExecutionGovernorDecision {
+  const thresholds = thresholdsForProfile(profile);
   const lastUserIdx = (() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       if (messages[i]?.role === "user") return i;
@@ -294,10 +346,13 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   }
 
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
-  if (repeatedTestCommands >= 2) matchedRules.push("edit_before_retest");
+  if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
-  if (totalBroadDiscoveryCalls >= 4 || repeatedBroadDiscoveryCalls >= 2) matchedRules.push("broad_discovery_repeat");
-  if (repeatedReadSearchCalls >= 5) matchedRules.push("bounded_exploration_budget");
+  if (
+    totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
+    || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
+  ) matchedRules.push("broad_discovery_repeat");
+  if (repeatedReadSearchCalls >= thresholds.repeatedReadSearchPauseThreshold) matchedRules.push("bounded_exploration_budget");
   if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
     matchedRules.push("test_entry_contract");
   }
@@ -323,14 +378,14 @@ export function evaluateExecutionGovernor(messages: GovernorInputMessage[]): Exe
   }
 
   // Avoid trapping the model in repeated broad verification when output is already green.
-  if (broadVerificationCommands >= 3) {
+  if (broadVerificationCommands >= thresholds.broadVerificationNoticeThreshold) {
     broadTestRepeat = true;
     if (!matchedRules.includes("broad_to_narrow_verification")) matchedRules.push("broad_to_narrow_verification");
   }
 
   if (broadTestRepeat && repeatedTestCommands >= 1 && !hasFailures) {
     matchedRules.push("verification_already_green");
-    const shouldPause = broadVerificationCommands >= 4;
+    const shouldPause = broadVerificationCommands >= thresholds.broadVerificationBlockThreshold;
     if (shouldPause) matchedRules.push("verification_green_repeat_block");
     return {
       pause: shouldPause,

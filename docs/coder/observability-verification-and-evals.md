@@ -73,6 +73,134 @@ Regression detection rules:
 - **Token regression**: candidate >2x baseline
 - **Decision path degradation**: deterministic -> constrained -> inference_first -> abstain
 
+### Stability Eval Suites (Phase 19)
+
+The eval harness now includes explicit stability suites focused on coding-agent continuity:
+
+| Suite | Purpose |
+|------|---------|
+| `stability_invalid_tool_args` | Verify recovery after malformed/invalid tool argument failures |
+| `stability_compile_fix_recovery` | Verify compile/type-error recovery converges and continues feature work |
+| `stability_resume_continuity` | Verify `resume` prompts continue state instead of restarting exploration loops |
+| `stability_plan_update_loop` | Verify plan-maintenance prompts avoid reread loops and move to concrete action |
+
+Source of truth for suite definitions:
+- `base/admin/app/services/eval_harness.py`
+
+### Feedback Loop Lab (Admin + API)
+
+Closed-loop orchestration endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/feedback-loop/overview` | GET | List suites + recent loop runs |
+| `/api/v1/feedback-loop/runs` | POST | Create loop run and optionally execute immediately |
+| `/api/v1/feedback-loop/runs/{run_id}/pipeline` | POST | Execute replay + regressions + optional eval suites + auto-label |
+| `/api/v1/feedback-loop/runs/{run_id}/auto-label` | POST | Apply failure/strength labels to run results |
+| `/api/v1/feedback-loop/runs/{run_id}/dataset` | GET | Export run as train-ready records (`json` or `jsonl`) |
+
+Primary implementation:
+- `base/admin/app/routers/feedback_loop.py`
+- `base/admin/frontend/src/pages/rag/FeedbackLoop.tsx`
+
+## Eval Design
+
+### Taxonomy
+
+- **Stability:** invalid params, compile-fix convergence, resume continuity, plan-update continuity
+- **Completion:** task completion and narrow verification progression
+- **Safety:** token/latency regressions, excessive loop indicators, hard-stop incidence
+- **Regression:** baseline vs candidate verdict/latency/token/decision-path degradation
+
+### Case Format
+
+Each eval case includes:
+- prompt
+- category
+- optional expected decision path / recall routing / language
+- optional latency/token constraints
+
+### Scoring Rules
+
+- **Hard failures:** latency/token budget breach, missing response choices, transport errors
+- **Soft mismatches:** decision path, recall routing, language mismatch (warnings)
+- **Regression blockers:** verdict degradation, >2x latency, >2x token usage, worse decision path rank
+
+## Eval Process
+
+1. Create run (replay cohort from traces).
+2. Execute replay against candidate.
+3. Detect regressions.
+4. Run selected stability suites.
+5. Auto-label run outputs (weakness + strength tags).
+6. Export dataset slices for training.
+7. Gate promotion based on KPI targets.
+
+```mermaid
+flowchart TD
+  createRun[CreateRun] --> executeReplay[ExecuteReplay]
+  executeReplay --> detectRegressions[DetectRegressions]
+  detectRegressions --> runSuites[RunStabilitySuites]
+  runSuites --> autoLabel[AutoLabelResults]
+  autoLabel --> exportDataset[ExportDataset]
+  exportDataset --> promotionGate[PromotionGate]
+  promotionGate -->|pass| rollout[RolloutProfileOrModel]
+  promotionGate -->|fail| refine[RefinePoliciesOrTrainingData]
+  refine --> createRun
+```
+
+## Eval Loops
+
+### Run Lifecycle
+
+```mermaid
+flowchart LR
+  pending[Pending] --> running[Running]
+  running --> completed[Completed]
+  running --> failed[Failed]
+  failed --> pending
+  completed --> reviewed[Reviewed]
+  reviewed --> exported[Exported]
+```
+
+### Regression Triage + Promotion
+
+```mermaid
+flowchart TD
+  regressionReport[RegressionReport] --> hasBlockers{BlockersPresent}
+  hasBlockers -->|yes| triage[TriageTopFailureClusters]
+  triage --> addCases[AddCasesAndLabels]
+  addCases --> retrainOrTune[RetrainOrTuneRuntime]
+  retrainOrTune --> regressionReport
+  hasBlockers -->|no| kpiCheck[KpiThresholdCheck]
+  kpiCheck -->|pass| promote[PromoteCandidate]
+  kpiCheck -->|fail| triage
+```
+
+## Governance and Ownership
+
+- **Runtime governance owner:** `base/yarn-ts` maintainers
+- **Eval suite owner:** Admin eval/testing-labs owners
+- **Training data owner:** model-training project owners (`~/src/qwen3`)
+- **Promotion authority:** platform admins with documented KPI evidence
+
+Threshold changes require:
+1. changelog entry in this document
+2. before/after KPI comparison
+3. rollback plan and owner approval
+
+## Documentation Cadence
+
+- Update this file whenever:
+  - a suite is added/removed
+  - regression rules change
+  - promotion thresholds change
+  - dataset export schema changes
+- Monthly review:
+  - top failure tags
+  - top strength tags
+  - completion and loop KPI trend deltas
+
 ## Git-First KPI Pack
 
 Use this KPI set when evaluating `SYNESIS_YARN_GIT_POLICY_MODE=advisory|enforced` rollouts:

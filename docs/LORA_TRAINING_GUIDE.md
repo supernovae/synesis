@@ -248,3 +248,61 @@ Track results in MODEL_EXERCISE.md benchmark table.
 6. Evaluate with benchmark; if scores improve, deploy via vLLM `--lora-modules`.
 7. Proceed to Priority 2 (Executor LoRA) when planner quality is stable.
 8. A/B test base vs. LoRA in staging before production rollout.
+
+---
+
+## Closed-Loop Training Data Contract (Agentic Behavior)
+
+For coding-agent stability work, use a shared trajectory contract across real traces, synthetic trajectories, and curated prompt tasks:
+
+```json
+{
+  "task_id": "run123:5",
+  "session_id": "run123",
+  "model_id": "synesis-agent",
+  "runtime_profile": "balanced_completion",
+  "user_intent": "implement",
+  "trajectory_steps": [
+    {
+      "assistant_action": "tool_call",
+      "tool_name": "Bash",
+      "args_valid": true,
+      "tool_result_class": "ok",
+      "token_cost": 850,
+      "latency_ms": 2200
+    }
+  ],
+  "outcome": "completed",
+  "failure_tags": ["invalid_tool_args"],
+  "strength_tags": ["recovery_success"],
+  "quality_signals": {
+    "tests_green": true,
+    "retries_count": 1
+  },
+  "gold_next_step": "Apply one focused edit and run narrow verification"
+}
+```
+
+### Minimum Label Taxonomy
+
+- Weakness: `invalid_tool_args`, `read_loop`, `broad_verify_loop`, `no_progress`, `hallucinated_interface`
+- Strength: `first_pass_fix`, `narrow_verification`, `correct_tool_choice`, `recovery_success`, `token_efficient`
+
+### Dataset Mix Recommendation
+
+- 50% real traces (anchor to production UX)
+- 30% synthetic hard cases (coverage)
+- 20% curated benchmark/prompt tasks (breadth)
+
+## Integration with `~/src/qwen3`
+
+Treat `~/src/qwen3` as the training workspace and this repo as the source of labeled/evaluable trajectory artifacts.
+
+Suggested handoff:
+1. Run feedback-loop pipeline in Synesis Admin (`/api/v1/feedback-loop/...`).
+2. Export dataset (`jsonl`) from a run.
+3. Import exported data into `~/src/qwen3` preprocessing pipeline.
+4. Merge with synthetic/curriculum data and train LoRA candidate.
+5. Replay eval suites and regression checks before any promotion.
+
+Use consistent metadata keys (`task_id`, `failure_tags`, `strength_tags`, `runtime_profile`) so training and evaluation remain comparable over time.

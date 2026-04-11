@@ -185,6 +185,113 @@ BUILTIN_SUITES: dict[str, EvalSuite] = {
             ),
         ],
     ),
+    "stability_invalid_tool_args": EvalSuite(
+        name="stability_invalid_tool_args",
+        description="Prompts designed to stress invalid tool argument recovery behavior",
+        cases=[
+            EvalCase(
+                prompt=(
+                    "Resume implementing the doctor diagnostics feature after a failed tool call. "
+                    "Prefer one concrete fix action and avoid repeating broad checks."
+                ),
+                category="invalid_tool_recovery",
+                expected_languages=["go"],
+                max_tokens=5000,
+            ),
+            EvalCase(
+                prompt=(
+                    "The prior edit failed due to argument mismatch. Read only what is needed and apply one corrected edit."
+                ),
+                category="invalid_tool_recovery",
+                max_tokens=5000,
+            ),
+            EvalCase(
+                prompt=(
+                    "Continue the task after an 'Invalid tool parameters' error without restarting from scratch."
+                ),
+                category="invalid_tool_recovery",
+                max_tokens=5000,
+            ),
+        ],
+    ),
+    "stability_compile_fix_recovery": EvalSuite(
+        name="stability_compile_fix_recovery",
+        description="Compile-fix loops should converge to narrow recovery and continue implementation",
+        cases=[
+            EvalCase(
+                prompt=(
+                    "go build failed with: undefined: api.Options and assignment mismatch in doctor.go. "
+                    "Fix the interface usage and continue with the requested feature."
+                ),
+                category="compile_fix_recovery",
+                expected_languages=["go"],
+                max_tokens=7000,
+            ),
+            EvalCase(
+                prompt=(
+                    "A TypeScript build failed after a refactor. Recover by making one focused fix and rerun a narrow verification."
+                ),
+                category="compile_fix_recovery",
+                expected_languages=["typescript"],
+                max_tokens=7000,
+            ),
+            EvalCase(
+                prompt=(
+                    "Python lint and test failures appeared after edits. Resolve root cause without rerunning full-suite loops."
+                ),
+                category="compile_fix_recovery",
+                expected_languages=["python"],
+                max_tokens=7000,
+            ),
+        ],
+    ),
+    "stability_resume_continuity": EvalSuite(
+        name="stability_resume_continuity",
+        description="Resume prompts should continue task state instead of restarting exploratory loops",
+        cases=[
+            EvalCase(
+                prompt="Please resume the remaining work items and continue from current state.",
+                category="resume_continuity",
+                max_tokens=5000,
+            ),
+            EvalCase(
+                prompt="Continue from where you left off and complete the next unresolved implementation task.",
+                category="resume_continuity",
+                max_tokens=5000,
+            ),
+            EvalCase(
+                prompt="Resume and finish doctor command enhancements, then run targeted verification.",
+                category="resume_continuity",
+                expected_languages=["go"],
+                max_tokens=5000,
+            ),
+        ],
+    ),
+    "stability_plan_update_loop": EvalSuite(
+        name="stability_plan_update_loop",
+        description="Plan maintenance prompts should avoid reread loops and proceed with edit/update actions",
+        cases=[
+            EvalCase(
+                prompt=(
+                    "Update the plan with completed Phase 4 items, then continue the next incomplete implementation step."
+                ),
+                category="plan_update_loop",
+                max_tokens=5000,
+            ),
+            EvalCase(
+                prompt=(
+                    "Mark done items in the plan file and continue coding the next task without rereading the plan repeatedly."
+                ),
+                category="plan_update_loop",
+                max_tokens=5000,
+            ),
+            EvalCase(
+                prompt="Show current plan status and then perform exactly one concrete follow-up action.",
+                category="plan_update_loop",
+                max_tokens=5000,
+            ),
+        ],
+    ),
     "pattern_recall": EvalSuite(
         name="pattern_recall",
         description="Prompts expected to trigger compositional pattern recall from the pattern library",
