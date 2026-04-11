@@ -4889,6 +4889,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let modelMessages = modelToolPrompt
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
     : messages;
+  if (policyPrecheck.pivotPrompt) {
+    modelMessages = [...modelMessages, { role: "system" as const, content: policyPrecheck.pivotPrompt }] as typeof modelMessages;
+  }
 
   // Adapter-specific early pivot and same-tool dampening (fires after generic governance)
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !policyPrecheck.pivotPrompt && adapter.family === "qwen3-coder") {
@@ -4942,7 +4945,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
       const dampening = adapter.dampenConsecutiveSameTools(oaiToolNames);
       if (dampening) {
         const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, "dampening");
-        if (decision === "suppress") {
+        if (decision === "hard_stop") {
+          app.log.warn(
+            { sessionKey, family: adapter.family, turnMarker, pivotKind: "dampening" },
+            "adapter_qwen_ignored_pivot_hard_stop",
+          );
+          const hardStopContent = "I've been stuck in a loop repeating the same actions (dampening). I need your guidance to proceed differently. What would you like me to do?";
+          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+          session.awaitingToolLoopUserAck = true;
+          session.history.push({ role: "assistant", content: hardStopContent });
+          persistSessionAndUsage(session, oaiTraceReqId, orchestration.selectedModel, hardStopUsage, 0, "stop", 0);
+          maybeCheckpoint(session);
+          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_hard_stop", "adapter", "dampening: model ignored 5+ pivots", oaiTraceReqId);
+          return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream);
+        } else if (decision === "suppress") {
           app.log.info(
             { sessionKey, family: adapter.family, turnMarker },
             "adapter_qwen_cooldown_suppressed",
@@ -6334,33 +6350,19 @@ app.post("/v1/messages", async (req, reply) => {
   const traceReqId = resolveRequestId(req.headers as Record<string, unknown>);
   const claudeTaskCue = extractLatestUserPromptFromMessages(body.messages as Array<{ role: string; content: unknown }>);
 
+  const claudeClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
+  const claudeConversationId = resolveClaudeConversationId(body.metadata, req.headers as Record<string, unknown>);
+  const claudePeekWatermark = (() => {
+    const existingKey = `${claudeAuthUser.userId}:${claudeConversationId}:${claudeClientKind}`;
+    for (const [k, v] of sessions) {
+      if (k.includes(existingKey) || (claudeConversationId && k.includes(claudeConversationId))) return v.pruningWatermark;
+    }
+    return undefined;
+  })();
   // Merge top-level `system` into the message list (parity with Anthropic SDK)
   const claudeSystemMsg = claudeSystemToMessage(body.system);
-  // Build a map of tool_use_id → command from Claude messages so the
-  // standalone tool-result reducer can recover Bash commands from the
-  // originating tool_use block (tool results are plain stdout text).
-  const claudeToolCallCmdMap = new Map<string, string>();
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    for (const cm of body.messages as Array<{ role: string; content: unknown }>) {
-      if (cm.role !== "assistant" || !Array.isArray(cm.content)) continue;
-      for (const block of cm.content as Array<{ type?: string; id?: string; input?: Record<string, unknown> }>) {
-        if (block.type !== "tool_use" || !block.id) continue;
-        const cmd = typeof block.input?.command === "string" ? block.input.command.trim() : "";
-        if (cmd) claudeToolCallCmdMap.set(block.id, cmd);
-      }
-    }
-  }
-  const claudeToolReducer = config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? undefined
-    : (content: unknown, toolName?: string, toolUseId?: string) =>
-        toolResultReduction.reduceStandaloneToolResult(
-          content,
-          toolName,
-          claudeTaskCue,
-          (toolUseId && claudeToolCallCmdMap.get(toolUseId)) || undefined,
-        );
   const rawOpenAIMessages = withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
-    claudeMessagesToOpenAI(body.messages as never, claudeToolReducer),
+    claudeMessagesToOpenAI(body.messages as never),
   );
   // Enforce Vercel tool protocol invariants (assistant tool_call -> tool_result adjacency/order)
   // on Claude-converted histories to prevent resume-time MissingToolResultsError class failures.
@@ -6376,9 +6378,18 @@ app.post("/v1/messages", async (req, reply) => {
     ? sortToolSchemas(toolSearchResult.tools)
     : toolSearchResult.tools;
 
-  const claudeToolResultCount = (body.messages as Array<{ role: string }>).filter((m) => m.role === "tool_result" || m.role === "tool").length;
+  const reducedClaude = config.SYNESIS_YARN_GOVERNANCE_DISABLED
+    ? { messages: openAIMessages as never, reducedCount: 0 }
+    : enrichmentPool.isAvailable()
+      ? await withSpanAsync("yarn.enrichment", { "yarn.path": "claude" }, () =>
+          toolResultReduction.reduceMessagesAsync(openAIMessages as never, enrichmentPool, claudeTaskCue, claudePeekWatermark),
+        )
+      : withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
+          toolResultReduction.reduceMessages(openAIMessages as never, claudeTaskCue, claudePeekWatermark),
+        );
+  const claudeToolResultCount = (openAIMessages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedFromClaude = await validationNormalization.normalizeMessagesAsync(
-    openAIMessages as never,
+    reducedClaude.messages as never,
     runValidationTierCFallback,
   );
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
@@ -6433,8 +6444,6 @@ app.post("/v1/messages", async (req, reply) => {
   );
   const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
-  const claudeClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
-  const claudeConversationId = resolveClaudeConversationId(body.metadata, req.headers as Record<string, unknown>);
   const claudeIdentity: SessionIdentity = {
     userId: claudeAuthUser.userId,
     orgId: claudeAuthUser.orgId,
@@ -7028,6 +7037,9 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeModelMessages = claudeModelToolPrompt
     ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)
     : messages;
+  if (claudePolicyPrecheck.pivotPrompt) {
+    claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: claudePolicyPrecheck.pivotPrompt }] as typeof claudeModelMessages;
+  }
 
   // Adapter-specific early pivot and same-tool dampening (Claude path)
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudePolicyPrecheck.pivotPrompt && claudeAdapter.family === "qwen3-coder") {
@@ -7081,7 +7093,20 @@ app.post("/v1/messages", async (req, reply) => {
       const dampening = claudeAdapter.dampenConsecutiveSameTools(claudeToolNames);
       if (dampening) {
         const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, "dampening");
-        if (decision === "suppress") {
+        if (decision === "hard_stop") {
+          app.log.warn(
+            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind: "dampening" },
+            "adapter_qwen_ignored_pivot_hard_stop",
+          );
+          const hardStopContent = "I've been stuck in a loop repeating the same actions (dampening). I need your guidance to proceed differently. What would you like me to do?";
+          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+          session.awaitingToolLoopUserAck = true;
+          session.history.push({ role: "assistant", content: hardStopContent });
+          persistSessionAndUsage(session, traceReqId, claudeOrchestration.selectedModel, hardStopUsage, 0, "end_turn", 0);
+          maybeCheckpoint(session);
+          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_hard_stop", "adapter", "dampening: model ignored 5+ pivots", traceReqId);
+          return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream);
+        } else if (decision === "suppress") {
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
             "adapter_qwen_cooldown_suppressed",
