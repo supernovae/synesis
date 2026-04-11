@@ -309,11 +309,40 @@ interface ClaudeMessage {
 
 type ReduceToolResultFn = (content: unknown, toolName?: string, toolUseId?: string) => string;
 
+interface ToolUseMeta {
+  toolName: string;
+  filePath?: string;
+}
+
+function extractToolUseFilePath(input: unknown): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const row = input as Record<string, unknown>;
+  const p = typeof row.file_path === "string"
+    ? row.file_path
+    : (typeof row.path === "string" ? row.path : "");
+  const v = p.trim();
+  return v.length > 0 ? v : undefined;
+}
+
+function isReadLikeToolName(name: string): boolean {
+  const lower = name.trim().toLowerCase();
+  return lower === "read" || lower === "read_file" || lower === "readfile";
+}
+
+function isUnchangedReadStub(content: string): boolean {
+  const lower = content.trim().toLowerCase();
+  return lower.includes("unchanged since last read")
+    || lower === "file unchanged"
+    || lower === "unchanged";
+}
+
 export function claudeMessagesToOpenAI(
   messages: ClaudeMessage[],
   reduceToolResult?: ReduceToolResultFn
 ): OpenAIChatMessage[] {
   const out: OpenAIChatMessage[] = [];
+  const toolUseById = new Map<string, ToolUseMeta>();
+  const readContentByPath = new Map<string, string>();
   for (const m of messages) {
     if (typeof m.content === "string") {
       out.push({ role: m.role, content: m.content });
@@ -331,6 +360,14 @@ export function claudeMessagesToOpenAI(
       if (block.type === "text" && block.text) {
         textParts.push(block.text);
       } else if (block.type === "tool_use") {
+        const id = typeof block.id === "string" ? block.id.trim() : "";
+        const toolName = typeof block.name === "string" ? block.name : "";
+        if (id) {
+          toolUseById.set(id, {
+            toolName,
+            filePath: extractToolUseFilePath(block.input),
+          });
+        }
         toolUseParts.push(block);
       } else if (block.type === "tool_result") {
         toolResultParts.push(block);
@@ -340,17 +377,30 @@ export function claudeMessagesToOpenAI(
     }
 
     for (const tr of toolResultParts) {
+      const toolUseId = typeof tr.tool_use_id === "string" ? tr.tool_use_id : "";
+      const toolMeta = toolUseById.get(toolUseId);
+      const toolName = tr.name ?? toolMeta?.toolName;
       const baseResultContent = typeof tr.content === "string"
         ? tr.content
         : JSON.stringify(tr.content ?? "");
+      let effectiveResultContent = baseResultContent;
+      if (isReadLikeToolName(String(toolName ?? ""))) {
+        const filePath = toolMeta?.filePath;
+        if (isUnchangedReadStub(baseResultContent) && filePath) {
+          const cached = readContentByPath.get(filePath);
+          if (cached) effectiveResultContent = cached;
+        } else if (filePath && !isUnchangedReadStub(baseResultContent)) {
+          readContentByPath.set(filePath, baseResultContent);
+        }
+      }
       const resultContent = reduceToolResult
-        ? reduceToolResult(baseResultContent, tr.name, tr.tool_use_id)
-        : baseResultContent;
+        ? reduceToolResult(effectiveResultContent, toolName, toolUseId)
+        : effectiveResultContent;
       out.push({
         role: "tool",
         content: resultContent,
-        tool_call_id: tr.tool_use_id ?? "",
-        name: tr.name
+        tool_call_id: toolUseId,
+        name: toolName
       });
     }
 

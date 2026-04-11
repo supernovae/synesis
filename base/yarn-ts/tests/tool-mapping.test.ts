@@ -188,6 +188,65 @@ describe("claudeMessagesToOpenAI", () => {
     expect(result[2].tool_call_id).toBe("toolu_01");
     expect(result[2].content).toBe("file1.ts\nfile2.ts");
   });
+
+  it("reuses last read content when Claude returns unchanged stub", () => {
+    const result = claudeMessagesToOpenAI([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "toolu_read_1", name: "Read", input: { file_path: "/tmp/plan.md" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_read_1", content: "# Plan\n- item 1\n- item 2" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "toolu_read_2", name: "Read", input: { file_path: "/tmp/plan.md" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_read_2", content: "Unchanged since last read" },
+        ],
+      },
+    ]);
+    const toolMsgs = result.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(2);
+    expect(toolMsgs[0].content).toBe("# Plan\n- item 1\n- item 2");
+    expect(toolMsgs[1].content).toBe("# Plan\n- item 1\n- item 2");
+  });
+
+  it("passes tool_use_id to reducer callback", () => {
+    const seen: Array<{ id?: string; name?: string; content: string }> = [];
+    claudeMessagesToOpenAI(
+      [
+        {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "toolu_read_1", name: "Read", input: { file_path: "/tmp/plan.md" } },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_read_1", content: "plan content" },
+          ],
+        },
+      ],
+      (content, toolName, toolUseId) => {
+        seen.push({ id: toolUseId, name: toolName, content: String(content) });
+        return String(content);
+      },
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({ id: "toolu_read_1", name: "Read", content: "plan content" });
+  });
 });
 
 describe("sanitizeToolCalls", () => {
