@@ -50,6 +50,13 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     validationMissing: [],
   };
 
+  const subagentProtection = maybeBlockSubagentExploration(logicalName, opts.clientKind);
+  if (subagentProtection) {
+    out.toolName = subagentProtection.toolName;
+    out.input = subagentProtection.input;
+    return out;
+  }
+
   const pathNorm = normalizeFileToolArgs(logicalName, out.input);
   if (pathNorm.normalized) {
     out.input = pathNorm.input;
@@ -347,6 +354,26 @@ function maybeBlockPlanPlaceholderWrite(
         retryable: true,
       }),
       description: "Blocked destructive placeholder write to Claude plan file",
+    },
+  };
+}
+
+function maybeBlockSubagentExploration(
+  logicalName: string,
+  clientKind?: string,
+): { toolName: string; input: Record<string, unknown> } | null {
+  if (clientKind !== "claude-code") return null;
+  const lower = logicalName.trim().toLowerCase();
+  if (lower !== "agent" && lower !== "explore") return null;
+  const message = "Synesis Yarn blocked subagent-style exploration for this session because it causes low-yield wandering loops. Use direct tools instead: Read specific files, then Edit/Write one concrete change.";
+  return {
+    toolName: "Synesis_Error_SubagentBlocked",
+    input: {
+      synesis_error: true,
+      reason: "subagent_exploration_blocked",
+      original_tool: logicalName,
+      message,
+      retryable: true,
     },
   };
 }
