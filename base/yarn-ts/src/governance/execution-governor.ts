@@ -27,6 +27,12 @@ export interface ExecutionGovernorDecision {
   };
 }
 
+interface CommandEvent {
+  command: string;
+  toolName: string;
+  resultSignature: string;
+}
+
 export type GovernanceProfileName = "safety_strict" | "balanced_completion" | "strict_control";
 
 interface GovernorThresholds {
@@ -126,9 +132,22 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
   return "";
 }
 
-function extractCommandEvents(messages: GovernorInputMessage[]): Array<{ command: string; toolName: string }> {
+function normalizeResultSignature(content: unknown): string {
+  if (typeof content !== "string" || !content.trim()) return "";
+  return content
+    .toLowerCase()
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\b\d+(\.\d+)?\s*(ms|s|sec|seconds|m)\b/g, "<t>")
+    .replace(/\b0x[0-9a-f]+\b/g, "<hex>")
+    .replace(/\b\d+\b/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 400);
+}
+
+function extractCommandEvents(messages: GovernorInputMessage[]): CommandEvent[] {
   const callById = new Map<string, { command: string; toolName: string }>();
-  const out: Array<{ command: string; toolName: string }> = [];
+  const out: CommandEvent[] = [];
   for (const msg of messages) {
     if (msg.role === "assistant" && Array.isArray(msg.tool_calls)) {
       for (const call of msg.tool_calls) {
@@ -146,7 +165,10 @@ function extractCommandEvents(messages: GovernorInputMessage[]): Array<{ command
     if (!id) continue;
     const item = callById.get(id);
     if (!item) continue;
-    out.push(item);
+    out.push({
+      ...item,
+      resultSignature: normalizeResultSignature(msg.content),
+    });
   }
   return out;
 }
@@ -163,19 +185,22 @@ function isBroadDiscoveryCommand(toolName: string, command: string): boolean {
   return false;
 }
 
-function extractChangedFileHints(messages: GovernorInputMessage[]): string[] {
+function extractEditedFileHints(events: CommandEvent[]): string[] {
   const hints = new Set<string>();
-  const joined = messages
-    .map((m) => (typeof m.content === "string" ? m.content : ""))
-    .filter(Boolean)
-    .join("\n");
-  const rx = /([a-zA-Z0-9_\-./]+?\.(?:go|ts|tsx|js|jsx|py|rs|java|kt|yaml|yml|json|md))/g;
-  let match: RegExpExecArray | null;
-  while ((match = rx.exec(joined)) !== null) {
-    hints.add(match[1]);
+  for (const e of events) {
+    const c = normalizeString(e.command);
+    if (!c.startsWith("edit:")) continue;
+    const file = c.slice("edit:".length).trim();
+    if (!file) continue;
+    hints.add(file);
     if (hints.size >= 20) break;
   }
   return [...hints];
+}
+
+function hasFailureSignature(sig: string): boolean {
+  if (!sig) return false;
+  return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b|expected statement\b|undefined:\b/.test(sig);
 }
 
 function extractUserText(messages: GovernorInputMessage[]): string {
@@ -293,7 +318,7 @@ export function evaluateExecutionGovernor(
   })();
   const turnMessages = lastUserIdx >= 0 ? messages.slice(lastUserIdx + 1) : messages;
   const events = extractCommandEvents(turnMessages);
-  const changedFiles = extractChangedFileHints(turnMessages);
+  const changedFiles = extractEditedFileHints(events);
   const userText = extractUserText(messages);
   const hasFailures = hasFailureSignals(turnMessages);
   const testRuntime = inferTestRuntime(events, userText);
@@ -303,6 +328,7 @@ export function evaluateExecutionGovernor(
   let totalBroadDiscoveryCalls = 0;
   let broadVerificationCommands = 0;
   let broadTestRepeat = false;
+  let repeatedFailingVerification = 0;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
   const hasRunTest = events.some((e) =>
@@ -335,6 +361,14 @@ export function evaluateExecutionGovernor(
     ) {
       repeatedTestCommands += 1;
       if (currentIsBroadVerification || previousIsBroadVerification) broadTestRepeat = true;
+      if (
+        events[i].resultSignature
+        && events[i - 1].resultSignature
+        && events[i].resultSignature === events[i - 1].resultSignature
+        && hasFailureSignature(events[i].resultSignature)
+      ) {
+        repeatedFailingVerification += 1;
+      }
     }
     if (events[i].command !== events[i - 1].command) continue;
     if (i >= windowStart && (tool.includes("search") || tool.includes("read"))) {
@@ -348,6 +382,7 @@ export function evaluateExecutionGovernor(
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
+  if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
     || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
@@ -366,6 +401,24 @@ export function evaluateExecutionGovernor(
       pause: false,
       reason: "ok",
       matchedRules: ["allow"],
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_fail_repeat_block")) {
+    return {
+      pause: true,
+      reason: "verification_fail_repeat_block",
+      suggestedNextStep:
+        "You are repeating the same failing verification output. STOP re-running tests/builds. Read the failing file/error location, apply exactly one focused Edit/Write to address that root cause, then run one narrow verification command.",
+      matchedRules,
       telemetry: {
         repeatedTestCommands,
         repeatedReadSearchCalls,

@@ -19,6 +19,7 @@ export interface GovernToolCallOptions {
   clientKind?: string;
   restrictDiscoveryForPlanWork?: boolean;
   blockBroadVerificationForGreen?: boolean;
+  blockVerificationForFailure?: boolean;
 }
 
 export interface GovernedToolCall {
@@ -90,6 +91,19 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   if (broadVerificationProtection) {
     out.toolName = broadVerificationProtection.toolName;
     out.input = broadVerificationProtection.input;
+    out.blockedUnsafeShell = true;
+    return out;
+  }
+
+  const failingVerificationProtection = maybeBlockVerificationForFailure(
+    logicalName,
+    out.input,
+    opts.clientKind,
+    !!opts.blockVerificationForFailure,
+  );
+  if (failingVerificationProtection) {
+    out.toolName = failingVerificationProtection.toolName;
+    out.input = failingVerificationProtection.input;
     out.blockedUnsafeShell = true;
     return out;
   }
@@ -620,6 +634,50 @@ function maybeBlockBroadVerificationForGreen(
         retryable: true,
       }),
       description: "Blocked repeated broad verification command",
+    },
+  };
+}
+
+function maybeBlockVerificationForFailure(
+  logicalName: string,
+  input: Record<string, unknown>,
+  clientKind: string | undefined,
+  enabled: boolean,
+): { toolName: string; input: Record<string, unknown> } | null {
+  if (!enabled) return null;
+  const lower = logicalName.trim().toLowerCase();
+  if (lower !== "bash") return null;
+  const cmd = typeof input.command === "string" ? input.command.toLowerCase() : "";
+  if (!cmd) return null;
+  const verificationCommand =
+    /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(cmd);
+  if (!verificationCommand) return null;
+  const message = "Synesis Yarn blocked repeated failing verification commands. Apply one focused Edit/Write to fix the failing root cause first, then run one narrow verification command.";
+  if (clientKind === "claude-code") {
+    return {
+      toolName: "Synesis_Error_VerificationLoop",
+      input: {
+        synesis_error: true,
+        reason: "verification_fail_repeat_block",
+        original_tool: logicalName,
+        message,
+        retryable: true,
+      },
+    };
+  }
+  return {
+    toolName: "Bash",
+    input: {
+      command: buildStructuredErrorBashCommand({
+        synesis_error: true,
+        schema_version: 1,
+        category: "policy",
+        reason: "verification_fail_repeat_block",
+        original_tool: logicalName,
+        message,
+        retryable: true,
+      }),
+      description: "Blocked repeated failing verification command",
     },
   };
 }

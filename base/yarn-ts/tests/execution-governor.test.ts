@@ -23,7 +23,7 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("broad_to_narrow_verification");
     expect(out.matchedRules).toContain("no_repeat_without_change");
     expect(out.telemetry.noEditEvidence).toBe(true);
-    expect(out.suggestedNextStep).toContain("go test");
+    expect(out.suggestedNextStep).toContain("narrow verification");
   });
 
   it("does not pause repeated broad tests when verification is already green", () => {
@@ -97,6 +97,36 @@ describe("execution governor", () => {
     const out = evaluateExecutionGovernor(messages, "strict_control");
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("edit_before_retest");
+  });
+
+  it("pauses same failing verification signature until edit occurs", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("1", "# synesis.sh/synesis/cmd/synesis\ncmd/synesis/doctor_test.go:53:53: expected statement, found ')'"),
+      assistantCall("2", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("2", "# synesis.sh/synesis/cmd/synesis\ncmd/synesis/doctor_test.go:53:53: expected statement, found ')'"),
+      assistantCall("3", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("3", "# synesis.sh/synesis/cmd/synesis\ncmd/synesis/doctor_test.go:53:53: expected statement, found ')'"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_fail_repeat_block");
+    expect(out.matchedRules).toContain("verification_fail_repeat_block");
+    expect(out.telemetry.noEditEvidence).toBe(true);
+  });
+
+  it("does not treat file paths in error output as edit evidence", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("1", "cmd/synesis/doctor_test.go:53:53: expected statement, found ')'"),
+      assistantCall("2", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("2", "cmd/synesis/doctor_test.go:53:53: expected statement, found ')'"),
+      assistantCall("3", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("3", "cmd/synesis/doctor_test.go:53:53: expected statement, found ')'"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.noEditEvidence).toBe(true);
+    expect(out.matchedRules).toContain("verification_fail_repeat_block");
   });
 
   it("does not re-pause on stale loop history after a new user turn", () => {

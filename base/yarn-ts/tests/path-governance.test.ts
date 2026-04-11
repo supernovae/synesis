@@ -217,6 +217,34 @@ describe("governToolCall", () => {
     expect(out.toolName).toBe("Bash");
   });
 
+  it("blocks repeated failing verification bash when fail-repeat guard is active", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "go test -c ./cmd/synesis 2>&1" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      blockVerificationForFailure: true,
+    });
+    expect(out.toolName).toBe("Synesis_Error_VerificationLoop");
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("verification_fail_repeat_block");
+  });
+
+  it("allows verification bash when fail-repeat guard is inactive", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "go test -c ./cmd/synesis 2>&1" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      blockVerificationForFailure: false,
+    });
+    expect(out.toolName).toBe("Bash");
+  });
+
   it("normalizes alias tool names for validation without renaming output tool", () => {
     const out = governToolCall({
       toolName: "read_file",

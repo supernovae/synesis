@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import client from "../../api/client";
 import MetricCard from "../../components/common/MetricCard";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import StatusBadge from "../../components/common/StatusBadge";
 
 interface SuiteInfo {
   name: string;
@@ -22,6 +23,28 @@ interface OverviewResponse {
   }>;
 }
 
+interface RunDetailResponse {
+  run_id: string;
+  name: string;
+  status: string;
+  created_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  total_prompts: number;
+  completed_prompts: number;
+  failed_prompts: number;
+  comparison: Record<string, unknown>;
+}
+
+function statusVariantForRunStatus(status: string): "ok" | "adequate" | "pending" | "warning" | "error" {
+  const normalized = status.toLowerCase();
+  if (normalized === "completed") return "ok";
+  if (normalized === "running") return "adequate";
+  if (normalized === "cancelled") return "warning";
+  if (normalized === "failed" || normalized === "error") return "error";
+  return "pending";
+}
+
 export default function FeedbackLoop(): React.ReactElement {
   const [name, setName] = useState("Qwen closed-loop run");
   const [selectedSuites, setSelectedSuites] = useState<string[]>([
@@ -31,11 +54,24 @@ export default function FeedbackLoop(): React.ReactElement {
     "stability_plan_update_loop",
   ]);
   const [runId, setRunId] = useState("");
+  const [highlightActiveRun, setHighlightActiveRun] = useState(false);
+  const activeRunRef = useRef<HTMLDivElement | null>(null);
 
   const overview = useQuery<OverviewResponse>({
     queryKey: ["feedback-loop", "overview"],
     queryFn: () => client.get("/feedback-loop/overview").then((r) => r.data),
     refetchInterval: 15000,
+  });
+
+  const activeRun = useQuery<RunDetailResponse>({
+    queryKey: ["feedback-loop", "run", runId],
+    enabled: runId.trim().length > 0,
+    queryFn: () => client.get(`/feedback-loop/runs/${runId}`).then((r) => r.data),
+    refetchInterval: (query) => {
+      const status = String(query.state.data?.status ?? "").toLowerCase();
+      if (status === "running" || status === "pending") return 3000;
+      return 15000;
+    },
   });
 
   const startRun = useMutation({
@@ -44,6 +80,7 @@ export default function FeedbackLoop(): React.ReactElement {
         .post("/feedback-loop/runs", {
           name,
           execute_now: true,
+          wait_for_completion: false,
           eval_suites: selectedSuites,
           candidate_model: "synesis-agent",
         })
@@ -51,6 +88,7 @@ export default function FeedbackLoop(): React.ReactElement {
     onSuccess: (data) => {
       if (data?.run_id) setRunId(String(data.run_id));
       overview.refetch();
+      activeRun.refetch();
     },
   });
 
@@ -60,8 +98,14 @@ export default function FeedbackLoop(): React.ReactElement {
         .post(`/feedback-loop/runs/${runId}/pipeline`, {
           eval_suites: selectedSuites,
           auto_label: true,
+          wait_for_completion: false,
         })
         .then((r) => r.data),
+    onSuccess: (data) => {
+      if (data?.run_id) setRunId(String(data.run_id));
+      overview.refetch();
+      activeRun.refetch();
+    },
   });
 
   const exportDataset = useMutation({
@@ -74,6 +118,14 @@ export default function FeedbackLoop(): React.ReactElement {
   });
 
   const suiteSet = useMemo(() => new Set(selectedSuites), [selectedSuites]);
+
+  useEffect(() => {
+    if (!runId.trim()) return;
+    activeRunRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setHighlightActiveRun(true);
+    const t = window.setTimeout(() => setHighlightActiveRun(false), 1600);
+    return () => window.clearTimeout(t);
+  }, [runId]);
 
   return (
     <div className="space-y-6">
@@ -161,6 +213,42 @@ export default function FeedbackLoop(): React.ReactElement {
         </div>
       </div>
 
+      {runId.trim() && (
+        <div
+          ref={activeRunRef}
+          className={[
+            "rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-700 dark:border-gray-700 dark:bg-gray-900",
+            highlightActiveRun
+              ? "ring-2 ring-indigo-300 shadow-indigo-100 dark:ring-indigo-700/80 dark:shadow-indigo-900/20"
+              : "",
+          ].join(" ").trim()}
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white">Active Run Status</h2>
+            {activeRun.data && (
+              <StatusBadge
+                status={statusVariantForRunStatus(activeRun.data.status)}
+                label={activeRun.data.status}
+              />
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+            <div className="text-gray-600 dark:text-gray-300">
+              Run ID: <span className="font-mono text-xs">{runId}</span>
+            </div>
+            <div className="text-gray-600 dark:text-gray-300">
+              Progress: {activeRun.data?.completed_prompts ?? 0}/{activeRun.data?.total_prompts ?? 0}
+            </div>
+            <div className="text-gray-600 dark:text-gray-300">
+              Failed prompts: {activeRun.data?.failed_prompts ?? 0}
+            </div>
+            <div className="text-gray-600 dark:text-gray-300">
+              Last update: {activeRun.data?.completed_at ?? activeRun.data?.started_at ?? activeRun.data?.created_at ?? "n/a"}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
         <h2 className="mb-3 text-lg font-medium text-gray-900 dark:text-white">Recent Runs</h2>
         <div className="space-y-2">
@@ -179,6 +267,12 @@ export default function FeedbackLoop(): React.ReactElement {
                   {run.completed_prompts}/{run.total_prompts}
                 </div>
               </div>
+              <button
+                onClick={() => setRunId(run.run_id)}
+                className="ml-3 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                Track
+              </button>
             </div>
           ))}
         </div>
@@ -191,6 +285,7 @@ export default function FeedbackLoop(): React.ReactElement {
       )}
 
       <ApiErrorBanner error={overview.error} onDismiss={() => overview.refetch()} />
+      <ApiErrorBanner error={activeRun.error} onDismiss={() => activeRun.refetch()} />
       <ApiErrorBanner error={startRun.error} onDismiss={() => startRun.reset()} />
       <ApiErrorBanner error={runPipeline.error} onDismiss={() => runPipeline.reset()} />
       <ApiErrorBanner error={exportDataset.error} onDismiss={() => exportDataset.reset()} />

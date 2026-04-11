@@ -189,7 +189,7 @@ export const router = createBrowserRouter([
       { path: "rag/retrieval-gaps", element: <RetrievalGaps /> },
       { path: "rag/curator", element: <CuratorProposals /> },
       { path: "rag/testing-labs", element: <TestingLabs /> },
-      { path: "rag/feedback-loop", element: <FeedbackLoop /> },
+      { path: "rag/feedback-loop", element: <Navigate to="/observability/feedback-loop" replace /> },
 
       { path: "taxonomy", element: <DomainBrowser /> },
       { path: "taxonomy/coverage", element: <CoverageMap /> },
@@ -226,6 +226,7 @@ export const router = createBrowserRouter([
       { path: "observability/circuit-breakers", element: <CircuitBreakers /> },
       { path: "observability/errors", element: <ErrorLog /> },
       { path: "observability/errors/:failureId", element: <ErrorDetail /> },
+      { path: "observability/feedback-loop", element: <FeedbackLoop /> },
 
       { path: "security", element: <SecurityDashboard /> },
       { path: "security/events", element: <SecurityEvents /> },

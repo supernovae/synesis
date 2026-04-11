@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -34,6 +35,7 @@ class CreateLoopRunRequest(BaseModel):
     prompt_category: str = Field("", max_length=64)
     trace_filter: dict[str, Any] | None = None
     execute_now: bool = True
+    wait_for_completion: bool = True
     eval_suites: list[str] = Field(default_factory=list)
 
 
@@ -41,6 +43,7 @@ class RunPipelineRequest(BaseModel):
     eval_suites: list[str] = Field(default_factory=list)
     auto_label: bool = True
     auto_critic_score: bool = True
+    wait_for_completion: bool = True
 
 
 class CriticScoreRequest(BaseModel):
@@ -238,7 +241,7 @@ async def feedback_loop_overview(_user: UserInfo = Depends(get_current_user)):
                 "run_id": r.run_id,
                 "name": r.name,
                 "status": r.status,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "created_at": _to_iso_timestamp(r.created_at),
                 "total_prompts": r.total_prompts,
                 "completed_prompts": r.completed_prompts,
             }
@@ -247,9 +250,35 @@ async def feedback_loop_overview(_user: UserInfo = Depends(get_current_user)):
     }
 
 
+@router.get("/runs/{run_id}")
+async def feedback_loop_run_detail(
+    run_id: str,
+    _user: UserInfo = Depends(get_current_user),
+):
+    async with async_session() as session:
+        run = (
+            await session.execute(select(TestingLabsRun).where(TestingLabsRun.run_id == run_id))
+        ).scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {
+        "run_id": run.run_id,
+        "name": run.name,
+        "status": run.status,
+        "created_at": _to_iso_timestamp(run.created_at),
+        "started_at": _to_iso_timestamp(run.started_at),
+        "completed_at": _to_iso_timestamp(run.completed_at),
+        "total_prompts": run.total_prompts,
+        "completed_prompts": run.completed_prompts,
+        "failed_prompts": run.failed_prompts,
+        "comparison": run.comparison if isinstance(run.comparison, dict) else {},
+    }
+
+
 @router.post("/runs")
 async def create_feedback_loop_run(
     body: CreateLoopRunRequest,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
 ):
     run_id = f"fl-{uuid.uuid4().hex[:12]}"
@@ -275,9 +304,20 @@ async def create_feedback_loop_run(
         session.add(run)
         await session.commit()
 
-    pipeline_result = {"run_id": run_id, "status": "pending"}
+    pipeline_result: dict[str, Any] = {"run_id": run_id, "status": "pending"}
     if body.execute_now:
-        pipeline_result = await _run_pipeline(run_id, body.eval_suites, auto_label=True)
+        if body.wait_for_completion:
+            pipeline_result = await _run_pipeline(run_id, body.eval_suites, auto_label=True)
+        else:
+            # Queue execution to avoid request timeouts in UI/proxies for longer replay/eval runs.
+            background_tasks.add_task(
+                _run_pipeline_background,
+                run_id,
+                body.eval_suites,
+                True,
+                True,
+            )
+            pipeline_result = {"run_id": run_id, "status": "running", "queued": True}
     return pipeline_result
 
 
@@ -285,8 +325,18 @@ async def create_feedback_loop_run(
 async def run_feedback_pipeline(
     run_id: str,
     body: RunPipelineRequest,
+    background_tasks: BackgroundTasks,
     _user: UserInfo = Depends(require_admin),
 ):
+    if not body.wait_for_completion:
+        background_tasks.add_task(
+            _run_pipeline_background,
+            run_id,
+            body.eval_suites,
+            body.auto_label,
+            body.auto_critic_score,
+        )
+        return {"run_id": run_id, "status": "running", "queued": True}
     return await _run_pipeline(run_id, body.eval_suites, body.auto_label, body.auto_critic_score)
 
 
@@ -448,3 +498,35 @@ async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool, a
         "labeled_results": labeled_count,
         "critic_scored_results": scored_count,
     }
+
+
+def _to_iso_timestamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()  # type: ignore[no-any-return]
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+async def _run_pipeline_background(
+    run_id: str,
+    eval_suites: list[str],
+    auto_label: bool,
+    auto_critic_score: bool,
+) -> None:
+    try:
+        await _run_pipeline(run_id, eval_suites, auto_label, auto_critic_score)
+    except Exception:
+        # Keep background failures from tearing down request handlers.
+        # The underlying run row is still updated by execute_run/_finalize_run on failure paths.
+        logging.getLogger("synesis.admin.feedback_loop").exception(
+            "feedback_loop_background_pipeline_failed run_id=%s",
+            run_id,
+        )

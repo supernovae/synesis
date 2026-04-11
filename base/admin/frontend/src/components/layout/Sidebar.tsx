@@ -111,7 +111,6 @@ const navigation: NavItem[] = [
       { label: "Retrieval Gaps", path: "/rag/retrieval-gaps" },
       { label: "Curator", path: "/rag/curator" },
       { label: "Testing Labs", path: "/rag/testing-labs" },
-      { label: "Feedback Loop", path: "/rag/feedback-loop" },
     ],
   },
   {
@@ -168,6 +167,7 @@ const navigation: NavItem[] = [
       { label: "Cache", path: "/observability/cache" },
       { label: "Circuit Breakers", path: "/observability/circuit-breakers" },
       { label: "Errors", path: "/observability/errors" },
+      { label: "Feedback Loop", path: "/observability/feedback-loop" },
     ],
   },
   { label: "Admin Assistant", icon: Bot, path: "/assistant/admin", minRole: "org_admin" },
