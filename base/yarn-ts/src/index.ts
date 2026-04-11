@@ -873,6 +873,7 @@ interface QwenPivotState {
 }
 
 const qwenInterventionBySession = new Map<string, Map<string, QwenPivotState>>();
+const qwenInterventionTurnBySession = new Map<string, number>();
 
 /**
  * Decide whether to suppress a pivot injection.
@@ -927,9 +928,59 @@ function markQwenIntervention(sessionKey: string, turnMarker: number, pivotKind:
 
 function resetQwenInterventionOnUserTurn(sessionKey: string): void {
   qwenInterventionBySession.delete(sessionKey);
+  qwenInterventionTurnBySession.delete(sessionKey);
 }
 
-function classifyQwenPivotEvent(prompt: string): string {
+function nextQwenInterventionTurn(sessionKey: string): number {
+  const next = (qwenInterventionTurnBySession.get(sessionKey) ?? 0) + 1;
+  qwenInterventionTurnBySession.set(sessionKey, next);
+  return next;
+}
+
+function classifyQwenPivotEvent(
+  prompt: string,
+  recentToolCalls: RecentToolCall[],
+  source: "early" | "dampening" = "early",
+): string {
+  if (source === "dampening") return "adapter_qwen_dampening";
+  const tail = recentToolCalls.slice(-8);
+  let consecutiveEditSameFile = 0;
+  let lastEditPath = "";
+  let readLikeCount = 0;
+  let gitInspectionCount = 0;
+  const sigCounts = new Map<string, number>();
+  for (const call of tail) {
+    const tool = call.toolName.trim().toLowerCase();
+    const filePath = (call.filePath ?? "").trim();
+    const sig = `${tool}:${filePath}`;
+    sigCounts.set(sig, (sigCounts.get(sig) ?? 0) + 1);
+    if (tool === "edit" || tool === "update") {
+      if (filePath && (lastEditPath === "" || lastEditPath === filePath)) {
+        consecutiveEditSameFile += 1;
+      } else {
+        consecutiveEditSameFile = 1;
+      }
+      lastEditPath = filePath;
+    }
+    if (tool === "read" || tool === "cat" || tool === "head" || tool === "tail") {
+      readLikeCount += 1;
+    }
+    if (tool === "bash") {
+      const cmd = typeof call.args?.command === "string" ? call.args.command.toLowerCase() : "";
+      if (
+        /\bgit\s+status\b/.test(cmd)
+        || /\bgit\s+diff\b/.test(cmd)
+        || /\bgit\s+log\b/.test(cmd)
+        || /\bgit\s+show\b/.test(cmd)
+      ) {
+        gitInspectionCount += 1;
+      }
+    }
+  }
+  if (consecutiveEditSameFile >= 3) return "adapter_qwen_edit_retry";
+  if (gitInspectionCount >= 4) return "adapter_qwen_git_introspection";
+  if (readLikeCount >= 3) return "adapter_qwen_read_loop";
+  if ([...sigCounts.values()].some((v) => v >= 3)) return "adapter_qwen_repeated_intent";
   const p = prompt.toLowerCase();
   if (p.includes("implementation plan")) return "adapter_qwen_plan_no_action";
   if (p.includes("repeating the same intent")) return "adapter_qwen_repeated_intent";
@@ -4985,7 +5036,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiRecentAssistantText = extractRecentAssistantText(
       normalizedRequest.messages as Array<{ role: string; content: unknown }>,
     );
-    const turnMarker = (normalizedRequest.messages as Array<{ role: string; content: unknown }>).length;
+    const turnMarker = nextQwenInterventionTurn(sessionKey);
     if (adapter.getEarlyPivotPrompt) {
       const earlyPivot = adapter.getEarlyPivotPrompt(oaiRecentCalls, {
         recentAssistantText: oaiRecentAssistantText,
@@ -4996,7 +5047,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
       });
       if (earlyPivot) {
-        const pivotKind = classifyQwenPivotEvent(earlyPivot);
+        const pivotKind = classifyQwenPivotEvent(earlyPivot, oaiRecentCalls, "early");
         const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, pivotKind);
         if (decision === "hard_stop") {
           app.log.warn(
@@ -5030,10 +5081,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
       const oaiToolNames = oaiRecentCalls.map((c) => c.toolName);
       const dampening = adapter.dampenConsecutiveSameTools(oaiToolNames);
       if (dampening) {
-        const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, "dampening");
+        const dampeningPivotKind = classifyQwenPivotEvent(dampening, oaiRecentCalls, "dampening");
+        const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
         if (decision === "hard_stop") {
           app.log.warn(
-            { sessionKey, family: adapter.family, turnMarker, pivotKind: "dampening" },
+            { sessionKey, family: adapter.family, turnMarker, pivotKind: dampeningPivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
           const hardStopContent = "I've been stuck in a loop repeating the same actions (dampening). I need your guidance to proceed differently. What would you like me to do?";
@@ -5051,7 +5103,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           );
         } else {
           modelMessages = [...modelMessages, { role: "system" as const, content: dampening }] as typeof modelMessages;
-          markQwenIntervention(sessionKey, turnMarker, "dampening");
+          markQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
           app.log.info({ sessionKey, family: adapter.family, dampenLen: dampening.length }, "adapter_dampening_oai");
         }
       }
@@ -7133,7 +7185,7 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeRecentAssistantText = extractRecentAssistantText(
       normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
     );
-    const turnMarker = (normalizedFromClaude.messages as Array<{ role: string; content: unknown }>).length;
+    const turnMarker = nextQwenInterventionTurn(claudeSessionKey);
     if (claudeAdapter.getEarlyPivotPrompt) {
       const earlyPivot = claudeAdapter.getEarlyPivotPrompt(claudeRecentCalls, {
         recentAssistantText: claudeRecentAssistantText,
@@ -7144,7 +7196,7 @@ app.post("/v1/messages", async (req, reply) => {
         editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
       });
       if (earlyPivot) {
-        const pivotKind = classifyQwenPivotEvent(earlyPivot);
+        const pivotKind = classifyQwenPivotEvent(earlyPivot, claudeRecentCalls, "early");
         const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
         if (decision === "hard_stop") {
           app.log.warn(
@@ -7178,10 +7230,11 @@ app.post("/v1/messages", async (req, reply) => {
       const claudeToolNames = claudeRecentCalls.map((c) => c.toolName);
       const dampening = claudeAdapter.dampenConsecutiveSameTools(claudeToolNames);
       if (dampening) {
-        const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, "dampening");
+        const dampeningPivotKind = classifyQwenPivotEvent(dampening, claudeRecentCalls, "dampening");
+        const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
         if (decision === "hard_stop") {
           app.log.warn(
-            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind: "dampening" },
+            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind: dampeningPivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
           const hardStopContent = "I've been stuck in a loop repeating the same actions (dampening). I need your guidance to proceed differently. What would you like me to do?";
@@ -7199,7 +7252,7 @@ app.post("/v1/messages", async (req, reply) => {
           );
         } else {
           claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: dampening }] as typeof claudeModelMessages;
-          markQwenIntervention(claudeSessionKey, turnMarker, "dampening");
+          markQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
           app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, dampenLen: dampening.length }, "adapter_dampening_claude");
         }
       }
