@@ -91,6 +91,34 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("path drift");
   });
 
+  it("blocks compound git inspection churn for claude-code", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "git status && git diff pkg/output/output.go" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_GitInspectionChurn");
+    expect(out.blockedUnsafeShell).toBe(true);
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("git_inspection_churn");
+  });
+
+  it("allows git commands that include concrete action", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "git add pkg/output/output.go && git commit -m \"update output\"" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Bash");
+    expect(out.blockedUnsafeShell).toBe(false);
+  });
+
   it("normalizes alias tool names for validation without renaming output tool", () => {
     const out = governToolCall({
       toolName: "read_file",

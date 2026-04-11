@@ -112,6 +112,35 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
     const command = out.input.command;
     if (typeof command === "string" && command.trim()) {
+      const gitInspectionChurn = detectCompoundGitInspection(command, opts.clientKind);
+      if (gitInspectionChurn) {
+        const message = `Synesis Yarn blocked low-yield git inspection churn: ${gitInspectionChurn.reason}. Perform one concrete action next (Edit/Write, test/build, or git add/commit).`;
+        if (opts.clientKind === "claude-code") {
+          out.toolName = "Synesis_Error_GitInspectionChurn";
+          out.input = {
+            synesis_error: true,
+            reason: "git_inspection_churn",
+            detail: gitInspectionChurn.reason,
+            message,
+            retryable: true,
+          };
+        } else {
+          out.input = {
+            command: buildStructuredErrorBashCommand({
+              synesis_error: true,
+              schema_version: 1,
+              category: "policy",
+              reason: "git_inspection_churn",
+              detail: gitInspectionChurn.reason,
+              message,
+              retryable: true,
+            }),
+            description: "Blocked low-yield git inspection churn",
+          };
+        }
+        out.blockedUnsafeShell = true;
+        return out;
+      }
       const pathDrift = opts.blockBashPathDrift ? detectBashPathDrift(command) : null;
       const dangerous = detectDangerousBash(command);
       if (pathDrift || dangerous) {
@@ -341,6 +370,31 @@ function detectDangerousBash(command: string): { reason: string } | null {
     return { reason: "destructive system command detected" };
   }
   
+  return null;
+}
+
+function detectCompoundGitInspection(command: string, clientKind?: string): { reason: string } | null {
+  if (clientKind !== "claude-code") return null;
+  const c = command.trim().toLowerCase();
+  const hasAction =
+    /\bgit\s+add\b/.test(c)
+    || /\bgit\s+commit\b/.test(c)
+    || /\bgit\s+push\b/.test(c)
+    || /\bgit\s+checkout\b/.test(c)
+    || /\bgit\s+restore\b/.test(c);
+  if (hasAction) return null;
+  const inspectMatches = [
+    /\bgit\s+status\b/.test(c),
+    /\bgit\s+diff\b/.test(c),
+    /\bgit\s+log\b/.test(c),
+    /\bgit\s+show\b/.test(c),
+  ].filter(Boolean).length;
+  // Allow single, targeted git introspection calls. Block only chained / mixed
+  // inspection commands that tend to loop with qwen in Claude Code sessions.
+  const chained = c.includes("&&") || c.includes(";");
+  if (inspectMatches >= 2 || (inspectMatches >= 1 && chained)) {
+    return { reason: "compound git status/diff/log inspection without action" };
+  }
   return null;
 }
 
