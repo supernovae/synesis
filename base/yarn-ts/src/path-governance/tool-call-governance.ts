@@ -17,6 +17,7 @@ export interface GovernToolCallOptions {
   strictValidationBlock?: boolean;
   blockWriteCapableTools?: boolean;
   clientKind?: string;
+  restrictDiscoveryForPlanWork?: boolean;
 }
 
 export interface GovernedToolCall {
@@ -24,6 +25,8 @@ export interface GovernedToolCall {
   input: Record<string, unknown>;
   normalizedPath: boolean;
   constrainedToRoot: boolean;
+  envelopeUnwrapped: boolean;
+  envelopeSource: string | null;
   blockedUnsafeShell: boolean;
   blockedWriteCapable: boolean;
   blockedBashDrift: boolean;
@@ -44,16 +47,36 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     input: { ...opts.input },
     normalizedPath: false,
     constrainedToRoot: false,
+    envelopeUnwrapped: false,
+    envelopeSource: null,
     blockedUnsafeShell: false,
     blockedWriteCapable: false,
     blockedBashDrift: false,
     validationMissing: [],
   };
 
+  const envelope = unwrapCommonToolEnvelope(logicalName, out.input);
+  out.input = envelope.input;
+  out.envelopeUnwrapped = envelope.unwrapped;
+  out.envelopeSource = envelope.source;
+
   const subagentProtection = maybeBlockSubagentExploration(logicalName, opts.clientKind);
   if (subagentProtection) {
     out.toolName = subagentProtection.toolName;
     out.input = subagentProtection.input;
+    return out;
+  }
+
+  const planScopeProtection = maybeBlockBroadDiscoveryForPlanWork(
+    logicalName,
+    out.input,
+    opts.clientKind,
+    !!opts.restrictDiscoveryForPlanWork,
+  );
+  if (planScopeProtection) {
+    out.toolName = planScopeProtection.toolName;
+    out.input = planScopeProtection.input;
+    out.blockedUnsafeShell = true;
     return out;
   }
 
@@ -204,6 +227,8 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
           missing: validation.missing,
           message: human,
           hint: validationHint(logicalName, validation.missing),
+          expected_schema: expectedToolSchema(logicalName),
+          example: validationExample(logicalName),
           retryable: true,
         };
       } else {
@@ -217,6 +242,8 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
             missing: validation.missing,
             message: human,
             hint: validationHint(logicalName, validation.missing),
+            expected_schema: expectedToolSchema(logicalName),
+            example: validationExample(logicalName),
             retryable: true,
           }),
           description: "Blocked invalid tool arguments",
@@ -276,7 +303,97 @@ function validationHint(logicalName: string, missing: string[]): string {
   if (logicalName === "Glob") {
     return `${base} For Glob, required param is glob_pattern (for example "*.py" or "**/*.test.ts").`;
   }
-  return `${base} Example: Write uses file_path and content.`;
+  return `${base} Emit exactly one tool call with strict JSON arguments only (no comments, no extra wrapper keys).`;
+}
+
+function expectedToolSchema(logicalName: string): string[] {
+  switch (logicalName) {
+    case "Write":
+      return ["file_path", "content"];
+    case "Read":
+      return ["file_path"];
+    case "Edit":
+    case "Update":
+      return ["file_path", "old_string", "new_string"];
+    case "Bash":
+      return ["command"];
+    case "Glob":
+      return ["glob_pattern"];
+    case "Grep":
+      return ["pattern"];
+    default:
+      return [];
+  }
+}
+
+function validationExample(logicalName: string): Record<string, unknown> {
+  switch (logicalName) {
+    case "Write":
+      return { file_path: "path/to/file.ts", content: "..." };
+    case "Read":
+      return { file_path: "path/to/file.ts" };
+    case "Edit":
+    case "Update":
+      return { file_path: "path/to/file.ts", old_string: "before", new_string: "after" };
+    case "Bash":
+      return { command: "npm test" };
+    case "Glob":
+      return { glob_pattern: "**/*.ts" };
+    case "Grep":
+      return { pattern: "TODO" };
+    default:
+      return {};
+  }
+}
+
+function unwrapCommonToolEnvelope(
+  logicalName: string,
+  input: Record<string, unknown>,
+): { input: Record<string, unknown>; unwrapped: boolean; source: string | null } {
+  const topValidation = validateToolArgs(logicalName, input);
+  if (topValidation.valid) return { input, unwrapped: false, source: null };
+
+  const nestedCandidates: Array<{ input: Record<string, unknown>; source: string }> = [];
+  const argsObj = toRecord(input.args, "args");
+  if (argsObj) nestedCandidates.push(argsObj);
+  const argumentsObj = toRecord(input.arguments, "arguments");
+  if (argumentsObj) nestedCandidates.push(argumentsObj);
+  const inputObj = toRecord(input.input, "input");
+  if (inputObj) nestedCandidates.push(inputObj);
+
+  for (const candidate of nestedCandidates) {
+    const nestedValidation = validateToolArgs(logicalName, candidate.input);
+    if (nestedValidation.valid) return { input: candidate.input, unwrapped: true, source: candidate.source };
+  }
+
+  for (const candidate of nestedCandidates) {
+    const required = expectedToolSchema(logicalName);
+    if (required.length === 0) continue;
+    const present = required.filter((k) => candidate.input[k] !== undefined && candidate.input[k] !== null);
+    if (present.length > 0) {
+      return { input: candidate.input, unwrapped: true, source: candidate.source };
+    }
+  }
+  return { input, unwrapped: false, source: null };
+}
+
+function toRecord(value: unknown, keyName: string): { input: Record<string, unknown>; source: string } | null {
+  if (!value) return null;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return { input: { ...(value as Record<string, unknown>) }, source: `${keyName}_object` };
+  }
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text.startsWith("{") || !text.endsWith("}")) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { input: parsed as Record<string, unknown>, source: `${keyName}_json_string` };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function recoverConstrainedPathRequest(
@@ -376,6 +493,72 @@ function maybeBlockSubagentExploration(
       retryable: true,
     },
   };
+}
+
+function maybeBlockBroadDiscoveryForPlanWork(
+  logicalName: string,
+  input: Record<string, unknown>,
+  clientKind: string | undefined,
+  enabled: boolean,
+): { toolName: string; input: Record<string, unknown> } | null {
+  if (!enabled || clientKind !== "claude-code") return null;
+  const lower = logicalName.trim().toLowerCase();
+  if (lower === "glob") {
+    const pattern = typeof input.glob_pattern === "string" ? input.glob_pattern.trim() : "";
+    if (
+      pattern === "*"
+      || pattern === "**/*"
+      || pattern.startsWith("**/*.go")
+      || pattern.startsWith("cmd/synesis/*.go")
+      || pattern.startsWith("pkg/**/*.go")
+    ) {
+      return {
+        toolName: "Synesis_Error_PlanExecutionScope",
+        input: {
+          synesis_error: true,
+          reason: "plan_execution_scope",
+          original_tool: logicalName,
+          message: "Plan-execution mode is active. Broad discovery is blocked. Read the plan once, then do one concrete Edit/Write or focused test/build.",
+          retryable: true,
+        },
+      };
+    }
+  }
+  if (lower === "bash") {
+    const cmd = typeof input.command === "string" ? input.command.toLowerCase() : "";
+    if (!cmd) return null;
+    const hasConcreteAction =
+      /\bgit\s+add\b/.test(cmd)
+      || /\bgit\s+commit\b/.test(cmd)
+      || /\bgit\s+push\b/.test(cmd)
+      || /\bgit\s+checkout\b/.test(cmd)
+      || /\bgit\s+restore\b/.test(cmd)
+      || /\bgo\s+test\b/.test(cmd)
+      || /\bgo\s+build\b/.test(cmd)
+      || /\bgo\s+vet\b/.test(cmd)
+      || /\bcat\b/.test(cmd)
+      || /\bhead\b/.test(cmd)
+      || /\btail\b/.test(cmd);
+    const isBroadDiscovery =
+      /\bls\s+-la\b/.test(cmd)
+      || /\bfind\s+/.test(cmd)
+      || /\bgit\b.*\blog\b/.test(cmd)
+      || /\bgit\b.*\bdiff\s+.*--stat\b/.test(cmd)
+      || /\bgit\s+status\b/.test(cmd);
+    if (isBroadDiscovery && !hasConcreteAction) {
+      return {
+        toolName: "Synesis_Error_PlanExecutionScope",
+        input: {
+          synesis_error: true,
+          reason: "plan_execution_scope",
+          original_tool: logicalName,
+          message: "Plan-execution mode is active. Broad discovery Bash commands are blocked. Read/update the plan and apply one concrete code change.",
+          retryable: true,
+        },
+      };
+    }
+  }
+  return null;
 }
 
 function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | null): string | null {

@@ -550,6 +550,7 @@ describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
     const adapter = new Qwen3CoderAdapter(false);
     const prompt = adapter.toolSystemPrompt(10)!;
     expect(prompt).toContain("## Workflow discipline");
+    expect(prompt).toContain("One action per turn");
     expect(prompt).toContain("Read-then-act");
     expect(prompt).toContain("Plan commitment");
     expect(prompt).toContain("Progressive narrowing");
@@ -561,6 +562,7 @@ describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
     const adapter = new Qwen3CoderAdapter(true);
     const prompt = adapter.toolSystemPrompt(10)!;
     expect(prompt).toContain("## Workflow discipline");
+    expect(prompt).toContain("One action per turn");
     expect(prompt).toContain("Read-then-act");
   });
 
@@ -651,6 +653,33 @@ describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
     expect(result).toContain("pkg/output/output.go");
   });
 
+  it("detects single-action drift when read/search/inspect are mixed without action", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "main.go" },
+      { toolName: "Grep", args: { pattern: "TODO" } },
+      { toolName: "Bash", args: { command: "git status" } },
+      { toolName: "Glob", args: { glob_pattern: "**/*.go" } },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls);
+    expect(result).not.toBeNull();
+    expect(result).toContain("mixing multiple exploratory actions");
+    expect(result).toContain("exactly ONE concrete action");
+  });
+
+  it("does not trigger single-action drift when a concrete action exists", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "main.go" },
+      { toolName: "Grep", args: { pattern: "TODO" } },
+      { toolName: "Edit", filePath: "main.go", args: { old_string: "x", new_string: "y" } },
+      { toolName: "Bash", args: { command: "git status" } },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls, {
+      stagnationThreshold: 4,
+      planNoActionLimit: 5,
+    });
+    expect(result).toBeNull();
+  });
+
   it("detects plan-without-action when implementation intent is stated", () => {
     const calls: RecentToolCall[] = [
       { toolName: "Read", filePath: "doctor.go" },
@@ -664,6 +693,21 @@ describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
     });
     expect(result).not.toBeNull();
     expect(result).toContain("implementation plan");
+  });
+
+  it("does not trigger plan-without-action during plan maintenance workflow", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+      { toolName: "Read", filePath: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+      { toolName: "Read", filePath: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+      { toolName: "Read", filePath: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls, {
+      recentAssistantText: "I'll implement the remaining phase steps and update the plan.",
+      recentUserPrompt: "please update the plan marking phase 4 implementations complete",
+      planNoActionLimit: 4,
+    });
+    expect(result).not.toContain("implementation plan");
   });
 
   it("does not trigger plan-without-action when an edit action exists", () => {
@@ -702,6 +746,20 @@ describe("Qwen3CoderAdapter.getEarlyPivotPrompt", () => {
     });
     expect(result).not.toBeNull();
     expect(result).toContain("repeating the same intent");
+  });
+
+  it("treats update-plan prompts as edit intent (not show intent)", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+      { toolName: "Read", filePath: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+      { toolName: "Read", filePath: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
+    ];
+    const result = adapter.getEarlyPivotPrompt!(calls, {
+      recentUserPrompt: "please update the plan marking phase 4 complete",
+      stagnationThreshold: 3,
+    });
+    expect(result).toContain("maintaining a plan file");
+    expect(result).toContain("Execute exactly one Edit/Write");
   });
 });
 

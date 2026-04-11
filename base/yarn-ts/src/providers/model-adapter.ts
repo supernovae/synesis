@@ -197,6 +197,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const workflowDiscipline = [
       "",
       "## Workflow discipline",
+      "- **One action per turn**: In each turn, do exactly ONE of: (1) call one tool, (2) update plan status, or (3) ask one blocker question. Never combine them.",
       "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command — never re-read the same file.",
       "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have.",
       "- **Progressive narrowing**: Each tool call must produce NEW information or make a change. If a search returns results, act on them — do not search again with slightly different terms.",
@@ -295,6 +296,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const noAction = this._detectPlanWithoutAction(
       recentToolCalls,
       options.recentAssistantText,
+      options.recentUserPrompt,
       planNoActionLimit,
     );
     if (noAction) return noAction;
@@ -305,6 +307,9 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
     const gitIntrospectionLoop = this._detectGitIntrospectionLoop(recentToolCalls);
     if (gitIntrospectionLoop) return gitIntrospectionLoop;
+
+    const multiActionDrift = this._detectSingleActionDrift(recentToolCalls);
+    if (multiActionDrift) return multiActionDrift;
 
     const repeatedIntent = this._detectRepeatedIntentLoop(
       recentToolCalls,
@@ -365,10 +370,18 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   private _detectPlanWithoutAction(
     recentToolCalls: RecentToolCall[],
     recentAssistantText: string | null | undefined,
+    recentUserPrompt: string | null | undefined,
     noActionLimit: number,
   ): string | null {
     const text = (recentAssistantText ?? "").trim();
     if (!text || !IMPLEMENT_INTENT_RE.test(text)) return null;
+    const userPrompt = (recentUserPrompt ?? "").toLowerCase();
+    const isPlanMaintenance =
+      userPrompt.includes("plan")
+      && /\b(update|mark|check off|complete|resume|load|show|current|remaining)\b/.test(userPrompt);
+    // Plan maintenance often requires a read->edit sequence; avoid tripping the
+    // no-action detector too early during these flows.
+    if (isPlanMaintenance) return null;
     const tail = recentToolCalls.slice(-noActionLimit);
     if (tail.length < noActionLimit) return null;
     if (tail.some((c) => isActionToolCall(c))) return null;
@@ -378,8 +391,8 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   private _classifyUserIntent(prompt?: string | null): "show" | "edit" | "unknown" {
     if (!prompt) return "unknown";
     const lower = prompt.toLowerCase();
-    if (/\b(show|display|print|read|view|see|what('s| is)|current|status|check)\b/.test(lower)) return "show";
     if (/\b(implement|fix|change|edit|update|add|create|build|write|refactor|delete|remove)\b/.test(lower)) return "edit";
+    if (/\b(show|display|print|view|see|what('s| is)|current|status|check)\b/.test(lower)) return "show";
     return "unknown";
   }
 
@@ -411,6 +424,10 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const target = top.sample.filePath?.trim()
       || (typeof top.sample.args?.file_path === "string" ? top.sample.args.file_path : "")
       || "the same target";
+    const isPlanTarget = target.includes("/.claude/plans/") || target.includes("\\.claude\\plans\\");
+    if (userIntent === "edit" && isPlanTarget) {
+      return `You are maintaining a plan file (${target}) and repeating reads/searches without applying updates. STOP re-reading. Execute exactly one Edit/Write now to mark completed items, then continue with the next task.`;
+    }
     if (userIntent === "show") {
       return `STOP. You already have the contents of ${target}. The user asked to see it. Respond to the user NOW with the content you have. Do NOT call any more tools.`;
     }
@@ -478,10 +495,51 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const uniqueFiles = [...new Set(filePaths)];
     if (uniqueFiles.length === 0) return null;
     const fileList = uniqueFiles.slice(0, 4).join(", ");
+    const primaryFile = uniqueFiles[0] ?? "";
+    const isPlanFile = primaryFile.includes("/.claude/plans/") || primaryFile.includes("\\.claude\\plans\\");
+    if (userIntent === "edit" && isPlanFile) {
+      return `You are maintaining a plan file (${fileList}). STOP re-reading it. Execute exactly one Edit/Write now to mark completed items, then continue with the next task.`;
+    }
     if (userIntent === "show") {
       return `STOP. You already have the contents of ${fileList}. The user asked to see/show it. Respond to the user NOW with the content you have. Do NOT read the file again.`;
     }
     return `You have read ${fileList} multiple times. You have enough context. Make your change now using Edit/Write or run a test/build. Do not read these files again.`;
+  }
+
+  /** Detect mixed exploratory hops without any concrete action. */
+  private _detectSingleActionDrift(recentToolCalls: RecentToolCall[]): string | null {
+    const tail = recentToolCalls.slice(-6);
+    if (tail.length < 4) return null;
+
+    const categories = new Set<string>();
+    let actionCount = 0;
+    for (const call of tail) {
+      if (isActionToolCall(call)) {
+        actionCount += 1;
+        continue;
+      }
+      const tool = call.toolName.trim().toLowerCase();
+      if (tool === "read" || tool === "cat" || tool === "head" || tool === "tail") {
+        categories.add("read");
+      } else if (tool === "grep" || tool === "glob") {
+        categories.add("search");
+      } else if (tool === "bash") {
+        const cmd = typeof call.args?.command === "string" ? call.args.command.toLowerCase() : "";
+        if (
+          /\bgit\s+status\b/.test(cmd)
+          || /\bgit\s+diff\b/.test(cmd)
+          || /\bgit\s+log\b/.test(cmd)
+          || /\bls\s+-la\b/.test(cmd)
+          || /\bfind\s+/.test(cmd)
+        ) {
+          categories.add("inspect");
+        }
+      }
+    }
+
+    if (actionCount > 0) return null;
+    if (categories.size < 3) return null;
+    return "You are mixing multiple exploratory actions in one loop (read/search/inspect) without progress. Next turn: perform exactly ONE concrete action only — either a single Edit/Write, OR one focused test/build command, OR one user-facing blocker question.";
   }
 
   /** Detect repeated Edit/Update calls to the same file (error-retry loop). */

@@ -145,6 +145,50 @@ describe("governToolCall", () => {
     expect(out.toolName).toBe("Agent");
   });
 
+  it("blocks broad Glob discovery in plan-execution mode for claude-code", () => {
+    const out = governToolCall({
+      toolName: "Glob",
+      input: { glob_pattern: "**/*.go" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      restrictDiscoveryForPlanWork: true,
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanExecutionScope");
+    expect(out.blockedUnsafeShell).toBe(true);
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("plan_execution_scope");
+  });
+
+  it("allows narrow Glob in plan-execution mode", () => {
+    const out = governToolCall({
+      toolName: "Glob",
+      input: { glob_pattern: "base/yarn-ts/src/providers/*.ts" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      restrictDiscoveryForPlanWork: true,
+    });
+    expect(out.toolName).toBe("Glob");
+  });
+
+  it("blocks git-status churn bash in plan-execution mode", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "git status && git log --oneline -5" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      restrictDiscoveryForPlanWork: true,
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanExecutionScope");
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("plan_execution_scope");
+  });
+
   it("normalizes alias tool names for validation without renaming output tool", () => {
     const out = governToolCall({
       toolName: "read_file",
@@ -275,6 +319,52 @@ describe("governToolCall", () => {
     expect(out.input.synesis_error).toBe(true);
     expect(out.input.reason).toBe("validation_failed");
     expect(out.input.original_tool).toBe("Write");
+  });
+
+  it("unwraps strict-schema envelope args for Write", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: { tool: "Write", args: { file_path: "main.go", content: "package main" } },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Write");
+    expect(out.validationMissing).toEqual([]);
+    expect(out.input).toEqual({ file_path: "main.go", content: "package main" });
+    expect(out.envelopeUnwrapped).toBe(true);
+    expect(out.envelopeSource).toBe("args_object");
+  });
+
+  it("unwraps JSON-string arguments envelope for Bash", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { arguments: "{\"command\":\"git status\"}" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Bash");
+    expect(out.validationMissing).toEqual([]);
+    expect(out.input).toEqual({ command: "git status" });
+    expect(out.envelopeUnwrapped).toBe(true);
+    expect(out.envelopeSource).toBe("arguments_json_string");
+  });
+
+  it("includes expected schema and example on validation failures", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: { file_path: "main.go" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_ValidationFailed");
+    expect(out.input.expected_schema).toEqual(["file_path", "content"]);
+    expect(out.input.example).toEqual({ file_path: "path/to/file.ts", content: "..." });
   });
 
   it("recovers Edit missing old_string to a safe Read call", () => {

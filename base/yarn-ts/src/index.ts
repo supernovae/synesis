@@ -1131,6 +1131,13 @@ let DIAGNOSTIC_RING_MAX = 20;
 const toolArgHardeningStats = {
   normalizedPathCount: 0,
   projectRootConstrainedCount: 0,
+  envelopeUnwrappedCount: 0,
+  envelopeUnwrappedArgsObjectCount: 0,
+  envelopeUnwrappedArgsJsonStringCount: 0,
+  envelopeUnwrappedArgumentsObjectCount: 0,
+  envelopeUnwrappedArgumentsJsonStringCount: 0,
+  envelopeUnwrappedInputObjectCount: 0,
+  envelopeUnwrappedInputJsonStringCount: 0,
   blockedBashPathDriftCount: 0,
   blockedUnsafeShellCount: 0,
   blockedWriteCapableToolCount: 0,
@@ -2149,6 +2156,7 @@ import {
   repairWriteToolCall,
 } from "./providers/model-adapter.js";
 import { governToolCall } from "./path-governance/tool-call-governance.js";
+import type { GovernedToolCall } from "./path-governance/tool-call-governance.js";
 import {
   buildWorkspaceHandshakeBashCommand,
   contextFromSessionMetadata,
@@ -2227,6 +2235,77 @@ function applyAdapterToolHardening(
     repairedWrite,
     repairedBash,
   };
+}
+
+function trackGovernedHardening(governed: GovernedToolCall): void {
+  if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
+  if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
+  if (governed.envelopeUnwrapped) {
+    toolArgHardeningStats.envelopeUnwrappedCount += 1;
+    switch (governed.envelopeSource) {
+      case "args_object":
+        toolArgHardeningStats.envelopeUnwrappedArgsObjectCount += 1;
+        break;
+      case "args_json_string":
+        toolArgHardeningStats.envelopeUnwrappedArgsJsonStringCount += 1;
+        break;
+      case "arguments_object":
+        toolArgHardeningStats.envelopeUnwrappedArgumentsObjectCount += 1;
+        break;
+      case "arguments_json_string":
+        toolArgHardeningStats.envelopeUnwrappedArgumentsJsonStringCount += 1;
+        break;
+      case "input_object":
+        toolArgHardeningStats.envelopeUnwrappedInputObjectCount += 1;
+        break;
+      case "input_json_string":
+        toolArgHardeningStats.envelopeUnwrappedInputJsonStringCount += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
+  if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
+  if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
+  if (governed.validationMissing.length > 0) toolArgHardeningStats.validationFailedCount += 1;
+}
+
+function shouldSampleBySeed(seed: string, rate: number): boolean {
+  if (rate >= 1) return true;
+  if (rate <= 0) return false;
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const normalized = (hash >>> 0) / 0xffffffff;
+  return normalized < rate;
+}
+
+function maybeLogEnvelopeUnwrapSample(
+  logger: { info: (obj: Record<string, unknown>, msg?: string) => void },
+  reqId: string,
+  toolName: string,
+  clientKind: string,
+  governed: GovernedToolCall,
+  toolCallId?: string,
+): void {
+  if (!governed.envelopeUnwrapped) return;
+  const source = governed.envelopeSource ?? "unknown";
+  const seed = `${reqId}:${toolCallId ?? "_"}:${toolName}:${source}:${clientKind}`;
+  if (!shouldSampleBySeed(seed, config.SYNESIS_YARN_ENVELOPE_UNWRAP_LOG_SAMPLE_RATE)) return;
+  logger.info(
+    {
+      reqId,
+      toolName,
+      toolCallId: toolCallId ?? null,
+      clientKind,
+      envelopeSource: source,
+      sampled: true,
+    },
+    "tool_args_envelope_unwrapped",
+  );
 }
 
 function persistSessionAndUsage(
@@ -2603,6 +2682,13 @@ function resolveClaudeConversationId(
     }}, "claude_conversation_id_resolution_miss");
   }
   return "";
+}
+
+function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
+  const text = typeof userPrompt === "string" ? userPrompt.toLowerCase() : "";
+  if (!text) return false;
+  if (!text.includes("plan")) return false;
+  return /\b(continue|resume|update|mark|check off|complete|remaining|next|phase|load)\b/.test(text);
 }
 
 function countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
@@ -5235,14 +5321,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
           strictBashBlock: openClawStrictGovernance,
           blockWriteCapableTools: openClawStrictGovernance,
           clientKind: oaiClientKind,
+          restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
         });
-        if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
-        if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
-        if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
-        if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
-        if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
+        trackGovernedHardening(governed);
+        maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, tc.toolCallId);
         if (governed.validationMissing.length > 0) {
-          toolArgHardeningStats.validationFailedCount += 1;
           app.log.warn(
             { reqId, toolName: governed.toolName, missing: governed.validationMissing },
             "tool_args_validation_failed",
@@ -5380,7 +5463,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
           strictBashBlock: openClawStrictGovernance,
           blockWriteCapableTools: openClawStrictGovernance,
           clientKind: oaiClientKind,
+          restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
         });
+        trackGovernedHardening(legacyGoverned);
+        maybeLogEnvelopeUnwrapSample(app.log as never, reqId, legacyGoverned.toolName, oaiClientKind, legacyGoverned);
         externalToolCalls = [{
           toolCallId: `legacy_${Date.now().toString(36)}`,
           toolName: legacyGoverned.toolName,
@@ -5809,14 +5895,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
             strictBashBlock: openClawStrictGovernance,
             blockWriteCapableTools: openClawStrictGovernance,
             clientKind: oaiClientKind,
+            restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
           });
-          if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
-          if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
-          if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
-          if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
-          if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
+          trackGovernedHardening(governed);
+          maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, tc.toolCallId);
           if (governed.validationMissing.length > 0) {
-            toolArgHardeningStats.validationFailedCount += 1;
             oaiStreamValidationFailures += 1;
             app.log.warn(
               { reqId, toolName: governed.toolName, missing: governed.validationMissing },
@@ -6027,7 +6110,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
         strictBashBlock: openClawStrictGovernance,
         blockWriteCapableTools: openClawStrictGovernance,
         clientKind: oaiClientKind,
+        restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
       });
+      trackGovernedHardening(legacyGoverned);
+      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, legacyGoverned.toolName, oaiClientKind, legacyGoverned);
       if (parsedLegacy.cleanText) {
         const guarded = applyMarkdownGuardrail(
           parsedLegacy.cleanText,
@@ -7620,33 +7706,31 @@ app.post("/v1/messages", async (req, reply) => {
             strictBashBlock: claudeOpenClawStrictGovernance,
             blockWriteCapableTools: claudeOpenClawStrictGovernance,
             clientKind: claudeClientKind,
+            restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
           });
           emitToolName = governed.toolName;
           finalInput = governed.input;
-          if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
+          trackGovernedHardening(governed);
+          maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, emitToolName, claudeClientKind, governed, tcFull.toolCallId ?? undefined);
           if (governed.constrainedToRoot) {
-            toolArgHardeningStats.projectRootConstrainedCount += 1;
             app.log.info(
               { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
               "file_tool_path_constrained_to_project_root",
             );
           }
           if (governed.blockedBashDrift) {
-            toolArgHardeningStats.blockedBashPathDriftCount += 1;
             app.log.warn(
               { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
               "bash_path_drift_blocked",
             );
           }
           if (governed.blockedUnsafeShell) {
-            toolArgHardeningStats.blockedUnsafeShellCount += 1;
             app.log.warn(
               { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
               "unsafe_shell_command_blocked",
             );
           }
           if (governed.blockedWriteCapable) {
-            toolArgHardeningStats.blockedWriteCapableToolCount += 1;
             app.log.warn(
               { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
               "write_capable_tool_blocked",
@@ -7655,7 +7739,6 @@ app.post("/v1/messages", async (req, reply) => {
 
           if (governed.validationMissing.length > 0) {
             requestToolValidationFailures += 1;
-            toolArgHardeningStats.validationFailedCount += 1;
             app.log.warn(
               {
                 reqId: traceReqId,
@@ -7877,8 +7960,11 @@ app.post("/v1/messages", async (req, reply) => {
           strictBashBlock: claudeOpenClawStrictGovernance,
           blockWriteCapableTools: claudeOpenClawStrictGovernance,
           clientKind: claudeClientKind,
+          restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
         });
+        trackGovernedHardening(legacyGoverned);
         const legacyToolCallId = `legacy_${Date.now().toString(36)}`;
+        maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, legacyGoverned.toolName, claudeClientKind, legacyGoverned, legacyToolCallId);
         const normalizedJson = JSON.stringify(legacyGoverned.input);
         if (claudeStreamingTextOpen) closeClaudeStreamingTextBlock();
         safeSse(reply, "content_block_start", {
@@ -8340,14 +8426,11 @@ app.post("/v1/messages", async (req, reply) => {
         strictBashBlock: claudeOpenClawStrictGovernance,
         blockWriteCapableTools: claudeOpenClawStrictGovernance,
         clientKind: claudeClientKind,
+        restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
       });
-      if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
-      if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
-      if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
-      if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
-      if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
+      trackGovernedHardening(governed);
+      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, claudeClientKind, governed, tc.toolCallId);
       if (governed.validationMissing.length > 0) {
-        toolArgHardeningStats.validationFailedCount += 1;
         app.log.warn(
           { reqId, toolName: governed.toolName, missing: governed.validationMissing },
           "tool_args_validation_failed",
@@ -8444,7 +8527,10 @@ app.post("/v1/messages", async (req, reply) => {
         strictBashBlock: claudeOpenClawStrictGovernance,
         blockWriteCapableTools: claudeOpenClawStrictGovernance,
         clientKind: claudeClientKind,
+        restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
       });
+      trackGovernedHardening(legacyGoverned);
+      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, legacyGoverned.toolName, claudeClientKind, legacyGoverned);
       externalClaudeToolCalls = [{
         toolCallId: `legacy_${Date.now().toString(36)}`,
         toolName: legacyGoverned.toolName,

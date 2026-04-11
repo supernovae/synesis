@@ -518,6 +518,10 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_ENVELOPE_UNWRAP_LOG_SAMPLE_RATE: z.coerce.number().default(0.1).transform((v) => {
+    if (!Number.isFinite(v)) return 0.1;
+    return Math.min(1, Math.max(0, v));
+  }),
   SYNESIS_YARN_REQUEST_FORENSICS_ENABLED: z
     .string()
     .optional()
