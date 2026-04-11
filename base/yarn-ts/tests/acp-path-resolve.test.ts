@@ -16,9 +16,9 @@ describe("resolvePathForAcp", () => {
     expect(resolvePathForAcp("x.go", { synesis_shell_cwd: "/tmp/wd" })).toBe(path.resolve("/tmp/wd", "x.go"));
   });
 
-  it("clamps absolute paths outside project root to basename", () => {
+  it("preserves absolute paths outside project root", () => {
     const out = resolvePathForAcp("/tmp/outside.go", { synesis_project_root: "/Users/me/repo" });
-    expect(out).toBe(path.resolve("/Users/me/repo", "outside.go"));
+    expect(out).toBe(path.resolve("/tmp/outside.go"));
   });
 
   it("treats missing-leading-slash host paths as absolute-like", () => {
@@ -26,8 +26,8 @@ describe("resolvePathForAcp", () => {
     expect(out).toBe(path.resolve("/Users/me/repo", "main.go"));
   });
 
-  it("clamps Windows absolute-style paths on non-Windows hosts", () => {
+  it("normalizes Windows absolute-style paths on non-Windows hosts", () => {
     const out = resolvePathForAcp("C:\\Users\\dev\\secret.go", { synesis_project_root: "/Users/me/repo" });
-    expect(out).toBe(path.resolve("/Users/me/repo", "secret.go"));
+    expect(out).toBe(path.resolve("/Users/dev/secret.go"));
   });
 });

@@ -113,9 +113,6 @@ export function mapCoderToolNameToAcpKind(name: string): ToolKind {
   return "other";
 }
 
-/** @deprecated Use mapCoderToolNameToAcpKind */
-export const mapAnthropicToolNameToAcpKind = mapCoderToolNameToAcpKind;
-
 /** Resolve relative coder paths using session metadata anchors (for ACP fs RPC). */
 export function resolvePathForAcp(filePath: string, meta: Record<string, unknown>): string {
   const fp = filePath.trim();
@@ -138,14 +135,7 @@ export function resolvePathForAcp(filePath: string, meta: Record<string, unknown
     )
     : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(fp));
 
-  if (!hasAnchor) return candidate;
-  const rootAbs = path.resolve(anchor);
-  const rel = path.relative(rootAbs, candidate);
-  const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-  if (inside) return candidate;
-  const base = path.basename(candidate);
-  const safeBase = base && base !== "." && base !== ".." ? base : "file";
-  return path.resolve(rootAbs, safeBase);
+  return candidate;
 }
 
 function parseToolArguments(argumentsJson: string | undefined): Record<string, unknown> {
@@ -156,6 +146,16 @@ function parseToolArguments(argumentsJson: string | undefined): Record<string, u
   } catch {
     return {};
   }
+}
+
+function acpToolError(message: string): string {
+  return JSON.stringify({ error: message });
+}
+
+function requiredPathArg(input: Record<string, unknown>): string | null {
+  const fp = input.file_path ?? input.path;
+  if (typeof fp !== "string" || !fp.trim()) return null;
+  return fp;
 }
 
 function shellInvocation(command: string, cwd?: string | null): { command: string; args?: string[]; cwd?: string | null } {
@@ -574,22 +574,18 @@ export class SynesisYarnAcpAgent implements Agent {
     const meta = session.requestMetadata;
     switch (toolName) {
       case "Read": {
-        const fp = input.file_path ?? input.path;
-        if (typeof fp !== "string" || !fp.trim()) {
-          return JSON.stringify({ error: "Read: missing file_path" });
-        }
+        const fp = requiredPathArg(input);
+        if (!fp) return acpToolError("Read: missing file_path");
         const abs = resolvePathForAcp(fp, meta);
         const r = await this.connection.readTextFile({ sessionId, path: abs });
         return r.content;
       }
       case "Write": {
-        const fp = input.file_path ?? input.path;
+        const fp = requiredPathArg(input);
         const content = input.content;
-        if (typeof fp !== "string" || !fp.trim()) {
-          return JSON.stringify({ error: "Write: missing file_path" });
-        }
+        if (!fp) return acpToolError("Write: missing file_path");
         if (typeof content !== "string") {
-          return JSON.stringify({ error: "Write: content must be a string" });
+          return acpToolError("Write: content must be a string");
         }
         const abs = resolvePathForAcp(fp, meta);
         await this.connection.writeTextFile({ sessionId, path: abs, content });
@@ -598,7 +594,7 @@ export class SynesisYarnAcpAgent implements Agent {
       case "Bash": {
         const cmd = input.command;
         if (typeof cmd !== "string" || !cmd.trim()) {
-          return JSON.stringify({ error: "Bash: missing command" });
+          return acpToolError("Bash: missing command");
         }
         const cwdRaw = input.cwd;
         const cwd =

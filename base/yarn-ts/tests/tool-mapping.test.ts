@@ -6,8 +6,7 @@ import {
   sdkToolCallsToOpenAI,
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
-  sanitizeToolCalls,
-  parseLegacyInlineToolCall
+  sanitizeToolCalls
 } from "../src/tool-mapping.js";
 
 describe("openAIToolsToSDK", () => {
@@ -60,6 +59,11 @@ describe("mapToolChoice", () => {
   it("returns undefined for null/undefined", () => {
     expect(mapToolChoice(undefined)).toBeUndefined();
     expect(mapToolChoice(null)).toBeUndefined();
+  });
+
+  it("returns undefined for invalid values", () => {
+    expect(mapToolChoice("sometimes")).toBeUndefined();
+    expect(mapToolChoice({ type: "weird" })).toBeUndefined();
   });
 });
 
@@ -418,18 +422,3 @@ describe("vercel tool protocol ordering", () => {
   });
 });
 
-describe("parseLegacyInlineToolCall", () => {
-  it("parses legacy function/parameter markup", () => {
-    const parsed = parseLegacyInlineToolCall(
-      "I'll explore first.\n<function=Glob>\n<parameter=pattern>\n**/*",
-    );
-    expect(parsed).toBeDefined();
-    expect(parsed?.toolName).toBe("Glob");
-    expect(parsed?.input).toEqual({ pattern: "**/*" });
-    expect(parsed?.cleanText).toContain("I'll explore first.");
-  });
-
-  it("returns null when no legacy function markup is present", () => {
-    expect(parseLegacyInlineToolCall("normal assistant text")).toBeNull();
-  });
-});

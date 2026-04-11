@@ -130,7 +130,6 @@ import {
   openAIToolsToSDK,
   claudeToolsToSDK,
   mapToolChoice,
-  parseLegacyInlineToolCall,
   sdkToolCallsToOpenAI,
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
@@ -2683,6 +2682,37 @@ function persistSessionAndUsage(
   persistSpan.end();
 }
 
+function persistAndEmitDecisionTelemetry(input: {
+  state: SessionState;
+  requestId: string;
+  resolvedModelId: string;
+  usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number };
+  latencyMs: number;
+  finishReason: string;
+  tokensSavedByReduction: number;
+  escalated: boolean;
+  snapshot: DecisionSnapshot;
+  trajectory?: RequestTrajectoryInput;
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+}): void {
+  persistSessionAndUsage(
+    input.state,
+    input.requestId,
+    input.resolvedModelId,
+    input.usage,
+    input.latencyMs,
+    input.finishReason,
+    input.tokensSavedByReduction,
+    input.escalated,
+    input.snapshot,
+    input.trajectory,
+  );
+  maybeCheckpoint(input.state);
+  emitDecisionEvents(input.sessionKey, input.userId, input.orgId, input.requestId, input.snapshot);
+}
+
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number } {
   const obj = (input ?? {}) as Record<string, unknown>;
 
@@ -3010,6 +3040,187 @@ type CriticAssessment = {
   suggestedNextActions: string[];
   source: "deterministic" | "llm_fallback";
 };
+
+type CompletionFinalizeResult = {
+  finalText: string;
+  applied: boolean;
+  missingMust: number;
+  missingShould: number;
+  blockedByVerification: boolean;
+  criticBlocked: boolean;
+};
+
+type PostStreamFinalizeResult = {
+  finalText: string;
+  missingMust: number;
+  missingShould: number;
+  blockedByVerification: boolean;
+};
+
+async function finalizeCompletionText(
+  input: {
+    requestId: string;
+    sessionKey: string;
+    userId: string;
+    orgId: string;
+    assistantText: string;
+    checklist: RequirementChecklist | null;
+    traceRootPrompt: string;
+    latestUserPrompt: string;
+    verification: VerificationAssessment;
+    recentToolNames: string[];
+    nonActionableEventDetail: string;
+  },
+): Promise<CompletionFinalizeResult> {
+  const gate = applyCompletionGate(
+    input.checklist,
+    input.assistantText,
+    input.traceRootPrompt,
+    input.latestUserPrompt,
+    input.verification,
+  );
+
+  let finalText = gate.finalText;
+  if (gate.applied) {
+    recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
+      "completion-gate",
+      gate.blockedByVerification
+        ? `Blocking verification failures (${gate.blockingVerificationFailures})`
+        : `Missing must-have requirements (${gate.missingMust})`,
+      input.requestId,
+    );
+  } else if (input.checklist) {
+    recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      "completion_pass",
+      "completion-gate",
+      "No missing must-have requirements detected",
+      input.requestId,
+    );
+  }
+
+  let criticBlocked = false;
+  if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
+    const critic = await runPreFinalizeCritic({
+      requestId: input.requestId,
+      assistantText: finalText,
+      verification: input.verification,
+      recentToolNames: input.recentToolNames,
+    });
+    if (critic.blocked) {
+      criticBlocked = true;
+      finalText = [
+        "Completion paused by pre-finalization critic.",
+        "",
+        "Findings:",
+        ...critic.findings.map((f) => `- ${f}`),
+        "",
+        "Next actions:",
+        ...(critic.suggestedNextActions.length > 0
+          ? critic.suggestedNextActions.map((s) => `- ${s}`)
+          : ["- Address verification/quality gaps and rerun checks."]),
+      ].join("\n");
+      recordSessionEvent(
+        input.sessionKey,
+        input.userId,
+        input.orgId,
+        "pre_finalize_critic_block",
+        "completion-gate",
+        `critic_source=${critic.source}`,
+        input.requestId,
+      );
+    }
+  }
+
+  const nonSilent = enforceNonSilentFinalizeText(finalText);
+  if (nonSilent.applied) {
+    finalText = nonSilent.text;
+    recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      "completion_non_actionable_fallback",
+      "completion-gate",
+      input.nonActionableEventDetail,
+      input.requestId,
+    );
+  }
+
+  return {
+    finalText,
+    applied: gate.applied,
+    missingMust: gate.missingMust,
+    missingShould: gate.missingShould,
+    blockedByVerification: gate.blockedByVerification,
+    criticBlocked,
+  };
+}
+
+function finalizePostStreamText(
+  input: {
+    requestId: string;
+    sessionKey: string;
+    userId: string;
+    orgId: string;
+    assistantText: string;
+    applyGate: boolean;
+    checklist: RequirementChecklist | null;
+    traceRootPrompt: string;
+    latestUserPrompt: string;
+    verification: VerificationAssessment;
+    toolStopReason: boolean;
+    nonActionableEventDetail: string;
+  },
+): PostStreamFinalizeResult {
+  let finalText = input.assistantText;
+  let missingMust = 0;
+  let missingShould = 0;
+  let blockedByVerification = false;
+  if (input.applyGate && !input.toolStopReason) {
+    const gate = applyCompletionGate(
+      input.checklist,
+      finalText,
+      input.traceRootPrompt,
+      input.latestUserPrompt,
+      input.verification,
+    );
+    finalText = gate.finalText;
+    missingMust = gate.missingMust;
+    missingShould = gate.missingShould;
+    blockedByVerification = gate.blockedByVerification;
+  }
+  finalText = applyMarkdownGuardrail(
+    finalText,
+    config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+  );
+  if (!input.toolStopReason) {
+    const nonSilent = enforceNonSilentFinalizeText(finalText);
+    if (nonSilent.applied) {
+      finalText = nonSilent.text;
+      recordSessionEvent(
+        input.sessionKey,
+        input.userId,
+        input.orgId,
+        "completion_non_actionable_fallback",
+        "completion-gate",
+        input.nonActionableEventDetail,
+        input.requestId,
+      );
+    }
+  }
+  return {
+    finalText,
+    missingMust,
+    missingShould,
+    blockedByVerification,
+  };
+}
 
 async function runPreFinalizeCritic(
   input: {
@@ -5018,6 +5229,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const effectiveTools = enrichToolSchemasForAdapter(prioritizedTools, adapter);
   const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
+  if (normalizedRequest.tool_choice !== undefined && sdkToolChoice === undefined) {
+    return reply.code(400).send({
+      error: {
+        type: "invalid_request_error",
+        message: "Invalid tool_choice. Expected auto|none|required|any or object form {type:\"tool\",name:\"...\"}.",
+      },
+    });
+  }
 
   const modelToolPrompt = mergeToolSystemPrompts(
     adapter.toolSystemPrompt?.(effectiveTools.length),
@@ -5498,39 +5717,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
     }
     finalAssistantText = finalAssistantText ?? "";
-    if (externalToolCalls.length === 0 && finalAssistantText) {
-      const parsedLegacy = parseLegacyInlineToolCall(finalAssistantText);
-      if (parsedLegacy) {
-        const legacyHard = applyAdapterToolHardening(adapter, parsedLegacy.toolName, parsedLegacy.input);
-        if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-        if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
-        if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
-        const legacyGoverned = governToolCall({
-          toolName: legacyHard.toolName,
-          input: legacyHard.input,
-          projectRoot: effectiveOaiPathCtx.projectRoot,
-          shellCwd: effectiveOaiPathCtx.shellCwd,
-          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-          strictBashBlock: openClawStrictGovernance,
-          blockWriteCapableTools: openClawStrictGovernance,
-          clientKind: oaiClientKind,
-          restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
-        });
-        trackGovernedHardening(legacyGoverned);
-        maybeLogEnvelopeUnwrapSample(app.log as never, reqId, legacyGoverned.toolName, oaiClientKind, legacyGoverned);
-        externalToolCalls = [{
-          toolCallId: `legacy_${Date.now().toString(36)}`,
-          toolName: legacyGoverned.toolName,
-          input: legacyGoverned.input,
-        }];
-        if (openClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
-          openClawProfileStats.strictGovernanceRewrites += 1;
-        }
-        finalAssistantText = parsedLegacy.cleanText;
-        app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_non_stream");
-      }
-    }
     const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
     externalToolCalls = oaiLegacyGuarded.calls;
     if (oaiLegacyGuarded.redirectedCount > 0) {
@@ -5582,85 +5768,25 @@ app.post("/v1/chat/completions", async (req, reply) => {
     let oaiGateBlockedVerification = false;
     let oaiCriticBlocked = false;
     if (finishReason === "stop") {
-      const gate = applyCompletionGate(
-        oaiRequirementChecklist,
-        finalAssistantText,
-        getMetadataString(session.record.metadata, "trace_root_prompt"),
-        getMetadataString(session.record.metadata, "latest_user_prompt"),
-        oaiVerificationAssessment,
-      );
-      finalAssistantText = gate.finalText;
-      oaiGateApplied = gate.applied;
-      oaiMissingMust = gate.missingMust;
-      oaiMissingShould = gate.missingShould;
-      oaiGateBlockedVerification = gate.blockedByVerification;
-      if (gate.applied) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
-          "completion-gate",
-          gate.blockedByVerification
-            ? `Blocking verification failures (${gate.blockingVerificationFailures})`
-            : `Missing must-have requirements (${gate.missingMust})`,
-          reqId,
-        );
-      } else if (oaiRequirementChecklist) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "completion_pass",
-          "completion-gate",
-          "No missing must-have requirements detected",
-          reqId,
-        );
-      }
-      if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
-        const critic = await runPreFinalizeCritic({
-          requestId: reqId,
-          assistantText: finalAssistantText,
-          verification: oaiVerificationAssessment,
-          recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-        });
-        if (critic.blocked) {
-          oaiCriticBlocked = true;
-          finalAssistantText = [
-            "Completion paused by pre-finalization critic.",
-            "",
-            "Findings:",
-            ...critic.findings.map((f) => `- ${f}`),
-            "",
-            "Next actions:",
-            ...(critic.suggestedNextActions.length > 0
-              ? critic.suggestedNextActions.map((s) => `- ${s}`)
-              : ["- Address verification/quality gaps and rerun checks."]),
-          ].join("\n");
-          recordSessionEvent(
-            sessionKey,
-            identity.userId,
-            identity.orgId,
-            "pre_finalize_critic_block",
-            "completion-gate",
-            `critic_source=${critic.source}`,
-            reqId,
-          );
-        }
-      }
-      const nonSilent = enforceNonSilentFinalizeText(finalAssistantText);
-      if (nonSilent.applied) {
-        finalAssistantText = nonSilent.text;
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "completion_non_actionable_fallback",
-          "completion-gate",
-          "terminal stop had non-actionable text; emitted deterministic fallback",
-          reqId,
-        );
-      }
+      const finalized = await finalizeCompletionText({
+        requestId: reqId,
+        sessionKey,
+        userId: identity.userId,
+        orgId: identity.orgId,
+        assistantText: finalAssistantText,
+        checklist: oaiRequirementChecklist,
+        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+        verification: oaiVerificationAssessment,
+        recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+        nonActionableEventDetail: "terminal stop had non-actionable text; emitted deterministic fallback",
+      });
+      finalAssistantText = finalized.finalText;
+      oaiGateApplied = finalized.applied;
+      oaiMissingMust = finalized.missingMust;
+      oaiMissingShould = finalized.missingShould;
+      oaiGateBlockedVerification = finalized.blockedByVerification;
+      oaiCriticBlocked = finalized.criticBlocked;
     }
     session.history.push({ role: "assistant", content: finalAssistantText });
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
@@ -5707,17 +5833,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
       sensemakingTriggered: oaiSensemakingResult?.triggered,
       sensemakingReason: oaiSensemakingResult?.reason,
     });
-    persistSessionAndUsage(
-      session,
-      reqId,
-      resolved.resolvedModelId,
+    persistAndEmitDecisionTelemetry({
+      state: session,
+      requestId: reqId,
+      resolvedModelId: resolved.resolvedModelId,
       usage,
-      oaiLatency,
+      latencyMs: oaiLatency,
       finishReason,
-      oaiSaved,
-      orchestration.escalated,
-      oaiSnapshot,
-      {
+      tokensSavedByReduction: oaiSaved,
+      escalated: orchestration.escalated,
+      snapshot: oaiSnapshot,
+      trajectory: {
         toolSequence: externalToolCalls.map((tc) => tc.toolName),
         verificationSteps: inferVerificationSteps(externalToolCalls.map((tc) => tc.toolName)),
         diagnostics: oaiTrajectoryDiagnostics,
@@ -5726,9 +5852,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
         outcomeState: (oaiGateBlockedVerification || oaiCriticBlocked) ? "partial" : undefined,
         failureStage: oaiGateBlockedVerification ? "verification" : undefined,
       },
-    );
-    maybeCheckpoint(session);
-    emitDecisionEvents(sessionKey, identity.userId, identity.orgId, reqId, oaiSnapshot);
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+    });
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
@@ -6146,123 +6273,25 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   if (finishReason !== "tool_calls" && pendingTextDeltas.length > 0) {
     const rawText = pendingTextDeltas.join("");
-    const parsedLegacy = parseLegacyInlineToolCall(rawText);
-    if (parsedLegacy) {
-      const legacyHard = applyAdapterToolHardening(adapter, parsedLegacy.toolName, parsedLegacy.input);
-      if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-      if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
-      if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
-      const legacyGoverned = governToolCall({
-        toolName: legacyHard.toolName,
-        input: legacyHard.input,
-        projectRoot: effectiveOaiPathCtx.projectRoot,
-        shellCwd: effectiveOaiPathCtx.shellCwd,
-        enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-        blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-        strictBashBlock: openClawStrictGovernance,
-        blockWriteCapableTools: openClawStrictGovernance,
-        clientKind: oaiClientKind,
-        restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
-      });
-      trackGovernedHardening(legacyGoverned);
-      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, legacyGoverned.toolName, oaiClientKind, legacyGoverned);
-      if (parsedLegacy.cleanText) {
-        const guarded = applyMarkdownGuardrail(
-          parsedLegacy.cleanText,
-          config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-        );
-        flushOpenAIText(guarded);
-      }
-      safeWrite(reply.raw, `data: ${JSON.stringify({
-        id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
-        choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `legacy_${Date.now().toString(36)}`, type: "function", function: { name: legacyGoverned.toolName, arguments: JSON.stringify(legacyGoverned.input) } }] }, finish_reason: null }],
-      })}\n\n`);
-      if (openClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
-        openClawProfileStats.strictGovernanceRewrites += 1;
-      }
-      finishReason = "tool_calls";
-      pendingTextDeltas.length = 0;
-      app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_stream");
-    } else {
-      const gate = applyCompletionGate(
-        oaiRequirementChecklist,
-        rawText,
-        getMetadataString(session.record.metadata, "trace_root_prompt"),
-        getMetadataString(session.record.metadata, "latest_user_prompt"),
-        oaiVerificationAssessment,
-      );
-      oaiStreamGateApplied = gate.applied;
-      oaiStreamMissingMust = gate.missingMust;
-      oaiStreamMissingShould = gate.missingShould;
-      oaiStreamGateBlockedVerification = gate.blockedByVerification;
-      if (gate.applied) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
-          "completion-gate",
-          gate.blockedByVerification
-            ? `Blocking verification failures (${gate.blockingVerificationFailures})`
-            : `Missing must-have requirements (${gate.missingMust})`,
-          reqId,
-        );
-      } else if (oaiRequirementChecklist) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "completion_pass",
-          "completion-gate",
-          "No missing must-have requirements detected",
-          reqId,
-        );
-      }
-      let gateText = gate.finalText;
-      if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
-        const critic = await runPreFinalizeCritic({
-          requestId: reqId,
-          assistantText: gateText,
-          verification: oaiVerificationAssessment,
-          recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-        });
-        if (critic.blocked) {
-          oaiStreamCriticBlocked = true;
-          gateText = [
-            "Completion paused by pre-finalization critic.",
-            "",
-            "Findings:",
-            ...critic.findings.map((f) => `- ${f}`),
-            "",
-            "Next actions:",
-            ...(critic.suggestedNextActions.length > 0
-              ? critic.suggestedNextActions.map((s) => `- ${s}`)
-              : ["- Address verification/quality gaps and rerun checks."]),
-          ].join("\n");
-          recordSessionEvent(
-            sessionKey,
-            identity.userId,
-            identity.orgId,
-            "pre_finalize_critic_block",
-            "completion-gate",
-            `critic_source=${critic.source}`,
-            reqId,
-          );
-        }
-      }
-      const nonSilent = enforceNonSilentFinalizeText(gateText);
-      if (nonSilent.applied) {
-        gateText = nonSilent.text;
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "completion_non_actionable_fallback",
-          "completion-gate",
-          "stream stop had non-actionable text; emitted deterministic fallback",
-          reqId,
-        );
-      }
+    const finalized = await finalizeCompletionText({
+      requestId: reqId,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      assistantText: rawText,
+      checklist: oaiRequirementChecklist,
+      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+      verification: oaiVerificationAssessment,
+      recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+      nonActionableEventDetail: "stream stop had non-actionable text; emitted deterministic fallback",
+    });
+    oaiStreamGateApplied = finalized.applied;
+    oaiStreamMissingMust = finalized.missingMust;
+    oaiStreamMissingShould = finalized.missingShould;
+    oaiStreamGateBlockedVerification = finalized.blockedByVerification;
+    oaiStreamCriticBlocked = finalized.criticBlocked;
+    const gateText = finalized.finalText;
       const guarded = applyMarkdownGuardrail(
         gateText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
@@ -6277,7 +6306,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
         }
       }
       pendingTextDeltas.length = 0;
-    }
   }
 
   safeWrite(reply.raw, `data: ${JSON.stringify({
@@ -6293,40 +6321,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
   try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
   try { streamedText = await streamed.text; } catch { /* stream aborted */ }
   if (streamedText) {
-    const parsedLegacy = parseLegacyInlineToolCall(streamedText);
-    if (parsedLegacy) streamedText = parsedLegacy.cleanText;
-    if (oaiStreamGateApplied && finishReason !== "tool_calls") {
-      const gate = applyCompletionGate(
-        oaiRequirementChecklist,
-        streamedText,
-        getMetadataString(session.record.metadata, "trace_root_prompt"),
-        getMetadataString(session.record.metadata, "latest_user_prompt"),
-        oaiVerificationAssessment,
-      );
-      streamedText = gate.finalText;
-      oaiStreamMissingMust = gate.missingMust;
-      oaiStreamMissingShould = gate.missingShould;
-      oaiStreamGateBlockedVerification = gate.blockedByVerification;
-    }
-    streamedText = applyMarkdownGuardrail(
-      streamedText,
-      config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-    );
-    if (finishReason !== "tool_calls") {
-      const nonSilent = enforceNonSilentFinalizeText(streamedText);
-      if (nonSilent.applied) {
-        streamedText = nonSilent.text;
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "completion_non_actionable_fallback",
-          "completion-gate",
-          "streamed text was non-actionable; emitted deterministic fallback",
-          reqId,
-        );
-      }
-    }
+    const finalized = finalizePostStreamText({
+      requestId: reqId,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      assistantText: streamedText,
+      applyGate: oaiStreamGateApplied,
+      checklist: oaiRequirementChecklist,
+      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+      verification: oaiVerificationAssessment,
+      toolStopReason: finishReason === "tool_calls",
+      nonActionableEventDetail: "streamed text was non-actionable; emitted deterministic fallback",
+    });
+    streamedText = finalized.finalText;
+    oaiStreamMissingMust = finalized.missingMust;
+    oaiStreamMissingShould = finalized.missingShould;
+    oaiStreamGateBlockedVerification = finalized.blockedByVerification;
     session.history.push({ role: "assistant", content: streamedText });
   }
   const oaiStreamLatency = Date.now() - started;
@@ -6373,17 +6385,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sensemakingTriggered: oaiSensemakingResult?.triggered,
     sensemakingReason: oaiSensemakingResult?.reason,
   });
-  persistSessionAndUsage(
-    session,
-    reqId,
-    resolved.resolvedModelId,
-    oaiStreamUsage,
-    oaiStreamLatency,
+  persistAndEmitDecisionTelemetry({
+    state: session,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
+    usage: oaiStreamUsage,
+    latencyMs: oaiStreamLatency,
     finishReason,
-    oaiStreamSaved,
-    orchestration.escalated,
-    oaiStreamSnapshot,
-    {
+    tokensSavedByReduction: oaiStreamSaved,
+    escalated: orchestration.escalated,
+    snapshot: oaiStreamSnapshot,
+    trajectory: {
       toolSequence: pendingToolCalls.map((tc) => tc.name),
       verificationSteps: inferVerificationSteps(pendingToolCalls.map((tc) => tc.name)),
       diagnostics: oaiTrajectoryDiagnostics,
@@ -6392,9 +6404,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       outcomeState: (oaiStreamGateBlockedVerification || oaiStreamCriticBlocked) ? "partial" : undefined,
       failureStage: oaiStreamGateBlockedVerification ? "verification" : undefined,
     },
-  );
-  maybeCheckpoint(session);
-  emitDecisionEvents(sessionKey, identity.userId, identity.orgId, reqId, oaiStreamSnapshot);
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+  });
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
     timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)", requestId: reqId,
@@ -7166,6 +7179,14 @@ app.post("/v1/messages", async (req, reply) => {
   const effectiveClaudeTools = enrichToolSchemasForAdapter(prioritizedClaudeTools, claudeAdapter);
   const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
+  if (body.tool_choice !== undefined && sdkToolChoice === undefined) {
+    return reply.code(400).send({
+      error: {
+        type: "invalid_request_error",
+        message: "Invalid tool_choice. Expected auto|none|required|any or object form {type:\"tool\",name:\"...\"}.",
+      },
+    });
+  }
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
 
   const claudeModelToolPrompt = mergeToolSystemPrompts(
@@ -7488,24 +7509,25 @@ app.post("/v1/messages", async (req, reply) => {
         sensemakingTriggered: claudeSensemakingResult?.triggered,
         sensemakingReason: claudeSensemakingResult?.reason,
       });
-      persistSessionAndUsage(
-        session,
-        reqId,
-        resolved.resolvedModelId,
+      persistAndEmitDecisionTelemetry({
+        state: session,
+        requestId: reqId,
+        resolvedModelId: resolved.resolvedModelId,
         usage,
-        Date.now() - started,
-        stopReason,
-        reduced,
-        claudeOrchestration.escalated,
+        latencyMs: Date.now() - started,
+        finishReason: stopReason,
+        tokensSavedByReduction: reduced,
+        escalated: claudeOrchestration.escalated,
         snapshot,
-        {
+        trajectory: {
           toolSequence: externalCalls.map((c) => c.toolName),
           verificationSteps: inferVerificationSteps(externalCalls.map((c) => c.toolName)),
           diagnostics: claudeTrajectoryDiagnostics,
         },
-      );
-      maybeCheckpoint(session);
-      emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, snapshot);
+        sessionKey: claudeSessionKey,
+        userId: claudeIdentity.userId,
+        orgId: claudeIdentity.orgId,
+      });
 
       safeSse(reply, "message_delta", {
         type: "message_delta",
@@ -7997,127 +8019,25 @@ app.post("/v1/messages", async (req, reply) => {
 
     if (stopReason !== "tool_use" && pendingClaudeTextDeltas.length > 0) {
       const rawText = pendingClaudeTextDeltas.join("");
-      const parsedLegacy = parseLegacyInlineToolCall(rawText);
-      if (parsedLegacy) {
-        const legacyHard = applyAdapterToolHardening(claudeAdapter, parsedLegacy.toolName, parsedLegacy.input);
-        if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-        if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
-        if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
-        const legacyGoverned = governToolCall({
-          toolName: legacyHard.toolName,
-          input: legacyHard.input,
-          projectRoot: effectiveClaudePathCtx.projectRoot,
-          shellCwd: effectiveClaudePathCtx.shellCwd,
-          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-          strictBashBlock: claudeOpenClawStrictGovernance,
-          blockWriteCapableTools: claudeOpenClawStrictGovernance,
-          clientKind: claudeClientKind,
-          restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
-        });
-        trackGovernedHardening(legacyGoverned);
-        const legacyToolCallId = `legacy_${Date.now().toString(36)}`;
-        maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, legacyGoverned.toolName, claudeClientKind, legacyGoverned, legacyToolCallId);
-        const normalizedJson = JSON.stringify(legacyGoverned.input);
-        if (claudeStreamingTextOpen) closeClaudeStreamingTextBlock();
-        safeSse(reply, "content_block_start", {
-          type: "content_block_start",
-          index: blockIdx,
-          content_block: { type: "tool_use", id: legacyToolCallId, name: legacyGoverned.toolName },
-        });
-        safeSse(reply, "content_block_delta", {
-          type: "content_block_delta",
-          index: blockIdx,
-          delta: { type: "input_json_delta", partial_json: normalizedJson },
-        });
-        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-        blockIdx++;
-        if (claudeOpenClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
-          openClawProfileStats.strictGovernanceRewrites += 1;
-        }
-        stopReason = "tool_use";
-        pendingClaudeTextDeltas.length = 0;
-        app.log.warn({ reqId: traceReqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_claude_stream");
-      } else {
-      const gate = applyCompletionGate(
-        claudeRequirementChecklist,
-        rawText,
-        getMetadataString(session.record.metadata, "trace_root_prompt"),
-        getMetadataString(session.record.metadata, "latest_user_prompt"),
-        claudeVerificationAssessment,
-      );
-      claudeStreamGateApplied = gate.applied;
-      claudeStreamMissingMust = gate.missingMust;
-      claudeStreamMissingShould = gate.missingShould;
-      claudeStreamGateBlockedVerification = gate.blockedByVerification;
-      if (gate.applied) {
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
-          "completion-gate",
-          gate.blockedByVerification
-            ? `Blocking verification failures (${gate.blockingVerificationFailures})`
-            : `Missing must-have requirements (${gate.missingMust})`,
-          traceReqId,
-        );
-      } else if (claudeRequirementChecklist) {
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "completion_pass",
-          "completion-gate",
-          "No missing must-have requirements detected",
-          traceReqId,
-        );
-      }
-      let gateText = gate.finalText;
-      if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
-        const critic = await runPreFinalizeCritic({
-          requestId: traceReqId,
-          assistantText: gateText,
-          verification: claudeVerificationAssessment,
-          recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
-        });
-        if (critic.blocked) {
-          claudeStreamCriticBlocked = true;
-          gateText = [
-            "Completion paused by pre-finalization critic.",
-            "",
-            "Findings:",
-            ...critic.findings.map((f) => `- ${f}`),
-            "",
-            "Next actions:",
-            ...(critic.suggestedNextActions.length > 0
-              ? critic.suggestedNextActions.map((s) => `- ${s}`)
-              : ["- Address verification/quality gaps and rerun checks."]),
-          ].join("\n");
-          recordSessionEvent(
-            claudeSessionKey,
-            claudeIdentity.userId,
-            claudeIdentity.orgId,
-            "pre_finalize_critic_block",
-            "completion-gate",
-            `critic_source=${critic.source}`,
-            traceReqId,
-          );
-        }
-      }
-      const nonSilent = enforceNonSilentFinalizeText(gateText);
-      if (nonSilent.applied) {
-        gateText = nonSilent.text;
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "completion_non_actionable_fallback",
-          "completion-gate",
-          "claude stream stop had non-actionable text; emitted deterministic fallback",
-          traceReqId,
-        );
-      }
+      const finalized = await finalizeCompletionText({
+        requestId: traceReqId,
+        sessionKey: claudeSessionKey,
+        userId: claudeIdentity.userId,
+        orgId: claudeIdentity.orgId,
+        assistantText: rawText,
+        checklist: claudeRequirementChecklist,
+        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+        verification: claudeVerificationAssessment,
+        recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+        nonActionableEventDetail: "claude stream stop had non-actionable text; emitted deterministic fallback",
+      });
+      claudeStreamGateApplied = finalized.applied;
+      claudeStreamMissingMust = finalized.missingMust;
+      claudeStreamMissingShould = finalized.missingShould;
+      claudeStreamGateBlockedVerification = finalized.blockedByVerification;
+      claudeStreamCriticBlocked = finalized.criticBlocked;
+      const gateText = finalized.finalText;
       const guarded = applyMarkdownGuardrail(
         gateText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
@@ -8137,7 +8057,6 @@ app.post("/v1/messages", async (req, reply) => {
         flushClaudeTextBlock(guarded);
       }
       pendingClaudeTextDeltas.length = 0;
-      }
     }
 
     closeClaudeStreamingTextBlock();
@@ -8157,38 +8076,24 @@ app.post("/v1/messages", async (req, reply) => {
     let claudeStreamedText = "";
     try { claudeStreamedText = await streamed.text; } catch { /* stream aborted */ }
     if (claudeStreamedText) {
-      if (claudeStreamGateApplied && stopReason !== "tool_use") {
-        const gate = applyCompletionGate(
-          claudeRequirementChecklist,
-          claudeStreamedText,
-          getMetadataString(session.record.metadata, "trace_root_prompt"),
-          getMetadataString(session.record.metadata, "latest_user_prompt"),
-          claudeVerificationAssessment,
-        );
-        claudeStreamedText = gate.finalText;
-        claudeStreamMissingMust = gate.missingMust;
-        claudeStreamMissingShould = gate.missingShould;
-        claudeStreamGateBlockedVerification = gate.blockedByVerification;
-      }
-      claudeStreamedText = applyMarkdownGuardrail(
-        claudeStreamedText,
-        config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-      );
-      if (stopReason !== "tool_use") {
-        const nonSilent = enforceNonSilentFinalizeText(claudeStreamedText);
-        if (nonSilent.applied) {
-          claudeStreamedText = nonSilent.text;
-          recordSessionEvent(
-            claudeSessionKey,
-            claudeIdentity.userId,
-            claudeIdentity.orgId,
-            "completion_non_actionable_fallback",
-            "completion-gate",
-            "claude streamed text was non-actionable; emitted deterministic fallback",
-            reqId,
-          );
-        }
-      }
+      const finalized = finalizePostStreamText({
+        requestId: reqId,
+        sessionKey: claudeSessionKey,
+        userId: claudeIdentity.userId,
+        orgId: claudeIdentity.orgId,
+        assistantText: claudeStreamedText,
+        applyGate: claudeStreamGateApplied,
+        checklist: claudeRequirementChecklist,
+        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+        verification: claudeVerificationAssessment,
+        toolStopReason: stopReason === "tool_use",
+        nonActionableEventDetail: "claude streamed text was non-actionable; emitted deterministic fallback",
+      });
+      claudeStreamedText = finalized.finalText;
+      claudeStreamMissingMust = finalized.missingMust;
+      claudeStreamMissingShould = finalized.missingShould;
+      claudeStreamGateBlockedVerification = finalized.blockedByVerification;
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
     const claudeStreamLatency = Date.now() - started;
@@ -8234,17 +8139,17 @@ app.post("/v1/messages", async (req, reply) => {
       sensemakingTriggered: claudeSensemakingResult?.triggered,
       sensemakingReason: claudeSensemakingResult?.reason,
     });
-    persistSessionAndUsage(
-      session,
-      reqId,
-      resolved.resolvedModelId,
+    persistAndEmitDecisionTelemetry({
+      state: session,
+      requestId: reqId,
+      resolvedModelId: resolved.resolvedModelId,
       usage,
-      claudeStreamLatency,
-      stopReason,
-      claudeStreamSaved,
-      claudeOrchestration.escalated,
-      claudeStreamSnapshot,
-      {
+      latencyMs: claudeStreamLatency,
+      finishReason: stopReason,
+      tokensSavedByReduction: claudeStreamSaved,
+      escalated: claudeOrchestration.escalated,
+      snapshot: claudeStreamSnapshot,
+      trajectory: {
         toolSequence: claudeStreamToolSequence,
         verificationSteps: inferVerificationSteps(claudeStreamToolSequence),
         diagnostics: claudeTrajectoryDiagnostics,
@@ -8253,9 +8158,10 @@ app.post("/v1/messages", async (req, reply) => {
         outcomeState: (claudeStreamGateBlockedVerification || claudeStreamCriticBlocked) ? "partial" : undefined,
         failureStage: claudeStreamGateBlockedVerification ? "verification" : undefined,
       },
-    );
-    maybeCheckpoint(session);
-    emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeStreamSnapshot);
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+    });
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
       timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)", requestId: reqId,
@@ -8563,40 +8469,6 @@ app.post("/v1/messages", async (req, reply) => {
       reqId,
     );
   }
-  if (externalClaudeToolCalls.length === 0 && finalClaudeText) {
-    const parsedLegacy = parseLegacyInlineToolCall(finalClaudeText);
-    if (parsedLegacy) {
-      const legacyHard = applyAdapterToolHardening(claudeAdapter, parsedLegacy.toolName, parsedLegacy.input);
-      if (legacyHard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-      if (legacyHard.repairedWrite) toolArgHardeningStats.repairedWriteCount += 1;
-      if (legacyHard.repairedBash) toolArgHardeningStats.repairedBashCount += 1;
-      const legacyGoverned = governToolCall({
-        toolName: legacyHard.toolName,
-        input: legacyHard.input,
-        projectRoot: effectiveClaudePathCtx.projectRoot,
-        shellCwd: effectiveClaudePathCtx.shellCwd,
-        enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-        blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-        strictBashBlock: claudeOpenClawStrictGovernance,
-        blockWriteCapableTools: claudeOpenClawStrictGovernance,
-        clientKind: claudeClientKind,
-        restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
-      });
-      trackGovernedHardening(legacyGoverned);
-      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, legacyGoverned.toolName, claudeClientKind, legacyGoverned);
-      externalClaudeToolCalls = [{
-        toolCallId: `legacy_${Date.now().toString(36)}`,
-        toolName: legacyGoverned.toolName,
-        input: legacyGoverned.input,
-      }];
-      if (claudeOpenClawStrictGovernance && isWriteCapableToolName(parsedLegacy.toolName) && legacyGoverned.toolName === "Bash") {
-        openClawProfileStats.strictGovernanceRewrites += 1;
-      }
-      finalClaudeText = parsedLegacy.cleanText;
-      stopReason = "tool_use";
-      app.log.warn({ reqId, toolName: legacyGoverned.toolName }, "recovered_legacy_inline_tool_call_claude_non_stream");
-    }
-  }
   const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
   externalClaudeToolCalls = claudeLegacyGuarded.calls;
   if (claudeLegacyGuarded.redirectedCount > 0) {
@@ -8659,85 +8531,25 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeGateBlockedVerification = false;
   let claudeCriticBlocked = false;
   if (stopReason === "end_turn") {
-    const gate = applyCompletionGate(
-      claudeRequirementChecklist,
-      finalClaudeText,
-      getMetadataString(session.record.metadata, "trace_root_prompt"),
-      getMetadataString(session.record.metadata, "latest_user_prompt"),
-      claudeVerificationAssessment,
-    );
-    finalClaudeText = gate.finalText;
-    claudeGateApplied = gate.applied;
-    claudeMissingMust = gate.missingMust;
-    claudeMissingShould = gate.missingShould;
-    claudeGateBlockedVerification = gate.blockedByVerification;
-    if (gate.applied) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
-        "completion-gate",
-        gate.blockedByVerification
-          ? `Blocking verification failures (${gate.blockingVerificationFailures})`
-          : `Missing must-have requirements (${gate.missingMust})`,
-        reqId,
-      );
-    } else if (claudeRequirementChecklist) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "completion_pass",
-        "completion-gate",
-        "No missing must-have requirements detected",
-        reqId,
-      );
-    }
-    if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
-      const critic = await runPreFinalizeCritic({
-        requestId: reqId,
-        assistantText: finalClaudeText,
-        verification: claudeVerificationAssessment,
-        recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
-      });
-      if (critic.blocked) {
-        claudeCriticBlocked = true;
-        finalClaudeText = [
-          "Completion paused by pre-finalization critic.",
-          "",
-          "Findings:",
-          ...critic.findings.map((f) => `- ${f}`),
-          "",
-          "Next actions:",
-          ...(critic.suggestedNextActions.length > 0
-            ? critic.suggestedNextActions.map((s) => `- ${s}`)
-            : ["- Address verification/quality gaps and rerun checks."]),
-        ].join("\n");
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "pre_finalize_critic_block",
-          "completion-gate",
-          `critic_source=${critic.source}`,
-          reqId,
-        );
-      }
-    }
-    const nonSilent = enforceNonSilentFinalizeText(finalClaudeText);
-    if (nonSilent.applied) {
-      finalClaudeText = nonSilent.text;
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "completion_non_actionable_fallback",
-        "completion-gate",
-        "terminal end_turn had non-actionable text; emitted deterministic fallback",
-        reqId,
-      );
-    }
+    const finalized = await finalizeCompletionText({
+      requestId: reqId,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      assistantText: finalClaudeText,
+      checklist: claudeRequirementChecklist,
+      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+      verification: claudeVerificationAssessment,
+      recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+      nonActionableEventDetail: "terminal end_turn had non-actionable text; emitted deterministic fallback",
+    });
+    finalClaudeText = finalized.finalText;
+    claudeGateApplied = finalized.applied;
+    claudeMissingMust = finalized.missingMust;
+    claudeMissingShould = finalized.missingShould;
+    claudeGateBlockedVerification = finalized.blockedByVerification;
+    claudeCriticBlocked = finalized.criticBlocked;
   }
   finalClaudeText = applyMarkdownGuardrail(
     finalClaudeText,
@@ -8789,17 +8601,17 @@ app.post("/v1/messages", async (req, reply) => {
     sensemakingTriggered: claudeSensemakingResult?.triggered,
     sensemakingReason: claudeSensemakingResult?.reason,
   });
-  persistSessionAndUsage(
-    session,
-    reqId,
-    resolved.resolvedModelId,
+  persistAndEmitDecisionTelemetry({
+    state: session,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
     usage,
-    claudeNonStreamLatency,
-    stopReason,
-    claudeNonStreamSaved,
-    claudeOrchestration.escalated,
-    claudeNonStreamSnapshot,
-    {
+    latencyMs: claudeNonStreamLatency,
+    finishReason: stopReason,
+    tokensSavedByReduction: claudeNonStreamSaved,
+    escalated: claudeOrchestration.escalated,
+    snapshot: claudeNonStreamSnapshot,
+    trajectory: {
       toolSequence: externalClaudeToolCalls.map((tc) => tc.toolName),
       verificationSteps: inferVerificationSteps(externalClaudeToolCalls.map((tc) => tc.toolName)),
       diagnostics: claudeTrajectoryDiagnostics,
@@ -8808,9 +8620,10 @@ app.post("/v1/messages", async (req, reply) => {
       outcomeState: (claudeGateBlockedVerification || claudeCriticBlocked) ? "partial" : undefined,
       failureStage: claudeGateBlockedVerification ? "verification" : undefined,
     },
-  );
-  maybeCheckpoint(session);
-  emitDecisionEvents(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, claudeNonStreamSnapshot);
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+  });
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
     timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages", requestId: reqId,
