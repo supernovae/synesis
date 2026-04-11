@@ -63,7 +63,9 @@ Primary APIs:
 - `POST /api/v1/feedback-loop/runs`
 - `POST /api/v1/feedback-loop/runs/{run_id}/pipeline`
 - `POST /api/v1/feedback-loop/runs/{run_id}/auto-label`
-- `GET /api/v1/feedback-loop/runs/{run_id}/dataset?format=jsonl`
+- `POST /api/v1/feedback-loop/runs/{run_id}/critic-score`
+- `GET /api/v1/feedback-loop/runs/{run_id}/preferences`
+- `GET /api/v1/feedback-loop/runs/{run_id}/dataset?format=jsonl&dataset_type=trajectory|dpo|rlaif`
 
 Admin UI:
 - `RAG -> Feedback Loop`
@@ -74,8 +76,23 @@ Use `scripts/feedback-loop-runner.py` to avoid manual API chaining:
 
 - `python scripts/feedback-loop-runner.py collect --name "qwen nightly"`
 - `python scripts/feedback-loop-runner.py pipeline --run-id <run_id> --suite stability_compile_fix_recovery --suite stability_resume_continuity`
-- `python scripts/feedback-loop-runner.py export --run-id <run_id> --format jsonl --out artifacts/run.jsonl`
-- `python scripts/feedback-loop-runner.py run --name "qwen nightly" --out artifacts/nightly.jsonl`
+- `python scripts/feedback-loop-runner.py critic-score --run-id <run_id>`
+- `python scripts/feedback-loop-runner.py export --run-id <run_id> --dataset-type dpo --format jsonl --out artifacts/dpo.jsonl`
+- `python scripts/feedback-loop-runner.py export --run-id <run_id> --dataset-type rlaif --format jsonl --out artifacts/rlaif.jsonl`
+- `python scripts/feedback-loop-runner.py run --name "qwen nightly" --dataset-type dpo --out artifacts/nightly_dpo.jsonl`
+
+## DPO / RLAIF Foundation
+
+The closed-loop system now provides training-ready foundations without full RLHF rollout:
+
+- **Critic scoring** (auto or post-run) writes rubric + `reward_score` + `confidence` per result
+- **DPO preferences** provide `prompt`, `chosen`, `rejected` pairs from baseline/candidate outcomes
+- **RLAIF exports** provide reward-annotated rows (`prompt`, `response`, `reward_score`, rubric, labels)
+
+This supports:
+- preference optimization (DPO/IPO variants)
+- reward-conditioned supervised workflows (RLAIF-style)
+- later extension to full RLHF if required
 
 ## Standard Tooling Reuse
 

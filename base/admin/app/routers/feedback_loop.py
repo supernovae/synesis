@@ -40,6 +40,11 @@ class CreateLoopRunRequest(BaseModel):
 class RunPipelineRequest(BaseModel):
     eval_suites: list[str] = Field(default_factory=list)
     auto_label: bool = True
+    auto_critic_score: bool = True
+
+
+class CriticScoreRequest(BaseModel):
+    overwrite: bool = False
 
 
 def _label_result(row: TestingLabsResult) -> dict[str, Any]:
@@ -67,6 +72,155 @@ def _label_result(row: TestingLabsResult) -> dict[str, Any]:
         strengths.append("latency_efficiency")
 
     return {"failure_tags": sorted(set(tags)), "strength_tags": sorted(set(strengths))}
+
+
+def _critic_scores_for_result(row: TestingLabsResult) -> dict[str, Any]:
+    """Simple rubric score for RLAIF/DPO foundations."""
+    detail = row.detail if isinstance(row.detail, dict) else {}
+    labels = detail.get("labels") if isinstance(detail.get("labels"), dict) else _label_result(row)
+    failure_tags = set(labels.get("failure_tags", []))
+    strength_tags = set(labels.get("strength_tags", []))
+
+    correctness = 1.0 if row.candidate_verdict == "pass" else 0.4 if row.candidate_verdict == "fail" else 0.2
+    tool_validity = 0.7
+    if "invalid_tool_args" in failure_tags:
+        tool_validity = 0.3
+    progress = 0.7 if row.candidate_verdict == "pass" else 0.4
+    efficiency = 0.6
+    if "token_efficiency" in strength_tags:
+        efficiency += 0.2
+    if "latency_efficiency" in strength_tags:
+        efficiency += 0.2
+    efficiency = min(1.0, efficiency)
+    safety = 0.9
+    if "over_abstain" in failure_tags or "completion_failed" in failure_tags:
+        safety = 0.5
+
+    reward = round(
+        (0.35 * correctness) + (0.2 * tool_validity) + (0.2 * progress) + (0.15 * efficiency) + (0.1 * safety),
+        4,
+    )
+    confidence = 0.8 if row.candidate_verdict in {"pass", "fail"} else 0.6
+    return {
+        "rubric": {
+            "correctness": round(correctness, 4),
+            "tool_validity": round(tool_validity, 4),
+            "progress": round(progress, 4),
+            "efficiency": round(efficiency, 4),
+            "safety": round(safety, 4),
+        },
+        "reward_score": reward,
+        "confidence": confidence,
+    }
+
+
+def _inject_labels_and_critic(row: TestingLabsResult) -> dict[str, Any]:
+    detail = row.detail if isinstance(row.detail, dict) else {}
+    labels = detail.get("labels") if isinstance(detail.get("labels"), dict) else _label_result(row)
+    detail["labels"] = labels
+    detail["critic"] = _critic_scores_for_result(row)
+    return detail
+
+
+def _trajectory_record(run: TestingLabsRun, run_id: str, row: TestingLabsResult) -> dict[str, Any]:
+    detail = row.detail if isinstance(row.detail, dict) else {}
+    labels = detail.get("labels") if isinstance(detail.get("labels"), dict) else _label_result(row)
+    critic = detail.get("critic") if isinstance(detail.get("critic"), dict) else _critic_scores_for_result(row)
+    return {
+        "task_id": f"{run_id}:{row.prompt_index}",
+        "session_id": run_id,
+        "model_id": run.candidate_model or "synesis-agent",
+        "runtime_profile": "balanced_completion",
+        "user_intent": row.prompt_category or "unknown",
+        "trajectory_steps": [
+            {
+                "assistant_action": "candidate_response",
+                "tool_name": "n/a",
+                "args_valid": None,
+                "tool_result_class": row.candidate_verdict,
+                "token_cost": row.candidate_tokens,
+                "latency_ms": row.candidate_latency_ms,
+            }
+        ],
+        "outcome": "completed" if row.candidate_verdict == "pass" else "failed",
+        "failure_tags": labels.get("failure_tags", []),
+        "strength_tags": labels.get("strength_tags", []),
+        "critic": critic,
+        "quality_signals": {
+            "candidate_verdict": row.candidate_verdict,
+            "tokens": row.candidate_tokens,
+            "latency_ms": row.candidate_latency_ms,
+            "baseline_tokens": row.baseline_tokens,
+            "baseline_latency_ms": row.baseline_latency_ms,
+        },
+        "gold_next_step": "",
+        "prompt": row.prompt_text,
+        "candidate_response": row.candidate_response,
+    }
+
+
+def _rlaif_record(run: TestingLabsRun, run_id: str, row: TestingLabsResult) -> dict[str, Any]:
+    traj = _trajectory_record(run, run_id, row)
+    critic = traj.get("critic", {})
+    return {
+        "task_id": traj["task_id"],
+        "prompt": traj["prompt"],
+        "response": traj["candidate_response"],
+        "reward_score": critic.get("reward_score", 0.0),
+        "reward_confidence": critic.get("confidence", 0.5),
+        "rubric": critic.get("rubric", {}),
+        "labels": {
+            "failure_tags": traj.get("failure_tags", []),
+            "strength_tags": traj.get("strength_tags", []),
+        },
+        "meta": {
+            "session_id": run_id,
+            "model_id": run.candidate_model or "synesis-agent",
+            "runtime_profile": traj.get("runtime_profile", "balanced_completion"),
+            "prompt_category": row.prompt_category or "unknown",
+        },
+    }
+
+
+def _dpo_pairs(run: TestingLabsRun, run_id: str, rows: list[TestingLabsResult]) -> list[dict[str, Any]]:
+    pairs: list[dict[str, Any]] = []
+    for row in rows:
+        if not (row.candidate_response or "").strip():
+            continue
+        detail = row.detail if isinstance(row.detail, dict) else {}
+        critic = detail.get("critic") if isinstance(detail.get("critic"), dict) else _critic_scores_for_result(row)
+        cand_score = float(critic.get("reward_score", 0.0))
+        baseline_response = (row.baseline_response or "").strip()
+        baseline_score = 0.0
+        if row.baseline_verdict == "pass":
+            baseline_score += 0.7
+        if row.baseline_tokens and row.candidate_tokens and row.baseline_tokens <= row.candidate_tokens:
+            baseline_score += 0.1
+        if row.baseline_latency_ms and row.candidate_latency_ms and row.baseline_latency_ms <= row.candidate_latency_ms:
+            baseline_score += 0.1
+
+        chosen = row.candidate_response
+        rejected = baseline_response
+        if baseline_response and baseline_score > cand_score:
+            chosen = baseline_response
+            rejected = row.candidate_response
+        if not rejected:
+            continue
+        pairs.append(
+            {
+                "pair_id": f"{run_id}:{row.prompt_index}",
+                "prompt": row.prompt_text,
+                "chosen": chosen,
+                "rejected": rejected,
+                "scores": {"candidate": cand_score, "baseline": round(baseline_score, 4)},
+                "meta": {
+                    "session_id": run_id,
+                    "model_id": run.candidate_model or "synesis-agent",
+                    "prompt_category": row.prompt_category or "unknown",
+                },
+            }
+        )
+    return pairs
 
 
 @router.get("/overview")
@@ -133,7 +287,7 @@ async def run_feedback_pipeline(
     body: RunPipelineRequest,
     _user: UserInfo = Depends(require_admin),
 ):
-    return await _run_pipeline(run_id, body.eval_suites, body.auto_label)
+    return await _run_pipeline(run_id, body.eval_suites, body.auto_label, body.auto_critic_score)
 
 
 @router.post("/runs/{run_id}/auto-label")
@@ -160,10 +314,62 @@ async def auto_label_run(
     return {"run_id": run_id, "labeled_results": len(rows)}
 
 
+@router.post("/runs/{run_id}/critic-score")
+async def critic_score_run(
+    run_id: str,
+    body: CriticScoreRequest,
+    _user: UserInfo = Depends(require_admin),
+):
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(TestingLabsResult)
+                .where(TestingLabsResult.run_id == run_id)
+                .order_by(TestingLabsResult.prompt_index)
+            )
+        ).scalars().all()
+        if not rows:
+            raise HTTPException(status_code=404, detail="No results found for run")
+        scored = 0
+        for row in rows:
+            detail = row.detail if isinstance(row.detail, dict) else {}
+            if not body.overwrite and isinstance(detail.get("critic"), dict):
+                continue
+            row.detail = _inject_labels_and_critic(row)
+            scored += 1
+        await session.commit()
+    return {"run_id": run_id, "scored_results": scored, "total_results": len(rows)}
+
+
+@router.get("/runs/{run_id}/preferences")
+async def export_dpo_preferences(
+    run_id: str,
+    _user: UserInfo = Depends(get_current_user),
+):
+    async with async_session() as session:
+        run = (
+            await session.execute(select(TestingLabsRun).where(TestingLabsRun.run_id == run_id))
+        ).scalar_one_or_none()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        rows = (
+            await session.execute(
+                select(TestingLabsResult)
+                .where(TestingLabsResult.run_id == run_id)
+                .order_by(TestingLabsResult.prompt_index)
+            )
+        ).scalars().all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No results found for run")
+    pairs = _dpo_pairs(run, run_id, rows)
+    return {"run_id": run_id, "count": len(pairs), "pairs": pairs}
+
+
 @router.get("/runs/{run_id}/dataset")
 async def export_training_dataset(
     run_id: str,
     format: str = Query("jsonl", pattern="^(jsonl|json)$"),
+    dataset_type: str = Query("trajectory", pattern="^(trajectory|dpo|rlaif)$"),
     _user: UserInfo = Depends(get_current_user),
 ):
     async with async_session() as session:
@@ -182,54 +388,26 @@ async def export_training_dataset(
     if not rows:
         raise HTTPException(status_code=404, detail="No results found for run")
 
-    records = []
-    for row in rows:
-        detail = row.detail if isinstance(row.detail, dict) else {}
-        labels = detail.get("labels") if isinstance(detail.get("labels"), dict) else _label_result(row)
-        records.append(
-            {
-                "task_id": f"{run_id}:{row.prompt_index}",
-                "session_id": run_id,
-                "model_id": run.candidate_model or "synesis-agent",
-                "runtime_profile": "balanced_completion",
-                "user_intent": row.prompt_category or "unknown",
-                "trajectory_steps": [
-                    {
-                        "assistant_action": "candidate_response",
-                        "tool_name": "n/a",
-                        "args_valid": None,
-                        "tool_result_class": row.candidate_verdict,
-                        "token_cost": row.candidate_tokens,
-                        "latency_ms": row.candidate_latency_ms,
-                    }
-                ],
-                "outcome": "completed" if row.candidate_verdict == "pass" else "failed",
-                "failure_tags": labels.get("failure_tags", []),
-                "strength_tags": labels.get("strength_tags", []),
-                "quality_signals": {
-                    "candidate_verdict": row.candidate_verdict,
-                    "tokens": row.candidate_tokens,
-                    "latency_ms": row.candidate_latency_ms,
-                    "baseline_tokens": row.baseline_tokens,
-                    "baseline_latency_ms": row.baseline_latency_ms,
-                },
-                "gold_next_step": "",
-                "prompt": row.prompt_text,
-                "candidate_response": row.candidate_response,
-            }
-        )
+    records: list[dict[str, Any]]
+    if dataset_type == "trajectory":
+        records = [_trajectory_record(run, run_id, row) for row in rows]
+    elif dataset_type == "rlaif":
+        records = [_rlaif_record(run, run_id, row) for row in rows if (row.candidate_response or "").strip()]
+    else:
+        records = _dpo_pairs(run, run_id, rows)
 
     if format == "json":
-        return {"run_id": run_id, "records": records}
+        return {"run_id": run_id, "dataset_type": dataset_type, "records": records}
     return {
         "run_id": run_id,
+        "dataset_type": dataset_type,
         "format": "jsonl",
         "records_jsonl": "\n".join(json.dumps(r, ensure_ascii=True) for r in records),
         "count": len(records),
     }
 
 
-async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool) -> dict[str, Any]:
+async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool, auto_critic_score: bool = True) -> dict[str, Any]:
     run_out = await execute_run(run_id, _YARN_URL)
     if run_out.get("error"):
         raise HTTPException(status_code=409, detail=f"Run execution failed: {run_out.get('error')}")
@@ -244,15 +422,20 @@ async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool) -
         eval_results.append(eval_result.to_dict())
 
     labeled_count = 0
+    scored_count = 0
     if auto_label:
         async with async_session() as session:
             rows = (
                 await session.execute(select(TestingLabsResult).where(TestingLabsResult.run_id == run_id))
             ).scalars().all()
             for row in rows:
-                detail = row.detail if isinstance(row.detail, dict) else {}
-                detail["labels"] = _label_result(row)
-                row.detail = detail
+                if auto_critic_score:
+                    row.detail = _inject_labels_and_critic(row)
+                    scored_count += 1
+                else:
+                    detail = row.detail if isinstance(row.detail, dict) else {}
+                    detail["labels"] = _label_result(row)
+                    row.detail = detail
             await session.commit()
             labeled_count = len(rows)
 
@@ -263,4 +446,5 @@ async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool) -
         "regressions": regression_report.to_dict(),
         "eval_results": eval_results,
         "labeled_results": labeled_count,
+        "critic_scored_results": scored_count,
     }

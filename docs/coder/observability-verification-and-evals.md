@@ -97,6 +97,8 @@ Closed-loop orchestration endpoints:
 | `/api/v1/feedback-loop/runs` | POST | Create loop run and optionally execute immediately |
 | `/api/v1/feedback-loop/runs/{run_id}/pipeline` | POST | Execute replay + regressions + optional eval suites + auto-label |
 | `/api/v1/feedback-loop/runs/{run_id}/auto-label` | POST | Apply failure/strength labels to run results |
+| `/api/v1/feedback-loop/runs/{run_id}/critic-score` | POST | Apply rubric/reward critic scoring for RLAIF/DPO foundations |
+| `/api/v1/feedback-loop/runs/{run_id}/preferences` | GET | Export `chosen/rejected` preference pairs for DPO |
 | `/api/v1/feedback-loop/runs/{run_id}/dataset` | GET | Export run as train-ready records (`json` or `jsonl`) |
 
 Primary implementation:
