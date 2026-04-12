@@ -169,7 +169,7 @@ describe("execution governor", () => {
       toolResult("2", "Build OK"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.pause).toBe(true);
+    expect(out.pause).toBe(false);
     expect(out.reason).toBe("verification_done_report");
     expect(out.matchedRules).toContain("verification_done_report");
   });
@@ -182,7 +182,7 @@ describe("execution governor", () => {
       toolResult("2", ""),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.pause).toBe(true);
+    expect(out.pause).toBe(false);
     expect(out.reason).toBe("verification_no_signal_repeat");
     expect(out.matchedRules).toContain("verification_no_signal_repeat");
   });

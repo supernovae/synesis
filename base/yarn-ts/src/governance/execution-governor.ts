@@ -487,10 +487,10 @@ export function evaluateExecutionGovernor(
 
   if (matchedRules.includes("verification_done_report")) {
     return {
-      pause: true,
+      pause: false,
       reason: "verification_done_report",
       suggestedNextStep:
-        "Verification is already passing and no new edits were made. Stop rerunning verification and provide a concise completion report for the user.",
+        "Verification is already passing and no new edits were made. Do not rerun verification; continue with the next requested non-verification action (for example update plan state) and provide a concise completion report.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,
@@ -505,10 +505,10 @@ export function evaluateExecutionGovernor(
 
   if (matchedRules.includes("verification_no_signal_repeat")) {
     return {
-      pause: true,
+      pause: false,
       reason: "verification_no_signal_repeat",
       suggestedNextStep:
-        "Repeated verification produced no new output and no edits were made. Treat the last successful exit as sufficient and report completion (or make one concrete edit before any further verification).",
+        "Repeated verification produced no new output and no edits were made. Treat the last successful exit as sufficient; continue with the next requested non-verification action and report completion (or make one concrete edit before any further verification).",
       matchedRules,
       telemetry: {
         repeatedTestCommands,
