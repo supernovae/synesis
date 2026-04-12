@@ -436,6 +436,23 @@ describe("governToolCall", () => {
     expect(out.validationMissing).toEqual([]);
   });
 
+  it("does not auto-recover plan-file Edit missing old_string to Read", () => {
+    const out = governToolCall({
+      toolName: "Edit",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        new_string: "- [x] Phase 4 complete",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_ValidationFailed");
+    expect(out.validationMissing).toContain("old_string");
+    expect(out.input.reason).toBe("validation_failed");
+  });
+
   it("recovers Glob missing glob_pattern to a safe default pattern", () => {
     const out = governToolCall({
       toolName: "Glob",

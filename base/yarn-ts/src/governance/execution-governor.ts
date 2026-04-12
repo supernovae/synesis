@@ -334,6 +334,10 @@ export function evaluateExecutionGovernor(
   const userText = extractUserText(messages);
   const hasFailures = hasFailureSignals(turnMessages);
   const testRuntime = inferTestRuntime(events, userText);
+  const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+  const lastEventIsVerification = lastEvent
+    ? isVerificationCommand(lastEvent.toolName, lastEvent.command)
+    : false;
   let repeatedTestCommands = 0;
   let repeatedReadSearchCalls = 0;
   let repeatedBroadDiscoveryCalls = 0;
@@ -509,6 +513,30 @@ export function evaluateExecutionGovernor(
       reason: "verification_no_signal_repeat",
       suggestedNextStep:
         "Repeated verification produced no new output and no edits were made. Treat the last successful exit as sufficient; continue with the next requested non-verification action and report completion (or make one concrete edit before any further verification).",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  const verificationLoopRules = new Set([
+    "broad_to_narrow_verification",
+    "edit_before_retest",
+    "no_repeat_without_change",
+  ]);
+  const hasOnlyVerificationLoopRules = matchedRules.every((r) => verificationLoopRules.has(r));
+  if (!lastEventIsVerification && hasOnlyVerificationLoopRules) {
+    return {
+      pause: false,
+      reason: "verification_loop_advisory_after_pivot",
+      suggestedNextStep:
+        "Verification reruns were detected earlier, but you have already pivoted to a non-verification action. Continue that action (for example updating plan status or applying the next edit) instead of running more tests now.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,

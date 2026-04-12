@@ -26,6 +26,21 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("narrow verification");
   });
 
+  it("does not hard-pause retest rules after pivoting to non-verification action", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test ./..." }),
+      toolResult("1", "FAIL pkg/a"),
+      assistantCall("2", "bash", { command: "go test ./..." }),
+      toolResult("2", "FAIL pkg/a"),
+      assistantCall("3", "read_file", { path: "cmd/synesis/plan.md" }),
+      toolResult("3", "phase checklist"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.reason).toBe("verification_loop_advisory_after_pivot");
+    expect(out.matchedRules).toContain("no_repeat_without_change");
+  });
+
   it("does not pause repeated broad tests when verification is already green", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test ./..." }),

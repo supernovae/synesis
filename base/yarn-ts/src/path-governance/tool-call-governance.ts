@@ -295,6 +295,13 @@ function recoverValidationFailure(
     && typeof input.file_path === "string"
     && input.file_path.trim()
   ) {
+    // For Claude plan files, fail fast so the model fixes tool args instead of
+    // silently looping on repeated auto-Read recovery.
+    const fp = input.file_path.trim();
+    const isClaudePlanFile =
+      fp.includes("/.claude/plans/")
+      && fp.toLowerCase().endsWith(".md");
+    if (isClaudePlanFile) return null;
     return {
       toolName: "Read",
       input: { file_path: input.file_path },
