@@ -1035,6 +1035,7 @@ export class ToolResultReductionService {
     if (
       trimmed.includes("unchanged since last read") ||
       trimmed.includes("file unchanged") ||
+      trimmed.includes("<file_unchanged") ||
       (trimmed.length < 120 && trimmed.includes("unchanged"))
     ) {
       return [

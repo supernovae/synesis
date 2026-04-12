@@ -370,6 +370,22 @@ describe("ToolResultReductionService", () => {
     expect(out.reducedCount).toBe(1);
   });
 
+  it("replaces content-addressed <FILE_UNCHANGED .../> stubs with recovery hint", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const out = svc.reduceMessages(
+      [{
+        role: "tool",
+        name: "Read",
+        content: '<FILE_UNCHANGED path="/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" hash="abc123" first_seen_turn=12 chars=18274 />',
+      }],
+      "load plan and mark completed tasks done",
+    );
+    const reduced = String(out.messages[0].content);
+    expect(reduced).toContain("read_cache_stub");
+    expect(reduced).toContain("Bash(cat");
+    expect(out.reducedCount).toBe(1);
+  });
+
   it("does not fire cache-stub remediation on normal Read results", () => {
     const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
     const normalContent = "const x = 42;\nexport default x;";
