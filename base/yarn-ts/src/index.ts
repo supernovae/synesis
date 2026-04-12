@@ -4992,6 +4992,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           totalBroadDiscoveryCalls: 0,
           broadTestRepeat: false,
           noEditEvidence: false,
+          trailingVerificationRunLength: 0,
         },
       };
   if (
@@ -6925,6 +6926,7 @@ app.post("/v1/messages", async (req, reply) => {
           totalBroadDiscoveryCalls: 0,
           broadTestRepeat: false,
           noEditEvidence: false,
+          trailingVerificationRunLength: 0,
         },
       };
   if (

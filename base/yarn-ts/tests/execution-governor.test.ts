@@ -571,6 +571,111 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("cleanup_todo_harvest");
   });
 
+  it("pauses on alternating verification commands without edits (verification_stall_no_edit)", () => {
+    const messages = [
+      { role: "user", content: "implement bundle files for the synesis CLI" },
+      assistantCall("1", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("2", "ok  synesis.sh/synesis/cmd/synesis  (cached)\nok  synesis.sh/synesis/internal/api (cached)"),
+      assistantCall("3", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("4", "ok  synesis.sh/synesis/cmd/synesis  (cached)\nok  synesis.sh/synesis/internal/api (cached)"),
+      assistantCall("5", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("6", "ok  synesis.sh/synesis/cmd/synesis  (cached)\nok  synesis.sh/synesis/internal/api (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_stall_no_edit");
+    expect(out.telemetry.trailingVerificationRunLength).toBe(6);
+    expect(out.reason).toBe("verification_stall_no_edit");
+    expect(out.suggestedNextStep).toContain("Stop running build/test commands");
+  });
+
+  it("does not fire verification_stall_no_edit when edits are interspersed", () => {
+    const messages = [
+      { role: "user", content: "implement bundle files" },
+      assistantCall("1", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("2", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+      assistantCall("3", "str_replace", { filePath: "pkg/bundle/bundle.go", oldString: "x", newString: "y" }),
+      toolResult("3", "ok"),
+      assistantCall("4", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("4", ""),
+      assistantCall("5", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("5", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_stall_no_edit");
+    expect(out.telemetry.trailingVerificationRunLength).toBe(2);
+  });
+
+  it("does not fire verification_stall_no_edit when there are failures", () => {
+    const messages = [
+      { role: "user", content: "implement bundle files" },
+      assistantCall("1", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("2", "FAIL synesis.sh/synesis/pkg/bundle [build failed]"),
+      assistantCall("3", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("4", "FAIL synesis.sh/synesis/pkg/bundle [build failed]"),
+      assistantCall("5", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("6", "FAIL synesis.sh/synesis/pkg/bundle [build failed]"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_stall_no_edit");
+  });
+
+  it("fires recovery rewrite block for verification_stall_no_edit", () => {
+    const decision = evaluateExecutionGovernor([
+      { role: "user", content: "implement feature" },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("2", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("4", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+      assistantCall("5", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("6", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+    ]);
+    expect(decision.pause).toBe(true);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP running build and test");
+    expect(block).toContain("verification_stall_no_edit");
+    expect(block).toContain("SYNESIS_EXECUTION_RECOVERY");
+  });
+
+  it("uses strict_control threshold for verification stall", () => {
+    const messages = [
+      { role: "user", content: "implement feature" },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("2", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("4", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+    ];
+    const strict = evaluateExecutionGovernor(messages, "strict_control");
+    expect(strict.pause).toBe(true);
+    expect(strict.matchedRules).toContain("verification_stall_no_edit");
+    const balanced = evaluateExecutionGovernor(messages, "balanced_completion");
+    expect(balanced.matchedRules).not.toContain("verification_stall_no_edit");
+  });
+
   it("respects explicit user opt-out for TODO/FIXME harvest", () => {
     const messages = [
       { role: "user", content: "implement output post-processing, do not run TODO/FIXME harvest" },

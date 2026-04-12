@@ -24,6 +24,7 @@ export interface ExecutionGovernorDecision {
     totalBroadDiscoveryCalls: number;
     broadTestRepeat: boolean;
     noEditEvidence: boolean;
+    trailingVerificationRunLength: number;
   };
 }
 
@@ -43,6 +44,7 @@ interface GovernorThresholds {
   repeatedBroadDiscoveryPauseThreshold: number;
   broadVerificationNoticeThreshold: number;
   broadVerificationBlockThreshold: number;
+  verificationStallThreshold: number;
 }
 
 const BALANCED_THRESHOLDS: GovernorThresholds = {
@@ -52,6 +54,7 @@ const BALANCED_THRESHOLDS: GovernorThresholds = {
   repeatedBroadDiscoveryPauseThreshold: 2,
   broadVerificationNoticeThreshold: 3,
   broadVerificationBlockThreshold: 4,
+  verificationStallThreshold: 6,
 };
 
 function thresholdsForProfile(profile: GovernanceProfileName): GovernorThresholds {
@@ -65,6 +68,7 @@ function thresholdsForProfile(profile: GovernanceProfileName): GovernorThreshold
       repeatedBroadDiscoveryPauseThreshold: 4,
       broadVerificationNoticeThreshold: 6,
       broadVerificationBlockThreshold: 8,
+      verificationStallThreshold: 10,
     };
   }
   if (profile === "strict_control") {
@@ -77,6 +81,7 @@ function thresholdsForProfile(profile: GovernanceProfileName): GovernorThreshold
       repeatedBroadDiscoveryPauseThreshold: 1,
       broadVerificationNoticeThreshold: 2,
       broadVerificationBlockThreshold: 3,
+      verificationStallThreshold: 4,
     };
   }
   return BALANCED_THRESHOLDS;
@@ -590,6 +595,20 @@ export function evaluateExecutionGovernor(
     if (next >= 2) repeatedTaskCreateReplay += 1;
   }
 
+  // Count trailing verification commands from end of events, stopping at first edit.
+  // Also track unique commands to distinguish legitimate multi-package verification
+  // from the stall pattern (same 2-3 commands cycling: go build → go test → go build → ...).
+  let trailingVerificationRunLength = 0;
+  const trailingVerificationCommands = new Set<string>();
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i].command.startsWith("edit:") || events[i].command === "edit") break;
+    if (isVerificationCommand(events[i].toolName, events[i].command)) {
+      trailingVerificationRunLength += 1;
+      trailingVerificationCommands.add(events[i].command);
+    }
+  }
+  const trailingVerificationHasRepeats = trailingVerificationRunLength > trailingVerificationCommands.size;
+
   // Enforce follow-through when a declaration-only edit is made: avoid read/search churn.
   let sawDeclarationOnlyEdit = false;
   let sawFollowupConcreteEdit = false;
@@ -650,6 +669,9 @@ export function evaluateExecutionGovernor(
   if (repeatedTruncatedVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_done_report");
   if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_no_signal_repeat");
+  if (!isInvestigationOnly && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
+    matchedRules.push("verification_stall_no_edit");
+  }
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
     || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
@@ -675,6 +697,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -693,6 +716,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -711,6 +735,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -729,6 +754,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -747,6 +773,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -765,6 +792,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -783,6 +811,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -801,6 +830,26 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_stall_no_edit")) {
+    return {
+      pause: true,
+      reason: "verification_stall_no_edit",
+      suggestedNextStep:
+        `You have run ${trailingVerificationRunLength} verification commands without making any code edits. Builds and tests are passing — there is nothing left to verify. Stop running build/test commands. Pick the next unfinished task item, read the relevant source file once, make one concrete code edit (Write/Edit), then run one narrow verification.`,
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -819,6 +868,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -837,6 +887,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -855,6 +906,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -873,6 +925,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -897,6 +950,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -927,6 +981,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -969,6 +1024,7 @@ export function evaluateExecutionGovernor(
         totalBroadDiscoveryCalls,
         broadTestRepeat,
         noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -985,6 +1041,7 @@ export function evaluateExecutionGovernor(
       totalBroadDiscoveryCalls,
       broadTestRepeat,
       noEditEvidence,
+      trailingVerificationRunLength,
     },
   };
 }
@@ -996,6 +1053,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
   let step3: string;
 
   switch (reason) {
+    case "verification_stall_no_edit":
+      step1 = "STOP running build and test commands. Verification is already passing — there is nothing to check.";
+      step2 = "Identify the next unfinished task item and read the relevant source file once (with offset/limit if large).";
+      step3 = "Make one concrete code edit (Write/Edit) for that task item, then run one narrow verification.";
+      break;
     case "verification_fail_repeat_block":
     case "verification_same_failure_signature_replay":
     case "verification_truncated_output":
