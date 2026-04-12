@@ -367,6 +367,72 @@ function remediatePlanFileStubs(
   return { messages: out, remediatedCount };
 }
 
+const PLAN_FILE_PATH_KEYS = ["filePath", "file_path", "path", "file", "fileName", "file_name"];
+const PLAN_READ_TOOL_NAMES = new Set(["read", "read_file", "readfile", "file_read", "str_replace_editor"]);
+
+/**
+ * Detect plan file reads and append structured instructions so the model
+ * knows to parse tasks and display a status summary instead of looping.
+ */
+function annotatePlanFileReads(
+  messages: Array<{ role: string; tool_call_id?: string; content: unknown }>,
+): { messages: Array<{ role: string; tool_call_id?: string; content: unknown }>; annotatedCount: number } {
+  const toolCallPathMap = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    const toolCalls = (m as Record<string, unknown>).tool_calls;
+    if (!Array.isArray(toolCalls)) continue;
+    for (const tc of toolCalls) {
+      const id = typeof tc?.id === "string" ? tc.id : "";
+      const fnName = typeof tc?.function?.name === "string" ? tc.function.name.toLowerCase() : "";
+      if (!id || !PLAN_READ_TOOL_NAMES.has(fnName)) continue;
+      let argsRaw = tc?.function?.arguments;
+      if (typeof argsRaw === "string") {
+        try { argsRaw = JSON.parse(argsRaw); } catch { continue; }
+      }
+      if (!argsRaw || typeof argsRaw !== "object") continue;
+      const args = argsRaw as Record<string, unknown>;
+      for (const key of PLAN_FILE_PATH_KEYS) {
+        if (typeof args[key] === "string" && args[key]) {
+          toolCallPathMap.set(id, args[key] as string);
+          break;
+        }
+      }
+    }
+  }
+
+  let annotatedCount = 0;
+  const out = messages.map((m) => {
+    if (m.role !== "tool" || typeof m.content !== "string") return m;
+    const text = m.content;
+    if (text.length < 50) return m;
+    if (text.includes("<SYNESIS_PLAN_LOADED")) return m;
+
+    const resolvedPath = m.tool_call_id ? toolCallPathMap.get(m.tool_call_id) : undefined;
+    const isPlan = resolvedPath
+      ? (resolvedPath.includes("/.claude/plans/") || resolvedPath.includes("\\.claude\\plans\\"))
+      : (text.includes("/.claude/plans/") && /---\n/.test(text));
+    if (!isPlan) return m;
+
+    annotatedCount += 1;
+    const planPath = resolvedPath ?? "the plan file";
+    return {
+      ...m,
+      content: text + "\n\n" + [
+        `<SYNESIS_PLAN_LOADED path="${planPath}">`,
+        `You have loaded a plan file. Your IMMEDIATE next action:`,
+        `1. Parse the task list from the YAML frontmatter above (look for 'todos:' or task entries with 'status:')`,
+        `2. Display a progress summary table: completed tasks (✓) vs remaining tasks (◻) with their descriptions`,
+        `3. State which task is next and ask if the user wants to proceed`,
+        `Do NOT re-read this file. Do NOT explore the repository. Do NOT say "I've already read this."`,
+        `Display the task status summary NOW as your very next output.`,
+        `</SYNESIS_PLAN_LOADED>`,
+      ].join("\n"),
+    };
+  });
+  return { messages: out, annotatedCount };
+}
+
 function extractTextFromUnknownContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -4798,6 +4864,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       normalizedOpenAI.messages = oaiPlanRemediation.messages as never;
       app.log.warn({ reqId: oaiTraceReqId, count: oaiPlanRemediation.remediatedCount }, "plan_file_dedup_remediated");
     }
+    const oaiPlanAnnotation = annotatePlanFileReads(normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
+    if (oaiPlanAnnotation.annotatedCount > 0) {
+      normalizedOpenAI.messages = oaiPlanAnnotation.messages as never;
+      if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+        app.log.debug({ reqId: oaiTraceReqId, count: oaiPlanAnnotation.annotatedCount }, "plan_file_read_annotated");
+      }
+    }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
@@ -6728,6 +6801,13 @@ app.post("/v1/messages", async (req, reply) => {
     if (claudePlanRemediation.remediatedCount > 0) {
       normalizedFromClaude.messages = claudePlanRemediation.messages as never;
       app.log.warn({ reqId: traceReqId, count: claudePlanRemediation.remediatedCount }, "plan_file_dedup_remediated");
+    }
+    const claudePlanAnnotation = annotatePlanFileReads(normalizedFromClaude.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
+    if (claudePlanAnnotation.annotatedCount > 0) {
+      normalizedFromClaude.messages = claudePlanAnnotation.messages as never;
+      if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+        app.log.debug({ reqId: traceReqId, count: claudePlanAnnotation.annotatedCount }, "plan_file_read_annotated");
+      }
     }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);
