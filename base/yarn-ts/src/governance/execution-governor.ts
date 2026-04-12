@@ -265,6 +265,45 @@ function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): bo
     || /\b(task|feature|clipboard|implementation)\s+(is\s+)?(complete|done)\b/.test(assistantText);
 }
 
+function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
+  const text = messages
+    .filter((m) => (m.role === "assistant" || m.role === "user") && typeof m.content === "string")
+    .map((m) => String(m.content).toLowerCase())
+    .join("\n");
+  return /\b(tasks?|todos?|task list|open tasks|pending tasks|duplicate tasks|remaining tasks|clean\s*up.*tasks)\b/.test(text);
+}
+
+/**
+ * Count assistant messages that contain verbal intent declarations
+ * ("I'll ...", "Let me ...") without intervening edits or task updates.
+ * Returns the max consecutive streak of intent-only assistant messages.
+ */
+function countVerbalIntentStreak(messages: GovernorInputMessage[], events: CommandEvent[]): number {
+  const editOrTaskCommands = new Set(
+    events
+      .filter((e) =>
+        e.command.startsWith("edit:") || e.command === "edit"
+        || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
+        || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
+        || e.command.startsWith("todowrite:") || e.command === "todowrite",
+      )
+      .map((e) => e.command),
+  );
+  const hasAnyEditOrTaskAction = editOrTaskCommands.size > 0;
+  if (hasAnyEditOrTaskAction) return 0;
+
+  let streak = 0;
+  for (const m of messages) {
+    if (m.role !== "assistant" || typeof m.content !== "string") continue;
+    const text = m.content.trim().toLowerCase();
+    if (!text) continue;
+    if (/\b(i'll|i will|let me|let's)\s+\w/.test(text)) {
+      streak += 1;
+    }
+  }
+  return streak;
+}
+
 function hasTaskDoneStatusUpdate(events: CommandEvent[]): boolean {
   for (const e of events) {
     const tool = normalizeString(e.toolName).toLowerCase();
@@ -640,10 +679,13 @@ export function evaluateExecutionGovernor(
     return tool.includes("taskcreate") || tool.includes("taskupdate") || tool.includes("todowrite");
   });
   const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaimInAssistantText(turnMessages) && !hasTaskDoneStatusUpdate(events);
+  const taskMentionedButNoUpdate = hasTaskMentionInTurnText(turnMessages) && hasCompletionClaimInAssistantText(turnMessages) && !hasTaskDoneStatusUpdate(events);
   const planNotFinalized = activePlanStage !== null && activePlanStage !== "finalize" && activePlanStage !== "done";
-  if (claimButNoUpdate || (hasCompletionClaimInAssistantText(turnMessages) && planNotFinalized)) {
+  if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaimInAssistantText(turnMessages) && planNotFinalized)) {
     completionClaimNeedsTaskUpdate = true;
   }
+
+  const verbalIntentStreak = countVerbalIntentStreak(turnMessages, events);
 
   // Read-only investigation intent: suppress noEditEvidence-dependent rules.
   const isInvestigationOnly = isReadOnlyInvestigationIntent(userText);
@@ -671,6 +713,9 @@ export function evaluateExecutionGovernor(
   if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_no_signal_repeat");
   if (!isInvestigationOnly && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
     matchedRules.push("verification_stall_no_edit");
+  }
+  if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
+    matchedRules.push("verbal_intent_without_action");
   }
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
@@ -822,6 +867,25 @@ export function evaluateExecutionGovernor(
       reason: "verification_fail_repeat_block",
       suggestedNextStep:
         "You are repeating the same failing verification output. STOP re-running tests/builds. Read the failing file/error location, apply exactly one focused Edit/Write to address that root cause, then run one narrow verification command.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verbal_intent_without_action")) {
+    return {
+      pause: true,
+      reason: "verbal_intent_without_action",
+      suggestedNextStep:
+        `You have declared intent to act ${verbalIntentStreak} times ("I'll ...", "Let me ...") without making any code edits or task updates. Stop narrating intent and take one concrete action: (1) call TaskUpdate/TodoWrite to mark completed tasks done, (2) make one code edit (Write/Edit), or (3) if everything is done, update all task statuses to done and report completion.`,
       matchedRules,
       telemetry: {
         repeatedTestCommands,
@@ -1053,6 +1117,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
   let step3: string;
 
   switch (reason) {
+    case "verbal_intent_without_action":
+      step1 = "STOP declaring intent. You have said 'I'll...' multiple times without acting. Do NOT output another plan or narration.";
+      step2 = "If tasks are done, call TaskUpdate/TodoWrite NOW to mark them completed. If code is needed, make one Edit/Write call.";
+      step3 = "After the concrete action, run one narrow verification and report results.";
+      break;
     case "verification_stall_no_edit":
       step1 = "STOP running build and test commands. Verification is already passing — there is nothing to check.";
       step2 = "Identify the next unfinished task item and read the relevant source file once (with offset/limit if large).";

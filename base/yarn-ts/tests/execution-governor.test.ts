@@ -676,6 +676,89 @@ describe("execution governor", () => {
     expect(balanced.matchedRules).not.toContain("verification_stall_no_edit");
   });
 
+  it("fires verbal_intent_without_action on repeated 'I'll' declarations without edits", () => {
+    const messages = [
+      { role: "user", content: "implement bundle files for the synesis CLI" },
+      { role: "assistant", content: "I'll implement bundle files for the synesis CLI. Let me first check the current state." },
+      assistantCall("1", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("2", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
+      { role: "assistant", content: "I'll implement bundle files. Let me check the current state and verify the implementation." },
+      assistantCall("3", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+      { role: "assistant", content: "I'll clean up the duplicate tasks and finish the bundle files implementation." },
+      assistantCall("4", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("4", "Build successful"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verbal_intent_without_action");
+    expect(out.reason).toBe("verbal_intent_without_action");
+    expect(out.suggestedNextStep).toContain("Stop narrating intent");
+  });
+
+  it("does not fire verbal_intent_without_action when edits are made", () => {
+    const messages = [
+      { role: "user", content: "implement bundle files" },
+      { role: "assistant", content: "I'll implement bundle files." },
+      assistantCall("1", "str_replace", { filePath: "pkg/bundle/bundle.go", oldString: "x", newString: "y" }),
+      toolResult("1", "ok"),
+      { role: "assistant", content: "I'll add the flag to ask.go now." },
+      assistantCall("2", "str_replace", { filePath: "cmd/synesis/ask.go", oldString: "a", newString: "b" }),
+      toolResult("2", "ok"),
+      { role: "assistant", content: "I'll verify the build." },
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+  });
+
+  it("fires completion_claim_requires_task_update when tasks mentioned in text but no task tool calls", () => {
+    const messages = [
+      { role: "user", content: "implement bundle files" },
+      { role: "assistant", content: "I'll clean up the duplicate tasks and verify the bundle implementation is complete." },
+      assistantCall("1", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("1", "Build successful"),
+      { role: "assistant", content: "The implementation is complete. The build is successful." },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("completion_claim_requires_task_update");
+  });
+
+  it("does not fire completion_claim when tasks are updated to done", () => {
+    const messages = [
+      { role: "user", content: "implement bundle files" },
+      { role: "assistant", content: "I'll clean up the duplicate tasks." },
+      assistantCall("1", "todowrite", { todos: [{ id: "1", content: "Create bundle", status: "completed" }] }),
+      toolResult("1", "ok"),
+      { role: "assistant", content: "The task is complete." },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
+  it("fires recovery rewrite block for verbal_intent_without_action", () => {
+    const messages = [
+      { role: "user", content: "implement feature" },
+      { role: "assistant", content: "I'll implement the feature now." },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      { role: "assistant", content: "I'll check the implementation." },
+      assistantCall("2", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("2", "ok"),
+      { role: "assistant", content: "Let me verify the implementation." },
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+    ];
+    const decision = evaluateExecutionGovernor(messages);
+    expect(decision.pause).toBe(true);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP declaring intent");
+    expect(block).toContain("verbal_intent_without_action");
+  });
+
   it("respects explicit user opt-out for TODO/FIXME harvest", () => {
     const messages = [
       { role: "user", content: "implement output post-processing, do not run TODO/FIXME harvest" },
