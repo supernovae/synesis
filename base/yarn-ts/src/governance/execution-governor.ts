@@ -250,6 +250,11 @@ function hasSuccessSignature(sig: string): boolean {
   return /\bok\b|\bpass(ed)?\b|\bbuild successful\b|\bsuccess\b|\bno test files\b/.test(sig);
 }
 
+function hasNoTestFilesSignature(sig: string): boolean {
+  if (!sig) return false;
+  return /\bno test files\b/.test(sig);
+}
+
 function hasEditFailureSignature(sig: string): boolean {
   if (!sig) return false;
   return /error editing file|old_string.*not found|failed to apply patch|no changes made|did not match file content/.test(sig);
@@ -536,6 +541,7 @@ export function evaluateExecutionGovernor(
   let broadTestRepeat = false;
   let repeatedFailingVerification = 0;
   let repeatedSuccessfulVerification = 0;
+  let repeatedNoTestFilesVerification = 0;
   let repeatedNoSignalVerification = 0;
   let repeatedTruncatedVerification = 0;
   let repeatedCompileLikeFailureVerification = 0;
@@ -595,6 +601,9 @@ export function evaluateExecutionGovernor(
         && hasSuccessSignature(events[i].resultSignature)
       ) {
         repeatedSuccessfulVerification += 1;
+        if (hasNoTestFilesSignature(events[i].resultSignature)) {
+          repeatedNoTestFilesVerification += 1;
+        }
       }
       if (!events[i].resultSignature && !events[i - 1].resultSignature) {
         repeatedNoSignalVerification += 1;
@@ -727,6 +736,7 @@ export function evaluateExecutionGovernor(
   if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (repeatedTruncatedVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_done_report");
+  if (repeatedNoTestFilesVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("no_test_files_repeat");
   if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_no_signal_repeat");
   if (!isInvestigationOnly && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
     matchedRules.push("verification_stall_no_edit");
@@ -973,6 +983,25 @@ export function evaluateExecutionGovernor(
     };
   }
 
+  if (matchedRules.includes("no_test_files_repeat")) {
+    return {
+      pause: true,
+      reason: "no_test_files_repeat",
+      suggestedNextStep:
+        "The test command returned '[no test files]' multiple times. Re-running the same test will not produce test files. You MUST create a test file (e.g. *_test.go) with test functions, then run the test command once to verify. Do NOT re-run the test command until you have written a test file.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+      },
+    };
+  }
+
   if (matchedRules.includes("verification_done_report")) {
     return {
       pause: false,
@@ -1143,6 +1172,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP running build, test, and read commands. Verification is already passing and files are unchanged — there is nothing to re-check.";
       step2 = "If the current task is verified and complete, update the plan file or call TaskUpdate/TodoWrite NOW to mark it done.";
       step3 = "If more work remains, make one concrete code edit (Write/Edit) for the next task item, then run one narrow verification.";
+      break;
+    case "no_test_files_repeat":
+      step1 = "STOP running the test command. '[no test files]' means there are NO tests to run — re-running produces the same result.";
+      step2 = "CREATE a test file now (e.g. Write a *_test.go file with test functions for the package under test).";
+      step3 = "After writing the test file, run the test command ONCE to verify the tests pass.";
       break;
     case "verification_fail_repeat_block":
     case "verification_same_failure_signature_replay":

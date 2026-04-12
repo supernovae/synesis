@@ -722,6 +722,36 @@ describe("execution governor", () => {
     expect(balanced.matchedRules).not.toContain("verification_stall_no_edit");
   });
 
+  it("pauses on repeated 'no test files' results (no_test_files_repeat)", () => {
+    const messages = [
+      { role: "user", content: "validate bundle and make sure there are tests" },
+      assistantCall("1", "bash", { command: "go test -v ./pkg/bundle/..." }),
+      toolResult("1", "?  synesis.sh/synesis/pkg/bundle  [no test files]"),
+      assistantCall("2", "bash", { command: "go test -v ./pkg/bundle/..." }),
+      toolResult("2", "?  synesis.sh/synesis/pkg/bundle  [no test files]"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("no_test_files_repeat");
+    expect(out.reason).toBe("no_test_files_repeat");
+    expect(out.suggestedNextStep).toContain("create a test file");
+  });
+
+  it("fires recovery rewrite block for no_test_files_repeat", () => {
+    const decision = evaluateExecutionGovernor([
+      { role: "user", content: "validate bundle" },
+      assistantCall("1", "bash", { command: "go test -v ./pkg/bundle/..." }),
+      toolResult("1", "?  synesis.sh/synesis/pkg/bundle  [no test files]"),
+      assistantCall("2", "bash", { command: "go test -v ./pkg/bundle/..." }),
+      toolResult("2", "?  synesis.sh/synesis/pkg/bundle  [no test files]"),
+    ]);
+    expect(decision.pause).toBe(true);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP running the test command");
+    expect(block).toContain("CREATE a test file");
+    expect(block).toContain("no_test_files_repeat");
+  });
+
   it("fires verbal_intent_without_action on repeated 'I'll' declarations without edits", () => {
     const messages = [
       { role: "user", content: "implement bundle files for the synesis CLI" },

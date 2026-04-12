@@ -516,6 +516,66 @@ function annotatePlanFileReads(
   return { messages: out, annotatedCount, planFilePaths };
 }
 
+const NO_TEST_FILES_RE = /\[no test files\]/i;
+const PACKAGE_PATH_RE = /\?\s+(\S+)\s+\[no test files\]/;
+
+/**
+ * Annotate verification results that indicate actionable gaps so the model
+ * can course-correct within the same turn rather than re-running the same
+ * command in a loop.
+ *
+ * Currently handles:
+ * - `[no test files]` — tells the model to create a test file instead of
+ *   re-running the test command.
+ */
+function annotateVerificationGaps(
+  messages: Array<{ role: string; tool_call_id?: string; content: unknown }>,
+): { messages: Array<{ role: string; tool_call_id?: string; content: unknown }>; annotatedCount: number } {
+  // Build a set of tool_call_ids whose assistant tool_call invoked a shell/bash tool
+  const shellToolCallIds = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    const toolCalls = (m as Record<string, unknown>).tool_calls;
+    if (!Array.isArray(toolCalls)) continue;
+    for (const tc of toolCalls) {
+      const id = typeof tc?.id === "string" ? tc.id : "";
+      const fnName = typeof tc?.function?.name === "string" ? tc.function.name.toLowerCase() : "";
+      if (!id) continue;
+      if (fnName.includes("bash") || fnName.includes("shell") || fnName.includes("run_command") || fnName.includes("execute")) {
+        shellToolCallIds.add(id);
+      }
+    }
+  }
+
+  let annotatedCount = 0;
+  const out = messages.map((m) => {
+    if (m.role !== "tool" || typeof m.content !== "string") return m;
+    const text = m.content;
+    if (!NO_TEST_FILES_RE.test(text)) return m;
+    if (text.includes("<SYNESIS_VERIFICATION_GAP")) return m;
+    if (!m.tool_call_id || !shellToolCallIds.has(m.tool_call_id)) return m;
+
+    const pkgMatch = text.match(PACKAGE_PATH_RE);
+    const pkg = pkgMatch?.[1] ?? "the package";
+    const lastSegment = pkg.includes("/") ? pkg.split("/").pop() : pkg;
+    const testFileName = `${lastSegment}_test.go`;
+
+    annotatedCount += 1;
+    return {
+      ...m,
+      content: text + "\n\n" + [
+        `<SYNESIS_VERIFICATION_GAP code="no_test_files">`,
+        `package=${pkg}`,
+        `There are NO test files for this package. Re-running "go test" will produce the same result.`,
+        `ACTION REQUIRED: Create a test file (e.g. ${testFileName}) with test functions, then run the test command once.`,
+        `Do NOT re-run "go test" until you have written a test file.`,
+        `</SYNESIS_VERIFICATION_GAP>`,
+      ].join("\n"),
+    };
+  });
+  return { messages: out, annotatedCount };
+}
+
 function extractTextFromUnknownContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -4964,6 +5024,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (oaiPlanAnnotation.planFilePaths.length > 0) {
       session.record.metadata.plan_file_path = oaiPlanAnnotation.planFilePaths[oaiPlanAnnotation.planFilePaths.length - 1];
     }
+    const oaiVerifGaps = annotateVerificationGaps(normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
+    if (oaiVerifGaps.annotatedCount > 0) {
+      normalizedOpenAI.messages = oaiVerifGaps.messages as never;
+    }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
@@ -6904,6 +6968,10 @@ app.post("/v1/messages", async (req, reply) => {
     }
     if (claudePlanAnnotation.planFilePaths.length > 0) {
       session.record.metadata.plan_file_path = claudePlanAnnotation.planFilePaths[claudePlanAnnotation.planFilePaths.length - 1];
+    }
+    const claudeVerifGaps = annotateVerificationGaps(normalizedFromClaude.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
+    if (claudeVerifGaps.annotatedCount > 0) {
+      normalizedFromClaude.messages = claudeVerifGaps.messages as never;
     }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);
