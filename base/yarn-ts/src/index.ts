@@ -4925,7 +4925,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
           noEditEvidence: false,
         },
       };
-  if (oaiExecutionGovernor.matchedRules.includes("verification_green_repeat_block")) {
+  if (
+    oaiExecutionGovernor.matchedRules.includes("verification_green_repeat_block")
+    || oaiExecutionGovernor.matchedRules.includes("verification_already_green")
+  ) {
     session.blockBroadVerificationUntilEdit = true;
   }
   if (oaiExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")) {
@@ -6876,7 +6879,10 @@ app.post("/v1/messages", async (req, reply) => {
           noEditEvidence: false,
         },
       };
-  if (claudeExecutionGovernor.matchedRules.includes("verification_green_repeat_block")) {
+  if (
+    claudeExecutionGovernor.matchedRules.includes("verification_green_repeat_block")
+    || claudeExecutionGovernor.matchedRules.includes("verification_already_green")
+  ) {
     session.blockBroadVerificationUntilEdit = true;
   }
   if (claudeExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")) {
