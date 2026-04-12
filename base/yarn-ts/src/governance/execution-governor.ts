@@ -203,6 +203,11 @@ function hasFailureSignature(sig: string): boolean {
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b|expected statement\b|undefined:\b/.test(sig);
 }
 
+function hasSuccessSignature(sig: string): boolean {
+  if (!sig) return false;
+  return /\bok\b|\bpass(ed)?\b|\bbuild successful\b|\bsuccess\b|\bno test files\b/.test(sig);
+}
+
 function extractUserText(messages: GovernorInputMessage[]): string {
   return messages
     .filter((m) => m.role === "user" && typeof m.content === "string")
@@ -329,6 +334,8 @@ export function evaluateExecutionGovernor(
   let broadVerificationCommands = 0;
   let broadTestRepeat = false;
   let repeatedFailingVerification = 0;
+  let repeatedSuccessfulVerification = 0;
+  let repeatedNoSignalVerification = 0;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
   const hasRunTest = events.some((e) =>
@@ -369,6 +376,17 @@ export function evaluateExecutionGovernor(
       ) {
         repeatedFailingVerification += 1;
       }
+      if (
+        events[i].resultSignature
+        && events[i - 1].resultSignature
+        && events[i].resultSignature === events[i - 1].resultSignature
+        && hasSuccessSignature(events[i].resultSignature)
+      ) {
+        repeatedSuccessfulVerification += 1;
+      }
+      if (!events[i].resultSignature && !events[i - 1].resultSignature) {
+        repeatedNoSignalVerification += 1;
+      }
     }
     if (events[i].command !== events[i - 1].command) continue;
     if (i >= windowStart && (tool.includes("search") || tool.includes("read"))) {
@@ -383,6 +401,8 @@ export function evaluateExecutionGovernor(
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
   if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
+  if (!broadTestRepeat && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
+  if (!broadTestRepeat && repeatedNoSignalVerification >= 1 && noEditEvidence) matchedRules.push("verification_no_signal_repeat");
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
     || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
@@ -418,6 +438,42 @@ export function evaluateExecutionGovernor(
       reason: "verification_fail_repeat_block",
       suggestedNextStep:
         "You are repeating the same failing verification output. STOP re-running tests/builds. Read the failing file/error location, apply exactly one focused Edit/Write to address that root cause, then run one narrow verification command.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_done_report")) {
+    return {
+      pause: true,
+      reason: "verification_done_report",
+      suggestedNextStep:
+        "Verification is already passing and no new edits were made. Stop rerunning verification and provide a concise completion report for the user.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_no_signal_repeat")) {
+    return {
+      pause: true,
+      reason: "verification_no_signal_repeat",
+      suggestedNextStep:
+        "Repeated verification produced no new output and no edits were made. Treat the last successful exit as sufficient and report completion (or make one concrete edit before any further verification).",
       matchedRules,
       telemetry: {
         repeatedTestCommands,

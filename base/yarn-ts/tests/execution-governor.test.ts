@@ -161,6 +161,32 @@ describe("execution governor", () => {
     expect(out.telemetry.noEditEvidence).toBe(false);
   });
 
+  it("pauses repeated successful narrow verification and asks for completion report", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1 && echo Build OK" }),
+      toolResult("1", "Build OK"),
+      assistantCall("2", "bash", { command: "go test -c ./cmd/synesis 2>&1 && echo Build OK" }),
+      toolResult("2", "Build OK"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_done_report");
+    expect(out.matchedRules).toContain("verification_done_report");
+  });
+
+  it("pauses repeated no-signal narrow verification and asks to conclude", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
+      toolResult("2", ""),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_no_signal_repeat");
+    expect(out.matchedRules).toContain("verification_no_signal_repeat");
+  });
+
   it("allows non-repetitive flow", () => {
     const messages = [
       assistantCall("1", "read_file", { path: "a.ts" }),
