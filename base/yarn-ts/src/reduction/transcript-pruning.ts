@@ -226,6 +226,7 @@ export class TranscriptPruningService {
       if (m.role !== "tool" || !isFileOp(m.name)) return m;
       const fp = extractFilePath(m.content);
       if (!fp) return m;
+      if (isPlanFilePath(fp)) return m;
       const latest = latestReadIndex.get(fp);
       if (latest === undefined || latest === i) return m;
 
@@ -257,6 +258,8 @@ export class TranscriptPruningService {
       const raw = contentString(m.content);
       if (raw.length <= this.config.stubMaxChars) return m;
       if (raw.startsWith("<FILE_SUPERSEDED") || raw.startsWith("<DUPLICATE_CMD_SUPERSEDED")) return m;
+      const evictPath = isFileOp(m.name) ? extractFilePath(m.content) : null;
+      if (evictPath && isPlanFilePath(evictPath)) return m;
       this.stats.toolResultsEvicted += 1;
       const lines = raw.split("\n").length;
       const preview = raw.slice(0, 120).replace(/\n/g, " ");
@@ -320,6 +323,8 @@ export class TranscriptPruningService {
       if (raw.length < 200) return m;
       if (raw.startsWith("<FILE_SUPERSEDED") || raw.startsWith("<DUPLICATE_CMD_SUPERSEDED")
         || raw.startsWith("<TOOL_RESULT_PRUNED") || raw.startsWith("<NEAR_DUPLICATE_OUTPUT")) return m;
+      const collapsePath = isFileOp(m.name) ? extractFilePath(m.content) : null;
+      if (collapsePath && isPlanFilePath(collapsePath)) return m;
       const fp = contentFingerprint(raw);
       const latest = fingerprintToLatest.get(fp);
       if (latest === undefined || latest === i) return m;
@@ -355,6 +360,10 @@ function contentString(content: unknown): string {
 
 function isFileOp(toolName: string | undefined): boolean {
   return FILE_OP_TOOLS.has((toolName ?? "").toLowerCase());
+}
+
+function isPlanFilePath(path: string): boolean {
+  return path.includes("/.claude/plans/") || path.includes("\\.claude\\plans\\");
 }
 
 function extractFilePath(content: unknown): string | null {

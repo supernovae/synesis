@@ -658,6 +658,41 @@ describe("TranscriptPruningService", () => {
       expect(unprunedGrowth2).toBeGreaterThan(unprunedGrowth1 * 0.8);
     });
 
+    it("preserves plan file reads during dedup and eviction", () => {
+      const svc = new TranscriptPruningService({
+        ...defaultConfig,
+        keepTurns: 1,
+        keepToolResults: 2,
+        budgetChars: 1000,
+        stubMaxChars: 100,
+        assistantCondenseChars: 100,
+      });
+
+      const planContent = "# Plan\n" + "- task item\n".repeat(200);
+      const messages = [
+        msg("user", "load plan"),
+        msg("assistant", "Reading plan"),
+        msg("tool", JSON.stringify({ filePath: "/home/user/.claude/plans/my-plan.md", content: planContent }), "read_file"),
+        msg("assistant", "Working on it"),
+        msg("tool", JSON.stringify({ filePath: "/home/user/.claude/plans/my-plan.md", content: planContent }), "read_file"),
+        msg("user", "continue"),
+        msg("assistant", "Sure"),
+      ];
+
+      const result = svc.prune(messages as never);
+      const planMessages = result.messages.filter(
+        (m) => (m.role as string) === "tool" && typeof m.content === "string" && (m.content as string).includes("my-plan.md"),
+      );
+      expect(planMessages.length).toBe(2);
+      for (const pm of planMessages) {
+        const c = String(pm.content);
+        expect(c).not.toContain("FILE_SUPERSEDED");
+        expect(c).not.toContain("TOOL_RESULT_PRUNED");
+        expect(c).not.toContain("NEAR_DUPLICATE_OUTPUT");
+        expect(c.length).toBeGreaterThan(500);
+      }
+    });
+
     it("cumulative cost scales sub-quadratically with pruning", () => {
       const cfg10 = {
         ...defaultConfig,
