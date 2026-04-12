@@ -129,6 +129,21 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
     const query = normalizeString(row.query || row.pattern);
     if (query) return `search:${query}`;
   }
+  if (tool === "taskcreate" || tool === "task_create" || tool.includes("taskcreate")) {
+    const title = normalizeString(row.title || row.name || row.content || row.task);
+    return title ? `taskcreate:${title}` : "taskcreate";
+  }
+  if (tool === "taskupdate" || tool === "task_update" || tool.includes("taskupdate")) {
+    const title = normalizeString(row.title || row.name || row.content || row.task || row.id);
+    return title ? `taskupdate:${title}` : "taskupdate";
+  }
+  if (tool === "todowrite" || tool.includes("todowrite")) {
+    const todos = Array.isArray(row.todos) ? row.todos : [];
+    const firstTodo = todos.length > 0 && typeof todos[0] === "object" && todos[0] !== null
+      ? normalizeString((todos[0] as Record<string, unknown>).content)
+      : "";
+    return firstTodo ? `todowrite:${firstTodo}` : "todowrite";
+  }
   return "";
 }
 
@@ -216,6 +231,17 @@ function hasSuccessSignature(sig: string): boolean {
 function hasEditFailureSignature(sig: string): boolean {
   if (!sig) return false;
   return /error editing file|old_string.*not found|failed to apply patch|no changes made|did not match file content/.test(sig);
+}
+
+function isDeclarationOnlyEditResultSignature(sig: string): boolean {
+  if (!sig) return false;
+  const looksSmallEdit = /added <n> line|added <n> lines|removed <n> line|removed <n> lines/.test(sig);
+  const declarationMarker =
+    /\bimport\b/.test(sig)
+    || /\bfrom-clipboard\b/.test(sig)
+    || /\bcopy-last\b/.test(sig)
+    || /\bflag\b/.test(sig);
+  return looksSmallEdit && declarationMarker;
 }
 
 function extractUserText(messages: GovernorInputMessage[]): string {
@@ -371,6 +397,8 @@ export function evaluateExecutionGovernor(
   let repeatedTruncatedVerification = 0;
   let repeatedCompileLikeFailureVerification = 0;
   let repeatedEditFailureReplay = 0;
+  let repeatedTaskCreateReplay = 0;
+  let declarationFollowthroughViolation = false;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
   const hasRunTest = events.some((e) =>
@@ -382,6 +410,7 @@ export function evaluateExecutionGovernor(
   const BROAD_DISCOVERY_WINDOW = 20;
   const windowStart = Math.max(0, events.length - BROAD_DISCOVERY_WINDOW);
   const editFailureReplay = new Map<string, number>();
+  const taskCreateReplay = new Map<string, number>();
 
   for (let i = 0; i < events.length; i += 1) {
     const tool = events[i].toolName;
@@ -452,6 +481,41 @@ export function evaluateExecutionGovernor(
     editFailureReplay.set(key, next);
     if (next >= 2) repeatedEditFailureReplay += 1;
   }
+  for (const e of events) {
+    const c = normalizeString(e.command);
+    if (!(c.startsWith("taskcreate:") || c === "taskcreate" || c.startsWith("todowrite:") || c === "todowrite")) continue;
+    const key = c;
+    const next = (taskCreateReplay.get(key) ?? 0) + 1;
+    taskCreateReplay.set(key, next);
+    if (next >= 2) repeatedTaskCreateReplay += 1;
+  }
+
+  // Enforce follow-through when a declaration-only edit is made: avoid read/search churn.
+  let sawDeclarationOnlyEdit = false;
+  let sawFollowupConcreteEdit = false;
+  let nonActionAfterDeclarationEdit = 0;
+  for (const e of events) {
+    const c = normalizeString(e.command);
+    if (c.startsWith("edit:")) {
+      if (isDeclarationOnlyEditResultSignature(e.resultSignature)) {
+        sawDeclarationOnlyEdit = true;
+        sawFollowupConcreteEdit = false;
+        nonActionAfterDeclarationEdit = 0;
+        continue;
+      }
+      if (sawDeclarationOnlyEdit) {
+        sawFollowupConcreteEdit = true;
+      }
+      continue;
+    }
+    if (!sawDeclarationOnlyEdit || sawFollowupConcreteEdit) continue;
+    const t = normalizeString(e.toolName).toLowerCase();
+    const isReadOrSearch = t.includes("read") || t.includes("search") || t.includes("grep") || t.includes("glob");
+    if (isReadOrSearch) nonActionAfterDeclarationEdit += 1;
+  }
+  if (sawDeclarationOnlyEdit && !sawFollowupConcreteEdit && nonActionAfterDeclarationEdit >= 2) {
+    declarationFollowthroughViolation = true;
+  }
 
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   const hasFailureDrivenVerificationLoop =
@@ -464,6 +528,8 @@ export function evaluateExecutionGovernor(
   }
   if (repeatedCompileLikeFailureVerification >= 1 && noEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
   if (repeatedEditFailureReplay >= 1) matchedRules.push("edit_failure_replay");
+  if (repeatedTaskCreateReplay >= 1) matchedRules.push("task_creation_replay");
+  if (declarationFollowthroughViolation) matchedRules.push("declaration_followthrough_required");
   if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (repeatedTruncatedVerification >= 1 && noEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
@@ -521,6 +587,42 @@ export function evaluateExecutionGovernor(
       reason: "edit_failure_replay",
       suggestedNextStep:
         "You are replaying the same edit failure. Stop retrying the same patch. Read the exact target section once (use offset/limit if large), then issue one corrected Edit/Update with exact old_string/new_string, and verify narrowly.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("task_creation_replay")) {
+    return {
+      pause: true,
+      reason: "task_creation_replay",
+      suggestedNextStep:
+        "You are recreating duplicate tasks. Stop creating new task entries for the same intent. Update existing task status and execute one concrete code action (Edit/Write/test) for the active task.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("declaration_followthrough_required")) {
+    return {
+      pause: true,
+      reason: "declaration_followthrough_required",
+      suggestedNextStep:
+        "You made a declaration-only edit (for example import/flag) but did not complete a usage-site change. Stop additional read/search calls and apply one concrete follow-through edit that wires the new declaration into runtime behavior, then run narrow verification.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,

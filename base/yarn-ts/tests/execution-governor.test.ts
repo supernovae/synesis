@@ -175,6 +175,34 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("corrected Edit/Update");
   });
 
+  it("pauses duplicate task creation replay", () => {
+    const messages = [
+      assistantCall("1", "TaskCreate", { title: "Implement Clipboard Support" }),
+      toolResult("1", "task created"),
+      assistantCall("2", "TaskCreate", { title: "Implement Clipboard Support" }),
+      toolResult("2", "task created"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("task_creation_replay");
+    expect(out.matchedRules).toContain("task_creation_replay");
+  });
+
+  it("pauses read/search churn after declaration-only edit until follow-through edit", () => {
+    const messages = [
+      assistantCall("1", "edit", { file_path: "cmd/synesis/ask.go", old_string: "import (", new_string: "import (\n\t\"synesis.sh/synesis/pkg/clipboard\"" }),
+      toolResult("1", "Added 1 line\nimport clipboard"),
+      assistantCall("2", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("2", "file content"),
+      assistantCall("3", "grep", { pattern: "from-clipboard" }),
+      toolResult("3", "match"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("declaration_followthrough_required");
+    expect(out.matchedRules).toContain("declaration_followthrough_required");
+  });
+
   it("does not treat file paths in error output as edit evidence", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
