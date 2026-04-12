@@ -153,6 +153,64 @@ Hooks alone cannot set HTTP headers or API `metadata`; the proxy closes the loop
 
 Yarn-ts does **not** execute tools; it only returns tool calls to the client. **Hard** rules on `cd`, destructive `rm`, or leaving the repo must be enforced on the machine that runs tools—for example a `PreToolUse` hook in Claude Code that blocks or rewrites commands. See the [hooks reference](https://code.claude.com/docs/en/hooks).
 
+## Plan file management
+
+Claude Code stores long-running feature plans in `~/.claude/plans/` as markdown
+files with YAML frontmatter. Yarn assists with plan lifecycle to prevent common
+failure modes where the model loses awareness of the plan mid-session, re-reads
+the file in a loop, or fails to update task status.
+
+### What Yarn does today
+
+**Read annotation** — When Yarn detects a successful plan file read (path
+matches `/.claude/plans/`), it appends a `<SYNESIS_PLAN_LOADED>` block to the
+tool result with structured instructions: parse the task list, display a
+progress summary, state the next task, and *do not re-read*.
+
+**Content preservation** — Plan file reads are exempt from every reduction and
+pruning layer so the original content is never evicted or stubbed:
+
+| Layer | Protection |
+|-------|-----------|
+| Tool result reducer | Read tools exempt from task pruning, registry reduction, and size compaction |
+| Content-addressed dedup | `isPlanFile` guard skips deduplication for plan paths |
+| Transcript pruning | `isPlanFilePath` guard in file-read dedup (Strategy 2), stale-eviction (Strategy 3), and near-duplicate collapse (Strategy 5) |
+
+**Client cache stub recovery** — When the Claude Code client returns
+`"Unchanged since last read"` instead of content, `applyReadCacheStubRemediation`
+replaces the stub with a recovery hint directing the model to use `cat` to
+retrieve the file.
+
+**Dedup stub remediation** — `remediatePlanFileStubs` runs as a post-dedup
+safety net: if a plan file is accidentally replaced by a `<FILE_UNCHANGED>`
+stub, the stub is replaced with a recovery hint that includes the file path.
+
+**Cross-session continuity** — When a plan file is loaded, its path is persisted
+to Postgres (`yarn_session_continuity.plan_file_path`). On session restore, the
+path appears in `<SESSION_RECALL>` and `<synesis_plan_progress>` blocks with an
+instruction to re-read the plan and display its status summary.
+
+**Governor backstops** — The execution governor catches patterns where the model
+gets stuck around plan work:
+
+- `verification_stall_no_edit` — pauses when the model runs build/test in a loop
+  without making code edits (common when the model "forgets" the plan).
+- `verbal_intent_without_action` — pauses when the model repeatedly declares
+  intent ("I'll finish the implementation...") without any edits or task updates.
+- `completion_claim_requires_task_update` — pauses when the model claims work is
+  done but hasn't called `TaskUpdate`/`TodoWrite` to mark tasks complete.
+
+### Known issues and future work
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| **Client cache stubs lack path context** — `"Unchanged since last read"` from the client contains no file path; recovery relies on regex extraction from surrounding content, which can miss. | Open | Enhancing the tool result reducer to resolve paths from `tool_call_id` arguments (as the dedup layer already does) would give plan-specific recovery guidance instead of generic "use cat". |
+| **Plan annotation only fires on successful reads** — If the original read was successful but the model re-reads and only gets cache stubs, the `<SYNESIS_PLAN_LOADED>` annotation never fires on the stubs. The model must rely on the original annotated read still being in context. | Mitigated | Transcript pruning exemption ensures the original read survives, but extremely long sessions that exceed the context window could still lose it. |
+| **No server-side plan file content caching** — Yarn does not cache the plan file content itself; it relies entirely on the client's tool execution. If the client never successfully reads the file, Yarn has no fallback. | Open | A server-side plan content cache (keyed by path + session) would allow Yarn to inject plan content even when client reads fail. Requires careful cache invalidation when the plan file is edited. |
+| **Task update detection is text-heuristic** — Governor rules detect completion claims via regex ("I'll...", "done", "complete"). Unusual phrasing can evade detection. | Open | Structured plan-graph integration (tracking `PlanGraph` stage transitions) would be more reliable than text heuristics. |
+| **Multiple plan files in one session** — If a user loads multiple plan files, only the last path is persisted to continuity. Earlier plans are forgotten on session restore. | Open | Support a list of plan file paths, or tie plan paths to `PlanGraph` instances. |
+| **Plan file edits by the model** — When the model writes back to the plan file (updating task status), the write tool result does not trigger annotation. The model may lose awareness of the plan state after its own edit. | Open | Detect plan file writes and re-inject the plan annotation or a "plan updated successfully" acknowledgment. |
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
