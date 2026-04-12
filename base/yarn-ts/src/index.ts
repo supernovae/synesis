@@ -441,18 +441,59 @@ function annotatePlanFileReads(
 
   let annotatedCount = 0;
   const planFilePaths: string[] = [];
+  // Track which plan paths already have a real (content-bearing) read in context
+  const planPathHasFullRead = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== "tool" || typeof m.content !== "string") continue;
+    const rp = m.tool_call_id ? readPathMap.get(m.tool_call_id) : undefined;
+    if (rp && isPlanPath(rp) && m.content.length > 200 && !m.content.includes("read_cache_stub") && !m.content.includes("Unchanged")) {
+      planPathHasFullRead.add(rp);
+    }
+  }
+
   const out = messages.map((m, idx) => {
     if (m.role !== "tool" || typeof m.content !== "string") return m;
     const text = m.content;
-    if (text.length < 50) return m;
     if (text.includes("<SYNESIS_PLAN_LOADED") || text.includes("<SYNESIS_PLAN_UPDATED")) return m;
 
     const resolvedReadPath = m.tool_call_id ? readPathMap.get(m.tool_call_id) : undefined;
     const resolvedWritePath = m.tool_call_id ? writePathMap.get(m.tool_call_id) : undefined;
 
-    // Case 1: This is a plan file READ result
+    // Case 0: Plan file read that returned a cache stub ("Unchanged" or guardrail)
+    // The model already has this plan's content from an earlier read. Replace the
+    // contradictory "use cat to re-read" guardrail with a definitive "do not re-read".
+    if (resolvedReadPath && isPlanPath(resolvedReadPath) && !editedPlanPaths.has(resolvedReadPath)) {
+      const isStub =
+        text.length < 80
+        || text.includes("read_cache_stub")
+        || text.toLowerCase().includes("unchanged");
+      if (isStub) {
+        if (!planFilePaths.includes(resolvedReadPath)) planFilePaths.push(resolvedReadPath);
+        annotatedCount += 1;
+        const hasContent = planPathHasFullRead.has(resolvedReadPath);
+        return {
+          ...m,
+          content: [
+            `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}" cached="true">`,
+            hasContent
+              ? `The plan file is unchanged. You already have its full content from an earlier read in this conversation.`
+              : `The plan file was read previously but the content may have been pruned. Use Bash(cat ${resolvedReadPath}) once if you need to see it.`,
+            `Do NOT call Read on this file again. Do NOT re-read it. Do NOT say "I've already read this."`,
+            hasContent
+              ? `Refer to the plan content above and proceed with the next task.`
+              : `After one cat, display the task status summary and proceed.`,
+            `</SYNESIS_PLAN_LOADED>`,
+          ].join("\n"),
+        };
+      }
+    }
+
+    // Skip non-plan short results
+    if (text.length < 50) return m;
+
+    // Case 1: This is a plan file READ result with actual content
     if (resolvedReadPath && isPlanPath(resolvedReadPath)) {
-      if (resolvedReadPath) planFilePaths.push(resolvedReadPath);
+      if (!planFilePaths.includes(resolvedReadPath)) planFilePaths.push(resolvedReadPath);
       // If the plan was later edited, suppress the stale annotation
       if (editedPlanPaths.has(resolvedReadPath)) {
         return m;
