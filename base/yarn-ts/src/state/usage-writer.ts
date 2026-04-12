@@ -142,9 +142,16 @@ export class UsageWriter {
           key_findings  JSONB NOT NULL DEFAULT '[]',
           decisions     JSONB NOT NULL DEFAULT '[]',
           recent_files  JSONB NOT NULL DEFAULT '[]',
+          plan_graph    JSONB,
           updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (user_id, session_key)
         )
+      `);
+      await this.pool.query(`
+        DO $$ BEGIN
+          ALTER TABLE yarn_session_continuity ADD COLUMN IF NOT EXISTS plan_graph JSONB;
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END $$
       `);
       await this.pool.query(`
         CREATE INDEX IF NOT EXISTS idx_continuity_user_updated
@@ -162,7 +169,7 @@ export class UsageWriter {
     try {
       const cutoff = new Date(Date.now() - maxAgeMs);
       const result = await this.pool.query(
-        `SELECT current_task, key_findings, decisions, recent_files, updated_at
+        `SELECT current_task, key_findings, decisions, recent_files, plan_graph, updated_at
          FROM yarn_session_continuity
          WHERE user_id = $1 AND updated_at >= $2
          ORDER BY updated_at DESC
@@ -180,6 +187,7 @@ export class UsageWriter {
         keyFindings: Array.isArray(row.key_findings) ? row.key_findings : [],
         decisions: Array.isArray(row.decisions) ? row.decisions : [],
         recentFiles: Array.isArray(row.recent_files) ? row.recent_files : [],
+        planGraph: row.plan_graph && typeof row.plan_graph === "object" ? row.plan_graph : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
       };
     } catch {
@@ -347,14 +355,15 @@ export class UsageWriter {
     await this.pool.query(
       `INSERT INTO yarn_session_continuity (
          user_id, org_id, session_key, current_task,
-         key_findings, decisions, recent_files, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         key_findings, decisions, recent_files, plan_graph, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        ON CONFLICT (user_id, session_key) DO UPDATE SET
          org_id = EXCLUDED.org_id,
          current_task = EXCLUDED.current_task,
          key_findings = EXCLUDED.key_findings,
          decisions = EXCLUDED.decisions,
          recent_files = EXCLUDED.recent_files,
+         plan_graph = EXCLUDED.plan_graph,
          updated_at = EXCLUDED.updated_at`,
       [
         data.userId,
@@ -364,6 +373,7 @@ export class UsageWriter {
         JSON.stringify(data.continuity.keyFindings),
         JSON.stringify(data.continuity.decisions),
         JSON.stringify(data.continuity.recentFiles),
+        data.continuity.planGraph ? JSON.stringify(data.continuity.planGraph) : null,
       ]
     );
     this._memoryStats.continuityUpserts++;

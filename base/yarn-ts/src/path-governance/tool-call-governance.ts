@@ -282,43 +282,55 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   return out;
 }
 
+const recoveryAttempts = new Map<string, number>();
+
+/** Reset per-session recovery counters (call on session init or compaction). */
+export function resetRecoveryCounters(): void {
+  recoveryAttempts.clear();
+}
+
+const MAX_AUTO_RECOVERIES = 2;
+
 function recoverValidationFailure(
   logicalName: string,
   input: Record<string, unknown>,
   missing: string[],
 ): { toolName: string; input: Record<string, unknown> } | null {
-  // Common model failure: Edit missing old_string.
-  // Recover by issuing a Read on the same file so the model can retry with exact text.
   if (
     (logicalName === "Edit" || logicalName === "Update")
     && missing.includes("old_string")
     && typeof input.file_path === "string"
     && input.file_path.trim()
   ) {
-    // For Claude plan files, fail fast so the model fixes tool args instead of
-    // silently looping on repeated auto-Read recovery.
     const fp = input.file_path.trim();
     const isClaudePlanFile =
       fp.includes("/.claude/plans/")
       && fp.toLowerCase().endsWith(".md");
     if (isClaudePlanFile) return null;
+    const key = `${logicalName}:${fp}`;
+    const attempts = recoveryAttempts.get(key) ?? 0;
+    if (attempts >= MAX_AUTO_RECOVERIES) return null;
+    recoveryAttempts.set(key, attempts + 1);
     return {
       toolName: "Read",
       input: { file_path: input.file_path },
     };
   }
-  // Common model failure: Glob called without glob_pattern.
-  // Recover with a bounded broad pattern so the model gets file candidates and can retry.
   if (logicalName === "Glob" && missing.includes("glob_pattern")) {
     const targetDirectory =
       typeof input.target_directory === "string" && input.target_directory.trim()
         ? input.target_directory.trim()
         : undefined;
+    const key = `Glob:${targetDirectory ?? "."}`;
+    const attempts = recoveryAttempts.get(key) ?? 0;
+    if (attempts >= MAX_AUTO_RECOVERIES) return null;
+    recoveryAttempts.set(key, attempts + 1);
+    const pattern = targetDirectory ? "src/*" : "*";
     return {
       toolName: "Glob",
       input: targetDirectory
-        ? { target_directory: targetDirectory, glob_pattern: "*" }
-        : { glob_pattern: "*" },
+        ? { target_directory: targetDirectory, glob_pattern: pattern }
+        : { glob_pattern: pattern },
     };
   }
   return null;

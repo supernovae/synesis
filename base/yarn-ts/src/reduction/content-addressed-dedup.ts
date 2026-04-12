@@ -41,10 +41,22 @@ export class ContentAddressedDedup {
     deduplicatedReads: 0,
     charsSaved: 0,
   };
+  private contextWindowStart = 0;
+  private readonly stalenessMargin: number;
+
+  constructor(stalenessMargin = 30) {
+    this.stalenessMargin = stalenessMargin;
+  }
+
+  /** Inform the dedup of the current context window start index (after compaction). */
+  setContextWindowStart(turnIndex: number): void {
+    this.contextWindowStart = turnIndex;
+  }
 
   /**
    * Process a tool result message. Returns the original content if unique,
    * or a compact stub if the file was already seen with identical content.
+   * Plan files (.claude/plans/) are never deduplicated.
    */
   processToolResult(
     toolName: string | undefined,
@@ -59,11 +71,17 @@ export class ContentAddressedDedup {
 
     if (content.length < 200) return { content, deduplicated: false };
 
+    if (isPlanFile(filePath)) return { content, deduplicated: false };
+
     this.stats.totalReads += 1;
     const hash = fastHash(content);
     const existing = this.fileMap.get(filePath);
 
     if (existing && existing.hash === hash) {
+      if (existing.turnIndex < this.contextWindowStart - this.stalenessMargin) {
+        this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length });
+        return { content, deduplicated: false };
+      }
       this.stats.deduplicatedReads += 1;
       this.stats.charsSaved += content.length;
       const stub = `<FILE_UNCHANGED path="${filePath}" hash="${hash}" first_seen_turn=${existing.turnIndex} chars=${content.length} />`;
@@ -107,6 +125,10 @@ export class ContentAddressedDedup {
   getTrackedFileCount(): number {
     return this.fileMap.size;
   }
+}
+
+function isPlanFile(filePath: string): boolean {
+  return filePath.includes("/.claude/plans/") || filePath.includes("\\.claude\\plans\\");
 }
 
 function extractFilePath(content: string): string | null {

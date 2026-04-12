@@ -189,7 +189,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   }
 
   defaultSamplingParams(): { temperature: number; top_p: number } {
-    return { temperature: 1.0, top_p: 0.95 };
+    return { temperature: 0.7, top_p: 0.95 };
   }
 
   toolSystemPrompt(toolCount: number): string | undefined {
@@ -198,13 +198,15 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const workflowDiscipline = [
       "",
       "## Workflow discipline",
-      "- **One action per turn**: In each turn, do exactly ONE of: (1) call one tool, (2) update plan status, or (3) ask one blocker question. Never combine them.",
+      "- **Focused actions per turn**: Prefer one focused action per turn. Avoid combining unrelated actions (e.g., plan update + code edit). Batching related tool calls (e.g., multiple file reads for context) is acceptable.",
       "- **Task tracking discipline**: Create task items once per user request. After that, only update existing task items; never create duplicate tasks with the same intent/title.",
-      "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command — never re-read the same file.",
+      "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command. Do not re-read the same file unless a previous Edit/Update failed.",
       "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have.",
       "- **Progressive narrowing**: Each tool call must produce NEW information or make a change. If a search returns results, act on them — do not search again with slightly different terms.",
       "- **File offset awareness**: When reading large files, use offset/limit parameters to read specific sections. Do not re-read from line 1 if you already have the beginning.",
       "- **Edit failures**: If an Edit/Update call fails, do NOT retry with identical arguments. Re-read the file to get current content, then adjust your old_string to match exactly.",
+      "- **Git commit followthrough**: When staging files with git add, follow through with git commit in the same sequence. Do not loop on git status/diff between add and commit.",
+      "- **Full verification output**: When running test/build commands, do not pipe output through head/tail. Capture full output so failures are visible.",
     ].join("\n");
 
     // Backend with native XML parser handles tool calls correctly — minimal guidance only
@@ -333,7 +335,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     if (recentToolNames.length < 3) return null;
 
     const READ_SEARCH_TOOLS = new Set(["Read", "cat", "head", "tail", "read"]);
-    const GREP_FIND_TOOLS = new Set(["Grep", "grep", "find", "Glob", "glob", "rg"]);
+    const GREP_FIND_TOOLS = new Set(["Grep", "grep", "Glob", "glob", "rg"]);
     const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "taskcreate", "taskupdate", "todowrite"]);
 
     const tail = recentToolNames.slice(-6);
@@ -350,7 +352,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     const isReadSearch = READ_SEARCH_TOOLS.has(lastTool);
     const isGrepFind = GREP_FIND_TOOLS.has(lastTool);
     const isTaskTool = TASK_TOOLS.has(lastTool);
-    const threshold = (isReadSearch || isGrepFind || isTaskTool) ? 3 : lastTool === "Bash" ? 6 : 4;
+    const threshold = isTaskTool ? 3 : (isReadSearch || isGrepFind) ? 4 : lastTool === "Bash" ? 6 : 4;
 
     if (consecutiveCount < threshold) return null;
 
@@ -371,9 +373,10 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
   enrichToolDescription(toolName: string, description: string): string {
     const hints: Record<string, string> = {
-      Read: " [Qwen hint: Read a file ONCE. After reading, make your edit. Do not re-read the same file.]",
+      Read: " [Qwen hint: Read a file ONCE. After reading, make your edit. Do not re-read unless a previous Edit failed.]",
       Edit: " [Qwen hint: PREFERRED for code changes. If the edit fails, re-read the file to get current content before retrying with corrected old_string.]",
       Update: " [Qwen hint: PREFERRED for code changes. If the update fails, re-read the file to get current content before retrying with corrected old_string.]",
+      Write: " [Qwen hint: Use Write for new files or full replacements. For existing files, prefer Edit/Update.]",
       Bash: " [Qwen hint: Use for running tests, builds, and creating files via heredoc. Do not use cat to read files — use the Read tool instead.]",
       Grep: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
       Glob: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
@@ -485,14 +488,15 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     userIntent: "show" | "edit" | "unknown" = "unknown",
     recentToolResultText: string | null = null,
   ): string | null {
-    const READ_LIKE = new Set(["Read", "cat", "head", "tail", "read"]);
-    const EDIT_LIKE = new Set(["Edit", "Update", "Write", "edit", "update", "write"]);
+    const READ_LIKE = new Set(["read", "cat", "head", "tail"]);
+    const EDIT_LIKE = new Set(["edit", "update", "write"]);
     const tail = recentToolCalls.slice(-Math.max(6, threshold + 2));
     const readCalls: RecentToolCall[] = [];
     for (let i = tail.length - 1; i >= 0; i--) {
-      if (READ_LIKE.has(tail[i].toolName)) {
+      const normalized = tail[i].toolName.trim().toLowerCase();
+      if (READ_LIKE.has(normalized)) {
         readCalls.push(tail[i]);
-      } else if (EDIT_LIKE.has(tail[i].toolName)) {
+      } else if (EDIT_LIKE.has(normalized)) {
         break;
       } else {
         break;

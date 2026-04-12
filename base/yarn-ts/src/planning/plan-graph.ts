@@ -65,6 +65,7 @@ export function advancePlanGraph(graph: PlanGraph, signal: PlanGraphSignal): Pla
   const hasEdit = lowerTools.some((t) => t.includes("patch") || t.includes("write") || t.includes("replace"));
   const hasVerify = lowerTools.some((t) => t.includes("run_test") || t.includes("run_build") || t.includes("run_lint"));
   const hasDiscover = lowerTools.some((t) => t.includes("search") || t.includes("read") || t.includes("inspect"));
+  const hasTaskDone = lowerTools.some((t) => t.includes("taskupdate") || t.includes("todowrite"));
   const assistantText = (signal.latestAssistantText ?? "").toLowerCase();
   const looksFinal = /\b(done|completed|final|implemented)\b/.test(assistantText);
 
@@ -85,7 +86,14 @@ export function advancePlanGraph(graph: PlanGraph, signal: PlanGraphSignal): Pla
     next = markDone(next, "verify");
     next = setActive(next, "finalize");
   }
+  if (next.activeStage === "finalize" && looksFinal && hasTaskDone) {
+    next = markDone(next, "finalize");
+  }
   return next;
+}
+
+export function isPlanComplete(graph: PlanGraph): boolean {
+  return graph.nodes.every((n) => n.status === "done");
 }
 
 export function formatPlanGraphBlock(graph: PlanGraph): string {
@@ -95,4 +103,43 @@ export function formatPlanGraphBlock(graph: PlanGraph): string {
     "</synesis_plan_graph>",
   ];
   return lines.join("\n");
+}
+
+export function formatPlanProgressBlock(graph: PlanGraph): string {
+  const done = graph.nodes.filter((n) => n.status === "done").length;
+  const total = graph.nodes.length;
+  return [
+    `<synesis_plan_progress done="${done}" total="${total}" active="${graph.activeStage}" complete="${isPlanComplete(graph)}">`,
+    ...graph.nodes.map((n) => `  ${n.stage}: ${n.status}`),
+    "</synesis_plan_progress>",
+  ].join("\n");
+}
+
+export function serializePlanGraph(graph: PlanGraph): Record<string, unknown> {
+  return {
+    sourceHash: graph.sourceHash,
+    activeStage: graph.activeStage,
+    updatedAt: graph.updatedAt,
+    nodes: graph.nodes.map((n) => ({
+      stage: n.stage,
+      status: n.status,
+      updatedAt: n.updatedAt,
+    })),
+  };
+}
+
+export function deserializePlanGraph(data: Record<string, unknown>): PlanGraph | null {
+  if (!data || typeof data !== "object") return null;
+  const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+  if (nodes.length === 0) return null;
+  return {
+    sourceHash: typeof data.sourceHash === "string" ? data.sourceHash : "",
+    activeStage: (typeof data.activeStage === "string" ? data.activeStage : "discover") as PlanStage,
+    updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
+    nodes: nodes.map((n: Record<string, unknown>) => ({
+      stage: (typeof n.stage === "string" ? n.stage : "discover") as PlanStage,
+      status: (typeof n.status === "string" ? n.status : "pending") as PlanNodeStatus,
+      updatedAt: typeof n.updatedAt === "number" ? n.updatedAt : Date.now(),
+    })),
+  };
 }

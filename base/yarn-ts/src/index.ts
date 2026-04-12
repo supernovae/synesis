@@ -53,7 +53,7 @@ import {
   type RequirementChecklist,
 } from "./validation/requirement-coverage.js";
 import { buildTaskIntake, formatTaskIntakeBlock, type TaskIntake } from "./planning/task-intake.js";
-import { advancePlanGraph, createPlanGraph, formatPlanGraphBlock, type PlanGraph } from "./planning/plan-graph.js";
+import { advancePlanGraph, createPlanGraph, formatPlanProgressBlock, isPlanComplete, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
 import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
 import {
   mergeSynesisClarificationFromRequestMetadata,
@@ -169,6 +169,7 @@ import {
   executionGovernorRecoveryRewriteBlock,
   type GovernorInputMessage,
 } from "./governance/execution-governor.js";
+import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
 type SessionState = {
@@ -312,9 +313,13 @@ function applyDiscoveryToolGuardrail(
 
 function applyExecutionGovernorToolRestrictions(
   tools: unknown[] | undefined,
+  matchedRules?: string[],
 ): { tools: unknown[] | undefined; removed: string[] } {
   if (!Array.isArray(tools) || tools.length === 0) return { tools, removed: [] };
-  const deny = new Set(["glob", "explore", "agent"]);
+  const explorationDominant = matchedRules?.some((r) =>
+    r === "bounded_exploration_budget" || r === "broad_discovery_repeat"
+  ) ?? false;
+  const deny = new Set(explorationDominant ? ["explore", "agent"] : ["glob", "explore", "agent"]);
   const removed: string[] = [];
   const filtered = tools.filter((tool) => {
     if (!tool || typeof tool !== "object") return true;
@@ -483,9 +488,7 @@ function refreshTaskIntake(state: SessionState): TaskIntake | null {
 function parsePlanGraph(meta: Record<string, unknown>): PlanGraph | null {
   const raw = meta.plan_graph;
   if (!raw || typeof raw !== "object") return null;
-  const row = raw as Record<string, unknown>;
-  if (typeof row.sourceHash !== "string" || typeof row.activeStage !== "string" || !Array.isArray(row.nodes)) return null;
-  return row as unknown as PlanGraph;
+  return deserializePlanGraph(raw as Record<string, unknown>);
 }
 
 function updatePlanGraph(
@@ -584,6 +587,7 @@ function applyCompletionGate(
   traceRootPrompt: string,
   latestUserPrompt: string,
   verification: VerificationAssessment,
+  planGraph?: PlanGraph | null,
 ): CompletionGateOutcome {
   const blockedByVerification =
     config.SYNESIS_YARN_COMPLETION_GATE_BLOCK_VERIFICATION
@@ -681,6 +685,10 @@ function applyCompletionGate(
       newFileNotes.push(`new file mentioned without usage reference: ${fp}`);
     }
   }
+  const planAdvisory: string[] = [];
+  if (planGraph && !isPlanComplete(planGraph)) {
+    planAdvisory.push(`Plan stage is "${planGraph.activeStage}", not finalize. Advance plan stages before final completion.`);
+  }
   if (report.missingMust.length === 0) {
     return {
       finalText: originalText,
@@ -689,7 +697,7 @@ function applyCompletionGate(
       missingShould: report.missingShould.length,
       blockedByVerification: false,
       blockingVerificationFailures: 0,
-      suggestedNextActions: [...cliAcceptanceNotes, ...newFileNotes],
+      suggestedNextActions: [...planAdvisory, ...cliAcceptanceNotes, ...newFileNotes],
     };
   }
   const summary = summarizeMissingCoverage(report);
@@ -712,6 +720,7 @@ function applyCompletionGate(
     blockingVerificationFailures: 0,
     suggestedNextActions: [
       "continue implementation to close missing must-have requirements",
+      ...planAdvisory,
       ...cliAcceptanceNotes,
       ...newFileNotes,
     ],
@@ -2024,6 +2033,10 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
   const metaBlockFailingVerification = record.metadata?.block_failing_verification_until_edit === true;
   const history: SessionState["history"] = [];
 
+  if (!loaded) {
+    resetRecoveryCounters();
+  }
+
   if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED) {
     const prevContinuity = await sessionStore.loadContinuity(identity.userId);
     if (prevContinuity) {
@@ -2042,6 +2055,15 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
         if (recallBlock) {
           history.push({ role: "system", content: recallBlock });
           recordSessionEvent(key, identity.userId, identity.orgId, "cross_conversation_recall", "getSessionState", `Loaded prior continuity (age ${Math.round((Date.now() - pgContinuity.updatedAt) / 3600000)}h)`);
+        }
+        if (pgContinuity.planGraph && typeof pgContinuity.planGraph === "object") {
+          const restoredPlan = deserializePlanGraph(pgContinuity.planGraph as Record<string, unknown>);
+          if (restoredPlan) {
+            const planBlock = formatPlanProgressBlock(restoredPlan);
+            if (planBlock) {
+              history.push({ role: "system", content: planBlock });
+            }
+          }
         }
       }
     } catch (err) {
@@ -2072,6 +2094,10 @@ async function casSessionSave(state: SessionState): Promise<void> {
   try {
     if (state.history.length > 2 && state.record.userId !== "anon") {
       const continuity = sessionContinuity.extract(state.history);
+      const existingPlanGraph = parsePlanGraph(state.record.metadata);
+      if (existingPlanGraph) {
+        continuity.planGraph = serializePlanGraph(existingPlanGraph);
+      }
       state.record.continuity = continuity;
       void sessionStore.saveContinuity(state.record.userId, continuity).catch(() => {});
     }
@@ -3103,6 +3129,7 @@ async function finalizeCompletionText(
     verification: VerificationAssessment;
     recentToolNames: string[];
     nonActionableEventDetail: string;
+    planGraph?: PlanGraph | null;
   },
 ): Promise<CompletionFinalizeResult> {
   const gate = applyCompletionGate(
@@ -3111,6 +3138,7 @@ async function finalizeCompletionText(
     input.traceRootPrompt,
     input.latestUserPrompt,
     input.verification,
+    input.planGraph,
   );
 
   let finalText = gate.finalText;
@@ -3209,6 +3237,7 @@ function finalizePostStreamText(
     verification: VerificationAssessment;
     toolStopReason: boolean;
     nonActionableEventDetail: string;
+    planGraph?: PlanGraph | null;
   },
 ): PostStreamFinalizeResult {
   let finalText = input.assistantText;
@@ -3222,6 +3251,7 @@ function finalizePostStreamText(
       input.traceRootPrompt,
       input.latestUserPrompt,
       input.verification,
+      input.planGraph,
     );
     finalText = gate.finalText;
     missingMust = gate.missingMust;
@@ -4909,7 +4939,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? evaluateExecutionGovernor(
       normalizedOpenAI.messages as Array<GovernorInputMessage>,
-      config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+      { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: oaiPlanGraph?.activeStage ?? null },
     )
     : {
         pause: false,
@@ -5054,7 +5084,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const lastUserIdx = oaiMsgs.map((m) => m.role).lastIndexOf("user");
     const oaiTailIdx = lastUserIdx > 0 ? lastUserIdx : oaiMsgs.length;
     oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
-    const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined);
+    const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined, oaiExecutionGovernor.matchedRules);
     request.tools = restricted.tools as never;
     recordSessionEvent(
       sessionKey,
@@ -5082,7 +5112,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     { projectRoot: effectiveOaiPathCtx.projectRoot, shellCwd: effectiveOaiPathCtx.shellCwd },
     [
       ...(oaiTaskIntake ? [formatTaskIntakeBlock(oaiTaskIntake)] : []),
-      ...(oaiPlanGraph ? [formatPlanGraphBlock(oaiPlanGraph)] : []),
+      ...(oaiPlanGraph ? [formatPlanProgressBlock(oaiPlanGraph)] : []),
     ],
     oaiSeedDirs,
     session,
@@ -5111,7 +5141,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }, securityIngestConfig, app.log as never);
   if (trustResult.blocked) {
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "trust_block", "transcript-trust", trustResult.blockDetail ?? "Content blocked", oaiTraceReqId);
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: "Request could not be processed." } });
+    const trustCategory = trustResult.blockDetail?.match(/Injection detected: (\S+)/)?.[1] ?? "content_policy";
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${trustCategory}). Rephrase and retry.` } });
   }
   oaiEnrichedMsgs = trustResult.messages as typeof oaiEnrichedMsgs;
 
@@ -5266,8 +5297,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
     modelMessages = [...modelMessages, { role: "system" as const, content: policyPrecheck.pivotPrompt }] as typeof modelMessages;
   }
 
-  // Adapter-specific early pivot and same-tool dampening (fires after generic governance)
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !policyPrecheck.pivotPrompt && adapter.family === "qwen3-coder") {
+  // Adapter-specific early pivot and same-tool dampening (fires after generic governance).
+  // Skip when the execution governor already injected a recovery block — stacking both
+  // creates compound noise that confuses the model with overlapping guidance.
+  const oaiGovernorAlreadyIntervened = oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED;
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !policyPrecheck.pivotPrompt && !oaiGovernorAlreadyIntervened && adapter.family === "qwen3-coder") {
     const oaiRecentCalls = oaiRecentCallsForSteering;
     const oaiRecentAssistantText = extractRecentAssistantText(
       normalizedRequest.messages as Array<{ role: string; content: unknown }>,
@@ -5799,6 +5833,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         verification: oaiVerificationAssessment,
         recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
         nonActionableEventDetail: "terminal stop had non-actionable text; emitted deterministic fallback",
+        planGraph: oaiPlanGraph,
       });
       finalAssistantText = finalized.finalText;
       oaiGateApplied = finalized.applied;
@@ -6310,6 +6345,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       verification: oaiVerificationAssessment,
       recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
       nonActionableEventDetail: "stream stop had non-actionable text; emitted deterministic fallback",
+      planGraph: oaiPlanGraph,
     });
     oaiStreamGateApplied = finalized.applied;
     oaiStreamMissingMust = finalized.missingMust;
@@ -6359,6 +6395,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       verification: oaiVerificationAssessment,
       toolStopReason: finishReason === "tool_calls",
       nonActionableEventDetail: "streamed text was non-actionable; emitted deterministic fallback",
+      planGraph: oaiPlanGraph,
     });
     streamedText = finalized.finalText;
     oaiStreamMissingMust = finalized.missingMust;
@@ -6827,7 +6864,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? evaluateExecutionGovernor(
       normalizedFromClaude.messages as Array<GovernorInputMessage>,
-      config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+      { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: claudePlanGraph?.activeStage ?? null },
     )
     : {
         pause: false,
@@ -6972,7 +7009,7 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeLastUserIdx = claudeMsgs.map((m) => m.role).lastIndexOf("user");
     const claudeTailIdx = claudeLastUserIdx > 0 ? claudeLastUserIdx : claudeMsgs.length;
     claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
-    const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined);
+    const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined, claudeExecutionGovernor.matchedRules);
     body.tools = restricted.tools as never;
     recordSessionEvent(
       claudeSessionKey,
@@ -7001,7 +7038,7 @@ app.post("/v1/messages", async (req, reply) => {
     { projectRoot: effectiveClaudePathCtx.projectRoot, shellCwd: effectiveClaudePathCtx.shellCwd },
     [
       ...(claudeTaskIntake ? [formatTaskIntakeBlock(claudeTaskIntake)] : []),
-      ...(claudePlanGraph ? [formatPlanGraphBlock(claudePlanGraph)] : []),
+      ...(claudePlanGraph ? [formatPlanProgressBlock(claudePlanGraph)] : []),
     ],
     claudeSeedDirs,
     session,
@@ -7030,9 +7067,10 @@ app.post("/v1/messages", async (req, reply) => {
   }, securityIngestConfig, app.log as never);
   if (claudeTrustResult.blocked) {
     recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "trust_block", "transcript-trust", claudeTrustResult.blockDetail ?? "Content blocked", traceReqId);
+    const claudeTrustCategory = claudeTrustResult.blockDetail?.match(/Injection detected: (\S+)/)?.[1] ?? "content_policy";
     return reply.code(400).send({
       type: "error",
-      error: { type: "invalid_request_error", message: "Request could not be processed." }
+      error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${claudeTrustCategory}). Rephrase and retry.` }
     });
   }
   enrichedClaudeMsgs = claudeTrustResult.messages as typeof enrichedClaudeMsgs;
@@ -7209,8 +7247,10 @@ app.post("/v1/messages", async (req, reply) => {
     claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: claudePolicyPrecheck.pivotPrompt }] as typeof claudeModelMessages;
   }
 
-  // Adapter-specific early pivot and same-tool dampening (Claude path)
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudePolicyPrecheck.pivotPrompt && claudeAdapter.family === "qwen3-coder") {
+  // Adapter-specific early pivot and same-tool dampening (Claude path).
+  // Skip when the execution governor already injected a recovery block.
+  const claudeGovernorAlreadyIntervened = claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED;
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudePolicyPrecheck.pivotPrompt && !claudeGovernorAlreadyIntervened && claudeAdapter.family === "qwen3-coder") {
     const claudeRecentCalls = claudeRecentCallsForSteering;
     const claudeRecentAssistantText = extractRecentAssistantText(
       normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
@@ -8042,6 +8082,7 @@ app.post("/v1/messages", async (req, reply) => {
         verification: claudeVerificationAssessment,
         recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
         nonActionableEventDetail: "claude stream stop had non-actionable text; emitted deterministic fallback",
+        planGraph: claudePlanGraph,
       });
       claudeStreamGateApplied = finalized.applied;
       claudeStreamMissingMust = finalized.missingMust;
@@ -8100,6 +8141,7 @@ app.post("/v1/messages", async (req, reply) => {
         verification: claudeVerificationAssessment,
         toolStopReason: stopReason === "tool_use",
         nonActionableEventDetail: "claude streamed text was non-actionable; emitted deterministic fallback",
+        planGraph: claudePlanGraph,
       });
       claudeStreamedText = finalized.finalText;
       claudeStreamMissingMust = finalized.missingMust;
@@ -8560,6 +8602,7 @@ app.post("/v1/messages", async (req, reply) => {
       verification: claudeVerificationAssessment,
       recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
       nonActionableEventDetail: "terminal end_turn had non-actionable text; emitted deterministic fallback",
+      planGraph: claudePlanGraph,
     });
     finalClaudeText = finalized.finalText;
     claudeGateApplied = finalized.applied;

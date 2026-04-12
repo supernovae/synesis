@@ -285,9 +285,12 @@ function isDeclarationOnlyEditResultSignature(sig: string): boolean {
   const looksSmallEdit = /added <n> line|added <n> lines|removed <n> line|removed <n> lines/.test(sig);
   const declarationMarker =
     /\bimport\b/.test(sig)
-    || /\bfrom-clipboard\b/.test(sig)
-    || /\bcopy-last\b/.test(sig)
-    || /\bflag\b/.test(sig);
+    || /\bflag\b/.test(sig)
+    || /\brequire\b/.test(sig)
+    || /\binclude\b/.test(sig)
+    || /\buse\b/.test(sig)
+    || /\busing\b/.test(sig)
+    || /\bextern\b/.test(sig);
   return looksSmallEdit && declarationMarker;
 }
 
@@ -377,7 +380,46 @@ function isVerificationCommand(toolName: string, command: string): boolean {
   const tool = normalizeString(toolName).toLowerCase();
   const cmd = normalizeString(command).toLowerCase();
   return tool.includes("run_test")
-    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(cmd);
+    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd);
+}
+
+function isGitAddWithoutCommit(events: CommandEvent[]): boolean {
+  let sawGitAdd = false;
+  let sawGitCommit = false;
+  const tail = events.slice(-6);
+  for (const e of tail) {
+    const cmd = normalizeString(e.command).toLowerCase();
+    if (/\bgit\s+add\b/.test(cmd)) sawGitAdd = true;
+    if (/\bgit\s+commit\b/.test(cmd)) sawGitCommit = true;
+  }
+  return sawGitAdd && !sawGitCommit;
+}
+
+function isDependencyInstallReplay(events: CommandEvent[]): boolean {
+  const depCmds = new Map<string, number>();
+  for (const e of events) {
+    const cmd = normalizeString(e.command).toLowerCase();
+    const isDepInstall =
+      /\bnpm\s+install\b/.test(cmd)
+      || /\bpnpm\s+install\b/.test(cmd)
+      || /\byarn\s+install\b/.test(cmd)
+      || /\bgo\s+mod\s+tidy\b/.test(cmd)
+      || /\bpip\s+install\b/.test(cmd)
+      || /\buv\s+pip\s+install\b/.test(cmd)
+      || /\bcargo\s+build\b/.test(cmd);
+    if (!isDepInstall) continue;
+    const key = cmd.slice(0, 60);
+    depCmds.set(key, (depCmds.get(key) ?? 0) + 1);
+  }
+  for (const count of depCmds.values()) {
+    if (count >= 2) return true;
+  }
+  return false;
+}
+
+function isReadOnlyInvestigationIntent(userText: string): boolean {
+  return /\b(explain|what does|how does|show me|describe|analyze|understand|review)\b/.test(userText)
+    && !/\b(fix|implement|add|create|change|edit|update|write|refactor|delete|remove)\b/.test(userText);
 }
 
 function isTruncatedVerificationCommand(command: string): boolean {
@@ -411,10 +453,20 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
 }
 
+export interface ExecutionGovernorOptions {
+  profile?: GovernanceProfileName;
+  activePlanStage?: string | null;
+}
+
 export function evaluateExecutionGovernor(
   messages: GovernorInputMessage[],
-  profile: GovernanceProfileName = "balanced_completion",
+  profileOrOptions: GovernanceProfileName | ExecutionGovernorOptions = "balanced_completion",
 ): ExecutionGovernorDecision {
+  const opts: ExecutionGovernorOptions = typeof profileOrOptions === "string"
+    ? { profile: profileOrOptions }
+    : profileOrOptions;
+  const profile = opts.profile ?? "balanced_completion";
+  const activePlanStage = opts.activePlanStage ?? null;
   const thresholds = thresholdsForProfile(profile);
   const lastUserIdx = (() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -568,11 +620,18 @@ export function evaluateExecutionGovernor(
     const tool = normalizeString(e.toolName).toLowerCase();
     return tool.includes("taskcreate") || tool.includes("taskupdate") || tool.includes("todowrite");
   });
-  if (hasTaskLifecycleTraffic && hasCompletionClaimInAssistantText(turnMessages) && !hasTaskDoneStatusUpdate(events)) {
+  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaimInAssistantText(turnMessages) && !hasTaskDoneStatusUpdate(events);
+  const planNotFinalized = activePlanStage !== null && activePlanStage !== "finalize" && activePlanStage !== "done";
+  if (claimButNoUpdate || (hasCompletionClaimInAssistantText(turnMessages) && planNotFinalized)) {
     completionClaimNeedsTaskUpdate = true;
   }
 
+  // Read-only investigation intent: suppress noEditEvidence-dependent rules.
+  const isInvestigationOnly = isReadOnlyInvestigationIntent(userText);
+
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
+  if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) matchedRules.push("git_commit_followthrough");
+  if (isDependencyInstallReplay(events)) matchedRules.push("dependency_install_replay");
   const hasFailureDrivenVerificationLoop =
     hasFailures || repeatedFailingVerification > 0 || repeatedCompileLikeFailureVerification > 0;
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold && hasFailureDrivenVerificationLoop) {
@@ -581,15 +640,16 @@ export function evaluateExecutionGovernor(
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence && hasFailureDrivenVerificationLoop) {
     matchedRules.push("no_repeat_without_change");
   }
-  if (repeatedCompileLikeFailureVerification >= 1 && noEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
+  const effectiveNoEditEvidence = noEditEvidence && !isInvestigationOnly;
+  if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
   if (repeatedEditFailureReplay >= 1) matchedRules.push("edit_failure_replay");
   if (repeatedTaskCreateReplay >= 1) matchedRules.push("task_creation_replay");
-  if (declarationFollowthroughViolation) matchedRules.push("declaration_followthrough_required");
+  if (!isInvestigationOnly && declarationFollowthroughViolation) matchedRules.push("declaration_followthrough_required");
   if (completionClaimNeedsTaskUpdate) matchedRules.push("completion_claim_requires_task_update");
-  if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
-  if (repeatedTruncatedVerification >= 1 && noEditEvidence) matchedRules.push("verification_truncated_output");
-  if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
-  if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && noEditEvidence) matchedRules.push("verification_no_signal_repeat");
+  if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) matchedRules.push("verification_fail_repeat_block");
+  if (repeatedTruncatedVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_truncated_output");
+  if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_done_report");
+  if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_no_signal_repeat");
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
     || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
@@ -608,6 +668,24 @@ export function evaluateExecutionGovernor(
       pause: false,
       reason: "ok",
       matchedRules: ["allow"],
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("dependency_install_replay")) {
+    return {
+      pause: true,
+      reason: "dependency_install_replay",
+      suggestedNextStep:
+        "You are repeating the same dependency install command without code changes. If the install succeeded, move on to the next code edit. If it failed, investigate the specific error rather than re-running.",
+      matchedRules,
       telemetry: {
         repeatedTestCommands,
         repeatedReadSearchCalls,
@@ -733,6 +811,24 @@ export function evaluateExecutionGovernor(
       reason: "verification_truncated_output",
       suggestedNextStep:
         "Verification output was truncated (for example via | head/tail), so failures may be hidden. Run one narrow verification command without output truncation, capture full result, then apply one focused edit if needed.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("git_commit_followthrough")) {
+    return {
+      pause: false,
+      reason: "git_commit_followthrough",
+      suggestedNextStep:
+        "You ran git add but did not follow through with git commit. If changes are ready, run git commit now. If not, continue editing — do not loop on git status/diff.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,
@@ -893,31 +989,69 @@ export function evaluateExecutionGovernor(
   };
 }
 
-export function executionGovernorSoftFailMessage(decision: ExecutionGovernorDecision): string {
-  return [
-    "I paused to avoid a low-yield loop (repeating broad checks without enough new signal).",
-    `Matched rules: ${decision.matchedRules.join(", ")}.`,
-    `Next step: ${decision.suggestedNextStep ?? "pick one narrow verification step before continuing."}`,
-  ].join(" ");
-}
-
 export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGovernorDecision): string {
-  const rules = new Set(decision.matchedRules);
-  const testFlow = rules.has("test_entry_contract");
-  const explorationLoop = rules.has("bounded_exploration_budget") || rules.has("broad_discovery_repeat");
-  const bullet = testFlow
-    ? "Use Grep first for test files/configs (_test, test_, jest.config, vitest, pytest.ini), then Read at most 3 highest-signal files."
-    : "Read README.md or package.json, then use a scoped Glob (e.g. src/*) or Grep. Read at most 3 likely files and stop broad scanning.";
-  const globRule = explorationLoop
-    ? "Do not call Glob(\"*\") or empty glob patterns. If glob is required, use scoped patterns such as src/* or pkg/**/*_test.go."
-    : "Avoid broad discovery loops; each tool call must refine scope.";
+  const reason = decision.reason;
+  let step1: string;
+  let step2: string;
+  let step3: string;
+
+  switch (reason) {
+    case "verification_fail_repeat_block":
+    case "verification_same_failure_signature_replay":
+    case "verification_truncated_output":
+      step1 = "Read the failing file at the error location (use offset/limit). Do NOT re-read README or unrelated files.";
+      step2 = "Make one concrete code fix at the reported symbol/location.";
+      step3 = "Run one narrow file-level or package-level verification command (not a broad build).";
+      break;
+    case "edit_failure_replay":
+      step1 = "Re-read the exact target section of the file you tried to edit (use offset/limit to get current content).";
+      step2 = "Adjust old_string to match the file's actual content exactly — whitespace, indentation, surrounding lines.";
+      step3 = "Apply one corrected Edit call. Do not retry with identical arguments.";
+      break;
+    case "task_creation_replay":
+    case "completion_claim_requires_task_update":
+      step1 = "Update existing task items to reflect current status. Do not create duplicate tasks.";
+      step2 = "If claiming completion, ensure all task items are marked done first.";
+      step3 = "Do not call file discovery tools — focus on task state and completion evidence.";
+      break;
+    case "dependency_install_replay":
+      step1 = "Investigate the specific install error in the output. Do not re-run the same install command.";
+      step2 = "If the install succeeded, move on to the next code edit.";
+      step3 = "If it failed, fix the root cause (wrong package name, missing lockfile, version conflict) before retrying.";
+      break;
+    case "declaration_followthrough_required":
+      step1 = "Apply one usage-site edit that references the declaration you just added (import, call, wire).";
+      step2 = "Do not search for more context — you already have the information needed.";
+      step3 = "After the usage edit, run one narrow verification to confirm integration.";
+      break;
+    case "git_commit_followthrough":
+      step1 = "Run git commit with a clear message for the staged changes.";
+      step2 = "If changes are not ready to commit, continue editing — do not loop on git status/diff.";
+      step3 = "After committing, move on to the next task step.";
+      break;
+    default: {
+      const rules = new Set(decision.matchedRules);
+      const testFlow = rules.has("test_entry_contract");
+      const explorationLoop = rules.has("bounded_exploration_budget") || rules.has("broad_discovery_repeat");
+      step1 = testFlow
+        ? "Use Grep first for test files/configs (_test, test_, jest.config, vitest, pytest.ini), then Read at most 3 highest-signal files."
+        : "Read README.md or package.json, then use a scoped Glob (e.g. src/*) or Grep. Read at most 3 likely files and stop broad scanning.";
+      step2 = explorationLoop
+        ? "Do not call Glob(\"*\") or empty glob patterns. If glob is required, use scoped patterns such as src/* or pkg/**/*_test.go."
+        : "Avoid broad discovery loops; each tool call must refine scope.";
+      step3 = "Before any large read, state one concrete hypothesis and one verification command.";
+      break;
+    }
+  }
+
   return [
-    "<SYNESIS_EXECUTION_RECOVERY status=\"rewrite\" version=\"1\">",
+    "<SYNESIS_EXECUTION_RECOVERY status=\"rewrite\" version=\"2\">",
     `matched_rules=${decision.matchedRules.join(",")}`,
+    `reason=${reason}`,
     "objective=convert broad exploration into bounded hypothesis-driven workflow",
-    `step1=${bullet}`,
-    `step2=${globRule}`,
-    "step3=before any large read, state one concrete hypothesis and one verification command",
+    `step1=${step1}`,
+    `step2=${step2}`,
+    `step3=${step3}`,
     `next_action=${decision.suggestedNextStep ?? "run one narrow verification step"}`,
     "</SYNESIS_EXECUTION_RECOVERY>",
   ].join("\n");

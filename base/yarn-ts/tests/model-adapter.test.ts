@@ -296,7 +296,7 @@ describe("defaultSamplingParams", () => {
   it("Qwen3CoderAdapter returns recommended sampling", () => {
     const adapter = new Qwen3CoderAdapter();
     const params = adapter.defaultSamplingParams();
-    expect(params).toEqual({ temperature: 1.0, top_p: 0.95 });
+    expect(params).toEqual({ temperature: 0.7, top_p: 0.95 });
   });
 
   it("GenericOpenAIAdapter has no defaultSamplingParams", () => {
@@ -550,7 +550,7 @@ describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
     const adapter = new Qwen3CoderAdapter(false);
     const prompt = adapter.toolSystemPrompt(10)!;
     expect(prompt).toContain("## Workflow discipline");
-    expect(prompt).toContain("One action per turn");
+    expect(prompt).toContain("Focused actions per turn");
     expect(prompt).toContain("Task tracking discipline");
     expect(prompt).toContain("Read-then-act");
     expect(prompt).toContain("Plan commitment");
@@ -563,7 +563,7 @@ describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
     const adapter = new Qwen3CoderAdapter(true);
     const prompt = adapter.toolSystemPrompt(10)!;
     expect(prompt).toContain("## Workflow discipline");
-    expect(prompt).toContain("One action per turn");
+    expect(prompt).toContain("Focused actions per turn");
     expect(prompt).toContain("Read-then-act");
   });
 
@@ -785,16 +785,24 @@ describe("Qwen3CoderAdapter.dampenConsecutiveSameTools", () => {
     expect(adapter.dampenConsecutiveSameTools!(["Read", "Read"])).toBeNull();
   });
 
-  it("returns dampening for 3 consecutive Read calls", () => {
-    const result = adapter.dampenConsecutiveSameTools!(["Read", "Read", "Read"]);
+  it("returns null for 3 consecutive Read calls (threshold is 4)", () => {
+    expect(adapter.dampenConsecutiveSameTools!(["Read", "Read", "Read"])).toBeNull();
+  });
+
+  it("returns dampening for 4 consecutive Read calls", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["Read", "Read", "Read", "Read"]);
     expect(result).not.toBeNull();
     expect(result).toContain("Read");
-    expect(result).toContain("3 times");
+    expect(result).toContain("4 times");
     expect(result).toContain("make your edit");
   });
 
-  it("returns dampening for 3 consecutive Grep calls", () => {
-    const result = adapter.dampenConsecutiveSameTools!(["Grep", "Grep", "Grep"]);
+  it("returns null for 3 consecutive Grep calls (threshold is 4)", () => {
+    expect(adapter.dampenConsecutiveSameTools!(["Grep", "Grep", "Grep"])).toBeNull();
+  });
+
+  it("returns dampening for 4 consecutive Grep calls", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["Grep", "Grep", "Grep", "Grep"]);
     expect(result).not.toBeNull();
     expect(result).toContain("Grep");
     expect(result).toContain("Narrow your approach");
@@ -832,7 +840,7 @@ describe("Qwen3CoderAdapter.dampenConsecutiveSameTools", () => {
   });
 
   it("only counts from the tail", () => {
-    const result = adapter.dampenConsecutiveSameTools!(["Bash", "Read", "Read", "Read"]);
+    const result = adapter.dampenConsecutiveSameTools!(["Bash", "Read", "Read", "Read", "Read"]);
     expect(result).not.toBeNull();
     expect(result).toContain("Read");
   });

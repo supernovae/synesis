@@ -6,6 +6,7 @@ export interface SessionContinuity {
   keyFindings: string[];
   decisions: string[];
   recentFiles: string[];
+  planGraph?: Record<string, unknown> | null;
   updatedAt: number;
 }
 

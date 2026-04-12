@@ -1038,14 +1038,18 @@ export class ToolResultReductionService {
       trimmed.includes("<file_unchanged") ||
       (trimmed.length < 120 && trimmed.includes("unchanged"))
     ) {
+      const pathMatch = raw.match(/path="([^"]+)"/i);
+      const extractedPath = pathMatch?.[1] ?? null;
+      const catTarget = extractedPath ?? "<file_path>";
       return [
         `<SYNESIS_TOOL_GUARDRAIL status="guided" code="read_cache_stub" version="1">`,
         `tool=${toolName ?? "Read"}`,
+        ...(extractedPath ? [`file_path=${extractedPath}`] : []),
         `reason=client_returned_cache_stub`,
         `next_action=use_bash_cat_to_read_file_content`,
         `[Cache stub] The client returned "Unchanged since last read" instead of file content.`,
         `The previous read was pruned from context so you do not have the content.`,
-        `Use Bash(cat <file_path>) to retrieve the full file content.`,
+        `Use Bash(cat ${catTarget}) to retrieve the full file content.`,
         `</SYNESIS_TOOL_GUARDRAIL>`,
       ].join("\n");
     }
