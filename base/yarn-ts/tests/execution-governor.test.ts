@@ -144,6 +144,22 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("one concrete code fix");
   });
 
+  it("pauses repeated edit-failure replay even when reads are interleaved", () => {
+    const messages = [
+      assistantCall("1", "edit", { file_path: "cmd/synesis/main.go", old_string: "import (", new_string: "import (\n\t\"x\"" }),
+      toolResult("1", "Error editing file: old_string not found"),
+      assistantCall("2", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("2", "package main\nimport (\n\t\"fmt\"\n)"),
+      assistantCall("3", "edit", { file_path: "cmd/synesis/main.go", old_string: "import (", new_string: "import (\n\t\"x\"" }),
+      toolResult("3", "Error editing file: old_string not found"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("edit_failure_replay");
+    expect(out.matchedRules).toContain("edit_failure_replay");
+    expect(out.suggestedNextStep).toContain("corrected Edit/Update");
+  });
+
   it("does not treat file paths in error output as edit evidence", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),

@@ -213,6 +213,11 @@ function hasSuccessSignature(sig: string): boolean {
   return /\bok\b|\bpass(ed)?\b|\bbuild successful\b|\bsuccess\b|\bno test files\b/.test(sig);
 }
 
+function hasEditFailureSignature(sig: string): boolean {
+  if (!sig) return false;
+  return /error editing file|old_string.*not found|failed to apply patch|no changes made|did not match file content/.test(sig);
+}
+
 function extractUserText(messages: GovernorInputMessage[]): string {
   return messages
     .filter((m) => m.role === "user" && typeof m.content === "string")
@@ -354,6 +359,7 @@ export function evaluateExecutionGovernor(
   let repeatedNoSignalVerification = 0;
   let repeatedTruncatedVerification = 0;
   let repeatedCompileLikeFailureVerification = 0;
+  let repeatedEditFailureReplay = 0;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
   const hasRunTest = events.some((e) =>
@@ -364,6 +370,7 @@ export function evaluateExecutionGovernor(
 
   const BROAD_DISCOVERY_WINDOW = 20;
   const windowStart = Math.max(0, events.length - BROAD_DISCOVERY_WINDOW);
+  const editFailureReplay = new Map<string, number>();
 
   for (let i = 0; i < events.length; i += 1) {
     const tool = events[i].toolName;
@@ -425,11 +432,21 @@ export function evaluateExecutionGovernor(
       repeatedBroadDiscoveryCalls += 1;
     }
   }
+  for (const e of events) {
+    const c = normalizeString(e.command);
+    if (!c.startsWith("edit:")) continue;
+    if (!hasEditFailureSignature(e.resultSignature)) continue;
+    const key = `${c}|${e.resultSignature}`;
+    const next = (editFailureReplay.get(key) ?? 0) + 1;
+    editFailureReplay.set(key, next);
+    if (next >= 2) repeatedEditFailureReplay += 1;
+  }
 
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
   if (repeatedCompileLikeFailureVerification >= 1 && noEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
+  if (repeatedEditFailureReplay >= 1) matchedRules.push("edit_failure_replay");
   if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (repeatedTruncatedVerification >= 1 && noEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
@@ -469,6 +486,24 @@ export function evaluateExecutionGovernor(
       reason: "verification_same_failure_signature_replay",
       suggestedNextStep:
         "You are replaying the same compile/build failure signature without edits. Stop rerunning broad verification. Make one concrete code fix at the reported symbol/location, then run one narrow package/file-level verification.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("edit_failure_replay")) {
+    return {
+      pause: true,
+      reason: "edit_failure_replay",
+      suggestedNextStep:
+        "You are replaying the same edit failure. Stop retrying the same patch. Read the exact target section once (use offset/limit if large), then issue one corrected Edit/Update with exact old_string/new_string, and verify narrowly.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,
