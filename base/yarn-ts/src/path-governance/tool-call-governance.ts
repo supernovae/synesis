@@ -5,6 +5,12 @@ import {
   validateToolArgs,
 } from "../providers/model-adapter.js";
 import { canonicalValidationToolName } from "../tool-aliases.js";
+import {
+  validatePlanWriteContent,
+  hashContent,
+  type PlanContentShadow,
+  type PlanWriteValidationResult,
+} from "../planning/plan-content-shadow.js";
 
 export interface GovernToolCallOptions {
   toolName: string;
@@ -20,6 +26,16 @@ export interface GovernToolCallOptions {
   restrictDiscoveryForPlanWork?: boolean;
   blockBroadVerificationForGreen?: boolean;
   blockVerificationForFailure?: boolean;
+  planContentShadow?: PlanContentShadow | null;
+}
+
+export interface PlanWriteAuditRecord {
+  allowed: boolean;
+  path: string;
+  reason?: string;
+  proposedContentHash?: string;
+  shadowContentHash?: string;
+  validation?: PlanWriteValidationResult;
 }
 
 export interface GovernedToolCall {
@@ -33,6 +49,7 @@ export interface GovernedToolCall {
   blockedWriteCapable: boolean;
   blockedBashDrift: boolean;
   validationMissing: string[];
+  planWriteAudit?: PlanWriteAuditRecord;
 }
 
 /** One-line JSON on stderr + exit 2 — parseable by agents (schema_version bumps are breaking). */
@@ -159,12 +176,28 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     return out;
   }
 
-  const planPlaceholderProtection = maybeBlockPlanPlaceholderWrite(logicalName, out.input, opts.clientKind);
-  if (planPlaceholderProtection) {
-    out.toolName = planPlaceholderProtection.toolName;
-    out.input = planPlaceholderProtection.input;
+  const planWriteCheck = maybeValidatePlanFileWrite(logicalName, out.input, opts.planContentShadow, opts.clientKind);
+  if (planWriteCheck.audit) {
+    out.planWriteAudit = planWriteCheck.audit;
+  }
+  if (planWriteCheck.replacement) {
+    out.toolName = planWriteCheck.replacement.toolName;
+    out.input = planWriteCheck.replacement.input;
     out.blockedWriteCapable = true;
     return out;
+  }
+
+  if (logicalName === "Bash" && typeof out.input.command === "string") {
+    const bashPlanCheck = maybeValidateBashPlanWrite(out.input.command, opts.planContentShadow, opts.clientKind);
+    if (bashPlanCheck.audit) {
+      out.planWriteAudit = bashPlanCheck.audit;
+    }
+    if (bashPlanCheck.replacement) {
+      out.toolName = bashPlanCheck.replacement.toolName;
+      out.input = bashPlanCheck.replacement.input;
+      out.blockedWriteCapable = true;
+      return out;
+    }
   }
 
   if ((opts.blockBashPathDrift || opts.strictBashBlock) && logicalName === "Bash") {
@@ -465,38 +498,37 @@ function recoverConstrainedPathRequest(
 function isWriteCapableTool(logicalName: string): boolean {
   return logicalName === "Write"
     || logicalName === "Edit"
-    || logicalName === "Update";
+    || logicalName === "Update"
+    || logicalName === "ApplyPatch"
+    || logicalName === "FileWrite";
 }
 
-function maybeBlockPlanPlaceholderWrite(
-  logicalName: string,
-  input: Record<string, unknown>,
-  clientKind?: string,
-): { toolName: string; input: Record<string, unknown> } | null {
-  if (!isWriteCapableTool(logicalName)) return null;
-  const filePath = typeof input.file_path === "string" ? input.file_path.trim() : "";
-  if (!filePath) return null;
-  const isClaudePlanFile =
-    filePath.includes("/.claude/plans/")
+function isClaudePlanFilePath(filePath: string): boolean {
+  return (filePath.includes("/.claude/plans/") || filePath.includes("\\.claude\\plans\\"))
     && filePath.toLowerCase().endsWith(".md");
-  if (!isClaudePlanFile) return null;
+}
 
-  const writeBody = logicalName === "Write"
-    ? String(input.content ?? "")
-    : String(input.new_string ?? "");
-  const lowerBody = writeBody.toLowerCase();
-  if (!lowerBody.includes("no plan file exists yet")
-    || !lowerBody.includes("this is a fresh session")) {
-    return null;
+function extractPlanWriteBody(logicalName: string, input: Record<string, unknown>): { body: string; isPartialEdit: boolean } {
+  if (logicalName === "Write" || logicalName === "FileWrite") {
+    return { body: String(input.content ?? ""), isPartialEdit: false };
   }
+  return { body: String(input.new_string ?? ""), isPartialEdit: true };
+}
 
-  const message = "Synesis Yarn blocked destructive placeholder overwrite for a Claude plan file. Re-read the plan and preserve existing tasks instead of writing a 'fresh session' placeholder.";
+function buildPlanWriteBlockResult(
+  logicalName: string,
+  filePath: string,
+  reason: string,
+  clientKind?: string,
+): { toolName: string; input: Record<string, unknown> } {
+  const message = `[Plan write blocked: ${reason}] The proposed write to ${filePath} was rejected because: ${reason}. Re-read the plan file with Read(${filePath}) to get the current content, then retry your edit.`;
   if (clientKind === "claude-code") {
     return {
-      toolName: "Synesis_Error_PlanPlaceholderBlocked",
+      toolName: "Synesis_Error_PlanWriteBlocked",
       input: {
         synesis_error: true,
-        reason: "plan_placeholder_blocked",
+        reason: "plan_write_blocked",
+        detail: reason,
         original_tool: logicalName,
         file_path: filePath,
         message,
@@ -511,13 +543,99 @@ function maybeBlockPlanPlaceholderWrite(
         synesis_error: true,
         schema_version: 1,
         category: "policy",
-        reason: "plan_placeholder_blocked",
+        reason: "plan_write_blocked",
+        detail: reason,
         original_tool: logicalName,
         file_path: filePath,
         message,
         retryable: true,
       }),
-      description: "Blocked destructive placeholder write to Claude plan file",
+      description: `Blocked unsafe write to Claude plan file: ${reason}`,
+    },
+  };
+}
+
+function maybeValidatePlanFileWrite(
+  logicalName: string,
+  input: Record<string, unknown>,
+  shadow: PlanContentShadow | null | undefined,
+  clientKind?: string,
+): { replacement: { toolName: string; input: Record<string, unknown> } | null; audit: PlanWriteAuditRecord | null } {
+  if (!isWriteCapableTool(logicalName)) return { replacement: null, audit: null };
+  const filePath = typeof input.file_path === "string" ? input.file_path.trim() : "";
+  if (!filePath || !isClaudePlanFilePath(filePath)) return { replacement: null, audit: null };
+
+  const { body, isPartialEdit } = extractPlanWriteBody(logicalName, input);
+  const validation = validatePlanWriteContent(body, shadow ?? null, isPartialEdit);
+  const proposedHash = hashContent(body);
+
+  if (!validation.allowed) {
+    return {
+      replacement: buildPlanWriteBlockResult(logicalName, filePath, validation.reason!, clientKind),
+      audit: {
+        allowed: false,
+        path: filePath,
+        reason: validation.reason,
+        proposedContentHash: proposedHash,
+        shadowContentHash: shadow?.contentHash,
+        validation,
+      },
+    };
+  }
+
+  return {
+    replacement: null,
+    audit: {
+      allowed: true,
+      path: filePath,
+      proposedContentHash: proposedHash,
+      shadowContentHash: shadow?.contentHash,
+      validation,
+    },
+  };
+}
+
+const BASH_PLAN_WRITE_RE = /(?:cat\s*>|tee\s+|echo\s.*>)\s*["']?([^\s"'|;]+\.claude\/plans\/[^\s"'|;]+\.md)/i;
+const BASH_HEREDOC_BODY_RE = /<<['"]?(\w+)['"]?\n([\s\S]*?)\n\1/;
+
+function maybeValidateBashPlanWrite(
+  command: string,
+  shadow: PlanContentShadow | null | undefined,
+  clientKind?: string,
+): { replacement: { toolName: string; input: Record<string, unknown> } | null; audit: PlanWriteAuditRecord | null } {
+  const pathMatch = BASH_PLAN_WRITE_RE.exec(command);
+  if (!pathMatch) return { replacement: null, audit: null };
+  const filePath = pathMatch[1];
+
+  const heredocMatch = BASH_HEREDOC_BODY_RE.exec(command);
+  const body = heredocMatch ? heredocMatch[2] : "";
+  if (!body) return { replacement: null, audit: null };
+
+  const validation = validatePlanWriteContent(body, shadow ?? null, false);
+  const proposedHash = hashContent(body);
+
+  if (!validation.allowed) {
+    return {
+      replacement: buildPlanWriteBlockResult("Bash", filePath, validation.reason!, clientKind),
+      audit: {
+        allowed: false,
+        path: filePath,
+        reason: validation.reason,
+        proposedContentHash: proposedHash,
+        shadowContentHash: shadow?.contentHash,
+        validation,
+      },
+    };
+  }
+
+  return {
+    replacement: null,
+    audit: {
+      allowed: true,
+      path: filePath,
+      proposedContentHash: proposedHash,
+      shadowContentHash: shadow?.contentHash,
+      validation,
     },
   };
 }

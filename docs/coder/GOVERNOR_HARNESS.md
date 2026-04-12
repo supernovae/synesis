@@ -314,6 +314,80 @@ ORDER BY t.created_at DESC
 LIMIT 50;
 ```
 
+## Plan Write Safety
+
+Plan files (`.claude/plans/*.md`) are protected by a dedicated write-validation layer in `tool-call-governance.ts`. Every tool call that targets a plan file is intercepted before the client executes it.
+
+### Content Shadow
+
+A **PlanContentShadow** tracks the last-known-good plan content per session:
+
+| Field | Type | Source |
+|-------|------|--------|
+| `path` | string | Extracted from `annotatePlanFileReads` |
+| `contentHash` | SHA-256 (16 hex) | Computed from successful plan read content |
+| `contentLength` | number | Byte length of last read |
+| `todos` | `PlanTodoEntry[]` | Parsed from YAML frontmatter `todos:` block |
+| `lastReadAt` | timestamp | When the shadow was last refreshed |
+
+Stored in `session.record.metadata.plan_content_shadow`. Populated from every successful (non-stub) plan file read.
+
+### Validation Checks
+
+`validatePlanFileWrite` runs these checks in order, blocking on first failure:
+
+| Check | Applies To | Rule |
+|-------|-----------|------|
+| **Stub/metadata rejection** | All writes | Blocks known stub phrases: "unchanged since last read", `<FILE_UNCHANGED`, `<SYNESIS_TOOL_GUARDRAIL`, "no plan file exists yet", etc. |
+| **Content too short** | Full Write | Blocks if content < 20 characters |
+| **Size regression** | Full Write (with shadow) | Blocks if proposed content < 30% of shadow length |
+| **Structure validation** | Full Write | Requires `---` YAML frontmatter delimiter |
+| **Monotonic step transitions** | Full Write (with shadow todos) | Step status can only advance: `pending → in_progress → completed`, `* → cancelled`. Regressions are blocked. |
+
+Partial edits (`Edit` tool with `old_string`/`new_string`) skip structure and size regression checks but still block stub phrases.
+
+### Allowed Status Transitions
+
+```
+pending → pending | in_progress | completed | cancelled
+in_progress → in_progress | completed | cancelled
+completed → completed (only)
+cancelled → cancelled (only)
+```
+
+### Bash Heredoc Coverage
+
+Bash commands that write to plan files via `cat >`, `tee`, or `echo >` are also intercepted. The heredoc body is extracted and validated with the same rules.
+
+### Audit Events
+
+Every plan write validation emits a session event:
+
+- **`plan_file_write_allowed`** — write passed all checks
+- **`plan_file_write_blocked`** — write failed validation
+
+Metadata includes: `path`, `allowed`, `reason`, `proposedContentHash`, `shadowContentHash`.
+
+### Recovery on Block
+
+When a plan write is blocked, the client receives a synthetic error tool result with structured guidance:
+
+```
+[Plan write blocked: {reason}]
+The proposed write to {path} was rejected because: {reason}.
+Re-read the plan file with Read({path}) to get the current content, then retry your edit.
+```
+
+### Implementation Files
+
+| File | Role |
+|------|------|
+| `src/planning/plan-content-shadow.ts` | Shadow types, YAML parser, monotonicity checker, content validation |
+| `src/path-governance/tool-call-governance.ts` | `validatePlanFileWrite`, Bash heredoc detection, wired into `governToolCall` |
+| `src/index.ts` | Shadow extraction from plan reads, audit event emission |
+| `tests/plan-content-shadow.test.ts` | Unit tests for shadow module |
+| `tests/path-governance.test.ts` | Integration tests for plan write governance |
+
 ## Known Gaps and Roadmap
 
 These are identified gaps from the governor audit. Each is a planned future improvement:

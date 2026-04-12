@@ -290,7 +290,7 @@ describe("governToolCall", () => {
     expect(out.input.original_tool).toBe("Write");
   });
 
-  it("blocks destructive placeholder overwrite for Claude plan files (Write)", () => {
+  it("blocks stub phrase overwrite for Claude plan files (Write)", () => {
     const out = governToolCall({
       toolName: "Write",
       input: {
@@ -302,14 +302,16 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
       clientKind: "claude-code",
     });
-    expect(out.toolName).toBe("Synesis_Error_PlanPlaceholderBlocked");
+    expect(out.toolName).toBe("Synesis_Error_PlanWriteBlocked");
     expect(out.blockedWriteCapable).toBe(true);
     expect(out.input.synesis_error).toBe(true);
-    expect(out.input.reason).toBe("plan_placeholder_blocked");
+    expect(out.input.reason).toBe("plan_write_blocked");
     expect(out.input.original_tool).toBe("Write");
+    expect(out.planWriteAudit?.allowed).toBe(false);
+    expect(out.planWriteAudit?.reason).toContain("contains_stub_phrase");
   });
 
-  it("blocks destructive placeholder overwrite for Claude plan files (Edit)", () => {
+  it("blocks stub phrase overwrite for Claude plan files (Edit)", () => {
     const out = governToolCall({
       toolName: "Edit",
       input: {
@@ -322,13 +324,45 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
       clientKind: "claude-code",
     });
-    expect(out.toolName).toBe("Synesis_Error_PlanPlaceholderBlocked");
+    expect(out.toolName).toBe("Synesis_Error_PlanWriteBlocked");
     expect(out.blockedWriteCapable).toBe(true);
-    expect(out.input.reason).toBe("plan_placeholder_blocked");
+    expect(out.input.reason).toBe("plan_write_blocked");
     expect(out.input.original_tool).toBe("Edit");
   });
 
-  it("allows normal writes to Claude plan files", () => {
+  it("blocks 'unchanged since last read' stub writes to plan files", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: "Unchanged since last read",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanWriteBlocked");
+    expect(out.planWriteAudit?.reason).toContain("unchanged since last read");
+  });
+
+  it("blocks FILE_UNCHANGED stub writes to plan files", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: '<FILE_UNCHANGED path="main.go" />',
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanWriteBlocked");
+    expect(out.planWriteAudit?.reason).toContain("<file_unchanged");
+  });
+
+  it("blocks plan Write missing YAML frontmatter", () => {
     const out = governToolCall({
       toolName: "Write",
       input: {
@@ -340,8 +374,178 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
       clientKind: "claude-code",
     });
+    expect(out.toolName).toBe("Synesis_Error_PlanWriteBlocked");
+    expect(out.planWriteAudit?.reason).toContain("missing_yaml_frontmatter");
+  });
+
+  it("allows valid plan Write with YAML frontmatter", () => {
+    const validContent = [
+      "---",
+      "name: My Plan",
+      "todos:",
+      "  - id: task1",
+      "    content: Do something",
+      "    status: pending",
+      "---",
+      "",
+      "# My Plan",
+      "Details here...",
+    ].join("\n");
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: validContent,
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
     expect(out.toolName).toBe("Write");
     expect(out.blockedWriteCapable).toBe(false);
+    expect(out.planWriteAudit?.allowed).toBe(true);
+  });
+
+  it("allows partial Edit to plan files (no frontmatter required)", () => {
+    const out = governToolCall({
+      toolName: "Edit",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        old_string: "    status: pending",
+        new_string: "    status: completed",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.toolName).toBe("Edit");
+    expect(out.blockedWriteCapable).toBe(false);
+    expect(out.planWriteAudit?.allowed).toBe(true);
+  });
+
+  it("blocks plan Write with size regression vs shadow", () => {
+    const shadow = {
+      path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+      contentHash: "abc123",
+      contentLength: 1000,
+      todos: [],
+      lastReadAt: Date.now(),
+    };
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: "---\nname: Tiny Plan\ntodos: []\n---\n# Tiny\n",
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      planContentShadow: shadow,
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanWriteBlocked");
+    expect(out.planWriteAudit?.reason).toContain("size_regression");
+  });
+
+  it("blocks plan Write with monotonicity violation", () => {
+    const shadow = {
+      path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+      contentHash: "abc123",
+      contentLength: 200,
+      todos: [
+        { id: "task1", content: "Do X", status: "completed" as const },
+        { id: "task2", content: "Do Y", status: "in_progress" as const },
+      ],
+      lastReadAt: Date.now(),
+    };
+    const regressedContent = [
+      "---",
+      "name: My Plan",
+      "todos:",
+      "  - id: task1",
+      "    content: Do X",
+      "    status: pending",
+      "  - id: task2",
+      "    content: Do Y",
+      "    status: in_progress",
+      "---",
+      "",
+      "# Plan body",
+    ].join("\n");
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: regressedContent,
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      planContentShadow: shadow,
+    });
+    expect(out.toolName).toBe("Synesis_Error_PlanWriteBlocked");
+    expect(out.planWriteAudit?.reason).toContain("monotonicity_violation");
+    expect(out.planWriteAudit?.reason).toContain("task1");
+    expect(out.planWriteAudit?.reason).toContain("completed->pending");
+  });
+
+  it("allows forward status transitions in plan writes", () => {
+    const shadow = {
+      path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+      contentHash: "abc123",
+      contentLength: 200,
+      todos: [
+        { id: "task1", content: "Do X", status: "pending" as const },
+        { id: "task2", content: "Do Y", status: "in_progress" as const },
+      ],
+      lastReadAt: Date.now(),
+    };
+    const advancedContent = [
+      "---",
+      "name: My Plan",
+      "todos:",
+      "  - id: task1",
+      "    content: Do X",
+      "    status: in_progress",
+      "  - id: task2",
+      "    content: Do Y",
+      "    status: completed",
+      "---",
+      "",
+      "# Plan body",
+    ].join("\n");
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/steady-splashing-peach.md",
+        content: advancedContent,
+      },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      planContentShadow: shadow,
+    });
+    expect(out.toolName).toBe("Write");
+    expect(out.planWriteAudit?.allowed).toBe(true);
+  });
+
+  it("detects and blocks plan writes via Bash heredoc", () => {
+    const command = `cat > /Users/bymiller/.claude/plans/steady-splashing-peach.md <<'EOF'\nUnchanged since last read\nEOF`;
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.blockedWriteCapable).toBe(true);
+    expect(out.planWriteAudit?.allowed).toBe(false);
+    expect(out.planWriteAudit?.reason).toContain("unchanged since last read");
   });
 
   it("emits structured JSON for Write validation failure", () => {
@@ -521,14 +725,14 @@ describe("governToolCall", () => {
     }
 
     const passThrough = [
-      "../../etc/passwd",
-      "/tmp/outside.go",
-      "/Users/someone/.claude/plans/plan.md",
+      { path: "../../etc/passwd", content: "package main" },
+      { path: "/tmp/outside.go", content: "package main" },
+      { path: "/Users/someone/.claude/plans/plan.md", content: "---\nname: Plan\ntodos:\n  - id: t1\n    content: test\n    status: pending\n---\n# Plan\n" },
     ];
-    for (const filePath of passThrough) {
+    for (const { path: filePath, content } of passThrough) {
       const out = governToolCall({
         toolName: "Write",
-        input: { file_path: filePath, content: "package main" },
+        input: { file_path: filePath, content },
         projectRoot: root,
         enforcePathRoot: true,
         blockBashPathDrift: true,

@@ -54,6 +54,7 @@ import {
 } from "./validation/requirement-coverage.js";
 import { buildTaskIntake, formatTaskIntakeBlock, type TaskIntake } from "./planning/task-intake.js";
 import { advancePlanGraph, createPlanGraph, formatPlanProgressBlock, isPlanComplete, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
+import { buildShadowFromContent, deserializeShadow, serializeShadow, type PlanContentShadow } from "./planning/plan-content-shadow.js";
 import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
 import {
   mergeSynesisClarificationFromRequestMetadata,
@@ -555,6 +556,31 @@ function annotatePlanFileReads(
     return m;
   });
   return { messages: out, annotatedCount, planFilePaths };
+}
+
+/**
+ * Extract a PlanContentShadow from the most recent successful plan file read
+ * in the message history. Uses the read path map from annotatePlanFileReads.
+ */
+function extractPlanContentShadow(
+  messages: Array<{ role: string; tool_call_id?: string; content: unknown }>,
+  planFilePaths: string[],
+): PlanContentShadow | null {
+  if (planFilePaths.length === 0) return null;
+  const readPathMap = resolveToolCallPlanPaths(messages, PLAN_READ_TOOL_NAMES);
+  let bestShadow: PlanContentShadow | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "tool" || typeof m.content !== "string") continue;
+    const rp = m.tool_call_id ? readPathMap.get(m.tool_call_id) : undefined;
+    if (!rp || !isPlanPath(rp)) continue;
+    const text = m.content;
+    if (text.length < 200) continue;
+    if (text.includes("read_cache_stub") || text.toLowerCase().includes("unchanged")) continue;
+    bestShadow = buildShadowFromContent(rp, text);
+    break;
+  }
+  return bestShadow;
 }
 
 const NO_TEST_FILES_RE = /\[no test files\]/i;
@@ -2552,7 +2578,7 @@ import {
   repairWriteToolCall,
 } from "./providers/model-adapter.js";
 import { governToolCall } from "./path-governance/tool-call-governance.js";
-import type { GovernedToolCall } from "./path-governance/tool-call-governance.js";
+import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
 import {
   buildWorkspaceHandshakeBashCommand,
   contextFromSessionMetadata,
@@ -4249,6 +4275,32 @@ function recordSessionEvent(
   });
 }
 
+function emitPlanWriteAuditEvent(
+  sessionKey: string,
+  userId: string,
+  orgId: string,
+  requestId: string,
+  audit: PlanWriteAuditRecord,
+): void {
+  const eventKind = audit.allowed ? "plan_file_write_allowed" : "plan_file_write_blocked";
+  recordSessionEvent(
+    sessionKey,
+    userId,
+    orgId,
+    eventKind,
+    "tool_call_governance",
+    audit.reason ?? "ok",
+    requestId,
+    {
+      path: audit.path,
+      allowed: audit.allowed,
+      reason: audit.reason,
+      proposedContentHash: audit.proposedContentHash,
+      shadowContentHash: audit.shadowContentHash,
+    },
+  );
+}
+
 function emitDecisionEvents(
   sessionKey: string,
   userId: string,
@@ -5085,6 +5137,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     if (oaiPlanAnnotation.planFilePaths.length > 0) {
       session.record.metadata.plan_file_path = oaiPlanAnnotation.planFilePaths[oaiPlanAnnotation.planFilePaths.length - 1];
+      const freshShadow = extractPlanContentShadow(
+        normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>,
+        oaiPlanAnnotation.planFilePaths,
+      );
+      if (freshShadow) {
+        session.record.metadata.plan_content_shadow = serializeShadow(freshShadow) as unknown as Record<string, unknown>;
+      }
     }
     const oaiVerifGaps = annotateVerificationGaps(normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
     if (oaiVerifGaps.annotatedCount > 0) {
@@ -6003,8 +6062,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
           restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
           blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
           blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+          planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
         });
         trackGovernedHardening(governed);
+        if (governed.planWriteAudit) {
+          emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
+        }
         maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, tc.toolCallId);
         if (governed.validationMissing.length > 0) {
           app.log.warn(
@@ -6493,8 +6556,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
             restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+            planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
           });
           trackGovernedHardening(governed);
+          if (governed.planWriteAudit) {
+            emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
+          }
           maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, tc.toolCallId);
           if (governed.validationMissing.length > 0) {
             oaiStreamValidationFailures += 1;
@@ -7056,6 +7123,13 @@ app.post("/v1/messages", async (req, reply) => {
     }
     if (claudePlanAnnotation.planFilePaths.length > 0) {
       session.record.metadata.plan_file_path = claudePlanAnnotation.planFilePaths[claudePlanAnnotation.planFilePaths.length - 1];
+      const freshShadow = extractPlanContentShadow(
+        normalizedFromClaude.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>,
+        claudePlanAnnotation.planFilePaths,
+      );
+      if (freshShadow) {
+        session.record.metadata.plan_content_shadow = serializeShadow(freshShadow) as unknown as Record<string, unknown>;
+      }
     }
     const claudeVerifGaps = annotateVerificationGaps(normalizedFromClaude.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
     if (claudeVerifGaps.annotatedCount > 0) {
@@ -8240,10 +8314,14 @@ app.post("/v1/messages", async (req, reply) => {
             restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+            planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
           });
           emitToolName = governed.toolName;
           finalInput = governed.input;
           trackGovernedHardening(governed);
+          if (governed.planWriteAudit) {
+            emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, governed.planWriteAudit);
+          }
           maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, emitToolName, claudeClientKind, governed, tcFull.toolCallId ?? undefined);
           if (governed.constrainedToRoot) {
             app.log.info(
@@ -8853,8 +8931,12 @@ app.post("/v1/messages", async (req, reply) => {
         restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
         blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
         blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+        planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
       });
       trackGovernedHardening(governed);
+      if (governed.planWriteAudit) {
+        emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, governed.planWriteAudit);
+      }
       maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, claudeClientKind, governed, tc.toolCallId);
       if (governed.validationMissing.length > 0) {
         app.log.warn(
