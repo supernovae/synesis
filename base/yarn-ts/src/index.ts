@@ -369,15 +369,20 @@ function remediatePlanFileStubs(
 
 const PLAN_FILE_PATH_KEYS = ["filePath", "file_path", "path", "file", "fileName", "file_name"];
 const PLAN_READ_TOOL_NAMES = new Set(["read", "read_file", "readfile", "file_read", "str_replace_editor"]);
+const PLAN_WRITE_TOOL_NAMES = new Set([
+  "write", "write_file", "writefile", "edit", "update",
+  "str_replace_editor", "apply_patch", "file_write",
+]);
 
-/**
- * Detect plan file reads and append structured instructions so the model
- * knows to parse tasks and display a status summary instead of looping.
- */
-function annotatePlanFileReads(
+function isPlanPath(p: string): boolean {
+  return p.includes("/.claude/plans/") || p.includes("\\.claude\\plans\\");
+}
+
+function resolveToolCallPlanPaths(
   messages: Array<{ role: string; tool_call_id?: string; content: unknown }>,
-): { messages: Array<{ role: string; tool_call_id?: string; content: unknown }>; annotatedCount: number; planFilePaths: string[] } {
-  const toolCallPathMap = new Map<string, string>();
+  toolNameSet: Set<string>,
+): Map<string, string> {
+  const map = new Map<string, string>();
   for (const m of messages) {
     if (m.role !== "assistant") continue;
     const toolCalls = (m as Record<string, unknown>).tool_calls;
@@ -385,7 +390,7 @@ function annotatePlanFileReads(
     for (const tc of toolCalls) {
       const id = typeof tc?.id === "string" ? tc.id : "";
       const fnName = typeof tc?.function?.name === "string" ? tc.function.name.toLowerCase() : "";
-      if (!id || !PLAN_READ_TOOL_NAMES.has(fnName)) continue;
+      if (!id || !toolNameSet.has(fnName)) continue;
       let argsRaw = tc?.function?.arguments;
       if (typeof argsRaw === "string") {
         try { argsRaw = JSON.parse(argsRaw); } catch { continue; }
@@ -394,43 +399,119 @@ function annotatePlanFileReads(
       const args = argsRaw as Record<string, unknown>;
       for (const key of PLAN_FILE_PATH_KEYS) {
         if (typeof args[key] === "string" && args[key]) {
-          toolCallPathMap.set(id, args[key] as string);
+          map.set(id, args[key] as string);
           break;
         }
       }
     }
   }
+  return map;
+}
+
+/**
+ * Detect plan file reads and append structured instructions so the model
+ * knows to parse tasks and display a status summary instead of looping.
+ *
+ * Suppresses the annotation when the plan file has been subsequently edited
+ * (the original read content is stale). In that case, annotates the edit
+ * result instead so the model proceeds with the updated plan state.
+ */
+function annotatePlanFileReads(
+  messages: Array<{ role: string; tool_call_id?: string; content: unknown }>,
+): { messages: Array<{ role: string; tool_call_id?: string; content: unknown }>; annotatedCount: number; planFilePaths: string[] } {
+  const readPathMap = resolveToolCallPlanPaths(messages, PLAN_READ_TOOL_NAMES);
+  const writePathMap = resolveToolCallPlanPaths(messages, PLAN_WRITE_TOOL_NAMES);
+
+  // Build set of plan paths that were edited after being read
+  const editedPlanPaths = new Set<string>();
+  for (const [, path] of writePathMap) {
+    if (isPlanPath(path)) editedPlanPaths.add(path);
+  }
+
+  // Find the index of the last edit for each edited plan path
+  const lastEditIndexByPath = new Map<string, number>();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "tool" || !m.tool_call_id) continue;
+    const writePath = writePathMap.get(m.tool_call_id);
+    if (writePath && isPlanPath(writePath) && !lastEditIndexByPath.has(writePath)) {
+      lastEditIndexByPath.set(writePath, i);
+    }
+  }
 
   let annotatedCount = 0;
   const planFilePaths: string[] = [];
-  const out = messages.map((m) => {
+  const out = messages.map((m, idx) => {
     if (m.role !== "tool" || typeof m.content !== "string") return m;
     const text = m.content;
     if (text.length < 50) return m;
-    if (text.includes("<SYNESIS_PLAN_LOADED")) return m;
+    if (text.includes("<SYNESIS_PLAN_LOADED") || text.includes("<SYNESIS_PLAN_UPDATED")) return m;
 
-    const resolvedPath = m.tool_call_id ? toolCallPathMap.get(m.tool_call_id) : undefined;
-    const isPlan = resolvedPath
-      ? (resolvedPath.includes("/.claude/plans/") || resolvedPath.includes("\\.claude\\plans\\"))
-      : (text.includes("/.claude/plans/") && /---\n/.test(text));
-    if (!isPlan) return m;
+    const resolvedReadPath = m.tool_call_id ? readPathMap.get(m.tool_call_id) : undefined;
+    const resolvedWritePath = m.tool_call_id ? writePathMap.get(m.tool_call_id) : undefined;
 
-    annotatedCount += 1;
-    const planPath = resolvedPath ?? "the plan file";
-    if (resolvedPath) planFilePaths.push(resolvedPath);
-    return {
-      ...m,
-      content: text + "\n\n" + [
-        `<SYNESIS_PLAN_LOADED path="${planPath}">`,
-        `You have loaded a plan file. Your IMMEDIATE next action:`,
-        `1. Parse the task list from the YAML frontmatter above (look for 'todos:' or task entries with 'status:')`,
-        `2. Display a progress summary table: completed tasks (✓) vs remaining tasks (◻) with their descriptions`,
-        `3. State which task is next and ask if the user wants to proceed`,
-        `Do NOT re-read this file. Do NOT explore the repository. Do NOT say "I've already read this."`,
-        `Display the task status summary NOW as your very next output.`,
-        `</SYNESIS_PLAN_LOADED>`,
-      ].join("\n"),
-    };
+    // Case 1: This is a plan file READ result
+    if (resolvedReadPath && isPlanPath(resolvedReadPath)) {
+      if (resolvedReadPath) planFilePaths.push(resolvedReadPath);
+      // If the plan was later edited, suppress the stale annotation
+      if (editedPlanPaths.has(resolvedReadPath)) {
+        return m;
+      }
+      annotatedCount += 1;
+      return {
+        ...m,
+        content: text + "\n\n" + [
+          `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}">`,
+          `You have loaded a plan file. Your IMMEDIATE next action:`,
+          `1. Parse the task list from the YAML frontmatter above (look for 'todos:' or task entries with 'status:')`,
+          `2. Display a progress summary table: completed tasks (✓) vs remaining tasks (◻) with their descriptions`,
+          `3. State which task is next and ask if the user wants to proceed`,
+          `Do NOT re-read this file. Do NOT explore the repository. Do NOT say "I've already read this."`,
+          `Display the task status summary NOW as your very next output.`,
+          `</SYNESIS_PLAN_LOADED>`,
+        ].join("\n"),
+      };
+    }
+
+    // Case 2: This is a plan file EDIT result — and it's the last edit for that path
+    if (resolvedWritePath && isPlanPath(resolvedWritePath) && lastEditIndexByPath.get(resolvedWritePath) === idx) {
+      if (!planFilePaths.includes(resolvedWritePath)) planFilePaths.push(resolvedWritePath);
+      annotatedCount += 1;
+      return {
+        ...m,
+        content: text + "\n\n" + [
+          `<SYNESIS_PLAN_UPDATED path="${resolvedWritePath}">`,
+          `You have updated the plan file. The edit above reflects the latest task state.`,
+          `Do NOT re-read the plan file. Do NOT re-display the progress summary you already showed.`,
+          `The plan is updated. Proceed with the next task or ask the user what to do next.`,
+          `</SYNESIS_PLAN_UPDATED>`,
+        ].join("\n"),
+      };
+    }
+
+    // Fallback: content-based detection for reads without resolved path
+    if (!resolvedReadPath && !resolvedWritePath) {
+      const isPlan = text.includes("/.claude/plans/") && /---\n/.test(text);
+      if (isPlan) {
+        planFilePaths.push("unknown-plan");
+        annotatedCount += 1;
+        return {
+          ...m,
+          content: text + "\n\n" + [
+            `<SYNESIS_PLAN_LOADED path="the plan file">`,
+            `You have loaded a plan file. Your IMMEDIATE next action:`,
+            `1. Parse the task list from the YAML frontmatter above (look for 'todos:' or task entries with 'status:')`,
+            `2. Display a progress summary table: completed tasks (✓) vs remaining tasks (◻) with their descriptions`,
+            `3. State which task is next and ask if the user wants to proceed`,
+            `Do NOT re-read this file. Do NOT explore the repository. Do NOT say "I've already read this."`,
+            `Display the task status summary NOW as your very next output.`,
+            `</SYNESIS_PLAN_LOADED>`,
+          ].join("\n"),
+        };
+      }
+    }
+
+    return m;
   });
   return { messages: out, annotatedCount, planFilePaths };
 }
