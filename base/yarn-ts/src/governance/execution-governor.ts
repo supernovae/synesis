@@ -324,6 +324,14 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
     .toLowerCase();
   if (!joined.trim()) return false;
   if (/validation_failed|invalid tool parameters|synesis_error/.test(joined)) return false;
+  // Common success summaries can contain words like "failed" in zero-count contexts.
+  const zeroFailureOnly =
+    /\b0\s+failed\b/.test(joined)
+    || /\b0\s+failures?\b/.test(joined)
+    || /\bno\s+failures?\b/.test(joined)
+    || /\b0\s+errors?\b/.test(joined)
+    || /\ball tests passed\b/.test(joined);
+  if (zeroFailureOnly && !/\b(1|[2-9]\d*)\s+failed\b|\bpanic\b|\btraceback\b/.test(joined)) return false;
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
 }
 

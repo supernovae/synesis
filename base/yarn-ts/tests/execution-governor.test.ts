@@ -54,6 +54,19 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("Stop re-running broad go vet/go test checks");
   });
 
+  it("treats zero-failure summaries as green verification", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("1", "ok pkg/a (cached)\nPASS\n0 failed"),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("2", "ok pkg/a (cached)\nPASS\n0 failed"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.reason).toBe("verification_already_green");
+    expect(out.matchedRules).toContain("verification_already_green");
+  });
+
   it("keeps verification_already_green when non-tool narration mentions invalid parameters", () => {
     const messages = [
       { role: "assistant", content: "Invalid tool parameters encountered earlier; continuing." },
