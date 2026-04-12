@@ -1029,13 +1029,11 @@ export class ToolResultReductionService {
     toolName: string | undefined,
     raw: string,
   ): string | null {
-    const lower = (toolName ?? "").toLowerCase();
-    if (lower !== "read" && lower !== "read_file" && lower !== "readfile") return null;
     const trimmed = raw.trim().toLowerCase();
     if (
+      trimmed.includes("<file_unchanged") ||
       trimmed.includes("unchanged since last read") ||
       trimmed.includes("file unchanged") ||
-      trimmed.includes("<file_unchanged") ||
       (trimmed.length < 120 && trimmed.includes("unchanged"))
     ) {
       const pathMatch = raw.match(/path="([^"]+)"/i);

@@ -386,6 +386,39 @@ describe("ToolResultReductionService", () => {
     expect(out.reducedCount).toBe(1);
   });
 
+  it("replaces <FILE_UNCHANGED> stubs even when tool name is undefined (OpenAI path)", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const out = svc.reduceMessages(
+      [{
+        role: "tool",
+        name: undefined as unknown as string,
+        content: '<FILE_UNCHANGED path="/Users/me/.claude/plans/my-plan.md" hash="xyz789" first_seen_turn=5 chars=12000 />',
+      }],
+      "read the plan file",
+    );
+    const reduced = String(out.messages[0].content);
+    expect(reduced).toContain("read_cache_stub");
+    expect(reduced).toContain("Bash(cat");
+    expect(reduced).toContain("my-plan.md");
+    expect(out.reducedCount).toBe(1);
+  });
+
+  it("replaces <FILE_UNCHANGED> stubs when tool name is a non-read tool", () => {
+    const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    const out = svc.reduceMessages(
+      [{
+        role: "tool",
+        name: "str_replace_editor",
+        content: '<FILE_UNCHANGED path="src/main.ts" hash="abc" first_seen_turn=2 chars=5000 />',
+      }],
+      "edit the file",
+    );
+    const reduced = String(out.messages[0].content);
+    expect(reduced).toContain("read_cache_stub");
+    expect(reduced).toContain("Bash(cat");
+    expect(out.reducedCount).toBe(1);
+  });
+
   it("does not fire cache-stub remediation on normal Read results", () => {
     const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
     const normalContent = "const x = 42;\nexport default x;";

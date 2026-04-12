@@ -129,6 +129,72 @@ describe("ContentAddressedDedup", () => {
     expect(dedupCount).toBe(0);
   });
 
+  it("does not dedup plan files when path resolved from tool_call args", () => {
+    const dedup = new ContentAddressedDedup();
+    const planContent = "# My Plan\n\npath: main.go\npath=config.yaml\n\n## Tasks\n- implement feature\n" + "x".repeat(300);
+    const planPath = "/Users/test/.claude/plans/my-plan.md";
+    const msgs = [
+      { role: "user", content: "read the plan" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_1", type: "function", function: { name: "Read", arguments: JSON.stringify({ file_path: planPath }) } }],
+      },
+      { role: "tool", tool_call_id: "call_1", name: "read_file", content: JSON.stringify({ filePath: planPath, content: planContent }) },
+      { role: "assistant", content: "ok" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_2", type: "function", function: { name: "Read", arguments: JSON.stringify({ file_path: planPath }) } }],
+      },
+      { role: "tool", tool_call_id: "call_2", name: "read_file", content: JSON.stringify({ filePath: planPath, content: planContent }) },
+    ];
+    const { dedupCount } = dedup.processMessages(msgs as never);
+    expect(dedupCount).toBe(0);
+  });
+
+  it("dedup bypasses plan file exemption when extractFilePath picks wrong path from content", () => {
+    const dedup = new ContentAddressedDedup();
+    const planContent = "# My Plan\n\npath: main.go\n\n## Tasks\n- implement feature\n" + "x".repeat(300);
+    const msgs = [
+      { role: "user", content: "read the plan" },
+      { role: "tool", name: "read_file", content: planContent },
+      { role: "assistant", content: "ok" },
+      { role: "tool", name: "read_file", content: planContent },
+    ];
+    const { dedupCount, messages } = dedup.processMessages(msgs as never);
+    // Without tool_call args, extractFilePath picks "main.go" from content.
+    // This is the known bug: isPlanFile("main.go") is false, so dedup fires.
+    // With the tool_call_id resolution fix, providing the real path prevents this.
+    expect(dedupCount).toBe(1);
+    expect(messages[3].content).toContain("FILE_UNCHANGED");
+  });
+
+  it("resolves file path from tool_call arguments over content extraction", () => {
+    const dedup = new ContentAddressedDedup();
+    const fileContent = "path: wrong.go\nsome content here\n" + "x".repeat(300);
+    const msgs = [
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "tc1", type: "function", function: { name: "read_file", arguments: JSON.stringify({ file_path: "correct.go" }) } }],
+      },
+      { role: "tool", tool_call_id: "tc1", name: "read_file", content: JSON.stringify({ filePath: "correct.go", content: fileContent }) },
+      { role: "assistant", content: "ok" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "tc2", type: "function", function: { name: "read_file", arguments: JSON.stringify({ file_path: "correct.go" }) } }],
+      },
+      { role: "tool", tool_call_id: "tc2", name: "read_file", content: JSON.stringify({ filePath: "correct.go", content: fileContent }) },
+    ];
+    const { dedupCount, messages } = dedup.processMessages(msgs as never);
+    expect(dedupCount).toBe(1);
+    expect(messages[4].content).toContain("FILE_UNCHANGED");
+    expect(messages[4].content).toContain('path="correct.go"');
+    expect(messages[4].content).not.toContain("wrong.go");
+  });
+
   it("saves significant chars in a realistic multi-read session", () => {
     const dedup = new ContentAddressedDedup();
     const files = [

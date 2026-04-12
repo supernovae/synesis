@@ -57,16 +57,19 @@ export class ContentAddressedDedup {
    * Process a tool result message. Returns the original content if unique,
    * or a compact stub if the file was already seen with identical content.
    * Plan files (.claude/plans/) are never deduplicated.
+   *
+   * @param resolvedPath - File path resolved from tool_call arguments (preferred over content extraction)
    */
   processToolResult(
     toolName: string | undefined,
     content: string,
     turnIndex: number,
-  ): { content: string; deduplicated: boolean } {
+    resolvedPath?: string,
+  ): { content: string; deduplicated: boolean; filePath?: string } {
     const name = (toolName ?? "").toLowerCase();
     if (!READ_TOOL_NAMES.has(name)) return { content, deduplicated: false };
 
-    const filePath = extractFilePath(content);
+    const filePath = resolvedPath || extractFilePath(content);
     if (!filePath) return { content, deduplicated: false };
 
     if (content.length < 200) return { content, deduplicated: false };
@@ -85,7 +88,7 @@ export class ContentAddressedDedup {
       this.stats.deduplicatedReads += 1;
       this.stats.charsSaved += content.length;
       const stub = `<FILE_UNCHANGED path="${filePath}" hash="${hash}" first_seen_turn=${existing.turnIndex} chars=${content.length} />`;
-      return { content: stub, deduplicated: true };
+      return { content: stub, deduplicated: true, filePath };
     }
 
     this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length });
@@ -94,23 +97,29 @@ export class ContentAddressedDedup {
 
   /**
    * Process an array of messages, deduplicating file reads in-place.
+   * Resolves file paths from tool_call arguments when available, falling
+   * back to content extraction.
    */
   processMessages(
-    messages: Array<{ role: string; name?: string; content: unknown }>,
-  ): { messages: Array<{ role: string; name?: string; content: unknown }>; dedupCount: number } {
+    messages: Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+  ): { messages: Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>; dedupCount: number; dedupPaths: string[] } {
+    const toolCallPathMap = buildToolCallFilePathMap(messages);
     let dedupCount = 0;
+    const dedupPaths: string[] = [];
     const out = messages.map((m, idx) => {
       if (m.role !== "tool") return m;
       const raw = typeof m.content === "string" ? m.content : "";
       if (!raw) return m;
-      const result = this.processToolResult(m.name, raw, idx);
+      const resolvedPath = m.tool_call_id ? toolCallPathMap.get(m.tool_call_id) : undefined;
+      const result = this.processToolResult(m.name, raw, idx, resolvedPath);
       if (result.deduplicated) {
         dedupCount += 1;
+        if (result.filePath) dedupPaths.push(result.filePath);
         return { ...m, content: result.content };
       }
       return m;
     });
-    return { messages: out, dedupCount };
+    return { messages: out, dedupCount, dedupPaths };
   }
 
   /** Reset the hash map (e.g., on session compaction). */
@@ -125,6 +134,39 @@ export class ContentAddressedDedup {
   getTrackedFileCount(): number {
     return this.fileMap.size;
   }
+}
+
+/**
+ * Walk messages to build a map from tool_call_id to the file path
+ * from the tool call's arguments. This gives us the ACTUAL file path
+ * the tool was invoked with, not a regex guess from the content.
+ */
+function buildToolCallFilePathMap(
+  messages: Array<{ role: string; content: unknown }>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    const toolCalls = (m as Record<string, unknown>).tool_calls;
+    if (!Array.isArray(toolCalls)) continue;
+    for (const tc of toolCalls) {
+      const id = typeof tc?.id === "string" ? tc.id : "";
+      const fnName = typeof tc?.function?.name === "string" ? tc.function.name.toLowerCase() : "";
+      if (!id || !READ_TOOL_NAMES.has(fnName)) continue;
+      const argsStr = typeof tc?.function?.arguments === "string" ? tc.function.arguments : "";
+      if (!argsStr) continue;
+      try {
+        const args = JSON.parse(argsStr) as Record<string, unknown>;
+        for (const key of FILE_PATH_KEYS) {
+          if (typeof args[key] === "string" && args[key]) {
+            map.set(id, args[key] as string);
+            break;
+          }
+        }
+      } catch { /* not valid JSON */ }
+    }
+  }
+  return map;
 }
 
 function isPlanFile(filePath: string): boolean {

@@ -335,6 +335,38 @@ function applyExecutionGovernorToolRestrictions(
   return { tools: filtered, removed };
 }
 
+const FILE_UNCHANGED_RE = /<FILE_UNCHANGED\s[^>]*path="([^"]+)"/i;
+
+function remediatePlanFileStubs(
+  messages: Array<{ role: string; content: unknown }>,
+): { messages: Array<{ role: string; content: unknown }>; remediatedCount: number } {
+  let remediatedCount = 0;
+  const out = messages.map((m) => {
+    if (m.role !== "tool" || typeof m.content !== "string") return m;
+    const text = m.content;
+    if (!text.includes("<FILE_UNCHANGED")) return m;
+    const pathMatch = text.match(FILE_UNCHANGED_RE);
+    const extractedPath = pathMatch?.[1] ?? null;
+    if (!extractedPath) return m;
+    const isPlan = extractedPath.includes("/.claude/plans/") || extractedPath.includes("\\.claude\\plans\\");
+    if (!isPlan) return m;
+    remediatedCount += 1;
+    return {
+      ...m,
+      content: [
+        `<SYNESIS_TOOL_GUARDRAIL status="guided" code="plan_file_dedup_remediation" version="1">`,
+        `file_path=${extractedPath}`,
+        `reason=plan_file_incorrectly_deduplicated`,
+        `next_action=read_plan_file_with_bash`,
+        `[Plan file stub] A plan file was incorrectly deduplicated. You do not have the plan content.`,
+        `Use Bash(cat ${extractedPath}) to retrieve the full plan file content.`,
+        `</SYNESIS_TOOL_GUARDRAIL>`,
+      ].join("\n"),
+    };
+  });
+  return { messages: out, remediatedCount };
+}
+
 function extractTextFromUnknownContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -4753,10 +4785,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const oaiDedup = getContentDedup(sessionKey);
     const oaiDedupResult = oaiDedup.processMessages(
-      normalizedOpenAI.messages as Array<{ role: string; name?: string; content: unknown }>,
+      normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
     );
     if (oaiDedupResult.dedupCount > 0) {
       normalizedOpenAI.messages = oaiDedupResult.messages as never;
+      if (oaiDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+        app.log.debug({ reqId: oaiTraceReqId, dedupCount: oaiDedupResult.dedupCount, paths: oaiDedupResult.dedupPaths }, "content_dedup_applied");
+      }
+    }
+    const oaiPlanRemediation = remediatePlanFileStubs(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>);
+    if (oaiPlanRemediation.remediatedCount > 0) {
+      normalizedOpenAI.messages = oaiPlanRemediation.messages as never;
+      app.log.warn({ reqId: oaiTraceReqId, count: oaiPlanRemediation.remediatedCount }, "plan_file_dedup_remediated");
     }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
@@ -6675,10 +6715,18 @@ app.post("/v1/messages", async (req, reply) => {
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeDedup = getContentDedup(claudeSessionKey);
     const claudeDedupResult = claudeDedup.processMessages(
-      normalizedFromClaude.messages as Array<{ role: string; name?: string; content: unknown }>,
+      normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
     );
     if (claudeDedupResult.dedupCount > 0) {
       normalizedFromClaude.messages = claudeDedupResult.messages as never;
+      if (claudeDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+        app.log.debug({ reqId: traceReqId, dedupCount: claudeDedupResult.dedupCount, paths: claudeDedupResult.dedupPaths }, "content_dedup_applied");
+      }
+    }
+    const claudePlanRemediation = remediatePlanFileStubs(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>);
+    if (claudePlanRemediation.remediatedCount > 0) {
+      normalizedFromClaude.messages = claudePlanRemediation.messages as never;
+      app.log.warn({ reqId: traceReqId, count: claudePlanRemediation.remediatedCount }, "plan_file_dedup_remediated");
     }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);
