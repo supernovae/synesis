@@ -187,6 +187,19 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_no_signal_repeat");
   });
 
+  it("pauses repeated truncated verification output and asks for non-truncated check", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "go test -v ./cmd/synesis -run \"Test.*\" 2>&1 | head -50" }),
+      toolResult("1", "=== RUN   TestSignalHandling_ContextCancellation"),
+      assistantCall("2", "bash", { command: "go test -v ./cmd/synesis -run \"Test.*\" 2>&1 | head -100" }),
+      toolResult("2", "=== RUN   TestSignalHandling_ContextCancellation"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_truncated_output");
+    expect(out.matchedRules).toContain("verification_truncated_output");
+  });
+
   it("allows non-repetitive flow", () => {
     const messages = [
       assistantCall("1", "read_file", { path: "a.ts" }),

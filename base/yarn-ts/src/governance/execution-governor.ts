@@ -297,6 +297,13 @@ function isVerificationCommand(toolName: string, command: string): boolean {
     || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(cmd);
 }
 
+function isTruncatedVerificationCommand(command: string): boolean {
+  const cmd = normalizeString(command).toLowerCase();
+  return /\|\s*head\b/.test(cmd)
+    || /\|\s*tail\b/.test(cmd)
+    || /\|\s*sed\s+-n\b/.test(cmd);
+}
+
 function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
   // Only inspect tool/tool_result payloads. User/assistant narration can contain
   // words like "invalid tool parameters" that should not block green verification bypass.
@@ -336,6 +343,7 @@ export function evaluateExecutionGovernor(
   let repeatedFailingVerification = 0;
   let repeatedSuccessfulVerification = 0;
   let repeatedNoSignalVerification = 0;
+  let repeatedTruncatedVerification = 0;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
   const hasRunTest = events.some((e) =>
@@ -388,6 +396,14 @@ export function evaluateExecutionGovernor(
         repeatedNoSignalVerification += 1;
       }
     }
+    if (
+      isVerificationCommand(tool, events[i].command)
+      && isVerificationCommand(events[i - 1].toolName, events[i - 1].command)
+      && isTruncatedVerificationCommand(events[i].command)
+      && isTruncatedVerificationCommand(events[i - 1].command)
+    ) {
+      repeatedTruncatedVerification += 1;
+    }
     if (events[i].command !== events[i - 1].command) continue;
     if (i >= windowStart && (tool.includes("search") || tool.includes("read"))) {
       repeatedReadSearchCalls += 1;
@@ -401,8 +417,9 @@ export function evaluateExecutionGovernor(
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
   if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
-  if (!broadTestRepeat && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
-  if (!broadTestRepeat && repeatedNoSignalVerification >= 1 && noEditEvidence) matchedRules.push("verification_no_signal_repeat");
+  if (repeatedTruncatedVerification >= 1 && noEditEvidence) matchedRules.push("verification_truncated_output");
+  if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
+  if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && noEditEvidence) matchedRules.push("verification_no_signal_repeat");
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
     || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
@@ -438,6 +455,24 @@ export function evaluateExecutionGovernor(
       reason: "verification_fail_repeat_block",
       suggestedNextStep:
         "You are repeating the same failing verification output. STOP re-running tests/builds. Read the failing file/error location, apply exactly one focused Edit/Write to address that root cause, then run one narrow verification command.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_truncated_output")) {
+    return {
+      pause: true,
+      reason: "verification_truncated_output",
+      suggestedNextStep:
+        "Verification output was truncated (for example via | head/tail), so failures may be hidden. Run one narrow verification command without output truncation, capture full result, then apply one focused edit if needed.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,
