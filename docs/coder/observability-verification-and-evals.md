@@ -33,6 +33,17 @@ Global metrics: recall stats, verification stats, decision path counts, escalati
 
 Per-request `DecisionSnapshot` populates trace `full_record` with: `evidence_summary`, `decision_ledger`, `trace_context`, `streaming`, `taxonomy`, `is_code_task`.
 
+### Execution Governor Telemetry
+
+The execution governor emits telemetry on every evaluation, not just on pause/recovery. Data flows into four channels:
+
+- **Session events** (`execution_governor_evaluated`): Full `metadata_json` with pause, reason, matched_rules, and telemetry counters. Queryable in Postgres `yarn_session_events`.
+- **Request trajectory** (`request_trajectory_v1`): `governor` block and `training_signals` for auto-labeling and DPO pair generation.
+- **Trace records**: Governor fields in `decision_ledger[0]` (`governorPause`, `governorRules`, `governorReason`) and `trace_context` (`governorTelemetry`).
+- **OTEL spans**: `yarn.execution_governor.evaluate` span with `governor.pause`, `governor.reason`, `governor.matched_rules` attributes.
+
+For the full rule catalog, telemetry schema, training signal mapping, and query examples, see **[GOVERNOR_HARNESS.md](./GOVERNOR_HARNESS.md)**.
+
 ## Verification
 
 ### Verification Loops (Phase 7b)

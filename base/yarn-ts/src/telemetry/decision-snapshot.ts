@@ -7,6 +7,14 @@
 import type { OrchestratorDecision } from "../orchestration/phase-model-orchestrator.js";
 import type { RecallDecision } from "../recall/types.js";
 import type { VerificationLoopState } from "../verification/types.js";
+import type { ExecutionGovernorDecision } from "../governance/execution-governor.js";
+
+export interface GovernorTelemetrySnapshot {
+  pause: boolean;
+  reason: string | null;
+  matchedRules: string[];
+  telemetry: ExecutionGovernorDecision["telemetry"];
+}
 
 export interface DecisionSnapshot {
   decisionPath: string;
@@ -30,6 +38,7 @@ export interface DecisionSnapshot {
   isStreaming: boolean;
   sensemakingTriggered?: boolean;
   sensemakingReason?: string;
+  governor?: GovernorTelemetrySnapshot;
 }
 
 export interface SnapshotInputs {
@@ -47,6 +56,7 @@ export interface SnapshotInputs {
   isStreaming: boolean;
   sensemakingTriggered?: boolean;
   sensemakingReason?: string;
+  governorDecision?: ExecutionGovernorDecision | null;
 }
 
 export function buildDecisionSnapshot(inputs: SnapshotInputs): DecisionSnapshot {
@@ -74,6 +84,12 @@ export function buildDecisionSnapshot(inputs: SnapshotInputs): DecisionSnapshot 
     isStreaming: inputs.isStreaming,
     sensemakingTriggered: inputs.sensemakingTriggered,
     sensemakingReason: inputs.sensemakingReason,
+    governor: inputs.governorDecision ? {
+      pause: inputs.governorDecision.pause,
+      reason: inputs.governorDecision.reason || null,
+      matchedRules: inputs.governorDecision.matchedRules,
+      telemetry: inputs.governorDecision.telemetry,
+    } : undefined,
   };
 }
 
@@ -109,12 +125,16 @@ export function snapshotToTraceFields(snapshot: DecisionSnapshot): {
       escalated: snapshot.escalated,
       escalationReason: snapshot.escalationReason,
       policyDecision: snapshot.policyDecision,
+      governorPause: snapshot.governor?.pause,
+      governorRules: snapshot.governor?.matchedRules,
+      governorReason: snapshot.governor?.reason,
     }],
     trace_context: {
       phase: snapshot.phase,
       reducedToolResults: snapshot.reducedToolResults,
       tokensSavedByReduction: snapshot.tokensSavedByReduction,
       languages: snapshot.languages,
+      governorTelemetry: snapshot.governor?.telemetry,
     },
     streaming: {
       mode: snapshot.isStreaming ? "streaming" : "non-streaming",

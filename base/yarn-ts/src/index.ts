@@ -2752,6 +2752,13 @@ function persistSessionAndUsage(
   state.record.metadata.block_broad_verification_until_edit = state.blockBroadVerificationUntilEdit;
   state.record.metadata.block_failing_verification_until_edit = state.blockFailingVerificationUntilEdit;
 
+  if (snapshot?.governor) {
+    state.record.metadata.last_governor_pause = snapshot.governor.pause;
+    state.record.metadata.last_governor_rules = snapshot.governor.matchedRules;
+    const prevPauseCount = Number(state.record.metadata.governor_pause_count ?? 0);
+    state.record.metadata.governor_pause_count = prevPauseCount + (snapshot.governor.pause ? 1 : 0);
+  }
+
   void distributedCounters.setConsecutiveToolCalls(
     state.record.sessionKey,
     state.consecutiveToolCalls
@@ -2933,6 +2940,20 @@ function persistSessionAndUsage(
       outcome: {
         state: outcomeState,
         failure_stage: failureStage,
+      },
+      governor: snapshot?.governor ? {
+        pause: snapshot.governor.pause,
+        reason: snapshot.governor.reason,
+        matched_rules: snapshot.governor.matchedRules,
+        telemetry: snapshot.governor.telemetry,
+      } : undefined,
+      training_signals: {
+        governor_intervened: snapshot?.governor?.pause ?? false,
+        governor_rules: snapshot?.governor?.matchedRules ?? [],
+        no_edit_evidence: snapshot?.governor?.telemetry?.noEditEvidence ?? false,
+        trailing_verification_stall: (snapshot?.governor?.telemetry?.trailingVerificationRunLength ?? 0) >= 3,
+        false_green_detected: false,
+        evidence_delta: "unknown",
       },
     },
   });
@@ -5207,10 +5228,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedOpenAI.messages as Array<ToolLoopMessage>,
   );
   const oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? evaluateExecutionGovernor(
-      normalizedOpenAI.messages as Array<GovernorInputMessage>,
-      { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: oaiPlanGraph?.activeStage ?? null },
-    )
+    ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
+      const decision = evaluateExecutionGovernor(
+        normalizedOpenAI.messages as Array<GovernorInputMessage>,
+        { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: oaiPlanGraph?.activeStage ?? null },
+      );
+      govSpan.setAttribute("governor.pause", decision.pause);
+      govSpan.setAttribute("governor.reason", decision.reason ?? "");
+      govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
+      govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
+      govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
+      return decision;
+    })
     : {
         pause: false,
         reason: "disabled",
@@ -5237,6 +5266,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
+  recordSessionEvent(
+    sessionKey,
+    identity.userId,
+    identity.orgId,
+    "execution_governor_evaluated",
+    "execution-governor",
+    `rules=${oaiExecutionGovernor.matchedRules.join(",") || "allow"} pause=${oaiExecutionGovernor.pause}`,
+    oaiTraceReqId,
+    {
+      pause: oaiExecutionGovernor.pause,
+      reason: oaiExecutionGovernor.reason,
+      matched_rules: oaiExecutionGovernor.matchedRules,
+      suggested_next_step: oaiExecutionGovernor.suggestedNextStep?.slice(0, 200),
+      telemetry: oaiExecutionGovernor.telemetry,
+    },
+  );
   const oaiAggressiveRepeatGuard =
     (oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash))
     || oaiCommandLoop.broadDiscoveryRepeatCount >= 4;
@@ -6157,6 +6202,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       isStreaming: false,
       sensemakingTriggered: oaiSensemakingResult?.triggered,
       sensemakingReason: oaiSensemakingResult?.reason,
+      governorDecision: oaiExecutionGovernor,
     });
     persistAndEmitDecisionTelemetry({
       state: session,
@@ -6717,6 +6763,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     isStreaming: true,
     sensemakingTriggered: oaiSensemakingResult?.triggered,
     sensemakingReason: oaiSensemakingResult?.reason,
+    governorDecision: oaiExecutionGovernor,
   });
   persistAndEmitDecisionTelemetry({
     state: session,
@@ -7155,10 +7202,18 @@ app.post("/v1/messages", async (req, reply) => {
     normalizedFromClaude.messages as Array<ToolLoopMessage>,
   );
   const claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? evaluateExecutionGovernor(
-      normalizedFromClaude.messages as Array<GovernorInputMessage>,
-      { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: claudePlanGraph?.activeStage ?? null },
-    )
+    ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
+      const decision = evaluateExecutionGovernor(
+        normalizedFromClaude.messages as Array<GovernorInputMessage>,
+        { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: claudePlanGraph?.activeStage ?? null },
+      );
+      govSpan.setAttribute("governor.pause", decision.pause);
+      govSpan.setAttribute("governor.reason", decision.reason ?? "");
+      govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
+      govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
+      govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
+      return decision;
+    })
     : {
         pause: false,
         reason: "disabled",
@@ -7185,6 +7240,22 @@ app.post("/v1/messages", async (req, reply) => {
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
+  recordSessionEvent(
+    claudeSessionKey,
+    claudeIdentity.userId,
+    claudeIdentity.orgId,
+    "execution_governor_evaluated",
+    "execution-governor",
+    `rules=${claudeExecutionGovernor.matchedRules.join(",") || "allow"} pause=${claudeExecutionGovernor.pause}`,
+    traceReqId,
+    {
+      pause: claudeExecutionGovernor.pause,
+      reason: claudeExecutionGovernor.reason,
+      matched_rules: claudeExecutionGovernor.matchedRules,
+      suggested_next_step: claudeExecutionGovernor.suggestedNextStep?.slice(0, 200),
+      telemetry: claudeExecutionGovernor.telemetry,
+    },
+  );
   const claudeAggressiveRepeatGuard =
     (claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash))
     || claudeCommandLoop.broadDiscoveryRepeatCount >= 4;
@@ -7847,6 +7918,7 @@ app.post("/v1/messages", async (req, reply) => {
         isStreaming: true,
         sensemakingTriggered: claudeSensemakingResult?.triggered,
         sensemakingReason: claudeSensemakingResult?.reason,
+        governorDecision: claudeExecutionGovernor,
       });
       persistAndEmitDecisionTelemetry({
         state: session,
@@ -8485,6 +8557,7 @@ app.post("/v1/messages", async (req, reply) => {
       isStreaming: true,
       sensemakingTriggered: claudeSensemakingResult?.triggered,
       sensemakingReason: claudeSensemakingResult?.reason,
+      governorDecision: claudeExecutionGovernor,
     });
     persistAndEmitDecisionTelemetry({
       state: session,
@@ -8954,6 +9027,7 @@ app.post("/v1/messages", async (req, reply) => {
     isStreaming: false,
     sensemakingTriggered: claudeSensemakingResult?.triggered,
     sensemakingReason: claudeSensemakingResult?.reason,
+    governorDecision: claudeExecutionGovernor,
   });
   persistAndEmitDecisionTelemetry({
     state: session,

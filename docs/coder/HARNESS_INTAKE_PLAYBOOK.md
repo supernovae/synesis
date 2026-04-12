@@ -28,6 +28,7 @@ Only ship candidates that are `high/medium transferability`, `S/M effort`, and h
 | 8 | Guided truncation envelopes | Context engineering guidance | `tool-result-reducer.ts` | S | token_efficiency |
 | 9 | Request-forensics cache/effective-input KPIs | Evals & observability playbooks | `telemetry/request-forensics.ts` | S | token_efficiency |
 | 10 | Replay-first rollout for guardrails | SWE-bench/OpenHands eval practice | `tests/*replay*`, `tests/*guardrail*` | M | safety,success_rate |
+| 11 | Governor telemetry on every evaluation | Internal loop analysis | `telemetry/decision-snapshot.ts`, `index.ts` | S | token_efficiency,safety |
 
 ## Standard Adoption Workflow
 

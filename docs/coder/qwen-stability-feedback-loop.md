@@ -50,11 +50,27 @@ Use one canonical schema for all exported training rows:
 - `strength_tags[]`
 - `quality_signals`
 - `gold_next_step`
+- `governor` (from `request_trajectory_v1` event)
+- `training_signals` (from `request_trajectory_v1` event)
 
 This same schema is used for:
 - SFT/LoRA samples
 - preference pair derivations
 - eval replay comparisons
+
+### Governor-Derived Training Signals
+
+The execution governor produces per-request signals that feed directly into the trajectory:
+
+| Signal | Source | Training Use |
+|--------|--------|-------------|
+| `governor_intervened` | `training_signals.governor_intervened` | Tag trajectory as negative example for SFT filtering or DPO rejected side |
+| `governor_rules` | `training_signals.governor_rules` | Populate `failure_tags[]` with specific failure classes (e.g. `verification_stall_no_edit`) |
+| `no_edit_evidence` | `training_signals.no_edit_evidence` | Quality signal: model looping without making progress |
+| `trailing_verification_stall` | `training_signals.trailing_verification_stall` | Quality signal: extended verification sequence without edits |
+| `governor_pause_count` | Session metadata | Soft reward signal for RLAIF: lower is better |
+
+See [GOVERNOR_HARNESS.md](./GOVERNOR_HARNESS.md) for the full telemetry schema and query examples.
 
 ## Admin and API Workflow
 
