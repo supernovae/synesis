@@ -96,6 +96,8 @@ describe("execution governor", () => {
     expect(out.reason).toBe("verification_green_repeat_block");
     expect(out.matchedRules).toContain("verification_already_green");
     expect(out.matchedRules).toContain("verification_green_repeat_block");
+    expect(out.matchedRules).not.toContain("edit_before_retest");
+    expect(out.matchedRules).not.toContain("no_repeat_without_change");
   });
 
   it("safety_strict profile gives more room before pausing broad green loops", () => {

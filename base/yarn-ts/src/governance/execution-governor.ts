@@ -326,10 +326,13 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
   if (/validation_failed|invalid tool parameters|synesis_error/.test(joined)) return false;
   // Common success summaries can contain words like "failed" in zero-count contexts.
   const zeroFailureOnly =
-    /\b0\s+failed\b/.test(joined)
-    || /\b0\s+failures?\b/.test(joined)
+    /\b0\s*failed\b/.test(joined)
+    || /\bfailed\s*:\s*0\b/.test(joined)
+    || /\b0\s*failures?\b/.test(joined)
+    || /\bfailures?\s*:\s*0\b/.test(joined)
     || /\bno\s+failures?\b/.test(joined)
-    || /\b0\s+errors?\b/.test(joined)
+    || /\b0\s*errors?\b/.test(joined)
+    || /\berrors?\s*:\s*0\b/.test(joined)
     || /\ball tests passed\b/.test(joined);
   if (zeroFailureOnly && !/\b(1|[2-9]\d*)\s+failed\b|\bpanic\b|\btraceback\b/.test(joined)) return false;
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
@@ -451,8 +454,14 @@ export function evaluateExecutionGovernor(
   }
 
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
-  if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold) matchedRules.push("edit_before_retest");
-  if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
+  const hasFailureDrivenVerificationLoop =
+    hasFailures || repeatedFailingVerification > 0 || repeatedCompileLikeFailureVerification > 0;
+  if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold && hasFailureDrivenVerificationLoop) {
+    matchedRules.push("edit_before_retest");
+  }
+  if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence && hasFailureDrivenVerificationLoop) {
+    matchedRules.push("no_repeat_without_change");
+  }
   if (repeatedCompileLikeFailureVerification >= 1 && noEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
   if (repeatedEditFailureReplay >= 1) matchedRules.push("edit_failure_replay");
   if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
