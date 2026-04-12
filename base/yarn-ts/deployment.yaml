@@ -164,6 +164,11 @@ spec:
               value: "512"
             - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES
               value: "262144"
+            # ── Eval Gym: scenario runner, session observer, training data ──
+            - name: SYNESIS_YARN_EVAL_API_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_EVAL_OBSERVER_ENABLED
+              value: "true"
             # ── OTEL (optional — no-op until endpoint is set) ──
             - name: SYNESIS_YARN_OTEL_ENABLED
               value: "false"

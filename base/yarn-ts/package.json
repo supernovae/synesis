@@ -17,7 +17,12 @@
     "verify:live:full": "SYNESIS_VERIFY_MODE=full tsx scripts/live-verify.ts",
     "verify:ab": "tsx scripts/ab-reducer-compare.ts",
     "verify:tiers": "tsx scripts/tier-compare.ts",
-    "scaffold:reducer": "tsx scripts/scaffold-reducer.ts"
+    "scaffold:reducer": "tsx scripts/scaffold-reducer.ts",
+    "eval": "tsx scripts/eval-gym.ts",
+    "eval:list": "tsx scripts/eval-gym.ts --list",
+    "eval:regression": "tsx scripts/eval-gym.ts --category governor_regression",
+    "eval:e2e": "tsx scripts/eval-gym.ts --category e2e_build",
+    "eval:export": "tsx scripts/eval-gym.ts --all --export sft --out eval-sft.jsonl"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",

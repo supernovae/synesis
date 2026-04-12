@@ -96,6 +96,8 @@ import {
 } from "./verification/staff-completion.js";
 import { enforceNonSilentFinalizeText } from "./verification/non-silent-finalize.js";
 import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
+import { registerEvalRoutes } from "./eval/routes.js";
+import { isObserverEnabled, shouldObserveSession, buildObservedTurn, buildTranscriptEvent, buildLiveEvalEvent, enableObserver as enableEvalObserver } from "./eval/session-observer.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
 import {
@@ -3118,6 +3120,33 @@ function persistAndEmitDecisionTelemetry(input: {
   );
   maybeCheckpoint(input.state);
   emitDecisionEvents(input.sessionKey, input.userId, input.orgId, input.requestId, input.snapshot);
+
+  // Eval observer — record transcript + anomalies if enabled for this session
+  if (isObserverEnabled() && shouldObserveSession(input.sessionKey)) {
+    try {
+      const lastAssistant = input.state.history.filter(m => m.role === "assistant").at(-1);
+      const observedTurn = buildObservedTurn({
+        sessionKey: input.sessionKey,
+        requestId: input.requestId,
+        inputMessages: input.state.history.filter(m => m.role !== "assistant").slice(-20) as never[],
+        response: lastAssistant ? { role: "assistant", content: typeof lastAssistant.content === "string" ? lastAssistant.content : "" } : null,
+        governorDecision: input.snapshot.governor ? {
+          pause: input.snapshot.governor.pause,
+          reason: input.snapshot.governor.reason ?? "",
+          matchedRules: input.snapshot.governor.matchedRules,
+          telemetry: input.snapshot.governor.telemetry as Record<string, unknown>,
+        } : undefined,
+      });
+      const transcriptEvent = buildTranscriptEvent(observedTurn);
+      recordSessionEvent(input.sessionKey, input.userId, input.orgId, transcriptEvent.eventKind, transcriptEvent.component, transcriptEvent.detail, input.requestId, transcriptEvent.metadataJson);
+      const liveEvent = buildLiveEvalEvent(observedTurn);
+      if (liveEvent) {
+        recordSessionEvent(input.sessionKey, input.userId, input.orgId, liveEvent.eventKind, liveEvent.component, liveEvent.detail, input.requestId, liveEvent.metadataJson);
+      }
+    } catch (observerErr) {
+      app.log.warn({ err: observerErr }, "eval_observer_error");
+    }
+  }
 }
 
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number } {
@@ -4989,6 +5018,13 @@ await registerToolCollapseRoutes(app, {
   dedupeLayer: yarnDedupeLayer,
   toolPrefixCache: yarnToolPrefixCache,
 });
+
+// --- Eval Gym routes ---
+registerEvalRoutes(app, config);
+if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
+  enableEvalObserver();
+  console.log("[eval-observer] Session observer enabled via env");
+}
 
 // --- OpenAI chat completions ---
 app.post("/v1/chat/completions", async (req, reply) => {

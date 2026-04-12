@@ -72,6 +72,13 @@ set -euo pipefail
 #   - SYNESIS_YARN_REQUEST_FORENSICS_ENABLED (default true via deploy.sh patch) — provider-boundary request forensics (LCP/first-change/breakdown).
 #   - SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD (default false) and MAX_PREVIEW_CHARS (default 4000) — optional payload preview capture.
 #
+# Yarn Eval Gym (docs/coder/EVAL_GYM.md):
+#   - SYNESIS_YARN_EVAL_API_ENABLED (default true) — exposes /v1/eval/* routes (scenario runner, results, export).
+#   - SYNESIS_YARN_EVAL_OBSERVER_ENABLED (default true via deploy.sh) — session observer records eval_transcript_v1
+#     and live_eval_v1 events for anomaly detection and training data export.
+#   - CLI: npm run eval (scenarios), npm run eval:regression, npm run eval:e2e, npm run eval:export.
+#   - Training data: POST /v1/eval/export (sft/dpo/rlaif JSONL); admin dataset_type=eval_gym for feedback loop.
+#
 # Planner-ts — RAG + SearXNG + Admin web_search_log (post-apply patch, survives manifest drift):
 #   Default: SYNESIS_DEPLOY_PLANNER_RETRIEVAL=true (or unset) — patches synesis-planner-ts with:
 #     SYNESIS_EMBEDDER_URL, SYNESIS_MILVUS_HOST, SYNESIS_MILVUS_PORT,
@@ -1357,6 +1364,8 @@ verify_yarn_runtime_envs() {
     _check_runtime_env "SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED:-true}"
     _check_runtime_env "SYNESIS_YARN_MODEL_SELECTION_MODE" "${SYNESIS_YARN_MODEL_SELECTION_MODE:-respect_explicit}"
     _check_runtime_env "SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED" "${SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED:-false}"
+    _check_runtime_env "SYNESIS_YARN_EVAL_API_ENABLED" "${SYNESIS_YARN_EVAL_API_ENABLED:-true}"
+    _check_runtime_env "SYNESIS_YARN_EVAL_OBSERVER_ENABLED" "${SYNESIS_YARN_EVAL_OBSERVER_ENABLED:-true}"
 
     [[ "$ok" == "true" ]]
 }
@@ -1479,6 +1488,10 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM "false"
     _flag SYNESIS_YARN_DEDUPE_ENABLED                  "true"
     _flag SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED       "true"
+
+    # ── Eval Gym: scenario runner, session observer, training data export ──
+    _flag SYNESIS_YARN_EVAL_API_ENABLED                "true"
+    _flag SYNESIS_YARN_EVAL_OBSERVER_ENABLED           "true"
 }
 
 # Ensure planner-ts guardrails/clarification flags are explicitly enabled.

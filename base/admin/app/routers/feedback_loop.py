@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
-from ..db.models import TestingLabsResult, TestingLabsRun
+from ..db.models import TestingLabsResult, TestingLabsRun, YarnSessionEvent
 from ..services.eval_harness import BUILTIN_SUITES, list_suites, run_eval_suite
 from ..services.testing_labs_engine import detect_regressions, execute_run
 
@@ -419,7 +419,7 @@ async def export_dpo_preferences(
 async def export_training_dataset(
     run_id: str,
     format: str = Query("jsonl", pattern="^(jsonl|json)$"),
-    dataset_type: str = Query("trajectory", pattern="^(trajectory|dpo|rlaif)$"),
+    dataset_type: str = Query("trajectory", pattern="^(trajectory|dpo|rlaif|eval_gym)$"),
     _user: UserInfo = Depends(get_current_user),
 ):
     async with async_session() as session:
@@ -439,7 +439,9 @@ async def export_training_dataset(
         raise HTTPException(status_code=404, detail="No results found for run")
 
     records: list[dict[str, Any]]
-    if dataset_type == "trajectory":
+    if dataset_type == "eval_gym":
+        records = await _eval_gym_records(run_id)
+    elif dataset_type == "trajectory":
         records = [_trajectory_record(run, run_id, row) for row in rows]
     elif dataset_type == "rlaif":
         records = [_rlaif_record(run, run_id, row) for row in rows if (row.candidate_response or "").strip()]
@@ -454,6 +456,82 @@ async def export_training_dataset(
         "format": "jsonl",
         "records_jsonl": "\n".join(json.dumps(r, ensure_ascii=True) for r in records),
         "count": len(records),
+    }
+
+
+async def _eval_gym_records(run_id: str) -> list[dict[str, Any]]:
+    """Pull eval gym events (scenario_eval_v1, eval_transcript_v1) from yarn_session_events."""
+    async with async_session() as session:
+        events = (
+            await session.execute(
+                select(YarnSessionEvent)
+                .where(YarnSessionEvent.event_kind.in_(["scenario_eval_v1", "eval_transcript_v1"]))
+                .order_by(YarnSessionEvent.created_at.desc())
+                .limit(500)
+            )
+        ).scalars().all()
+
+    records: list[dict[str, Any]] = []
+    for ev in events:
+        meta = ev.metadata_json if isinstance(ev.metadata_json, dict) else {}
+        records.append({
+            "task_id": f"eval:{meta.get('scenario_id', 'unknown')}:{ev.id}",
+            "session_id": ev.session_key,
+            "event_kind": ev.event_kind,
+            "model_id": meta.get("model", "unknown"),
+            "runtime_profile": "balanced_completion",
+            "user_intent": meta.get("category", "eval"),
+            "outcome": "completed" if meta.get("passed") else "stalled",
+            "quality_signals": {
+                "score": meta.get("score"),
+                "total_turns": meta.get("total_turns"),
+                "total_anomalies": meta.get("anomaly_count", meta.get("total_anomalies")),
+                "governor_interventions": meta.get("governor_interventions"),
+            },
+            "governor": {
+                "rules_fired": meta.get("governor_rules", meta.get("all_governor_rules", [])),
+            },
+            "training_signals": {
+                "governor_intervened": bool(meta.get("governor_interventions")),
+                "anomaly_count": meta.get("anomaly_count", meta.get("total_anomalies", 0)),
+            },
+            "metadata": meta,
+            "created_at": _to_iso_timestamp(ev.created_at),
+        })
+    return records
+
+
+@router.get("/eval-gym/events")
+async def list_eval_gym_events(
+    event_kind: str = Query("scenario_eval_v1", pattern="^(scenario_eval_v1|live_eval_v1|eval_transcript_v1)$"),
+    limit: int = Query(50, ge=1, le=500),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Query eval gym events from yarn_session_events."""
+    async with async_session() as session:
+        events = (
+            await session.execute(
+                select(YarnSessionEvent)
+                .where(YarnSessionEvent.event_kind == event_kind)
+                .order_by(YarnSessionEvent.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+
+    return {
+        "event_kind": event_kind,
+        "count": len(events),
+        "events": [
+            {
+                "id": ev.id,
+                "session_key": ev.session_key,
+                "request_id": ev.request_id,
+                "detail": ev.detail,
+                "metadata_json": ev.metadata_json,
+                "created_at": _to_iso_timestamp(ev.created_at),
+            }
+            for ev in events
+        ],
     }
 
 

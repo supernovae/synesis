@@ -408,8 +408,41 @@ These are identified gaps from the governor audit. Each is a planned future impr
 | LLM verifier evaluation | Evaluate whether ambiguous classifications warrant a lightweight LLM verifier pass | Planned |
 | Expanded telemetry export | Internal counters (repeatedFailingVerification, verbalIntentStreak, etc.) not fully surfaced | Planned |
 
+## Regression Testing with Eval Gym
+
+The [Eval Gym](EVAL_GYM.md) provides automated regression testing for
+all governor rules. Each waffling pattern that has been fixed has a
+corresponding scenario in `base/yarn-ts/src/eval/scenarios/governor-regression.ts`.
+
+**Running governor regression tests:**
+
+```bash
+cd base/yarn-ts
+SYNESIS_EVAL_TARGET_URL=http://yarn:8000 \
+SYNESIS_TEST_PAT_TOKEN=... \
+npm run eval:regression
+```
+
+**Built-in governor regression scenarios:**
+
+| Scenario | Governor Rule Tested |
+|----------|---------------------|
+| `plan-load-exploration-drift` | `exploration_stall_no_edit` |
+| `plan-update-amnesia-loop` | `SYNESIS_PLAN_ALREADY_UPDATED` annotation |
+| `verification-stall-no-edit` | `verification_stall_no_edit` |
+| `verbal-intent-without-action` | `verbal_intent_without_action` |
+| `no-test-files-repeat` | `no_test_files_repeat` + `SYNESIS_VERIFICATION_GAP` |
+| `broad-discovery-repeat` | `exploration_stall_no_edit` / `broad_discovery_repeat` |
+| `plan-stub-overwrite` | Plan write validation (path governance) |
+
+**After adding a new governor rule**, create a regression scenario to
+prevent the rule from being accidentally disabled or weakened. See the
+[Scenario Authoring Guide](EVAL_GYM.md#scenario-authoring-guide) for
+step-by-step instructions.
+
 ## Related Documentation
 
+- [EVAL_GYM.md](EVAL_GYM.md) -- integrated exerciser, observer, and training data pipeline
 - [observability-verification-and-evals.md](observability-verification-and-evals.md) -- trace analytics and eval harness
 - [qwen-stability-feedback-loop.md](qwen-stability-feedback-loop.md) -- closed-loop training pipeline and trajectory contract
 - [safety-reliability-and-fail-safe.md](safety-reliability-and-fail-safe.md) -- invariants and fail-safe principles

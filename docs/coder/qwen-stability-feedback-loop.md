@@ -139,3 +139,41 @@ If a gate fails:
 - keep candidate unpromoted
 - add failure slices to the dataset
 - retrain/tune and replay the same suites before reattempting promotion
+
+## Eval Gym as Data Source
+
+The [Eval Gym](EVAL_GYM.md) is a primary data source for this
+feedback loop. It produces training data in three formats that
+feed directly into the pipeline:
+
+**SFT examples** — complete conversations labeled positive (efficient
+completion) or negative (waffling, loops, stalls). Generated from
+scenario runs with `--export sft`.
+
+**DPO preference pairs** — when the governor intervenes, the model's
+actual output is the rejected response and the recovery guidance
+becomes the chosen response. Generated with `--export dpo`.
+
+**RLAIF reward examples** — each turn gets a reward score from 1.0
+(clean) to -1.0 (severe anomalies + governor pause). Generated
+with `--export rlaif`.
+
+These formats are compatible with the existing feedback loop export
+via the `eval_gym` dataset type:
+
+```bash
+python scripts/feedback-loop-runner.py export \
+  --run-id latest --dataset_type eval_gym --format jsonl --out eval-data.jsonl
+```
+
+Or directly from the eval gym CLI:
+
+```bash
+npx tsx scripts/eval-gym.ts --all --export sft --out training-sft.jsonl
+npx tsx scripts/eval-gym.ts --all --export dpo --out training-dpo.jsonl
+```
+
+The eval gym also feeds the live observer data (from production
+sessions) into `yarn_session_events` as `eval_transcript_v1` and
+`live_eval_v1` events, which can be queried and exported through
+the same feedback loop endpoints.

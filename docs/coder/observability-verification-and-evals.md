@@ -236,6 +236,46 @@ Use this KPI set when evaluating `SYNESIS_YARN_GIT_POLICY_MODE=advisory|enforced
 3. Keep `off` as a tenant-level escape hatch for emergency rollback.
 4. For context admission, start with `SYNESIS_YARN_CONTEXT_ADMISSION_MODE=hybrid` and verify reject messages are guiding users to recover (split task, reduce history, trim tool output).
 
+## Eval Gym Integration
+
+The [Eval Gym](EVAL_GYM.md) extends observability with three new
+`yarn_session_events` event kinds:
+
+| Event Kind | Producer | Purpose |
+|------------|----------|---------|
+| `scenario_eval_v1` | Eval gym scenario runner | Scored multi-turn scenario results |
+| `eval_transcript_v1` | Session observer | Full turn-by-turn transcript of live sessions |
+| `live_eval_v1` | Session observer | Real-time anomaly alerts (only emitted when issues detected) |
+
+These events appear in the admin dashboard alongside existing
+`request_trajectory_v1` and `execution_governor_evaluated` events.
+
+**Querying eval gym data:**
+
+```bash
+# Via admin API
+GET /api/v1/feedback-loop/eval-gym/events?event_kind=live_eval_v1&limit=50
+
+# Via SQL
+SELECT * FROM yarn_session_events
+WHERE event_kind IN ('scenario_eval_v1', 'live_eval_v1', 'eval_transcript_v1')
+ORDER BY created_at DESC;
+```
+
+**Enabling the session observer** for production observability:
+
+```bash
+# Via env (startup)
+SYNESIS_YARN_EVAL_OBSERVER_ENABLED=true
+
+# Via API (runtime)
+POST /v1/eval/observe/start
+POST /v1/eval/observe/stop
+```
+
+See [EVAL_GYM.md](EVAL_GYM.md) for full documentation on running
+scenarios, authoring new ones, and using results for model fine-tuning.
+
 ## Replay and Audit
 
 Support policy replay against historical traces to evaluate:
