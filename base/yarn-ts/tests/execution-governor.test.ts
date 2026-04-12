@@ -203,6 +203,33 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("declaration_followthrough_required");
   });
 
+  it("pauses completion claims when tasks are not marked done", () => {
+    const messages = [
+      { role: "assistant", content: "I've completed the clipboard support implementation." },
+      assistantCall("1", "TaskCreate", { title: "Implement Clipboard Support" }),
+      toolResult("1", "task created"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("completion_claim_requires_task_update");
+    expect(out.matchedRules).toContain("completion_claim_requires_task_update");
+  });
+
+  it("does not pause completion claims when TodoWrite marks tasks done", () => {
+    const messages = [
+      { role: "assistant", content: "I've completed the clipboard support implementation." },
+      assistantCall("1", "TodoWrite", {
+        merge: true,
+        todos: [
+          { id: "clipboard", content: "Implement Clipboard Support", status: "done" },
+        ],
+      }),
+      toolResult("1", "updated 1 todo"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
   it("does not treat file paths in error output as edit evidence", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),

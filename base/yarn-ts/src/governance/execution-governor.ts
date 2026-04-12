@@ -31,6 +31,7 @@ interface CommandEvent {
   command: string;
   toolName: string;
   resultSignature: string;
+  argsObject?: Record<string, unknown> | null;
 }
 
 export type GovernanceProfileName = "safety_strict" | "balanced_completion" | "strict_control";
@@ -147,6 +148,21 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
   return "";
 }
 
+function parseArgsToObject(args: unknown): Record<string, unknown> | null {
+  if (!args) return null;
+  if (typeof args === "object" && !Array.isArray(args)) return args as Record<string, unknown>;
+  if (typeof args !== "string") return null;
+  const t = args.trim();
+  if (!t.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(t);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function normalizeResultSignature(content: unknown): string {
   if (typeof content !== "string" || !content.trim()) return "";
   return content
@@ -161,7 +177,7 @@ function normalizeResultSignature(content: unknown): string {
 }
 
 function extractCommandEvents(messages: GovernorInputMessage[]): CommandEvent[] {
-  const callById = new Map<string, { command: string; toolName: string }>();
+  const callById = new Map<string, { command: string; toolName: string; argsObject?: Record<string, unknown> | null }>();
   const out: CommandEvent[] = [];
   for (const msg of messages) {
     if (msg.role === "assistant" && Array.isArray(msg.tool_calls)) {
@@ -169,9 +185,10 @@ function extractCommandEvents(messages: GovernorInputMessage[]): CommandEvent[] 
         const id = normalizeString(call.id);
         if (!id) continue;
         const toolName = normalizeString(call.function?.name ?? call.name).toLowerCase();
-        const command = parseArgsToCommand(toolName, call.function?.arguments ?? call.input);
+        const rawArgs = call.function?.arguments ?? call.input;
+        const command = parseArgsToCommand(toolName, rawArgs);
         if (!command) continue;
-        callById.set(id, { command, toolName });
+        callById.set(id, { command, toolName, argsObject: parseArgsToObject(rawArgs) });
       }
       continue;
     }
@@ -231,6 +248,36 @@ function hasSuccessSignature(sig: string): boolean {
 function hasEditFailureSignature(sig: string): boolean {
   if (!sig) return false;
   return /error editing file|old_string.*not found|failed to apply patch|no changes made|did not match file content/.test(sig);
+}
+
+function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): boolean {
+  const assistantText = messages
+    .filter((m) => m.role === "assistant" && typeof m.content === "string")
+    .map((m) => String(m.content).toLowerCase())
+    .join("\n");
+  if (!assistantText.trim()) return false;
+  return /\bi('| a)?ve?\s+(completed|finished|done|implemented)\b/.test(assistantText)
+    || /\b(task|feature|clipboard|implementation)\s+(is\s+)?(complete|done)\b/.test(assistantText);
+}
+
+function hasTaskDoneStatusUpdate(events: CommandEvent[]): boolean {
+  for (const e of events) {
+    const tool = normalizeString(e.toolName).toLowerCase();
+    const args = e.argsObject ?? {};
+    if (tool.includes("taskupdate")) {
+      const status = normalizeString(args.status).toLowerCase();
+      if (status === "done" || status === "completed") return true;
+    }
+    if (tool.includes("todowrite")) {
+      const todos = Array.isArray(args.todos) ? args.todos : [];
+      for (const todo of todos) {
+        if (!todo || typeof todo !== "object") continue;
+        const status = normalizeString((todo as Record<string, unknown>).status).toLowerCase();
+        if (status === "done" || status === "completed") return true;
+      }
+    }
+  }
+  return false;
 }
 
 function isDeclarationOnlyEditResultSignature(sig: string): boolean {
@@ -399,6 +446,7 @@ export function evaluateExecutionGovernor(
   let repeatedEditFailureReplay = 0;
   let repeatedTaskCreateReplay = 0;
   let declarationFollowthroughViolation = false;
+  let completionClaimNeedsTaskUpdate = false;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
   const hasRunTest = events.some((e) =>
@@ -516,6 +564,13 @@ export function evaluateExecutionGovernor(
   if (sawDeclarationOnlyEdit && !sawFollowupConcreteEdit && nonActionAfterDeclarationEdit >= 2) {
     declarationFollowthroughViolation = true;
   }
+  const hasTaskLifecycleTraffic = events.some((e) => {
+    const tool = normalizeString(e.toolName).toLowerCase();
+    return tool.includes("taskcreate") || tool.includes("taskupdate") || tool.includes("todowrite");
+  });
+  if (hasTaskLifecycleTraffic && hasCompletionClaimInAssistantText(turnMessages) && !hasTaskDoneStatusUpdate(events)) {
+    completionClaimNeedsTaskUpdate = true;
+  }
 
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   const hasFailureDrivenVerificationLoop =
@@ -530,6 +585,7 @@ export function evaluateExecutionGovernor(
   if (repeatedEditFailureReplay >= 1) matchedRules.push("edit_failure_replay");
   if (repeatedTaskCreateReplay >= 1) matchedRules.push("task_creation_replay");
   if (declarationFollowthroughViolation) matchedRules.push("declaration_followthrough_required");
+  if (completionClaimNeedsTaskUpdate) matchedRules.push("completion_claim_requires_task_update");
   if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (repeatedTruncatedVerification >= 1 && noEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
@@ -623,6 +679,24 @@ export function evaluateExecutionGovernor(
       reason: "declaration_followthrough_required",
       suggestedNextStep:
         "You made a declaration-only edit (for example import/flag) but did not complete a usage-site change. Stop additional read/search calls and apply one concrete follow-through edit that wires the new declaration into runtime behavior, then run narrow verification.",
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("completion_claim_requires_task_update")) {
+    return {
+      pause: true,
+      reason: "completion_claim_requires_task_update",
+      suggestedNextStep:
+        "You claimed completion but task statuses were not marked done. Update existing task entries to done (TaskUpdate/TodoWrite) for completed scope before reporting final completion.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,
