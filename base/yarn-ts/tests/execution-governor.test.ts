@@ -592,7 +592,7 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_stall_no_edit");
     expect(out.telemetry.trailingVerificationRunLength).toBe(6);
     expect(out.reason).toBe("verification_stall_no_edit");
-    expect(out.suggestedNextStep).toContain("Stop running build/test commands");
+    expect(out.suggestedNextStep).toContain("Stop running build/test/read commands");
   });
 
   it("does not fire verification_stall_no_edit when edits are interspersed", () => {
@@ -652,9 +652,55 @@ describe("execution governor", () => {
     ]);
     expect(decision.pause).toBe(true);
     const block = executionGovernorRecoveryRewriteBlock(decision);
-    expect(block).toContain("STOP running build and test");
+    expect(block).toContain("STOP running build, test, and read");
     expect(block).toContain("verification_stall_no_edit");
     expect(block).toContain("SYNESIS_EXECUTION_RECOVERY");
+  });
+
+  it("counts redundant re-reads toward verification stall when mixed with tests", () => {
+    const messages = [
+      { role: "user", content: "validate clipboard and update plan" },
+      assistantCall("1", "bash", { command: "go test -v ./pkg/clipboard/..." }),
+      toolResult("1", "PASS\nok  synesis.sh/synesis/pkg/clipboard"),
+      assistantCall("2", "read_file", { file_path: "/src/pkg/clipboard/clipboard.go" }),
+      toolResult("2", "package clipboard\n\nimport \"os/exec\"\n\nfunc Copy(text string) { exec.Command(\"pbcopy\") }"),
+      assistantCall("3", "read_file", { file_path: "/src/pkg/clipboard/clipboard_test.go" }),
+      toolResult("3", "package clipboard\n\nimport \"testing\"\n\nfunc TestCopyAndPaste(t *testing.T) { t.Log(\"ok\") }"),
+      assistantCall("4", "bash", { command: "go test -v ./pkg/clipboard/..." }),
+      toolResult("4", "PASS\nok  synesis.sh/synesis/pkg/clipboard  (cached)"),
+      assistantCall("5", "read_file", { file_path: "/src/pkg/clipboard/clipboard.go" }),
+      toolResult("5", "package clipboard\n\nimport \"os/exec\"\n\nfunc Copy(text string) { exec.Command(\"pbcopy\") }"),
+      assistantCall("6", "read_file", { file_path: "/src/pkg/clipboard/clipboard_test.go" }),
+      toolResult("6", "package clipboard\n\nimport \"testing\"\n\nfunc TestCopyAndPaste(t *testing.T) { t.Log(\"ok\") }"),
+      assistantCall("7", "bash", { command: "go test -v ./pkg/clipboard/..." }),
+      toolResult("7", "PASS\nok  synesis.sh/synesis/pkg/clipboard  (cached)"),
+      assistantCall("8", "read_file", { file_path: "/src/pkg/clipboard/clipboard.go" }),
+      toolResult("8", "package clipboard\n\nimport \"os/exec\"\n\nfunc Copy(text string) { exec.Command(\"pbcopy\") }"),
+      assistantCall("9", "bash", { command: "go test -v ./pkg/clipboard/..." }),
+      toolResult("9", "PASS\nok  synesis.sh/synesis/pkg/clipboard  (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("verification_stall_no_edit");
+    expect(out.telemetry.trailingVerificationRunLength).toBeGreaterThanOrEqual(6);
+    expect(out.suggestedNextStep).toContain("redundant re-reads");
+  });
+
+  it("does not count first reads toward verification stall (only re-reads)", () => {
+    const messages = [
+      { role: "user", content: "validate clipboard" },
+      assistantCall("1", "bash", { command: "go test -v ./pkg/clipboard/..." }),
+      toolResult("1", "PASS\nok  synesis.sh/synesis/pkg/clipboard"),
+      assistantCall("2", "read_file", { file_path: "/src/pkg/clipboard/clipboard.go" }),
+      toolResult("2", "package clipboard\n\nimport \"os/exec\"\n\nfunc Copy(text string) { exec.Command(\"pbcopy\") }"),
+      assistantCall("3", "read_file", { file_path: "/src/pkg/clipboard/clipboard_test.go" }),
+      toolResult("3", "package clipboard\n\nimport \"testing\"\n\nfunc TestCopyAndPaste(t *testing.T) { t.Log(\"ok\") }"),
+      assistantCall("4", "read_file", { file_path: "/src/cmd/synesis/ask.go" }),
+      toolResult("4", "package main\n\nfunc ask() { flag.Parse() }"),
+      assistantCall("5", "bash", { command: "go test -v ./pkg/clipboard/..." }),
+      toolResult("5", "PASS\nok  synesis.sh/synesis/pkg/clipboard  (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_stall_no_edit");
   });
 
   it("uses strict_control threshold for verification stall", () => {

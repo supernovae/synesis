@@ -637,14 +637,31 @@ export function evaluateExecutionGovernor(
   // Count trailing verification commands from end of events, stopping at first edit.
   // Also track unique commands to distinguish legitimate multi-package verification
   // from the stall pattern (same 2-3 commands cycling: go build → go test → go build → ...).
+  // Reads of already-seen files count as verification-adjacent: re-reading clipboard.go
+  // five times without editing is the same signal as re-running "go test" five times.
   let trailingVerificationRunLength = 0;
   const trailingVerificationCommands = new Set<string>();
+  let trailingRunHasVerification = false;
+  const trailingReadPaths = new Map<string, number>();
   for (let i = events.length - 1; i >= 0; i -= 1) {
     if (events[i].command.startsWith("edit:") || events[i].command === "edit") break;
     if (isVerificationCommand(events[i].toolName, events[i].command)) {
       trailingVerificationRunLength += 1;
       trailingVerificationCommands.add(events[i].command);
+      trailingRunHasVerification = true;
+    } else if (events[i].command.startsWith("read:")) {
+      const readPath = events[i].command;
+      trailingReadPaths.set(readPath, (trailingReadPaths.get(readPath) ?? 0) + 1);
     }
+  }
+  // Re-reads (same file read 2+ times without editing) contribute to the stall signal
+  // only when verification commands are also present — pure exploration is not penalized.
+  let trailingRereadCount = 0;
+  if (trailingRunHasVerification) {
+    for (const count of trailingReadPaths.values()) {
+      if (count >= 2) trailingRereadCount += count - 1;
+    }
+    trailingVerificationRunLength += trailingRereadCount;
   }
   const trailingVerificationHasRepeats = trailingVerificationRunLength > trailingVerificationCommands.size;
 
@@ -904,7 +921,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "verification_stall_no_edit",
       suggestedNextStep:
-        `You have run ${trailingVerificationRunLength} verification commands without making any code edits. Builds and tests are passing — there is nothing left to verify. Stop running build/test commands. Pick the next unfinished task item, read the relevant source file once, make one concrete code edit (Write/Edit), then run one narrow verification.`,
+        `You have run ${trailingVerificationRunLength} verification/read commands without making any code edits${trailingRereadCount > 0 ? ` (including ${trailingRereadCount} redundant re-reads)` : ""}. Builds and tests are passing — there is nothing left to verify. Stop running build/test/read commands. If a task is done, update the plan or mark it complete NOW. Otherwise pick the next unfinished task item, make one concrete code edit (Write/Edit), then run one narrow verification.`,
       matchedRules,
       telemetry: {
         repeatedTestCommands,
@@ -1123,9 +1140,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "After the concrete action, run one narrow verification and report results.";
       break;
     case "verification_stall_no_edit":
-      step1 = "STOP running build and test commands. Verification is already passing — there is nothing to check.";
-      step2 = "Identify the next unfinished task item and read the relevant source file once (with offset/limit if large).";
-      step3 = "Make one concrete code edit (Write/Edit) for that task item, then run one narrow verification.";
+      step1 = "STOP running build, test, and read commands. Verification is already passing and files are unchanged — there is nothing to re-check.";
+      step2 = "If the current task is verified and complete, update the plan file or call TaskUpdate/TodoWrite NOW to mark it done.";
+      step3 = "If more work remains, make one concrete code edit (Write/Edit) for the next task item, then run one narrow verification.";
       break;
     case "verification_fail_repeat_block":
     case "verification_same_failure_signature_replay":
