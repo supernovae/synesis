@@ -376,7 +376,7 @@ const PLAN_READ_TOOL_NAMES = new Set(["read", "read_file", "readfile", "file_rea
  */
 function annotatePlanFileReads(
   messages: Array<{ role: string; tool_call_id?: string; content: unknown }>,
-): { messages: Array<{ role: string; tool_call_id?: string; content: unknown }>; annotatedCount: number } {
+): { messages: Array<{ role: string; tool_call_id?: string; content: unknown }>; annotatedCount: number; planFilePaths: string[] } {
   const toolCallPathMap = new Map<string, string>();
   for (const m of messages) {
     if (m.role !== "assistant") continue;
@@ -402,6 +402,7 @@ function annotatePlanFileReads(
   }
 
   let annotatedCount = 0;
+  const planFilePaths: string[] = [];
   const out = messages.map((m) => {
     if (m.role !== "tool" || typeof m.content !== "string") return m;
     const text = m.content;
@@ -416,6 +417,7 @@ function annotatePlanFileReads(
 
     annotatedCount += 1;
     const planPath = resolvedPath ?? "the plan file";
+    if (resolvedPath) planFilePaths.push(resolvedPath);
     return {
       ...m,
       content: text + "\n\n" + [
@@ -430,7 +432,7 @@ function annotatePlanFileReads(
       ].join("\n"),
     };
   });
-  return { messages: out, annotatedCount };
+  return { messages: out, annotatedCount, planFilePaths };
 }
 
 function extractTextFromUnknownContent(content: unknown): string {
@@ -2157,7 +2159,10 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
         if (pgContinuity.planGraph && typeof pgContinuity.planGraph === "object") {
           const restoredPlan = deserializePlanGraph(pgContinuity.planGraph as Record<string, unknown>);
           if (restoredPlan) {
-            const planBlock = formatPlanProgressBlock(restoredPlan);
+            let planBlock = formatPlanProgressBlock(restoredPlan);
+            if (planBlock && pgContinuity.planFilePath) {
+              planBlock += `\nplan_file=${pgContinuity.planFilePath}\nTo continue this plan, read the plan file: Read(${pgContinuity.planFilePath})`;
+            }
             if (planBlock) {
               history.push({ role: "system", content: planBlock });
             }
@@ -2195,6 +2200,10 @@ async function casSessionSave(state: SessionState): Promise<void> {
       const existingPlanGraph = parsePlanGraph(state.record.metadata);
       if (existingPlanGraph) {
         continuity.planGraph = serializePlanGraph(existingPlanGraph);
+      }
+      const metaPlanFilePath = state.record.metadata.plan_file_path;
+      if (typeof metaPlanFilePath === "string" && metaPlanFilePath) {
+        continuity.planFilePath = metaPlanFilePath;
       }
       state.record.continuity = continuity;
       void sessionStore.saveContinuity(state.record.userId, continuity).catch(() => {});
@@ -4871,6 +4880,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         app.log.debug({ reqId: oaiTraceReqId, count: oaiPlanAnnotation.annotatedCount }, "plan_file_read_annotated");
       }
     }
+    if (oaiPlanAnnotation.planFilePaths.length > 0) {
+      session.record.metadata.plan_file_path = oaiPlanAnnotation.planFilePaths[oaiPlanAnnotation.planFilePaths.length - 1];
+    }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
@@ -6808,6 +6820,9 @@ app.post("/v1/messages", async (req, reply) => {
       if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
         app.log.debug({ reqId: traceReqId, count: claudePlanAnnotation.annotatedCount }, "plan_file_read_annotated");
       }
+    }
+    if (claudePlanAnnotation.planFilePaths.length > 0) {
+      session.record.metadata.plan_file_path = claudePlanAnnotation.planFilePaths[claudePlanAnnotation.planFilePaths.length - 1];
     }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);

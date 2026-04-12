@@ -150,6 +150,7 @@ export class UsageWriter {
       await this.pool.query(`
         DO $$ BEGIN
           ALTER TABLE yarn_session_continuity ADD COLUMN IF NOT EXISTS plan_graph JSONB;
+          ALTER TABLE yarn_session_continuity ADD COLUMN IF NOT EXISTS plan_file_path TEXT;
         EXCEPTION WHEN OTHERS THEN NULL;
         END $$
       `);
@@ -169,7 +170,7 @@ export class UsageWriter {
     try {
       const cutoff = new Date(Date.now() - maxAgeMs);
       const result = await this.pool.query(
-        `SELECT current_task, key_findings, decisions, recent_files, plan_graph, updated_at
+        `SELECT current_task, key_findings, decisions, recent_files, plan_graph, plan_file_path, updated_at
          FROM yarn_session_continuity
          WHERE user_id = $1 AND updated_at >= $2
          ORDER BY updated_at DESC
@@ -188,6 +189,7 @@ export class UsageWriter {
         decisions: Array.isArray(row.decisions) ? row.decisions : [],
         recentFiles: Array.isArray(row.recent_files) ? row.recent_files : [],
         planGraph: row.plan_graph && typeof row.plan_graph === "object" ? row.plan_graph : null,
+        planFilePath: typeof row.plan_file_path === "string" ? row.plan_file_path : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
       };
     } catch {
@@ -355,8 +357,8 @@ export class UsageWriter {
     await this.pool.query(
       `INSERT INTO yarn_session_continuity (
          user_id, org_id, session_key, current_task,
-         key_findings, decisions, recent_files, plan_graph, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+         key_findings, decisions, recent_files, plan_graph, plan_file_path, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
        ON CONFLICT (user_id, session_key) DO UPDATE SET
          org_id = EXCLUDED.org_id,
          current_task = EXCLUDED.current_task,
@@ -364,6 +366,7 @@ export class UsageWriter {
          decisions = EXCLUDED.decisions,
          recent_files = EXCLUDED.recent_files,
          plan_graph = EXCLUDED.plan_graph,
+         plan_file_path = EXCLUDED.plan_file_path,
          updated_at = EXCLUDED.updated_at`,
       [
         data.userId,
@@ -374,6 +377,7 @@ export class UsageWriter {
         JSON.stringify(data.continuity.decisions),
         JSON.stringify(data.continuity.recentFiles),
         data.continuity.planGraph ? JSON.stringify(data.continuity.planGraph) : null,
+        data.continuity.planFilePath ?? null,
       ]
     );
     this._memoryStats.continuityUpserts++;

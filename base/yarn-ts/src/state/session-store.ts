@@ -7,6 +7,7 @@ export interface SessionContinuity {
   decisions: string[];
   recentFiles: string[];
   planGraph?: Record<string, unknown> | null;
+  planFilePath?: string | null;
   updatedAt: number;
 }
 

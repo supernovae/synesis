@@ -100,6 +100,9 @@ export class SessionContinuityService {
     if (continuity.recentFiles.length > 0) {
       parts.push(`recent_files=${continuity.recentFiles.join(",")}`);
     }
+    if (continuity.planFilePath) {
+      parts.push(`plan_file=${continuity.planFilePath}`);
+    }
 
     if (parts.length <= 1) return null;
 
@@ -127,6 +130,10 @@ export class SessionContinuityService {
     }
     if (continuity.recentFiles.length > 0) {
       parts.push(`prior_files=${continuity.recentFiles.join(",")}`);
+    }
+    if (continuity.planFilePath) {
+      parts.push(`last_plan_file=${continuity.planFilePath}`);
+      parts.push(`To continue the prior session's plan, read this file with Read(${continuity.planFilePath}) and display its task status summary.`);
     }
 
     if (parts.length <= 1) return null;
