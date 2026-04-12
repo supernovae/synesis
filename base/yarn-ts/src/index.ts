@@ -167,7 +167,6 @@ import type { TierCFallbackContext, TierCFallbackResult } from "./validation/nor
 import {
   evaluateExecutionGovernor,
   executionGovernorRecoveryRewriteBlock,
-  executionGovernorSoftFailMessage,
   type GovernorInputMessage,
 } from "./governance/execution-governor.js";
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
@@ -5050,53 +5049,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const canRewriteRecovery =
-      oaiExecutionGovernor.matchedRules.includes("bounded_exploration_budget")
-      || oaiExecutionGovernor.matchedRules.includes("broad_discovery_repeat")
-      || oaiExecutionGovernor.matchedRules.includes("test_entry_contract");
-    if (canRewriteRecovery) {
-      const recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
-      const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; content: unknown }>;
-      const lastUserIdx = oaiMsgs.map((m) => m.role).lastIndexOf("user");
-      const oaiTailIdx = lastUserIdx > 0 ? lastUserIdx : oaiMsgs.length;
-      oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
-      const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined);
-      request.tools = restricted.tools as never;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_recovery_rewrite",
-        "execution-governor",
-        `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
-        oaiTraceReqId,
-      );
-    } else {
-    const started = Date.now();
-    const content = executionGovernorSoftFailMessage(oaiExecutionGovernor);
-    const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-    session.history.push({ role: "assistant", content });
-    persistSessionAndUsage(
-      session,
-      oaiTraceReqId,
-      orchestration.selectedModel,
-      usage,
-      Date.now() - started,
-      "stop",
-      0,
-    );
-    maybeCheckpoint(session);
+    const recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
+    const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; content: unknown }>;
+    const lastUserIdx = oaiMsgs.map((m) => m.role).lastIndexOf("user");
+    const oaiTailIdx = lastUserIdx > 0 ? lastUserIdx : oaiMsgs.length;
+    oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
+    const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined);
+    request.tools = restricted.tools as never;
     recordSessionEvent(
       sessionKey,
       identity.userId,
       identity.orgId,
-      "execution_governor_soft_fail",
+      "execution_governor_recovery_rewrite",
       "execution-governor",
-      `Paused repetitive loop (${oaiExecutionGovernor.matchedRules.join(",")})`,
+      `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
       oaiTraceReqId,
     );
-    return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
-    }
   }
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
   const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
@@ -5326,14 +5294,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             { sessionKey, family: adapter.family, turnMarker, pivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
-          const hardStopContent = `I've been stuck in a loop repeating the same actions (${pivotKind.replace("adapter_qwen_", "")}). I need your guidance to proceed differently. What would you like me to do?`;
-          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-          session.awaitingToolLoopUserAck = true;
-          session.history.push({ role: "assistant", content: hardStopContent });
-          persistSessionAndUsage(session, oaiTraceReqId, orchestration.selectedModel, hardStopUsage, 0, "stop", 0);
-          maybeCheckpoint(session);
-          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_hard_stop", "adapter", `${pivotKind}: model ignored 5+ pivots`, oaiTraceReqId);
-          return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream);
+          const forcedRecovery = `${earlyPivot}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
+          modelMessages = [...modelMessages, { role: "system" as const, content: forcedRecovery }] as typeof modelMessages;
+          markQwenIntervention(sessionKey, turnMarker, pivotKind);
+          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_auto_recover", "adapter", `${pivotKind}: forced continue after ignored pivots`, oaiTraceReqId);
         } else if (decision === "suppress") {
           app.log.info(
             { sessionKey, family: adapter.family, turnMarker },
@@ -5360,14 +5324,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             { sessionKey, family: adapter.family, turnMarker, pivotKind: dampeningPivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
-          const hardStopContent = "I've been stuck in a loop repeating the same actions (dampening). I need your guidance to proceed differently. What would you like me to do?";
-          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-          session.awaitingToolLoopUserAck = true;
-          session.history.push({ role: "assistant", content: hardStopContent });
-          persistSessionAndUsage(session, oaiTraceReqId, orchestration.selectedModel, hardStopUsage, 0, "stop", 0);
-          maybeCheckpoint(session);
-          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_hard_stop", "adapter", "dampening: model ignored 5+ pivots", oaiTraceReqId);
-          return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream);
+          const forcedRecovery = `${dampening}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
+          modelMessages = [...modelMessages, { role: "system" as const, content: forcedRecovery }] as typeof modelMessages;
+          markQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
+          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_auto_recover", "adapter", "dampening: forced continue after ignored pivots", oaiTraceReqId);
         } else if (decision === "suppress") {
           app.log.info(
             { sessionKey, family: adapter.family, turnMarker },
@@ -7007,53 +6967,22 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const canRewriteRecovery =
-      claudeExecutionGovernor.matchedRules.includes("bounded_exploration_budget")
-      || claudeExecutionGovernor.matchedRules.includes("broad_discovery_repeat")
-      || claudeExecutionGovernor.matchedRules.includes("test_entry_contract");
-    if (canRewriteRecovery) {
-      const recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
-      const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; content: unknown }>;
-      const claudeLastUserIdx = claudeMsgs.map((m) => m.role).lastIndexOf("user");
-      const claudeTailIdx = claudeLastUserIdx > 0 ? claudeLastUserIdx : claudeMsgs.length;
-      claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
-      const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined);
-      body.tools = restricted.tools as never;
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_recovery_rewrite",
-        "execution-governor",
-        `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
-        traceReqId,
-      );
-    } else {
-    const started = Date.now();
-    const content = executionGovernorSoftFailMessage(claudeExecutionGovernor);
-    const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-    session.history.push({ role: "assistant", content });
-    persistSessionAndUsage(
-      session,
-      traceReqId,
-      claudeOrchestration.selectedModel,
-      usage,
-      Date.now() - started,
-      "end_turn",
-      0,
-    );
-    maybeCheckpoint(session);
+    const recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
+    const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; content: unknown }>;
+    const claudeLastUserIdx = claudeMsgs.map((m) => m.role).lastIndexOf("user");
+    const claudeTailIdx = claudeLastUserIdx > 0 ? claudeLastUserIdx : claudeMsgs.length;
+    claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
+    const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined);
+    body.tools = restricted.tools as never;
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
       claudeIdentity.orgId,
-      "execution_governor_soft_fail",
+      "execution_governor_recovery_rewrite",
       "execution-governor",
-      `Paused repetitive loop (${claudeExecutionGovernor.matchedRules.join(",")})`,
+      `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
       traceReqId,
     );
-    return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
-    }
   }
 
   const claudeRole = TIER_TO_ROLE[claudeOrchestration.tier];
@@ -7308,14 +7237,10 @@ app.post("/v1/messages", async (req, reply) => {
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
-          const hardStopContent = `I've been stuck in a loop repeating the same actions (${pivotKind.replace("adapter_qwen_", "")}). I need your guidance to proceed differently. What would you like me to do?`;
-          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-          session.awaitingToolLoopUserAck = true;
-          session.history.push({ role: "assistant", content: hardStopContent });
-          persistSessionAndUsage(session, traceReqId, claudeOrchestration.selectedModel, hardStopUsage, 0, "end_turn", 0);
-          maybeCheckpoint(session);
-          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_hard_stop", "adapter", `${pivotKind}: model ignored 5+ pivots`, traceReqId);
-          return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream);
+          const forcedRecovery = `${earlyPivot}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
+          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: forcedRecovery }] as typeof claudeModelMessages;
+          markQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
+          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_auto_recover", "adapter", `${pivotKind}: forced continue after ignored pivots`, traceReqId);
         } else if (decision === "suppress") {
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
@@ -7342,14 +7267,10 @@ app.post("/v1/messages", async (req, reply) => {
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind: dampeningPivotKind },
             "adapter_qwen_ignored_pivot_hard_stop",
           );
-          const hardStopContent = "I've been stuck in a loop repeating the same actions (dampening). I need your guidance to proceed differently. What would you like me to do?";
-          const hardStopUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-          session.awaitingToolLoopUserAck = true;
-          session.history.push({ role: "assistant", content: hardStopContent });
-          persistSessionAndUsage(session, traceReqId, claudeOrchestration.selectedModel, hardStopUsage, 0, "end_turn", 0);
-          maybeCheckpoint(session);
-          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_hard_stop", "adapter", "dampening: model ignored 5+ pivots", traceReqId);
-          return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream);
+          const forcedRecovery = `${dampening}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
+          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: forcedRecovery }] as typeof claudeModelMessages;
+          markQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
+          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_auto_recover", "adapter", "dampening: forced continue after ignored pivots", traceReqId);
         } else if (decision === "suppress") {
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
