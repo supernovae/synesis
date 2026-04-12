@@ -4931,7 +4931,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   ) {
     session.blockBroadVerificationUntilEdit = true;
   }
-  if (oaiExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")) {
+  if (
+    oaiExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
+    || oaiExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
+  ) {
     session.blockFailingVerificationUntilEdit = true;
   }
   const oaiAggressiveRepeatGuard =
@@ -6885,7 +6888,10 @@ app.post("/v1/messages", async (req, reply) => {
   ) {
     session.blockBroadVerificationUntilEdit = true;
   }
-  if (claudeExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")) {
+  if (
+    claudeExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
+    || claudeExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
+  ) {
     session.blockFailingVerificationUntilEdit = true;
   }
   const claudeAggressiveRepeatGuard =

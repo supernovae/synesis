@@ -551,6 +551,7 @@ describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
     const prompt = adapter.toolSystemPrompt(10)!;
     expect(prompt).toContain("## Workflow discipline");
     expect(prompt).toContain("One action per turn");
+    expect(prompt).toContain("Task tracking discipline");
     expect(prompt).toContain("Read-then-act");
     expect(prompt).toContain("Plan commitment");
     expect(prompt).toContain("Progressive narrowing");
@@ -797,6 +798,14 @@ describe("Qwen3CoderAdapter.dampenConsecutiveSameTools", () => {
     expect(result).not.toBeNull();
     expect(result).toContain("Grep");
     expect(result).toContain("Narrow your approach");
+  });
+
+  it("returns task-loop dampening for 3 consecutive task creates", () => {
+    const result = adapter.dampenConsecutiveSameTools!(["TaskCreate", "TaskCreate", "TaskCreate"]);
+    expect(result).not.toBeNull();
+    expect(result).toContain("TaskCreate");
+    expect(result).toContain("duplicate tasks");
+    expect(result).toContain("concrete implementation action");
   });
 
   it("returns null for 3 consecutive Bash calls (higher threshold)", () => {

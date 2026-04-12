@@ -199,6 +199,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "",
       "## Workflow discipline",
       "- **One action per turn**: In each turn, do exactly ONE of: (1) call one tool, (2) update plan status, or (3) ask one blocker question. Never combine them.",
+      "- **Task tracking discipline**: Create task items once per user request. After that, only update existing task items; never create duplicate tasks with the same intent/title.",
       "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command — never re-read the same file.",
       "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have.",
       "- **Progressive narrowing**: Each tool call must produce NEW information or make a change. If a search returns results, act on them — do not search again with slightly different terms.",
@@ -333,6 +334,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
     const READ_SEARCH_TOOLS = new Set(["Read", "cat", "head", "tail", "read"]);
     const GREP_FIND_TOOLS = new Set(["Grep", "grep", "find", "Glob", "glob", "rg"]);
+    const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "taskcreate", "taskupdate", "todowrite"]);
 
     const tail = recentToolNames.slice(-6);
     let consecutiveCount = 1;
@@ -347,7 +349,8 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
     const isReadSearch = READ_SEARCH_TOOLS.has(lastTool);
     const isGrepFind = GREP_FIND_TOOLS.has(lastTool);
-    const threshold = (isReadSearch || isGrepFind) ? 3 : lastTool === "Bash" ? 6 : 4;
+    const isTaskTool = TASK_TOOLS.has(lastTool);
+    const threshold = (isReadSearch || isGrepFind || isTaskTool) ? 3 : lastTool === "Bash" ? 6 : 4;
 
     if (consecutiveCount < threshold) return null;
 
@@ -356,6 +359,9 @@ export class Qwen3CoderAdapter implements ModelAdapter {
     }
     if (isGrepFind) {
       return `You have called ${lastTool} ${consecutiveCount} times consecutively. Narrow your approach: act on the results you have, or try a different tool.`;
+    }
+    if (isTaskTool) {
+      return `You have called ${lastTool} ${consecutiveCount} times consecutively. STOP creating/updating duplicate tasks. Reuse the existing task list and take exactly one concrete implementation action now (Edit/Write/Bash test).`;
     }
     if (lastTool === "Bash") {
       return `You have called Bash ${consecutiveCount} times consecutively. STOP broad verification loops. Do exactly one concrete action now: (1) Read the target file for the next feature, then (2) apply one Edit/Write. Do NOT run broad go test/go build again until after that edit.`;

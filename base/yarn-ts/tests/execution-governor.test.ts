@@ -125,9 +125,23 @@ describe("execution governor", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
-    expect(out.reason).toBe("verification_fail_repeat_block");
-    expect(out.matchedRules).toContain("verification_fail_repeat_block");
+    expect(out.reason).toBe("verification_same_failure_signature_replay");
+    expect(out.matchedRules).toContain("verification_same_failure_signature_replay");
     expect(out.telemetry.noEditEvidence).toBe(true);
+  });
+
+  it("pauses repeated compile-signature replay with focused fix guidance", () => {
+    const messages = [
+      assistantCall("1", "bash", { command: "npm test" }),
+      toolResult("1", "src/cli.ts:42:5 - error TS6133: 'clipboard' is declared but its value is never read."),
+      assistantCall("2", "bash", { command: "npm test" }),
+      toolResult("2", "src/cli.ts:42:5 - error TS6133: 'clipboard' is declared but its value is never read."),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_same_failure_signature_replay");
+    expect(out.matchedRules).toContain("verification_same_failure_signature_replay");
+    expect(out.suggestedNextStep).toContain("one concrete code fix");
   });
 
   it("does not treat file paths in error output as edit evidence", () => {

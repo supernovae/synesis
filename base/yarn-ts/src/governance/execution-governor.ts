@@ -203,6 +203,11 @@ function hasFailureSignature(sig: string): boolean {
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b|expected statement\b|undefined:\b/.test(sig);
 }
 
+function isCompileLikeFailureSignature(sig: string): boolean {
+  if (!sig) return false;
+  return /imported and not used|declared but its value is never read|unused (variable|import|binding)|undefined\b|cannot find symbol|unresolved reference|type mismatch|syntax error|expected .* found|failed to compile|compilation failed|build failed/.test(sig);
+}
+
 function hasSuccessSignature(sig: string): boolean {
   if (!sig) return false;
   return /\bok\b|\bpass(ed)?\b|\bbuild successful\b|\bsuccess\b|\bno test files\b/.test(sig);
@@ -348,6 +353,7 @@ export function evaluateExecutionGovernor(
   let repeatedSuccessfulVerification = 0;
   let repeatedNoSignalVerification = 0;
   let repeatedTruncatedVerification = 0;
+  let repeatedCompileLikeFailureVerification = 0;
   const noEditEvidence = changedFiles.length === 0;
   const matchedRules: string[] = [];
   const hasRunTest = events.some((e) =>
@@ -387,6 +393,9 @@ export function evaluateExecutionGovernor(
         && hasFailureSignature(events[i].resultSignature)
       ) {
         repeatedFailingVerification += 1;
+        if (isCompileLikeFailureSignature(events[i].resultSignature)) {
+          repeatedCompileLikeFailureVerification += 1;
+        }
       }
       if (
         events[i].resultSignature
@@ -420,6 +429,7 @@ export function evaluateExecutionGovernor(
   if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold) matchedRules.push("edit_before_retest");
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence) matchedRules.push("no_repeat_without_change");
+  if (repeatedCompileLikeFailureVerification >= 1 && noEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
   if (repeatedFailingVerification >= 2 && noEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (repeatedTruncatedVerification >= 1 && noEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && noEditEvidence) matchedRules.push("verification_done_report");
@@ -442,6 +452,24 @@ export function evaluateExecutionGovernor(
       pause: false,
       reason: "ok",
       matchedRules: ["allow"],
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_same_failure_signature_replay")) {
+    return {
+      pause: true,
+      reason: "verification_same_failure_signature_replay",
+      suggestedNextStep:
+        "You are replaying the same compile/build failure signature without edits. Stop rerunning broad verification. Make one concrete code fix at the reported symbol/location, then run one narrow package/file-level verification.",
+      matchedRules,
       telemetry: {
         repeatedTestCommands,
         repeatedReadSearchCalls,
