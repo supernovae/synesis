@@ -522,8 +522,8 @@ describe("execution governor", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
-    expect(out.matchedRules).toContain("bounded_exploration_budget");
-    expect(out.suggestedNextStep).toContain("at most 3 files");
+    expect(out.matchedRules).toContain("exploration_stall_no_edit");
+    expect(out.suggestedNextStep).toContain("search/read/list commands");
   });
 
   it("does not trigger bounded_exploration_budget for reads outside sliding window", () => {
@@ -843,5 +843,109 @@ describe("execution governor", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.matchedRules).not.toContain("cleanup_todo_harvest");
+  });
+
+  it("pauses on exploration stall without edits (exploration_stall_no_edit)", () => {
+    const messages = [
+      { role: "user", content: "load the plan and begin work on next item" },
+      assistantCall("1", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("1", "package bundle\nfunc Load() {}"),
+      assistantCall("2", "search", { pattern: "dry-run|DryRun" }),
+      toolResult("2", "pkg/ui/ui.go:287: DryRunOutput\npkg/ui/ui.go:302: PrintDryRun"),
+      assistantCall("3", "search", { pattern: "dry-run|DryRun" }),
+      toolResult("3", "pkg/ui/ui.go:287: DryRunOutput\npkg/ui/ui.go:302: PrintDryRun"),
+      assistantCall("4", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("4", "package bundle\nfunc Load() {}"),
+      assistantCall("5", "search", { pattern: "clipboard|Clipboard" }),
+      toolResult("5", "pkg/clipboard/clipboard.go:1: package clipboard"),
+      assistantCall("6", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("6", "package bundle\nfunc Load() {}"),
+      assistantCall("7", "search", { pattern: "watch|Watch" }),
+      toolResult("7", "pkg/watch/watch.go:1: package watch"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("exploration_stall_no_edit");
+    expect(out.telemetry.trailingExplorationRunLength).toBeGreaterThanOrEqual(6);
+  });
+
+  it("does not fire exploration_stall when edits are present", () => {
+    const messages = [
+      { role: "user", content: "implement the feature" },
+      assistantCall("1", "search", { pattern: "DryRun" }),
+      toolResult("1", "pkg/ui/ui.go:287: DryRunOutput"),
+      assistantCall("2", "read_file", { path: "pkg/ui/ui.go" }),
+      toolResult("2", "package ui"),
+      assistantCall("3", "str_replace", { filePath: "pkg/ui/ui.go", oldString: "x", newString: "y" }),
+      toolResult("3", "ok"),
+      assistantCall("4", "search", { pattern: "DryRun" }),
+      toolResult("4", "pkg/ui/ui.go:287: DryRunOutput"),
+      assistantCall("5", "read_file", { path: "pkg/ui/ui.go" }),
+      toolResult("5", "package ui"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
+  });
+
+  it("lowers exploration stall threshold when plan file was read", () => {
+    const messages = [
+      { role: "user", content: "load the plan and begin work" },
+      assistantCall("1", "read_file", { path: "/Users/me/.claude/plans/my-plan.md" }),
+      toolResult("1", "---\nname: Plan\ntodos:\n  - id: t1\n    status: pending\n---\n# Plan"),
+      assistantCall("2", "search", { pattern: "bundle" }),
+      toolResult("2", "pkg/bundle/bundle.go"),
+      assistantCall("3", "search", { pattern: "bundle" }),
+      toolResult("3", "pkg/bundle/bundle.go"),
+      assistantCall("4", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("4", "package bundle"),
+      assistantCall("5", "search", { pattern: "clipboard" }),
+      toolResult("5", "pkg/clipboard/clipboard.go"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("exploration_stall_no_edit");
+    expect(out.telemetry.hasPlanInContext).toBe(true);
+  });
+
+  it("exploration_stall recovery block mentions plan trust", () => {
+    const messages = [
+      { role: "user", content: "load the plan and begin work" },
+      assistantCall("1", "read_file", { path: "/Users/me/.claude/plans/my-plan.md" }),
+      toolResult("1", "---\nname: Plan\n---\n# Plan body"),
+      assistantCall("2", "search", { pattern: "feature" }),
+      toolResult("2", "some result"),
+      assistantCall("3", "search", { pattern: "feature" }),
+      toolResult("3", "some result"),
+      assistantCall("4", "read_file", { path: "some/file.go" }),
+      toolResult("4", "package main"),
+      assistantCall("5", "search", { pattern: "feature v2" }),
+      toolResult("5", "another result"),
+    ];
+    const decision = evaluateExecutionGovernor(messages);
+    expect(decision.pause).toBe(true);
+    expect(decision.matchedRules).toContain("exploration_stall_no_edit");
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP searching");
+    expect(block).toContain("exploration_stall_no_edit");
+  });
+
+  it("does not fire exploration_stall for read-only investigation intent", () => {
+    const messages = [
+      { role: "user", content: "explain how the bundle feature works" },
+      assistantCall("1", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("1", "package bundle"),
+      assistantCall("2", "search", { pattern: "bundle" }),
+      toolResult("2", "pkg/bundle/bundle.go"),
+      assistantCall("3", "search", { pattern: "bundle" }),
+      toolResult("3", "pkg/bundle/bundle.go"),
+      assistantCall("4", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("4", "package bundle"),
+      assistantCall("5", "search", { pattern: "Load" }),
+      toolResult("5", "pkg/bundle/bundle.go:2: func Load"),
+      assistantCall("6", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("6", "package main"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
   });
 });

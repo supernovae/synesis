@@ -25,6 +25,8 @@ export interface ExecutionGovernorDecision {
     broadTestRepeat: boolean;
     noEditEvidence: boolean;
     trailingVerificationRunLength: number;
+    trailingExplorationRunLength?: number;
+    hasPlanInContext?: boolean;
   };
 }
 
@@ -45,6 +47,7 @@ interface GovernorThresholds {
   broadVerificationNoticeThreshold: number;
   broadVerificationBlockThreshold: number;
   verificationStallThreshold: number;
+  explorationStallThreshold: number;
 }
 
 const BALANCED_THRESHOLDS: GovernorThresholds = {
@@ -55,6 +58,7 @@ const BALANCED_THRESHOLDS: GovernorThresholds = {
   broadVerificationNoticeThreshold: 3,
   broadVerificationBlockThreshold: 4,
   verificationStallThreshold: 6,
+  explorationStallThreshold: 6,
 };
 
 function thresholdsForProfile(profile: GovernanceProfileName): GovernorThresholds {
@@ -69,6 +73,7 @@ function thresholdsForProfile(profile: GovernanceProfileName): GovernorThreshold
       broadVerificationNoticeThreshold: 6,
       broadVerificationBlockThreshold: 8,
       verificationStallThreshold: 10,
+      explorationStallThreshold: 8,
     };
   }
   if (profile === "strict_control") {
@@ -82,6 +87,7 @@ function thresholdsForProfile(profile: GovernanceProfileName): GovernorThreshold
       broadVerificationNoticeThreshold: 2,
       broadVerificationBlockThreshold: 3,
       verificationStallThreshold: 4,
+      explorationStallThreshold: 3,
     };
   }
   return BALANCED_THRESHOLDS;
@@ -674,6 +680,38 @@ export function evaluateExecutionGovernor(
   }
   const trailingVerificationHasRepeats = trailingVerificationRunLength > trailingVerificationCommands.size;
 
+  // Count trailing exploration commands (search/grep/glob/read) from end of events,
+  // stopping at first edit. Parallel to verification stall but catches the model
+  // searching/reading without making progress — the governor's blind spot for
+  // post-plan-load waffling where the model keeps searching instead of editing.
+  let trailingExplorationRunLength = 0;
+  const trailingExplorationCommands = new Set<string>();
+  const explorationReadPaths = new Map<string, number>();
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i].command.startsWith("edit:") || events[i].command === "edit") break;
+    if (isVerificationCommand(events[i].toolName, events[i].command)) break;
+    const cmd = events[i].command;
+    if (cmd.startsWith("search:") || cmd.startsWith("glob:") || cmd.startsWith("list:")) {
+      trailingExplorationRunLength += 1;
+      trailingExplorationCommands.add(cmd);
+    } else if (cmd.startsWith("read:")) {
+      const readPath = cmd;
+      explorationReadPaths.set(readPath, (explorationReadPaths.get(readPath) ?? 0) + 1);
+      trailingExplorationRunLength += 1;
+      trailingExplorationCommands.add(readPath);
+    }
+  }
+  // Re-reads of the same file inflate the exploration length (same signal as re-searching)
+  for (const count of explorationReadPaths.values()) {
+    if (count >= 2) trailingExplorationRunLength += count - 1;
+  }
+  const trailingExplorationHasRepeats = trailingExplorationRunLength > trailingExplorationCommands.size;
+
+  // Detect if a plan file was read in these events (lowers exploration stall threshold)
+  const hasPlanInContext = events.some((e) =>
+    e.command.startsWith("read:") && e.command.includes("/.claude/plans/"),
+  );
+
   // Enforce follow-through when a declaration-only edit is made: avoid read/search churn.
   let sawDeclarationOnlyEdit = false;
   let sawFollowupConcreteEdit = false;
@@ -741,6 +779,12 @@ export function evaluateExecutionGovernor(
   if (!isInvestigationOnly && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
     matchedRules.push("verification_stall_no_edit");
   }
+  const effectiveExplorationThreshold = hasPlanInContext
+    ? Math.max(2, thresholds.explorationStallThreshold - 2)
+    : thresholds.explorationStallThreshold;
+  if (!isInvestigationOnly && trailingExplorationRunLength >= effectiveExplorationThreshold && effectiveNoEditEvidence && trailingExplorationHasRepeats) {
+    matchedRules.push("exploration_stall_no_edit");
+  }
   if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
     matchedRules.push("verbal_intent_without_action");
   }
@@ -770,6 +814,8 @@ export function evaluateExecutionGovernor(
         broadTestRepeat,
         noEditEvidence,
         trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
       },
     };
   }
@@ -941,6 +987,29 @@ export function evaluateExecutionGovernor(
         broadTestRepeat,
         noEditEvidence,
         trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
+      },
+    };
+  }
+
+  if (matchedRules.includes("exploration_stall_no_edit")) {
+    return {
+      pause: true,
+      reason: "exploration_stall_no_edit",
+      suggestedNextStep:
+        `You have run ${trailingExplorationRunLength} search/read/list commands without making any code edits${hasPlanInContext ? " (a plan file is loaded)" : ""}. Stop exploring.${hasPlanInContext ? " Trust the plan's status markers — do NOT re-verify items marked complete." : ""} Identify one concrete task to work on, make one code edit (Write/Edit), then run one narrow verification.`,
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
       },
     };
   }
@@ -1135,6 +1204,8 @@ export function evaluateExecutionGovernor(
         broadTestRepeat,
         noEditEvidence,
         trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
       },
     };
   }
@@ -1152,6 +1223,8 @@ export function evaluateExecutionGovernor(
       broadTestRepeat,
       noEditEvidence,
       trailingVerificationRunLength,
+      trailingExplorationRunLength,
+      hasPlanInContext,
     },
   };
 }
@@ -1172,6 +1245,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP running build, test, and read commands. Verification is already passing and files are unchanged — there is nothing to re-check.";
       step2 = "If the current task is verified and complete, update the plan file or call TaskUpdate/TodoWrite NOW to mark it done.";
       step3 = "If more work remains, make one concrete code edit (Write/Edit) for the next task item, then run one narrow verification.";
+      break;
+    case "exploration_stall_no_edit":
+      step1 = "STOP searching, reading, and listing files. You have been exploring without making progress.";
+      step2 = "If a plan file was loaded, trust its status markers. Identify the next INCOMPLETE task.";
+      step3 = "Make one concrete code edit (Write/Edit) for the next task, then run one narrow verification.";
       break;
     case "no_test_files_repeat":
       step1 = "STOP running the test command. '[no test files]' means there are NO tests to run — re-running produces the same result.";

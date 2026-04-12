@@ -455,7 +455,7 @@ function annotatePlanFileReads(
   const out = messages.map((m, idx) => {
     if (m.role !== "tool" || typeof m.content !== "string") return m;
     const text = m.content;
-    if (text.includes("<SYNESIS_PLAN_LOADED") || text.includes("<SYNESIS_PLAN_UPDATED")) return m;
+    if (text.includes("<SYNESIS_PLAN_LOADED") || text.includes("<SYNESIS_PLAN_UPDATED") || text.includes("<SYNESIS_PLAN_ALREADY_UPDATED")) return m;
 
     const resolvedReadPath = m.tool_call_id ? readPathMap.get(m.tool_call_id) : undefined;
     const resolvedWritePath = m.tool_call_id ? writePathMap.get(m.tool_call_id) : undefined;
@@ -481,8 +481,9 @@ function annotatePlanFileReads(
               : `The plan file was read previously but the content may have been pruned. Use Bash(cat ${resolvedReadPath}) once if you need to see it.`,
             `Do NOT call Read on this file again. Do NOT re-read it. Do NOT say "I've already read this."`,
             hasContent
-              ? `Refer to the plan content above and proceed with the next task.`
-              : `After one cat, display the task status summary and proceed.`,
+              ? `Refer to the plan content above. Identify the next INCOMPLETE task and begin working on it immediately.`
+              : `After one cat, identify the next incomplete task and begin working on it immediately.`,
+            `Trust the plan's status markers. Do NOT search or grep to re-verify items marked complete.`,
             `</SYNESIS_PLAN_LOADED>`,
           ].join("\n"),
         };
@@ -495,21 +496,31 @@ function annotatePlanFileReads(
     // Case 1: This is a plan file READ result with actual content
     if (resolvedReadPath && isPlanPath(resolvedReadPath)) {
       if (!planFilePaths.includes(resolvedReadPath)) planFilePaths.push(resolvedReadPath);
-      // If the plan was later edited, suppress the stale annotation
       if (editedPlanPaths.has(resolvedReadPath)) {
-        return m;
+        annotatedCount += 1;
+        return {
+          ...m,
+          content: text + "\n\n" + [
+            `<SYNESIS_PLAN_ALREADY_UPDATED path="${resolvedReadPath}">`,
+            `You already updated this plan file earlier in this conversation.`,
+            `Do NOT update it again. Do NOT re-read it. The plan is current.`,
+            `Proceed with the next incomplete task or ask the user what to do.`,
+            `</SYNESIS_PLAN_ALREADY_UPDATED>`,
+          ].join("\n"),
+        };
       }
       annotatedCount += 1;
       return {
         ...m,
         content: text + "\n\n" + [
           `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}">`,
-          `You have loaded a plan file. Your IMMEDIATE next action:`,
+          `You have loaded a plan file. Your IMMEDIATE next actions:`,
           `1. Parse the task list from the YAML frontmatter above (look for 'todos:' or task entries with 'status:')`,
-          `2. Display a progress summary table: completed tasks (✓) vs remaining tasks (◻) with their descriptions`,
-          `3. State which task is next and ask if the user wants to proceed`,
-          `Do NOT re-read this file. Do NOT explore the repository. Do NOT say "I've already read this."`,
-          `Display the task status summary NOW as your very next output.`,
+          `2. Display a progress summary table: completed tasks vs remaining tasks with their descriptions`,
+          `3. State which task is next`,
+          `4. Begin working on that task immediately — make a concrete code edit`,
+          `Trust the plan's status markers. Do NOT search or grep the codebase to re-verify items already marked complete.`,
+          `Do NOT re-read this file. Do NOT explore the repository before starting work.`,
           `</SYNESIS_PLAN_LOADED>`,
         ].join("\n"),
       };
@@ -541,12 +552,13 @@ function annotatePlanFileReads(
           ...m,
           content: text + "\n\n" + [
             `<SYNESIS_PLAN_LOADED path="the plan file">`,
-            `You have loaded a plan file. Your IMMEDIATE next action:`,
+            `You have loaded a plan file. Your IMMEDIATE next actions:`,
             `1. Parse the task list from the YAML frontmatter above (look for 'todos:' or task entries with 'status:')`,
-            `2. Display a progress summary table: completed tasks (✓) vs remaining tasks (◻) with their descriptions`,
-            `3. State which task is next and ask if the user wants to proceed`,
-            `Do NOT re-read this file. Do NOT explore the repository. Do NOT say "I've already read this."`,
-            `Display the task status summary NOW as your very next output.`,
+            `2. Display a progress summary table: completed tasks vs remaining tasks with their descriptions`,
+            `3. State which task is next`,
+            `4. Begin working on that task immediately — make a concrete code edit`,
+            `Trust the plan's status markers. Do NOT search or grep the codebase to re-verify items already marked complete.`,
+            `Do NOT re-read this file. Do NOT explore the repository before starting work.`,
             `</SYNESIS_PLAN_LOADED>`,
           ].join("\n"),
         };

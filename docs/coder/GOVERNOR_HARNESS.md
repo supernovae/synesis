@@ -62,6 +62,9 @@ Profiles control how aggressively the governor intervenes. Set via `SYNESIS_YARN
 | `broadVerificationNoticeThreshold` | 3 | 6 | 2 |
 | `broadVerificationBlockThreshold` | 4 | 8 | 3 |
 | `verificationStallThreshold` | 6 | 10 | 4 |
+| `explorationStallThreshold` | 6 | 8 | 3 |
+
+When a plan file was read in the event window (`hasPlanInContext`), the exploration stall threshold is lowered by 2 (minimum 2). This catches post-plan-load waffling faster.
 
 - **`safety_strict`**: Prioritizes runaway safety over behavior policing. More retries before pause.
 - **`balanced_completion`**: Production default. Soft steering with safety protections.
@@ -84,6 +87,7 @@ Each rule fires when specific patterns are detected in the trailing message hist
 | `verification_fail_repeat_block` | 2+ failing verification results with no edits between them | Stop re-running; make a code fix |
 | `verbal_intent_without_action` | 3+ turns of verbal intent without corresponding tool actions | Execute one concrete tool call that advances the goal |
 | `verification_stall_no_edit` | Trailing run of verification + re-read commands exceeds threshold, with repeats and no edits | Stop running build/test/read commands; make an edit or update the plan |
+| `exploration_stall_no_edit` | Trailing run of search/read/glob/list commands exceeds threshold, with repeats and no edits | Stop exploring; trust plan status markers if loaded; make one concrete edit |
 | `verification_truncated_output` | Verification output truncated, replayed without edits | Narrow the verification scope or fix the underlying issue |
 | `no_test_files_repeat` | `[no test files]` result repeated without creating a test file | Create a test file, then run tests once |
 | `broad_discovery_repeat` | Total or repeated broad discovery calls exceed threshold | Stop broad discovery; read specific files |
