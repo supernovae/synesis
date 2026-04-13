@@ -575,6 +575,33 @@ const EnvSchema = z.object({
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS: z.coerce.number().default(1),
 
+  // Extended memory — structural index, memory tools, hierarchical summaries, chunked eval
+  SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET: z.coerce.number().default(1536),
+  SYNESIS_YARN_STRUCTURAL_INDEX_TTL_S: z.coerce.number().default(3600),
+  SYNESIS_YARN_MEMORY_TOOLS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_MEMORY_STORE_MAX_ENTRIES: z.coerce.number().default(200),
+  SYNESIS_YARN_HIERARCHICAL_SUMMARIES_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_SUMMARY_MAX_TOKENS: z.coerce.number().default(100),
+  SYNESIS_YARN_CHUNKED_EVAL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_CHUNKED_EVAL_MAX_FEATURES_PER_PASS: z.coerce.number().default(5),
+  SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
   /** Terminal interception: ANSI/\\r/repeat shaping for MCP runners and sandbox (default on). */
   SYNESIS_YARN_TERMINAL_SHAPING_ENABLED: z
     .string()
