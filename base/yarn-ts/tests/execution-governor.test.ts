@@ -172,7 +172,7 @@ describe("execution governor", () => {
     expect(out.pause).toBe(true);
     expect(out.reason).toBe("edit_failure_replay");
     expect(out.matchedRules).toContain("edit_failure_replay");
-    expect(out.suggestedNextStep).toContain("corrected Edit/Update");
+    expect(out.suggestedNextStep).toContain("already contain the changes");
   });
 
   it("pauses duplicate task creation replay", () => {
@@ -394,13 +394,14 @@ describe("execution governor", () => {
       toolResult("2", "# README"),
       assistantCall("3", "Glob", { glob_pattern: "*" }),
       toolResult("3", "200 files"),
-      assistantCall("4", "read", { filePath: "go.mod" }),
-      toolResult("4", "module foo"),
+      assistantCall("4", "str_replace", { filePath: "go.mod", oldString: "a", newString: "b" }),
+      toolResult("4", "ok"),
       assistantCall("5", "Glob", { glob_pattern: "*" }),
       toolResult("5", "200 files"),
     ];
+    // Add enough events after the edit to push the globs outside the sliding window
     for (let i = 6; i <= 28; i++) {
-      messages.push(assistantCall(String(i), "Bash", { command: `go test ./pkg${i}` }));
+      messages.push(assistantCall(String(i), "str_replace", { filePath: `pkg${i}/main.go`, oldString: "old", newString: "new" }));
       messages.push(toolResult(String(i), "ok"));
     }
     const out = evaluateExecutionGovernor(messages);
@@ -680,9 +681,11 @@ describe("execution governor", () => {
       toolResult("9", "PASS\nok  synesis.sh/synesis/pkg/clipboard  (cached)"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.matchedRules).toContain("verification_stall_no_edit");
-    expect(out.telemetry.trailingVerificationRunLength).toBeGreaterThanOrEqual(6);
-    expect(out.suggestedNextStep).toContain("redundant re-reads");
+    // no_progress_loop fires first (9 interleaved non-edit commands) which is the correct
+    // higher-priority signal; verification_stall also matches but no_progress takes precedence.
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("no_progress_loop");
+    expect(out.suggestedNextStep).toContain("single code edit");
   });
 
   it("does not count first reads toward verification stall (only re-reads)", () => {
@@ -923,10 +926,12 @@ describe("execution governor", () => {
     ];
     const decision = evaluateExecutionGovernor(messages);
     expect(decision.pause).toBe(true);
-    expect(decision.matchedRules).toContain("exploration_stall_no_edit");
+    // With plan in context, both exploration_stall and no_progress_loop fire;
+    // no_progress_loop takes priority as the broader signal.
+    expect(decision.matchedRules).toContain("no_progress_loop");
     const block = executionGovernorRecoveryRewriteBlock(decision);
-    expect(block).toContain("STOP searching");
-    expect(block).toContain("exploration_stall_no_edit");
+    expect(block).toContain("ZERO code edits");
+    expect(block).toContain("no_progress_loop");
   });
 
   it("does not fire exploration_stall for read-only investigation intent", () => {
@@ -1044,5 +1049,196 @@ describe("execution governor", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+  });
+
+  it("fires no_progress_loop when verification and exploration interleave without edits", () => {
+    const messages = [
+      { role: "user", content: "validate keychain and update plan" },
+      { role: "assistant", content: "I'll validate the keychain integration." },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go vet ./... 2>&1" }),
+      toolResult("2", ""),
+      { role: "assistant", content: "Let me check what's been done." },
+      assistantCall("3", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("3", "cmd/synesis/authcmd.go | 59 ++++\npkg/config/config.go | 13 +"),
+      assistantCall("4", "search", { pattern: "keychain" }),
+      toolResult("4", "cmd/synesis/authcmd.go\npkg/config/config.go\npkg/keychain/keychain.go"),
+      { role: "assistant", content: "Let me check the files." },
+      assistantCall("5", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "read_file", { path: "cmd/synesis/authcmd.go" }),
+      toolResult("6", "package main\n\nimport \"synesis/pkg/keychain\"\n// full file content"),
+      assistantCall("7", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("7", ""),
+      assistantCall("8", "bash", { command: "git diff --stat HEAD 2>&1" }),
+      toolResult("8", "cmd/synesis/authcmd.go | 59 ++++\npkg/config/config.go | 13 +"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("no_progress_loop");
+    expect(out.reason).toBe("no_progress_loop");
+    expect(out.suggestedNextStep).toContain("single code edit");
+  });
+
+  it("fires edit_failure_replay with stale-cache guidance when edits fail repeatedly", () => {
+    const messages = [
+      { role: "user", content: "add keychain integration" },
+      { role: "assistant", content: "I'll add keychain to config.go." },
+      assistantCall("1", "str_replace", { filePath: "pkg/config/config.go", oldString: "func Resolve()", newString: "func Resolve() with keychain" }),
+      toolResult("1", "Error editing file: no match found for old_string"),
+      { role: "assistant", content: "Let me try again." },
+      assistantCall("2", "str_replace", { filePath: "pkg/config/config.go", oldString: "func Resolve()", newString: "func Resolve() with keychain" }),
+      toolResult("2", "Error editing file: no match found for old_string"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("edit_failure_replay");
+    expect(out.reason).toBe("edit_failure_replay");
+    expect(out.suggestedNextStep).toContain("already contain the changes");
+  });
+
+  it("classifies git diff/status/log as verification commands", () => {
+    const messages = [
+      { role: "user", content: "check the state" },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("2", "3 files changed"),
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("4", "3 files changed"),
+      assistantCall("5", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "bash", { command: "git status" }),
+      toolResult("6", "modified: pkg/config/config.go"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_stall_no_edit");
+    expect(out.telemetry.trailingVerificationRunLength).toBeGreaterThanOrEqual(6);
+  });
+
+  it("does not fire no_progress_loop when edits are present", () => {
+    const messages = [
+      { role: "user", content: "implement feature" },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "search", { pattern: "keychain" }),
+      toolResult("2", "found 3 files"),
+      assistantCall("3", "read_file", { path: "pkg/config/config.go" }),
+      toolResult("3", "package config"),
+      assistantCall("4", "str_replace", { filePath: "pkg/config/config.go", oldString: "package config", newString: "package config\n\nimport \"keychain\"" }),
+      toolResult("4", "ok"),
+      assistantCall("5", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("6", "ok"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("no_progress_loop");
+  });
+
+  it("fires consecutive_edit_failures when edits fail on alternating files", () => {
+    const messages = [
+      { role: "user", content: "add keychain integration to both files" },
+      { role: "assistant", content: "I'll add keychain to authcmd.go." },
+      assistantCall("1", "update", { filePath: "cmd/synesis/authcmd.go", oldString: "func runAuth()", newString: "func runAuth() with keychain" }),
+      toolResult("1", "Error editing file"),
+      { role: "assistant", content: "Let me try config.go." },
+      assistantCall("2", "update", { filePath: "pkg/config/config.go", oldString: "func Resolve()", newString: "func Resolve() with keychain" }),
+      toolResult("2", "Error editing file"),
+      { role: "assistant", content: "Let me try authcmd.go again." },
+      assistantCall("3", "update", { filePath: "cmd/synesis/authcmd.go", oldString: "func runAuth(cmd", newString: "func runAuth(cmd with keychain" }),
+      toolResult("3", "Error editing file"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("consecutive_edit_failures");
+    expect(out.reason).toBe("consecutive_edit_failures");
+    expect(out.suggestedNextStep).toContain("3 edit attempts ALL failed");
+  });
+
+  it("fires consecutive_edit_failures even with reads interleaved between failing edits", () => {
+    const messages = [
+      { role: "user", content: "add keychain" },
+      assistantCall("1", "update", { filePath: "cmd/synesis/authcmd.go", oldString: "a", newString: "b" }),
+      toolResult("1", "Error editing file"),
+      assistantCall("2", "bash", { command: "git diff --stat HEAD 2>&1" }),
+      toolResult("2", "authcmd.go | 59 ++++"),
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "update", { filePath: "cmd/synesis/authcmd.go", oldString: "c", newString: "d" }),
+      toolResult("4", "Error editing file"),
+      assistantCall("5", "read_file", { path: "cmd/synesis/authcmd.go" }),
+      toolResult("5", "package main"),
+      assistantCall("6", "update", { filePath: "cmd/synesis/authcmd.go", oldString: "e", newString: "f" }),
+      toolResult("6", "Error editing file"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("consecutive_edit_failures");
+    expect(out.suggestedNextStep).toContain("already contain the changes");
+  });
+
+  it("does not fire consecutive_edit_failures when a successful edit follows failures", () => {
+    const messages = [
+      { role: "user", content: "fix the file" },
+      assistantCall("1", "str_replace", { filePath: "foo.go", oldString: "a", newString: "b" }),
+      toolResult("1", "Error editing file: no match"),
+      assistantCall("2", "str_replace", { filePath: "foo.go", oldString: "c", newString: "d" }),
+      toolResult("2", "Error editing file: no match"),
+      assistantCall("3", "str_replace", { filePath: "foo.go", oldString: "real old", newString: "real new" }),
+      toolResult("3", "Applied successfully"),
+      assistantCall("4", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("4", ""),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("consecutive_edit_failures");
+  });
+
+  it("consecutive_edit_failures recovery block mentions git diff and cat", () => {
+    const messages = [
+      { role: "user", content: "integrate keychain" },
+      assistantCall("1", "update", { filePath: "a.go", oldString: "x", newString: "y" }),
+      toolResult("1", "Error editing file"),
+      assistantCall("2", "update", { filePath: "b.go", oldString: "x", newString: "y" }),
+      toolResult("2", "Error editing file"),
+      assistantCall("3", "update", { filePath: "c.go", oldString: "x", newString: "y" }),
+      toolResult("3", "Error editing file"),
+    ];
+    const decision = evaluateExecutionGovernor(messages);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP editing");
+    expect(block).toContain("consecutive_edit_failures");
+    expect(block).toContain("git diff");
+  });
+
+  it("no_progress_loop recovery block includes correct guidance", () => {
+    const messages = [
+      { role: "user", content: "validate and complete" },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go vet ./... 2>&1" }),
+      toolResult("2", ""),
+      assistantCall("3", "search", { pattern: "keychain" }),
+      toolResult("3", "found"),
+      assistantCall("4", "read_file", { path: "cmd/synesis/authcmd.go" }),
+      toolResult("4", "package main"),
+      assistantCall("5", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("6", "9 files changed"),
+      assistantCall("7", "read_file", { path: "cmd/synesis/authcmd.go" }),
+      toolResult("7", "package main"),
+      assistantCall("8", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("8", ""),
+    ];
+    const decision = evaluateExecutionGovernor(messages);
+    expect(decision.pause).toBe(true);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP cycling");
+    expect(block).toContain("no_progress_loop");
   });
 });

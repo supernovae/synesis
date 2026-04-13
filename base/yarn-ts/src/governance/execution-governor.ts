@@ -437,7 +437,8 @@ function isVerificationCommand(toolName: string, command: string): boolean {
   const tool = normalizeString(toolName).toLowerCase();
   const cmd = normalizeString(command).toLowerCase();
   return tool.includes("run_test")
-    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd);
+    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
+    || /\bgit\s+(diff|status|log|show)\b/.test(cmd);
 }
 
 function isGitAddWithoutCommit(events: CommandEvent[]): boolean {
@@ -651,6 +652,29 @@ export function evaluateExecutionGovernor(
     if (next >= 2) repeatedTaskCreateReplay += 1;
   }
 
+  // Count consecutive edit failures from the tail, regardless of file or signature.
+  // Catches the pattern: Update(A) → error, Update(B) → error, Update(A) → error ...
+  // where the model alternates targets so edit_failure_replay (same key) doesn't fire.
+  let consecutiveEditFailures = 0;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const c = normalizeString(events[i].command);
+    if (c.startsWith("edit:") || c === "edit" || c.startsWith("write:") || c === "write"
+      || c.startsWith("filewrite:") || c === "filewrite" || c.startsWith("applypatch:") || c === "applypatch") {
+      if (hasEditFailureSignature(events[i].resultSignature)) {
+        consecutiveEditFailures += 1;
+      } else {
+        break;
+      }
+    } else if (c.startsWith("read:") || c.startsWith("search:") || c.startsWith("glob:") || c.startsWith("list:")
+      || isVerificationCommand(events[i].toolName, events[i].command)) {
+      // Non-edit commands between failed edits don't reset the counter — the model
+      // interleaves reads/builds between failed edits as "checking" before retrying.
+      continue;
+    } else {
+      break;
+    }
+  }
+
   // Count trailing verification commands from end of events, stopping at first edit.
   // Also track unique commands to distinguish legitimate multi-package verification
   // from the stall pattern (same 2-3 commands cycling: go build → go test → go build → ...).
@@ -732,6 +756,38 @@ export function evaluateExecutionGovernor(
     }
   }
 
+  // Combined no-progress counter: counts ALL non-edit events from the end, regardless of
+  // whether they are verification (go build, git diff) or exploration (search, read, glob).
+  // This catches the interleaving blind spot where the model alternates between verification
+  // and exploration — neither individual counter reaches its threshold, but the combined
+  // count reveals the model is making zero progress.
+  let trailingNoProgressLength = 0;
+  let trailingNoProgressHasRepeats = false;
+  const trailingNoProgressCommands = new Set<string>();
+  let editFailureCount = 0;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const c = events[i].command;
+    if (c.startsWith("edit:") || c === "edit" || c.startsWith("write:") || c === "write"
+      || c.startsWith("filewrite:") || c === "filewrite"
+      || c.startsWith("applypatch:") || c === "applypatch"
+      || c.startsWith("taskcreate:") || c.startsWith("taskupdate:") || c.startsWith("todowrite:")) {
+      // Failed edits don't count as progress — they're a stall signal too
+      const sig = events[i].resultSignature;
+      if (sig && (sig.includes("error") || sig.includes("failed") || sig.includes("no match"))) {
+        editFailureCount += 1;
+        trailingNoProgressLength += 1;
+        trailingNoProgressCommands.add(c);
+        continue;
+      }
+      break;
+    }
+    trailingNoProgressLength += 1;
+    trailingNoProgressCommands.add(c);
+  }
+  if (trailingNoProgressLength > trailingNoProgressCommands.size) {
+    trailingNoProgressHasRepeats = true;
+  }
+
   // Enforce follow-through when a declaration-only edit is made: avoid read/search churn.
   let sawDeclarationOnlyEdit = false;
   let sawFollowupConcreteEdit = false;
@@ -787,6 +843,7 @@ export function evaluateExecutionGovernor(
   }
   const effectiveNoEditEvidence = noEditEvidence && !isInvestigationOnly;
   if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
+  if (consecutiveEditFailures >= 3) matchedRules.push("consecutive_edit_failures");
   if (repeatedEditFailureReplay >= 1) matchedRules.push("edit_failure_replay");
   if (repeatedTaskCreateReplay >= 1) matchedRules.push("task_creation_replay");
   if (!isInvestigationOnly && declarationFollowthroughViolation) matchedRules.push("declaration_followthrough_required");
@@ -807,6 +864,11 @@ export function evaluateExecutionGovernor(
   }
   if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
     matchedRules.push("verbal_intent_without_action");
+  }
+  // Combined no-progress: fires when verification + exploration interleaving hides the stall
+  const noProgressThreshold = hasPlanInContext ? 5 : 8;
+  if (!isInvestigationOnly && trailingNoProgressLength >= noProgressThreshold && effectiveNoEditEvidence && trailingNoProgressHasRepeats) {
+    matchedRules.push("no_progress_loop");
   }
   if (!isInvestigationOnly && planCachedRereadCount >= 2 && !hasPlanEdit) {
     matchedRules.push("plan_reread_loop");
@@ -881,12 +943,31 @@ export function evaluateExecutionGovernor(
     };
   }
 
+  if (matchedRules.includes("consecutive_edit_failures")) {
+    return {
+      pause: true,
+      reason: "consecutive_edit_failures",
+      suggestedNextStep:
+        `Your last ${consecutiveEditFailures} edit attempts ALL failed. STOP trying to edit. The files likely already contain the changes you are attempting. Evidence: git diff shows modifications to these files. Run \`git diff <file>\` to see what's already changed. If the changes are present, the work is DONE — update the plan or task status and move on. If the changes genuinely don't exist, use \`cat <file>\` to get the CURRENT file content (not a cached Read), then construct your edit with exact old_string from that output.`,
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+      },
+    };
+  }
+
   if (matchedRules.includes("edit_failure_replay")) {
     return {
       pause: true,
       reason: "edit_failure_replay",
       suggestedNextStep:
-        "You are replaying the same edit failure. Stop retrying the same patch. Read the exact target section once (use offset/limit if large), then issue one corrected Edit/Update with exact old_string/new_string, and verify narrowly.",
+        "You are replaying the same edit failure. The file may already contain the changes (stale Read cache). Run `git diff <file>` to check. If changes exist, do NOT retry — mark the task done. Otherwise, re-read the exact target section with `cat <file>` or Read with offset/limit, then issue one corrected edit with exact old_string matching the current file content.",
       matchedRules,
       telemetry: {
         repeatedTestCommands,
@@ -995,6 +1076,27 @@ export function evaluateExecutionGovernor(
         hasPlanInContext,
         planReadCount,
         planCachedRereadCount,
+      },
+    };
+  }
+
+  if (matchedRules.includes("no_progress_loop")) {
+    return {
+      pause: true,
+      reason: "no_progress_loop",
+      suggestedNextStep:
+        `You have run ${trailingNoProgressLength} commands (builds, tests, reads, searches, git status) without making a single code edit. You are cycling between verification and exploration without progress. STOP. If builds pass and features work, the task is DONE — update the plan or task status. If something needs changing, make exactly ONE code edit now, then verify once.`,
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
       },
     };
   }
@@ -1287,6 +1389,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step2 = "Do NOT summarize the plan again. Do NOT search/grep to verify completed items. Pick the NEXT incomplete task from what you already read.";
       step3 = "Take one concrete action: Edit the plan to mark a task done, OR make a code edit (Write/Edit) for the next task, OR ask the user.";
       break;
+    case "no_progress_loop":
+      step1 = "STOP cycling between builds, tests, reads, and searches. You have made ZERO code edits across many commands.";
+      step2 = "If builds/tests pass and features work, the task is DONE. Update the plan file or call TaskUpdate/TodoWrite NOW.";
+      step3 = "If something still needs changing, make exactly ONE targeted code edit (Write/Edit), verify once, then report.";
+      break;
     case "verbal_intent_without_action":
       step1 = "STOP declaring intent. You have said 'I'll...' multiple times without acting. Do NOT output another plan or narration.";
       step2 = "If tasks are done, call TaskUpdate/TodoWrite NOW to mark them completed. If code is needed, make one Edit/Write call.";
@@ -1314,10 +1421,15 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step2 = "Make one concrete code fix at the reported symbol/location.";
       step3 = "Run one narrow file-level or package-level verification command (not a broad build).";
       break;
+    case "consecutive_edit_failures":
+      step1 = "STOP editing. Every recent edit attempt failed. The files almost certainly already contain your changes (git diff confirms modifications).";
+      step2 = "Run `git diff <file>` for each file you tried to edit. If changes are present, the work is DONE. Update plan/task status.";
+      step3 = "If you genuinely need to edit, use `cat <file>` (NOT Read) to get current content, then construct ONE edit with exact old_string from that output.";
+      break;
     case "edit_failure_replay":
-      step1 = "Re-read the exact target section of the file you tried to edit (use offset/limit to get current content).";
-      step2 = "Adjust old_string to match the file's actual content exactly — whitespace, indentation, surrounding lines.";
-      step3 = "Apply one corrected Edit call. Do not retry with identical arguments.";
+      step1 = "Run `git diff <file>` to check if the changes already exist. If they do, the work is done — do NOT retry the edit.";
+      step2 = "If the changes do NOT exist, re-read the exact target section with `cat <file>` or Read (offset/limit) to get current content, and adjust old_string to match exactly.";
+      step3 = "Apply one corrected Edit call. If it fails again, the file likely already has your changes. Mark the task done and move on.";
       break;
     case "task_creation_replay":
     case "completion_claim_requires_task_update":
