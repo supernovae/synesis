@@ -27,6 +27,7 @@ import {
   type ClaudeMessagesRequest,
   type OpenAIChatCompletionRequest
 } from "./schemas.js";
+import { shouldIncludeStreamUsage, toOpenAiUsage } from "./openai-compat.js";
 import {
   buildClaudeBootstrapTemplate,
   executeClaudeCompatCommand,
@@ -5934,7 +5935,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       finalResult = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
-        maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
+      maxOutputTokens: clampMaxOutputTokensForSafety(
+        Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
+      ),
         ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
         ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
@@ -6031,7 +6034,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         finalResult = await generateText({
           model: resolved.model as never,
           messages: currentMessages,
-          maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
+          maxOutputTokens: clampMaxOutputTokensForSafety(
+            Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
+          ),
           ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
           ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
           ...(sdkTools ? { tools: sdkTools } : {}),
@@ -6447,7 +6452,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       model: resolved.resolvedModelId,
-      choices: [{ index: 0, message, finish_reason: finishReason }]
+      choices: [{ index: 0, message, finish_reason: finishReason }],
+      usage: toOpenAiUsage(usage),
     });
   }
 
@@ -6484,7 +6490,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const streamed = streamText({
     model: resolved.model as never,
     messages: modelMessages,
-    maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(orchestration.maxOutputTokens, request.max_tokens ?? 0)),
+    maxOutputTokens: clampMaxOutputTokensForSafety(
+      Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
+    ),
     ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
     ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
     ...(sdkTools ? { tools: sdkTools } : {}),
@@ -6858,18 +6866,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
       pendingTextDeltas.length = 0;
   }
 
-  safeWrite(reply.raw, `data: ${JSON.stringify({
-    id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
-    choices: [{ index: 0, delta: {}, finish_reason: finishReason }]
-  })}\n\n`);
-  safeWrite(reply.raw, "data: [DONE]\n\n");
-  safeEnd(reply.raw);
-  oaiHeartbeat.stop();
-
   let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
   let streamedText = "";
   try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
   try { streamedText = await streamed.text; } catch { /* stream aborted */ }
+  const finalChunkPayload: Record<string, unknown> = {
+    id: reqId,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: resolved.resolvedModelId,
+    choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+  };
+  if (shouldIncludeStreamUsage(request.stream_options)) {
+    finalChunkPayload.usage = toOpenAiUsage(oaiStreamUsage);
+  }
+  safeWrite(reply.raw, `data: ${JSON.stringify(finalChunkPayload)}\n\n`);
+  safeWrite(reply.raw, "data: [DONE]\n\n");
+  safeEnd(reply.raw);
+  oaiHeartbeat.stop();
   if (streamedText) {
     const finalized = finalizePostStreamText({
       requestId: reqId,

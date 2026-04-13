@@ -21,10 +21,6 @@ export function initFgaClient(config: AppConfig): void {
   });
 }
 
-export function getFgaClient(): OpenFgaClient | null {
-  return fgaClient;
-}
-
 export interface FgaCheckResult {
   allowed: boolean;
   resolution?: string;
@@ -65,35 +61,3 @@ export async function fgaCheck(
   }
 }
 
-export async function fgaBatchCheck(
-  checks: Array<{ user: string; relation: string; object: string }>,
-): Promise<FgaCheckResult[]> {
-  if (!fgaClient) {
-    return checks.map(() => ({ allowed: false, resolution: "openfga_not_configured" }));
-  }
-  try {
-    const response = await fgaClient.batchCheck({
-      checks: checks.map((c) => ({
-        user: c.user,
-        relation: c.relation,
-        object: c.object,
-      })),
-    });
-    return (response.result ?? []).map((r) => ({
-      allowed: r.allowed ?? false,
-      resolution: r.error?.message,
-    }));
-  } catch {
-    return checks.map(() => ({ allowed: false, resolution: "openfga_batch_error" }));
-  }
-}
-
-export async function fgaHealthy(): Promise<boolean> {
-  if (!fgaClient) return false;
-  try {
-    await fgaClient.readAuthorizationModels({ pageSize: 1 });
-    return true;
-  } catch {
-    return false;
-  }
-}

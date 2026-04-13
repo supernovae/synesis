@@ -15,6 +15,10 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   stream: z.boolean().optional().default(false),
   temperature: z.number().optional(),
   max_tokens: z.number().optional(),
+  max_completion_tokens: z.number().optional(),
+  stream_options: z.object({
+    include_usage: z.boolean().optional(),
+  }).passthrough().optional(),
   tools: z.array(z.any()).optional(),
   tool_choice: z.any().optional(),
   user: z.string().optional(),

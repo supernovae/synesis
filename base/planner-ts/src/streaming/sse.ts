@@ -106,19 +106,6 @@ export function writeAssistantRoleDelta(
   writeSseData(response, body);
 }
 
-/** @deprecated Use writeContentDelta instead */
-export function writeCompletionChunk(
-  response: ServerResponse,
-  payload: {
-    id: string;
-    created: number;
-    model: string;
-    content: string;
-  }
-): void {
-  writeContentDelta(response, payload);
-}
-
 export function writeFinalChunk(
   response: ServerResponse,
   payload: {

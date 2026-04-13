@@ -62,7 +62,7 @@ Current implementation references:
 
 ### Retrieval quality sensitivity (planner)
 
-- Metadata filters via `build_metadata_filter()` in [`base/planner/app/rag_client.py`](../base/planner/app/rag_client.py) for:
+- Metadata filters via `buildMetadataFilter()` in [`base/planner-ts/src/retrieval/metadata-filter.ts`](../base/planner-ts/src/retrieval/metadata-filter.ts) for:
   - `content_type`
   - `index_decision`
   - `content_format`

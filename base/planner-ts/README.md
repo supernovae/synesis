@@ -75,7 +75,7 @@ This service is the TypeScript migration target for the planner runtime.
 - Auth/RBAC hardening bootstrap:
   - explicit `AuthContext` resolution in `src/auth/resolver.ts` (token mode + forwarded identity trust boundary)
   - scoped authorization gate in `src/auth/authorizer.ts` for chat-completions access
-  - pluggable policy engine seam in `src/auth/policy-engine.ts` (`deterministic` now, `openfga_stub` for staged integration)
+  - OpenFGA-backed policy engine in `src/auth/policy-engine.ts` for centralized authorization checks
   - strict forwarded-header mode for service-to-service identity propagation
   - per-request authz decision trace headers (`x-synesis-authz-trace-id`, `x-synesis-authz-engine`, `x-synesis-authz-rules`)
   - authz counters + recent decision events exposed via `/health` (`auth.policyStats`)

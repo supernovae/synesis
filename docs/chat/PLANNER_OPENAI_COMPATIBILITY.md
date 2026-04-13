@@ -14,23 +14,20 @@ Primary chat endpoint. Accepts OpenAI `ChatCompletion` request schema and return
 |-------|------|---------|-------|
 | `model` | `string` | `"Synesis"` | Accepts `Synesis`, `Synesis Thinking`, `synesis-agent`, and `openai/` prefixed variants |
 | `messages` | `array` | required | At least one `role: "user"` message must be present |
-| `messages[].content` | `string \| array \| null` | — | Multipart arrays (vision API format) are flattened to text; `null` is treated as empty |
-| `temperature` | `float` | `0.2` | Passed through to upstream models |
+| `messages[].content` | `string \| null` | — | Non-string payloads are rejected by schema validation |
 | `max_tokens` | `int \| null` | `null` | Fallback when `max_completion_tokens` is absent |
 | `max_completion_tokens` | `int \| null` | `null` | Preferred (OpenAI spec); takes precedence over `max_tokens` |
 | `stream` | `bool` | `false` | Enable SSE streaming |
-| `stream_options` | `object \| null` | `null` | `{"include_usage": true}` — usage is always included on final chunk regardless |
+| `stream_options` | `object \| null` | `null` | `{"include_usage": false}` suppresses final-chunk usage |
 | `user` | `string \| null` | `null` | User ID for identity attribution |
 
-**Ignored fields (extra="ignore"):** `frequency_penalty`, `presence_penalty`, `top_p`, `n`, `stop`, `logprobs`, `seed`, and other OpenAI SDK extras are silently dropped.
+**Ignored fields:** Unknown top-level request fields are stripped by schema parsing and do not affect planner behavior.
 
 **Synesis extensions (non-standard fields):**
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `retrieval` | `object \| null` | RAG strategy/reranker/top_k overrides |
 | `conversation_id` | `string \| null` | Conversation threading for memory/history |
-| `output_controls` | `object \| null` | Precise mode, output format overrides |
 
 ### `GET /v1/models`
 
@@ -83,17 +80,17 @@ All HTTP errors follow the OpenAI error object format:
 | 429 | `rate_limit_error` |
 | 500+ | `server_error` |
 
-Pydantic validation errors (422) are also wrapped in this envelope with field-level details in the `message`.
+Zod validation errors are surfaced as `400 invalid_request_error` with a sanitized validation message.
 
 ## Authentication
 
 ### No-auth mode (development/testing)
 
-When `SYNESIS_PLANNER_REQUIRE_BEARER_AUTH=false` (default in tests), chat completions accept requests without a Bearer token. User identity falls back to request body `user` field or `"anonymous"`.
+When `SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH=false` (default in tests), chat completions accept requests without a Bearer token. User identity falls back to request body `user` field or `"anonymous"`.
 
 ### Bearer-required mode (production)
 
-When `SYNESIS_PLANNER_REQUIRE_BEARER_AUTH=true`:
+When `SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH=true`:
 
 1. All `/v1/chat/completions` requests must include `Authorization: Bearer <token>`
 2. Missing Bearer returns `401` with OpenAI error envelope
@@ -105,14 +102,14 @@ When `SYNESIS_PLANNER_REQUIRE_BEARER_AUTH=true`:
 
 ### Forwarded identity (Open WebUI proxy mode)
 
-When `trust_forwarded_identity_headers=true` and the bearer matches an internal service token, the planner reads user identity from:
+When `SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS=true` and the bearer matches an internal service token, the planner reads user identity from:
 - `X-OpenWebUI-User-Id`
 - `X-OpenWebUI-User-Email`
 - `X-Synesis-Org-Id` / `X-Synesis-Org-Name`
 - `X-Synesis-Tenant-Ids`
 - `X-OpenWebUI-Chat-Id`
 
-When `strict_forwarded_identity_mode=true`, untrusted bearers carrying these headers are rejected with `403`.
+When `SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE=true`, untrusted bearers carrying these headers are rejected with `403`.
 
 ## Streaming Behavior
 
@@ -130,15 +127,13 @@ Every chunk includes `id`, `object`, `created`, and `model` fields to satisfy st
 
 The planner emits additional SSE lines for Open WebUI status indicators:
 
-- **Status/phase events:** `data: {"event": {"description": "...", "done": false}}`
-- **Error events (on graph failure):** `event: error\ndata: {"error": "...", "error_code": "..."}`
-- **Debug chatter (opt-in):** `event: debug_chatter\ndata: {"node": "...", "label": "...", "content": "..."}`
+- **Status/phase events:** `data: {"event": {"type": "status", "data": {"description": "...", "done": false, "hidden": false}}}`
 
-**Strict OpenAI SDK parsers** should skip any `data:` line whose JSON does not have `"object": "chat.completion.chunk"`. The planner ensures all non-standard lines use distinct `data:` payloads (with `"event"` key) or named SSE events (`event: error`).
+**Strict OpenAI SDK parsers** should skip any `data:` line whose JSON does not have `"object": "chat.completion.chunk"`. The planner emits status updates as JSON envelopes in `data:` lines (no SSE named events required).
 
 ### Usage on final chunk
 
-Usage is **always** included on the final chunk regardless of `stream_options.include_usage`. Fields:
+Usage is included on the final chunk unless `stream_options.include_usage` is explicitly set to `false`. Fields:
 - `prompt_tokens` — sum across all pipeline LLM calls
 - `completion_tokens` — sum across all pipeline LLM calls
 - `total_tokens` — `prompt_tokens + completion_tokens`
@@ -171,18 +166,17 @@ Usage is **always** included on the final chunk regardless of `stream_options.in
     "cached_prompt_tokens": 20
   },
   "run_id": "uuid-for-feedback",
-  "pipeline_trace": { ... }
 }
 ```
 
-**Synesis extensions** in the response: `run_id` (for feedback correlation) and `pipeline_trace` (node-level observability). Standard clients ignore these.
+**Synesis extensions** in the response: `run_id` (for feedback correlation) and `authz_trace_id` (auth lineage). Standard clients ignore these.
 
 ## Test Matrix
 
 Run the compatibility test suite:
 
 ```bash
-uv run pytest base/planner/tests/test_api.py -v
+npm run test --prefix base/planner-ts tests/api-contract.test.ts tests/sse-conformance.test.ts
 ```
 
 ### Test coverage by area
@@ -210,11 +204,11 @@ Configure your client to skip `data:` lines that don't parse as `chat.completion
 
 ### 401 on chat completions
 
-Check `SYNESIS_PLANNER_REQUIRE_BEARER_AUTH`. In production, provide `Authorization: Bearer <token>`. PAT tokens start with `syn-`; internal service tokens are configured via `SYNESIS_INTERNAL_SERVICE_TOKEN`.
+Check `SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH`. In production, provide `Authorization: Bearer <token>`. PAT tokens start with `syn-`; internal service tokens are configured via `SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN`.
 
 ### 403 with "Untrusted forwarded identity headers"
 
-This happens when `strict_forwarded_identity_mode=true` and the bearer is not a recognized internal service token but the request carries `X-OpenWebUI-*` or `X-Synesis-*` headers. Either use a dedicated service token or remove the forwarded identity headers.
+This happens when `SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE=true` and the bearer is not a recognized internal service token but the request carries `X-OpenWebUI-*` or `X-Synesis-*` headers. Either use a dedicated service token or remove the forwarded identity headers.
 
 ### Missing usage data
 

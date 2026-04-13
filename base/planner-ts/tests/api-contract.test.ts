@@ -282,6 +282,7 @@ describe("API contract", () => {
     expect(response.statusCode).toBe(403);
     const body = response.json();
     expect(body.error?.message).toContain("scope");
+    expect(body.error?.type).toBe("permission_error");
     expect(response.headers["x-synesis-authz-engine"]).toBe("openfga");
     expect(String(response.headers["x-synesis-authz-rules"] ?? "")).toContain("deny_missing_model_scope");
     expect(String(response.headers["x-synesis-authz-trace-id"] ?? "").length).toBeGreaterThan(10);
@@ -345,6 +346,8 @@ describe("API contract", () => {
       }
     });
     expect(response.statusCode).toBe(403);
+    const body = response.json();
+    expect(body.error?.type).toBe("permission_error");
     await app.close();
   });
 
@@ -436,6 +439,7 @@ describe("API contract", () => {
       expect(response.statusCode).toBe(403);
       const body = response.json();
       expect(body.error?.message).toContain("denied");
+      expect(body.error?.type).toBe("permission_error");
     } finally {
       setFgaCheckOverride(() => ({ allowed: true }));
       await app.close();

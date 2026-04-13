@@ -6,7 +6,6 @@ import {
   computeWriterEffectiveMaxTokens,
   budgetSpanMetadata,
   budgetUtilization,
-  writerBudgetSpanMetadata,
 } from "../src/budgets.js";
 import { loadConfig } from "../src/config.js";
 
@@ -95,9 +94,6 @@ describe("budgetSpanMetadata", () => {
     expect(meta.budget_utilization).toBe(0);
   });
 
-  it("writerBudgetSpanMetadata is an alias for budgetSpanMetadata", () => {
-    expect(writerBudgetSpanMetadata).toBe(budgetSpanMetadata);
-  });
 });
 
 describe("budgetUtilization", () => {

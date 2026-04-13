@@ -85,5 +85,3 @@ export function budgetSpanMetadata(
   };
 }
 
-/** @deprecated Use `budgetSpanMetadata` — renamed for clarity since it applies to all LLM spans. */
-export const writerBudgetSpanMetadata = budgetSpanMetadata;

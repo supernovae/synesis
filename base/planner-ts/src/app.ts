@@ -23,6 +23,7 @@ import {
 } from "./auth/policy-engine.js";
 import { resolveAuthContext } from "./auth/resolver.js";
 import { initFgaClient } from "./auth/openfga-client.js";
+import { resolvePatFromDb } from "./auth/pat-resolver.js";
 import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
 import { loadConfig } from "./config.js";
@@ -119,18 +120,23 @@ function normalizeSourceSurface(value: unknown): WebSearchAttribution["source_su
   }
 }
 
-function isSearchRouteAuthorized(
+async function isSearchRouteAuthorized(
   authorizationHeader: string | undefined,
   internalServiceToken: string,
-): boolean {
+  patPepper: string,
+): Promise<boolean> {
   const raw = String(authorizationHeader ?? "");
   if (!raw.toLowerCase().startsWith("bearer ")) return false;
   const bearer = raw.slice(7).trim();
   if (!bearer) return false;
   if (internalServiceToken && bearer === internalServiceToken) return true;
-  // PAT-style access for internal search tooling (Yarn/MCP/OpenWebUI pass-through).
-  if (bearer.startsWith("syn-")) return true;
-  return !internalServiceToken;
+  if (!bearer.startsWith("syn-")) return false;
+  try {
+    const pat = await resolvePatFromDb(bearer, patPepper);
+    return Boolean(pat);
+  } catch {
+    return false;
+  }
 }
 
 type ParsedChatRequest = ReturnType<typeof ChatCompletionRequestSchema.parse>;
@@ -795,7 +801,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
     config: { rateLimit: { max: 180, timeWindow: "1 minute" } },
   }, async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!isSearchRouteAuthorized(request.headers.authorization, token)) {
+    if (!await isSearchRouteAuthorized(
+      request.headers.authorization,
+      token,
+      config.SYNESIS_PAT_PEPPER,
+    )) {
       return reply.code(401).send({ error: "unauthorized" });
     }
 
@@ -902,7 +912,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
     config: { rateLimit: { max: 180, timeWindow: "1 minute" } },
   }, async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!isSearchRouteAuthorized(request.headers.authorization, token)) {
+    if (!await isSearchRouteAuthorized(
+      request.headers.authorization,
+      token,
+      config.SYNESIS_PAT_PEPPER,
+    )) {
       return reply.code(401).send({ error: "unauthorized" });
     }
     if (!config.SYNESIS_WEB_SEARCH_ENABLED || !config.SYNESIS_WEB_SEARCH_URL) {
@@ -1096,7 +1110,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
       return reply.code(statusCode).send({
         error: {
           message: clientMessage,
-          type: statusCode === 401 ? "authentication_error" : "invalid_request_error",
+          type: statusCode === 401
+            ? "authentication_error"
+            : statusCode === 403
+              ? "permission_error"
+              : "invalid_request_error",
           code: String(statusCode)
         }
       });
@@ -1849,6 +1867,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
           message: clientMessage,
           type: statusCode === 401
             ? "authentication_error"
+            : statusCode === 403
+              ? "permission_error"
             : statusCode === 429
               ? "rate_limit_error"
               : statusCode >= 500
