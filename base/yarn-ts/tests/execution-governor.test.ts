@@ -1241,4 +1241,75 @@ describe("execution governor", () => {
     expect(block).toContain("STOP cycling");
     expect(block).toContain("no_progress_loop");
   });
+
+  it("fires verification_after_completion_claim when model says 'already done' then keeps verifying", () => {
+    const messages = [
+      { role: "user", content: "implement keychain integration" },
+      { role: "assistant", content: "The keychain integration is already done from the previous session. Let me verify." },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go vet ./... 2>&1" }),
+      toolResult("2", ""),
+      assistantCall("3", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("3", "authcmd.go | 59 ++++\nconfig.go | 13 +"),
+      { role: "assistant", content: "Let me check what remains." },
+      assistantCall("4", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("4", ""),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_after_completion_claim");
+    expect(out.reason).toBe("verification_after_completion_claim");
+    expect(out.suggestedNextStep).toContain("acknowledged the work is already done");
+  });
+
+  it("fires verification_after_completion_claim with 'already implemented' phrasing", () => {
+    const messages = [
+      { role: "user", content: "add keychain to config" },
+      { role: "assistant", content: "Good news — looking at the files, the Keychain integration is already implemented in both authcmd.go and config.go." },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1 && echo ALL OK" }),
+      toolResult("1", "ALL OK"),
+      assistantCall("2", "bash", { command: "git status --short" }),
+      toolResult("2", "M cmd/synesis/authcmd.go\nM pkg/config/config.go"),
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis/ 2>&1 && echo BUILD OK" }),
+      toolResult("3", "BUILD OK"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_after_completion_claim");
+  });
+
+  it("does not fire verification_after_completion_claim when model takes action after claim", () => {
+    const messages = [
+      { role: "user", content: "implement keychain" },
+      { role: "assistant", content: "The keychain integration is already done. Let me update the plan." },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "str_replace", { filePath: ".claude/plans/plan.md", oldString: "- [ ] keychain", newString: "- [x] keychain" }),
+      toolResult("2", "ok"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_after_completion_claim");
+  });
+
+  it("verification_after_completion_claim recovery block mentions git commit", () => {
+    const messages = [
+      { role: "user", content: "finish keychain" },
+      { role: "assistant", content: "The keychain integration is already done from the previous session." },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("2", "9 files changed"),
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "bash", { command: "git status" }),
+      toolResult("4", "M authcmd.go"),
+    ];
+    const decision = evaluateExecutionGovernor(messages);
+    expect(decision.pause).toBe(true);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("You ALREADY said the work is done");
+    expect(block).toContain("git add");
+    expect(block).toContain("verification_after_completion_claim");
+  });
 });

@@ -275,7 +275,10 @@ function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): bo
     .join("\n");
   if (!assistantText.trim()) return false;
   return /\bi('| a)?ve?\s+(completed|finished|done|implemented)\b/.test(assistantText)
-    || /\b(task|feature|clipboard|implementation)\s+(is\s+)?(complete|done)\b/.test(assistantText);
+    || /\b(task|feature|clipboard|implementation|integration)\s+(is\s+)?(complete|done)\b/.test(assistantText)
+    || /\balready\s+(done|implemented|complete|integrated|finished)\b/.test(assistantText)
+    || /\b(is|was)\s+already\s+(done|implemented|complete|integrated)\b/.test(assistantText)
+    || /\bfrom\s+the\s+previous\s+session\b/.test(assistantText);
 }
 
 function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
@@ -825,6 +828,34 @@ export function evaluateExecutionGovernor(
     completionClaimNeedsTaskUpdate = true;
   }
 
+  // Detect "completion acknowledged but verification continues" — the model says "already done"
+  // or "already implemented" and then keeps running builds/diffs/status instead of
+  // updating the plan, committing, or moving on. Count verification+exploration events
+  // after the last assistant message that contains a completion claim.
+  let verificationAfterCompletionClaim = 0;
+  const hasAnyClaim = hasCompletionClaimInAssistantText(turnMessages);
+  if (hasAnyClaim) {
+    let lastClaimIdx = -1;
+    for (let i = turnMessages.length - 1; i >= 0; i -= 1) {
+      if (turnMessages[i].role === "assistant" && typeof turnMessages[i].content === "string") {
+        if (hasCompletionClaimInAssistantText([turnMessages[i]])) {
+          lastClaimIdx = i;
+          break;
+        }
+      }
+    }
+    if (lastClaimIdx >= 0) {
+      const postClaimEvents = extractCommandEvents(turnMessages.slice(lastClaimIdx));
+      for (const e of postClaimEvents) {
+        const c = e.command;
+        if (c.startsWith("edit:") || c === "edit" || c.startsWith("write:") || c === "write"
+          || c.startsWith("taskcreate:") || c.startsWith("taskupdate:") || c.startsWith("todowrite:")) {
+          break;
+        }
+        verificationAfterCompletionClaim += 1;
+      }
+    }
+  }
   const verbalIntentStreak = countVerbalIntentStreak(turnMessages, events);
 
   // Read-only investigation intent: suppress noEditEvidence-dependent rules.
@@ -848,6 +879,9 @@ export function evaluateExecutionGovernor(
   if (repeatedTaskCreateReplay >= 1) matchedRules.push("task_creation_replay");
   if (!isInvestigationOnly && declarationFollowthroughViolation) matchedRules.push("declaration_followthrough_required");
   if (completionClaimNeedsTaskUpdate) matchedRules.push("completion_claim_requires_task_update");
+  if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence) {
+    matchedRules.push("verification_after_completion_claim");
+  }
   if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (repeatedTruncatedVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_done_report");
@@ -949,6 +983,25 @@ export function evaluateExecutionGovernor(
       reason: "consecutive_edit_failures",
       suggestedNextStep:
         `Your last ${consecutiveEditFailures} edit attempts ALL failed. STOP trying to edit. The files likely already contain the changes you are attempting. Evidence: git diff shows modifications to these files. Run \`git diff <file>\` to see what's already changed. If the changes are present, the work is DONE — update the plan or task status and move on. If the changes genuinely don't exist, use \`cat <file>\` to get the CURRENT file content (not a cached Read), then construct your edit with exact old_string from that output.`,
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_after_completion_claim")) {
+    return {
+      pause: true,
+      reason: "verification_after_completion_claim",
+      suggestedNextStep:
+        `You acknowledged the work is already done, then ran ${verificationAfterCompletionClaim} more verification commands (builds, tests, git status, diffs). STOP verifying. The work is complete. Take ONE of these actions NOW: (1) update the plan file to mark the task done, (2) run \`git add\` + \`git commit\` to commit the changes, (3) tell the user the task is complete. Do NOT run another build, test, diff, or status command.`,
       matchedRules,
       telemetry: {
         repeatedTestCommands,
@@ -1388,6 +1441,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP re-reading the plan file. You have already loaded it and each re-read returned unchanged/cached. You have the plan content.";
       step2 = "Do NOT summarize the plan again. Do NOT search/grep to verify completed items. Pick the NEXT incomplete task from what you already read.";
       step3 = "Take one concrete action: Edit the plan to mark a task done, OR make a code edit (Write/Edit) for the next task, OR ask the user.";
+      break;
+    case "verification_after_completion_claim":
+      step1 = "You ALREADY said the work is done. STOP running builds, tests, git status, and diffs. There is nothing to verify.";
+      step2 = "Take ONE completion action: update the plan to mark the task done, OR run `git add` + `git commit`, OR tell the user the task is complete.";
+      step3 = "Do NOT run another verification command. The build passes. The code is correct. Act on that knowledge.";
       break;
     case "no_progress_loop":
       step1 = "STOP cycling between builds, tests, reads, and searches. You have made ZERO code edits across many commands.";
