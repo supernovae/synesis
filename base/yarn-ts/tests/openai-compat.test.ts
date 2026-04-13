@@ -13,6 +13,9 @@ describe("openai compatibility helpers", () => {
       prompt_tokens: 120,
       completion_tokens: 45,
       total_tokens: 165,
+      prompt_tokens_details: {
+        cached_tokens: 30,
+      },
       cached_prompt_tokens: 30,
       cache_creation_tokens: 5,
     });
