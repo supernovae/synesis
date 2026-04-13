@@ -27,6 +27,8 @@ export interface ExecutionGovernorDecision {
     trailingVerificationRunLength: number;
     trailingExplorationRunLength?: number;
     hasPlanInContext?: boolean;
+    planReadCount?: number;
+    planCachedRereadCount?: number;
   };
 }
 
