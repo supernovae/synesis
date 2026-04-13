@@ -290,18 +290,18 @@ function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
  * Returns the max consecutive streak of intent-only assistant messages.
  */
 function countVerbalIntentStreak(messages: GovernorInputMessage[], events: CommandEvent[]): number {
-  const editOrTaskCommands = new Set(
-    events
-      .filter((e) =>
-        e.command.startsWith("edit:") || e.command === "edit"
-        || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
-        || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
-        || e.command.startsWith("todowrite:") || e.command === "todowrite",
-      )
-      .map((e) => e.command),
+  // Only real file edits and task lifecycle mutations reset the streak.
+  // Bash commands (mkdir, etc.), reads, and searches do NOT count as progress.
+  const hasRealEditOrTaskAction = events.some((e) =>
+    e.command.startsWith("edit:") || e.command === "edit"
+    || e.command.startsWith("write:") || e.command === "write"
+    || e.command.startsWith("filewrite:") || e.command === "filewrite"
+    || e.command.startsWith("applypatch:") || e.command === "applypatch"
+    || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
+    || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
+    || e.command.startsWith("todowrite:") || e.command === "todowrite",
   );
-  const hasAnyEditOrTaskAction = editOrTaskCommands.size > 0;
-  if (hasAnyEditOrTaskAction) return 0;
+  if (hasRealEditOrTaskAction) return 0;
 
   let streak = 0;
   for (const m of messages) {
@@ -712,6 +712,24 @@ export function evaluateExecutionGovernor(
     e.command.startsWith("read:") && e.command.includes("/.claude/plans/"),
   );
 
+  // Count plan file re-reads: reads of .claude/plans/* where the result signals
+  // "unchanged" / "cached" / SYNESIS_PLAN_LOADED cached. A single initial read is
+  // fine; 2+ re-reads without an intervening plan edit is a hard stall signal.
+  let planReadCount = 0;
+  let planCachedRereadCount = 0;
+  let hasPlanEdit = false;
+  for (const e of events) {
+    const c = e.command;
+    if (c.startsWith("edit:") && c.includes("/.claude/plans/")) { hasPlanEdit = true; continue; }
+    if (c.startsWith("read:") && c.includes("/.claude/plans/")) {
+      planReadCount += 1;
+      const sig = e.resultSignature;
+      if (sig.includes("unchanged") || sig.includes("cached") || sig.includes("synesis_plan_loaded") || sig.includes("already read")) {
+        planCachedRereadCount += 1;
+      }
+    }
+  }
+
   // Enforce follow-through when a declaration-only edit is made: avoid read/search churn.
   let sawDeclarationOnlyEdit = false;
   let sawFollowupConcreteEdit = false;
@@ -787,6 +805,9 @@ export function evaluateExecutionGovernor(
   }
   if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
     matchedRules.push("verbal_intent_without_action");
+  }
+  if (!isInvestigationOnly && planCachedRereadCount >= 2 && !hasPlanEdit) {
+    matchedRules.push("plan_reread_loop");
   }
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
@@ -949,6 +970,29 @@ export function evaluateExecutionGovernor(
         broadTestRepeat,
         noEditEvidence,
         trailingVerificationRunLength,
+      },
+    };
+  }
+
+  if (matchedRules.includes("plan_reread_loop")) {
+    return {
+      pause: true,
+      reason: "plan_reread_loop",
+      suggestedNextStep:
+        `You have re-read the plan file ${planCachedRereadCount} times and each time it was unchanged/cached. STOP reading the plan. You already have the plan content. Do NOT re-read it, do NOT re-summarize it, do NOT re-verify items marked complete. Take ONE concrete action now: (1) if a task needs marking done, call the plan Edit tool once, (2) if work is needed, make a code edit (Write/Edit), (3) if confused about next step, ask the user.`,
+      matchedRules,
+      telemetry: {
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
+        planReadCount,
+        planCachedRereadCount,
       },
     };
   }
@@ -1236,6 +1280,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
   let step3: string;
 
   switch (reason) {
+    case "plan_reread_loop":
+      step1 = "STOP re-reading the plan file. You have already loaded it and each re-read returned unchanged/cached. You have the plan content.";
+      step2 = "Do NOT summarize the plan again. Do NOT search/grep to verify completed items. Pick the NEXT incomplete task from what you already read.";
+      step3 = "Take one concrete action: Edit the plan to mark a task done, OR make a code edit (Write/Edit) for the next task, OR ask the user.";
+      break;
     case "verbal_intent_without_action":
       step1 = "STOP declaring intent. You have said 'I'll...' multiple times without acting. Do NOT output another plan or narration.";
       step2 = "If tasks are done, call TaskUpdate/TodoWrite NOW to mark them completed. If code is needed, make one Edit/Write call.";

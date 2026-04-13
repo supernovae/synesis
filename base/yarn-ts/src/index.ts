@@ -443,6 +443,7 @@ function annotatePlanFileReads(
   }
 
   let annotatedCount = 0;
+  let cachedPlanReads = 0;
   const planFilePaths: string[] = [];
   // Track which plan paths already have a real (content-bearing) read in context
   const planPathHasFullRead = new Set<string>();
@@ -465,6 +466,7 @@ function annotatePlanFileReads(
     // Case 0: Plan file read that returned a cache stub ("Unchanged" or guardrail)
     // The model already has this plan's content from an earlier read. Replace the
     // contradictory "use cat to re-read" guardrail with a definitive "do not re-read".
+    // Escalation: each subsequent cached read gets progressively more forceful.
     if (resolvedReadPath && isPlanPath(resolvedReadPath) && !editedPlanPaths.has(resolvedReadPath)) {
       const isStub =
         text.length < 80
@@ -473,11 +475,25 @@ function annotatePlanFileReads(
       if (isStub) {
         if (!planFilePaths.includes(resolvedReadPath)) planFilePaths.push(resolvedReadPath);
         annotatedCount += 1;
+        cachedPlanReads += 1;
         const hasContent = planPathHasFullRead.has(resolvedReadPath);
+        if (cachedPlanReads >= 3) {
+          return {
+            ...m,
+            content: [
+              `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}" cached="true" reread_count="${cachedPlanReads}" severity="critical">`,
+              `⛔ CRITICAL: You have re-read this plan file ${cachedPlanReads} times. It has NOT changed. STOP READING IT.`,
+              `You are stuck in a loop. The plan content is already in this conversation.`,
+              `DO NOT: re-read the plan, re-summarize completed items, search the codebase to verify completed items, or declare intent without acting.`,
+              `DO THIS NOW: Pick the next incomplete task and make ONE code edit (Write/Edit). Nothing else.`,
+              `</SYNESIS_PLAN_LOADED>`,
+            ].join("\n"),
+          };
+        }
         return {
           ...m,
           content: [
-            `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}" cached="true">`,
+            `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}" cached="true" reread_count="${cachedPlanReads}">`,
             hasContent
               ? `The plan file is unchanged. You already have its full content from an earlier read in this conversation.`
               : `The plan file was read previously but the content may have been pruned. Use Bash(cat ${resolvedReadPath}) once if you need to see it.`,

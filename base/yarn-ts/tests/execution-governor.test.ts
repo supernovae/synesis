@@ -948,4 +948,101 @@ describe("execution governor", () => {
     const out = evaluateExecutionGovernor(messages);
     expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
   });
+
+  it("fires plan_reread_loop when plan file is read 3+ times with unchanged results", () => {
+    const planPath = "/Users/test/.claude/plans/my-plan.md";
+    const messages = [
+      { role: "user", content: "load the plan and work on next item" },
+      assistantCall("1", "read_file", { path: planPath }),
+      toolResult("1", "---\ntitle: My Plan\ntodos:\n  - id: t1\n    content: Build feature\n    status: pending\n---\n# Plan\nBuild the feature."),
+      { role: "assistant", content: "I'll review the plan and start working." },
+      assistantCall("2", "read_file", { path: planPath }),
+      toolResult("2", "unchanged since last read"),
+      { role: "assistant", content: "I'll start implementing the feature." },
+      assistantCall("3", "search", { pattern: "feature" }),
+      toolResult("3", "src/main.ts:5: // feature placeholder"),
+      { role: "assistant", content: "Let me read the plan again to check status." },
+      assistantCall("4", "read_file", { path: planPath }),
+      toolResult("4", "unchanged since last read"),
+      { role: "assistant", content: "I'll mark the feature as done." },
+      assistantCall("5", "read_file", { path: planPath }),
+      toolResult("5", "unchanged since last read"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("plan_reread_loop");
+    expect(out.reason).toBe("plan_reread_loop");
+    expect(out.suggestedNextStep).toContain("re-read the plan file");
+  });
+
+  it("does not fire plan_reread_loop when plan was edited between reads", () => {
+    const planPath = "/Users/test/.claude/plans/my-plan.md";
+    const messages = [
+      { role: "user", content: "load the plan and update it" },
+      assistantCall("1", "read_file", { path: planPath }),
+      toolResult("1", "---\ntitle: My Plan\n---\n# Plan content"),
+      { role: "assistant", content: "I'll update the plan." },
+      assistantCall("2", "str_replace", { filePath: planPath, oldString: "pending", newString: "done" }),
+      toolResult("2", "ok"),
+      { role: "assistant", content: "Let me verify the update." },
+      assistantCall("3", "read_file", { path: planPath }),
+      toolResult("3", "unchanged since last read"),
+      assistantCall("4", "read_file", { path: planPath }),
+      toolResult("4", "unchanged since last read"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("plan_reread_loop");
+  });
+
+  it("fires plan_reread_loop recovery block with correct guidance", () => {
+    const planPath = "/Users/test/.claude/plans/my-plan.md";
+    const messages = [
+      { role: "user", content: "load plan and continue" },
+      assistantCall("1", "read_file", { path: planPath }),
+      toolResult("1", "---\ntitle: Plan\n---\n# Tasks"),
+      { role: "assistant", content: "I'll check the plan status." },
+      assistantCall("2", "read_file", { path: planPath }),
+      toolResult("2", "unchanged"),
+      { role: "assistant", content: "Let me re-read the plan." },
+      assistantCall("3", "read_file", { path: planPath }),
+      toolResult("3", "cached"),
+    ];
+    const decision = evaluateExecutionGovernor(messages);
+    expect(decision.pause).toBe(true);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP re-reading the plan file");
+    expect(block).toContain("plan_reread_loop");
+  });
+
+  it("verbal_intent_without_action is not reset by bash mkdir commands", () => {
+    const messages = [
+      { role: "user", content: "implement keychain package" },
+      { role: "assistant", content: "I'll implement the keychain package." },
+      assistantCall("1", "bash", { command: "mkdir -p pkg/keychain" }),
+      toolResult("1", ""),
+      { role: "assistant", content: "I'll start implementing keychain." },
+      assistantCall("2", "read_file", { path: "pkg/config/config.go" }),
+      toolResult("2", "package config\n// config code"),
+      { role: "assistant", content: "Let me implement the keychain now." },
+      assistantCall("3", "bash", { command: "go build ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("verbal_intent_without_action");
+  });
+
+  it("verbal_intent_without_action resets on real file edits (Write/Edit)", () => {
+    const messages = [
+      { role: "user", content: "implement keychain package" },
+      { role: "assistant", content: "I'll implement the keychain package." },
+      assistantCall("1", "str_replace", { filePath: "pkg/keychain/keychain.go", oldString: "", newString: "package keychain" }),
+      toolResult("1", "ok"),
+      { role: "assistant", content: "I'll add more code." },
+      assistantCall("2", "str_replace", { filePath: "pkg/keychain/keychain.go", oldString: "package keychain", newString: "package keychain\n\nfunc Get() {}" }),
+      toolResult("2", "ok"),
+      { role: "assistant", content: "Let me verify." },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+  });
 });
