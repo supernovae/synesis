@@ -5,8 +5,8 @@
  * read again with identical content, replaces the full content with a compact
  * reference stub, saving potentially thousands of tokens per repeated read.
  *
- * The dedup operates on tool-result messages that look like file reads
- * (tool name: read, read_file, etc.) before they enter the transcript.
+ * Also feeds file reads into an optional IncrementalStructuralIndex to build
+ * a live repo map from observed tool results.
  *
  * Strategy:
  * 1. Hash each file read result by path + content
@@ -14,6 +14,8 @@
  * 3. Subsequent identical reads: replace with `<FILE_UNCHANGED path="..." hash="..." first_seen_turn=N />`
  * 4. Changed reads (same path, different content): pass through, update hash
  */
+
+import type { IncrementalStructuralIndex } from "../memory/incremental-index.js";
 
 const READ_TOOL_NAMES = new Set([
   "read", "read_file", "readfile", "file_read",
@@ -44,9 +46,19 @@ export class ContentAddressedDedup {
   };
   private contextWindowStart = 0;
   private readonly stalenessMargin: number;
+  private structuralIndex: IncrementalStructuralIndex | null = null;
 
   constructor(stalenessMargin = 30) {
     this.stalenessMargin = stalenessMargin;
+  }
+
+  /** Attach a structural index builder to receive file contents on first read. */
+  attachStructuralIndex(index: IncrementalStructuralIndex): void {
+    this.structuralIndex = index;
+  }
+
+  getStructuralIndex(): IncrementalStructuralIndex | null {
+    return this.structuralIndex;
   }
 
   /** Inform the dedup of the current context window start index (after compaction). */
@@ -99,6 +111,7 @@ export class ContentAddressedDedup {
     }
 
     this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length, unchangedReadCount: 0 });
+    this.structuralIndex?.ingestFileRead(filePath, content, hash);
     return { content, deduplicated: false };
   }
 

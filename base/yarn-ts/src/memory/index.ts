@@ -66,3 +66,5 @@ export {
   type ContextInjectorInput,
   type InjectedContext,
 } from "./context-injector.js";
+
+export { IncrementalStructuralIndex } from "./incremental-index.js";

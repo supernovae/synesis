@@ -81,6 +81,8 @@ import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
+import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
+import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
 import { normalizeCommandOutputForComparison } from "./reduction/output-normalization.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
@@ -1886,13 +1888,34 @@ const transcriptPruning = new TranscriptPruningService({
   assistantCondenseChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS,
 });
 const contentDedupBySession = new Map<string, ContentAddressedDedup>();
+const structuralIndexBySession = new Map<string, IncrementalStructuralIndex>();
+const memoryGovernorBySession = new Map<string, MemoryGovernorTracker>();
 function getContentDedup(sessionKey: string): ContentAddressedDedup {
   let dedup = contentDedupBySession.get(sessionKey);
   if (!dedup) {
     dedup = new ContentAddressedDedup();
+    if (config.SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED) {
+      let idx = structuralIndexBySession.get(sessionKey);
+      if (!idx) {
+        idx = new IncrementalStructuralIndex();
+        structuralIndexBySession.set(sessionKey, idx);
+      }
+      dedup.attachStructuralIndex(idx);
+    }
     contentDedupBySession.set(sessionKey, dedup);
   }
   return dedup;
+}
+function getStructuralIndex(sessionKey: string): IncrementalStructuralIndex | null {
+  return structuralIndexBySession.get(sessionKey) ?? null;
+}
+function getMemoryGovernor(sessionKey: string): MemoryGovernorTracker {
+  let tracker = memoryGovernorBySession.get(sessionKey);
+  if (!tracker) {
+    tracker = new MemoryGovernorTracker();
+    memoryGovernorBySession.set(sessionKey, tracker);
+  }
+  return tracker;
 }
 
 const blockedDiscoveryBySession = new Map<string, number>();
@@ -2104,6 +2127,19 @@ function enrichWithFrameAndManifest(
     volatileBlocks.push({ role: "system", content: projectManifestService.toSystemBlock(manifest) });
   }
 
+  if (config.SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED) {
+    const sessionIdx = getStructuralIndex(sessionKey);
+    if (sessionIdx) {
+      const stats = sessionIdx.getStats();
+      if (stats.fileCount > 0) {
+        const repoMap = sessionIdx.renderMap(config.SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET);
+        if (repoMap) {
+          volatileBlocks.push({ role: "system", content: repoMap });
+        }
+      }
+    }
+  }
+
   // Inject Golden Trajectories (Experience Library)
   // If the user intent is recognized as a previously successful task, inject the trajectory.
   if (detectedGoal) {
@@ -2307,6 +2343,8 @@ async function getSessionKey(identity: SessionIdentity): Promise<string> {
       );
       sessions.delete(baseKey);
       contentDedupBySession.delete(baseKey);
+      structuralIndexBySession.delete(baseKey);
+      memoryGovernorBySession.delete(baseKey);
       blockedDiscoveryBySession.delete(baseKey);
       const rotated = `${baseKey}:r${Date.now()}`;
       return rotated;
@@ -4618,6 +4656,8 @@ const sessionEvictionTimer = setInterval(() => {
       void casSessionSave(state);
       sessions.delete(key);
       contentDedupBySession.delete(key);
+      structuralIndexBySession.delete(key);
+      memoryGovernorBySession.delete(key);
       blockedDiscoveryBySession.delete(key);
       stablePrefixService.evictSession(key);
     }
@@ -5186,6 +5226,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
     if (oaiDedupResult.dedupCount > 0) {
       normalizedOpenAI.messages = oaiDedupResult.messages as never;
+      const memTracker = getMemoryGovernor(sessionKey);
+      for (const p of oaiDedupResult.dedupPaths) {
+        memTracker.trackFileRead(p);
+        if (oaiDedup.getStructuralIndex()?.getFileSummary(p)) {
+          memTracker.trackSummaryGenerated(p);
+        }
+      }
       if (oaiDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
         app.log.debug({ reqId: oaiTraceReqId, dedupCount: oaiDedupResult.dedupCount, paths: oaiDedupResult.dedupPaths }, "content_dedup_applied");
       }
@@ -5617,6 +5664,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     modelFamily: inferModelFamily(oaiBackendModel),
   };
   const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
+  const oaiMemoryTracker = getMemoryGovernor(sessionKey);
+  const oaiStructIdx = getStructuralIndex(sessionKey);
+  if (oaiStructIdx) {
+    oaiMemoryTracker.setIndexAvailable(oaiStructIdx.getStats().fileCount > 0);
+  }
+  const oaiMemRules = evaluateMemoryRules(oaiMemoryTracker.getSignals());
+  const oaiMemBlocks = oaiMemRules.filter((r) => r.fired).map((r) =>
+    `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
+  );
   const oaiEnriched = enrichWithFrameAndManifest(
     normalizedOpenAI.messages as never,
     sessionKey,
@@ -5626,6 +5682,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     [
       ...(oaiTaskIntake ? [formatTaskIntakeBlock(oaiTaskIntake)] : []),
       ...(oaiPlanGraph ? [formatPlanProgressBlock(oaiPlanGraph)] : []),
+      ...oaiMemBlocks,
     ],
     oaiSeedDirs,
     session,
@@ -7215,6 +7272,13 @@ app.post("/v1/messages", async (req, reply) => {
     );
     if (claudeDedupResult.dedupCount > 0) {
       normalizedFromClaude.messages = claudeDedupResult.messages as never;
+      const claudeMemTracker = getMemoryGovernor(claudeSessionKey);
+      for (const p of claudeDedupResult.dedupPaths) {
+        claudeMemTracker.trackFileRead(p);
+        if (claudeDedup.getStructuralIndex()?.getFileSummary(p)) {
+          claudeMemTracker.trackSummaryGenerated(p);
+        }
+      }
       if (claudeDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
         app.log.debug({ reqId: traceReqId, dedupCount: claudeDedupResult.dedupCount, paths: claudeDedupResult.dedupPaths }, "content_dedup_applied");
       }
@@ -7650,6 +7714,15 @@ app.post("/v1/messages", async (req, reply) => {
     modelFamily: inferModelFamily(claudeBackendModel),
   };
   const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
+  const claudeMemoryTracker = getMemoryGovernor(claudeSessionKey);
+  const claudeStructIdx = getStructuralIndex(claudeSessionKey);
+  if (claudeStructIdx) {
+    claudeMemoryTracker.setIndexAvailable(claudeStructIdx.getStats().fileCount > 0);
+  }
+  const claudeMemRules = evaluateMemoryRules(claudeMemoryTracker.getSignals());
+  const claudeMemBlocks = claudeMemRules.filter((r) => r.fired).map((r) =>
+    `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
+  );
   const claudeEnriched = enrichWithFrameAndManifest(
     normalizedFromClaude.messages as never,
     claudeSessionKey,
@@ -7659,6 +7732,7 @@ app.post("/v1/messages", async (req, reply) => {
     [
       ...(claudeTaskIntake ? [formatTaskIntakeBlock(claudeTaskIntake)] : []),
       ...(claudePlanGraph ? [formatPlanProgressBlock(claudePlanGraph)] : []),
+      ...claudeMemBlocks,
     ],
     claudeSeedDirs,
     session,

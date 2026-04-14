@@ -70,12 +70,27 @@ export function generateFileSummary(
     } else if (lang === "python") {
       const m = line.match(/^(?:def|class)\s+(\w+)/);
       if (m && !m[1].startsWith("_")) exportedNames.push(m[1]);
+    } else if (lang === "rust") {
+      const m = line.match(/^pub\s+(?:async\s+)?(?:fn|struct|enum|trait|type|const)\s+(\w+)/);
+      if (m) exportedNames.push(m[1]);
+    } else if (lang === "java" || lang === "kotlin") {
+      const m = line.match(/^(?:public\s+)?(?:abstract\s+)?(?:class|interface|enum|record)\s+(\w+)/);
+      if (m) exportedNames.push(m[1]);
+    } else if (lang === "c" || lang === "cpp") {
+      const m = line.match(/^(?:typedef\s+)?(?:struct|class|enum|union)\s+(\w+)/);
+      if (m) exportedNames.push(m[1]);
     }
 
     const impMatch = line.match(/(?:from|import)\s+["']([^"']+)["']/);
     if (impMatch) importPaths.push(impMatch[1]);
     const goImpMatch = line.match(/^\s*"([^"]+)"/);
     if (goImpMatch && lang === "go") importPaths.push(goImpMatch[1]);
+    const rustUseMatch = line.match(/^use\s+([^;]+);/);
+    if (rustUseMatch && lang === "rust") importPaths.push(rustUseMatch[1].trim());
+    const javaImpMatch = line.match(/^import\s+(?:static\s+)?([^;]+);/);
+    if (javaImpMatch && (lang === "java" || lang === "kotlin")) importPaths.push(javaImpMatch[1].trim());
+    const cIncMatch = line.match(/^#include\s+[<"]([^>"]+)[>"]/);
+    if (cIncMatch && (lang === "c" || lang === "cpp")) importPaths.push(cIncMatch[1]);
   }
 
   if (exportedNames.length > 0) {

@@ -3,6 +3,7 @@ import {
   extractGoSymbols,
   extractTypeScriptSymbols,
   extractPythonSymbols,
+  extractSymbols,
   detectLanguage,
 } from "../src/memory/extractors.js";
 import {
@@ -44,7 +45,12 @@ describe("extractors", () => {
     it("detects TSX files", () => expect(detectLanguage("App.tsx")).toBe("typescript"));
     it("detects Python files", () => expect(detectLanguage("app.py")).toBe("python"));
     it("detects JavaScript files", () => expect(detectLanguage("util.js")).toBe("javascript"));
-    it("returns unknown for unrecognized", () => expect(detectLanguage("README.md")).toBe("unknown"));
+    it("detects Rust files", () => expect(detectLanguage("main.rs")).toBe("rust"));
+    it("detects Java files", () => expect(detectLanguage("App.java")).toBe("java"));
+    it("detects C files", () => expect(detectLanguage("main.c")).toBe("c"));
+    it("detects C++ files", () => expect(detectLanguage("main.cpp")).toBe("cpp"));
+    it("detects Markdown files", () => expect(detectLanguage("README.md")).toBe("markdown"));
+    it("returns unknown for unrecognized", () => expect(detectLanguage("data.csv")).toBe("unknown"));
   });
 
   describe("extractGoSymbols", () => {
@@ -633,5 +639,166 @@ describe("context injector", () => {
       memorySignals: signals,
     });
     expect(result.blocks.some((b) => b.includes("MEMORY_HINT"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// New language extractors
+// ---------------------------------------------------------------------------
+
+describe("Rust extractor", () => {
+  it("extracts pub functions and structs", () => {
+    const rust = `use std::collections::HashMap;
+
+pub struct Config {
+    name: String,
+}
+
+pub fn new_config(name: &str) -> Config {
+    Config { name: name.to_string() }
+}
+
+fn private_helper() {}
+
+pub trait Validator {
+    fn validate(&self) -> bool;
+}`;
+    const { symbols, imports } = extractSymbols(rust, "src/config.rs", "rust");
+    expect(symbols.length).toBeGreaterThanOrEqual(3);
+    const names = symbols.map((s) => s.name);
+    expect(names).toContain("Config");
+    expect(names).toContain("new_config");
+    expect(names).toContain("Validator");
+    expect(symbols.find((s) => s.name === "new_config")?.exported).toBe(true);
+    expect(symbols.find((s) => s.name === "private_helper")?.exported).toBe(false);
+    expect(imports).toContain("std::collections::HashMap");
+  });
+});
+
+describe("Java extractor", () => {
+  it("extracts classes and public methods", () => {
+    const java = `import java.util.List;
+
+public class UserService {
+    public List<User> findAll() {
+        return db.query();
+    }
+
+    private void doInternal() {}
+}`;
+    const { symbols, imports } = extractSymbols(java, "UserService.java", "java");
+    expect(symbols.some((s) => s.name === "UserService")).toBe(true);
+    expect(symbols.some((s) => s.name === "UserService.findAll")).toBe(true);
+    expect(imports).toContain("java.util.List");
+  });
+});
+
+describe("C extractor", () => {
+  it("extracts functions and structs from header", () => {
+    const header = `#include <stdio.h>
+#include "config.h"
+
+typedef struct AppConfig {
+    int port;
+    char* host;
+} AppConfig;
+
+int app_init(AppConfig* cfg);
+static void internal_setup(void);`;
+    const { symbols, imports } = extractSymbols(header, "app.h", "c");
+    expect(symbols.some((s) => s.name === "AppConfig")).toBe(true);
+    expect(symbols.some((s) => s.name === "app_init")).toBe(true);
+    expect(imports).toContain("stdio.h");
+    expect(imports).toContain("config.h");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IncrementalStructuralIndex
+// ---------------------------------------------------------------------------
+
+import { IncrementalStructuralIndex } from "../src/memory/incremental-index.js";
+
+describe("IncrementalStructuralIndex", () => {
+  it("builds index from sequential file reads", () => {
+    const idx = new IncrementalStructuralIndex();
+    const goFile = `package main
+
+func NewServer(port int) *Server {
+    return &Server{port: port}
+}
+
+type Server struct {
+    port int
+}`;
+    const tsFile = `export function createApp(): App {
+  return new App();
+}
+
+export class App {
+  start() {}
+}`;
+    expect(idx.ingestFileRead("cmd/main.go", goFile)).toBe(true);
+    expect(idx.ingestFileRead("src/app.ts", tsFile)).toBe(true);
+
+    const stats = idx.getStats();
+    expect(stats.fileCount).toBe(2);
+    expect(stats.symbolCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("skips duplicate reads with same hash", () => {
+    const idx = new IncrementalStructuralIndex();
+    const content = `export function hello(): string { return "hi"; }`;
+    expect(idx.ingestFileRead("src/hello.ts", content, "abc123")).toBe(true);
+    expect(idx.ingestFileRead("src/hello.ts", content, "abc123")).toBe(false);
+  });
+
+  it("renders a compact repo map", () => {
+    const idx = new IncrementalStructuralIndex();
+    idx.ingestFileRead("src/config.ts", `export interface Config { port: number; }\nexport function loadConfig(): Config { return { port: 3000 }; }`);
+    idx.ingestFileRead("src/server.ts", `import { Config } from "./config";\nexport function startServer(config: Config) {}`);
+    const map = idx.renderMap(1000);
+    expect(map).not.toBeNull();
+    expect(map).toContain("STRUCTURAL_INDEX");
+    expect(map).toContain("src/config.ts");
+    expect(map).toContain("loadConfig");
+  });
+
+  it("generates file summaries on ingest", () => {
+    const idx = new IncrementalStructuralIndex();
+    idx.ingestFileRead("src/auth.ts", `export class AuthService {\n  async login(user: string) {}\n  async logout() {}\n}`);
+    const summary = idx.getFileSummary("src/auth.ts");
+    expect(summary).not.toBeNull();
+    expect(summary).toContain("auth.ts");
+    expect(summary).toContain("AuthService");
+  });
+
+  it("renders summary block within budget", () => {
+    const idx = new IncrementalStructuralIndex();
+    idx.ingestFileRead("a.ts", `export function a(): void {}`);
+    idx.ingestFileRead("b.ts", `export function b(): void {}`);
+    const block = idx.renderSummaryBlock(200);
+    expect(block).not.toBeNull();
+    expect(block).toContain("FILE_SUMMARIES");
+  });
+
+  it("resets cleanly", () => {
+    const idx = new IncrementalStructuralIndex();
+    idx.ingestFileRead("x.ts", `export function resetMe(): string {\n  return "clean";\n}`);
+    expect(idx.getStats().fileCount).toBe(1);
+    idx.reset();
+    expect(idx.getStats().fileCount).toBe(0);
+    expect(idx.renderMap(1000)).toBeNull();
+  });
+
+  it("skips files with unknown languages", () => {
+    const idx = new IncrementalStructuralIndex();
+    expect(idx.ingestFileRead("data.csv", "a,b,c\n1,2,3")).toBe(false);
+    expect(idx.getStats().fileCount).toBe(0);
+  });
+
+  it("skips very short content", () => {
+    const idx = new IncrementalStructuralIndex();
+    expect(idx.ingestFileRead("x.ts", "// tiny")).toBe(false);
   });
 });
