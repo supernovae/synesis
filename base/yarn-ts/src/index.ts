@@ -191,6 +191,7 @@ type SessionState = {
   lastVolatileContent?: string;
   lastVolatileHash?: string;
   pruningWatermark: number;
+  consecutiveRecoveryFires: number;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -2426,6 +2427,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     blockFailingVerificationUntilEdit: metaBlockFailingVerification,
     record,
     pruningWatermark: 0,
+    consecutiveRecoveryFires: 0,
   };
   sessions.set(key, state);
   return state;
@@ -5560,7 +5562,35 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
+    session.consecutiveRecoveryFires += 1;
+    const HARD_STOP_THRESHOLD = 5;
+    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
+      const hardStopContent = [
+        "The system detected that you have been looping without making progress for an extended period.",
+        `Governor has fired ${session.consecutiveRecoveryFires} consecutive recovery attempts — all were ignored.`,
+        "",
+        "STOP ALL EXPLORATION. Summarize what you have found so far and report to the user.",
+        "If the task appears complete based on the files you read, say so.",
+        "If specific items are missing, list them concisely.",
+        "Do NOT read any more files. Do NOT search. Do NOT explore.",
+      ].join("\n");
+      session.consecutiveRecoveryFires = 0;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "execution_governor_hard_stop",
+        "execution-governor",
+        `Hard stop after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${oaiExecutionGovernor.matchedRules.join(",")})`,
+        oaiTraceReqId,
+      );
+      maybeCheckpoint(session);
+      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream);
+    }
+    let recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
+    const oaiDedup = getContentDedup(sessionKey);
+    const filesSummary = oaiDedup.generateFilesSummaryBlock();
+    if (filesSummary) recovery += "\n" + filesSummary;
     const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; content: unknown }>;
     const lastUserIdx = oaiMsgs.map((m) => m.role).lastIndexOf("user");
     const oaiTailIdx = lastUserIdx > 0 ? lastUserIdx : oaiMsgs.length;
@@ -5573,9 +5603,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
       identity.orgId,
       "execution_governor_recovery_rewrite",
       "execution-governor",
-      `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
+      `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}); files_seen=${oaiDedup.getTrackedFileCount()}`,
       oaiTraceReqId,
     );
+  } else if (!oaiExecutionGovernor.pause) {
+    session.consecutiveRecoveryFires = 0;
   }
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
   const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
@@ -7562,7 +7594,35 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
+    session.consecutiveRecoveryFires += 1;
+    const HARD_STOP_THRESHOLD = 5;
+    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
+      const hardStopContent = [
+        "The system detected that you have been looping without making progress for an extended period.",
+        `Governor has fired ${session.consecutiveRecoveryFires} consecutive recovery attempts — all were ignored.`,
+        "",
+        "STOP ALL EXPLORATION. Summarize what you have found so far and report to the user.",
+        "If the task appears complete based on the files you read, say so.",
+        "If specific items are missing, list them concisely.",
+        "Do NOT read any more files. Do NOT search. Do NOT explore.",
+      ].join("\n");
+      session.consecutiveRecoveryFires = 0;
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "execution_governor_hard_stop",
+        "execution-governor",
+        `Hard stop after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${claudeExecutionGovernor.matchedRules.join(",")})`,
+        traceReqId,
+      );
+      maybeCheckpoint(session);
+      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream);
+    }
+    let recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
+    const claudeDedup = getContentDedup(claudeSessionKey);
+    const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
+    if (claudeFilesSummary) recovery += "\n" + claudeFilesSummary;
     const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; content: unknown }>;
     const claudeLastUserIdx = claudeMsgs.map((m) => m.role).lastIndexOf("user");
     const claudeTailIdx = claudeLastUserIdx > 0 ? claudeLastUserIdx : claudeMsgs.length;
@@ -7575,9 +7635,11 @@ app.post("/v1/messages", async (req, reply) => {
       claudeIdentity.orgId,
       "execution_governor_recovery_rewrite",
       "execution-governor",
-      `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"}`,
+      `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}); files_seen=${claudeDedup.getTrackedFileCount()}`,
       traceReqId,
     );
+  } else if (!claudeExecutionGovernor.pause) {
+    session.consecutiveRecoveryFires = 0;
   }
 
   const claudeRole = TIER_TO_ROLE[claudeOrchestration.tier];

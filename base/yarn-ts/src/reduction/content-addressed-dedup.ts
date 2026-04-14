@@ -26,6 +26,7 @@ interface FileEntry {
   hash: string;
   turnIndex: number;
   charCount: number;
+  unchangedReadCount: number;
 }
 
 export interface ContentDedupStats {
@@ -82,16 +83,22 @@ export class ContentAddressedDedup {
 
     if (existing && existing.hash === hash) {
       if (existing.turnIndex < this.contextWindowStart - this.stalenessMargin) {
-        this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length });
+        this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length, unchangedReadCount: 0 });
         return { content, deduplicated: false };
       }
+      existing.unchangedReadCount += 1;
       this.stats.deduplicatedReads += 1;
       this.stats.charsSaved += content.length;
-      const stub = `<FILE_UNCHANGED path="${filePath}" hash="${hash}" first_seen_turn=${existing.turnIndex} chars=${content.length} />`;
+      const HARD_BLOCK_THRESHOLD = 3;
+      if (existing.unchangedReadCount >= HARD_BLOCK_THRESHOLD) {
+        const stub = `<FILE_READ_BLOCKED path="${filePath}" reads="${existing.unchangedReadCount}" />\nYou have read this file ${existing.unchangedReadCount} times and it has not changed. The content is already in your context. STOP re-reading it and use the information you already have. Make a decision and act on it.`;
+        return { content: stub, deduplicated: true, filePath };
+      }
+      const stub = `<FILE_UNCHANGED path="${filePath}" hash="${hash}" first_seen_turn=${existing.turnIndex} chars=${content.length} repeat=${existing.unchangedReadCount} />`;
       return { content: stub, deduplicated: true, filePath };
     }
 
-    this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length });
+    this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length, unchangedReadCount: 0 });
     return { content, deduplicated: false };
   }
 
@@ -133,6 +140,27 @@ export class ContentAddressedDedup {
 
   getTrackedFileCount(): number {
     return this.fileMap.size;
+  }
+
+  /**
+   * Generate a compact listing of all files the session has already read.
+   * Useful for injection when the model is looping on exploration,
+   * giving it a structural overview without re-reading.
+   */
+  generateFilesSummaryBlock(): string | null {
+    if (this.fileMap.size === 0) return null;
+    const entries = Array.from(this.fileMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([path, entry]) => {
+        const sizeNote = entry.charCount > 5000 ? ` (${Math.round(entry.charCount / 1000)}k chars)` : "";
+        return `  ${path}${sizeNote}`;
+      });
+    return [
+      `<FILES_ALREADY_READ count="${entries.length}">`,
+      "You have already read these files in this session. Their content is in your context — do NOT re-read them.",
+      ...entries,
+      "</FILES_ALREADY_READ>",
+    ].join("\n");
   }
 }
 
