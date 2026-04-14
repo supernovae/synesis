@@ -26,6 +26,7 @@ export interface ExecutionGovernorDecision {
     noEditEvidence: boolean;
     trailingVerificationRunLength: number;
     trailingExplorationRunLength?: number;
+    trailingProductiveCount?: number;
     hasPlanInContext?: boolean;
     planReadCount?: number;
     planCachedRereadCount?: number;
@@ -444,6 +445,24 @@ function isVerificationCommand(toolName: string, command: string): boolean {
     || /\bgit\s+(diff|status|log|show)\b/.test(cmd);
 }
 
+/**
+ * Detect commands that represent genuine productive work (not just
+ * exploration). A successful build, binary execution, or passing test
+ * means the model is verifying real results — the governor should give
+ * it more runway before triggering a hard stop.
+ */
+function isProductiveCommand(command: string, resultSignature: string | undefined): boolean {
+  const cmd = normalizeString(command).toLowerCase();
+  const sig = normalizeString(resultSignature ?? "").toLowerCase();
+  const isFailed = sig.includes("error") || sig.includes("failed") || sig.includes("fatal");
+  if (isFailed) return false;
+  if (/\b(go build|go install|cargo build|npm run build|make\b|cmake|dotnet build|mvn (compile|package)|gradle build)\b/.test(cmd)) return true;
+  if (/\b(go test|cargo test|npm test|pytest|jest|vitest|rspec|phpunit|dotnet test|mvn test|gradle test)\b/.test(cmd)) return true;
+  if (/^bash:.*\.\/\w+/.test(cmd) || /^bash:.*--help/.test(cmd) || /^bash:.*--version/.test(cmd)) return true;
+  if (/\bgit\s+(add|commit|push)\b/.test(cmd)) return true;
+  return false;
+}
+
 function isGitAddWithoutCommit(events: CommandEvent[]): boolean {
   let sawGitAdd = false;
   let sawGitCommit = false;
@@ -764,8 +783,13 @@ export function evaluateExecutionGovernor(
   // This catches the interleaving blind spot where the model alternates between verification
   // and exploration — neither individual counter reaches its threshold, but the combined
   // count reveals the model is making zero progress.
+  //
+  // Productive commands (successful builds, binary execution, passing tests) earn a
+  // threshold bonus — these show the model is doing legitimate verification, not just
+  // looping on reads/searches.
   let trailingNoProgressLength = 0;
   let trailingNoProgressHasRepeats = false;
+  let trailingProductiveCount = 0;
   const trailingNoProgressCommands = new Set<string>();
   let editFailureCount = 0;
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -774,7 +798,6 @@ export function evaluateExecutionGovernor(
       || c.startsWith("filewrite:") || c === "filewrite"
       || c.startsWith("applypatch:") || c === "applypatch"
       || c.startsWith("taskcreate:") || c.startsWith("taskupdate:") || c.startsWith("todowrite:")) {
-      // Failed edits don't count as progress — they're a stall signal too
       const sig = events[i].resultSignature;
       if (sig && (sig.includes("error") || sig.includes("failed") || sig.includes("no match"))) {
         editFailureCount += 1;
@@ -783,6 +806,9 @@ export function evaluateExecutionGovernor(
         continue;
       }
       break;
+    }
+    if (isProductiveCommand(c, events[i].resultSignature)) {
+      trailingProductiveCount += 1;
     }
     trailingNoProgressLength += 1;
     trailingNoProgressCommands.add(c);
@@ -899,8 +925,12 @@ export function evaluateExecutionGovernor(
   if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
     matchedRules.push("verbal_intent_without_action");
   }
-  // Combined no-progress: fires when verification + exploration interleaving hides the stall
-  const noProgressThreshold = hasPlanInContext ? 5 : 8;
+  // Combined no-progress: fires when verification + exploration interleaving hides the stall.
+  // Productive commands (builds, tests, binary runs) earn +1 threshold each, up to +4,
+  // because they indicate the model is doing legitimate verification work.
+  const baseNoProgressThreshold = hasPlanInContext ? 5 : 8;
+  const productiveBonus = Math.min(trailingProductiveCount, 4);
+  const noProgressThreshold = baseNoProgressThreshold + productiveBonus;
   if (!isInvestigationOnly && trailingNoProgressLength >= noProgressThreshold && effectiveNoEditEvidence && trailingNoProgressHasRepeats) {
     matchedRules.push("no_progress_loop");
   }
@@ -1138,7 +1168,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "no_progress_loop",
       suggestedNextStep:
-        `You have run ${trailingNoProgressLength} commands (builds, tests, reads, searches, git status) without making a single code edit. You are cycling between verification and exploration without progress. STOP. If builds pass and features work, the task is DONE — update the plan or task status. If something needs changing, make exactly ONE code edit now, then verify once.`,
+        `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling between exploration and verification."} STOP. If builds pass and features work, the task is DONE — update the plan or task status. If something needs changing, make exactly ONE code edit now, then verify once.`,
       matchedRules,
       telemetry: {
         repeatedTestCommands,
@@ -1149,6 +1179,7 @@ export function evaluateExecutionGovernor(
         noEditEvidence,
         trailingVerificationRunLength,
         trailingExplorationRunLength,
+        trailingProductiveCount,
         hasPlanInContext,
       },
     };

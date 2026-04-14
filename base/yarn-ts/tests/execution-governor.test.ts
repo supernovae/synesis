@@ -681,11 +681,10 @@ describe("execution governor", () => {
       toolResult("9", "PASS\nok  synesis.sh/synesis/pkg/clipboard  (cached)"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    // no_progress_loop fires first (9 interleaved non-edit commands) which is the correct
-    // higher-priority signal; verification_stall also matches but no_progress takes precedence.
+    // The 3 passing go test commands earn a productive bonus, raising the no_progress
+    // threshold above the event count. verification_stall_no_edit correctly fires instead.
     expect(out.pause).toBe(true);
-    expect(out.matchedRules).toContain("no_progress_loop");
-    expect(out.suggestedNextStep).toContain("single code edit");
+    expect(out.matchedRules).toContain("verification_stall_no_edit");
   });
 
   it("does not count first reads toward verification stall (only re-reads)", () => {
@@ -1073,12 +1072,18 @@ describe("execution governor", () => {
       toolResult("7", ""),
       assistantCall("8", "bash", { command: "git diff --stat HEAD 2>&1" }),
       toolResult("8", "cmd/synesis/authcmd.go | 59 ++++\npkg/config/config.go | 13 +"),
+      assistantCall("9", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("9", "package keychain"),
+      assistantCall("10", "bash", { command: "git status" }),
+      toolResult("10", "On branch main\nnothing to commit"),
+      assistantCall("11", "bash", { command: "go vet ./... 2>&1" }),
+      toolResult("11", ""),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("no_progress_loop");
     expect(out.reason).toBe("no_progress_loop");
-    expect(out.suggestedNextStep).toContain("single code edit");
+    expect(out.suggestedNextStep).toContain("code edit");
   });
 
   it("fires edit_failure_replay with stale-cache guidance when edits fail repeatedly", () => {
@@ -1234,6 +1239,14 @@ describe("execution governor", () => {
       toolResult("7", "package main"),
       assistantCall("8", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
       toolResult("8", ""),
+      assistantCall("9", "read_file", { path: "pkg/config/config.go" }),
+      toolResult("9", "package config"),
+      assistantCall("10", "bash", { command: "git status" }),
+      toolResult("10", "nothing to commit"),
+      assistantCall("11", "search", { pattern: "keychain" }),
+      toolResult("11", "found"),
+      assistantCall("12", "read_file", { path: "cmd/synesis/authcmd.go" }),
+      toolResult("12", "package main"),
     ];
     const decision = evaluateExecutionGovernor(messages);
     expect(decision.pause).toBe(true);

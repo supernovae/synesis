@@ -5626,17 +5626,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    session.consecutiveRecoveryFires += 1;
+    const oaiHasProductiveWork = (oaiExecutionGovernor.telemetry.trailingProductiveCount ?? 0) > 0;
+    if (oaiHasProductiveWork && session.consecutiveRecoveryFires > 0) {
+      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
+    } else {
+      session.consecutiveRecoveryFires += 1;
+    }
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const hardStopContent = [
-        "The system detected that you have been looping without making progress for an extended period.",
-        `Governor has fired ${session.consecutiveRecoveryFires} consecutive recovery attempts — all were ignored.`,
+        "GOVERNOR HARD STOP: You have been looping without making code edits for an extended period.",
+        `Recovery fired ${session.consecutiveRecoveryFires} consecutive times — all were ignored.`,
         "",
-        "STOP ALL EXPLORATION. Summarize what you have found so far and report to the user.",
-        "If the task appears complete based on the files you read, say so.",
-        "If specific items are missing, list them concisely.",
-        "Do NOT read any more files. Do NOT search. Do NOT explore.",
+        "You MUST now do ONE of the following:",
+        "1. If builds/tests pass and the task appears complete: tell the user the task is done, or update the plan/task status.",
+        "2. If something specific is missing: state exactly what is missing in 1-3 bullet points.",
+        "3. If you need to make a change: make exactly ONE code edit now.",
+        "",
+        "Do NOT read more files. Do NOT search. Do NOT re-run builds. Act on the information you already have.",
       ].join("\n");
       session.consecutiveRecoveryFires = 0;
       recordSessionEvent(
@@ -7676,17 +7683,24 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    session.consecutiveRecoveryFires += 1;
+    const claudeHasProductiveWork = (claudeExecutionGovernor.telemetry.trailingProductiveCount ?? 0) > 0;
+    if (claudeHasProductiveWork && session.consecutiveRecoveryFires > 0) {
+      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
+    } else {
+      session.consecutiveRecoveryFires += 1;
+    }
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const hardStopContent = [
-        "The system detected that you have been looping without making progress for an extended period.",
-        `Governor has fired ${session.consecutiveRecoveryFires} consecutive recovery attempts — all were ignored.`,
+        "GOVERNOR HARD STOP: You have been looping without making code edits for an extended period.",
+        `Recovery fired ${session.consecutiveRecoveryFires} consecutive times — all were ignored.`,
         "",
-        "STOP ALL EXPLORATION. Summarize what you have found so far and report to the user.",
-        "If the task appears complete based on the files you read, say so.",
-        "If specific items are missing, list them concisely.",
-        "Do NOT read any more files. Do NOT search. Do NOT explore.",
+        "You MUST now do ONE of the following:",
+        "1. If builds/tests pass and the task appears complete: tell the user the task is done, or update the plan/task status.",
+        "2. If something specific is missing: state exactly what is missing in 1-3 bullet points.",
+        "3. If you need to make a change: make exactly ONE code edit now.",
+        "",
+        "Do NOT read more files. Do NOT search. Do NOT re-run builds. Act on the information you already have.",
       ].join("\n");
       session.consecutiveRecoveryFires = 0;
       recordSessionEvent(
