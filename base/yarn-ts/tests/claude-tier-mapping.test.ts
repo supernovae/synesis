@@ -38,6 +38,25 @@ describe("resolveExplicitTierFromRequestedModel", () => {
     expect(resolveExplicitTierFromRequestedModel("medium tier")?.tier).toBe("synesis-core");
   });
 
+  it("maps short tier aliases (core, pulse, horizon)", () => {
+    expect(resolveExplicitTierFromRequestedModel("core")).toEqual({
+      tier: "synesis-core",
+      reason: "synesis_exact",
+    });
+    expect(resolveExplicitTierFromRequestedModel("pulse")).toEqual({
+      tier: "synesis-pulse",
+      reason: "synesis_exact",
+    });
+    expect(resolveExplicitTierFromRequestedModel("horizon")).toEqual({
+      tier: "synesis-horizon",
+      reason: "synesis_exact",
+    });
+    expect(resolveExplicitTierFromRequestedModel("Core")).toEqual({
+      tier: "synesis-core",
+      reason: "synesis_exact",
+    });
+  });
+
   it("returns null when no match", () => {
     expect(resolveExplicitTierFromRequestedModel("gpt-4")).toBeNull();
     expect(resolveExplicitTierFromRequestedModel("")).toBeNull();
@@ -91,6 +110,18 @@ describe("PhaseModelOrchestrator — Claude family explicit tier", () => {
     });
     expect(d.tier).toBe("synesis-horizon");
     expect(d.reasons).toContain("escalated_over_explicit_pulse_due_to_high_risk");
+  });
+
+  it("maps short alias 'core' to synesis-core tier", () => {
+    const orch = new PhaseModelOrchestrator();
+    const d = orch.decide({
+      requestedModel: "core",
+      latestUserText: "add the user model",
+      riskProfile: "standard",
+      decisionMatrixEnabled: false,
+    });
+    expect(d.tier).toBe("synesis-core");
+    expect(d.reasons).toContain("explicit_requested_tier");
   });
 
   it("uses env map tier", () => {

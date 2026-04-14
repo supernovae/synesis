@@ -87,12 +87,20 @@ export interface ResolvedExplicitTier {
   reason: ResolvedExplicitTierReason;
 }
 
+const SHORT_TIER_ALIASES: Record<string, EffortTier> = {
+  pulse: "synesis-pulse",
+  core: "synesis-core",
+  horizon: "synesis-horizon",
+  compaction: "synesis-compaction" as EffortTier,
+};
+
 /**
  * Map client `model` strings (Claude Code wire ids, custom labels, or synesis tier ids)
  * to an explicit Synesis tier when the user intends a fixed cost/capability band.
  *
  * Precedence:
  * 1. Exact `synesis-pulse` | `synesis-core` | `synesis-horizon`
+ * 1b. Short aliases: `pulse` | `core` | `horizon` | `compaction`
  * 2. Substring keys from `extraMap` (SYNESIS_YARN_CLAUDE_TIER_MAP), longest key first
  * 3. Built-in Claude family substrings: opus → horizon, sonnet → core, haiku → pulse
  * 4. Word-boundary aliases: tiny/small → pulse, medium/balanced → core, large → horizon
@@ -109,6 +117,11 @@ export function resolveExplicitTierFromRequestedModel(
   }
 
   const m = raw.toLowerCase();
+
+  const shortAlias = SHORT_TIER_ALIASES[m];
+  if (shortAlias) {
+    return { tier: shortAlias, reason: "synesis_exact" };
+  }
 
   const entries = Object.entries(extraMap).filter(([k, v]) => k.trim() && SYNESIS_TIER_IDS.has(v));
   entries.sort((a, b) => b[0].length - a[0].length);
