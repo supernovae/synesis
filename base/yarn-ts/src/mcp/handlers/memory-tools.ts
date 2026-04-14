@@ -3,93 +3,47 @@
  *
  * These give the model explicit memory tools: it can store findings
  * from exploration passes and recall them later without re-reading files.
- * Backed by a per-session in-memory store with optional Redis persistence.
+ * Backed by the shared MemoryStore (Redis + in-memory write-through cache).
  */
 
 import { z } from "zod";
 import type { McpToolDefinition, McpToolContext } from "../tool-registry.js";
-import type { MemoryScope, StoredObservation } from "../../memory/types.js";
+import { MemoryStore } from "../../memory/memory-store.js";
+import type { MemoryScope } from "../../memory/types.js";
 
 // ---------------------------------------------------------------------------
-// In-memory store (no Redis dependency for the tool layer)
+// Shared singleton — initialized at import time with null Redis.
+// Call `initMemoryToolStore(redis)` from startup to enable Redis persistence.
 // ---------------------------------------------------------------------------
 
-interface MemoryEntry {
-  id: string;
-  topic: string;
-  finding: string;
-  scope: MemoryScope;
-  sessionKey: string;
-  projectRoot: string;
-  createdAt: number;
+let sharedStore = new MemoryStore(null);
+
+/**
+ * Initialize the memory tool store with a Redis client.
+ * Must be called during server startup before any tool calls.
+ */
+export function initMemoryToolStore(store: MemoryStore): void {
+  sharedStore = store;
 }
 
-const MAX_ENTRIES_PER_SESSION = 200;
-let idCounter = 0;
-
-const sessionStore = new Map<string, MemoryEntry[]>();
-const projectStore = new Map<string, MemoryEntry[]>();
-
-function generateId(): string {
-  idCounter += 1;
-  return `obs_${Date.now().toString(36)}_${idCounter.toString(36)}`;
-}
-
-function getStoreList(scope: MemoryScope, key: string): MemoryEntry[] {
-  const store = scope === "session" ? sessionStore : projectStore;
-  let list = store.get(key);
-  if (!list) {
-    list = [];
-    store.set(key, list);
-  }
-  return list;
-}
-
-function storeEntry(entry: MemoryEntry): void {
-  const scopeKey = entry.scope === "session" ? entry.sessionKey : entry.projectRoot;
-  const list = getStoreList(entry.scope, scopeKey);
-  list.unshift(entry);
-  if (list.length > MAX_ENTRIES_PER_SESSION) {
-    list.length = MAX_ENTRIES_PER_SESSION;
-  }
-}
-
-function recallEntries(
-  query: string,
-  scope: MemoryScope | "all",
-  sessionKey: string,
-  projectRoot: string,
-  limit: number,
-): MemoryEntry[] {
-  const candidates: MemoryEntry[] = [];
-  if (scope === "session" || scope === "all") {
-    candidates.push(...(sessionStore.get(sessionKey) ?? []));
-  }
-  if (scope === "project" || scope === "all") {
-    candidates.push(...(projectStore.get(projectRoot) ?? []));
-  }
-
-  if (!query.trim()) return candidates.slice(0, limit);
-
-  const q = query.toLowerCase();
-  return candidates
-    .filter((e) => e.topic.toLowerCase().includes(q) || e.finding.toLowerCase().includes(q))
-    .slice(0, limit);
+/** Get the shared store (for wiring into governor, diagnostics, etc.). */
+export function getMemoryToolStore(): MemoryStore {
+  return sharedStore;
 }
 
 /** Clear session-scoped entries (called on session expiry). */
 export function clearSessionMemory(sessionKey: string): void {
-  sessionStore.delete(sessionKey);
+  void sharedStore.clearSession(sessionKey);
 }
 
 /** Clear project-scoped entries (for testing). */
 export function clearProjectMemory(projectRoot: string): void {
-  projectStore.delete(projectRoot);
+  void sharedStore.clearProject(projectRoot);
 }
 
 /** Get count of stored observations for a session. */
 export function getSessionMemoryCount(sessionKey: string): number {
-  return (sessionStore.get(sessionKey) ?? []).length;
+  return sharedStore.countSession(sessionKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +52,7 @@ export function getSessionMemoryCount(sessionKey: string): number {
 
 export const storeObservationTool: McpToolDefinition<
   { topic: string; finding: string; scope?: string },
-  { ok: boolean; id: string; stored: number }
+  { ok: boolean; id: string; stored: number } | Promise<{ ok: boolean; id: string; stored: number }>
 > = {
   name: "store_observation",
   description:
@@ -112,29 +66,19 @@ export const storeObservationTool: McpToolDefinition<
     finding: z.string().describe("The finding or observation to store (be concise but complete)"),
     scope: z.string().optional().describe("'session' (default) or 'project'"),
   }),
-  handler(input, context) {
+  async handler(input, context) {
     const scope: MemoryScope = input.scope === "project" ? "project" : "session";
     const sessionKey = context?.sessionKey ?? "unknown";
     const projectRoot = context?.projectRoot ?? "";
-    const entry: MemoryEntry = {
-      id: generateId(),
-      topic: input.topic.trim(),
-      finding: input.finding.trim(),
-      scope,
-      sessionKey,
-      projectRoot,
-      createdAt: Date.now(),
-    };
-    storeEntry(entry);
-    const scopeKey = scope === "session" ? sessionKey : projectRoot;
-    const total = getStoreList(scope, scopeKey).length;
-    return { ok: true, id: entry.id, stored: total };
+    const obs = await sharedStore.store(input.topic, input.finding, scope, sessionKey, projectRoot);
+    const count = sharedStore.countSession(sessionKey);
+    return { ok: true, id: obs.id, stored: count };
   },
 };
 
 export const recallFindingsTool: McpToolDefinition<
   { query?: string; scope?: string; limit?: number },
-  { findings: Array<{ topic: string; finding: string; scope: string; age: string }>; count: number }
+  Promise<{ findings: Array<{ topic: string; finding: string; scope: string; age: string }>; count: number }>
 > = {
   name: "recall_findings",
   description:
@@ -146,12 +90,12 @@ export const recallFindingsTool: McpToolDefinition<
     scope: z.string().optional().describe("'session', 'project', or 'all' (default 'all')"),
     limit: z.number().optional().describe("Max findings to return (default 10)"),
   }),
-  handler(input, context) {
+  async handler(input, context) {
     const scope = (input.scope === "session" || input.scope === "project") ? input.scope : "all";
     const sessionKey = context?.sessionKey ?? "unknown";
     const projectRoot = context?.projectRoot ?? "";
     const limit = input.limit ?? 10;
-    const entries = recallEntries(input.query ?? "", scope, sessionKey, projectRoot, limit);
+    const entries = await sharedStore.recall(input.query ?? "", scope, sessionKey, projectRoot, limit);
     const now = Date.now();
     const findings = entries.map((e) => {
       const ageMs = now - e.createdAt;

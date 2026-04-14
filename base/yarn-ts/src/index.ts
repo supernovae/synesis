@@ -83,7 +83,9 @@ import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
-import { clearSessionMemory, getSessionMemoryCount } from "./mcp/handlers/memory-tools.js";
+import { clearSessionMemory, getSessionMemoryCount, initMemoryToolStore } from "./mcp/handlers/memory-tools.js";
+import { MemoryStore } from "./memory/memory-store.js";
+import { Redis as IORedis } from "ioredis";
 import { normalizeCommandOutputForComparison } from "./reduction/output-normalization.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
@@ -1731,6 +1733,18 @@ const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPO
 const sessions = new Map<string, SessionState>();
 const sessionStore = new SessionStore(config);
 const diagnosticStore = new DiagnosticStore(config);
+const memoryStoreRedis = config.SYNESIS_YARN_SESSION_REDIS_URL
+  ? new IORedis(config.SYNESIS_YARN_SESSION_REDIS_URL, {
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2000,
+      commandTimeout: 1000,
+    })
+  : null;
+const memoryStore = new MemoryStore(
+  memoryStoreRedis,
+  config.SYNESIS_YARN_MEMORY_STORE_MAX_ENTRIES,
+);
+initMemoryToolStore(memoryStore);
 const usageWriter = new UsageWriter(config);
 const usagePersistenceEnabled =
   config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(String(config.SYNESIS_YARN_ADMIN_DB_URL ?? "").trim());
@@ -4677,7 +4691,7 @@ async function shutdown(): Promise<void> {
   governanceClient?.close();
   artifactStore.close();
   await app.close();
-  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticStore.close(), enrichmentPool.close()]);
+  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticStore.close(), enrichmentPool.close(), memoryStoreRedis?.quit()]);
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown());
