@@ -7,7 +7,7 @@ import {
   type SynesisMcpDeps,
 } from "@synesis/mcp-tools";
 import type { AuthResolver, AuthUser } from "../auth.js";
-import { McpToolRegistry, McpToolNotFoundError, McpToolTimeoutError } from "./tool-registry.js";
+import { McpToolRegistry, McpToolNotFoundError, McpToolTimeoutError, type McpToolContext } from "./tool-registry.js";
 import { classifyProjectTool } from "./handlers/classify-project.js";
 import { inspectRepoTool } from "./handlers/inspect-repo.js";
 import { scaffoldTool } from "./handlers/scaffold.js";
@@ -43,6 +43,7 @@ import {
   delegateTaskTool,
   writeFileTool,
 } from "./handlers/coding-tools.js";
+import { storeObservationTool, recallFindingsTool } from "./handlers/memory-tools.js";
 
 const SYNESIS_PLATFORM_TOOL_SET = new Set<string>(SYNESIS_MCP_TOOL_NAMES);
 
@@ -82,6 +83,8 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
   "synesis_license_check",
   "synesis_docs_lookup",
   "synesis_patch_integrity",
+  "store_observation",
+  "recall_findings",
 ]);
 
 const OPENCLAW_WRITE_CAPABLE_TOOLS = new Set<string>([
@@ -196,6 +199,8 @@ registry.register(repoRunLintTool);
 registry.register(repoGitDiffTool);
 registry.register(repoListChangedFilesTool);
 registry.register(repoWriteDecisionRecordTool);
+registry.register(storeObservationTool);
+registry.register(recallFindingsTool);
 
 export function getToolRegistry(): McpToolRegistry {
   return registry;
@@ -356,7 +361,15 @@ export async function registerMcpRoutes(
           opts.synesisMcpDeps,
         );
       } else {
-        result = await registry.call(body.name, body.arguments ?? {});
+        const toolCtx: McpToolContext = {
+          sessionKey: typeof req.headers["x-synesis-session-key"] === "string"
+            ? req.headers["x-synesis-session-key"] : `mcp:${user.userId}`,
+          projectRoot: typeof req.headers["x-synesis-project-root"] === "string"
+            ? req.headers["x-synesis-project-root"] : "",
+          userId: user.userId,
+          orgId: user.orgId,
+        };
+        result = await registry.call(body.name, body.arguments ?? {}, toolCtx);
       }
       const elapsed = Math.round(performance.now() - start);
       const runMeta =

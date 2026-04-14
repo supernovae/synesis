@@ -83,6 +83,7 @@ import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
+import { clearSessionMemory, getSessionMemoryCount } from "./mcp/handlers/memory-tools.js";
 import { normalizeCommandOutputForComparison } from "./reduction/output-normalization.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
@@ -2345,6 +2346,7 @@ async function getSessionKey(identity: SessionIdentity): Promise<string> {
       contentDedupBySession.delete(baseKey);
       structuralIndexBySession.delete(baseKey);
       memoryGovernorBySession.delete(baseKey);
+      clearSessionMemory(baseKey);
       blockedDiscoveryBySession.delete(baseKey);
       const rotated = `${baseKey}:r${Date.now()}`;
       return rotated;
@@ -4658,6 +4660,7 @@ const sessionEvictionTimer = setInterval(() => {
       contentDedupBySession.delete(key);
       structuralIndexBySession.delete(key);
       memoryGovernorBySession.delete(key);
+      clearSessionMemory(key);
       blockedDiscoveryBySession.delete(key);
       stablePrefixService.evictSession(key);
     }
@@ -5669,6 +5672,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (oaiStructIdx) {
     oaiMemoryTracker.setIndexAvailable(oaiStructIdx.getStats().fileCount > 0);
   }
+  oaiMemoryTracker.setFindingsCount(getSessionMemoryCount(sessionKey));
   const oaiMemRules = evaluateMemoryRules(oaiMemoryTracker.getSignals());
   const oaiMemBlocks = oaiMemRules.filter((r) => r.fired).map((r) =>
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
@@ -7719,6 +7723,7 @@ app.post("/v1/messages", async (req, reply) => {
   if (claudeStructIdx) {
     claudeMemoryTracker.setIndexAvailable(claudeStructIdx.getStats().fileCount > 0);
   }
+  claudeMemoryTracker.setFindingsCount(getSessionMemoryCount(claudeSessionKey));
   const claudeMemRules = evaluateMemoryRules(claudeMemoryTracker.getSignals());
   const claudeMemBlocks = claudeMemRules.filter((r) => r.fired).map((r) =>
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`

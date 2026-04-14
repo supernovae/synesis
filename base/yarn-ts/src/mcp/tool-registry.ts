@@ -1,10 +1,18 @@
 import { z, type ZodType } from "zod";
 
+/** Session context passed to context-aware MCP tool handlers. */
+export interface McpToolContext {
+  sessionKey: string;
+  projectRoot: string;
+  userId: string;
+  orgId: string;
+}
+
 export interface McpToolDefinition<TInput = unknown, TOutput = unknown> {
   name: string;
   description: string;
   inputSchema: ZodType<TInput>;
-  handler: (input: TInput) => TOutput | Promise<TOutput>;
+  handler: (input: TInput, context?: McpToolContext) => TOutput | Promise<TOutput>;
 }
 
 export interface McpToolCatalogEntry {
@@ -44,13 +52,13 @@ export class McpToolRegistry {
     return entries;
   }
 
-  async call(name: string, args: unknown): Promise<unknown> {
+  async call(name: string, args: unknown, context?: McpToolContext): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) throw new McpToolNotFoundError(name);
     const parsed = tool.inputSchema.parse(args);
     const timeoutMs = this._timeoutMs;
     return Promise.race([
-      Promise.resolve(tool.handler(parsed)),
+      Promise.resolve(tool.handler(parsed, context)),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new McpToolTimeoutError(name, timeoutMs)), timeoutMs),
       ),
