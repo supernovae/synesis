@@ -76,7 +76,7 @@ exclude_dirs = [".venv", ".test-venv", "venv", "node_modules"]
 dev = [
     "coverage>=7.13.5",
     "pygments>=2.20.0",
-    "pytest>=9.0.2",
+    "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "vulture>=2.15",
 ]
