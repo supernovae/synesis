@@ -23,7 +23,7 @@
     "@opentelemetry/sdk-trace-node": "^2.6.1",
     "@opentelemetry/semantic-conventions": "^1.40.0",
     "@synesis/mcp-tools": "file:../../packages/synesis-mcp-tools",
-    "fastify": "^5.8.4",
+    "fastify": "^5.8.5",
     "pg": "^8.20.0",
     "zod": "^4.3.6"
   },
