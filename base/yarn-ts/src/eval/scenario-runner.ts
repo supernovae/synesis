@@ -44,6 +44,25 @@ interface OaiResponse {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
+function buildRequestUrl(baseUrl: string, path: string): string {
+  const base = new URL(baseUrl);
+  if (base.protocol !== "http:" && base.protocol !== "https:") {
+    throw new Error("Only http(s) URLs are supported");
+  }
+  if (base.username || base.password || base.hash || base.search) {
+    throw new Error("URL base must not include credentials, query, or hash");
+  }
+  return new URL(path, `${trimTrailingSlashes(base.toString())}/`).toString();
+}
+
 // ---------------------------------------------------------------------------
 // Governor telemetry fetcher (Yarn-only)
 // ---------------------------------------------------------------------------
@@ -54,7 +73,8 @@ async function fetchGovernorEvents(
   sessionKey: string,
 ): Promise<string[]> {
   try {
-    const url = `${adminUrl}/api/v1/yarn/session-events?session_key=${encodeURIComponent(sessionKey)}&event_kind=execution_governor_evaluated&limit=50`;
+    const eventsUrl = buildRequestUrl(adminUrl, "/api/v1/yarn/session-events");
+    const url = `${eventsUrl}?session_key=${encodeURIComponent(sessionKey)}&event_kind=execution_governor_evaluated&limit=50`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${adminToken}` },
       signal: AbortSignal.timeout(5_000),
@@ -84,7 +104,8 @@ async function chatCompletions(
 ): Promise<{ response: OaiResponse; latencyMs: number }> {
   const timeout = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const start = Date.now();
-  const res = await fetch(`${config.targetUrl}/v1/chat/completions`, {
+  const completionsUrl = buildRequestUrl(config.targetUrl, "/v1/chat/completions");
+  const res = await fetch(completionsUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

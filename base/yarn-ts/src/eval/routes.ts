@@ -12,8 +12,42 @@ import { enableObserver, disableObserver, getObserverConfig } from "./session-ob
 import { materialize, toJsonl, scenarioResultToTrajectoryRow } from "./training-materializer.js";
 import type { EvalCategory, EvalRunnerConfig, TrainingFormat } from "./types.js";
 
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
+function normalizeBaseUrl(raw: string): string {
+  const parsed = new URL(raw.trim());
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("must use http or https");
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("must not include credentials, query, or hash");
+  }
+
+  const normalizedPath = stripTrailingSlashes(parsed.pathname);
+  return `${parsed.origin}${normalizedPath}`;
+}
+
 export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): void {
   if (!config.SYNESIS_YARN_EVAL_API_ENABLED) return;
+
+  let configuredTargetUrl = "";
+  let configuredAdminUrl = "";
+  try {
+    configuredTargetUrl = normalizeBaseUrl(config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL);
+    configuredAdminUrl = normalizeBaseUrl(config.SYNESIS_YARN_ADMIN_API_URL);
+  } catch (error) {
+    app.log.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Invalid eval endpoint base URL configuration",
+    );
+    return;
+  }
 
   // -----------------------------------------------------------------------
   // GET /v1/eval/scenarios — list available scenarios
@@ -36,7 +70,28 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): voi
       admin_token?: string;
     };
 
-    const targetUrl = (body.target_url ?? config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL).replace(/\/+$/, "");
+    if (body.target_url) {
+      try {
+        const requestedTargetUrl = normalizeBaseUrl(body.target_url);
+        if (requestedTargetUrl !== configuredTargetUrl) {
+          return { error: "target_url must match configured SYNESIS_YARN_OPENAI_COMPAT_BASE_URL origin/path" };
+        }
+      } catch {
+        return { error: "target_url must be a valid http(s) URL without credentials, query, or hash" };
+      }
+    }
+    if (body.admin_url) {
+      try {
+        const requestedAdminUrl = normalizeBaseUrl(body.admin_url);
+        if (requestedAdminUrl !== configuredAdminUrl) {
+          return { error: "admin_url must match configured SYNESIS_YARN_ADMIN_API_URL origin/path" };
+        }
+      } catch {
+        return { error: "admin_url must be a valid http(s) URL without credentials, query, or hash" };
+      }
+    }
+
+    const targetUrl = configuredTargetUrl;
     const apiKey = body.api_key ?? config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
 
     if (!targetUrl) {
@@ -47,7 +102,7 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): voi
       targetUrl,
       apiKey,
       model: body.model,
-      adminUrl: body.admin_url ?? config.SYNESIS_YARN_ADMIN_API_URL,
+      adminUrl: configuredAdminUrl,
       adminToken: body.admin_token ?? config.SYNESIS_INTERNAL_SERVICE_TOKEN,
       timeoutMs: 120_000,
       conversationIdPrefix: "eval-api",

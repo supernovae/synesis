@@ -88,6 +88,10 @@ async function enforceFga(patUser: PatUser): Promise<void> {
 
 const app = Fastify({ logger: { level: config.LOG_LEVEL } });
 void app.register(fastifyRateLimit, { global: false });
+const authRouteRateLimit = (max: number) => ({
+  config: { rateLimit: { max, timeWindow: "1 minute" as const } },
+  preHandler: app.rateLimit({ max, timeWindow: "1 minute" }),
+});
 
 /** Public catalog for UIs (Integrations page) — no secrets; same tool surface as Streamable MCP. */
 app.get("/v1/synesis-tools", async () => ({
@@ -100,8 +104,7 @@ app.get("/v1/synesis-tools", async () => ({
 app.route({
   method: ["GET", "POST", "DELETE"],
   url: config.SYNESIS_MCP_HTTP_PATH,
-  config: { rateLimit: { max: 240, timeWindow: "1 minute" } },
-  preHandler: app.rateLimit({ max: 240, timeWindow: "1 minute" }),
+  ...authRouteRateLimit(240),
   handler: async (req, reply) => {
     mcpHttpRequests++;
     let patUser: PatUser;

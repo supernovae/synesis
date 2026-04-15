@@ -12,6 +12,7 @@
   ],
   "overrides": {
     "axios": "1.15.0",
+    "follow-redirects": "1.16.0",
     "langsmith": "0.5.18",
     "zod": "4.3.6",
     "@opentelemetry/api": "^1.9.1",

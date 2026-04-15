@@ -20,6 +20,7 @@ from ..services.eval_harness import BUILTIN_SUITES, list_suites, run_eval_suite
 from ..services.testing_labs_engine import detect_regressions, execute_run
 
 router = APIRouter(prefix="/api/v1/feedback-loop", tags=["feedback-loop"])
+logger = logging.getLogger("synesis.admin.feedback_loop")
 
 _YARN_URL = os.getenv(
     "SYNESIS_YARN_URL",
@@ -538,7 +539,12 @@ async def list_eval_gym_events(
 async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool, auto_critic_score: bool = True) -> dict[str, Any]:
     run_out = await execute_run(run_id, _YARN_URL)
     if run_out.get("error"):
-        raise HTTPException(status_code=409, detail=f"Run execution failed: {run_out.get('error')}")
+        logger.warning(
+            "feedback_loop_pipeline_run_failed run_id=%s error=%s",
+            run_id,
+            run_out.get("error"),
+        )
+        raise HTTPException(status_code=409, detail="Run execution failed. See server logs for details.")
 
     regression_report = await detect_regressions(run_id)
     eval_results: list[dict[str, Any]] = []
@@ -604,7 +610,7 @@ async def _run_pipeline_background(
     except Exception:
         # Keep background failures from tearing down request handlers.
         # The underlying run row is still updated by execute_run/_finalize_run on failure paths.
-        logging.getLogger("synesis.admin.feedback_loop").exception(
+        logger.exception(
             "feedback_loop_background_pipeline_failed run_id=%s",
             run_id,
         )

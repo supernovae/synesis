@@ -220,6 +220,11 @@ export async function registerMcpRoutes(
     return;
   }
 
+  const authRouteRateLimit = (max: number) => ({
+    config: { rateLimit: { max, timeWindow: "1 minute" as const } },
+    preHandler: app.rateLimit({ max, timeWindow: "1 minute" }),
+  });
+
   async function resolveUser(req: FastifyRequest, reply: FastifyReply): Promise<AuthUser | null> {
     try {
       const user = await opts.authResolver.resolve(req.headers.authorization);
@@ -236,7 +241,7 @@ export async function registerMcpRoutes(
     }
   }
 
-  app.get("/v1/mcp/tools", async (req, reply) => {
+  app.get("/v1/mcp/tools", authRouteRateLimit(240), async (req, reply) => {
     const user = await resolveUser(req, reply);
     if (!user) return;
     const openClawClient = opts.openClawProfileEnabled
@@ -268,10 +273,7 @@ export async function registerMcpRoutes(
     });
   });
 
-  app.post("/v1/mcp/tools/call", {
-    config: { rateLimit: { max: 240, timeWindow: "1 minute" } },
-    preHandler: app.rateLimit({ max: 240, timeWindow: "1 minute" }),
-  }, async (req, reply) => {
+  app.post("/v1/mcp/tools/call", authRouteRateLimit(240), async (req, reply) => {
     const user = await resolveUser(req, reply);
     if (!user) return;
 
