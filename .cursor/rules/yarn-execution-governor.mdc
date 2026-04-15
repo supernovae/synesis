@@ -1,0 +1,90 @@
+---
+description: Yarn execution governor — phase-aware FSM architecture, rule taxonomy, and regression avoidance
+globs: base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/src/index.ts,base/yarn-ts/tests/execution-governor.test.ts
+alwaysApply: false
+---
+
+# Yarn Execution Governor
+
+The execution governor prevents LLM agents from getting stuck in low-yield loops (re-reading files, repeating tests, cycling between exploration and verification without progress). It operates as a proxy-side system message injector — the model never calls it directly; the governor evaluates the conversation on every request and injects recovery guidance or hard-stops the response.
+
+## Architecture: Phase-Aware FSM
+
+The governor classifies each session into a **phase** based on the tool-call event stream, then applies **phase-specific rules** with different budgets:
+
+| Phase | Trigger | Budget | Allowed tools | Stall signal |
+|-------|---------|--------|---------------|--------------|
+| **Explore** | Session start; `isReadOnlyInvestigationIntent` | High (20+ calls) | All | Redundant re-reads only |
+| **Edit** | First successful `write`/`edit` | Normal | All | Standard edit-loop rules |
+| **Verify** | Build/test after edit | Moderate (6-10) | All | Repeated identical commands |
+| **Report** | Completion claim | Tight (1-2) | Write only | Any exploration/verification |
+
+Phase transitions are **deterministic** — based on tool calls, not LLM text. `consecutiveRecoveryFires` resets on phase transitions.
+
+## Rule taxonomy (29 rules)
+
+Rules fall into categories. When modifying, respect the phase gates:
+
+**Exploration stalls** (Explore phase: suppressed; Edit/Verify: active):
+- `exploration_stall_no_edit` — trailing read/search/list without edits
+- `bounded_exploration_budget` — total read/search count exceeded
+- `broad_discovery_repeat` — repeated broad glob/search patterns
+
+**Verification stalls** (Verify phase: active; Explore phase: suppressed):
+- `verification_stall_no_edit` — trailing build/test without edits
+- `verification_after_completion_claim` — verification after saying "done"
+- `verification_done_report` — passing tests, nothing to verify
+- `verification_no_signal_repeat` — no-op verification repeats
+- `verification_truncated_output` — truncated test output re-runs
+- `verification_fail_repeat_block` — same failure repeated
+- `verification_same_failure_signature_replay` — identical error signature
+- `no_test_files_repeat` — "[no test files]" repeated (fires in ALL phases)
+- `broad_to_narrow_verification` — broad test after narrow would suffice
+
+**Edit stalls** (Edit phase: active):
+- `edit_failure_replay` — same edit fails repeatedly
+- `consecutive_edit_failures` — 3+ failed edits in a row
+- `edit_before_retest` — test fails but model re-runs instead of editing
+- `no_repeat_without_change` — re-running test without code change
+- `declaration_followthrough_required` — declaration-only edit without concrete follow-up
+
+**Progress stalls** (all phases, but threshold varies):
+- `no_progress_loop` — combined non-edit event count exceeded (productive commands earn threshold bonus)
+- `verbal_intent_without_action` — "I'll do X" repeated without acting
+
+**Workflow rules** (all phases):
+- `plan_reread_loop` — plan file re-read without edit
+- `completion_claim_requires_task_update` — completion without marking tasks done
+- `git_commit_followthrough` — git add without commit
+- `dependency_install_replay` — same install repeated
+- `test_entry_contract` — test run without config discovery
+- `cleanup_todo_harvest` — cleanup without TODO search
+
+## Key signals
+
+- **`isReadOnlyInvestigationIntent`** — Detects prompts like "scan", "audit", "verify all features", "make sure everything is implemented". Uses two tiers: strong verbs (scan, audit, examine) that always signal investigation, and weak verbs (check, validate, make sure) that require a completeness qualifier (every, all, implemented).
+- **`isProductiveCommand`** — Detects successful builds, tests, binary execution. These earn a threshold bonus on `no_progress_loop` (+1 each, max +4) and cause `consecutiveRecoveryFires` to decrement instead of increment.
+- **`effectiveNoEditEvidence`** — `noEditEvidence && !isInvestigationOnly`. Guards most stall rules. Investigation sessions get `isInvestigationOnly = true`, which disables edit-demanding rules.
+
+## Do not
+
+- Add rules that fire on "no edits" without checking the session phase — exploration and Q&A sessions have zero edits by design.
+- Hard-code tool names in the deny list without checking both Claude Code and OpenAI-style tool naming (e.g., `Read` vs `read_file`).
+- Reset `consecutiveRecoveryFires` inside the hard stop block — it's already reset there; double-reset masks bugs.
+- Add new rules without a test case that exercises both the fire and no-fire paths.
+- Assume the governor runs between every tool call — it runs between **requests** (Claude Code batches multiple tool calls per request).
+
+## Testing
+
+Every rule must have:
+1. A test that fires the rule (with the expected `matchedRules` and `reason`)
+2. A test that does NOT fire under legitimate conditions (investigation intent, productive commands)
+3. Recovery block content assertion (`executionGovernorRecoveryRewriteBlock`)
+
+Test helpers: `assistantCall(id, toolName, args)`, `toolResult(id, content)` — see `execution-governor.test.ts`.
+
+## Files
+
+- [`execution-governor.ts`](base/yarn-ts/src/governance/execution-governor.ts) — Rule evaluation, recovery block generation, tool restrictions
+- [`index.ts`](base/yarn-ts/src/index.ts) — Governor integration: `consecutiveRecoveryFires`, hard stop, recovery injection (both OpenAI and Claude paths)
+- [`execution-governor.test.ts`](base/yarn-ts/tests/execution-governor.test.ts) — 84+ test cases
