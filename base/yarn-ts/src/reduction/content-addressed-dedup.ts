@@ -106,7 +106,10 @@ export class ContentAddressedDedup {
         const stub = `<FILE_READ_BLOCKED path="${filePath}" reads="${existing.unchangedReadCount}" />\nYou have read this file ${existing.unchangedReadCount} times and it has not changed. The content is already in your context. STOP re-reading it and use the information you already have. Make a decision and act on it.`;
         return { content: stub, deduplicated: true, filePath };
       }
-      const stub = `<FILE_UNCHANGED path="${filePath}" hash="${hash}" first_seen_turn=${existing.turnIndex} chars=${content.length} repeat=${existing.unchangedReadCount} />`;
+      const stub = [
+        `<FILE_UNCHANGED path="${filePath}" hash="${hash}" first_seen_turn=${existing.turnIndex} chars=${content.length} repeat=${existing.unchangedReadCount} />`,
+        `[Unchanged since last read — you already have this file's content. Do NOT re-read it. Use what you have or make an edit.]`,
+      ].join("\n");
       return { content: stub, deduplicated: true, filePath };
     }
 

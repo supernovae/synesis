@@ -329,7 +329,22 @@ function applyExecutionGovernorToolRestrictions(
   const explorationDominant = matchedRules?.some((r) =>
     r === "bounded_exploration_budget" || r === "broad_discovery_repeat"
   ) ?? false;
-  const deny = new Set(explorationDominant ? ["explore", "agent"] : ["glob", "explore", "agent"]);
+  const explorationStall = matchedRules?.some((r) =>
+    r === "exploration_stall_no_edit" || r === "no_progress_loop" || r === "verbal_intent_without_action"
+  ) ?? false;
+
+  const deny = new Set<string>();
+  if (explorationDominant) {
+    deny.add("explore").add("agent");
+  } else {
+    deny.add("glob").add("explore").add("agent");
+  }
+  if (explorationStall) {
+    for (const t of ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"]) {
+      deny.add(t);
+    }
+  }
+
   const removed: string[] = [];
   const filtered = tools.filter((tool) => {
     if (!tool || typeof tool !== "object") return true;
@@ -2152,6 +2167,14 @@ function enrichWithFrameAndManifest(
           volatileBlocks.push({ role: "system", content: repoMap });
         }
       }
+    }
+  }
+
+  const enrichDedup = getContentDedup(sessionKey);
+  if (enrichDedup.getTrackedFileCount() > 0) {
+    const filesBlock = enrichDedup.generateFilesSummaryBlock();
+    if (filesBlock) {
+      volatileBlocks.push({ role: "system", content: filesBlock });
     }
   }
 
@@ -5634,6 +5657,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
+      const oaiHardStopDedup = getContentDedup(sessionKey);
+      const oaiHardStopFilesList = oaiHardStopDedup.generateFilesSummaryBlock() ?? "";
       const hardStopContent = [
         "GOVERNOR HARD STOP: You have been looping without making code edits for an extended period.",
         `Recovery fired ${session.consecutiveRecoveryFires} consecutive times — all were ignored.`,
@@ -5644,6 +5669,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "3. If you need to make a change: make exactly ONE code edit now.",
         "",
         "Do NOT read more files. Do NOT search. Do NOT re-run builds. Act on the information you already have.",
+        ...(oaiHardStopFilesList ? ["", oaiHardStopFilesList] : []),
       ].join("\n");
       session.consecutiveRecoveryFires = 0;
       recordSessionEvent(
@@ -7691,6 +7717,8 @@ app.post("/v1/messages", async (req, reply) => {
     }
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
+      const claudeHardStopDedup = getContentDedup(claudeSessionKey);
+      const claudeHardStopFilesList = claudeHardStopDedup.generateFilesSummaryBlock() ?? "";
       const hardStopContent = [
         "GOVERNOR HARD STOP: You have been looping without making code edits for an extended period.",
         `Recovery fired ${session.consecutiveRecoveryFires} consecutive times — all were ignored.`,
@@ -7701,6 +7729,7 @@ app.post("/v1/messages", async (req, reply) => {
         "3. If you need to make a change: make exactly ONE code edit now.",
         "",
         "Do NOT read more files. Do NOT search. Do NOT re-run builds. Act on the information you already have.",
+        ...(claudeHardStopFilesList ? ["", claudeHardStopFilesList] : []),
       ].join("\n");
       session.consecutiveRecoveryFires = 0;
       recordSessionEvent(
