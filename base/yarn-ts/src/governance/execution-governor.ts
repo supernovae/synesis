@@ -18,6 +18,7 @@ export interface ExecutionGovernorDecision {
   suggestedNextStep?: string;
   matchedRules: string[];
   telemetry: {
+    phase: SessionPhase;
     repeatedTestCommands: number;
     repeatedReadSearchCalls: number;
     repeatedBroadDiscoveryCalls: number;
@@ -33,11 +34,184 @@ export interface ExecutionGovernorDecision {
   };
 }
 
-interface CommandEvent {
+export interface CommandEvent {
   command: string;
   toolName: string;
   resultSignature: string;
   argsObject?: Record<string, unknown> | null;
+}
+
+export type SessionPhase = "explore" | "edit" | "verify" | "report";
+
+/**
+ * Detect the current session phase from the event stream.
+ *
+ * Transitions are deterministic — based on tool calls, not LLM text:
+ *   [start] -> Explore (default)
+ *   Explore -> Edit (first successful file edit)
+ *   Edit    -> Verify (build/test after edit)
+ *   Verify  -> Edit (another file edit)
+ *   any     -> Report (completion claim with no subsequent edit/explore)
+ *
+ * Walks events forward so the LAST transition wins (most recent phase).
+ */
+export function detectSessionPhase(
+  events: CommandEvent[],
+  userText: string,
+  changedFiles: string[],
+  hasCompletionClaim: boolean,
+): SessionPhase {
+  const isInvestigation = isReadOnlyInvestigationIntent(userText);
+
+  // Investigation intent with no events → explore
+  if (events.length === 0) return isInvestigation ? "explore" : "edit";
+
+  // Default: "edit" allows all rules (backward-compatible).
+  // "explore" is only entered when investigation intent is confirmed.
+  let phase: SessionPhase = isInvestigation ? "explore" : "edit";
+  let hasEdited = false;
+
+  for (const e of events) {
+    const c = e.command;
+    const isEdit = c.startsWith("edit:") || c === "edit"
+      || c.startsWith("write:") || c === "write"
+      || c.startsWith("filewrite:") || c === "filewrite"
+      || c.startsWith("applypatch:") || c === "applypatch";
+    const isSuccessfulEdit = isEdit
+      && !(e.resultSignature && (e.resultSignature.includes("error") || e.resultSignature.includes("failed") || e.resultSignature.includes("no match")));
+
+    if (isSuccessfulEdit) {
+      phase = "edit";
+      hasEdited = true;
+      continue;
+    }
+
+    if (hasEdited && isVerificationCommand(e.toolName, c)) {
+      phase = "verify";
+      continue;
+    }
+
+    // Additional edit after verification cycles back
+    if (phase === "verify" && isEdit) {
+      phase = "edit";
+      continue;
+    }
+  }
+
+  // Report: completion claim with no subsequent edit pushes to report.
+  // hasEdited check: only skip report transition if a real edit occurred in THIS turn
+  // and we're still actively editing. Without edits, the default "edit" phase should
+  // still transition to report when a completion claim is present.
+  if (hasCompletionClaim && (!hasEdited || phase !== "edit")) {
+    const lastEventIdx = events.length - 1;
+    const lastCmd = events[lastEventIdx].command;
+    const lastIsEdit = lastCmd.startsWith("edit:") || lastCmd === "edit"
+      || lastCmd.startsWith("write:") || lastCmd === "write";
+    if (!lastIsEdit) {
+      phase = "report";
+    }
+  }
+
+  // Investigation intent keeps us in explore even if tests ran, as long as no edits
+  if (isInvestigation && !hasEdited) {
+    phase = "explore";
+  }
+
+  return phase;
+}
+
+/**
+ * Rules partitioned by which phases they are allowed to fire in.
+ * A rule not listed for a phase is silently suppressed.
+ */
+const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
+  explore: new Set([
+    // Exploration stalls — only redundant re-reads, not breadth
+    "broad_discovery_repeat",
+    "bounded_exploration_budget",
+    "plan_reread_loop",
+    // Concrete failures always fire
+    "no_test_files_repeat",
+    "dependency_install_replay",
+    "test_entry_contract",
+    "cleanup_todo_harvest",
+  ]),
+  edit: new Set([
+    // Edit-specific
+    "edit_failure_replay",
+    "consecutive_edit_failures",
+    "edit_before_retest",
+    "no_repeat_without_change",
+    "declaration_followthrough_required",
+    // Exploration stalls
+    "exploration_stall_no_edit",
+    "broad_discovery_repeat",
+    "bounded_exploration_budget",
+    // Verification stalls
+    "verification_stall_no_edit",
+    "verification_after_completion_claim",
+    "verification_fail_repeat_block",
+    "verification_same_failure_signature_replay",
+    "verification_truncated_output",
+    "no_test_files_repeat",
+    "verification_done_report",
+    "verification_no_signal_repeat",
+    "verification_already_green",
+    "verification_green_repeat_block",
+    "broad_to_narrow_verification",
+    // Progress / workflow
+    "no_progress_loop",
+    "verbal_intent_without_action",
+    "plan_reread_loop",
+    "completion_claim_requires_task_update",
+    "git_commit_followthrough",
+    "dependency_install_replay",
+    "test_entry_contract",
+    "cleanup_todo_harvest",
+    "task_creation_replay",
+  ]),
+  verify: new Set([
+    // Verification stalls
+    "verification_stall_no_edit",
+    "verification_after_completion_claim",
+    "verification_fail_repeat_block",
+    "verification_same_failure_signature_replay",
+    "verification_truncated_output",
+    "verification_done_report",
+    "verification_no_signal_repeat",
+    "verification_already_green",
+    "verification_green_repeat_block",
+    "no_test_files_repeat",
+    "broad_to_narrow_verification",
+    "edit_before_retest",
+    "no_repeat_without_change",
+    // Progress / workflow
+    "no_progress_loop",
+    "verbal_intent_without_action",
+    "completion_claim_requires_task_update",
+    "git_commit_followthrough",
+    "dependency_install_replay",
+    "plan_reread_loop",
+    "task_creation_replay",
+  ]),
+  report: new Set([
+    // Report phase: almost everything fires — model should be done
+    "verification_after_completion_claim",
+    "verification_stall_no_edit",
+    "exploration_stall_no_edit",
+    "no_progress_loop",
+    "verbal_intent_without_action",
+    "completion_claim_requires_task_update",
+    "no_test_files_repeat",
+    "dependency_install_replay",
+    "broad_to_narrow_verification",
+    "git_commit_followthrough",
+    "plan_reread_loop",
+  ]),
+};
+
+function isRuleAllowedInPhase(rule: string, phase: SessionPhase): boolean {
+  return PHASE_ALLOWED_RULES[phase].has(rule);
 }
 
 export type GovernanceProfileName = "safety_strict" | "balanced_completion" | "strict_control";
@@ -596,7 +770,12 @@ export function evaluateExecutionGovernor(
   let declarationFollowthroughViolation = false;
   let completionClaimNeedsTaskUpdate = false;
   const noEditEvidence = changedFiles.length === 0;
+  const hasCompletionClaim = hasCompletionClaimInAssistantText(turnMessages);
+  const sessionPhase = detectSessionPhase(events, userText, changedFiles, hasCompletionClaim);
   const matchedRules: string[] = [];
+  const pushRule = (rule: string) => {
+    if (isRuleAllowedInPhase(rule, sessionPhase)) matchedRules.push(rule);
+  };
   const hasRunTest = events.some((e) =>
     /\b(go test|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/i.test(e.command)
     || e.toolName.includes("run_test"),
@@ -862,10 +1041,10 @@ export function evaluateExecutionGovernor(
     const tool = normalizeString(e.toolName).toLowerCase();
     return tool.includes("taskcreate") || tool.includes("taskupdate") || tool.includes("todowrite");
   });
-  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaimInAssistantText(turnMessages) && !hasTaskDoneStatusUpdate(events);
-  const taskMentionedButNoUpdate = hasTaskMentionInTurnText(turnMessages) && hasCompletionClaimInAssistantText(turnMessages) && !hasTaskDoneStatusUpdate(events);
+  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaim && !hasTaskDoneStatusUpdate(events);
+  const taskMentionedButNoUpdate = hasTaskMentionInTurnText(turnMessages) && hasCompletionClaim && !hasTaskDoneStatusUpdate(events);
   const planNotFinalized = activePlanStage !== null && activePlanStage !== "finalize" && activePlanStage !== "done";
-  if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaimInAssistantText(turnMessages) && planNotFinalized)) {
+  if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaim && planNotFinalized)) {
     completionClaimNeedsTaskUpdate = true;
   }
 
@@ -874,7 +1053,7 @@ export function evaluateExecutionGovernor(
   // updating the plan, committing, or moving on. Count verification+exploration events
   // after the last assistant message that contains a completion claim.
   let verificationAfterCompletionClaim = 0;
-  const hasAnyClaim = hasCompletionClaimInAssistantText(turnMessages);
+  const hasAnyClaim = hasCompletionClaim;
   if (hasAnyClaim) {
     let lastClaimIdx = -1;
     for (let i = turnMessages.length - 1; i >= 0; i -= 1) {
@@ -902,45 +1081,45 @@ export function evaluateExecutionGovernor(
   // Read-only investigation intent: suppress noEditEvidence-dependent rules.
   const isInvestigationOnly = isReadOnlyInvestigationIntent(userText);
 
-  if (broadTestRepeat) matchedRules.push("broad_to_narrow_verification");
-  if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) matchedRules.push("git_commit_followthrough");
-  if (isDependencyInstallReplay(events)) matchedRules.push("dependency_install_replay");
+  if (broadTestRepeat) pushRule("broad_to_narrow_verification");
+  if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
+  if (isDependencyInstallReplay(events)) pushRule("dependency_install_replay");
   const hasFailureDrivenVerificationLoop =
     hasFailures || repeatedFailingVerification > 0 || repeatedCompileLikeFailureVerification > 0;
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold && hasFailureDrivenVerificationLoop) {
-    matchedRules.push("edit_before_retest");
+    pushRule("edit_before_retest");
   }
   if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence && hasFailureDrivenVerificationLoop) {
-    matchedRules.push("no_repeat_without_change");
+    pushRule("no_repeat_without_change");
   }
   const effectiveNoEditEvidence = noEditEvidence && !isInvestigationOnly;
-  if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_same_failure_signature_replay");
-  if (consecutiveEditFailures >= 3) matchedRules.push("consecutive_edit_failures");
-  if (repeatedEditFailureReplay >= 1) matchedRules.push("edit_failure_replay");
-  if (repeatedTaskCreateReplay >= 1) matchedRules.push("task_creation_replay");
-  if (!isInvestigationOnly && declarationFollowthroughViolation) matchedRules.push("declaration_followthrough_required");
-  if (completionClaimNeedsTaskUpdate) matchedRules.push("completion_claim_requires_task_update");
+  if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_same_failure_signature_replay");
+  if (consecutiveEditFailures >= 3) pushRule("consecutive_edit_failures");
+  if (repeatedEditFailureReplay >= 1) pushRule("edit_failure_replay");
+  if (repeatedTaskCreateReplay >= 1) pushRule("task_creation_replay");
+  if (!isInvestigationOnly && declarationFollowthroughViolation) pushRule("declaration_followthrough_required");
+  if (completionClaimNeedsTaskUpdate) pushRule("completion_claim_requires_task_update");
   if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence) {
-    matchedRules.push("verification_after_completion_claim");
+    pushRule("verification_after_completion_claim");
   }
-  if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) matchedRules.push("verification_fail_repeat_block");
-  if (repeatedTruncatedVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_truncated_output");
-  if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_done_report");
+  if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) pushRule("verification_fail_repeat_block");
+  if (repeatedTruncatedVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_truncated_output");
+  if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_done_report");
   // no_test_files_repeat fires even during investigation — "no test files" is a concrete
   // problem that needs a test file to be created, not suppressed by investigation mode.
-  if (repeatedNoTestFilesVerification >= 1 && noEditEvidence) matchedRules.push("no_test_files_repeat");
-  if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_no_signal_repeat");
+  if (repeatedNoTestFilesVerification >= 1 && noEditEvidence) pushRule("no_test_files_repeat");
+  if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_no_signal_repeat");
   if (!isInvestigationOnly && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
-    matchedRules.push("verification_stall_no_edit");
+    pushRule("verification_stall_no_edit");
   }
   const effectiveExplorationThreshold = hasPlanInContext
     ? Math.max(2, thresholds.explorationStallThreshold - 2)
     : thresholds.explorationStallThreshold;
   if (!isInvestigationOnly && trailingExplorationRunLength >= effectiveExplorationThreshold && effectiveNoEditEvidence && trailingExplorationHasRepeats) {
-    matchedRules.push("exploration_stall_no_edit");
+    pushRule("exploration_stall_no_edit");
   }
   if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
-    matchedRules.push("verbal_intent_without_action");
+    pushRule("verbal_intent_without_action");
   }
   // Combined no-progress: fires when verification + exploration interleaving hides the stall.
   // Productive commands (builds, tests, binary runs) earn +1 threshold each, up to +4,
@@ -949,22 +1128,22 @@ export function evaluateExecutionGovernor(
   const productiveBonus = Math.min(trailingProductiveCount, 4);
   const noProgressThreshold = baseNoProgressThreshold + productiveBonus;
   if (!isInvestigationOnly && trailingNoProgressLength >= noProgressThreshold && effectiveNoEditEvidence && trailingNoProgressHasRepeats) {
-    matchedRules.push("no_progress_loop");
+    pushRule("no_progress_loop");
   }
   if (!isInvestigationOnly && planCachedRereadCount >= 2 && !hasPlanEdit) {
-    matchedRules.push("plan_reread_loop");
+    pushRule("plan_reread_loop");
   }
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
     || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
-  ) matchedRules.push("broad_discovery_repeat");
-  if (repeatedReadSearchCalls >= thresholds.repeatedReadSearchPauseThreshold) matchedRules.push("bounded_exploration_budget");
+  ) pushRule("broad_discovery_repeat");
+  if (repeatedReadSearchCalls >= thresholds.repeatedReadSearchPauseThreshold) pushRule("bounded_exploration_budget");
   if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
-    matchedRules.push("test_entry_contract");
+    pushRule("test_entry_contract");
   }
   const cleanupHarvestRequested = needsCleanupGate(userText) && !shouldSkipCleanupHarvest(userText);
   if (cleanupHarvestRequested && hasEdit && !hasTodoHarvest(events)) {
-    matchedRules.push("cleanup_todo_harvest");
+    pushRule("cleanup_todo_harvest");
   }
 
   if (matchedRules.length === 0) {
@@ -973,6 +1152,7 @@ export function evaluateExecutionGovernor(
       reason: "ok",
       matchedRules: ["allow"],
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -994,6 +1174,7 @@ export function evaluateExecutionGovernor(
         "You are repeating the same dependency install command without code changes. If the install succeeded, move on to the next code edit. If it failed, investigate the specific error rather than re-running.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1013,6 +1194,7 @@ export function evaluateExecutionGovernor(
         "You are replaying the same compile/build failure signature without edits. Stop rerunning broad verification. Make one concrete code fix at the reported symbol/location, then run one narrow package/file-level verification.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1032,6 +1214,7 @@ export function evaluateExecutionGovernor(
         `Your last ${consecutiveEditFailures} edit attempts ALL failed. STOP trying to edit. The files likely already contain the changes you are attempting. Evidence: git diff shows modifications to these files. Run \`git diff <file>\` to see what's already changed. If the changes are present, the work is DONE — update the plan or task status and move on. If the changes genuinely don't exist, use \`cat <file>\` to get the CURRENT file content (not a cached Read), then construct your edit with exact old_string from that output.`,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1051,6 +1234,7 @@ export function evaluateExecutionGovernor(
         `You acknowledged the work is already done, then ran ${verificationAfterCompletionClaim} more verification commands (builds, tests, git status, diffs). STOP verifying. The work is complete. Take ONE of these actions NOW: (1) update the plan file to mark the task done, (2) run \`git add\` + \`git commit\` to commit the changes, (3) tell the user the task is complete. Do NOT run another build, test, diff, or status command.`,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1070,6 +1254,7 @@ export function evaluateExecutionGovernor(
         "You are replaying the same edit failure. The file may already contain the changes (stale Read cache). Run `git diff <file>` to check. If changes exist, do NOT retry — mark the task done. Otherwise, re-read the exact target section with `cat <file>` or Read with offset/limit, then issue one corrected edit with exact old_string matching the current file content.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1089,6 +1274,7 @@ export function evaluateExecutionGovernor(
         "You are recreating duplicate tasks. Stop creating new task entries for the same intent. Update existing task status and execute one concrete code action (Edit/Write/test) for the active task.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1108,6 +1294,7 @@ export function evaluateExecutionGovernor(
         "You made a declaration-only edit (for example import/flag) but did not complete a usage-site change. Stop additional read/search calls and apply one concrete follow-through edit that wires the new declaration into runtime behavior, then run narrow verification.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1127,6 +1314,7 @@ export function evaluateExecutionGovernor(
         "You claimed completion but task statuses were not marked done. Update existing task entries to done (TaskUpdate/TodoWrite) for completed scope before reporting final completion.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1146,6 +1334,7 @@ export function evaluateExecutionGovernor(
         "You are repeating the same failing verification output. STOP re-running tests/builds. Read the failing file/error location, apply exactly one focused Edit/Write to address that root cause, then run one narrow verification command.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1165,6 +1354,7 @@ export function evaluateExecutionGovernor(
         `You have re-read the plan file ${planCachedRereadCount} times and each time it was unchanged/cached. STOP reading the plan. You already have the plan content. Do NOT re-read it, do NOT re-summarize it, do NOT re-verify items marked complete. Take ONE concrete action now: (1) if a task needs marking done, call the plan Edit tool once, (2) if work is needed, make a code edit (Write/Edit), (3) if confused about next step, ask the user.`,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1188,6 +1378,7 @@ export function evaluateExecutionGovernor(
         `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling between exploration and verification."} STOP. If builds pass and features work, the task is DONE — update the plan or task status. If something needs changing, make exactly ONE code edit now, then verify once.`,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1210,6 +1401,7 @@ export function evaluateExecutionGovernor(
         `You have declared intent to act ${verbalIntentStreak} times ("I'll ...", "Let me ...") without making any code edits or task updates. Stop narrating intent and take one concrete action: (1) call TaskUpdate/TodoWrite to mark completed tasks done, (2) make one code edit (Write/Edit), or (3) if everything is done, update all task statuses to done and report completion.`,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1229,6 +1421,7 @@ export function evaluateExecutionGovernor(
         `You have run ${trailingVerificationRunLength} verification/read commands without making any code edits${trailingRereadCount > 0 ? ` (including ${trailingRereadCount} redundant re-reads)` : ""}. Builds and tests are passing — there is nothing left to verify. Stop running build/test/read commands. If a task is done, update the plan or mark it complete NOW. Otherwise pick the next unfinished task item, make one concrete code edit (Write/Edit), then run one narrow verification.`,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1250,6 +1443,7 @@ export function evaluateExecutionGovernor(
         `You have run ${trailingExplorationRunLength} search/read/list commands without making any code edits${hasPlanInContext ? " (a plan file is loaded)" : ""}. Stop exploring.${hasPlanInContext ? " Trust the plan's status markers — do NOT re-verify items marked complete." : ""} Identify one concrete task to work on, make one code edit (Write/Edit), then run one narrow verification.`,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1271,6 +1465,7 @@ export function evaluateExecutionGovernor(
         "Verification output was truncated (for example via | head/tail), so failures may be hidden. Run one narrow verification command without output truncation, capture full result, then apply one focused edit if needed.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1290,6 +1485,7 @@ export function evaluateExecutionGovernor(
         "You ran git add but did not follow through with git commit. If changes are ready, run git commit now. If not, continue editing — do not loop on git status/diff.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1309,6 +1505,7 @@ export function evaluateExecutionGovernor(
         "The test command returned '[no test files]' multiple times. Re-running the same test will not produce test files. You MUST create a test file (e.g. *_test.go) with test functions, then run the test command once to verify. Do NOT re-run the test command until you have written a test file.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1328,6 +1525,7 @@ export function evaluateExecutionGovernor(
         "Verification is already passing and no new edits were made. Do not rerun verification; continue with the next requested non-verification action (for example update plan state) and provide a concise completion report.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1347,6 +1545,7 @@ export function evaluateExecutionGovernor(
         "Repeated verification produced no new output and no edits were made. Treat the last successful exit as sufficient; continue with the next requested non-verification action and report completion (or make one concrete edit before any further verification).",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1372,6 +1571,7 @@ export function evaluateExecutionGovernor(
         "Verification reruns were detected earlier, but you have already pivoted to a non-verification action. Continue that action (for example updating plan status or applying the next edit) instead of running more tests now.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1386,13 +1586,13 @@ export function evaluateExecutionGovernor(
   // Avoid trapping the model in repeated broad verification when output is already green.
   if (broadVerificationCommands >= thresholds.broadVerificationNoticeThreshold) {
     broadTestRepeat = true;
-    if (!matchedRules.includes("broad_to_narrow_verification")) matchedRules.push("broad_to_narrow_verification");
+    if (!matchedRules.includes("broad_to_narrow_verification")) pushRule("broad_to_narrow_verification");
   }
 
   if (broadTestRepeat && repeatedTestCommands >= 1 && !hasFailures) {
-    matchedRules.push("verification_already_green");
+    pushRule("verification_already_green");
     const shouldPause = broadVerificationCommands >= thresholds.broadVerificationBlockThreshold;
-    if (shouldPause) matchedRules.push("verification_green_repeat_block");
+    if (shouldPause) pushRule("verification_green_repeat_block");
     return {
       pause: shouldPause,
       reason: shouldPause
@@ -1403,6 +1603,7 @@ export function evaluateExecutionGovernor(
         : "Verification is already passing. Stop re-running broad go vet/go test checks and continue implementing the next requested feature.",
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1446,6 +1647,7 @@ export function evaluateExecutionGovernor(
       suggestedNextStep,
       matchedRules,
       telemetry: {
+        phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
         repeatedBroadDiscoveryCalls,
@@ -1465,6 +1667,7 @@ export function evaluateExecutionGovernor(
     suggestedNextStep,
     matchedRules,
     telemetry: {
+      phase: sessionPhase,
       repeatedTestCommands,
       repeatedReadSearchCalls,
       repeatedBroadDiscoveryCalls,

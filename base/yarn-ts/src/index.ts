@@ -197,6 +197,7 @@ type SessionState = {
   lastVolatileHash?: string;
   pruningWatermark: number;
   consecutiveRecoveryFires: number;
+  lastGovernorPhase?: import("./governance/execution-governor.js").SessionPhase;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -5490,6 +5491,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       govSpan.setAttribute("governor.pause", decision.pause);
       govSpan.setAttribute("governor.reason", decision.reason ?? "");
       govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
+      govSpan.setAttribute("governor.phase", decision.telemetry.phase);
       govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
       govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
       return decision;
@@ -5499,6 +5501,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         reason: "disabled",
         matchedRules: ["disabled"],
         telemetry: {
+          phase: "edit" as const,
           repeatedTestCommands: 0,
           repeatedReadSearchCalls: 0,
           repeatedBroadDiscoveryCalls: 0,
@@ -5526,11 +5529,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     identity.orgId,
     "execution_governor_evaluated",
     "execution-governor",
-    `rules=${oaiExecutionGovernor.matchedRules.join(",") || "allow"} pause=${oaiExecutionGovernor.pause}`,
+    `phase=${oaiExecutionGovernor.telemetry.phase} rules=${oaiExecutionGovernor.matchedRules.join(",") || "allow"} pause=${oaiExecutionGovernor.pause}`,
     oaiTraceReqId,
     {
       pause: oaiExecutionGovernor.pause,
       reason: oaiExecutionGovernor.reason,
+      phase: oaiExecutionGovernor.telemetry.phase,
       matched_rules: oaiExecutionGovernor.matchedRules,
       suggested_next_step: oaiExecutionGovernor.suggestedNextStep?.slice(0, 200),
       telemetry: oaiExecutionGovernor.telemetry,
@@ -5648,6 +5652,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       app.log.warn({ reqId: oaiTraceReqId, sessionKey, sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey) }, "proactive_glob_strip_from_tools");
     }
   }
+  const oaiGovernorPhase = oaiExecutionGovernor.telemetry.phase;
+  if (session.lastGovernorPhase && oaiGovernorPhase !== session.lastGovernorPhase) {
+    session.consecutiveRecoveryFires = 0;
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "governor_phase_transition", "execution-governor",
+      `${session.lastGovernorPhase} → ${oaiGovernorPhase}`, oaiTraceReqId);
+  }
+  session.lastGovernorPhase = oaiGovernorPhase;
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const oaiHasProductiveWork = (oaiExecutionGovernor.telemetry.trailingProductiveCount ?? 0) > 0;
     if (oaiHasProductiveWork && session.consecutiveRecoveryFires > 0) {
@@ -5678,8 +5689,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         identity.orgId,
         "execution_governor_hard_stop",
         "execution-governor",
-        `Hard stop after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${oaiExecutionGovernor.matchedRules.join(",")})`,
+        `Hard stop phase=${oaiGovernorPhase} after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${oaiExecutionGovernor.matchedRules.join(",")})`,
         oaiTraceReqId,
+        { phase: oaiGovernorPhase, matched_rules: oaiExecutionGovernor.matchedRules },
       );
       maybeCheckpoint(session);
       return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream);
@@ -5700,7 +5712,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       identity.orgId,
       "execution_governor_recovery_rewrite",
       "execution-governor",
-      `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}); files_seen=${oaiDedup.getTrackedFileCount()}`,
+      `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); phase=${oaiGovernorPhase}; removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}); files_seen=${oaiDedup.getTrackedFileCount()}`,
       oaiTraceReqId,
     );
   } else if (!oaiExecutionGovernor.pause) {
@@ -7550,6 +7562,7 @@ app.post("/v1/messages", async (req, reply) => {
       govSpan.setAttribute("governor.pause", decision.pause);
       govSpan.setAttribute("governor.reason", decision.reason ?? "");
       govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
+      govSpan.setAttribute("governor.phase", decision.telemetry.phase);
       govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
       govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
       return decision;
@@ -7559,6 +7572,7 @@ app.post("/v1/messages", async (req, reply) => {
         reason: "disabled",
         matchedRules: ["disabled"],
         telemetry: {
+          phase: "edit" as const,
           repeatedTestCommands: 0,
           repeatedReadSearchCalls: 0,
           repeatedBroadDiscoveryCalls: 0,
@@ -7586,11 +7600,12 @@ app.post("/v1/messages", async (req, reply) => {
     claudeIdentity.orgId,
     "execution_governor_evaluated",
     "execution-governor",
-    `rules=${claudeExecutionGovernor.matchedRules.join(",") || "allow"} pause=${claudeExecutionGovernor.pause}`,
+    `phase=${claudeExecutionGovernor.telemetry.phase} rules=${claudeExecutionGovernor.matchedRules.join(",") || "allow"} pause=${claudeExecutionGovernor.pause}`,
     traceReqId,
     {
       pause: claudeExecutionGovernor.pause,
       reason: claudeExecutionGovernor.reason,
+      phase: claudeExecutionGovernor.telemetry.phase,
       matched_rules: claudeExecutionGovernor.matchedRules,
       suggested_next_step: claudeExecutionGovernor.suggestedNextStep?.slice(0, 200),
       telemetry: claudeExecutionGovernor.telemetry,
@@ -7708,6 +7723,13 @@ app.post("/v1/messages", async (req, reply) => {
       app.log.warn({ reqId: traceReqId, sessionKey: claudeSessionKey, sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey) }, "proactive_glob_strip_from_tools");
     }
   }
+  const claudeGovernorPhase = claudeExecutionGovernor.telemetry.phase;
+  if (session.lastGovernorPhase && claudeGovernorPhase !== session.lastGovernorPhase) {
+    session.consecutiveRecoveryFires = 0;
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "governor_phase_transition", "execution-governor",
+      `${session.lastGovernorPhase} → ${claudeGovernorPhase}`, traceReqId);
+  }
+  session.lastGovernorPhase = claudeGovernorPhase;
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const claudeHasProductiveWork = (claudeExecutionGovernor.telemetry.trailingProductiveCount ?? 0) > 0;
     if (claudeHasProductiveWork && session.consecutiveRecoveryFires > 0) {
@@ -7738,8 +7760,9 @@ app.post("/v1/messages", async (req, reply) => {
         claudeIdentity.orgId,
         "execution_governor_hard_stop",
         "execution-governor",
-        `Hard stop after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${claudeExecutionGovernor.matchedRules.join(",")})`,
+        `Hard stop phase=${claudeGovernorPhase} after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${claudeExecutionGovernor.matchedRules.join(",")})`,
         traceReqId,
+        { phase: claudeGovernorPhase, matched_rules: claudeExecutionGovernor.matchedRules },
       );
       maybeCheckpoint(session);
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream);
@@ -7760,7 +7783,7 @@ app.post("/v1/messages", async (req, reply) => {
       claudeIdentity.orgId,
       "execution_governor_recovery_rewrite",
       "execution-governor",
-      `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}); files_seen=${claudeDedup.getTrackedFileCount()}`,
+      `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); phase=${claudeGovernorPhase}; removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}); files_seen=${claudeDedup.getTrackedFileCount()}`,
       traceReqId,
     );
   } else if (!claudeExecutionGovernor.pause) {

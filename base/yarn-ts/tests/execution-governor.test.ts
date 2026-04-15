@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateExecutionGovernor, executionGovernorRecoveryRewriteBlock } from "../src/governance/execution-governor.js";
+import { evaluateExecutionGovernor, executionGovernorRecoveryRewriteBlock, detectSessionPhase, type CommandEvent } from "../src/governance/execution-governor.js";
 
 function assistantCall(id: string, name: string, args: unknown) {
   return { role: "assistant", content: "", tool_calls: [{ id, function: { name, arguments: args } }] };
@@ -1372,5 +1372,196 @@ describe("execution governor", () => {
     expect(block).toContain("You ALREADY said the work is done");
     expect(block).toContain("git add");
     expect(block).toContain("verification_after_completion_claim");
+  });
+});
+
+describe("detectSessionPhase", () => {
+  function ev(command: string, toolName = "bash", resultSignature = ""): CommandEvent {
+    return { command, toolName, resultSignature };
+  }
+
+  it("defaults to explore with investigation intent and no events", () => {
+    expect(detectSessionPhase([], "scan the repo", [], false)).toBe("explore");
+  });
+
+  it("defaults to edit (all rules) with no investigation intent and no events", () => {
+    expect(detectSessionPhase([], "fix the bug", [], false)).toBe("edit");
+  });
+
+  it("stays in explore during reads and searches with investigation intent", () => {
+    const events = [
+      ev("read:src/main.ts", "read_file"),
+      ev("search:pattern", "search"),
+      ev("read:src/util.ts", "read_file"),
+    ];
+    expect(detectSessionPhase(events, "what does this codebase do", [], false)).toBe("explore");
+  });
+
+  it("uses edit phase for reads without investigation intent", () => {
+    const events = [
+      ev("read:src/main.ts", "read_file"),
+      ev("search:pattern", "search"),
+    ];
+    expect(detectSessionPhase(events, "fix the bug", [], false)).toBe("edit");
+  });
+
+  it("transitions to edit on first file write", () => {
+    const events = [
+      ev("read:src/main.ts", "read_file"),
+      ev("edit:src/main.ts", "str_replace", "ok"),
+    ];
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], false)).toBe("edit");
+  });
+
+  it("transitions to verify when build/test follows an edit", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("go test ./...", "bash"),
+    ];
+    expect(detectSessionPhase(events, "fix and test", ["src/main.ts"], false)).toBe("verify");
+  });
+
+  it("cycles back to edit when another edit follows verification", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("go test ./...", "bash"),
+      ev("edit:src/main.ts", "str_replace", "ok"),
+    ];
+    expect(detectSessionPhase(events, "fix failing tests", ["src/main.ts"], false)).toBe("edit");
+  });
+
+  it("transitions to report on completion claim without subsequent edit", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("go test ./...", "bash"),
+      ev("git status", "bash"),
+    ];
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("report");
+  });
+
+  it("stays in edit if completion claim followed by last event being an edit", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("go test ./...", "bash"),
+      ev("edit:src/main.ts", "str_replace", "ok"),
+    ];
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("edit");
+  });
+
+  it("investigation intent keeps phase as explore even when tests run", () => {
+    const events = [
+      ev("read:src/main.ts", "read_file"),
+      ev("go test ./...", "bash"),
+      ev("read:src/util.ts", "read_file"),
+    ];
+    expect(detectSessionPhase(events, "scan repo and make sure every feature is implemented", [], false)).toBe("explore");
+  });
+
+  it("does not stay in explore for investigation if edits occurred", () => {
+    const events = [
+      ev("read:src/main.ts", "read_file"),
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("go test ./...", "bash"),
+    ];
+    expect(detectSessionPhase(events, "scan repo and fix issues", ["src/main.ts"], false)).toBe("verify");
+  });
+
+  it("failed edit does not transition to edit phase from explore", () => {
+    const events = [
+      ev("read:src/main.ts", "read_file"),
+      ev("edit:src/main.ts", "str_replace", "error editing file: old_string not found"),
+    ];
+    // With investigation intent, stays in explore despite failed edit
+    expect(detectSessionPhase(events, "review the codebase", [], false)).toBe("explore");
+    // Without investigation intent, default is edit (all rules apply)
+    expect(detectSessionPhase(events, "fix something", [], false)).toBe("edit");
+  });
+});
+
+describe("phase-aware rule gating", () => {
+  it("explore phase suppresses no_progress_loop", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "scan repo and make sure every feature is implemented" },
+    ];
+    for (let i = 0; i < 14; i++) {
+      messages.push(assistantCall(`r${i}`, "read_file", { path: `src/file${i}.ts` }));
+      messages.push(toolResult(`r${i}`, `content of file${i}`));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("explore");
+    expect(out.matchedRules).not.toContain("no_progress_loop");
+    expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
+    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+  });
+
+  it("explore phase still fires bounded_exploration_budget on redundant re-reads", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "explain how the auth module works" },
+    ];
+    for (let i = 0; i < 6; i++) {
+      messages.push(assistantCall(`r${i}`, "read_file", { path: "src/auth.ts" }));
+      messages.push(toolResult(`r${i}`, "auth module content"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("explore");
+    expect(out.matchedRules).toContain("bounded_exploration_budget");
+  });
+
+  it("edit phase fires exploration_stall_no_edit normally", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "fix the bug in auth.ts" },
+      assistantCall("e1", "str_replace", { filePath: "src/auth.ts", oldString: "old", newString: "new" }),
+      toolResult("e1", "ok"),
+    ];
+    for (let i = 0; i < 8; i++) {
+      messages.push(assistantCall(`r${i}`, "read_file", { path: `src/file${i}.ts` }));
+      messages.push(toolResult(`r${i}`, `content of file${i}`));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("edit");
+  });
+
+  it("verify phase fires verification_stall_no_edit on repeated verification", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "fix the bug and verify" },
+      assistantCall("e1", "str_replace", { filePath: "src/main.ts", oldString: "old", newString: "new" }),
+      toolResult("e1", "ok"),
+    ];
+    for (let i = 0; i < 7; i++) {
+      messages.push(assistantCall(`v${i}`, "bash", { command: "go test ./..." }));
+      messages.push(toolResult(`v${i}`, "ok"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("verify");
+    expect(out.matchedRules).toContain("verification_stall_no_edit");
+  });
+
+  it("report phase fires verification_after_completion_claim", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "implement feature X" },
+      { role: "assistant", content: "The feature is already implemented and all tests pass." },
+      assistantCall("1", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go vet ./... 2>&1" }),
+      toolResult("2", ""),
+      assistantCall("3", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("3", "auth.go | 10 +++"),
+      assistantCall("4", "bash", { command: "go build ./cmd/synesis/ 2>&1" }),
+      toolResult("4", ""),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("report");
+    expect(out.matchedRules).toContain("verification_after_completion_claim");
+  });
+
+  it("phase telemetry is present on all decisions", () => {
+    const messages = [
+      { role: "user", content: "hello" },
+      assistantCall("1", "read_file", { path: "README.md" }),
+      toolResult("1", "readme content"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBeDefined();
+    expect(["explore", "edit", "verify", "report"]).toContain(out.telemetry.phase);
   });
 });
