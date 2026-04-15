@@ -498,8 +498,23 @@ function isDependencyInstallReplay(events: CommandEvent[]): boolean {
 }
 
 function isReadOnlyInvestigationIntent(userText: string): boolean {
-  return /\b(explain|what does|how does|show me|describe|analyze|understand|review)\b/.test(userText)
-    && !/\b(fix|implement|add|create|change|edit|update|write|refactor|delete|remove)\b/.test(userText);
+  const text = userText.toLowerCase();
+  // Strong investigation verbs — unambiguous read-only intent
+  const strongInvestigation = /\b(explain|what does|how does|show me|describe|analyze|understand|review|scan|audit|examine|inspect|survey|summarize|catalogue|inventory|what is|where is|list all|status of)\b/.test(text);
+  // Weak investigation verbs — only count when combined with completeness/state checks
+  const weakInvestigation = /\b(verify|validate|check|assess|ensure|evaluate|look at|make sure)\b/.test(text);
+  // "complete" as adjective ("is it complete") vs verb ("complete the task") is ambiguous;
+  // require it to appear after "is/are/been" or before a noun, not standalone as a verb.
+  const completenessQualifier = /\b(every|all|each|implemented|working|correct|present|exist|missing|feature)\b/.test(text)
+    || /\b(is|are|been|fully)\s+complete\b/.test(text);
+  const hasInvestigationVerb = strongInvestigation || (weakInvestigation && completenessQualifier);
+  if (!hasInvestigationVerb) return false;
+  const hasEditVerb = /\b(fix|add|create|change|edit|update|write|refactor|delete|remove|migrate|convert|replace|rewrite|move|rename)\b/.test(text);
+  if (!hasEditVerb) return true;
+  // "make sure X is implemented" / "ensure X is complete" / "verify X is working" are
+  // investigation even though they contain edit-adjacent words in subordinate clauses.
+  const investigationDominant = /\b(make sure|ensure|verify|validate|check|scan)\b.{0,40}\b(is |are |was |were |has been|have been|implemented|complete|working|correct|present|exist)\b/.test(text);
+  return investigationDominant;
 }
 
 function isTruncatedVerificationCommand(command: string): boolean {
@@ -911,7 +926,9 @@ export function evaluateExecutionGovernor(
   if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) matchedRules.push("verification_fail_repeat_block");
   if (repeatedTruncatedVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_truncated_output");
   if (!broadTestRepeat && !hasFailures && repeatedSuccessfulVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_done_report");
-  if (repeatedNoTestFilesVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("no_test_files_repeat");
+  // no_test_files_repeat fires even during investigation — "no test files" is a concrete
+  // problem that needs a test file to be created, not suppressed by investigation mode.
+  if (repeatedNoTestFilesVerification >= 1 && noEditEvidence) matchedRules.push("no_test_files_repeat");
   if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) matchedRules.push("verification_no_signal_repeat");
   if (!isInvestigationOnly && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
     matchedRules.push("verification_stall_no_edit");

@@ -953,6 +953,54 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
   });
 
+  it("does not fire exploration_stall for scan/verify/ensure investigation intent", () => {
+    const messages = [
+      { role: "user", content: "scan the repo and make sure every feature is implemented" },
+      assistantCall("1", "search", { pattern: "repl|template" }),
+      toolResult("1", "cmd/synesis/repl.go\ncmd/synesis/template.go"),
+      assistantCall("2", "read_file", { path: "cmd/synesis/repl.go" }),
+      toolResult("2", "package main\n\nfunc replCmd()"),
+      assistantCall("3", "read_file", { path: "cmd/synesis/template.go" }),
+      toolResult("3", "package main\n\nfunc templateCmd()"),
+      assistantCall("4", "read_file", { path: "pkg/repl/repl.go" }),
+      toolResult("4", "package repl\n\nfunc Start()"),
+      assistantCall("5", "read_file", { path: "pkg/template/template.go" }),
+      toolResult("5", "package template\n\nfunc Load()"),
+      assistantCall("6", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("6", "package main\n\nfunc main()"),
+      assistantCall("7", "read_file", { path: "pkg/config/config.go" }),
+      toolResult("7", "package config\n\nfunc Resolve()"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
+    expect(out.matchedRules).not.toContain("no_progress_loop");
+    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+    expect(out.pause).toBe(false);
+  });
+
+  it("does not fire exploration_stall for validate/check investigation intent", () => {
+    const messages = [
+      { role: "user", content: "validate keychain and check all features are complete" },
+      assistantCall("1", "search", { pattern: "keychain" }),
+      toolResult("1", "pkg/keychain/keychain.go"),
+      assistantCall("2", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("2", "package keychain"),
+      assistantCall("3", "read_file", { path: "cmd/synesis/authcmd.go" }),
+      toolResult("3", "package main"),
+      assistantCall("4", "search", { pattern: "auth" }),
+      toolResult("4", "cmd/synesis/authcmd.go"),
+      assistantCall("5", "read_file", { path: "pkg/config/config.go" }),
+      toolResult("5", "package config"),
+      assistantCall("6", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("6", "package main"),
+      assistantCall("7", "search", { pattern: "session" }),
+      toolResult("7", "pkg/session/session.go"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
+    expect(out.pause).toBe(false);
+  });
+
   it("fires plan_reread_loop when plan file is read 3+ times with unchanged results", () => {
     const planPath = "/Users/test/.claude/plans/my-plan.md";
     const messages = [
