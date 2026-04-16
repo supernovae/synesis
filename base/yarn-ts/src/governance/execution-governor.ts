@@ -537,6 +537,15 @@ function extractUserText(messages: GovernorInputMessage[]): string {
     .toLowerCase();
 }
 
+function extractLatestUserText(messages: GovernorInputMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user" && typeof messages[i].content === "string") {
+      return String(messages[i].content).toLowerCase();
+    }
+  }
+  return "";
+}
+
 function needsTestEntryGate(userText: string): boolean {
   return /\b(add|write|create|build).{0,30}\btests?\b/.test(userText)
     || /\bcomprehensive test suite\b/.test(userText);
@@ -747,6 +756,7 @@ export function evaluateExecutionGovernor(
   const events = extractCommandEvents(turnMessages);
   const changedFiles = extractEditedFileHints(events);
   const userText = extractUserText(messages);
+  const latestUserText = extractLatestUserText(messages);
   const hasFailures = hasFailureSignals(turnMessages);
   const testRuntime = inferTestRuntime(events, userText);
   const lastEvent = events.length > 0 ? events[events.length - 1] : null;
@@ -771,7 +781,7 @@ export function evaluateExecutionGovernor(
   let completionClaimNeedsTaskUpdate = false;
   const noEditEvidence = changedFiles.length === 0;
   const hasCompletionClaim = hasCompletionClaimInAssistantText(turnMessages);
-  const sessionPhase = detectSessionPhase(events, userText, changedFiles, hasCompletionClaim);
+  const sessionPhase = detectSessionPhase(events, latestUserText, changedFiles, hasCompletionClaim);
   const matchedRules: string[] = [];
   const pushRule = (rule: string) => {
     if (isRuleAllowedInPhase(rule, sessionPhase)) matchedRules.push(rule);
@@ -1078,8 +1088,9 @@ export function evaluateExecutionGovernor(
   }
   const verbalIntentStreak = countVerbalIntentStreak(turnMessages, events);
 
-  // Read-only investigation intent: suppress noEditEvidence-dependent rules.
-  const isInvestigationOnly = isReadOnlyInvestigationIntent(userText);
+  // Read-only investigation intent: based on the LATEST user message only,
+  // so a follow-up "implement both" overrides an earlier "scan the repo" prompt.
+  const isInvestigationOnly = isReadOnlyInvestigationIntent(latestUserText);
 
   if (broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");

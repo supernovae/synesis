@@ -1564,4 +1564,37 @@ describe("phase-aware rule gating", () => {
     expect(out.telemetry.phase).toBeDefined();
     expect(["explore", "edit", "verify", "report"]).toContain(out.telemetry.phase);
   });
+
+  it("exits explore when follow-up user message has implementation intent", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "scan repo and make sure every feature is implemented" },
+      assistantCall("r1", "read_file", { path: "src/main.ts" }),
+      toolResult("r1", "main content"),
+      assistantCall("r2", "bash", { command: "go test ./..." }),
+      toolResult("r2", "ok"),
+      { role: "assistant", content: "All features are implemented. What would you like me to focus on?" },
+      { role: "user", content: "Both tests and completion" },
+      assistantCall("r3", "read_file", { path: "src/main.ts" }),
+      toolResult("r3", "main content"),
+      assistantCall("r4", "read_file", { path: "src/tests.ts" }),
+      toolResult("r4", "test content"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("edit");
+    expect(out.matchedRules).not.toContain("bounded_exploration_budget");
+  });
+
+  it("stays in explore when latest user message is still investigation", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "scan repo and make sure every feature is implemented" },
+      assistantCall("r1", "read_file", { path: "src/main.ts" }),
+      toolResult("r1", "main content"),
+      { role: "assistant", content: "Found several features. Let me check more." },
+      { role: "user", content: "yes, review all the modules" },
+      assistantCall("r2", "read_file", { path: "src/auth.ts" }),
+      toolResult("r2", "auth content"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("explore");
+  });
 });
