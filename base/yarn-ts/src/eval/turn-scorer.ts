@@ -183,14 +183,37 @@ function evaluateAssertion(
   switch (assertion.type) {
     case "governor_paused": {
       const pauseRules = governorRules.filter(r => r !== "allow" && r !== "disabled");
-      const passed = pauseRules.length > 0;
-      return { assertion, passed, detail: passed ? `Rules: ${pauseRules.join(", ")}` : "Governor did not pause" };
+      // Also detect from message content when admin API is unavailable
+      const contentPause = messages.some(
+        m =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          (m.content.includes("GOVERNOR PAUSE:") || m.content.includes("GOVERNOR HARD STOP")),
+      );
+      const passed = pauseRules.length > 0 || contentPause;
+      return {
+        assertion,
+        passed,
+        detail: passed
+          ? `Rules: ${pauseRules.join(", ") || "detected in message content"}`
+          : "Governor did not pause",
+      };
     }
 
     case "governor_not_paused": {
       const pauseRules = governorRules.filter(r => r !== "allow" && r !== "disabled");
-      const passed = pauseRules.length === 0;
-      return { assertion, passed, detail: passed ? "No pause" : `Unexpected pause: ${pauseRules.join(", ")}` };
+      const contentPause = messages.some(
+        m =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          (m.content.includes("GOVERNOR PAUSE:") || m.content.includes("GOVERNOR HARD STOP")),
+      );
+      const passed = pauseRules.length === 0 && !contentPause;
+      return {
+        assertion,
+        passed,
+        detail: passed ? "No pause" : `Unexpected pause: ${pauseRules.join(", ") || "detected in message content"}`,
+      };
     }
 
     case "contains_edit": {

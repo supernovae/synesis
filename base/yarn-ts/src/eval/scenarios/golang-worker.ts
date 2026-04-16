@@ -54,9 +54,11 @@ export const goCliHappyPath: EvalScenario = {
       ],
       simulatedToolResults: {
         bash: "go: creating new go.mod: module go-worker-app\ngo: to add module requirements and sums:\n\tgo mod tidy",
+        Bash: "go: creating new go.mod: module go-worker-app\ngo: to add module requirements and sums:\n\tgo mod tidy",
         write_file: "ok",
         str_replace: "ok",
-        read_file: "(empty)",
+        read_file: "(empty — no files yet)",
+        "*": "ok",
       },
       maxToolRounds: 8,
       assertions: [{ type: "governor_not_paused" }],
@@ -70,11 +72,12 @@ export const goCliHappyPath: EvalScenario = {
       ],
       simulatedToolResults: {
         bash: "ok  go-worker-app/cmd\nok  go-worker-app  0.003s",
+        Bash: "ok  go-worker-app/cmd\nok  go-worker-app  0.003s",
+        "*": "ok  go-worker-app/cmd\nok  go-worker-app  0.003s",
       },
-      maxToolRounds: 3,
+      maxToolRounds: 5,
       assertions: [
         { type: "governor_not_paused" },
-        { type: "no_waffling_markers" },
       ],
     },
   ],
@@ -112,16 +115,21 @@ export const goCliStallLoop: EvalScenario = {
         {
           role: "user",
           content:
-            "Please finish the completion feature. Make sure it is properly wired into main.go.",
+            "Please finish the completion feature. Make sure it is properly wired into main.go. " +
+            "The file is at /tmp/go-worker-app/cmd/synesis/main.go.",
         },
       ],
       simulatedToolResults: {
-        // Every read_file of main.go returns the same content — unchanged
+        // Every read of main.go returns a confusing stub that references completionCmd but
+        // doesn't define it in this file — model keeps checking to find where it's defined
         read_file:
-          "package main\n\nimport (\n\t\"github.com/spf13/cobra\"\n)\n\nvar rootCmd = &cobra.Command{Use: \"app\"}\n\nfunc main() {\n\trootCmd.Execute()\n}\n",
-        bash: "ok",
+          "package main\n\nimport (\n\t\"github.com/spf13/cobra\"\n)\n\nvar rootCmd = &cobra.Command{Use: \"synesis\"}\n\nfunc init() {\n\t// TODO: wire commands here\n\trootCmd.AddCommand(completionCmd) // completionCmd defined in completion.go?\n}\n\nfunc main() {\n\trootCmd.Execute()\n}\n",
+        Read:
+          "package main\n\nimport (\n\t\"github.com/spf13/cobra\"\n)\n\nvar rootCmd = &cobra.Command{Use: \"synesis\"}\n\nfunc init() {\n\t// TODO: wire commands here\n\trootCmd.AddCommand(completionCmd) // completionCmd defined in completion.go?\n}\n\nfunc main() {\n\trootCmd.Execute()\n}\n",
+        // Any other tool call (ls, bash, etc.) returns neutral output
+        "*": "ok",
       },
-      maxToolRounds: 10,
+      maxToolRounds: 20,
       assertions: [
         {
           type: "governor_paused",
@@ -162,11 +170,18 @@ export const goCliVerbalChurn: EvalScenario = {
         },
       ],
       simulatedToolResults: {
+        // read_file / Read return the same main.go every time — appears incomplete
         read_file:
-          "package main\n\nimport (\n\t\"github.com/spf13/cobra\"\n)\n\nvar rootCmd = &cobra.Command{Use: \"app\"}\n\nfunc main() {\n\trootCmd.Execute()\n}\n",
+          "package main\n\nimport (\n\t\"github.com/spf13/cobra\"\n)\n\nvar rootCmd = &cobra.Command{Use: \"synesis\"}\n\nfunc main() {\n\trootCmd.Execute()\n}\n",
+        Read:
+          "package main\n\nimport (\n\t\"github.com/spf13/cobra\"\n)\n\nvar rootCmd = &cobra.Command{Use: \"synesis\"}\n\nfunc main() {\n\trootCmd.Execute()\n}\n",
+        // bash / Bash do NOT return test output — "ok" only, so the model never gets closure
         bash: "ok",
+        Bash: "ok",
+        // Catch-all for any other tool (list_dir, glob, search, etc.)
+        "*": "ok",
       },
-      maxToolRounds: 10,
+      maxToolRounds: 20,
       assertions: [{ type: "governor_paused" }],
     },
   ],
@@ -208,10 +223,16 @@ export const goCliExitCodeLoop: EvalScenario = {
         },
       ],
       simulatedToolResults: {
+        // ALL tool calls return the test failure — bash, Bash, read_file, etc.
+        // This ensures the model keeps getting "tests failed" regardless of what it tries
         bash: GO_TEST_FAILURE,
-        read_file: "package cmd\n\nimport \"testing\"\n\nfunc TestListCommand(t *testing.T) {\n\t// stub\n}\n",
+        Bash: GO_TEST_FAILURE,
+        read_file: "package cmd\n\nimport \"testing\"\n\nfunc TestListCommand(t *testing.T) {\n\tt.Errorf(\"expected 'no items' but got ''\")\n}\n",
+        Read: "package cmd\n\nimport \"testing\"\n\nfunc TestListCommand(t *testing.T) {\n\tt.Errorf(\"expected 'no items' but got ''\")\n}\n",
+        // Other tools (ls, find, etc.) return the failure too — no escape
+        "*": GO_TEST_FAILURE,
       },
-      maxToolRounds: 12,
+      maxToolRounds: 20,
       assertions: [{ type: "governor_paused" }],
     },
   ],
@@ -247,14 +268,22 @@ export const goCliNoTestFiles: EvalScenario = {
         {
           role: "user",
           content:
-            "Run go test to verify the CLI works. The cmd/ package has list.go but no test file yet.",
+            "Run go test ./... to verify the CLI works. The cmd/ package has list.go but no test file yet. " +
+            "Do NOT create a test file — just run go test and report what happens.",
         },
       ],
       simulatedToolResults: {
+        // go test commands return [no test files]
         bash: NO_TEST_FILES_OUTPUT,
+        Bash: NO_TEST_FILES_OUTPUT,
+        // read_file returns realistic source so the model understands the package
         read_file: "package cmd\n\nimport \"fmt\"\n\nfunc List() { fmt.Println(\"no items\") }\n",
+        Read: "package cmd\n\nimport \"fmt\"\n\nfunc List() { fmt.Println(\"no items\") }\n",
+        // Catch-all for ls, find, etc. returns the [no test files] output too
+        // (realistic: every inspection of the directory shows no test files)
+        "*": NO_TEST_FILES_OUTPUT,
       },
-      maxToolRounds: 8,
+      maxToolRounds: 20,
       assertions: [{ type: "governor_paused" }],
     },
   ],

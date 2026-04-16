@@ -133,6 +133,58 @@ async function chatCompletions(
 }
 
 // ---------------------------------------------------------------------------
+// Simulated tool result lookup
+//
+// Resolution order:
+//   1. Exact key match (case-sensitive)
+//   2. Case-insensitive key match  (e.g. "Bash" → "bash")
+//   3. Catch-all "*" key
+// ---------------------------------------------------------------------------
+
+function lookupSimulatedResult(
+  simulatedToolResults: Record<string, string>,
+  toolName: string,
+): string | undefined {
+  if (toolName in simulatedToolResults) return simulatedToolResults[toolName];
+  const lower = toolName.toLowerCase();
+  for (const key of Object.keys(simulatedToolResults)) {
+    if (key !== "*" && key.toLowerCase() === lower) return simulatedToolResults[key];
+  }
+  if ("*" in simulatedToolResults) return simulatedToolResults["*"];
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Content-based governor rule extractor (fallback when admin API is absent)
+//
+// Parses "GOVERNOR PAUSE:" blocks from assistant message content to extract
+// the rule(s) that fired without needing the admin telemetry endpoint.
+// ---------------------------------------------------------------------------
+
+function extractRulesFromContent(messages: EvalChatMessage[]): string[] {
+  const rules = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== "assistant" || typeof m.content !== "string") continue;
+    if (!m.content.includes("GOVERNOR PAUSE:") && !m.content.includes("GOVERNOR HARD STOP")) continue;
+    // "Matched rules: rule1, rule2"
+    const matchedMatch = m.content.match(/Matched rules:\s*([^\n]+)/);
+    if (matchedMatch) {
+      for (const r of matchedMatch[1].split(",")) {
+        const trimmed = r.trim();
+        if (trimmed) rules.add(trimmed);
+      }
+    }
+    // "Reason: rule_name"
+    const reasonMatch = m.content.match(/Reason:\s*([^\n]+)/);
+    if (reasonMatch) {
+      const trimmed = reasonMatch[1].trim();
+      if (trimmed) rules.add(trimmed);
+    }
+  }
+  return [...rules];
+}
+
+// ---------------------------------------------------------------------------
 // Single-turn executor with tool loop
 // ---------------------------------------------------------------------------
 
@@ -172,7 +224,7 @@ async function executeTurn(
 
     let handledAny = false;
     for (const tc of choice.message.tool_calls) {
-      const simResult = turn.simulatedToolResults[tc.function.name];
+      const simResult = lookupSimulatedResult(turn.simulatedToolResults, tc.function.name);
       if (simResult !== undefined) {
         const toolMsg: EvalChatMessage = {
           role: "tool",
@@ -192,6 +244,12 @@ async function executeTurn(
     const sessionKey = `synesis:eval-gym:eval-gym:${conversationId}`;
     const rules = await fetchGovernorEvents(config.adminUrl, config.adminToken, sessionKey);
     governorRules.push(...rules);
+  }
+
+  // Supplement with rules extracted from message content (works without admin API)
+  const contentRules = extractRulesFromContent(allTurnMessages);
+  for (const r of contentRules) {
+    if (!governorRules.includes(r)) governorRules.push(r);
   }
 
   const anomalies = detectAnomalies(allTurnMessages);
