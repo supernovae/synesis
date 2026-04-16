@@ -176,8 +176,12 @@ import type { TierCFallbackContext, TierCFallbackResult } from "./validation/nor
 import {
   evaluateExecutionGovernor,
   executionGovernorRecoveryRewriteBlock,
+  buildExecutionGovernorHardStopUserMessage,
+  buildExecutionGovernorPauseEnvelope,
+  type GovernorPauseEnvelope,
   type GovernorInputMessage,
 } from "./governance/execution-governor.js";
+import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
@@ -343,6 +347,7 @@ function applyExecutionGovernorToolRestrictions(
     || r === "verification_churn_no_edit"
   ) ?? false;
   const repeatUserPromptLoop = matchedRules?.some((r) => r === "repeat_user_prompt_loop") ?? false;
+  const verificationIntentHardGate = matchedRules?.some((r) => r === "verification_intent_without_action") ?? false;
 
   const deny = new Set<string>();
   if (explorationDominant) {
@@ -367,6 +372,19 @@ function applyExecutionGovernorToolRestrictions(
   }
 
   const removed: string[] = [];
+  const verificationIntentAllowlist = new Set<string>([
+    "bash",
+    "shell",
+    "run_test",
+    "run_build",
+    "run_lint",
+    "edit",
+    "write",
+    "applypatch",
+    "str_replace",
+    "strreplace",
+    "filewrite",
+  ]);
   const filtered = tools.filter((tool) => {
     if (!tool || typeof tool !== "object") return true;
     const row = tool as Record<string, unknown>;
@@ -374,6 +392,10 @@ function applyExecutionGovernorToolRestrictions(
     const rawName = (typeof row.name === "string" ? row.name : "")
       || (nested && typeof nested.name === "string" ? nested.name : "");
     const name = rawName.trim().toLowerCase();
+    if (verificationIntentHardGate && !verificationIntentAllowlist.has(name)) {
+      removed.push(rawName || name);
+      return false;
+    }
     if (!deny.has(name)) return true;
     removed.push(rawName || name);
     return false;
@@ -4318,7 +4340,8 @@ function sendOpenAISoftFail(
   requestId: string,
   model: string,
   content: string,
-  stream: boolean
+  stream: boolean,
+  pauseEnvelope?: GovernorPauseEnvelope,
 ): import("fastify").FastifyReply {
   if (!stream) {
     return reply.send({
@@ -4326,7 +4349,8 @@ function sendOpenAISoftFail(
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       model,
-      choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }]
+      choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+      ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
     });
   }
 
@@ -4341,14 +4365,16 @@ function sendOpenAISoftFail(
     object: "chat.completion.chunk",
     created: ts,
     model,
-    choices: [{ index: 0, delta: { content }, finish_reason: null }]
+    choices: [{ index: 0, delta: { content }, finish_reason: null }],
+    ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
   })}\n\n`);
   safeWrite(reply.raw, `data: ${JSON.stringify({
     id: requestId,
     object: "chat.completion.chunk",
     created: ts,
     model,
-    choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
   })}\n\n`);
   safeWrite(reply.raw, "data: [DONE]\n\n");
   safeEnd(reply.raw);
@@ -4359,7 +4385,8 @@ function sendClaudeSoftFail(
   reply: import("fastify").FastifyReply,
   model: string,
   content: string,
-  stream: boolean
+  stream: boolean,
+  pauseEnvelope?: GovernorPauseEnvelope,
 ): import("fastify").FastifyReply {
   if (!stream) {
     return reply.send({
@@ -4369,7 +4396,8 @@ function sendClaudeSoftFail(
       model,
       content: [{ type: "text", text: content }],
       stop_reason: "end_turn",
-      usage: { input_tokens: 0, output_tokens: 0 }
+      usage: { input_tokens: 0, output_tokens: 0 },
+      ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
     });
   }
 
@@ -4399,6 +4427,12 @@ function sendClaudeSoftFail(
     delta: { stop_reason: "end_turn" },
     usage: { input_tokens: 0, output_tokens: 0 }
   });
+  if (pauseEnvelope) {
+    safeSse(reply, "synesis_governor_pause", {
+      type: "synesis_governor_pause",
+      pause: pauseEnvelope,
+    });
+  }
   safeSse(reply, "message_stop", { type: "message_stop" });
   safeEnd(reply.raw);
   return reply;
@@ -5566,6 +5600,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
+  const oaiLoopObs = deriveGovernorLoopObservability(
+    normalizedOpenAI.messages as Array<{ role: string; tool_calls?: unknown }>,
+  );
   recordSessionEvent(
     sessionKey,
     identity.userId,
@@ -5580,6 +5617,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       phase: oaiExecutionGovernor.telemetry.phase,
       matched_rules: oaiExecutionGovernor.matchedRules,
       suggested_next_step: oaiExecutionGovernor.suggestedNextStep?.slice(0, 200),
+      has_run_test: oaiLoopObs.hasRunTest,
+      last_assistant_tool_calls: oaiLoopObs.lastAssistantToolCalls,
+      assistant_tool_calls_since_latest_user: oaiLoopObs.assistantToolCallsSinceLatestUser,
       telemetry: oaiExecutionGovernor.telemetry,
     },
   );
@@ -5713,16 +5753,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const oaiHardStopDedup = getContentDedup(sessionKey);
       const oaiHardStopFilesList = oaiHardStopDedup.generateFilesSummaryBlock() ?? "";
+      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
+        matchedRules: oaiExecutionGovernor.matchedRules,
+        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+        hardStopThreshold: HARD_STOP_THRESHOLD,
+      });
       const hardStopContent = [
-        "GOVERNOR HARD STOP: You have been looping without making code edits for an extended period.",
-        `Recovery fired ${session.consecutiveRecoveryFires} consecutive times — all were ignored.`,
-        "",
-        "You MUST now do ONE of the following:",
-        "1. If builds/tests pass and the task appears complete: tell the user the task is done, or update the plan/task status.",
-        "2. If something specific is missing: state exactly what is missing in 1-3 bullet points.",
-        "3. If you need to make a change: make exactly ONE code edit now.",
-        "",
-        "Do NOT read more files. Do NOT search. Do NOT re-run builds. Act on the information you already have.",
+        buildExecutionGovernorHardStopUserMessage({
+          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+          matchedRules: oaiExecutionGovernor.matchedRules,
+        }),
         ...(oaiHardStopFilesList ? ["", oaiHardStopFilesList] : []),
       ].join("\n");
       session.consecutiveRecoveryFires = 0;
@@ -5734,10 +5774,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "execution-governor",
         `Hard stop phase=${oaiGovernorPhase} after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${oaiExecutionGovernor.matchedRules.join(",")})`,
         oaiTraceReqId,
-        { phase: oaiGovernorPhase, matched_rules: oaiExecutionGovernor.matchedRules },
+        {
+          phase: oaiGovernorPhase,
+          matched_rules: oaiExecutionGovernor.matchedRules,
+          has_run_test: oaiLoopObs.hasRunTest,
+          last_assistant_tool_calls: oaiLoopObs.lastAssistantToolCalls,
+          assistant_tool_calls_since_latest_user: oaiLoopObs.assistantToolCallsSinceLatestUser,
+          blocked_before_first_tool_call: oaiLoopObs.assistantToolCallsSinceLatestUser === 0,
+        },
       );
       maybeCheckpoint(session);
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream);
+      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream, pauseEnvelope);
     }
     let recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
     const oaiDedup = getContentDedup(sessionKey);
@@ -7637,6 +7684,9 @@ app.post("/v1/messages", async (req, reply) => {
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
+  const claudeLoopObs = deriveGovernorLoopObservability(
+    normalizedFromClaude.messages as Array<{ role: string; tool_calls?: unknown }>,
+  );
   recordSessionEvent(
     claudeSessionKey,
     claudeIdentity.userId,
@@ -7651,6 +7701,9 @@ app.post("/v1/messages", async (req, reply) => {
       phase: claudeExecutionGovernor.telemetry.phase,
       matched_rules: claudeExecutionGovernor.matchedRules,
       suggested_next_step: claudeExecutionGovernor.suggestedNextStep?.slice(0, 200),
+      has_run_test: claudeLoopObs.hasRunTest,
+      last_assistant_tool_calls: claudeLoopObs.lastAssistantToolCalls,
+      assistant_tool_calls_since_latest_user: claudeLoopObs.assistantToolCallsSinceLatestUser,
       telemetry: claudeExecutionGovernor.telemetry,
     },
   );
@@ -7784,16 +7837,16 @@ app.post("/v1/messages", async (req, reply) => {
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const claudeHardStopDedup = getContentDedup(claudeSessionKey);
       const claudeHardStopFilesList = claudeHardStopDedup.generateFilesSummaryBlock() ?? "";
+      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
+        matchedRules: claudeExecutionGovernor.matchedRules,
+        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+        hardStopThreshold: HARD_STOP_THRESHOLD,
+      });
       const hardStopContent = [
-        "GOVERNOR HARD STOP: You have been looping without making code edits for an extended period.",
-        `Recovery fired ${session.consecutiveRecoveryFires} consecutive times — all were ignored.`,
-        "",
-        "You MUST now do ONE of the following:",
-        "1. If builds/tests pass and the task appears complete: tell the user the task is done, or update the plan/task status.",
-        "2. If something specific is missing: state exactly what is missing in 1-3 bullet points.",
-        "3. If you need to make a change: make exactly ONE code edit now.",
-        "",
-        "Do NOT read more files. Do NOT search. Do NOT re-run builds. Act on the information you already have.",
+        buildExecutionGovernorHardStopUserMessage({
+          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+          matchedRules: claudeExecutionGovernor.matchedRules,
+        }),
         ...(claudeHardStopFilesList ? ["", claudeHardStopFilesList] : []),
       ].join("\n");
       session.consecutiveRecoveryFires = 0;
@@ -7805,10 +7858,17 @@ app.post("/v1/messages", async (req, reply) => {
         "execution-governor",
         `Hard stop phase=${claudeGovernorPhase} after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${claudeExecutionGovernor.matchedRules.join(",")})`,
         traceReqId,
-        { phase: claudeGovernorPhase, matched_rules: claudeExecutionGovernor.matchedRules },
+        {
+          phase: claudeGovernorPhase,
+          matched_rules: claudeExecutionGovernor.matchedRules,
+          has_run_test: claudeLoopObs.hasRunTest,
+          last_assistant_tool_calls: claudeLoopObs.lastAssistantToolCalls,
+          assistant_tool_calls_since_latest_user: claudeLoopObs.assistantToolCallsSinceLatestUser,
+          blocked_before_first_tool_call: claudeLoopObs.assistantToolCallsSinceLatestUser === 0,
+        },
       );
       maybeCheckpoint(session);
-      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream);
+      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream, pauseEnvelope);
     }
     let recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
     const claudeDedup = getContentDedup(claudeSessionKey);

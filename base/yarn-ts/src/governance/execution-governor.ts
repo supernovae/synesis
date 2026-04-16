@@ -1589,7 +1589,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "verification_intent_without_action",
       suggestedNextStep:
-        `You have declared test/verification intent ${verificationIntentStreak} times without running any actual test command. Stop narrating. Run exactly ONE targeted test command now (for example: \`go test ./cmd/synesis -run TestRunCompletion -v\`). After that single run, either make one concrete fix or report the result.`,
+        `You have declared test/verification intent ${verificationIntentStreak} times without running any actual test command. Stop narrating. Your NEXT response must be a tool call: either (A) run exactly ONE targeted test command now (for example: \`go test ./cmd/synesis -run TestRunCompletion -v\`) or (B) make one concrete code edit now. After that single action, use the result to either fix once more or report completion.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -1985,8 +1985,8 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       break;
     case "verification_intent_without_action":
       step1 = "STOP saying you will run tests. You repeated test intent without executing any real test command.";
-      step2 = "Run exactly ONE targeted test command now (no narration first).";
-      step3 = "Use that result: either make one concrete fix, or report completion if it passes.";
+      step2 = "Your NEXT response must be one tool call only: either run ONE targeted test command OR make ONE code edit (no narration first).";
+      step3 = "Use that result immediately: if failing, make one concrete fix; if passing, report completion.";
       break;
     case "finalize_action_required":
       step1 = "You are in FINALIZE phase after green verification. STOP additional exploration and verification commands.";
@@ -2082,4 +2082,151 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
     `next_action=${decision.suggestedNextStep ?? "run one narrow verification step"}`,
     "</SYNESIS_EXECUTION_RECOVERY>",
   ].join("\n");
+}
+
+export function buildExecutionGovernorHardStopUserMessage(params: {
+  consecutiveRecoveryFires: number;
+  matchedRules: string[];
+}): string {
+  const { consecutiveRecoveryFires, matchedRules } = params;
+  const primaryRule = matchedRules[0] ?? "unknown";
+  const needsDirectionChoice = matchedRules.some((r) =>
+    r === "verification_intent_without_action"
+    || r === "verbal_intent_without_action"
+    || r === "no_progress_loop",
+  );
+
+  const header = [
+    "GOVERNOR PAUSE: Agent progress is blocked by repeated loops.",
+    `Recovery fired ${consecutiveRecoveryFires} consecutive times and was ignored.`,
+    "The agent will not continue automatically from this response.",
+    "",
+    `Reason: ${primaryRule}`,
+    `Matched rules: ${matchedRules.join(", ") || "none"}`,
+    "",
+  ];
+
+  const options = needsDirectionChoice
+    ? [
+        "Choose the next action by replying with one option:",
+        "1) Run one targeted test command now",
+        "2) Make one focused code edit now",
+        "3) Stop and summarize what is still missing",
+      ]
+    : [
+        "Choose the next action by replying with one option:",
+        "1) Continue with one focused fix",
+        "2) Continue with one targeted verification command",
+        "3) Stop and summarize current status",
+      ];
+
+  const guidance = [
+    "",
+    "Tip: provide the exact command or file to edit in your reply for fastest recovery.",
+  ];
+
+  return [...header, ...options, ...guidance].join("\n");
+}
+
+export interface GovernorPauseAction {
+  id: string;
+  label: string;
+  description: string;
+  requires_user_input: boolean;
+  can_auto_execute: boolean;
+  expected_arguments?: string[];
+}
+
+export interface GovernorPauseEnvelope {
+  status: "paused";
+  pause_reason: string;
+  matched_rules: string[];
+  required_user_action: true;
+  recovery_attempts_used: number;
+  hard_stop_threshold: number;
+  next_automatic_step_allowed: false;
+  next_actions: GovernorPauseAction[];
+  default_recommended_action: string;
+  resume_hint: string;
+}
+
+export function buildExecutionGovernorPauseEnvelope(params: {
+  matchedRules: string[];
+  consecutiveRecoveryFires: number;
+  hardStopThreshold: number;
+}): GovernorPauseEnvelope {
+  const { matchedRules, consecutiveRecoveryFires, hardStopThreshold } = params;
+  const pauseReason = matchedRules[0] ?? "unknown";
+  const isIntentLoop = matchedRules.some((r) =>
+    r === "verification_intent_without_action"
+    || r === "verbal_intent_without_action"
+    || r === "no_progress_loop",
+  );
+
+  const nextActions: GovernorPauseAction[] = isIntentLoop
+    ? [
+        {
+          id: "run_targeted_test",
+          label: "Run one targeted test",
+          description: "Run one narrow test/build command only, then use the result.",
+          requires_user_input: true,
+          can_auto_execute: true,
+          expected_arguments: ["command"],
+        },
+        {
+          id: "apply_one_edit",
+          label: "Apply one focused edit",
+          description: "Make one concrete code edit before any additional verification.",
+          requires_user_input: true,
+          can_auto_execute: true,
+          expected_arguments: ["file_path", "change_summary"],
+        },
+        {
+          id: "summarize_and_stop",
+          label: "Summarize and stop",
+          description: "Stop execution and summarize what is missing or completed.",
+          requires_user_input: false,
+          can_auto_execute: true,
+        },
+      ]
+    : [
+        {
+          id: "continue_with_fix",
+          label: "Continue with one focused fix",
+          description: "Make one targeted fix and then verify once.",
+          requires_user_input: true,
+          can_auto_execute: true,
+          expected_arguments: ["file_path", "change_summary"],
+        },
+        {
+          id: "continue_with_verification",
+          label: "Run one targeted verification command",
+          description: "Run one narrow verification command only.",
+          requires_user_input: true,
+          can_auto_execute: true,
+          expected_arguments: ["command"],
+        },
+        {
+          id: "summarize_and_stop",
+          label: "Summarize and stop",
+          description: "Stop execution and summarize current status.",
+          requires_user_input: false,
+          can_auto_execute: true,
+        },
+      ];
+
+  const defaultAction = isIntentLoop ? "apply_one_edit" : "continue_with_fix";
+
+  return {
+    status: "paused",
+    pause_reason: pauseReason,
+    matched_rules: matchedRules,
+    required_user_action: true,
+    recovery_attempts_used: consecutiveRecoveryFires,
+    hard_stop_threshold: hardStopThreshold,
+    next_automatic_step_allowed: false,
+    next_actions: nextActions,
+    default_recommended_action: defaultAction,
+    resume_hint: "Reply with action id and optional arguments, for example: run_targeted_test command=\"go test ./cmd/synesis -run TestRunCompletion -v\"",
+  };
 }

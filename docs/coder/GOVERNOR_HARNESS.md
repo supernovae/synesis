@@ -24,6 +24,8 @@ flowchart TD
 
 The governor runs **after** message normalization / reduction and **before** model inference. It receives the full normalized message array and produces an `ExecutionGovernorDecision`.
 
+When recovery escalation reaches hard stop, Yarn now emits a transport-agnostic pause contract (`synesis_governor_pause`) alongside human-readable text. See [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md) for schema and integration guidance.
+
 ## Core Data Types
 
 ```typescript

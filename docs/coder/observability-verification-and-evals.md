@@ -42,7 +42,7 @@ The execution governor emits telemetry on every evaluation, not just on pause/re
 - **Trace records**: Governor fields in `decision_ledger[0]` (`governorPause`, `governorRules`, `governorReason`) and `trace_context` (`governorTelemetry`).
 - **OTEL spans**: `yarn.execution_governor.evaluate` span with `governor.pause`, `governor.reason`, `governor.matched_rules` attributes.
 
-For the full rule catalog, telemetry schema, training signal mapping, and query examples, see **[GOVERNOR_HARNESS.md](./GOVERNOR_HARNESS.md)**.
+For the full rule catalog, telemetry schema, training signal mapping, and query examples, see **[GOVERNOR_HARNESS.md](./GOVERNOR_HARNESS.md)**. For client integration of hard-stop pauses, see **[GOVERNOR_PAUSE_ENVELOPE.md](./GOVERNOR_PAUSE_ENVELOPE.md)**.
 
 ## Verification
 

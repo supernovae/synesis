@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { evaluateExecutionGovernor, executionGovernorRecoveryRewriteBlock, detectSessionPhase, type CommandEvent } from "../src/governance/execution-governor.js";
+import {
+  evaluateExecutionGovernor,
+  executionGovernorRecoveryRewriteBlock,
+  buildExecutionGovernorHardStopUserMessage,
+  buildExecutionGovernorPauseEnvelope,
+  detectSessionPhase,
+  type CommandEvent,
+} from "../src/governance/execution-governor.js";
 
 function assistantCall(id: string, name: string, args: unknown) {
   return { role: "assistant", content: "", tool_calls: [{ id, function: { name, arguments: args } }] };
@@ -853,6 +860,7 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_intent_without_action");
     expect(out.reason).toBe("verification_intent_without_action");
     expect(out.suggestedNextStep).toContain("ONE targeted test command");
+    expect(out.suggestedNextStep).toContain("NEXT response must be a tool call");
   });
 
   it("does not fire verification_intent_without_action when a test command actually runs", () => {
@@ -940,6 +948,56 @@ describe("execution governor", () => {
     const block = executionGovernorRecoveryRewriteBlock(decision);
     expect(block).toContain("STOP saying you will run tests");
     expect(block).toContain("verification_intent_without_action");
+    expect(block).toContain("NEXT response must be one tool call");
+  });
+
+  it("builds user-facing hard stop message for intent loops", () => {
+    const message = buildExecutionGovernorHardStopUserMessage({
+      consecutiveRecoveryFires: 5,
+      matchedRules: ["verification_intent_without_action", "no_progress_loop"],
+    });
+    expect(message).toContain("GOVERNOR PAUSE");
+    expect(message).toContain("agent will not continue automatically");
+    expect(message).toContain("Choose the next action");
+    expect(message).toContain("Run one targeted test command now");
+    expect(message).not.toContain("You MUST now do ONE of the following");
+  });
+
+  it("builds user-facing hard stop message for general loops", () => {
+    const message = buildExecutionGovernorHardStopUserMessage({
+      consecutiveRecoveryFires: 5,
+      matchedRules: ["verification_churn_no_edit"],
+    });
+    expect(message).toContain("Reason: verification_churn_no_edit");
+    expect(message).toContain("Continue with one focused fix");
+    expect(message).toContain("targeted verification command");
+  });
+
+  it("builds transport-agnostic pause envelope for intent loops", () => {
+    const envelope = buildExecutionGovernorPauseEnvelope({
+      matchedRules: ["verification_intent_without_action", "no_progress_loop"],
+      consecutiveRecoveryFires: 5,
+      hardStopThreshold: 5,
+    });
+    expect(envelope.status).toBe("paused");
+    expect(envelope.required_user_action).toBe(true);
+    expect(envelope.pause_reason).toBe("verification_intent_without_action");
+    expect(envelope.next_automatic_step_allowed).toBe(false);
+    expect(envelope.next_actions.map((a) => a.id)).toContain("run_targeted_test");
+    expect(envelope.next_actions.map((a) => a.id)).toContain("apply_one_edit");
+    expect(envelope.default_recommended_action).toBe("apply_one_edit");
+  });
+
+  it("builds transport-agnostic pause envelope for general loops", () => {
+    const envelope = buildExecutionGovernorPauseEnvelope({
+      matchedRules: ["verification_churn_no_edit"],
+      consecutiveRecoveryFires: 5,
+      hardStopThreshold: 5,
+    });
+    expect(envelope.pause_reason).toBe("verification_churn_no_edit");
+    expect(envelope.next_actions.map((a) => a.id)).toContain("continue_with_fix");
+    expect(envelope.next_actions.map((a) => a.id)).toContain("continue_with_verification");
+    expect(envelope.default_recommended_action).toBe("continue_with_fix");
   });
 
   it("respects explicit user opt-out for TODO/FIXME harvest", () => {

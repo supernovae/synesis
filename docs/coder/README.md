@@ -27,6 +27,7 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [`safety-reliability-and-fail-safe.md`](./safety-reliability-and-fail-safe.md)
 - [`observability-verification-and-evals.md`](./observability-verification-and-evals.md)
 - [`GOVERNOR_HARNESS.md`](./GOVERNOR_HARNESS.md)
+- [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md)
 - [`qwen-stability-feedback-loop.md`](./qwen-stability-feedback-loop.md)
 - [`GIT_FIRST_POLICY_MODES.md`](./GIT_FIRST_POLICY_MODES.md)
 - [`implementation-phases.md`](./implementation-phases.md)
