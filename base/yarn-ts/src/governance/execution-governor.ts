@@ -149,6 +149,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "bounded_exploration_budget",
     // Verification stalls
     "verification_stall_no_edit",
+    "verification_churn_no_edit",
     "verification_after_completion_claim",
     "verification_fail_repeat_block",
     "verification_same_failure_signature_replay",
@@ -174,6 +175,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
   verify: new Set([
     // Verification stalls
     "verification_stall_no_edit",
+    "verification_churn_no_edit",
     "verification_after_completion_claim",
     "verification_fail_repeat_block",
     "verification_same_failure_signature_replay",
@@ -200,6 +202,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     // Report phase: almost everything fires — model should be done
     "verification_after_completion_claim",
     "verification_stall_no_edit",
+    "verification_churn_no_edit",
     "exploration_stall_no_edit",
     "no_progress_loop",
     "verbal_intent_without_action",
@@ -1194,6 +1197,10 @@ export function evaluateExecutionGovernor(
     pushRule("no_repeat_without_change");
   }
   const effectiveNoEditEvidence = noEditEvidence && !isInvestigationOnly;
+  const verificationChurnThreshold = Math.max(4, thresholds.verificationStallThreshold - 2);
+  if (hasFailureDrivenVerificationLoop && effectiveNoEditEvidence && trailingVerificationRunLength >= verificationChurnThreshold) {
+    pushRule("verification_churn_no_edit");
+  }
   if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_same_failure_signature_replay");
   if (consecutiveEditFailures >= 3) pushRule("consecutive_edit_failures");
   if (repeatedEditFailureReplay >= 1) pushRule("edit_failure_replay");
@@ -1558,6 +1565,29 @@ export function evaluateExecutionGovernor(
     };
   }
 
+  if (matchedRules.includes("verification_churn_no_edit")) {
+    return {
+      pause: true,
+      reason: "verification_churn_no_edit",
+      suggestedNextStep:
+        `You have run ${trailingVerificationRunLength} verification/read commands with failing signals and no code edits. Stop cycling build/test/read. Read the failing location once, make exactly one targeted edit, then run one narrow verification command.`,
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedAskUserPrompts,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
+      },
+    };
+  }
+
   if (matchedRules.includes("exploration_stall_no_edit")) {
     return {
       pause: true,
@@ -1840,6 +1870,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP running build, test, and read commands. Verification is already passing and files are unchanged — there is nothing to re-check.";
       step2 = "If the current task is verified and complete, update the plan file or call TaskUpdate/TodoWrite NOW to mark it done.";
       step3 = "If more work remains, make one concrete code edit (Write/Edit) for the next task item, then run one narrow verification.";
+      break;
+    case "verification_churn_no_edit":
+      step1 = "STOP cycling build/test/read commands. Verification is failing repeatedly and no edits were made.";
+      step2 = "Open the failing location once, make exactly ONE targeted code edit, then rerun a narrow verification command.";
+      step3 = "Do not run another broad build/test command until that edit is applied.";
       break;
     case "exploration_stall_no_edit":
       step1 = "STOP searching, reading, and listing files. You have been exploring without making progress.";

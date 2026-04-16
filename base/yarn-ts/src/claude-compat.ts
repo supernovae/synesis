@@ -130,6 +130,7 @@ export function executeClaudeCompatCommand(ctx: ClaudeCommandContext): ClaudeCom
       clientLocal: false,
       action: "session_compaction_requested",
       notes: [
+        "Compacting session context now.",
         "mode: synesis_session_compaction",
         "Compaction is applied to Synesis session state; this is not Anthropic client-side transcript compaction.",
       ],

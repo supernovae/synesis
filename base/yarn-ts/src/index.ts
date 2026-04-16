@@ -2580,6 +2580,27 @@ function maybeCheckpoint(state: SessionState): void {
   });
 }
 
+async function forceCheckpoint(state: SessionState): Promise<boolean> {
+  if (state.history.length <= 1) return false;
+  const charsBefore = state.history.reduce((sum, m) => sum + m.content.length, 0);
+  try {
+    const consolidated = await sawtooth.compressTrajectory(state.history);
+    state.history = [{ role: "system", content: consolidated.summary }];
+    state.toolCallsSinceCheckpoint = 0;
+    svcMetrics.compactionTotal.inc({ type: "manual" });
+    svcMetrics.sessionCheckpointTotal.inc();
+    const charsAfter = consolidated.summary.length;
+    const charsSaved = Math.max(0, charsBefore - charsAfter);
+    svcMetrics.compactionCharsSaved.inc(charsSaved);
+    return true;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    app.log.warn({ err, sessionKey: state.record.sessionKey }, "forced_compaction_failed");
+    recordSessionEvent(state.record.sessionKey, state.record.userId, state.record.orgId, "compaction_error", "forced", detail.slice(0, 500));
+    return false;
+  }
+}
+
 function injectSessionContext(
   messages: Array<{ role: string; content: unknown }>,
   state: SessionState
@@ -5059,7 +5080,7 @@ app.post("/v1/claude/commands/execute", async (req, reply) => {
 
   if (body.command.trim().toLowerCase() === "compact") {
     const state = await getSessionState(sessionKey, identity);
-    maybeCheckpoint(state);
+    const compacted = await forceCheckpoint(state);
     await casSessionSave(state);
     recordSessionEvent(
       state.record.sessionKey,
@@ -5067,7 +5088,9 @@ app.post("/v1/claude/commands/execute", async (req, reply) => {
       state.record.orgId,
       "compat_command_compact",
       "claude-command-api",
-      "Manual compaction requested via /v1/claude/commands/execute",
+      compacted
+        ? "Manual compaction requested via /v1/claude/commands/execute (compacting)"
+        : "Manual compaction requested via /v1/claude/commands/execute (no-op)",
     );
   }
 
@@ -8138,6 +8161,18 @@ app.post("/v1/messages", async (req, reply) => {
       },
       "context_admission_warn_claude",
     );
+    const compacted = await forceCheckpoint(session);
+    if (compacted) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "auto_compaction",
+        "context-admission",
+        `Auto compacting after warn (${claudeContextAdmission.reason ?? "warn"})`,
+        traceReqId,
+      );
+    }
   }
   if (claudeContextAdmission.decision === "reject") {
     contextAdmissionStats.rejected += 1;

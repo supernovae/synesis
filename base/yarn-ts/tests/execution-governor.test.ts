@@ -635,6 +635,29 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("verification_stall_no_edit");
   });
 
+  it("pauses on failing verification churn without edits", () => {
+    const messages = [
+      { role: "user", content: "implement shell completion and tests" },
+      assistantCall("1", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("1", "fail synesis.sh/synesis/cmd/synesis [setup failed]"),
+      assistantCall("2", "read_file", { path: "cmd/synesis/completion.go" }),
+      toolResult("2", "package main"),
+      assistantCall("3", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("3", "cmd/synesis/completion.go:8:2: no required module provides package github.com/spf13/cobra"),
+      assistantCall("4", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("4", "package main"),
+      assistantCall("5", "bash", { command: "go test ./... 2>&1" }),
+      toolResult("5", "fail synesis.sh/synesis/cmd/synesis [build failed]"),
+      assistantCall("6", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("6", "cmd/synesis/completion_test.go:42:2: declared and not used: originalStdout"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_churn_no_edit");
+    expect(out.matchedRules).toContain("verification_churn_no_edit");
+    expect(out.telemetry.trailingVerificationRunLength).toBeGreaterThanOrEqual(4);
+  });
+
   it("fires recovery rewrite block for verification_stall_no_edit", () => {
     const decision = evaluateExecutionGovernor([
       { role: "user", content: "implement feature" },
