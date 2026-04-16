@@ -53,6 +53,21 @@ describe("phase execution policy", () => {
     expect(policy.reason).toBe("verify_phase_fix_required_action");
   });
 
+  it("activates required edit/write mode from edit phase on replayed verification failures", () => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: "qwen3-coder",
+      enabledFamilies: ["qwen3-coder"],
+      phase: "edit",
+      matchedRules: ["verification_same_failure_signature_replay", "verbal_intent_without_action"],
+      stream: false,
+    });
+    expect(policy.active).toBe(true);
+    expect(policy.toolChoice).toBe("required");
+    expect(policy.allowedCanonicalTools).toEqual(["Edit", "Write", "Update"]);
+    expect(policy.reason).toBe("verify_phase_fix_required_action");
+  });
+
   it("keeps client tool choice precedence", () => {
     const policy = derivePhaseExecutionPolicy({
       enabled: true,

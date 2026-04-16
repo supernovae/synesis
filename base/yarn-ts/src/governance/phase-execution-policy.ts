@@ -46,7 +46,12 @@ export function derivePhaseExecutionPolicy(input: PhaseExecutionPolicyInput): Ph
   }
 
   const matched = new Set(input.matchedRules);
-  const forceVerifyAction = input.phase === "verify" || matched.has("verification_intent_without_action");
+  const forceVerifyAction = input.phase === "verify"
+    || matched.has("verification_intent_without_action")
+    || matched.has("verification_same_failure_signature_replay")
+    || matched.has("verification_fail_repeat_block")
+    || matched.has("verification_churn_no_edit")
+    || matched.has("verification_stall_no_edit");
   if (!forceVerifyAction) return { active: false };
   const verifyFixRequired = matched.has("verification_churn_no_edit")
     || matched.has("verification_stall_no_edit")
