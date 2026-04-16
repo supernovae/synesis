@@ -1627,4 +1627,27 @@ describe("phase-aware rule gating", () => {
     const out = evaluateExecutionGovernor(messages);
     expect(out.telemetry.phase).toBe("explore");
   });
+
+  it("stale completion claim before user redirect does not lock phase to report", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "scan repo and make sure every feature is implemented" },
+      assistantCall("r1", "read_file", { path: "src/main.ts" }),
+      toolResult("r1", "main content"),
+      assistantCall("r2", "bash", { command: "go test ./..." }),
+      toolResult("r2", "ok"),
+      // Model claims completion and asks user what to do next
+      { role: "assistant", content: "The codebase already has all 15 features implemented. What would you like me to focus on?", tool_calls: [{ id: "ask1", function: { name: "AskUserQuestion", arguments: '{"questions":"next step"}' } }] },
+      // User redirects to new work
+      { role: "tool", tool_call_id: "ask1", content: "Both tests and completion" },
+      // Model starts working on the new request
+      assistantCall("r3", "read_file", { path: "src/test.ts" }),
+      toolResult("r3", "test content"),
+      assistantCall("r4", "read_file", { path: "src/auth.ts" }),
+      toolResult("r4", "auth content"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    // Should NOT be report — the user redirected to new work after the claim
+    expect(out.telemetry.phase).not.toBe("report");
+    expect(out.telemetry.phase).toBe("edit");
+  });
 });

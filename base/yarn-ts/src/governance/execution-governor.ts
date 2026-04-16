@@ -99,9 +99,6 @@ export function detectSessionPhase(
   }
 
   // Report: completion claim with no subsequent edit pushes to report.
-  // hasEdited check: only skip report transition if a real edit occurred in THIS turn
-  // and we're still actively editing. Without edits, the default "edit" phase should
-  // still transition to report when a completion claim is present.
   if (hasCompletionClaim && (!hasEdited || phase !== "edit")) {
     const lastEventIdx = events.length - 1;
     const lastCmd = events[lastEventIdx].command;
@@ -443,17 +440,63 @@ function hasEditFailureSignature(sig: string): boolean {
   return /error editing file|old_string.*not found|failed to apply patch|no changes made|did not match file content/.test(sig);
 }
 
+function matchesCompletionClaimPattern(text: string): boolean {
+  return /\bi('| a)?ve?\s+(completed|finished|done|implemented)\b/.test(text)
+    || /\b(task|feature|clipboard|implementation|integration)\s+(is\s+)?(complete|done)\b/.test(text)
+    || /\balready\s+(done|implemented|complete|integrated|finished)\b/.test(text)
+    || /\b(is|was)\s+already\s+(done|implemented|complete|integrated)\b/.test(text)
+    || /\bfrom\s+the\s+previous\s+session\b/.test(text);
+}
+
 function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): boolean {
   const assistantText = messages
     .filter((m) => m.role === "assistant" && typeof m.content === "string")
     .map((m) => String(m.content).toLowerCase())
     .join("\n");
   if (!assistantText.trim()) return false;
-  return /\bi('| a)?ve?\s+(completed|finished|done|implemented)\b/.test(assistantText)
-    || /\b(task|feature|clipboard|implementation|integration)\s+(is\s+)?(complete|done)\b/.test(assistantText)
-    || /\balready\s+(done|implemented|complete|integrated|finished)\b/.test(assistantText)
-    || /\b(is|was)\s+already\s+(done|implemented|complete|integrated)\b/.test(assistantText)
-    || /\bfrom\s+the\s+previous\s+session\b/.test(assistantText);
+  return matchesCompletionClaimPattern(assistantText);
+}
+
+/**
+ * Like hasCompletionClaimInAssistantText but only considers claims that appear
+ * AFTER the latest user redirect (user message or user-facing tool result).
+ * Stale claims from before the user's latest intent are ignored.
+ */
+function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
+  const toolNameById = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+      for (const call of m.tool_calls) {
+        const id = normalizeString(call.id);
+        const name = normalizeString(call.function?.name ?? call.name).toLowerCase();
+        if (id && name) toolNameById.set(id, name);
+      }
+    }
+  }
+
+  // Find the index of the latest user redirect
+  let latestUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m.role === "user") { latestUserIdx = i; break; }
+    if ((m.role === "tool" || m.role === "tool_result") && m.tool_call_id) {
+      const toolName = toolNameById.get(normalizeString(m.tool_call_id));
+      if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
+        const content = typeof m.content === "string" ? m.content : "";
+        if (content.trim()) { latestUserIdx = i; break; }
+      }
+    }
+  }
+
+  // Only check assistant messages after the latest user redirect
+  const startIdx = latestUserIdx >= 0 ? latestUserIdx + 1 : 0;
+  const assistantText = messages
+    .slice(startIdx)
+    .filter((m) => m.role === "assistant" && typeof m.content === "string")
+    .map((m) => String(m.content).toLowerCase())
+    .join("\n");
+  if (!assistantText.trim()) return false;
+  return matchesCompletionClaimPattern(assistantText);
 }
 
 function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
@@ -804,7 +847,10 @@ export function evaluateExecutionGovernor(
   let declarationFollowthroughViolation = false;
   let completionClaimNeedsTaskUpdate = false;
   const noEditEvidence = changedFiles.length === 0;
-  const hasCompletionClaim = hasCompletionClaimInAssistantText(turnMessages);
+  // Active claim: only claims after the latest user redirect (ignores stale claims)
+  const hasCompletionClaim = hasActiveCompletionClaim(messages);
+  // Full-turn claim: any completion text in the entire turn (for phase-independent rules)
+  const hasTurnCompletionClaim = hasCompletionClaimInAssistantText(turnMessages);
   const sessionPhase = detectSessionPhase(events, latestUserText, changedFiles, hasCompletionClaim);
   const matchedRules: string[] = [];
   const pushRule = (rule: string) => {
