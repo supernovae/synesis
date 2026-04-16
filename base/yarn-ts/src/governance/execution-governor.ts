@@ -435,7 +435,7 @@ function hasFailureSignature(sig: string): boolean {
 
 function isCompileLikeFailureSignature(sig: string): boolean {
   if (!sig) return false;
-  return /imported and not used|declared but its value is never read|unused (variable|import|binding)|undefined\b|cannot find symbol|unresolved reference|type mismatch|syntax error|expected .* found|failed to compile|compilation failed|build failed/.test(sig);
+  return /imported and not used|declared and not used|declared but its value is never read|unused (variable|import|binding)|undefined\b|cannot find symbol|unresolved reference|type mismatch|syntax error|expected .* found|failed to compile|compilation failed|build failed|no required module provides package/.test(sig);
 }
 
 function hasSuccessSignature(sig: string): boolean {
@@ -1188,8 +1188,11 @@ export function evaluateExecutionGovernor(
   if (broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
   if (isDependencyInstallReplay(events)) pushRule("dependency_install_replay");
+  const hasCompileLikeVerificationFailure = events.some((e) =>
+    isVerificationCommand(e.toolName, e.command) && isCompileLikeFailureSignature(e.resultSignature),
+  );
   const hasFailureDrivenVerificationLoop =
-    hasFailures || repeatedFailingVerification > 0 || repeatedCompileLikeFailureVerification > 0;
+    hasFailures || repeatedFailingVerification > 0 || repeatedCompileLikeFailureVerification > 0 || hasCompileLikeVerificationFailure;
   if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold && hasFailureDrivenVerificationLoop) {
     pushRule("edit_before_retest");
   }
@@ -1198,7 +1201,7 @@ export function evaluateExecutionGovernor(
   }
   const effectiveNoEditEvidence = noEditEvidence && !isInvestigationOnly;
   const verificationChurnThreshold = Math.max(4, thresholds.verificationStallThreshold - 2);
-  if (hasFailureDrivenVerificationLoop && effectiveNoEditEvidence && trailingVerificationRunLength >= verificationChurnThreshold) {
+  if (hasFailureDrivenVerificationLoop && trailingVerificationRunLength >= verificationChurnThreshold) {
     pushRule("verification_churn_no_edit");
   }
   if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_same_failure_signature_replay");
