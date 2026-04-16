@@ -38,6 +38,21 @@ describe("phase execution policy", () => {
     expect(policy.reason).toBe("verify_phase_non_stream_kickoff");
   });
 
+  it("forces edit/write tools when verify is churning without edits", () => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: "qwen3-coder",
+      enabledFamilies: ["qwen3-coder"],
+      phase: "verify",
+      matchedRules: ["verification_churn_no_edit", "verification_stall_no_edit"],
+      stream: false,
+    });
+    expect(policy.active).toBe(true);
+    expect(policy.toolChoice).toBe("required");
+    expect(policy.allowedCanonicalTools).toEqual(["Edit", "Write", "Update"]);
+    expect(policy.reason).toBe("verify_phase_fix_required_action");
+  });
+
   it("keeps client tool choice precedence", () => {
     const policy = derivePhaseExecutionPolicy({
       enabled: true,

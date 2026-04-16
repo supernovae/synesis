@@ -8481,7 +8481,69 @@ app.post("/v1/messages", async (req, reply) => {
           ...(providerOptions ? { providerOptions: providerOptions as never } : {})
         });
 
-        const allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+        let allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+        if (claudeForceNonStreamKickoff && round === 0 && claudePhasePolicy.toolChoice === "required") {
+          let validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
+          if (!validation.valid) {
+            recordSessionEvent(
+              claudeSessionKey,
+              claudeIdentity.userId,
+              claudeIdentity.orgId,
+              "phase_required_validation_retry",
+              "execution-governor",
+              `reasons=${validation.reasons.join(",") || "unknown"}`,
+              traceReqId,
+            );
+            currentMessages = [
+              ...currentMessages,
+              { role: "system", content: buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools) } as never,
+            ];
+            streamedResult = await generateText({
+              model: resolved.model as never,
+              messages: currentMessages,
+              maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+              ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+              ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+              ...(sdkStop ? { stopSequences: sdkStop } : {}),
+              ...(sdkTools ? { tools: sdkTools } : {}),
+              ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
+              ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+            });
+            allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+            validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
+            if (!validation.valid) {
+              recordSessionEvent(
+                claudeSessionKey,
+                claudeIdentity.userId,
+                claudeIdentity.orgId,
+                "phase_required_validation_fallback",
+                "execution-governor",
+                `fallback_after_retry reasons=${validation.reasons.join(",") || "unknown"}`,
+                traceReqId,
+              );
+              effectiveClaudeToolChoice = "auto";
+              currentMessages = [
+                ...currentMessages,
+                {
+                  role: "system",
+                  content: "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
+                } as never,
+              ];
+              streamedResult = await generateText({
+                model: resolved.model as never,
+                messages: currentMessages,
+                maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+                ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+                ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+                ...(sdkStop ? { stopSequences: sdkStop } : {}),
+                ...(sdkTools ? { tools: sdkTools } : {}),
+                ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
+                ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+              });
+              allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+            }
+          }
+        }
         const serverCalls = claudeNativeWebSearchRequested
           ? allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName))
           : [];
