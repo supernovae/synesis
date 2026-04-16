@@ -1,0 +1,35 @@
+{
+  "name": "post-completion-verify-loop",
+  "messages": [
+    { "role": "user", "content": "the fix is done, just wrap up" },
+    { "role": "assistant", "content": "The implementation is already complete." },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "1", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "ok  synesis.sh/synesis/cmd/synesis  (cached)" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "2", "function": { "name": "bash", "arguments": { "command": "git status --short" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "3", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "3", "content": "ok  synesis.sh/synesis/cmd/synesis  (cached)" }
+  ],
+  "expected": {
+    "pause": true,
+    "matchedRulesIncludes": ["verification_after_completion_claim"]
+  }
+}

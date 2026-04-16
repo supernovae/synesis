@@ -1,0 +1,140 @@
+name: Yarn Governor Eval Tiers
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "base/yarn-ts/**"
+      - ".github/workflows/yarn-governor-eval-tiers.yml"
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  governor-pr-fast:
+    name: Governor fast PR gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: base/yarn-ts
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            base/yarn-ts/package-lock.json
+
+      - name: Install workspace dependencies
+        working-directory: .
+        run: npm ci --ignore-scripts
+
+      - name: Build workspace packages required by Yarn tests
+        working-directory: .
+        run: |
+          npm run build -w packages/synesis-telemetry
+          npm run build -w packages/synesis-context-trust
+          npm run build -w packages/synesis-manifest
+          npm run build -w packages/synesis-mcp-tools
+          npm run build -w packages/synesis-agent-orchestration
+
+      - name: Run fast governor replay suite
+        run: npm run ci:governor:pr
+
+  governor-nightly:
+    name: Governor nightly replay + budget
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: base/yarn-ts
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: base/yarn-ts/package-lock.json
+
+      - name: Nightly regression eval + budget
+        env:
+          SYNESIS_EVAL_TARGET_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
+          SYNESIS_EVAL_TARGET_KEY: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SYNESIS_EVAL_TARGET_URL:-}" ]; then
+            echo "Missing repository variable SYNESIS_YARN_EVAL_URL."
+            exit 1
+          fi
+          if [ -z "${SYNESIS_EVAL_TARGET_KEY:-}" ]; then
+            echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
+            exit 1
+          fi
+          npm ci
+          npm run ci:governor:nightly
+
+      - name: Upload nightly artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: governor-nightly-results
+          path: |
+            base/yarn-ts/eval-governor-regression.json
+            base/yarn-ts/eval-governor-budget.json
+          if-no-files-found: ignore
+
+  governor-prerelease:
+    name: Governor prerelease replay + e2e
+    if: github.event_name == 'release'
+    runs-on: self-hosted
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: base/yarn-ts
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: base/yarn-ts/package-lock.json
+
+      - name: Prerelease governor + e2e evals
+        env:
+          SYNESIS_EVAL_TARGET_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
+          SYNESIS_EVAL_TARGET_KEY: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SYNESIS_EVAL_TARGET_URL:-}" ]; then
+            echo "Missing repository variable SYNESIS_YARN_EVAL_URL."
+            exit 1
+          fi
+          if [ -z "${SYNESIS_EVAL_TARGET_KEY:-}" ]; then
+            echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
+            exit 1
+          fi
+          npm ci
+          npm run ci:governor:prerelease
+
+      - name: Upload prerelease artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: governor-prerelease-results
+          path: |
+            base/yarn-ts/eval-governor-regression.json
+            base/yarn-ts/eval-governor-budget.json
+            base/yarn-ts/eval-governor-e2e.json
+          if-no-files-found: ignore

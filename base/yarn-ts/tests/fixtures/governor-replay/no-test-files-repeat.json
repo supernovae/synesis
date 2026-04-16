@@ -1,0 +1,27 @@
+{
+  "name": "no-test-files-repeat",
+  "messages": [
+    { "role": "user", "content": "verify the bundle package has tests" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "1", "function": { "name": "bash", "arguments": { "command": "go test -v ./pkg/bundle/..." } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "?  synesis.sh/synesis/pkg/bundle  [no test files]" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "2", "function": { "name": "bash", "arguments": { "command": "go test -v ./pkg/bundle/..." } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "?  synesis.sh/synesis/pkg/bundle  [no test files]" }
+  ],
+  "expected": {
+    "pause": true,
+    "reason": "no_test_files_repeat",
+    "matchedRulesIncludes": ["no_test_files_repeat"]
+  }
+}

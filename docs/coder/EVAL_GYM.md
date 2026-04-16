@@ -231,6 +231,35 @@ When you observe a new waffling pattern in a live session:
 3. Note which governor rule should have fired (or does fire now)
 4. Create a scenario that replays steps 1-2 and asserts step 3
 
+### Capture -> Sanitize -> Materialize -> Replay
+
+Use this flow to convert real incidents into deterministic regressions without
+running full user workloads:
+
+1. **Capture** live events (`eval_transcript_v1`, `live_eval_v1`, `execution_governor_evaluated`)
+   via admin API or SQL.
+2. **Sanitize** session payloads (remove user identifiers, secrets, absolute paths),
+   then save as a local JSON export.
+3. **Materialize** candidate scenarios:
+
+```bash
+cd base/yarn-ts
+npm run eval:materialize:governor -- \
+  --input /path/to/session-events.json \
+  --out governor-regression-candidates.json \
+  --limit 25
+```
+
+4. **Replay** deterministically in unit tests by adding/adjusting fixtures under
+   `tests/fixtures/governor-replay/` and running:
+
+```bash
+npm run test:governor:unit
+```
+
+5. **Promote** durable cases to `src/eval/scenarios/governor-regression.ts` for
+   live Eval Gym coverage.
+
 ---
 
 ## CLI Reference
@@ -583,6 +612,47 @@ npx tsx scripts/eval-gym.ts --category governor_regression --json --out weekly-r
 npx tsx scripts/eval-gym.ts --category governor_regression
 # Exit code 1 if any scenario fails
 ```
+
+### Tiered Validation Lanes
+
+Use explicit tiers so most changes do not require expensive full-workload replay:
+
+- **PR fast lane:** `npm run ci:governor:pr` (deterministic governor unit + smoke replay)
+- **Nightly lane:** `npm run ci:governor:nightly` (governor regression scenarios + budget gate)
+- **Pre-release lane:** `npm run ci:governor:prerelease` (nightly lane + selected e2e_build scenarios)
+
+All live lanes produce JSON artifacts:
+
+- `eval-governor-regression.json`
+- `eval-governor-budget.json`
+- `eval-governor-e2e.json` (pre-release only)
+
+### Regression Budget Gate
+
+Budget checks compare candidate vs baseline on:
+
+- pass rate
+- average score
+- governor intervention rate
+- repeated-command anomaly rate
+- average turns-to-resolution
+
+Run manually:
+
+```bash
+npm run eval:budget -- \
+  --candidate eval-governor-regression.json \
+  --baseline baseline-governor-regression.json \
+  --summary-out eval-governor-budget.json
+```
+
+Tune thresholds with optional flags:
+
+- `--max-pass-rate-drop`
+- `--max-score-drop`
+- `--max-intervention-rate-increase`
+- `--max-repeated-command-rate-increase`
+- `--max-turns-increase`
 
 ### After Fixing a Governor Bug
 

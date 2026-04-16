@@ -1,0 +1,57 @@
+{
+  "name": "exit-code-failure-churn",
+  "messages": [
+    { "role": "user", "content": "fix completion tests and continue" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "1",
+          "function": {
+            "name": "write",
+            "arguments": { "file_path": "cmd/synesis/completion_test.go", "content": "package main\\n// updated test" }
+          }
+        }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "Wrote 42 lines" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "2", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "Exit code 1" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "3", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "3", "content": "Exit code 1" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "4", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "4", "content": "Exit code 1" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "5", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "5", "content": "Exit code 1" }
+  ],
+  "expected": {
+    "pause": true,
+    "reason": "verification_churn_no_edit",
+    "matchedRulesIncludes": ["verification_churn_no_edit"]
+  }
+}

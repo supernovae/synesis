@@ -291,6 +291,160 @@ export const planStubOverwrite: EvalScenario = {
 };
 
 // ---------------------------------------------------------------------------
+// 8. Exit-code-only failing verification loop
+//
+// Some tool adapters return only "Exit code 1" with no error text.
+// The agent should treat this as failure and edit, not re-run blindly.
+// ---------------------------------------------------------------------------
+
+export const exitCodeFailureLoop: EvalScenario = {
+  id: "exit-code-failure-loop",
+  name: "Exit-code-only failure loop",
+  category: "governor_regression",
+  description:
+    "When test output is only 'Exit code 1', model must treat it as a failure " +
+    "signal and pivot to a concrete fix instead of re-running the same test command.",
+  target: {},
+  systemPrompt:
+    "You are a coding assistant. A non-zero exit code means failure. " +
+    "Do not re-run the same failing test command without editing.",
+  turns: [
+    {
+      messages: [
+        { role: "user", content: "Fix completion tests. If tests fail, make one code fix before retesting." },
+      ],
+      simulatedToolResults: {
+        Bash: "Exit code 1",
+        Read: "cmd/synesis/completion_test.go:11:2: declared and not used: originalStdout",
+        Write: "File written: cmd/synesis/completion_test.go",
+      },
+      maxToolRounds: 4,
+      assertions: [
+        { type: "contains_edit" },
+        { type: "no_repeated_tool" },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 9. Truncated verification output replay
+//
+// Model should not loop on `| head` / truncated output retries.
+// ---------------------------------------------------------------------------
+
+export const truncatedVerificationRetry: EvalScenario = {
+  id: "truncated-verification-retry",
+  name: "Truncated verification retry loop",
+  category: "governor_regression",
+  description:
+    "Model sees truncated verification output and retries the same command. " +
+    "It should inspect full output and then edit.",
+  target: {},
+  systemPrompt:
+    "Avoid repeating truncated test commands. Use full output once, then fix root cause.",
+  turns: [
+    {
+      messages: [
+        { role: "user", content: "Fix the failing completion test and avoid looping on truncated outputs." },
+      ],
+      simulatedToolResults: {
+        Bash: "cmd/synesis/completion_test.go:11:2: declared and not used: originalStdout",
+        Read: "package main\n\nfunc TestRunCompletion(t *testing.T) {\n  // ...\n}\n",
+        Edit: "Applied patch to cmd/synesis/completion_test.go",
+      },
+      maxToolRounds: 4,
+      assertions: [
+        { type: "contains_edit" },
+        { type: "no_repeated_tool" },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 10. Repeated no-signal verification retries
+//
+// Empty/unchanged verification responses should not be retried repeatedly.
+// ---------------------------------------------------------------------------
+
+export const noSignalVerificationRetry: EvalScenario = {
+  id: "no-signal-verification-retry",
+  name: "No-signal verification retry",
+  category: "governor_regression",
+  description:
+    "When verification returns no meaningful signal, model should pivot to " +
+    "targeted inspection/editing instead of retrying immediately.",
+  target: {},
+  systemPrompt:
+    "If verification output is empty or non-actionable, inspect code and edit before retesting.",
+  turns: [
+    {
+      messages: [
+        { role: "user", content: "Fix completion test failures. Do not retry blindly when command output is empty." },
+      ],
+      simulatedToolResults: {
+        Bash: "",
+        Read: "cmd/synesis/completion_test.go:39:2: declared and not used: originalStdout",
+        Write: "File written: cmd/synesis/completion_test.go",
+      },
+      maxToolRounds: 4,
+      assertions: [
+        { type: "contains_edit" },
+        { type: "tool_count_lte", params: { max: 6 } },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 11. Post-completion verification churn
+//
+// After saying work is complete, model should finalize instead of verifying.
+// ---------------------------------------------------------------------------
+
+export const postCompletionVerificationChurn: EvalScenario = {
+  id: "post-completion-verification-churn",
+  name: "Post-completion verification churn",
+  category: "governor_regression",
+  description:
+    "After a completion claim, model keeps running verification/status commands " +
+    "instead of finalizing.",
+  target: {},
+  systemPrompt:
+    "When implementation is complete, finalize tasks instead of running repeated verification.",
+  turns: [
+    {
+      messages: [
+        { role: "user", content: "The completion feature fix is done. Please wrap up and move on." },
+      ],
+      simulatedToolResults: {
+        Bash: "ok  synesis.sh/synesis/cmd/synesis  (cached)",
+        TodoWrite: "updated todos",
+      },
+      maxToolRounds: 3,
+      assertions: [
+        { type: "no_repeated_tool" },
+        { type: "tool_count_lte", params: { max: 5 } },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+    failIfRules: ["verification_after_completion_claim"],
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -302,4 +456,8 @@ export const GOVERNOR_REGRESSION_SCENARIOS: EvalScenario[] = [
   noTestFilesRepeat,
   broadDiscoveryRepeat,
   planStubOverwrite,
+  exitCodeFailureLoop,
+  truncatedVerificationRetry,
+  noSignalVerificationRetry,
+  postCompletionVerificationChurn,
 ];
