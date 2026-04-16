@@ -537,10 +537,34 @@ function extractUserText(messages: GovernorInputMessage[]): string {
     .toLowerCase();
 }
 
+const USER_FACING_TOOL_RE = /askuser|ask_user|user_question|askquestion|useranswer|user_input/i;
+
 function extractLatestUserText(messages: GovernorInputMessage[]): string {
+  // Build a map of tool-call IDs → tool names so we can identify user-facing tool results.
+  const toolNameById = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+      for (const call of m.tool_calls) {
+        const id = normalizeString(call.id);
+        const name = normalizeString(call.function?.name ?? call.name).toLowerCase();
+        if (id && name) toolNameById.set(id, name);
+      }
+    }
+  }
+
+  // Walk backward: first user-facing tool result or user message wins.
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i]?.role === "user" && typeof messages[i].content === "string") {
-      return String(messages[i].content).toLowerCase();
+    const m = messages[i];
+    if (m.role === "user" && typeof m.content === "string") {
+      return String(m.content).toLowerCase();
+    }
+    // Tool results from user-facing tools (AskUserQuestion etc.) carry the user's choice.
+    if ((m.role === "tool" || m.role === "tool_result") && m.tool_call_id) {
+      const toolName = toolNameById.get(normalizeString(m.tool_call_id));
+      if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
+        const content = typeof m.content === "string" ? m.content : "";
+        if (content.trim()) return content.toLowerCase();
+      }
     }
   }
   return "";
