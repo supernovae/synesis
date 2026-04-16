@@ -771,6 +771,13 @@ function isVerificationCommand(toolName: string, command: string): boolean {
   const cmd = normalizeString(command).toLowerCase();
   return tool.includes("run_test")
     || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
+    // vitest (used in this repo's yarn-ts tests)
+    || /\b(vitest|npx vitest)\b/.test(cmd)
+    // uv run pytest / uv run ruff (Python services)
+    || /\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(cmd)
+    // CLI binary invocations: ./binary, /tmp/binary, or bare binary name run with args
+    // Catches: ./synesis completion, /tmp/synesis --help, synesis completion --shell bash
+    || /(?:^|&&|\|)\s*(?:\.\/|\/\w[\w.-]*(?:\/))\w[\w.-]*/.test(cmd)
     || /\bgit\s+(diff|status|log|show)\b/.test(cmd);
 }
 

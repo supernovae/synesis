@@ -1261,6 +1261,66 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("verbal_intent_without_action");
   });
 
+  // --- isVerificationCommand coverage matrix ---
+
+  it("recognizes vitest run as a verification command (does not fire verification_intent_without_action)", () => {
+    const messages = [
+      { role: "user", content: "fix completion tests and verify" },
+      { role: "assistant", content: "Let me run the tests to verify the completion feature works." },
+      assistantCall("1", "bash", { command: "npx vitest run tests/execution-governor.test.ts" }),
+      toolResult("1", "✓ 128 tests passed"),
+      { role: "assistant", content: "Let me run the tests to verify the completion feature works." },
+      assistantCall("2", "bash", { command: "vitest run --reporter=verbose" }),
+      toolResult("2", "✓ all pass"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_intent_without_action");
+  });
+
+  it("recognizes uv run pytest as a verification command", () => {
+    const messages = [
+      { role: "user", content: "fix the indexer tests" },
+      { role: "assistant", content: "Let me run the tests to verify." },
+      assistantCall("1", "bash", { command: "uv run pytest tests/ -v" }),
+      toolResult("1", "PASSED"),
+      { role: "assistant", content: "Let me run the tests to verify the fix." },
+      assistantCall("2", "bash", { command: "uv run pytest tests/test_indexer.py -v" }),
+      toolResult("2", "PASSED"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_intent_without_action");
+  });
+
+  it("recognizes CLI binary invocation as a verification command (./synesis completion)", () => {
+    // When testing a CLI feature, the model builds then runs the binary.
+    // This must count as a verification so verification_intent_without_action doesn't fire.
+    const messages = [
+      { role: "user", content: "implement shell completion for synesis CLI" },
+      { role: "assistant", content: "Let me run the completion to verify it works." },
+      assistantCall("1", "bash", { command: "go build -o /tmp/synesis ./cmd/synesis && /tmp/synesis completion --shell bash" }),
+      toolResult("1", "# bash completion for synesis\ncomplete -F __start_synesis synesis"),
+      { role: "assistant", content: "Let me run the tests to verify the completion feature works." },
+      assistantCall("2", "bash", { command: "./synesis completion --shell fish" }),
+      toolResult("2", "complete -c synesis -f"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_intent_without_action");
+  });
+
+  it("recognizes go test with -run flag and output capture as verification", () => {
+    const messages = [
+      { role: "user", content: "fix the completion test" },
+      { role: "assistant", content: "Let me run the targeted test to verify the fix." },
+      assistantCall("1", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v 2>&1 | head -50" }),
+      toolResult("1", "--- PASS: TestRunCompletion (0.01s)"),
+      { role: "assistant", content: "Let me run the tests to verify the completion feature." },
+      assistantCall("2", "bash", { command: "go test -v ./cmd/synesis -run TestCompletion 2>&1" }),
+      toolResult("2", "PASS"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_intent_without_action");
+  });
+
   it("fires no_progress_loop when verification and exploration interleave without edits", () => {
     const messages = [
       { role: "user", content: "validate keychain and update plan" },

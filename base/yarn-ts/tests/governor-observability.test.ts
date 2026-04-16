@@ -48,4 +48,65 @@ describe("deriveGovernorLoopObservability", () => {
     expect(out.hasRunTest).toBe(false);
     expect(out.assistantToolCallsSinceLatestUser).toBe(0);
   });
+
+  // --- isTestToolCall coverage matrix ---
+
+  it.each([
+    ["go test with -run flag and pipes", "go test ./cmd/synesis -run TestRunCompletion -v 2>&1 | head -50"],
+    ["vitest run", "npx vitest run tests/execution-governor.test.ts"],
+    ["vitest bare", "vitest run --reporter=verbose"],
+    ["uv run pytest", "uv run pytest tests/ -v"],
+    ["uv run pytest scoped", "uv run pytest tests/test_indexer.py::test_chunk -v"],
+    ["uv run ruff", "uv run ruff check ."],
+    ["npm test", "npm test"],
+    ["pytest bare", "pytest tests/test_completion.py -v"],
+    ["cargo test", "cargo test --lib -- completion::tests"],
+  ])("detects %s as a test run (hasRunTest=true)", (_label, command) => {
+    const out = deriveGovernorLoopObservability([
+      { role: "user" },
+      {
+        role: "assistant",
+        tool_calls: [
+          { id: "1", function: { name: "bash", arguments: JSON.stringify({ command }) } },
+        ],
+      },
+    ]);
+    expect(out.hasRunTest).toBe(true);
+  });
+
+  it.each([
+    ["CLI binary ./synesis completion", "go build -o /tmp/synesis ./cmd/synesis && /tmp/synesis completion --shell bash"],
+    ["CLI binary with args", "./synesis completion --shell fish"],
+    ["CLI binary bare", "./synesis --help"],
+  ])("detects %s as a test run via CLI invocation (hasRunTest=true)", (_label, command) => {
+    const out = deriveGovernorLoopObservability([
+      { role: "user" },
+      {
+        role: "assistant",
+        tool_calls: [
+          { id: "1", function: { name: "bash", arguments: JSON.stringify({ command }) } },
+        ],
+      },
+    ]);
+    expect(out.hasRunTest).toBe(true);
+  });
+
+  it.each([
+    ["mkdir", "mkdir -p /tmp/build"],
+    ["ls", "ls -la"],
+    ["cat", "cat README.md"],
+    ["echo", "echo hello"],
+    ["cd", "cd /tmp && ls"],
+  ])("does NOT count %s as a test run (hasRunTest=false)", (_label, command) => {
+    const out = deriveGovernorLoopObservability([
+      { role: "user" },
+      {
+        role: "assistant",
+        tool_calls: [
+          { id: "1", function: { name: "bash", arguments: JSON.stringify({ command }) } },
+        ],
+      },
+    ]);
+    expect(out.hasRunTest).toBe(false);
+  });
 });

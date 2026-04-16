@@ -48,7 +48,13 @@ function parseToolCallCommand(call: unknown): string {
 function isTestToolCall(name: string, command: string): boolean {
   if (!name && !command) return false;
   if (name.includes("run_test")) return true;
-  return /\b(go test|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(command);
+  return /\b(go test|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(command)
+    // vitest (used in this repo's yarn-ts tests)
+    || /\b(vitest|npx vitest)\b/.test(command)
+    // uv run pytest / uv run ruff
+    || /\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(command)
+    // CLI binary invocations (e.g. ./synesis completion, /tmp/synesis --help)
+    || /(?:(?:^|[&|;])\s*)(?:\.\/|\/\w[\w/.-]*\/)\w[\w.-]*/.test(command);
 }
 
 export function deriveGovernorLoopObservability(
