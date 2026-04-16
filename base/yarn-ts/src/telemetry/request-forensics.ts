@@ -50,6 +50,14 @@ export interface RequestForensicsRecord {
   };
   summary: string;
   payloadPreview?: string;
+  phasePolicy?: {
+    enabled: boolean;
+    source: "client" | "phase_policy" | "none";
+    phase?: string;
+    effectiveToolChoice?: string;
+    filteredToolCount?: number;
+    downgradedForStreaming?: boolean;
+  };
 }
 
 interface BuildInput {
@@ -61,6 +69,7 @@ interface BuildInput {
   tools?: unknown;
   toolChoice?: unknown;
   providerOptions?: unknown;
+  phasePolicy?: RequestForensicsRecord["phasePolicy"];
   previous?: { requestId: string; serialized: string };
   capturePayload: boolean;
   maxPreviewChars: number;
@@ -124,6 +133,7 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
       firstChangedSection,
       previousRequestId: input.previous?.requestId,
       summary,
+      phasePolicy: input.phasePolicy,
       payloadPreview: input.capturePayload ? serialized.slice(0, Math.max(0, input.maxPreviewChars)) : undefined,
     },
   };

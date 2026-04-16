@@ -181,6 +181,14 @@ import {
   type GovernorPauseEnvelope,
   type GovernorInputMessage,
 } from "./governance/execution-governor.js";
+import {
+  buildRequiredRepairPrompt,
+  derivePhaseExecutionPolicy,
+  filterToolsByPhasePolicy,
+  resolvePhaseToolChoice,
+  validateRequiredToolCalls,
+  type PhaseAwareToolChoice,
+} from "./governance/phase-execution-policy.js";
 import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
@@ -1666,6 +1674,7 @@ function captureRequestForensics(
   tools: unknown[] | undefined,
   toolChoice: unknown,
   providerOptions: unknown,
+  phasePolicy?: RequestForensicsRecord["phasePolicy"],
 ): { record: RequestForensicsRecord; serialized: string } | null {
   if (!config.SYNESIS_YARN_REQUEST_FORENSICS_ENABLED) return null;
   const previous = requestForensicsLastBySession.get(sessionKey);
@@ -1678,6 +1687,7 @@ function captureRequestForensics(
     tools,
     toolChoice,
     providerOptions,
+    phasePolicy,
     previous,
     capturePayload: config.SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD,
     maxPreviewChars: config.SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS,
@@ -5997,16 +6007,50 @@ app.post("/v1/chat/completions", async (req, reply) => {
     toolSchemaPruningStats.toolsPrunedTotal += prunedTools.prunedCount;
   }
   const prioritizedTools = prioritizeWriteCapableTools(prunedTools.tools, qwenLoopRiskOpenAI);
-  const effectiveTools = enrichToolSchemasForAdapter(prioritizedTools, adapter);
-  const sdkTools = openAIToolsToSDK(effectiveTools as never);
-  const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
-  if (normalizedRequest.tool_choice !== undefined && sdkToolChoice === undefined) {
+  let effectiveTools = enrichToolSchemasForAdapter(prioritizedTools, adapter);
+  const clientToolChoice = mapToolChoice(normalizedRequest.tool_choice);
+  if (normalizedRequest.tool_choice !== undefined && clientToolChoice === undefined) {
     return reply.code(400).send({
       error: {
         type: "invalid_request_error",
         message: "Invalid tool_choice. Expected auto|none|required|any or object form {type:\"tool\",name:\"...\"}.",
       },
     });
+  }
+  const oaiPhasePolicy = derivePhaseExecutionPolicy({
+    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED,
+    adapterFamily: adapter.family,
+    enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
+    phase: oaiGovernorPhase,
+    matchedRules: oaiExecutionGovernor.matchedRules,
+    stream: !!normalizedRequest.stream,
+  });
+  const oaiPhaseFiltered = filterToolsByPhasePolicy(effectiveTools as unknown[], oaiPhasePolicy);
+  effectiveTools = oaiPhaseFiltered.tools;
+  const sdkTools = openAIToolsToSDK(effectiveTools as never);
+  let effectiveToolChoice = resolvePhaseToolChoice(clientToolChoice as PhaseAwareToolChoice | undefined, oaiPhasePolicy);
+  const oaiForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
+    enabled: oaiPhasePolicy.active,
+    source: clientToolChoice !== undefined ? "client" : (effectiveToolChoice !== undefined ? "phase_policy" : "none"),
+    phase: oaiGovernorPhase,
+    effectiveToolChoice: typeof effectiveToolChoice === "string" ? effectiveToolChoice : effectiveToolChoice ? "tool" : undefined,
+    filteredToolCount: oaiPhaseFiltered.removed.length,
+    downgradedForStreaming: !!oaiPhasePolicy.downgradedForStreaming,
+  };
+  if (oaiPhasePolicy.active && (oaiPhaseFiltered.filtered || clientToolChoice === undefined)) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "phase_execution_policy_applied",
+      "execution-governor",
+      `phase=${oaiGovernorPhase} reason=${oaiPhasePolicy.reason ?? "none"} tool_choice=${typeof effectiveToolChoice === "string" ? effectiveToolChoice : "tool"} filtered=${oaiPhaseFiltered.removed.length}`,
+      reqId,
+      {
+        matched_rules: oaiExecutionGovernor.matchedRules,
+        removed_tools: oaiPhaseFiltered.removed,
+      },
+    );
   }
 
   const modelToolPrompt = mergeToolSystemPrompts(
@@ -6171,8 +6215,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         false,
         currentMessages as Array<{ role: string; content: unknown }>,
         effectiveTools as unknown[],
-        sdkToolChoice,
+        effectiveToolChoice,
         adapterProviderOptions,
+        oaiForensicsPhasePolicy,
       );
       finalResult = await generateText({
         model: resolved.model as never,
@@ -6183,11 +6228,102 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
         ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
-        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+        ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
         ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
       });
-      const firstUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-      lastOpenAiForensics = finalizeRequestForensics(session, reqId, firstForensics, firstUsage);
+      const firstCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+      let firstValidation = validateRequiredToolCalls(firstCalls, oaiPhasePolicy);
+      if (!firstValidation.valid && oaiPhasePolicy.toolChoice === "required") {
+        recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          "phase_required_validation_retry",
+          "execution-governor",
+          `reasons=${firstValidation.reasons.join(",") || "unknown"}`,
+          reqId,
+        );
+        currentMessages = [
+          ...currentMessages,
+          { role: "system", content: buildRequiredRepairPrompt(oaiGovernorPhase, oaiPhasePolicy.allowedCanonicalTools) } as never,
+        ];
+        const repairForensics = captureRequestForensics(
+          sessionKey,
+          reqId,
+          "/v1/chat/completions",
+          resolved.resolvedModelId,
+          false,
+          currentMessages as Array<{ role: string; content: unknown }>,
+          effectiveTools as unknown[],
+          effectiveToolChoice,
+          adapterProviderOptions,
+          oaiForensicsPhasePolicy,
+        );
+        finalResult = await generateText({
+          model: resolved.model as never,
+          messages: currentMessages,
+          maxOutputTokens: clampMaxOutputTokensForSafety(
+            Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
+          ),
+          ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
+          ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+          ...(sdkTools ? { tools: sdkTools } : {}),
+          ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
+          ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {}),
+        });
+        const repairedUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
+        lastOpenAiForensics = finalizeRequestForensics(session, reqId, repairForensics, repairedUsage);
+        const repairedCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+        firstValidation = validateRequiredToolCalls(repairedCalls, oaiPhasePolicy);
+        if (!firstValidation.valid) {
+          recordSessionEvent(
+            sessionKey,
+            identity.userId,
+            identity.orgId,
+            "phase_required_validation_fallback",
+            "execution-governor",
+            `fallback_after_retry reasons=${firstValidation.reasons.join(",") || "unknown"}`,
+            reqId,
+          );
+          effectiveToolChoice = "auto";
+          currentMessages = [
+            ...currentMessages,
+            {
+              role: "system",
+              content: "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
+            } as never,
+          ];
+          const fallbackForensics = captureRequestForensics(
+            sessionKey,
+            reqId,
+            "/v1/chat/completions",
+            resolved.resolvedModelId,
+            false,
+            currentMessages as Array<{ role: string; content: unknown }>,
+            effectiveTools as unknown[],
+            effectiveToolChoice,
+            adapterProviderOptions,
+            oaiForensicsPhasePolicy,
+          );
+          finalResult = await generateText({
+            model: resolved.model as never,
+            messages: currentMessages,
+            maxOutputTokens: clampMaxOutputTokensForSafety(
+              Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
+            ),
+            ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
+            ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+            ...(sdkTools ? { tools: sdkTools } : {}),
+            ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
+            ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {}),
+          });
+          const fallbackUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
+          lastOpenAiForensics = finalizeRequestForensics(session, reqId, fallbackForensics, fallbackUsage);
+        }
+      } else {
+        const firstUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
+        lastOpenAiForensics = finalizeRequestForensics(session, reqId, firstForensics, firstUsage);
+      }
 
       const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME, DEV_DOCS_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_ALIAS]);
       for (let round = 0; round < 3; round++) {
@@ -6270,8 +6406,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
           false,
           currentMessages as Array<{ role: string; content: unknown }>,
           effectiveTools as unknown[],
-          sdkToolChoice,
+          effectiveToolChoice,
           adapterProviderOptions,
+          oaiForensicsPhasePolicy,
         );
         finalResult = await generateText({
           model: resolved.model as never,
@@ -6282,7 +6419,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
           ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
           ...(sdkTools ? { tools: sdkTools } : {}),
-          ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
+          ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {})
         });
         const loopUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
         lastOpenAiForensics = finalizeRequestForensics(session, reqId, loopForensics, loopUsage);
@@ -6726,8 +6863,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     true,
     modelMessages as Array<{ role: string; content: unknown }>,
     effectiveTools as unknown[],
-    sdkToolChoice,
+    effectiveToolChoice,
     adapterProviderOptions,
+    oaiForensicsPhasePolicy,
   );
   const streamed = streamText({
     model: resolved.model as never,
@@ -6738,7 +6876,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
     ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
     ...(sdkTools ? { tools: sdkTools } : {}),
-    ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+    ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
     ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
   });
   reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
@@ -8105,10 +8243,9 @@ app.post("/v1/messages", async (req, reply) => {
     toolSchemaPruningStats.toolsPrunedTotal += prunedClaudeTools.prunedCount;
   }
   const prioritizedClaudeTools = prioritizeWriteCapableTools(prunedClaudeTools.tools, qwenLoopRiskClaude);
-  const effectiveClaudeTools = enrichToolSchemasForAdapter(prioritizedClaudeTools, claudeAdapter);
-  const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
-  const sdkToolChoice = mapToolChoice(body.tool_choice);
-  if (body.tool_choice !== undefined && sdkToolChoice === undefined) {
+  let effectiveClaudeTools = enrichToolSchemasForAdapter(prioritizedClaudeTools, claudeAdapter);
+  const clientClaudeToolChoice = mapToolChoice(body.tool_choice);
+  if (body.tool_choice !== undefined && clientClaudeToolChoice === undefined) {
     return reply.code(400).send({
       error: {
         type: "invalid_request_error",
@@ -8211,6 +8348,44 @@ app.post("/v1/messages", async (req, reply) => {
   const providerOptions = body.thinking
     ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
     : adapterClaudeProviderOptions;
+  const claudePhasePolicy = derivePhaseExecutionPolicy({
+    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED,
+    adapterFamily: claudeAdapter.family,
+    enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
+    phase: claudeGovernorPhase,
+    matchedRules: claudeExecutionGovernor.matchedRules,
+    stream: !!body.stream,
+  });
+  const claudePhaseFiltered = filterToolsByPhasePolicy(effectiveClaudeTools as unknown[], claudePhasePolicy);
+  effectiveClaudeTools = claudePhaseFiltered.tools;
+  const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
+  let effectiveClaudeToolChoice = resolvePhaseToolChoice(
+    clientClaudeToolChoice as PhaseAwareToolChoice | undefined,
+    claudePhasePolicy,
+  );
+  const claudeForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
+    enabled: claudePhasePolicy.active,
+    source: clientClaudeToolChoice !== undefined ? "client" : (effectiveClaudeToolChoice !== undefined ? "phase_policy" : "none"),
+    phase: claudeGovernorPhase,
+    effectiveToolChoice: typeof effectiveClaudeToolChoice === "string" ? effectiveClaudeToolChoice : effectiveClaudeToolChoice ? "tool" : undefined,
+    filteredToolCount: claudePhaseFiltered.removed.length,
+    downgradedForStreaming: !!claudePhasePolicy.downgradedForStreaming,
+  };
+  if (claudePhasePolicy.active && (claudePhaseFiltered.filtered || clientClaudeToolChoice === undefined)) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "phase_execution_policy_applied",
+      "execution-governor",
+      `phase=${claudeGovernorPhase} reason=${claudePhasePolicy.reason ?? "none"} tool_choice=${typeof effectiveClaudeToolChoice === "string" ? effectiveClaudeToolChoice : "tool"} filtered=${claudePhaseFiltered.removed.length}`,
+      traceReqId,
+      {
+        matched_rules: claudeExecutionGovernor.matchedRules,
+        removed_tools: claudePhaseFiltered.removed,
+      },
+    );
+  }
   const claudeAdapterSampling = claudeAdapter.defaultSamplingParams?.();
   const claudeEffectiveTemp = body.temperature ?? claudeAdapterSampling?.temperature;
   const claudeEffectiveTopP = claudeAdapterSampling?.top_p;
@@ -8289,7 +8464,7 @@ app.post("/v1/messages", async (req, reply) => {
     ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
           ...(sdkStop ? { stopSequences: sdkStop } : {}),
           ...(sdkTools ? { tools: sdkTools } : {}),
-          ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+          ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
           ...(providerOptions ? { providerOptions: providerOptions as never } : {})
         });
 
@@ -8353,8 +8528,9 @@ app.post("/v1/messages", async (req, reply) => {
         false,
         currentMessages as Array<{ role: string; content: unknown }>,
         effectiveClaudeTools as unknown[],
-        sdkToolChoice,
+        effectiveClaudeToolChoice,
         providerOptions,
+        claudeForensicsPhasePolicy,
       );
       const finalResult = streamedResult ?? await generateText({
         model: resolved.model as never,
@@ -8364,7 +8540,7 @@ app.post("/v1/messages", async (req, reply) => {
     ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
         ...(sdkStop ? { stopSequences: sdkStop } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
-        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+        ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
         ...(providerOptions ? { providerOptions: providerOptions as never } : {})
       });
 
@@ -8528,8 +8704,9 @@ app.post("/v1/messages", async (req, reply) => {
       true,
       claudeModelMessages as Array<{ role: string; content: unknown }>,
       effectiveClaudeTools as unknown[],
-      sdkToolChoice,
+      effectiveClaudeToolChoice,
       providerOptions,
+      claudeForensicsPhasePolicy,
     );
     const streamed = streamText({
       model: resolved.model as never,
@@ -8539,7 +8716,7 @@ app.post("/v1/messages", async (req, reply) => {
     ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
-      ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+      ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
       ...(providerOptions ? { providerOptions: providerOptions as never } : {})
     });
     reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
@@ -9175,6 +9352,7 @@ app.post("/v1/messages", async (req, reply) => {
   let lastClaudeNonStreamForensics: RequestForensicsRecord | undefined;
   try {
     let currentMessages = claudeModelMessages;
+    let requiredValidationCompleted = false;
     for (let round = 0; round < 3; round++) {
       const roundForensics = captureRequestForensics(
         claudeSessionKey,
@@ -9184,8 +9362,9 @@ app.post("/v1/messages", async (req, reply) => {
         false,
         currentMessages as Array<{ role: string; content: unknown }>,
         effectiveClaudeTools as unknown[],
-        sdkToolChoice,
+        effectiveClaudeToolChoice,
         providerOptions,
+        claudeForensicsPhasePolicy,
       );
       result = await generateText({
         model: resolved.model as never,
@@ -9195,13 +9374,104 @@ app.post("/v1/messages", async (req, reply) => {
     ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
         ...(sdkStop ? { stopSequences: sdkStop } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
-        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
+        ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
         ...(providerOptions ? { providerOptions: providerOptions as never } : {})
       });
       const roundUsage = readUsage((result as unknown as { usage?: unknown }).usage);
       lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, roundForensics, roundUsage);
 
-      const allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+      let allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+      if (!requiredValidationCompleted && claudePhasePolicy.toolChoice === "required") {
+        requiredValidationCompleted = true;
+        let validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
+        if (!validation.valid) {
+          recordSessionEvent(
+            claudeSessionKey,
+            claudeIdentity.userId,
+            claudeIdentity.orgId,
+            "phase_required_validation_retry",
+            "execution-governor",
+            `reasons=${validation.reasons.join(",") || "unknown"}`,
+            reqId,
+          );
+          currentMessages = [
+            ...currentMessages,
+            { role: "system", content: buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools) } as never,
+          ];
+          const repairForensics = captureRequestForensics(
+            claudeSessionKey,
+            reqId,
+            "/v1/messages",
+            resolved.resolvedModelId,
+            false,
+            currentMessages as Array<{ role: string; content: unknown }>,
+            effectiveClaudeTools as unknown[],
+            effectiveClaudeToolChoice,
+            providerOptions,
+            claudeForensicsPhasePolicy,
+          );
+          result = await generateText({
+            model: resolved.model as never,
+            messages: currentMessages,
+            maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+            ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+            ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+            ...(sdkStop ? { stopSequences: sdkStop } : {}),
+            ...(sdkTools ? { tools: sdkTools } : {}),
+            ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
+            ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+          });
+          const repairUsage = readUsage((result as unknown as { usage?: unknown }).usage);
+          lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, repairForensics, repairUsage);
+          allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+          validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
+          if (!validation.valid) {
+            recordSessionEvent(
+              claudeSessionKey,
+              claudeIdentity.userId,
+              claudeIdentity.orgId,
+              "phase_required_validation_fallback",
+              "execution-governor",
+              `fallback_after_retry reasons=${validation.reasons.join(",") || "unknown"}`,
+              reqId,
+            );
+            effectiveClaudeToolChoice = "auto";
+            currentMessages = [
+              ...currentMessages,
+              {
+                role: "system",
+                content: "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
+              } as never,
+            ];
+            const fallbackForensics = captureRequestForensics(
+              claudeSessionKey,
+              reqId,
+              "/v1/messages",
+              resolved.resolvedModelId,
+              false,
+              currentMessages as Array<{ role: string; content: unknown }>,
+              effectiveClaudeTools as unknown[],
+              effectiveClaudeToolChoice,
+              providerOptions,
+              claudeForensicsPhasePolicy,
+            );
+            result = await generateText({
+              model: resolved.model as never,
+              messages: currentMessages,
+              maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+              ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+              ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+              ...(sdkStop ? { stopSequences: sdkStop } : {}),
+              ...(sdkTools ? { tools: sdkTools } : {}),
+              ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
+              ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+            });
+            const fallbackUsage = readUsage((result as unknown as { usage?: unknown }).usage);
+            lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, fallbackForensics, fallbackUsage);
+            allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+          }
+        }
+      }
       const serverCalls = claudeNativeWebSearchRequested
         ? allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName))
         : [];

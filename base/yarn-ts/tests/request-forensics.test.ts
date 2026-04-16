@@ -15,6 +15,13 @@ describe("request forensics", () => {
       tools: [{ type: "function", function: { name: "Bash", parameters: { type: "object" } } }],
       toolChoice: "auto",
       providerOptions: { openai: { parallel_tool_calls: true } },
+      phasePolicy: {
+        enabled: true,
+        source: "phase_policy",
+        phase: "verify",
+        effectiveToolChoice: "required",
+        filteredToolCount: 2,
+      },
       previous: undefined,
       capturePayload: false,
       maxPreviewChars: 200,
@@ -41,6 +48,7 @@ describe("request forensics", () => {
     expect(second.record.lcpRatio).toBeGreaterThan(0);
     expect(second.record.firstChangedSection).toBe("user");
     expect(second.record.payloadPreview?.length).toBeLessThanOrEqual(100);
+    expect(first.record.phasePolicy?.effectiveToolChoice).toBe("required");
   });
 
   it("attaches usage metrics and updates summary", () => {

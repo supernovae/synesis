@@ -178,6 +178,14 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES: z
+    .string()
+    .default("qwen3-coder")
+    .transform((v) => v.split(",").map((part) => part.trim().toLowerCase()).filter(Boolean)),
   SYNESIS_YARN_GOVERNANCE_DISABLED: z
     .string()
     .optional()
