@@ -843,7 +843,7 @@ describe("execution governor", () => {
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("verbal_intent_without_action");
     expect(out.reason).toBe("verbal_intent_without_action");
-    expect(out.suggestedNextStep).toContain("Stop narrating intent");
+    expect(out.suggestedNextStep).toContain("Stop narrating");
   });
 
   it("fires verification_intent_without_action on repeated test intent with no test command", () => {

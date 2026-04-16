@@ -1629,7 +1629,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "verbal_intent_without_action",
       suggestedNextStep:
-        `You have declared intent to act ${verbalIntentStreak} times ("I'll ...", "Let me ...") without making any code edits or task updates. Stop narrating intent and take one concrete action: (1) call TaskUpdate/TodoWrite to mark completed tasks done, (2) make one code edit (Write/Edit), or (3) if everything is done, update all task statuses to done and report completion.`,
+        `You have declared intent to act ${verbalIntentStreak} times ("I'll ...", "Let me ...") without taking a concrete action. Stop narrating and do ONE of: (1) run ONE test/build command with Bash now, (2) make one code edit (Write/Edit/Write), or (3) call TaskUpdate/TodoWrite to mark completed tasks done.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -1979,9 +1979,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "If something still needs changing, make exactly ONE targeted code edit (Write/Edit), verify once, then report.";
       break;
     case "verbal_intent_without_action":
-      step1 = "STOP declaring intent. You have said 'I'll...' multiple times without acting. Do NOT output another plan or narration.";
-      step2 = "If tasks are done, call TaskUpdate/TodoWrite NOW to mark them completed. If code is needed, make one Edit/Write call.";
-      step3 = "After the concrete action, run one narrow verification and report results.";
+      step1 = "STOP declaring intent. You have said 'I'll...' or 'Let me...' multiple times without acting. Do NOT output another plan or narration.";
+      step2 = "Take ONE concrete action now: (A) run ONE test/build Bash command, (B) make one code Edit/Write, or (C) call TaskUpdate/TodoWrite if all tasks are done.";
+      step3 = "After that single action, use the result: fix if failing, or report completion if passing/done.";
       break;
     case "verification_intent_without_action":
       step1 = "STOP saying you will run tests. You repeated test intent without executing any real test command.";
