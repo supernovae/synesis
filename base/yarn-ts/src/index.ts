@@ -333,6 +333,11 @@ function applyExecutionGovernorToolRestrictions(
   const explorationStall = matchedRules?.some((r) =>
     r === "exploration_stall_no_edit" || r === "no_progress_loop" || r === "verbal_intent_without_action"
   ) ?? false;
+  const failureFixContext = matchedRules?.some((r) =>
+    r === "verification_same_failure_signature_replay"
+    || r === "verification_fail_repeat_block"
+    || r === "verification_churn_no_edit"
+  ) ?? false;
   const repeatUserPromptLoop = matchedRules?.some((r) => r === "repeat_user_prompt_loop") ?? false;
 
   const deny = new Set<string>();
@@ -342,7 +347,12 @@ function applyExecutionGovernorToolRestrictions(
     deny.add("glob").add("explore").add("agent");
   }
   if (explorationStall) {
-    for (const t of ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"]) {
+    // Keep targeted reads available when recovering from repeated verification failures;
+    // otherwise the model can get trapped without access to the failing file context.
+    const blockedDiscoveryTools = failureFixContext
+      ? ["search", "grep", "find", "list_dir", "list_files"]
+      : ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"];
+    for (const t of blockedDiscoveryTools) {
       deny.add(t);
     }
   }
