@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",
-    "@langchain/core": "^1.1.39",
+    "@langchain/core": "^1.1.40",
     "@langchain/langgraph": "^1.2.7",
     "@openfga/sdk": "^0.9.4",
     "@opentelemetry/api": "^1.9.1",
