@@ -27,7 +27,7 @@
     "@opentelemetry/semantic-conventions": "^1.40.0",
     "@synesis/context-trust": "*",
     "@synesis/telemetry": "*",
-    "fastify": "^5.8.4",
+    "fastify": "^5.8.5",
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",
     "prom-client": "^15.1.3",
