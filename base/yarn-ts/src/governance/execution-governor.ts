@@ -20,6 +20,7 @@ export interface ExecutionGovernorDecision {
   telemetry: {
     phase: SessionPhase;
     repeatedTestCommands: number;
+    repeatedAskUserPrompts?: number;
     repeatedReadSearchCalls: number;
     repeatedBroadDiscoveryCalls: number;
     totalBroadDiscoveryCalls: number;
@@ -159,6 +160,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     // Progress / workflow
     "no_progress_loop",
     "verbal_intent_without_action",
+    "repeat_user_prompt_loop",
     "plan_reread_loop",
     "completion_claim_requires_task_update",
     "git_commit_followthrough",
@@ -185,6 +187,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     // Progress / workflow
     "no_progress_loop",
     "verbal_intent_without_action",
+    "repeat_user_prompt_loop",
     "completion_claim_requires_task_update",
     "git_commit_followthrough",
     "dependency_install_replay",
@@ -198,6 +201,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "exploration_stall_no_edit",
     "no_progress_loop",
     "verbal_intent_without_action",
+    "repeat_user_prompt_loop",
     "completion_claim_requires_task_update",
     "no_test_files_repeat",
     "dependency_install_replay",
@@ -314,6 +318,10 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
   if (tool.includes("search") || tool.includes("grep")) {
     const query = normalizeString(row.query || row.pattern);
     if (query) return `search:${query}`;
+  }
+  if (USER_FACING_TOOL_RE.test(tool)) {
+    const questions = normalizeString(row.questions || row.question || row.prompt || row.text);
+    return questions ? `askuser:${questions}` : "askuser";
   }
   if (tool === "taskcreate" || tool === "task_create" || tool.includes("taskcreate")) {
     const title = normalizeString(row.title || row.name || row.content || row.task);
@@ -866,6 +874,8 @@ export function evaluateExecutionGovernor(
   const windowStart = Math.max(0, events.length - BROAD_DISCOVERY_WINDOW);
   const editFailureReplay = new Map<string, number>();
   const taskCreateReplay = new Map<string, number>();
+  const askUserReplay = new Map<string, number>();
+  let repeatedAskUserPrompts = 0;
 
   for (let i = 0; i < events.length; i += 1) {
     const tool = events[i].toolName;
@@ -946,6 +956,14 @@ export function evaluateExecutionGovernor(
     const next = (taskCreateReplay.get(key) ?? 0) + 1;
     taskCreateReplay.set(key, next);
     if (next >= 2) repeatedTaskCreateReplay += 1;
+  }
+  for (const e of events) {
+    const c = normalizeString(e.command);
+    if (!(c.startsWith("askuser:") || c === "askuser")) continue;
+    const key = c;
+    const next = (askUserReplay.get(key) ?? 0) + 1;
+    askUserReplay.set(key, next);
+    if (next >= 2) repeatedAskUserPrompts += 1;
   }
 
   // Count consecutive edit failures from the tail, regardless of file or signature.
@@ -1179,6 +1197,7 @@ export function evaluateExecutionGovernor(
   if (repeatedEditFailureReplay >= 1) pushRule("edit_failure_replay");
   if (repeatedTaskCreateReplay >= 1) pushRule("task_creation_replay");
   if (!isInvestigationOnly && declarationFollowthroughViolation) pushRule("declaration_followthrough_required");
+  if (!isInvestigationOnly && repeatedAskUserPrompts >= 1 && effectiveNoEditEvidence) pushRule("repeat_user_prompt_loop");
   if (completionClaimNeedsTaskUpdate) pushRule("completion_claim_requires_task_update");
   if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence) {
     pushRule("verification_after_completion_claim");
@@ -1494,6 +1513,27 @@ export function evaluateExecutionGovernor(
     };
   }
 
+  if (matchedRules.includes("repeat_user_prompt_loop")) {
+    return {
+      pause: true,
+      reason: "repeat_user_prompt_loop",
+      suggestedNextStep:
+        "The user already answered your focus question. Do not ask the same question again. Execute one concrete implementation step now (for example add shell completion or add missing tests), then run one targeted verification command.",
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedAskUserPrompts,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+      },
+    };
+  }
+
   if (matchedRules.includes("verification_stall_no_edit")) {
     return {
       pause: true,
@@ -1788,6 +1828,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP declaring intent. You have said 'I'll...' multiple times without acting. Do NOT output another plan or narration.";
       step2 = "If tasks are done, call TaskUpdate/TodoWrite NOW to mark them completed. If code is needed, make one Edit/Write call.";
       step3 = "After the concrete action, run one narrow verification and report results.";
+      break;
+    case "repeat_user_prompt_loop":
+      step1 = "STOP asking the same focus question. The user already answered.";
+      step2 = "Do NOT call AskUserQuestion again for this decision. Execute the selected path with one concrete code or test action now.";
+      step3 = "After the action, run one narrow verification and report progress.";
       break;
     case "verification_stall_no_edit":
       step1 = "STOP running build, test, and read commands. Verification is already passing and files are unchanged — there is nothing to re-check.";

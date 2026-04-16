@@ -333,6 +333,7 @@ function applyExecutionGovernorToolRestrictions(
   const explorationStall = matchedRules?.some((r) =>
     r === "exploration_stall_no_edit" || r === "no_progress_loop" || r === "verbal_intent_without_action"
   ) ?? false;
+  const repeatUserPromptLoop = matchedRules?.some((r) => r === "repeat_user_prompt_loop") ?? false;
 
   const deny = new Set<string>();
   if (explorationDominant) {
@@ -342,6 +343,11 @@ function applyExecutionGovernorToolRestrictions(
   }
   if (explorationStall) {
     for (const t of ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"]) {
+      deny.add(t);
+    }
+  }
+  if (repeatUserPromptLoop) {
+    for (const t of ["askuserquestion", "ask_user_question", "askuser", "askquestion", "user_question"]) {
       deny.add(t);
     }
   }

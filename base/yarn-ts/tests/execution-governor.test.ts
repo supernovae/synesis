@@ -528,7 +528,7 @@ describe("execution governor", () => {
   });
 
   it("does not trigger bounded_exploration_budget for reads outside sliding window", () => {
-    const padMessages: Array<Record<string, unknown>> = [];
+    const padMessages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [];
     for (let i = 0; i < 6; i++) {
       padMessages.push(
         assistantCall(`old${i}`, "read_file", { path: "a.go" }),
@@ -1626,6 +1626,23 @@ describe("phase-aware rule gating", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.telemetry.phase).toBe("explore");
+  });
+
+  it("pauses when the same AskUserQuestion is repeated after user already answered", () => {
+    const questionPayload = {
+      questions: "[{\"question\":\"All 15 features are already implemented. What would you like me to focus on?\"}]",
+    };
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "scan repo and make sure every feature is implemented" },
+      { role: "assistant", content: "What next?", tool_calls: [{ id: "ask1", function: { name: "AskUserQuestion", arguments: questionPayload } }] },
+      { role: "tool", tool_call_id: "ask1", content: "Both tests and completion" },
+      { role: "assistant", content: "Confirming focus...", tool_calls: [{ id: "ask2", function: { name: "AskUserQuestion", arguments: questionPayload } }] },
+      { role: "tool", tool_call_id: "ask2", content: "Both tests and completion" },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("repeat_user_prompt_loop");
+    expect(out.matchedRules).toContain("repeat_user_prompt_loop");
   });
 
   it("stale completion claim before user redirect does not lock phase to report", () => {
