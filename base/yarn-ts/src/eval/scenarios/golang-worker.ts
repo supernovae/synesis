@@ -68,7 +68,9 @@ export const goCliHappyPath: EvalScenario = {
         "*": "ok",
       },
       maxToolRounds: 8,
-      assertions: [{ type: "governor_not_paused" }],
+      // No turn-level assertion: brief verbal warmup ("I'll build the app")
+      // before the first tool call is normal. failIfRules at scenario level
+      // catches genuine exploration stalls.
     },
     {
       messages: [
