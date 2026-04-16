@@ -530,8 +530,11 @@ describe("execution governor", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
-    expect(out.matchedRules).toContain("exploration_stall_no_edit");
-    expect(out.suggestedNextStep).toContain("search/read/list commands");
+    // source_file_stale_reread fires at threshold 3 (before bounded_exploration_budget at 5)
+    expect(out.matchedRules).toContain("source_file_stale_reread");
+    // Recovery message should name the file and tell the model to take action
+    expect(out.suggestedNextStep).toContain("a.go");
+    expect(out.suggestedNextStep).toContain("STOP re-reading");
   });
 
   it("does not trigger bounded_exploration_budget for reads outside sliding window", () => {
@@ -1590,8 +1593,83 @@ describe("execution governor", () => {
     const decision = evaluateExecutionGovernor(messages);
     expect(decision.pause).toBe(true);
     const block = executionGovernorRecoveryRewriteBlock(decision);
-    expect(block).toContain("STOP cycling");
-    expect(block).toContain("no_progress_loop");
+    // authcmd.go was read 3× (events 4, 7, 12) → source_file_stale_reread fires first
+    expect(block).toContain("authcmd.go");
+    expect(block).toContain("STOP re-reading");
+  });
+
+  // --- source_file_stale_reread: the main.go repeated read loop ---
+
+  it("source_file_stale_reread fires after reading same source file 3 times without edit", () => {
+    const messages = [
+      { role: "user", content: "finish the completion feature" },
+      { role: "assistant", content: "Let me check if the completion command is properly wired into main.go and run a simple test:" },
+      assistantCall("1", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("1", "package main\n\nfunc main() {"),
+      { role: "assistant", content: "Let me check the current state of main.go to see how completion is integrated, and then run the tests:" },
+      assistantCall("2", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("2", "package main\n\nfunc main() {"),
+      { role: "assistant", content: "Let me check the main.go file to see how completion is integrated:" },
+      assistantCall("3", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("3", "package main\n\nfunc main() {"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("source_file_stale_reread");
+    expect(out.suggestedNextStep).toContain("main.go");
+    expect(out.suggestedNextStep).toContain("STOP re-reading");
+    expect(out.suggestedNextStep).toContain("3 times");
+  });
+
+  it("source_file_stale_reread does NOT fire if file was edited between reads", () => {
+    const messages = [
+      { role: "user", content: "finish the completion feature" },
+      assistantCall("1", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("1", "package main\n\nfunc main() {"),
+      assistantCall("2", "str_replace", { path: "cmd/synesis/main.go", oldString: "}", newString: "}\n// new" }),
+      toolResult("2", "ok"),
+      assistantCall("3", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("3", "package main\n\nfunc main() {}\n// new"),
+      assistantCall("4", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("4", "package main\n\nfunc main() {}\n// new"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    // After an edit the read counter resets — only 2 reads since the edit, below threshold
+    expect(out.matchedRules).not.toContain("source_file_stale_reread");
+  });
+
+  it("source_file_stale_reread does NOT fire during investigation-only sessions", () => {
+    const messages = [
+      { role: "user", content: "explain how main.go is structured" },
+      assistantCall("1", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("1", "package main"),
+      assistantCall("2", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("2", "package main"),
+      assistantCall("3", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("3", "package main"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    // Investigation-only intent suppresses the stale reread rule
+    expect(out.matchedRules).not.toContain("source_file_stale_reread");
+  });
+
+  // --- verification_intent_without_action: "check if integrated, and then run tests" ---
+
+  it("verification_intent_without_action fires when model says 'check if wired and run tests' but only reads", () => {
+    const makeMessages = (preamble: string) => [
+      { role: "user", content: "finish the completion feature" },
+      { role: "assistant", content: preamble },
+      assistantCall("1", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("1", "package main"),
+      { role: "assistant", content: preamble },
+      assistantCall("2", "read_file", { path: "cmd/synesis/completion.go" }),
+      toolResult("2", "package main"),
+    ];
+    // "check if X is wired... and then run tests" should be counted as verification intent
+    const out = evaluateExecutionGovernor(makeMessages(
+      "Let me check if the completion command is properly wired into main.go and run a simple test:"
+    ));
+    expect(out.matchedRules).toContain("verification_intent_without_action");
   });
 
   it("fires verification_after_completion_claim when model says 'already done' then keeps verifying", () => {

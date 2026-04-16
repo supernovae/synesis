@@ -194,6 +194,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "broad_discovery_repeat",
     "bounded_exploration_budget",
     "plan_reread_loop",
+    "source_file_stale_reread",
     // Concrete failures always fire
     "no_test_files_repeat",
     "dependency_install_replay",
@@ -211,6 +212,8 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "exploration_stall_no_edit",
     "broad_discovery_repeat",
     "bounded_exploration_budget",
+    "plan_reread_loop",
+    "source_file_stale_reread",
     // Verification stalls
     "verification_stall_no_edit",
     "verification_churn_no_edit",
@@ -229,7 +232,6 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "verbal_intent_without_action",
     "verification_intent_without_action",
     "repeat_user_prompt_loop",
-    "plan_reread_loop",
     "completion_claim_requires_task_update",
     "git_commit_followthrough",
     "dependency_install_replay",
@@ -262,6 +264,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "git_commit_followthrough",
     "dependency_install_replay",
     "plan_reread_loop",
+    "source_file_stale_reread",
     "task_creation_replay",
   ]),
   report: new Set([
@@ -657,6 +660,11 @@ function countVerificationIntentWithoutAction(messages: GovernorInputMessage[], 
     if (
       /\b(let me|i'?ll|i will)\b.{0,40}\b(run|rerun|execute|check|see)\b.{0,25}\b(test|tests|completion tests?|build|verify|verification)\b/.test(text)
       || /\b(let me|i'?ll|i will)\b.{0,40}\bsee what'?s failing\b/.test(text)
+      // "let me check if X is wired / integrated / connected" — exploration framing for a
+      // verification intent (e.g. the main.go repeated-read loop)
+      || /\b(let me|i'?ll|i will)\b.{0,40}\b(check|verify|confirm)\b.{0,40}\b(wired|integrated|connected|registered|works|working|complete|done|passes?)\b/.test(text)
+      // "check if X is integrated, and (then) run tests"
+      || /\b(check|verify|confirm)\b.{0,60}\band\s+(then\s+)?\b(run|execute)\b.{0,25}\b(test|build)\b/.test(text)
     ) {
       streak += 1;
     }
@@ -1199,6 +1207,35 @@ export function evaluateExecutionGovernor(
     }
   }
 
+  // Detect repeated reads of the same non-plan source file (same-read loop).
+  // Different from planCachedRereadCount: fires on ANY source file read 3+ times
+  // within the session without an intervening edit of that file, regardless of
+  // whether the result says "unchanged" (not all clients surface that signal).
+  // This catches "let me check main.go" × N loops.
+  const sourceFileReadCounts = new Map<string, number>();
+  const sourceFileEditPaths = new Set<string>();
+  let maxSourceFileRereadCount = 0;
+  let maxSourceFileRereadPath = "";
+  for (const e of events) {
+    const c = e.command;
+    if ((c.startsWith("edit:") || c.startsWith("write:") || c.startsWith("filewrite:")) && !c.includes("/.claude/plans/")) {
+      sourceFileEditPaths.add(c.replace(/^(edit:|write:|filewrite:)/, ""));
+    }
+    if (c.startsWith("read:") && !c.includes("/.claude/plans/")) {
+      const path = c.slice("read:".length);
+      const prev = sourceFileReadCounts.get(path) ?? 0;
+      // Reset counter if the file was edited since last read
+      const wasEdited = sourceFileEditPaths.has(path);
+      const count = wasEdited ? 1 : prev + 1;
+      sourceFileReadCounts.set(path, count);
+      if (count > maxSourceFileRereadCount) {
+        maxSourceFileRereadCount = count;
+        maxSourceFileRereadPath = path;
+      }
+    }
+  }
+  const sourceFileStaleRereadThreshold = 3;
+
   // Combined no-progress counter: counts ALL non-edit events from the end, regardless of
   // whether they are verification (go build, git diff) or exploration (search, read, glob).
   // This catches the interleaving blind spot where the model alternates between verification
@@ -1377,6 +1414,9 @@ export function evaluateExecutionGovernor(
   }
   if (!isInvestigationOnly && planCachedRereadCount >= 2 && !hasPlanEdit) {
     pushRule("plan_reread_loop");
+  }
+  if (!isInvestigationOnly && maxSourceFileRereadCount >= sourceFileStaleRereadThreshold) {
+    pushRule("source_file_stale_reread");
   }
   if (
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
@@ -1597,6 +1637,31 @@ export function evaluateExecutionGovernor(
       reason: "plan_reread_loop",
       suggestedNextStep:
         `You have re-read the plan file ${planCachedRereadCount} times and each time it was unchanged/cached. STOP reading the plan. You already have the plan content. Do NOT re-read it, do NOT re-summarize it, do NOT re-verify items marked complete. Take ONE concrete action now: (1) if a task needs marking done, call the plan Edit tool once, (2) if work is needed, make a code edit (Write/Edit), (3) if confused about next step, ask the user.`,
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
+        planReadCount,
+        planCachedRereadCount,
+      },
+    };
+  }
+
+  if (matchedRules.includes("source_file_stale_reread")) {
+    const shortPath = maxSourceFileRereadPath.split("/").slice(-2).join("/");
+    return {
+      pause: true,
+      reason: "source_file_stale_reread",
+      suggestedNextStep:
+        `You have read \`${shortPath}\` ${maxSourceFileRereadCount} times without editing it. You already know its contents. STOP re-reading it. Take ONE concrete action now: (A) run a test command to verify behavior, (B) make a code edit (Write/StrReplace) to address what you saw in the file, or (C) ask the user what is still unclear.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -2021,6 +2086,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP re-reading the plan file. You have already loaded it and each re-read returned unchanged/cached. You have the plan content.";
       step2 = "Do NOT summarize the plan again. Do NOT search/grep to verify completed items. Pick the NEXT incomplete task from what you already read.";
       step3 = "Take one concrete action: Edit the plan to mark a task done, OR make a code edit (Write/Edit) for the next task, OR ask the user.";
+      break;
+    case "source_file_stale_reread":
+      step1 = "STOP re-reading the same source file. You have already read it and its content has not changed. You already know what is in that file.";
+      step2 = "You do NOT need to re-read it again to 'see how it is integrated' or 'check if it is wired'. You have that information already.";
+      step3 = "Take ONE concrete action now: (A) run a test command (e.g. `go test ./... -run TestXxx -v`, `npx vitest run`, `pytest -k test_foo`), (B) make a code edit (Write/StrReplace), or (C) ask the user what is still unclear.";
       break;
     case "verification_after_completion_claim":
       step1 = "You ALREADY said the work is done. STOP running builds, tests, git status, and diffs. There is nothing to verify.";
