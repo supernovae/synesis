@@ -90,7 +90,6 @@ const app = Fastify({ logger: { level: config.LOG_LEVEL } });
 void app.register(fastifyRateLimit, { global: false });
 const authRouteRateLimit = (max: number) => ({
   config: { rateLimit: { max, timeWindow: "1 minute" as const } },
-  preHandler: app.rateLimit({ max, timeWindow: "1 minute" }),
 });
 
 /** Public catalog for UIs (Integrations page) — no secrets; same tool surface as Streamable MCP. */
