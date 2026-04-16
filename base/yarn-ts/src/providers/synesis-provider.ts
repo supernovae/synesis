@@ -4,6 +4,7 @@ import type { TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
 import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
+import { createDashScopeCacheFetch } from "./dashscope-cache-interceptor.js";
 
 export interface DashScopeCacheOpts {
   enabled: boolean;
@@ -55,7 +56,7 @@ export class SynesisProviderRegistry {
   resolve(
     modelId: string,
     fallbackModelId: string,
-    _dashScopeCache?: DashScopeCacheOpts,
+    dashScopeCache?: DashScopeCacheOpts,
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const selected = this.tierMap.get(modelId) ?? this.tierMap.get(fallbackModelId);
     if (!selected) {
@@ -67,10 +68,22 @@ export class SynesisProviderRegistry {
       : selected.baseUrl.toLowerCase().includes("localhost") || selected.baseUrl.toLowerCase().includes("vllm") ? "vllm"
       : "generic";
 
+    const useDashScopeExplicitCache = Boolean(
+      dashScopeCache?.enabled
+      && selected.baseUrl.toLowerCase().includes("dashscope"),
+    );
+    const dashScopeMarkerLookup =
+      this.prefixOptimizer && this.currentSessionKey
+        ? () => this.prefixOptimizer?.getMarkerIndicesForSession(this.currentSessionKey ?? "") ?? []
+        : undefined;
+    const baseFetch = useDashScopeExplicitCache
+      ? createDashScopeCacheFetch(globalThis.fetch, dashScopeCache?.maxMarkers ?? 3, dashScopeMarkerLookup)
+      : globalThis.fetch;
+
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
       apiKey: selected.apiKey,
-      fetch: createUsageTelemetryFetch(globalThis.fetch, {
+      fetch: createUsageTelemetryFetch(baseFetch, {
         provider: providerTag,
         tier: selected.id,
         model: selected.backendModel,

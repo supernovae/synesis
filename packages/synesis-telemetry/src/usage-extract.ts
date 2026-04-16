@@ -10,6 +10,7 @@ interface ProviderUsage {
   cached_tokens?: number;
   prompt_tokens_details?: { cached_tokens?: number };
   prompt_cache_hit_tokens?: number;
+  cached_prompt_tokens?: number;
   inputTokens?: number;
   outputTokens?: number;
   cachedInputTokens?: number;
@@ -18,6 +19,7 @@ interface ProviderUsage {
   output_tokens?: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+  cache_creation_tokens?: number;
   inputTokenDetails?: { cacheReadTokens?: number; cachedTokens?: number; cacheWriteTokens?: number };
   costUsd?: number;
   cost_usd?: number;
@@ -40,6 +42,7 @@ export function extractUsage(raw?: ProviderUsage | null): LlmUsage {
   const total = Number(raw.total_tokens ?? 0) || prompt + completion;
   const cached = Number(
     raw.prompt_tokens_details?.cached_tokens ??
+      raw.cached_prompt_tokens ??
       raw.cached_tokens ??
       raw.cachedInputTokens ??
       raw.cached_input_tokens ??
@@ -51,6 +54,7 @@ export function extractUsage(raw?: ProviderUsage | null): LlmUsage {
   );
   const cacheCreation = Number(
     raw.cache_creation_input_tokens ??
+      raw.cache_creation_tokens ??
       raw.inputTokenDetails?.cacheWriteTokens ??
       0,
   );
