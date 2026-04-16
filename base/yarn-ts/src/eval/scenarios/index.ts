@@ -6,10 +6,12 @@
 import type { EvalScenario, EvalCategory } from "../types.js";
 import { GOVERNOR_REGRESSION_SCENARIOS } from "./governor-regression.js";
 import { E2E_BUILD_SCENARIOS } from "./e2e-builds.js";
+import { GOLANG_WORKER_SCENARIOS } from "./golang-worker.js";
 
 export const ALL_SCENARIOS: EvalScenario[] = [
   ...GOVERNOR_REGRESSION_SCENARIOS,
   ...E2E_BUILD_SCENARIOS,
+  ...GOLANG_WORKER_SCENARIOS,
 ];
 
 export function getScenariosByCategory(category: EvalCategory): EvalScenario[] {
@@ -31,3 +33,4 @@ export function listScenarios(): Array<{ id: string; name: string; category: Eva
 
 export { GOVERNOR_REGRESSION_SCENARIOS } from "./governor-regression.js";
 export { E2E_BUILD_SCENARIOS } from "./e2e-builds.js";
+export { GOLANG_WORKER_SCENARIOS } from "./golang-worker.js";

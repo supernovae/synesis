@@ -12,6 +12,7 @@ resources:
   - namespace.yaml
   - network-policy.yaml
   - warm-pool-network-policy.yaml
+  - warm-pool-allow-yarn.yaml
   - rbac.yaml
   - warm-pool-deployment.yaml
   - warm-pool-service.yaml

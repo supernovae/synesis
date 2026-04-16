@@ -29,7 +29,10 @@
     "test:governor:smoke": "vitest run tests/eval-scenario-runner.test.ts tests/eval-turn-scorer.test.ts",
     "ci:governor:pr": "npm run test:governor:unit && npm run test:governor:smoke",
     "ci:governor:nightly": "tsx scripts/eval-gym.ts --category governor_regression --json --out eval-governor-regression.json && tsx scripts/eval-regression-budget.ts --candidate eval-governor-regression.json --baseline ${SYNESIS_EVAL_BASELINE_JSON:-eval-governor-regression.json} --summary-out eval-governor-budget.json",
-    "ci:governor:prerelease": "tsx scripts/eval-gym.ts --category governor_regression --json --out eval-governor-regression.json && tsx scripts/eval-regression-budget.ts --candidate eval-governor-regression.json --baseline ${SYNESIS_EVAL_BASELINE_JSON:-eval-governor-regression.json} --summary-out eval-governor-budget.json && tsx scripts/eval-gym.ts --category e2e_build --json --out eval-governor-e2e.json"
+    "ci:governor:prerelease": "tsx scripts/eval-gym.ts --category governor_regression --json --out eval-governor-regression.json && tsx scripts/eval-regression-budget.ts --candidate eval-governor-regression.json --baseline ${SYNESIS_EVAL_BASELINE_JSON:-eval-governor-regression.json} --summary-out eval-governor-budget.json && tsx scripts/eval-gym.ts --category e2e_build --json --out eval-governor-e2e.json",
+    "governor:worker": "tsx scripts/governor-worker.ts",
+    "governor:monitor": "tsx scripts/governor-monitor.ts",
+    "governor:loop": "tsx scripts/dual-agent-loop.ts"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",

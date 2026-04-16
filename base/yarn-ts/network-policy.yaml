@@ -101,3 +101,11 @@ spec:
           protocol: TCP
         - port: 4317
           protocol: TCP
+    # Sandbox warm pool (run_in_sandbox tool + governor worker live mode)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-sandbox
+      ports:
+        - port: 8080
+          protocol: TCP
