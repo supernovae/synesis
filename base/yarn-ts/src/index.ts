@@ -1271,6 +1271,112 @@ function extractRecentToolResultText(messages: Array<{ role: string; content: un
   return chunks.join("\n").slice(0, 6000);
 }
 
+type ToolExecutionFailureObservation = {
+  toolName: string;
+  toolCallId: string;
+  reason: string;
+  snippet: string;
+};
+
+const TOOL_FAILURE_PATTERNS: Array<{ reason: string; re: RegExp }> = [
+  { reason: "edit_error", re: /\berror editing file\b/i },
+  { reason: "edit_context_miss", re: /\bfailed to find context\b/i },
+  { reason: "edit_context_miss", re: /\bold[_\s-]?string\b.*\bnot found\b/i },
+  { reason: "edit_context_miss", re: /\bnot found in file\b/i },
+  { reason: "edit_context_miss", re: /\bexactly once\b/i },
+  { reason: "patch_apply_failed", re: /\b(apply\s*patch|patch)\b.*\b(failed|error)\b/i },
+  { reason: "write_permission_denied", re: /\b(permission denied|operation not permitted)\b/i },
+];
+
+function collectToolExecutionFailureObservations(
+  messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+): ToolExecutionFailureObservation[] {
+  const toolNameById = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const row = message as Record<string, unknown>;
+    const toolCalls = Array.isArray(row.tool_calls) ? row.tool_calls : [];
+    for (const tc of toolCalls) {
+      if (!tc || typeof tc !== "object") continue;
+      const call = tc as Record<string, unknown>;
+      const id = typeof call.id === "string" ? call.id.trim() : "";
+      const fn = call.function && typeof call.function === "object" ? call.function as Record<string, unknown> : null;
+      const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
+      if (id && name) toolNameById.set(id, name);
+    }
+    const parts = Array.isArray(row.content) ? row.content : [];
+    for (const part of parts) {
+      if (!part || typeof part !== "object") continue;
+      const p = part as Record<string, unknown>;
+      if (p.type !== "tool_use") continue;
+      const id = typeof p.id === "string" ? p.id.trim() : "";
+      const name = typeof p.name === "string" ? p.name.trim() : "";
+      if (id && name) toolNameById.set(id, name);
+    }
+  }
+
+  const observations: ToolExecutionFailureObservation[] = [];
+  const seen = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "tool" && message.role !== "tool_result") continue;
+    const chunks = collectToolResultTextChunks(message.content);
+    if (chunks.length === 0) continue;
+    const rawText = chunks.join("\n").trim();
+    if (!rawText) continue;
+
+    const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
+    const mappedName = toolCallId ? (toolNameById.get(toolCallId) ?? "") : "";
+    const toolName = (typeof message.name === "string" ? message.name : mappedName).trim() || "unknown_tool";
+    const lower = rawText.toLowerCase();
+    let reason = "";
+    for (const candidate of TOOL_FAILURE_PATTERNS) {
+      if (candidate.re.test(lower)) {
+        reason = candidate.reason;
+        break;
+      }
+    }
+    if (!reason && isWriteCapableToolName(toolName) && /\b(error|failed|invalid)\b/i.test(rawText)) {
+      reason = "write_tool_error";
+    }
+    if (!reason) continue;
+
+    const snippet = rawText.replace(/\s+/g, " ").slice(0, 220);
+    const key = `${toolName}|${toolCallId}|${reason}|${snippet}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    observations.push({ toolName, toolCallId, reason, snippet });
+    if (observations.length >= 3) break;
+  }
+  return observations;
+}
+
+function collectToolResultTextChunks(value: unknown, depth = 0, out: string[] = []): string[] {
+  if (depth > 5 || value === null || value === undefined || out.length >= 12) return out;
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (t) out.push(t);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectToolResultTextChunks(item, depth + 1, out);
+      if (out.length >= 12) break;
+    }
+    return out;
+  }
+  if (typeof value !== "object") return out;
+  const row = value as Record<string, unknown>;
+  const directText = typeof row.text === "string" ? row.text.trim() : "";
+  if (directText) out.push(directText);
+  const nestedKeys = ["message", "error", "stderr", "stdout", "summary", "content", "result", "data", "payload", "output"];
+  for (const key of nestedKeys) {
+    if (!(key in row)) continue;
+    collectToolResultTextChunks(row[key], depth + 1, out);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 function detectQwenLoopRisk(recentToolCalls: RecentToolCall[]): boolean {
   const tail = recentToolCalls.slice(-8).map((c) => c.toolName.toLowerCase());
   if (tail.length < 4) return false;
@@ -5416,6 +5522,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
       oaiTraceReqId,
     );
   }
+  const oaiToolFailures = collectToolExecutionFailureObservations(
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+  );
+  for (const failure of oaiToolFailures) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "client_tool_error_observed",
+      "tool-result-monitor",
+      `tool=${failure.toolName} reason=${failure.reason} ${failure.snippet}`,
+      oaiTraceReqId,
+      {
+        toolName: failure.toolName,
+        toolCallId: failure.toolCallId || null,
+        reason: failure.reason,
+        snippet: failure.snippet,
+      },
+    );
+  }
   const pendingWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
   const workspaceStatus = getHandshakeStatus(session.record.metadata);
   if (workspaceStatus === "pending" && pendingWorkspaceToolId) {
@@ -7623,6 +7749,26 @@ app.post("/v1/messages", async (req, reply) => {
       "completion-gate",
       `Checklist initialized (must=${claudeRequirementChecklist.must.length}, should=${claudeRequirementChecklist.should.length})`,
       traceReqId,
+    );
+  }
+  const claudeToolFailures = collectToolExecutionFailureObservations(
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+  );
+  for (const failure of claudeToolFailures) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "client_tool_error_observed",
+      "tool-result-monitor",
+      `tool=${failure.toolName} reason=${failure.reason} ${failure.snippet}`,
+      traceReqId,
+      {
+        toolName: failure.toolName,
+        toolCallId: failure.toolCallId || null,
+        reason: failure.reason,
+        snippet: failure.snippet,
+      },
     );
   }
   const pendingClaudeWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
