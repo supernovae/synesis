@@ -71,6 +71,7 @@ export function detectSessionPhase(
   // "explore" is only entered when investigation intent is confirmed.
   let phase: SessionPhase = isInvestigation ? "explore" : "edit";
   let hasEdited = false;
+  let sawVerificationFailure = false;
 
   for (const e of events) {
     const c = e.command;
@@ -89,6 +90,7 @@ export function detectSessionPhase(
 
     if (hasEdited && isVerificationCommand(e.toolName, c)) {
       phase = "verify";
+      if (hasFailureSignature(e.resultSignature)) sawVerificationFailure = true;
       continue;
     }
 
@@ -100,7 +102,7 @@ export function detectSessionPhase(
   }
 
   // Report: completion claim with no subsequent edit pushes to report.
-  if (hasCompletionClaim && (!hasEdited || phase !== "edit")) {
+  if (hasCompletionClaim && !sawVerificationFailure && (!hasEdited || phase !== "edit")) {
     const lastEventIdx = events.length - 1;
     const lastCmd = events[lastEventIdx].command;
     const lastIsEdit = lastCmd.startsWith("edit:") || lastCmd === "edit"

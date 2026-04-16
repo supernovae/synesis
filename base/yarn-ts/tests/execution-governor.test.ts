@@ -1439,6 +1439,15 @@ describe("detectSessionPhase", () => {
     expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("report");
   });
 
+  it("does not transition to report when verification is failing", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("go test ./...", "bash", "fail pkg/main"),
+      ev("go test ./...", "bash", "fail pkg/main"),
+    ];
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("verify");
+  });
+
   it("stays in edit if completion claim followed by last event being an edit", () => {
     const events = [
       ev("edit:src/main.ts", "str_replace", "ok"),
