@@ -819,6 +819,34 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("Stop narrating intent");
   });
 
+  it("fires verification_intent_without_action on repeated test intent with no test command", () => {
+    const messages = [
+      { role: "user", content: "fix completion tests and continue" },
+      { role: "assistant", content: "Let me run the completion tests to see what's failing." },
+      { role: "assistant", content: "Let me run the completion tests to see what's failing." },
+      { role: "assistant", content: "Let me run the tests to see what's failing." },
+      assistantCall("1", "read_file", { path: "cmd/synesis/completion_test.go" }),
+      toolResult("1", "package main\n\nfunc TestRunCompletion(t *testing.T) {}"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_intent_without_action");
+    expect(out.reason).toBe("verification_intent_without_action");
+    expect(out.suggestedNextStep).toContain("ONE targeted test command");
+  });
+
+  it("does not fire verification_intent_without_action when a test command actually runs", () => {
+    const messages = [
+      { role: "user", content: "fix completion tests and continue" },
+      { role: "assistant", content: "Let me run the completion tests to see what's failing." },
+      assistantCall("1", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" }),
+      toolResult("1", "# synesis.sh/synesis/cmd/synesis\nPASS"),
+      { role: "assistant", content: "Let me run the tests once more after the fix." },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_intent_without_action");
+  });
+
   it("does not fire verbal_intent_without_action when edits are made", () => {
     const messages = [
       { role: "user", content: "implement bundle files" },
@@ -878,6 +906,20 @@ describe("execution governor", () => {
     const block = executionGovernorRecoveryRewriteBlock(decision);
     expect(block).toContain("STOP declaring intent");
     expect(block).toContain("verbal_intent_without_action");
+  });
+
+  it("fires recovery rewrite block for verification_intent_without_action", () => {
+    const messages = [
+      { role: "user", content: "fix completion tests and continue" },
+      { role: "assistant", content: "Let me run the completion tests to see what's failing." },
+      { role: "assistant", content: "Let me run the completion tests to see what's failing." },
+      { role: "assistant", content: "Let me run the tests to see what's failing." },
+    ];
+    const decision = evaluateExecutionGovernor(messages);
+    expect(decision.pause).toBe(true);
+    const block = executionGovernorRecoveryRewriteBlock(decision);
+    expect(block).toContain("STOP saying you will run tests");
+    expect(block).toContain("verification_intent_without_action");
   });
 
   it("respects explicit user opt-out for TODO/FIXME harvest", () => {
@@ -1473,13 +1515,13 @@ describe("detectSessionPhase", () => {
     expect(detectSessionPhase(events, "fix failing tests", ["src/main.ts"], false)).toBe("edit");
   });
 
-  it("transitions to report on completion claim without subsequent edit", () => {
+  it("transitions to finalize on completion claim with green verification", () => {
     const events = [
       ev("edit:src/main.ts", "str_replace", "ok"),
-      ev("go test ./...", "bash"),
+      ev("go test ./...", "bash", "ok"),
       ev("git status", "bash"),
     ];
-    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("report");
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("finalize");
   });
 
   it("does not transition to report when verification is failing", () => {
@@ -1489,6 +1531,15 @@ describe("detectSessionPhase", () => {
       ev("go test ./...", "bash", "fail pkg/main"),
     ];
     expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("verify");
+  });
+
+  it("falls back to report on completion claim without green verification evidence", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("git status", "bash"),
+      ev("git diff --stat", "bash"),
+    ];
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("report");
   });
 
   it("stays in edit if completion claim followed by last event being an edit", () => {
@@ -1588,7 +1639,7 @@ describe("phase-aware rule gating", () => {
     expect(out.matchedRules).toContain("verification_stall_no_edit");
   });
 
-  it("report phase fires verification_after_completion_claim", () => {
+  it("finalize phase fires verification_after_completion_claim", () => {
     const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
       { role: "user", content: "implement feature X" },
       { role: "assistant", content: "The feature is already implemented and all tests pass." },
@@ -1602,8 +1653,25 @@ describe("phase-aware rule gating", () => {
       toolResult("4", ""),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.telemetry.phase).toBe("report");
+    expect(out.telemetry.phase).toBe("finalize");
     expect(out.matchedRules).toContain("verification_after_completion_claim");
+  });
+
+  it("finalize phase enforces completion action when model keeps verifying", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "implement feature X and finish" },
+      assistantCall("e1", "str_replace", { filePath: "src/main.ts", oldString: "old", newString: "new" }),
+      toolResult("e1", "ok"),
+      { role: "assistant", content: "Feature is complete and verified." },
+      assistantCall("v1", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("v1", "ok  synesis.sh/synesis/cmd/synesis"),
+      assistantCall("v2", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("v2", "ok  synesis.sh/synesis/cmd/synesis"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).toBe("finalize");
+    expect(out.matchedRules).toContain("finalize_action_required");
+    expect(out.reason).toBe("finalize_action_required");
   });
 
   it("phase telemetry is present on all decisions", () => {
@@ -1614,7 +1682,7 @@ describe("phase-aware rule gating", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.telemetry.phase).toBeDefined();
-    expect(["explore", "edit", "verify", "report"]).toContain(out.telemetry.phase);
+    expect(["explore", "edit", "verify", "report", "finalize"]).toContain(out.telemetry.phase);
   });
 
   it("exits explore when follow-up user message has implementation intent", () => {

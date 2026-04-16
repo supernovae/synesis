@@ -331,7 +331,11 @@ function applyExecutionGovernorToolRestrictions(
     r === "bounded_exploration_budget" || r === "broad_discovery_repeat"
   ) ?? false;
   const explorationStall = matchedRules?.some((r) =>
-    r === "exploration_stall_no_edit" || r === "no_progress_loop" || r === "verbal_intent_without_action"
+    r === "exploration_stall_no_edit"
+    || r === "no_progress_loop"
+    || r === "verbal_intent_without_action"
+    || r === "verification_intent_without_action"
+    || r === "finalize_action_required"
   ) ?? false;
   const failureFixContext = matchedRules?.some((r) =>
     r === "verification_same_failure_signature_replay"

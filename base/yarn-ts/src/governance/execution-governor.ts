@@ -42,7 +42,14 @@ export interface CommandEvent {
   argsObject?: Record<string, unknown> | null;
 }
 
-export type SessionPhase = "explore" | "edit" | "verify" | "report";
+export type SessionPhase = "explore" | "edit" | "verify" | "report" | "finalize";
+
+function isExecutionVerificationCommand(toolName: string, command: string): boolean {
+  const tool = normalizeString(toolName).toLowerCase();
+  const cmd = normalizeString(command).toLowerCase();
+  return tool.includes("run_test")
+    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd);
+}
 
 /**
  * Detect the current session phase from the event stream.
@@ -72,6 +79,7 @@ export function detectSessionPhase(
   let phase: SessionPhase = isInvestigation ? "explore" : "edit";
   let hasEdited = false;
   let sawVerificationFailure = false;
+  let sawVerificationSuccess = false;
 
   for (const e of events) {
     const c = e.command;
@@ -88,9 +96,13 @@ export function detectSessionPhase(
       continue;
     }
 
-    if (hasEdited && isVerificationCommand(e.toolName, c)) {
+    if ((hasEdited || hasCompletionClaim) && isExecutionVerificationCommand(e.toolName, c)) {
       phase = "verify";
-      if (hasFailureSignature(e.resultSignature)) sawVerificationFailure = true;
+      if (hasFailureSignature(e.resultSignature)) {
+        sawVerificationFailure = true;
+      } else if (hasSuccessSignature(e.resultSignature) || !e.resultSignature) {
+        sawVerificationSuccess = true;
+      }
       continue;
     }
 
@@ -101,8 +113,13 @@ export function detectSessionPhase(
     }
   }
 
-  // Report: completion claim with no subsequent edit pushes to report.
-  if (hasCompletionClaim && !sawVerificationFailure && (!hasEdited || phase !== "edit")) {
+  // Finalize: completion claim + green verification should lock to completion actions.
+  if (hasCompletionClaim && sawVerificationSuccess && !sawVerificationFailure && phase === "verify") {
+    phase = "finalize";
+  }
+
+  // Report: completion claim with no subsequent edit pushes to report (fallback when no green verify seen).
+  if (phase !== "finalize" && hasCompletionClaim && !sawVerificationFailure && (phase !== "edit" || !sawVerificationSuccess)) {
     const lastEventIdx = events.length - 1;
     const lastCmd = events[lastEventIdx].command;
     const lastIsEdit = lastCmd.startsWith("edit:") || lastCmd === "edit"
@@ -163,6 +180,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     // Progress / workflow
     "no_progress_loop",
     "verbal_intent_without_action",
+    "verification_intent_without_action",
     "repeat_user_prompt_loop",
     "plan_reread_loop",
     "completion_claim_requires_task_update",
@@ -191,6 +209,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     // Progress / workflow
     "no_progress_loop",
     "verbal_intent_without_action",
+    "verification_intent_without_action",
     "repeat_user_prompt_loop",
     "completion_claim_requires_task_update",
     "git_commit_followthrough",
@@ -206,6 +225,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "exploration_stall_no_edit",
     "no_progress_loop",
     "verbal_intent_without_action",
+    "verification_intent_without_action",
     "repeat_user_prompt_loop",
     "completion_claim_requires_task_update",
     "no_test_files_repeat",
@@ -213,6 +233,18 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "broad_to_narrow_verification",
     "git_commit_followthrough",
     "plan_reread_loop",
+  ]),
+  finalize: new Set([
+    // Finalization-only: enforce completion/report actions, no more exploration loops.
+    "finalize_action_required",
+    "verification_after_completion_claim",
+    "verification_done_report",
+    "verification_already_green",
+    "verification_green_repeat_block",
+    "verification_no_signal_repeat",
+    "completion_claim_requires_task_update",
+    "git_commit_followthrough",
+    "repeat_user_prompt_loop",
   ]),
 };
 
@@ -545,6 +577,40 @@ function countVerbalIntentStreak(messages: GovernorInputMessage[], events: Comma
     const text = m.content.trim().toLowerCase();
     if (!text) continue;
     if (/\b(i'll|i will|let me|let's)\s+\w/.test(text)) {
+      streak += 1;
+    }
+  }
+  return streak;
+}
+
+/**
+ * Count assistant messages that explicitly promise to run tests/verification
+ * but never issue an actual verification command in this turn.
+ */
+function countVerificationIntentWithoutAction(messages: GovernorInputMessage[], events: CommandEvent[]): number {
+  const hasAnyVerificationCommand = events.some((e) => isVerificationCommand(e.toolName, e.command));
+  if (hasAnyVerificationCommand) return 0;
+
+  const hasRealEditOrTaskAction = events.some((e) =>
+    e.command.startsWith("edit:") || e.command === "edit"
+    || e.command.startsWith("write:") || e.command === "write"
+    || e.command.startsWith("filewrite:") || e.command === "filewrite"
+    || e.command.startsWith("applypatch:") || e.command === "applypatch"
+    || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
+    || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
+    || e.command.startsWith("todowrite:") || e.command === "todowrite",
+  );
+  if (hasRealEditOrTaskAction) return 0;
+
+  let streak = 0;
+  for (const m of messages) {
+    if (m.role !== "assistant" || typeof m.content !== "string") continue;
+    const text = m.content.trim().toLowerCase();
+    if (!text) continue;
+    if (
+      /\b(let me|i'?ll|i will)\b.{0,40}\b(run|rerun|execute|check|see)\b.{0,25}\b(test|tests|completion tests?|build|verify|verification)\b/.test(text)
+      || /\b(let me|i'?ll|i will)\b.{0,40}\bsee what'?s failing\b/.test(text)
+    ) {
       streak += 1;
     }
   }
@@ -1180,6 +1246,9 @@ export function evaluateExecutionGovernor(
     }
   }
   const verbalIntentStreak = countVerbalIntentStreak(turnMessages, events);
+  const verificationIntentStreak = countVerificationIntentWithoutAction(turnMessages, events);
+  const hasCommitFinalizeAction = events.some((e) => /\bgit\s+(commit|push)\b/.test(normalizeString(e.command).toLowerCase()));
+  const hasFinalizeAction = hasTaskDoneStatusUpdate(events) || hasCommitFinalizeAction;
 
   // Read-only investigation intent: based on the LATEST user message only,
   // so a follow-up "implement both" overrides an earlier "scan the repo" prompt.
@@ -1229,6 +1298,12 @@ export function evaluateExecutionGovernor(
     : thresholds.explorationStallThreshold;
   if (!isInvestigationOnly && trailingExplorationRunLength >= effectiveExplorationThreshold && effectiveNoEditEvidence && trailingExplorationHasRepeats) {
     pushRule("exploration_stall_no_edit");
+  }
+  if (sessionPhase === "finalize" && !hasFinalizeAction && (trailingVerificationRunLength >= 1 || trailingExplorationRunLength >= 1 || verbalIntentStreak >= 1)) {
+    pushRule("finalize_action_required");
+  }
+  if (!isInvestigationOnly && verificationIntentStreak >= 2 && !hasRunTest && effectiveNoEditEvidence) {
+    pushRule("verification_intent_without_action");
   }
   if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
     pushRule("verbal_intent_without_action");
@@ -1501,6 +1576,46 @@ export function evaluateExecutionGovernor(
         trailingExplorationRunLength,
         trailingProductiveCount,
         hasPlanInContext,
+      },
+    };
+  }
+
+  if (matchedRules.includes("verification_intent_without_action")) {
+    return {
+      pause: true,
+      reason: "verification_intent_without_action",
+      suggestedNextStep:
+        `You have declared test/verification intent ${verificationIntentStreak} times without running any actual test command. Stop narrating. Run exactly ONE targeted test command now (for example: \`go test ./cmd/synesis -run TestRunCompletion -v\`). After that single run, either make one concrete fix or report the result.`,
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+      },
+    };
+  }
+
+  if (matchedRules.includes("finalize_action_required")) {
+    return {
+      pause: true,
+      reason: "finalize_action_required",
+      suggestedNextStep:
+        "You are in finalize phase after green verification. Stop further reads/tests/searches. Take one completion action now: (1) mark tasks done via TaskUpdate/TodoWrite, (2) run git add+commit (and push if requested), or (3) provide the final completion report to the user.",
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -1863,6 +1978,16 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP declaring intent. You have said 'I'll...' multiple times without acting. Do NOT output another plan or narration.";
       step2 = "If tasks are done, call TaskUpdate/TodoWrite NOW to mark them completed. If code is needed, make one Edit/Write call.";
       step3 = "After the concrete action, run one narrow verification and report results.";
+      break;
+    case "verification_intent_without_action":
+      step1 = "STOP saying you will run tests. You repeated test intent without executing any real test command.";
+      step2 = "Run exactly ONE targeted test command now (no narration first).";
+      step3 = "Use that result: either make one concrete fix, or report completion if it passes.";
+      break;
+    case "finalize_action_required":
+      step1 = "You are in FINALIZE phase after green verification. STOP additional exploration and verification commands.";
+      step2 = "Take one completion action now: mark tasks done, OR commit/push changes (if requested), OR provide final completion report.";
+      step3 = "Do not run another read/search/test command in finalize phase.";
       break;
     case "repeat_user_prompt_loop":
       step1 = "STOP asking the same focus question. The user already answered.";
