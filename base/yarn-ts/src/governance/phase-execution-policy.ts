@@ -49,21 +49,14 @@ export function derivePhaseExecutionPolicy(input: PhaseExecutionPolicyInput): Ph
   const forceVerifyAction = input.phase === "verify" || matched.has("verification_intent_without_action");
   if (!forceVerifyAction) return { active: false };
 
-  if (input.stream) {
-    return {
-      active: true,
-      reason: "verify_phase_stream_downgrade",
-      toolChoice: "auto",
-      downgradedForStreaming: true,
-    };
-  }
-
   return {
     active: true,
-    reason: input.phase === "verify" ? "verify_phase_required_action" : "verification_intent_required_action",
+    reason: input.stream
+      ? (input.phase === "verify" ? "verify_phase_non_stream_kickoff" : "verification_intent_non_stream_kickoff")
+      : (input.phase === "verify" ? "verify_phase_required_action" : "verification_intent_required_action"),
     toolChoice: "required",
     allowedCanonicalTools: ["Bash"],
-    enforceNonStreaming: true,
+    enforceNonStreaming: input.stream,
     maxToolCalls: 1,
   };
 }

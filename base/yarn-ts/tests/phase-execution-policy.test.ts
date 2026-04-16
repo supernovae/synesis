@@ -23,7 +23,7 @@ describe("phase execution policy", () => {
     expect(policy.maxToolCalls).toBe(1);
   });
 
-  it("downgrades required mode to auto on streaming turns", () => {
+  it("keeps required mode and requests non-stream kickoff on streaming turns", () => {
     const policy = derivePhaseExecutionPolicy({
       enabled: true,
       adapterFamily: "qwen3-coder",
@@ -33,8 +33,9 @@ describe("phase execution policy", () => {
       stream: true,
     });
     expect(policy.active).toBe(true);
-    expect(policy.toolChoice).toBe("auto");
-    expect(policy.downgradedForStreaming).toBe(true);
+    expect(policy.toolChoice).toBe("required");
+    expect(policy.enforceNonStreaming).toBe(true);
+    expect(policy.reason).toBe("verify_phase_non_stream_kickoff");
   });
 
   it("keeps client tool choice precedence", () => {

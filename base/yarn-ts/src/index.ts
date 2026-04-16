@@ -8390,6 +8390,8 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeEffectiveTemp = body.temperature ?? claudeAdapterSampling?.temperature;
   const claudeEffectiveTopP = claudeAdapterSampling?.top_p;
   const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
+  const claudeForceNonStreamKickoff =
+    !!body.stream && claudePhasePolicy.active && claudePhasePolicy.toolChoice === "required" && !!claudePhasePolicy.enforceNonStreaming;
   const claudeContextAdmission = evaluateContextAdmission(
     claudeModelMessages as Array<{ role: string; content: unknown }>,
     effectiveClaudeTools as unknown[],
@@ -8450,11 +8452,22 @@ app.post("/v1/messages", async (req, reply) => {
   }
 
   if (body.stream) {
-    if (claudeNativeWebSearchRequested) {
+    if (claudeNativeWebSearchRequested || claudeForceNonStreamKickoff) {
       const started = Date.now();
       let currentMessages = claudeModelMessages;
       const serverEvents: ClaudeServerWebSearchEvent[] = [];
       let streamedResult: Awaited<ReturnType<typeof generateText>> | null = null;
+      if (claudeForceNonStreamKickoff) {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "phase_non_stream_kickoff",
+          "execution-governor",
+          `Forcing non-stream kickoff turn in phase=${claudeGovernorPhase} with tool_choice=required`,
+          traceReqId,
+        );
+      }
       for (let round = 0; round < 3; round++) {
         streamedResult = await generateText({
           model: resolved.model as never,
@@ -8469,7 +8482,9 @@ app.post("/v1/messages", async (req, reply) => {
         });
 
         const allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-        const serverCalls = allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName));
+        const serverCalls = claudeNativeWebSearchRequested
+          ? allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName))
+          : [];
         if (serverCalls.length === 0) break;
 
         const assistantParts: Array<
