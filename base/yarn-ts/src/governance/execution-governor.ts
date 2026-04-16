@@ -44,11 +44,58 @@ export interface CommandEvent {
 
 export type SessionPhase = "explore" | "edit" | "verify" | "report" | "finalize";
 
-function isExecutionVerificationCommand(toolName: string, command: string): boolean {
-  const tool = normalizeString(toolName).toLowerCase();
-  const cmd = normalizeString(command).toLowerCase();
+/**
+ * Single source of truth for command patterns that count as "verification"
+ * across both the phase FSM and the rules engine. Kept as a function rather
+ * than a regex constant so both callers can pass toolName as well.
+ */
+function isVerificationLike(toolName: string, command: string): boolean {
+  const tool = (typeof toolName === "string" ? toolName : "").trim().toLowerCase();
+  const cmd = (typeof command === "string" ? command : "").trim().toLowerCase();
   return tool.includes("run_test")
-    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd);
+    // Standard test runners
+    || /\b(go test|go build|go vet|cargo test|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
+    // JS: jest, vitest (this repo), npx variants
+    || /\b(jest|vitest|npx jest|npx vitest)\b/.test(cmd)
+    // JS: npm/pnpm/yarn script aliases
+    || /\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(cmd)
+    // Python: python -m pytest / poetry run / tox
+    || /\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(cmd)
+    || /\b(poetry|pipenv)\s+run\s+\S/.test(cmd)
+    || /\btox\b/.test(cmd)
+    // uv run (Python services in this repo)
+    || /\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(cmd)
+    // TypeScript compiler as lint/typecheck
+    || /\btsc(\s+--noEmit)?\b/.test(cmd)
+    // CLI binary invocations: ./binary or /path/to/binary (build-then-run pattern)
+    || /(?:(?:^|[&|;])\s*)(?:\.\/|\/\w[\w/.-]*\/)\w[\w.-]*/.test(cmd)
+    // git inspection commands count as verification evidence in the rules engine
+    || /\bgit\s+(diff|status|log|show)\b/.test(cmd);
+}
+
+/**
+ * Subset of isVerificationLike for the phase FSM (edit → verify transition).
+ * Excludes git inspection commands (git diff/status/log) because those are
+ * review steps, not test executions. A stray `git status` after an edit must
+ * not advance the phase to "verify" — only an actual build or test should.
+ */
+function isStrongVerificationCommand(toolName: string, command: string): boolean {
+  const tool = (typeof toolName === "string" ? toolName : "").trim().toLowerCase();
+  const cmd = (typeof command === "string" ? command : "").trim().toLowerCase();
+  return tool.includes("run_test")
+    || /\b(go test|go build|go vet|cargo test|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
+    || /\b(jest|vitest|npx jest|npx vitest)\b/.test(cmd)
+    || /\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(cmd)
+    || /\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(cmd)
+    || /\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(cmd)
+    || /\b(poetry|pipenv)\s+run\s+\S/.test(cmd)
+    || /\btox\b/.test(cmd)
+    || /\btsc(\s+--noEmit)?\b/.test(cmd)
+    || /(?:(?:^|[&|;])\s*)(?:\.\/|\/\w[\w/.-]*\/)\w[\w.-]*/.test(cmd);
+}
+
+function isExecutionVerificationCommand(toolName: string, command: string): boolean {
+  return isStrongVerificationCommand(toolName, command);
 }
 
 /**
@@ -462,7 +509,7 @@ function extractEditedFileHints(events: CommandEvent[]): string[] {
 
 function hasFailureSignature(sig: string): boolean {
   if (!sig) return false;
-  return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b|expected statement\b|undefined:\b|exit\s+code(\s+<n>|\s+[1-9]\d*)\b/.test(sig);
+  return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b|expected statement\b|undefined:\b|exit\s+code(\s+<n>|\s+[1-9]\d*)\b|exit(ed)?\s+status\s+[1-9]\d*\b|exited\s+with\s+code\s+(?:<n>|[1-9]\d*)/.test(sig);
 }
 
 function isCompileLikeFailureSignature(sig: string): boolean {
@@ -767,18 +814,7 @@ function isBroadVerificationCommand(command: string): boolean {
 }
 
 function isVerificationCommand(toolName: string, command: string): boolean {
-  const tool = normalizeString(toolName).toLowerCase();
-  const cmd = normalizeString(command).toLowerCase();
-  return tool.includes("run_test")
-    || /\b(go test|go build|go vet|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
-    // vitest (used in this repo's yarn-ts tests)
-    || /\b(vitest|npx vitest)\b/.test(cmd)
-    // uv run pytest / uv run ruff (Python services)
-    || /\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(cmd)
-    // CLI binary invocations: ./binary, /tmp/binary, or bare binary name run with args
-    // Catches: ./synesis completion, /tmp/synesis --help, synesis completion --shell bash
-    || /(?:^|&&|\|)\s*(?:\.\/|\/\w[\w.-]*(?:\/))\w[\w.-]*/.test(cmd)
-    || /\bgit\s+(diff|status|log|show)\b/.test(cmd);
+  return isVerificationLike(toolName, command);
 }
 
 /**
@@ -790,13 +826,27 @@ function isVerificationCommand(toolName: string, command: string): boolean {
 function isProductiveCommand(command: string, resultSignature: string | undefined): boolean {
   const cmd = normalizeString(command).toLowerCase();
   const sig = normalizeString(resultSignature ?? "").toLowerCase();
-  const isFailed = sig.includes("error")
+  // "0 errors", "0 failed", "no errors" are NOT failures despite containing those words.
+  const zeroErrorOutput =
+    /\b0\s+errors?\b/.test(sig)
+    || /\bno\s+errors?\b/.test(sig)
+    || /\b0\s+(test\s+)?fail(ed|ures?)?\b/.test(sig);
+  const isFailed = !zeroErrorOutput && (
+    sig.includes("error")
     || sig.includes("failed")
     || sig.includes("fatal")
-    || /exit\s+code(\s+<n>|\s+[1-9]\d*)\b/.test(sig);
+    || /exit\s+code(\s+<n>|\s+[1-9]\d*)\b/.test(sig)
+    || /exit(ed)?\s+status\s+<n>\b/.test(sig)
+  );
   if (isFailed) return false;
-  if (/\b(go build|go install|cargo build|npm run build|make\b|cmake|dotnet build|mvn (compile|package)|gradle build)\b/.test(cmd)) return true;
-  if (/\b(go test|cargo test|npm test|pytest|jest|vitest|rspec|phpunit|dotnet test|mvn test|gradle test)\b/.test(cmd)) return true;
+  // Build commands
+  if (/\b(go build|go install|cargo build|npm run build|make\b|cmake|dotnet build|mvn (compile|package)|gradle build|tsc)\b/.test(cmd)) return true;
+  // Test runners — comprehensive cross-ecosystem
+  if (/\b(go test|cargo test|cargo clippy|cargo check|npm test|pnpm test|yarn test|pytest|jest|vitest|rspec|phpunit|dotnet test|mvn test|gradle test)\b/.test(cmd)) return true;
+  if (/\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(cmd)) return true;
+  if (/\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(cmd)) return true;
+  if (/\buv\s+run\s+(pytest|ruff|mypy)\b/.test(cmd)) return true;
+  // CLI binary invocations (build-then-run pattern)
   if (/^bash:.*\.\/\w+/.test(cmd) || /^bash:.*--help/.test(cmd) || /^bash:.*--version/.test(cmd)) return true;
   if (/\bgit\s+(add|commit|push)\b/.test(cmd)) return true;
   return false;
@@ -946,10 +996,7 @@ export function evaluateExecutionGovernor(
   const pushRule = (rule: string) => {
     if (isRuleAllowedInPhase(rule, sessionPhase)) matchedRules.push(rule);
   };
-  const hasRunTest = events.some((e) =>
-    /\b(go test|cargo test|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/i.test(e.command)
-    || e.toolName.includes("run_test"),
-  );
+  const hasRunTest = events.some((e) => isVerificationLike(e.toolName, e.command));
   const hasEdit = events.some((e) => e.command.startsWith("edit:") || e.command === "edit");
 
   const BROAD_DISCOVERY_WINDOW = 20;
@@ -2021,9 +2068,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Make one concrete code edit (Write/Edit) for the next task, then run one narrow verification.";
       break;
     case "no_test_files_repeat":
-      step1 = "STOP running the test command. '[no test files]' means there are NO tests to run — re-running produces the same result.";
-      step2 = "CREATE a test file now (e.g. Write a *_test.go file with test functions for the package under test).";
-      step3 = "After writing the test file, run the test command ONCE to verify the tests pass.";
+      step1 = "STOP running the test command. '[no test files]' or similar means there are NO tests in that package/directory yet — re-running produces the same result.";
+      step2 = "CREATE a test file first. Examples: `*_test.go` (Go), `*.test.ts` / `*.spec.ts` (TypeScript/Jest/Vitest), `test_*.py` / `*_test.py` (pytest), `*_spec.rb` (RSpec). Write at least one meaningful test function.";
+      step3 = "After writing the test file, run the test command ONCE with a targeted filter (e.g. `-run TestFoo`, `--testNamePattern`, `-k test_foo`) to verify the new test is found and passes.";
       break;
     case "verification_fail_repeat_block":
     case "verification_same_failure_signature_replay":

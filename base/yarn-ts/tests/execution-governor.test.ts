@@ -821,7 +821,75 @@ describe("execution governor", () => {
     const block = executionGovernorRecoveryRewriteBlock(decision);
     expect(block).toContain("STOP running the test command");
     expect(block).toContain("CREATE a test file");
+    // Recovery now lists multi-language examples, not just Go
+    expect(block).toContain("_test.go");
+    expect(block).toContain(".test.ts");
+    expect(block).toContain("test_*.py");
     expect(block).toContain("no_test_files_repeat");
+  });
+
+  // --- isProductiveCommand coverage: cross-ecosystem and zero-error false-failure ---
+
+  it.each([
+    ["pnpm test (passes)", "pnpm test", "1 passed"],
+    ["yarn test (passes)", "yarn test", "Tests: 5 passed"],
+    ["npm run test (passes)", "npm run test", "pass"],
+    ["uv run pytest (passes)", "uv run pytest tests/ -v", "5 passed"],
+    ["python -m pytest (passes)", "python -m pytest tests/test_completion.py", "passed"],
+    ["cargo clippy (passes)", "cargo clippy -- -D warnings", ""],
+    ["cargo check (passes)", "cargo check", "Finished"],
+    ["tsc --noEmit (passes)", "tsc --noEmit", ""],
+    ["CLI binary invocation", "./synesis completion --shell bash", "# bash completion"],
+  ])("isProductiveCommand: %s is productive", (_label, cmd, result) => {
+    // Use no_progress_loop as a proxy — productive commands raise its threshold
+    // so it does NOT fire after a series of productive runs
+    const messages = [
+      { role: "user", content: "fix and verify" },
+      assistantCall("1", "bash", { command: cmd }),
+      toolResult("1", result),
+      assistantCall("2", "bash", { command: "read:file.ts" }),
+      toolResult("2", "content"),
+      assistantCall("3", "bash", { command: cmd }),
+      toolResult("3", result),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    // The productive bonus should prevent no_progress_loop from firing
+    // on just 3 events (well under the base threshold of 8)
+    expect(out.matchedRules).not.toContain("no_progress_loop");
+  });
+
+  it("isProductiveCommand: '0 errors' output is NOT treated as failure", () => {
+    // Before fix: "0 errors found" triggered isFailed=true → command not productive
+    const messages = [
+      { role: "user", content: "lint the project" },
+      assistantCall("1", "bash", { command: "tsc --noEmit" }),
+      toolResult("1", "Found 0 errors in 5 files"),
+      assistantCall("2", "bash", { command: "ruff check ." }),
+      toolResult("2", "0 errors"),
+      assistantCall("3", "str_replace", { filePath: "src/main.ts", oldString: "x", newString: "y" }),
+      toolResult("3", "ok"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+  });
+
+  it("hasFailureSignature recognizes 'exit status 1' and 'Exited with code' variants", () => {
+    // These are emitted by some shells and container runtimes
+    const failResult = "Process exited with code 1";
+    const messages = [
+      { role: "user", content: "fix the test" },
+      assistantCall("1", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("1", failResult),
+      assistantCall("2", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("2", failResult),
+      assistantCall("3", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("3", failResult),
+      assistantCall("4", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("4", failResult),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    // verification_churn_no_edit fires after 4+ repeated failures (churnThreshold = max(4, stallThreshold-2))
+    expect(out.matchedRules).toContain("verification_churn_no_edit");
   });
 
   it("fires verbal_intent_without_action on repeated 'I'll' declarations without edits", () => {
@@ -1696,6 +1764,38 @@ describe("detectSessionPhase", () => {
       ev("read:src/util.ts", "read_file"),
     ];
     expect(detectSessionPhase(events, "scan repo and make sure every feature is implemented", [], false)).toBe("explore");
+  });
+
+  // --- phase FSM: verify transition with cross-ecosystem runners ---
+
+  it.each([
+    ["npx vitest", "npx vitest run"],
+    ["vitest", "vitest run --reporter=verbose"],
+    ["jest", "npx jest --testPathPattern=completion"],
+    ["npm run test", "npm run test"],
+    ["pnpm test", "pnpm test"],
+    ["uv run pytest", "uv run pytest tests/ -v"],
+    ["python -m pytest", "python -m pytest tests/test_completion.py -v"],
+    ["tsc --noEmit", "tsc --noEmit"],
+    ["cargo clippy", "cargo clippy -- -D warnings"],
+    ["CLI binary", "go build -o /tmp/synesis ./cmd/synesis && /tmp/synesis completion --shell bash"],
+  ])("edit→verify transition triggered by %s", (_label, testCmd) => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev(testCmd, "bash"),
+    ];
+    const phase = detectSessionPhase(events, "fix the bug", ["src/main.ts"], false);
+    expect(phase).toBe("verify");
+  });
+
+  it("git status alone after edit does NOT advance to verify (stays edit)", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("git status", "bash"),
+      ev("git diff --stat", "bash"),
+    ];
+    // git diff/status are inspection, not test execution — should not trigger verify
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], false)).toBe("edit");
   });
 
   it("does not stay in explore for investigation if edits occurred", () => {
