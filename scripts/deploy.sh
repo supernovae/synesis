@@ -1224,13 +1224,13 @@ patch_yarn_debug_and_streams() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS" "${SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS:-10000000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS" "${SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS:-50000000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_BUDGET_MODE" "${SYNESIS_YARN_SESSION_BUDGET_MODE:-audit}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONTEXT_ADMISSION_MODE" "${SYNESIS_YARN_CONTEXT_ADMISSION_MODE:-hybrid}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT:-15}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT:-9}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT" "${SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT:-4}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT" "${SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT:-2}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED" "${SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_POLICY_HARD_REJECT_AFTER" "${SYNESIS_YARN_POLICY_HARD_REJECT_AFTER:-6}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_ENABLED" "${SYNESIS_YARN_SENSEMAKING_ENABLED:-false}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY" "${SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY:-false}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TASK_INTAKE_ENABLED" "${SYNESIS_YARN_TASK_INTAKE_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_PLAN_GRAPH_ENABLED" "${SYNESIS_YARN_PLAN_GRAPH_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED:-true}" "$container"
@@ -1356,8 +1356,6 @@ verify_yarn_runtime_envs() {
     _check_runtime_env "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT:-9}"
     _check_runtime_env "SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT" "${SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT:-4}"
     _check_runtime_env "SYNESIS_YARN_POLICY_HARD_REJECT_AFTER" "${SYNESIS_YARN_POLICY_HARD_REJECT_AFTER:-6}"
-    _check_runtime_env "SYNESIS_YARN_SENSEMAKING_ENABLED" "${SYNESIS_YARN_SENSEMAKING_ENABLED:-false}"
-    _check_runtime_env "SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY" "${SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY:-false}"
     _check_runtime_env "SYNESIS_YARN_TASK_INTAKE_ENABLED" "${SYNESIS_YARN_TASK_INTAKE_ENABLED:-true}"
     _check_runtime_env "SYNESIS_YARN_PLAN_GRAPH_ENABLED" "${SYNESIS_YARN_PLAN_GRAPH_ENABLED:-true}"
     _check_runtime_env "SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED:-true}"
@@ -1410,7 +1408,6 @@ patch_yarn_feature_flags() {
 
     # ── Phase 10: Sensemaking (disabled in regular coding flow) ──
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_ENABLED" "${SYNESIS_YARN_SENSEMAKING_ENABLED:-false}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY" "${SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY:-false}" "$container"
 
     # ── Phase 11: Reliability Hardening ──
     _flag SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED  "false"
@@ -1471,12 +1468,18 @@ patch_yarn_feature_flags() {
     # ── Transcript pruning (evict stale tool results, condense old turns) ──
     _flag SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED        "true"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS:-5}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS:-25}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS:-120000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS:-400}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS:-2000}" "$container"
 
     # ── Content Dispatch ──
     _flag SYNESIS_YARN_CONTENT_DISPATCH_ENABLED        "true"
+
+    # ── Completion quality (pre-finalize critic + gate) ──
+    _flag SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED      "true"
+    _flag SYNESIS_YARN_PREFINALIZE_LLM_CRITIC_ENABLED  "false"
+    _flag SYNESIS_YARN_COMPLETION_GATE_ENABLED         "false"
 
     # ── Trust / Security ──
     _flag SYNESIS_YARN_TRUST_PACKET_ENABLED            "true"
