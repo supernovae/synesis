@@ -71,7 +71,7 @@ set -euo pipefail
 #   - SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS (default 5), BUDGET_CHARS (120000), STUB_MAX_CHARS (400), ASSISTANT_CONDENSE_CHARS (2000).
 #   - SYNESIS_YARN_REQUEST_FORENSICS_ENABLED (default true via deploy.sh patch) — provider-boundary request forensics (LCP/first-change/breakdown).
 #   - SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD (default false) and MAX_PREVIEW_CHARS (default 4000) — optional payload preview capture.
-#   - SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED (default false) — enable phase-aware tool_choice/tool filtering.
+#   - SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED (default true) — enable phase-aware tool_choice/tool filtering.
 #   - SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES (default qwen3-coder) — comma-separated model families for phase policy.
 #
 # Yarn Eval Gym (docs/coder/EVAL_GYM.md):
@@ -1237,7 +1237,7 @@ patch_yarn_debug_and_streams() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_PLAN_GRAPH_ENABLED" "${SYNESIS_YARN_PLAN_GRAPH_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED" "${SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED:-true}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED" "${SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED:-false}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED" "${SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES" "${SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES:-qwen3-coder}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_MODEL_SELECTION_MODE" "${SYNESIS_YARN_MODEL_SELECTION_MODE:-respect_explicit}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED" "${SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED:-false}" "$container"
