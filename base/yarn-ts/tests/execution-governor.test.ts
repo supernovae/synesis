@@ -678,6 +678,26 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_churn_no_edit");
   });
 
+  it("treats repeated non-zero exit code test runs as verification churn", () => {
+    const messages = [
+      { role: "user", content: "fix completion tests and continue" },
+      assistantCall("1", "write", { file_path: "cmd/synesis/completion_test.go", content: "package main\n// updated test" }),
+      toolResult("1", "Wrote 42 lines"),
+      assistantCall("2", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" }),
+      toolResult("2", "Exit code 1"),
+      assistantCall("3", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" }),
+      toolResult("3", "Exit code 1"),
+      assistantCall("4", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" }),
+      toolResult("4", "Exit code 1"),
+      assistantCall("5", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" }),
+      toolResult("5", "Exit code 1"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_churn_no_edit");
+    expect(out.matchedRules).toContain("verification_churn_no_edit");
+  });
+
   it("fires recovery rewrite block for verification_stall_no_edit", () => {
     const decision = evaluateExecutionGovernor([
       { role: "user", content: "implement feature" },

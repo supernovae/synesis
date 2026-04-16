@@ -462,7 +462,7 @@ function extractEditedFileHints(events: CommandEvent[]): string[] {
 
 function hasFailureSignature(sig: string): boolean {
   if (!sig) return false;
-  return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b|expected statement\b|undefined:\b/.test(sig);
+  return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b|expected statement\b|undefined:\b|exit\s+code(\s+<n>|\s+[1-9]\d*)\b/.test(sig);
 }
 
 function isCompileLikeFailureSignature(sig: string): boolean {
@@ -783,7 +783,10 @@ function isVerificationCommand(toolName: string, command: string): boolean {
 function isProductiveCommand(command: string, resultSignature: string | undefined): boolean {
   const cmd = normalizeString(command).toLowerCase();
   const sig = normalizeString(resultSignature ?? "").toLowerCase();
-  const isFailed = sig.includes("error") || sig.includes("failed") || sig.includes("fatal");
+  const isFailed = sig.includes("error")
+    || sig.includes("failed")
+    || sig.includes("fatal")
+    || /exit\s+code(\s+<n>|\s+[1-9]\d*)\b/.test(sig);
   if (isFailed) return false;
   if (/\b(go build|go install|cargo build|npm run build|make\b|cmake|dotnet build|mvn (compile|package)|gradle build)\b/.test(cmd)) return true;
   if (/\b(go test|cargo test|npm test|pytest|jest|vitest|rspec|phpunit|dotnet test|mvn test|gradle test)\b/.test(cmd)) return true;
@@ -874,6 +877,7 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
     || /\berrors?\s*:\s*0\b/.test(joined)
     || /\ball tests passed\b/.test(joined);
   if (zeroFailureOnly && !/\b(1|[2-9]\d*)\s+failed\b|\bpanic\b|\btraceback\b/.test(joined)) return false;
+  if (/\bexit\s+code\s+([1-9]\d*)\b/.test(joined)) return true;
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
 }
 
