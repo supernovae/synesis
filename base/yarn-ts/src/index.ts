@@ -370,9 +370,10 @@ function applyExecutionGovernorToolRestrictions(
     deny.add("glob").add("explore").add("agent");
   }
   if (explorationStall) {
-    // During pure exploration (no edits or verification yet), keep read tools available.
-    // The model needs to read files to make progress — removing reads traps it. Only
-    // block broad discovery tools (search, glob, list) to encourage targeted reads.
+    // During pure exploration (no edits or verification yet), keep read tools available
+    // so the model can finish its initial discovery. But once no_progress_loop fires
+    // (model cycling through same commands), pureExploration is disabled at the call
+    // site and reads are blocked too — the model already has its information.
     const blockedDiscoveryTools = (failureFixContext || options?.pureExploration)
       ? ["search", "grep", "find", "list_dir", "list_files"]
       : ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"];
@@ -5952,7 +5953,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
     const oaiPureExploration = oaiGovernorPhase === "edit"
       && !oaiExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
-      && !oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread");
+      && !oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread")
+      && !oaiExecutionGovernor.matchedRules.includes("no_progress_loop");
     const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined, oaiExecutionGovernor.matchedRules, { pureExploration: oaiPureExploration });
     request.tools = restricted.tools as never;
     recordSessionEvent(
@@ -8203,7 +8205,8 @@ app.post("/v1/messages", async (req, reply) => {
     claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
     const claudePureExploration = claudeGovernorPhase === "edit"
       && !claudeExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
-      && !claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread");
+      && !claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread")
+      && !claudeExecutionGovernor.matchedRules.includes("no_progress_loop");
     const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined, claudeExecutionGovernor.matchedRules, { pureExploration: claudePureExploration });
     body.tools = restricted.tools as never;
     recordSessionEvent(
