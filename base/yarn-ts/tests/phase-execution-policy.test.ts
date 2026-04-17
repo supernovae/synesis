@@ -49,7 +49,7 @@ describe("phase execution policy", () => {
     });
     expect(policy.active).toBe(true);
     expect(policy.toolChoice).toBe("required");
-    expect(policy.allowedCanonicalTools).toEqual(["Edit", "Write", "Update"]);
+    expect(policy.allowedCanonicalTools).toEqual(["Read", "Edit", "Write", "Update"]);
     expect(policy.reason).toBe("verify_phase_fix_required_action");
   });
 
@@ -64,8 +64,26 @@ describe("phase execution policy", () => {
     });
     expect(policy.active).toBe(true);
     expect(policy.toolChoice).toBe("required");
-    expect(policy.allowedCanonicalTools).toEqual(["Edit", "Write", "Update"]);
+    expect(policy.allowedCanonicalTools).toEqual(["Read", "Edit", "Write", "Update"]);
     expect(policy.reason).toBe("verify_phase_fix_required_action");
+  });
+
+  it("keeps Read available during fix-required mode for context refresh", () => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: "qwen3-coder",
+      enabledFamilies: ["qwen3-coder"],
+      phase: "edit",
+      matchedRules: ["verification_churn_no_edit"],
+      stream: false,
+    });
+    const filtered = filterToolsByPhasePolicy([
+      { type: "function", function: { name: "Read", parameters: { type: "object" } } },
+      { type: "function", function: { name: "Edit", parameters: { type: "object" } } },
+      { type: "function", function: { name: "Bash", parameters: { type: "object" } } },
+    ], policy);
+    expect(filtered.tools).toHaveLength(2);
+    expect(filtered.removed).toEqual(["Bash"]);
   });
 
   it("keeps client tool choice precedence", () => {

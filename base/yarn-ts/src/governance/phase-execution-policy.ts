@@ -58,7 +58,7 @@ export function derivePhaseExecutionPolicy(input: PhaseExecutionPolicyInput): Ph
     || matched.has("verification_fail_repeat_block")
     || matched.has("verification_same_failure_signature_replay");
   const allowedCanonicalTools = verifyFixRequired
-    ? ["Edit", "Write", "Update"]
+    ? ["Read", "Edit", "Write", "Update"]
     : ["Bash"];
 
   return {
