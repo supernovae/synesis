@@ -5463,6 +5463,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiMsgCount = (request.messages as unknown[]).length;
   const oaiRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, oaiMsgCount - oaiRecentExempt);
+  // When the latest incoming message is a user prompt, the client is starting a
+  // new turn. Reset tool-loop counters so history from the previous turn's stall
+  // does not immediately trip the policy engine on the first request of the new turn.
+  const oaiLastIncomingRole = Array.isArray(request.messages) && request.messages.length > 0
+    ? (request.messages[request.messages.length - 1] as { role?: string }).role
+    : undefined;
+  if (oaiLastIncomingRole === "user") {
+    session.consecutiveToolCalls = 0;
+    session.stagnantToolCycles = 0;
+    session.lastToolSignalHash = "";
+    session.consecutiveRecoveryFires = 0;
+    void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch(() => {});
+  }
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const oaiDedup = getContentDedup(sessionKey);
     const oaiDedupResult = oaiDedup.processMessages(
@@ -7692,6 +7705,16 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeMsgCount = (body.messages as unknown[]).length;
   const claudeRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, claudeMsgCount - claudeRecentExempt);
+  const claudeLastIncomingRole = Array.isArray(body.messages) && body.messages.length > 0
+    ? ((body.messages as Array<{ role?: string }>)[body.messages.length - 1]).role
+    : undefined;
+  if (claudeLastIncomingRole === "user") {
+    session.consecutiveToolCalls = 0;
+    session.stagnantToolCycles = 0;
+    session.lastToolSignalHash = "";
+    session.consecutiveRecoveryFires = 0;
+    void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
+  }
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeDedup = getContentDedup(claudeSessionKey);
     const claudeDedupResult = claudeDedup.processMessages(
