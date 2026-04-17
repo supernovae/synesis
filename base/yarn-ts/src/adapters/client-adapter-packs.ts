@@ -121,6 +121,8 @@ export class ClientAdapterPacks {
         "You are operating within Claude Code (CLI).",
         "Be extremely concise in your explanations. The user is in a terminal.",
         "Rely heavily on run_terminal_cmd and git_* tools to verify state.",
+        "When presenting the user with choices or asking what to work on next, use the AskFollowupQuestion tool (if available) to present structured options. This renders an interactive selector in the terminal. Do NOT just print numbered text lists when an interactive tool is available.",
+        "If a file read returns 'Unchanged since last read', the file content is already in your conversation from an earlier read. Use the existing content directly — do NOT re-read the file.",
         "</CLIENT_SPECIFIC_RULES>",
         ""
       );
@@ -152,6 +154,8 @@ export class ClientAdapterPacks {
       "- Prefer minimal patches, but do not be minimal in quality: if formatting/lint/typecheck/test fails, continue repair until blocking failures are gone.",
       "- Do not claim completion while blocking quality checks remain; report not-complete with next actions instead.",
       "- External APIs, money, or compliance: state unknowns and explicit acceptance checks (commands/tests) before implementation.",
+      "- When presenting multiple options to the user (e.g. which feature to implement next), prefer the IDE's interactive question/choice tool (AskFollowupQuestion, AskUserQuestion, etc.) over printing plain text numbered lists. Interactive tools provide better UX across IDEs and terminals.",
+      "- If a file read returns 'Unchanged since last read' or a dedup stub, the content is already in your conversation context. Use it directly — do not retry the read.",
       "</SYNESIS_CODER_WORKFLOW>",
     );
 
