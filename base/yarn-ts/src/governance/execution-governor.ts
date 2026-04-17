@@ -639,12 +639,20 @@ function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
  * Returns the max consecutive streak of intent-only assistant messages.
  */
 function countVerbalIntentStreak(messages: GovernorInputMessage[], events: CommandEvent[]): number {
-  // Edits, task actions, AND any tool execution (bash, verification) reset the streak.
-  // This rule targets "model narrates intent without calling ANY tools." If the model
-  // IS calling tools (even bash ls/grep), it's not purely verbal — let no_progress_loop
-  // handle unproductive tool loops instead.
-  const hasAnyToolAction = events.length > 0;
-  if (hasAnyToolAction) return 0;
+  // Reset only on meaningful progress actions, not on read/search churn.
+  // This keeps the rule sensitive to loops like:
+  // "I'll verify/rebase..." + repeated Read/List/Search with no actual progress.
+  const hasProgressAction = events.some((e) =>
+    isVerificationCommand(e.toolName, e.command)
+    || e.command.startsWith("edit:") || e.command === "edit"
+    || e.command.startsWith("write:") || e.command === "write"
+    || e.command.startsWith("filewrite:") || e.command === "filewrite"
+    || e.command.startsWith("applypatch:") || e.command === "applypatch"
+    || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
+    || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
+    || e.command.startsWith("todowrite:") || e.command === "todowrite",
+  );
+  if (hasProgressAction) return 0;
 
   let streak = 0;
   for (const m of messages) {

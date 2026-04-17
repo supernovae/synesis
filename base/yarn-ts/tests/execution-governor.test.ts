@@ -1332,23 +1332,21 @@ describe("execution governor", () => {
     expect(block).toContain("plan_reread_loop");
   });
 
-  it("verbal_intent_without_action is reset by any tool calls (bash, read, search)", () => {
-    // verbal_intent_without_action only fires for pure narration with zero tool calls.
-    // If the model calls ANY tool, no_progress_loop handles unproductive loops instead.
+  it("fires verbal_intent_without_action for intent + read/search churn without progress", () => {
     const messages = [
       { role: "user", content: "implement keychain package" },
       { role: "assistant", content: "I'll implement the keychain package." },
-      assistantCall("1", "bash", { command: "mkdir -p pkg/keychain" }),
-      toolResult("1", ""),
+      assistantCall("1", "read_file", { path: "pkg/config/config.go" }),
+      toolResult("1", "package config\n// config code"),
       { role: "assistant", content: "I'll start implementing keychain." },
-      assistantCall("2", "read_file", { path: "pkg/config/config.go" }),
-      toolResult("2", "package config\n// config code"),
+      assistantCall("2", "search", { pattern: "keychain|Keychain" }),
+      toolResult("2", "pkg/keychain/keychain.go"),
       { role: "assistant", content: "Let me implement the keychain now." },
-      assistantCall("3", "bash", { command: "go build ./cmd/synesis 2>&1" }),
-      toolResult("3", ""),
+      assistantCall("3", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("3", "package keychain"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+    expect(out.matchedRules).toContain("verbal_intent_without_action");
   });
 
   it("verbal_intent_without_action resets on real file edits (Write/Edit)", () => {
