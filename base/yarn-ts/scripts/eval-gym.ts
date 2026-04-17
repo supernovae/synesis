@@ -56,8 +56,8 @@ const config: EvalRunnerConfig = {
   targetUrl: TARGET_URL,
   apiKey: API_KEY,
   model: process.env.SYNESIS_EVAL_MODEL ?? getArg("model"),
-  adminUrl: process.env.SYNESIS_EVAL_ADMIN_URL,
-  adminToken: process.env.SYNESIS_EVAL_ADMIN_TOKEN,
+  adminUrl: process.env.SYNESIS_EVAL_ADMIN_URL ?? TARGET_URL,
+  adminToken: process.env.SYNESIS_EVAL_ADMIN_TOKEN ?? API_KEY,
   timeoutMs: Number(process.env.SYNESIS_EVAL_TIMEOUT_MS ?? 120_000),
   conversationIdPrefix: "eval-gym",
 };
@@ -198,6 +198,9 @@ function printResults(results: ScenarioResult[], verbose: boolean) {
     );
 
     if (verbose || !r.passed) {
+      if (r.adminTelemetry && r.adminTelemetry.status !== "ok" && r.adminTelemetry.status !== "disabled") {
+        console.log(`    TELEMETRY: ${r.adminTelemetry.status}${r.adminTelemetry.detail ? ` (${r.adminTelemetry.detail})` : ""}`);
+      }
       for (const reason of r.failureReasons) {
         console.log(`    FAIL: ${reason}`);
       }

@@ -123,6 +123,7 @@ import {
   type BlockedDiscoveryDetail,
 } from "./tool-collapse/blocked-discovery-recovery.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
+import { classifyLatestToolProgress } from "./governance/recovery-progress.js";
 import { synesisPolicyErrorExtension } from "./policy/policy-error-extension.js";
 import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
 import {
@@ -5587,6 +5588,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiToolFailures = collectToolExecutionFailureObservations(
     normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
   );
+  const oaiLatestToolProgress = classifyLatestToolProgress(
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
   for (const failure of oaiToolFailures) {
     recordSessionEvent(
       sessionKey,
@@ -5601,6 +5605,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
         toolCallId: failure.toolCallId || null,
         reason: failure.reason,
         snippet: failure.snippet,
+      },
+    );
+  }
+  if (oaiLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
+    session.consecutiveRecoveryFires = 0;
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "execution_governor_recovery_reset",
+      "execution-governor",
+      `Recovery streak reset after successful ${oaiLatestToolProgress.toolName || "write"} tool result`,
+      oaiTraceReqId,
+      {
+        toolName: oaiLatestToolProgress.toolName || null,
+        toolCallId: oaiLatestToolProgress.toolCallId || null,
+        snippet: oaiLatestToolProgress.snippet || null,
       },
     );
   }
@@ -5941,7 +5962,29 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   session.lastGovernorPhase = oaiGovernorPhase;
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    session.consecutiveRecoveryFires += 1;
+    const oaiShouldHoldRecoveryFire =
+      oaiLatestToolProgress.hasRecentEditContextMiss
+      && oaiExecutionGovernor.matchedRules.length === 1
+      && oaiExecutionGovernor.matchedRules[0] === "source_file_stale_reread";
+    if (oaiShouldHoldRecoveryFire) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "execution_governor_recovery_hold",
+        "execution-governor",
+        "Holding recovery streak increment due to edit context miss; allow focused retry",
+        oaiTraceReqId,
+        {
+          reason: "edit_context_miss",
+          matched_rules: oaiExecutionGovernor.matchedRules,
+          toolName: oaiLatestToolProgress.toolName || null,
+          toolCallId: oaiLatestToolProgress.toolCallId || null,
+        },
+      );
+    } else {
+      session.consecutiveRecoveryFires += 1;
+    }
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const oaiHardStopDedup = getContentDedup(sessionKey);
@@ -7858,6 +7901,9 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeToolFailures = collectToolExecutionFailureObservations(
     normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
   );
+  const claudeLatestToolProgress = classifyLatestToolProgress(
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
   for (const failure of claudeToolFailures) {
     recordSessionEvent(
       claudeSessionKey,
@@ -7872,6 +7918,23 @@ app.post("/v1/messages", async (req, reply) => {
         toolCallId: failure.toolCallId || null,
         reason: failure.reason,
         snippet: failure.snippet,
+      },
+    );
+  }
+  if (claudeLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
+    session.consecutiveRecoveryFires = 0;
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "execution_governor_recovery_reset",
+      "execution-governor",
+      `Recovery streak reset after successful ${claudeLatestToolProgress.toolName || "write"} tool result`,
+      traceReqId,
+      {
+        toolName: claudeLatestToolProgress.toolName || null,
+        toolCallId: claudeLatestToolProgress.toolCallId || null,
+        snippet: claudeLatestToolProgress.snippet || null,
       },
     );
   }
@@ -8215,7 +8278,29 @@ app.post("/v1/messages", async (req, reply) => {
   }
   session.lastGovernorPhase = claudeGovernorPhase;
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    session.consecutiveRecoveryFires += 1;
+    const claudeShouldHoldRecoveryFire =
+      claudeLatestToolProgress.hasRecentEditContextMiss
+      && claudeExecutionGovernor.matchedRules.length === 1
+      && claudeExecutionGovernor.matchedRules[0] === "source_file_stale_reread";
+    if (claudeShouldHoldRecoveryFire) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "execution_governor_recovery_hold",
+        "execution-governor",
+        "Holding recovery streak increment due to edit context miss; allow focused retry",
+        traceReqId,
+        {
+          reason: "edit_context_miss",
+          matched_rules: claudeExecutionGovernor.matchedRules,
+          toolName: claudeLatestToolProgress.toolName || null,
+          toolCallId: claudeLatestToolProgress.toolCallId || null,
+        },
+      );
+    } else {
+      session.consecutiveRecoveryFires += 1;
+    }
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const claudeHardStopDedup = getContentDedup(claudeSessionKey);

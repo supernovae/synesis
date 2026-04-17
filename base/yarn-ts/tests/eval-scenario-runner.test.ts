@@ -103,6 +103,94 @@ describe("runScenario", () => {
     expect(result.totalTurns).toBe(1);
     expect(result.totalToolRounds).toBe(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(Array.isArray(firstBody.tools)).toBe(true);
+    expect(firstBody.tools[0].function.name).toBe("Write");
+  });
+
+  it("counts policy-layer intervention rules from admin session events", async () => {
+    const configWithAdmin = {
+      ...baseConfig,
+      adminUrl: "http://test-admin:8000",
+      adminToken: "admintoken",
+    };
+    mockFetch
+      // chat completion
+      .mockResolvedValueOnce(makeOaiResponse("Done"))
+      // execution_governor_evaluated
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [{ metadata_json: { matched_rules: ["allow"] }, detail: "phase=edit rules=allow pause=false" }] }),
+      })
+      // execution_governor_recovery_rewrite
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [{ detail: "Rewrote loop path (source_file_stale_reread); phase=edit;" }] }),
+      })
+      // execution_governor_hard_stop
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [] }),
+      })
+      // phase_execution_policy_applied
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [{ detail: "phase=edit reason=stale_source_required_action" }] }),
+      })
+      // tool_loop_soft_fail
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [{ detail: "Tool call loop detected" }] }),
+      });
+
+    const result = await runScenario(configWithAdmin, simpleScenario);
+    expect(result.allGovernorRules).toContain("governor:recovery_rewrite");
+    expect(result.allGovernorRules).toContain("policy:phase_execution_policy_applied");
+    expect(result.allGovernorRules).toContain("policy:tool_loop_soft_fail");
+    expect(result.governorInterventions).toBeGreaterThan(0);
+    expect(result.adminTelemetry?.status).toBe("ok");
+  });
+
+  it("reports unreachable admin telemetry when session-events endpoint fails", async () => {
+    const configWithAdmin = {
+      ...baseConfig,
+      adminUrl: "http://test-admin:8000",
+      adminToken: "admintoken",
+    };
+    mockFetch
+      .mockResolvedValueOnce(makeOaiResponse("Done"))
+      .mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({ events: [] }),
+      });
+
+    const result = await runScenario(configWithAdmin, simpleScenario);
+    expect(result.adminTelemetry?.status).toBe("unreachable");
+    expect(result.adminTelemetry?.detail).toContain("status=404");
+  });
+
+  it("reports unauthorized admin telemetry when auth is rejected", async () => {
+    const configWithAdmin = {
+      ...baseConfig,
+      adminUrl: "http://test-admin:8000",
+      adminToken: "badtoken",
+    };
+    mockFetch
+      .mockResolvedValueOnce(makeOaiResponse("Done"))
+      .mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ events: [] }),
+      });
+
+    const result = await runScenario(configWithAdmin, simpleScenario);
+    expect(result.adminTelemetry?.status).toBe("unauthorized");
   });
 
   it("caps tool rounds at maxToolRounds", async () => {

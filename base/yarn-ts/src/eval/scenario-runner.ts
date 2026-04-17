@@ -44,6 +44,15 @@ interface OaiResponse {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
+interface OaiToolSchema {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 function trimTrailingSlashes(value: string): string {
   let end = value.length;
   while (end > 0 && value.charCodeAt(end - 1) === 47) {
@@ -71,24 +80,96 @@ async function fetchGovernorEvents(
   adminUrl: string,
   adminToken: string,
   sessionKey: string,
-): Promise<string[]> {
+): Promise<{
+  rules: string[];
+  status: "ok" | "unreachable" | "unauthorized";
+  detail?: string;
+}> {
   try {
+    const eventKinds = [
+      "execution_governor_evaluated",
+      "execution_governor_recovery_rewrite",
+      "execution_governor_hard_stop",
+      "phase_execution_policy_applied",
+      "tool_loop_soft_fail",
+    ];
     const eventsUrl = buildRequestUrl(adminUrl, "/api/v1/yarn/session-events");
-    const url = `${eventsUrl}?session_key=${encodeURIComponent(sessionKey)}&event_kind=execution_governor_evaluated&limit=50`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${adminToken}` },
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) return [];
-    const body = (await res.json()) as { events?: Array<{ metadata_json?: { matched_rules?: string[]; pause?: boolean } }> };
-    const rules: string[] = [];
-    for (const ev of body.events ?? []) {
-      const mr = ev.metadata_json?.matched_rules;
-      if (Array.isArray(mr)) rules.push(...mr);
+    const rules = new Set<string>();
+    let sawAnySuccess = false;
+    let sawUnauthorized = false;
+    let firstFailureDetail: string | undefined;
+    for (const kind of eventKinds) {
+      const url = `${eventsUrl}?session_key=${encodeURIComponent(sessionKey)}&event_kind=${encodeURIComponent(kind)}&limit=100`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          sawUnauthorized = true;
+        } else if (!firstFailureDetail) {
+          firstFailureDetail = `event_kind=${kind} status=${res.status}`;
+        }
+        continue;
+      }
+      sawAnySuccess = true;
+      const body = (await res.json()) as {
+        events?: Array<{
+          event_kind?: string;
+          detail?: string;
+          metadata_json?: { matched_rules?: string[]; pause?: boolean };
+        }>;
+      };
+      for (const ev of body.events ?? []) {
+        if (kind === "execution_governor_evaluated") {
+          const mr = ev.metadata_json?.matched_rules;
+          if (Array.isArray(mr)) {
+            for (const rule of mr) {
+              if (rule) rules.add(rule);
+            }
+          }
+          const detailRules = extractRulesFromDetail(ev.detail);
+          for (const rule of detailRules) rules.add(rule);
+          continue;
+        }
+        if (kind === "execution_governor_recovery_rewrite") {
+          rules.add("governor:recovery_rewrite");
+          const detailRules = extractRulesFromDetail(ev.detail);
+          for (const rule of detailRules) rules.add(rule);
+          continue;
+        }
+        if (kind === "execution_governor_hard_stop") {
+          rules.add("governor:hard_stop");
+          const detailRules = extractRulesFromDetail(ev.detail);
+          for (const rule of detailRules) rules.add(rule);
+          continue;
+        }
+        if (kind === "phase_execution_policy_applied") {
+          rules.add("policy:phase_execution_policy_applied");
+          continue;
+        }
+        if (kind === "tool_loop_soft_fail") {
+          rules.add("policy:tool_loop_soft_fail");
+        }
+      }
     }
-    return rules;
+    if (sawAnySuccess) {
+      return { rules: [...rules], status: "ok" };
+    }
+    if (sawUnauthorized) {
+      return {
+        rules: [...rules],
+        status: "unauthorized",
+        detail: firstFailureDetail ?? "admin auth rejected for session-events",
+      };
+    }
+    return {
+      rules: [...rules],
+      status: "unreachable",
+      detail: firstFailureDetail ?? "session-events endpoint unavailable",
+    };
   } catch {
-    return [];
+    return { rules: [], status: "unreachable", detail: "session-events request failed" };
   }
 }
 
@@ -101,6 +182,7 @@ async function chatCompletions(
   messages: EvalChatMessage[],
   model: string,
   conversationId: string,
+  tools?: OaiToolSchema[],
 ): Promise<{ response: OaiResponse; latencyMs: number }> {
   const timeout = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const start = Date.now();
@@ -115,6 +197,7 @@ async function chatCompletions(
     body: JSON.stringify({
       model,
       messages,
+      ...(Array.isArray(tools) && tools.length > 0 ? { tools } : {}),
       stream: false,
       max_tokens: 4096,
       conversation_id: conversationId,
@@ -202,11 +285,14 @@ async function executeTurn(
   let toolRounds = 0;
   let totalLatencyMs = 0;
   const governorRules: string[] = [];
+  let adminTelemetryStatus: "ok" | "unreachable" | "unauthorized" | "disabled" = "disabled";
+  let adminTelemetryDetail: string | undefined;
 
   const working = [...conversationMessages, ...turn.messages];
+  const evalTools = buildEvalToolSchemas(turn.simulatedToolResults);
 
   for (let round = 0; round <= maxRounds; round++) {
-    const { response, latencyMs } = await chatCompletions(config, working, model, conversationId);
+    const { response, latencyMs } = await chatCompletions(config, working, model, conversationId, evalTools);
     totalLatencyMs += latencyMs;
 
     const choice = response.choices?.[0];
@@ -242,8 +328,10 @@ async function executeTurn(
 
   if (config.adminUrl && config.adminToken) {
     const sessionKey = `synesis:eval-gym:eval-gym:${conversationId}`;
-    const rules = await fetchGovernorEvents(config.adminUrl, config.adminToken, sessionKey);
-    governorRules.push(...rules);
+    const telemetry = await fetchGovernorEvents(config.adminUrl, config.adminToken, sessionKey);
+    governorRules.push(...telemetry.rules);
+    adminTelemetryStatus = telemetry.status;
+    adminTelemetryDetail = telemetry.detail;
   }
 
   // Supplement with rules extracted from message content (works without admin API)
@@ -266,9 +354,64 @@ async function executeTurn(
       assertionResults,
       latencyMs: totalLatencyMs,
       anomalies,
+        adminTelemetryStatus,
+        adminTelemetryDetail,
     },
     finalMessages: working,
   };
+}
+
+function extractRulesFromDetail(detail: string | undefined): string[] {
+  if (!detail) return [];
+  const out = new Set<string>();
+  const rulesField = detail.match(/rules=([^\s;]+)/);
+  if (rulesField?.[1]) {
+    for (const token of rulesField[1].split(",")) {
+      const t = token.trim();
+      if (t && t !== "allow" && t !== "disabled") out.add(t);
+    }
+  }
+  const inParens = detail.match(/\(([^)]+)\)/);
+  if (inParens?.[1]) {
+    for (const token of inParens[1].split(",")) {
+      const t = token.trim();
+      if (t && t !== "allow" && t !== "disabled") out.add(t);
+    }
+  }
+  return [...out];
+}
+
+function buildEvalToolSchemas(simulatedToolResults?: Record<string, string>): OaiToolSchema[] | undefined {
+  if (!simulatedToolResults) return undefined;
+  const names = Object.keys(simulatedToolResults)
+    .filter((name) => name && name !== "*")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (names.length === 0) return undefined;
+  const uniqueNames = [...new Set(names)];
+  return uniqueNames.map((name) => ({
+    type: "function",
+    function: {
+      name,
+      description: `Eval harness simulated tool for ${name}`,
+      parameters: {
+        type: "object",
+        properties: {
+          file_path: { type: "string" },
+          path: { type: "string" },
+          command: { type: "string" },
+          content: { type: "string" },
+          old_string: { type: "string" },
+          new_string: { type: "string" },
+          glob_pattern: { type: "string" },
+          pattern: { type: "string" },
+          start_line: { type: "number" },
+          line_range: { type: "array", items: { type: "number" } },
+        },
+        additionalProperties: true,
+      },
+    },
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +436,8 @@ export async function runScenario(
   const turnResults: TurnResult[] = [];
   const allGovernorRules: string[] = [];
   let totalToolRounds = 0;
+  let aggregateTelemetryStatus: "ok" | "unreachable" | "unauthorized" | "disabled" = "disabled";
+  let aggregateTelemetryDetail: string | undefined;
 
   for (let i = 0; i < scenario.turns.length; i++) {
     try {
@@ -303,6 +448,15 @@ export async function runScenario(
       messages = finalMessages;
       totalToolRounds += turnResult.toolRounds;
       allGovernorRules.push(...turnResult.governorRulesFired);
+      if (turnResult.adminTelemetryStatus === "unauthorized") {
+        aggregateTelemetryStatus = "unauthorized";
+        if (!aggregateTelemetryDetail) aggregateTelemetryDetail = turnResult.adminTelemetryDetail;
+      } else if (turnResult.adminTelemetryStatus === "unreachable" && aggregateTelemetryStatus !== "unauthorized") {
+        aggregateTelemetryStatus = "unreachable";
+        if (!aggregateTelemetryDetail) aggregateTelemetryDetail = turnResult.adminTelemetryDetail;
+      } else if (turnResult.adminTelemetryStatus === "ok" && aggregateTelemetryStatus === "disabled") {
+        aggregateTelemetryStatus = "ok";
+      }
     } catch (err) {
       turnResults.push({
         turnIndex: i,
@@ -316,6 +470,7 @@ export async function runScenario(
           detail: `Turn ${i} failed: ${err instanceof Error ? err.message : String(err)}`,
           severity: "error",
         }],
+        adminTelemetryStatus: "disabled",
       });
       break;
     }
@@ -345,6 +500,10 @@ export async function runScenario(
     targetUrl: config.targetUrl,
     model,
     timestamp: new Date().toISOString(),
+    adminTelemetry: {
+      status: aggregateTelemetryStatus,
+      detail: aggregateTelemetryDetail,
+    },
   };
 }
 

@@ -127,6 +127,9 @@ export interface TurnResult {
   latencyMs: number;
   /** Heuristic anomalies detected by the turn scorer. */
   anomalies: Anomaly[];
+  /** Admin telemetry fetch status for this turn. */
+  adminTelemetryStatus?: "ok" | "unreachable" | "unauthorized" | "disabled";
+  adminTelemetryDetail?: string;
 }
 
 export interface Anomaly {
@@ -159,6 +162,10 @@ export interface ScenarioResult {
   targetUrl: string;
   model: string;
   timestamp: string;
+  adminTelemetry?: {
+    status: "ok" | "unreachable" | "unauthorized" | "disabled";
+    detail?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
