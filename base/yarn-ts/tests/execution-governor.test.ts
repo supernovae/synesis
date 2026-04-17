@@ -899,20 +899,15 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_churn_no_edit");
   });
 
-  it("fires verbal_intent_without_action on repeated 'I'll' declarations without edits", () => {
+  it("fires verbal_intent_without_action on repeated 'I'll' declarations without any tool calls", () => {
+    // verbal_intent_without_action targets pure narration — model says "I'll..." but
+    // calls NO tools at all. If tools are called, no_progress_loop handles unproductive loops.
     const messages = [
       { role: "user", content: "implement bundle files for the synesis CLI" },
       { role: "assistant", content: "I'll implement bundle files for the synesis CLI. Let me first check the current state." },
-      assistantCall("1", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
-      toolResult("1", ""),
-      assistantCall("2", "bash", { command: "go test ./... 2>&1 | tail -15" }),
-      toolResult("2", "ok  synesis.sh/synesis/cmd/synesis  (cached)"),
       { role: "assistant", content: "I'll implement bundle files. Let me check the current state and verify the implementation." },
-      assistantCall("3", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
-      toolResult("3", ""),
       { role: "assistant", content: "I'll clean up the duplicate tasks and finish the bundle files implementation." },
-      assistantCall("4", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
-      toolResult("4", "Build successful"),
+      { role: "assistant", content: "Let me analyze the codebase and implement the missing features." },
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
@@ -1007,17 +1002,13 @@ describe("execution governor", () => {
   });
 
   it("fires recovery rewrite block for verbal_intent_without_action", () => {
+    // Pure narration with no tool calls at all
     const messages = [
       { role: "user", content: "implement feature" },
       { role: "assistant", content: "I'll implement the feature now." },
-      assistantCall("1", "bash", { command: "go build ./cmd/synesis 2>&1" }),
-      toolResult("1", ""),
       { role: "assistant", content: "I'll check the implementation." },
-      assistantCall("2", "bash", { command: "go test ./... 2>&1" }),
-      toolResult("2", "ok"),
       { role: "assistant", content: "Let me verify the implementation." },
-      assistantCall("3", "bash", { command: "go build ./cmd/synesis 2>&1" }),
-      toolResult("3", ""),
+      { role: "assistant", content: "I'll start working on the feature." },
     ];
     const decision = evaluateExecutionGovernor(messages);
     expect(decision.pause).toBe(true);
@@ -1182,7 +1173,7 @@ describe("execution governor", () => {
     // no_progress_loop takes priority as the broader signal.
     expect(decision.matchedRules).toContain("no_progress_loop");
     const block = executionGovernorRecoveryRewriteBlock(decision);
-    expect(block).toContain("ZERO code edits");
+    expect(block).toContain("STOP cycling");
     expect(block).toContain("no_progress_loop");
   });
 
@@ -1319,7 +1310,9 @@ describe("execution governor", () => {
     expect(block).toContain("plan_reread_loop");
   });
 
-  it("verbal_intent_without_action is not reset by bash mkdir commands", () => {
+  it("verbal_intent_without_action is reset by any tool calls (bash, read, search)", () => {
+    // verbal_intent_without_action only fires for pure narration with zero tool calls.
+    // If the model calls ANY tool, no_progress_loop handles unproductive loops instead.
     const messages = [
       { role: "user", content: "implement keychain package" },
       { role: "assistant", content: "I'll implement the keychain package." },
@@ -1333,7 +1326,7 @@ describe("execution governor", () => {
       toolResult("3", ""),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.matchedRules).toContain("verbal_intent_without_action");
+    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
   });
 
   it("verbal_intent_without_action resets on real file edits (Write/Edit)", () => {

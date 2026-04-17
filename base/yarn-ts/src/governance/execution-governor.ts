@@ -633,18 +633,12 @@ function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
  * Returns the max consecutive streak of intent-only assistant messages.
  */
 function countVerbalIntentStreak(messages: GovernorInputMessage[], events: CommandEvent[]): number {
-  // Only real file edits and task lifecycle mutations reset the streak.
-  // Bash commands (mkdir, etc.), reads, and searches do NOT count as progress.
-  const hasRealEditOrTaskAction = events.some((e) =>
-    e.command.startsWith("edit:") || e.command === "edit"
-    || e.command.startsWith("write:") || e.command === "write"
-    || e.command.startsWith("filewrite:") || e.command === "filewrite"
-    || e.command.startsWith("applypatch:") || e.command === "applypatch"
-    || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
-    || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
-    || e.command.startsWith("todowrite:") || e.command === "todowrite",
-  );
-  if (hasRealEditOrTaskAction) return 0;
+  // Edits, task actions, AND any tool execution (bash, verification) reset the streak.
+  // This rule targets "model narrates intent without calling ANY tools." If the model
+  // IS calling tools (even bash ls/grep), it's not purely verbal — let no_progress_loop
+  // handle unproductive tool loops instead.
+  const hasAnyToolAction = events.length > 0;
+  if (hasAnyToolAction) return 0;
 
   let streak = 0;
   for (const m of messages) {
@@ -1739,7 +1733,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "no_progress_loop",
       suggestedNextStep:
-        `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling between exploration and verification."} STOP. If builds pass and features work, the task is DONE — update the plan or task status. If something needs changing, make exactly ONE code edit now, then verify once.`,
+        `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling through the same discovery commands. You already have the information you need from prior reads and tool results."} STOP looping and take ONE action: (1) SUMMARIZE your findings to the user — list what is implemented and what is missing, (2) make exactly ONE code edit if something needs changing, or (3) run ONE test command if you need verification. Do NOT re-list directories or re-search patterns you already checked.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -2152,9 +2146,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Do NOT run another verification command. The build passes. The code is correct. Act on that knowledge.";
       break;
     case "no_progress_loop":
-      step1 = "STOP cycling between builds, tests, reads, and searches. You have made ZERO code edits across many commands.";
-      step2 = "If builds/tests pass and features work, the task is DONE. Update the plan file or call TaskUpdate/TodoWrite NOW.";
-      step3 = "If something still needs changing, make exactly ONE targeted code edit (Write/Edit), verify once, then report.";
+      step1 = "STOP cycling. You have run many commands (ls, grep, reads, tests) without code edits. You already have the information you need from prior tool results.";
+      step2 = "SUMMARIZE your findings NOW: tell the user which features are implemented and which are missing. Or if a task is done, update the plan/task status.";
+      step3 = "Do NOT re-list directories, re-search patterns, or re-read files you already have. If something needs changing, make exactly ONE code edit.";
       break;
     case "verbal_intent_without_action":
       step1 = "STOP declaring intent. You have said 'I'll...' or 'Let me...' multiple times without acting. Do NOT output another plan or narration.";
