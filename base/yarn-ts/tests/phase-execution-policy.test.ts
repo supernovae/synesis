@@ -68,6 +68,21 @@ describe("phase execution policy", () => {
     expect(policy.reason).toBe("verify_phase_fix_required_action");
   });
 
+  it("forces edit/write tools when source file stale reread is detected", () => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: "qwen3-coder",
+      enabledFamilies: ["qwen3-coder"],
+      phase: "edit",
+      matchedRules: ["source_file_stale_reread", "exploration_stall_no_edit"],
+      stream: false,
+    });
+    expect(policy.active).toBe(true);
+    expect(policy.toolChoice).toBe("required");
+    expect(policy.allowedCanonicalTools).toEqual(["Edit", "Write", "Update"]);
+    expect(policy.reason).toBe("stale_source_required_action");
+  });
+
   it("keeps Read available during fix-required mode for context refresh", () => {
     const policy = derivePhaseExecutionPolicy({
       enabled: true,

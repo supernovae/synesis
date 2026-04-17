@@ -46,30 +46,37 @@ export function derivePhaseExecutionPolicy(input: PhaseExecutionPolicyInput): Ph
   }
 
   const matched = new Set(input.matchedRules);
-  const forceVerifyAction = input.phase === "verify"
+  const sourceStaleRereadFixRequired = matched.has("source_file_stale_reread");
+  const forceVerifyAction = sourceStaleRereadFixRequired
+    || input.phase === "verify"
     || matched.has("verification_intent_without_action")
     || matched.has("verification_same_failure_signature_replay")
     || matched.has("verification_fail_repeat_block")
     || matched.has("verification_churn_no_edit")
     || matched.has("verification_stall_no_edit");
   if (!forceVerifyAction) return { active: false };
-  const verifyFixRequired = matched.has("verification_churn_no_edit")
+  const verifyFixRequired = sourceStaleRereadFixRequired
+    || matched.has("verification_churn_no_edit")
     || matched.has("verification_stall_no_edit")
     || matched.has("verification_fail_repeat_block")
     || matched.has("verification_same_failure_signature_replay");
-  const allowedCanonicalTools = verifyFixRequired
-    ? ["Read", "Edit", "Write", "Update"]
-    : ["Bash"];
+  const allowedCanonicalTools = sourceStaleRereadFixRequired
+    ? ["Edit", "Write", "Update"]
+    : (verifyFixRequired ? ["Read", "Edit", "Write", "Update"] : ["Bash"]);
 
   return {
     active: true,
     reason: input.stream
-      ? (verifyFixRequired
+      ? (sourceStaleRereadFixRequired
+        ? "stale_source_required_non_stream_kickoff"
+        : (verifyFixRequired
         ? "verify_phase_fix_non_stream_kickoff"
-        : (input.phase === "verify" ? "verify_phase_non_stream_kickoff" : "verification_intent_non_stream_kickoff"))
-      : (verifyFixRequired
+        : (input.phase === "verify" ? "verify_phase_non_stream_kickoff" : "verification_intent_non_stream_kickoff")))
+      : (sourceStaleRereadFixRequired
+        ? "stale_source_required_action"
+        : (verifyFixRequired
         ? "verify_phase_fix_required_action"
-        : (input.phase === "verify" ? "verify_phase_required_action" : "verification_intent_required_action")),
+        : (input.phase === "verify" ? "verify_phase_required_action" : "verification_intent_required_action"))),
     toolChoice: "required",
     allowedCanonicalTools,
     enforceNonStreaming: input.stream,

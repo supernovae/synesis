@@ -346,6 +346,7 @@ function applyExecutionGovernorToolRestrictions(
   const explorationStall = matchedRules?.some((r) =>
     r === "exploration_stall_no_edit"
     || r === "no_progress_loop"
+    || r === "source_file_stale_reread"
     || r === "verbal_intent_without_action"
     || r === "verification_intent_without_action"
     || r === "finalize_action_required"
