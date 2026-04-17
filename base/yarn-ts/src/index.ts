@@ -81,7 +81,7 @@ import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
-import { FileSnapshotRegistry } from "./reduction/file-snapshot-registry.js";
+import { FileSnapshotRegistry, parseReadSnapshotEnvelope } from "./reduction/file-snapshot-registry.js";
 import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normalizer.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
@@ -1291,6 +1291,7 @@ function extractRecentToolResultText(messages: Array<{ role: string; content: un
 type ToolExecutionFailureObservation = {
   toolName: string;
   toolCallId: string;
+  filePath?: string;
   reason: string;
   snippet: string;
 };
@@ -1308,7 +1309,7 @@ const TOOL_FAILURE_PATTERNS: Array<{ reason: string; re: RegExp }> = [
 function collectToolExecutionFailureObservations(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
 ): ToolExecutionFailureObservation[] {
-  const toolNameById = new Map<string, string>();
+  const toolMetaById = new Map<string, { toolName: string; filePath?: string }>();
   for (const message of messages) {
     if (message.role !== "assistant") continue;
     const row = message as Record<string, unknown>;
@@ -1319,7 +1320,8 @@ function collectToolExecutionFailureObservations(
       const id = typeof call.id === "string" ? call.id.trim() : "";
       const fn = call.function && typeof call.function === "object" ? call.function as Record<string, unknown> : null;
       const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
-      if (id && name) toolNameById.set(id, name);
+      const filePath = readFilePathFromToolCallArgs(typeof fn?.arguments === "string" ? fn.arguments : "");
+      if (id && name) toolMetaById.set(id, { toolName: name, filePath });
     }
     const parts = Array.isArray(row.content) ? row.content : [];
     for (const part of parts) {
@@ -1328,7 +1330,8 @@ function collectToolExecutionFailureObservations(
       if (p.type !== "tool_use") continue;
       const id = typeof p.id === "string" ? p.id.trim() : "";
       const name = typeof p.name === "string" ? p.name.trim() : "";
-      if (id && name) toolNameById.set(id, name);
+      const filePath = readFilePathFromUnknownInput(p.input);
+      if (id && name) toolMetaById.set(id, { toolName: name, filePath });
     }
   }
 
@@ -1342,7 +1345,8 @@ function collectToolExecutionFailureObservations(
     if (!rawText) continue;
 
     const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
-    const mappedName = toolCallId ? (toolNameById.get(toolCallId) ?? "") : "";
+    const mappedMeta = toolCallId ? (toolMetaById.get(toolCallId) ?? null) : null;
+    const mappedName = mappedMeta?.toolName ?? "";
     const toolName = (typeof message.name === "string" ? message.name : mappedName).trim() || "unknown_tool";
     const lower = rawText.toLowerCase();
     let reason = "";
@@ -1361,10 +1365,215 @@ function collectToolExecutionFailureObservations(
     const key = `${toolName}|${toolCallId}|${reason}|${snippet}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    observations.push({ toolName, toolCallId, reason, snippet });
+    observations.push({ toolName, toolCallId, filePath: mappedMeta?.filePath, reason, snippet });
     if (observations.length >= 3) break;
   }
   return observations;
+}
+
+type EditContextMissGuardState = {
+  active: boolean;
+  filePath: string;
+  missCount: number;
+};
+
+function deriveEditContextMissGuardState(
+  messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+): EditContextMissGuardState | null {
+  const toolMetaById = buildToolCallMetaById(messages);
+  const states = new Map<string, { filePath: string; misses: number; lastReadIdx: number; lastMissIdx: number }>();
+  let selected: { filePath: string; misses: number; lastMissIdx: number } | null = null;
+
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.role !== "tool" && message.role !== "tool_result") continue;
+    const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
+    const meta = toolCallId ? toolMetaById.get(toolCallId) : undefined;
+    const explicitToolName = typeof message.name === "string" ? message.name.trim() : "";
+    const toolName = (explicitToolName || meta?.toolName || "").toLowerCase();
+    const filePath = canonicalizeToolPath(meta?.filePath ?? "");
+    if (!toolName || !filePath) continue;
+
+    const chunks = collectToolResultTextChunks(message.content);
+    if (chunks.length === 0) continue;
+    const rawText = chunks.join("\n").trim();
+    if (!rawText) continue;
+
+    if (isReadToolName(toolName) && isResolvableReadResult(message.content, rawText)) {
+      const prev = states.get(filePath);
+      states.set(filePath, {
+        filePath,
+        misses: 0,
+        lastReadIdx: i,
+        lastMissIdx: prev?.lastMissIdx ?? -1,
+      });
+      continue;
+    }
+
+    if (!isWriteCapableToolName(toolName) || !isEditContextMissText(rawText)) continue;
+    const prev = states.get(filePath);
+    const nextMisses = prev ? prev.misses + 1 : 1;
+    const nextState = {
+      filePath,
+      misses: nextMisses,
+      lastReadIdx: prev?.lastReadIdx ?? -1,
+      lastMissIdx: i,
+    };
+    states.set(filePath, nextState);
+    if (nextState.misses >= 2 && nextState.lastMissIdx > nextState.lastReadIdx) {
+      if (!selected || nextState.lastMissIdx >= selected.lastMissIdx) {
+        selected = {
+          filePath: nextState.filePath,
+          misses: nextState.misses,
+          lastMissIdx: nextState.lastMissIdx,
+        };
+      }
+    }
+  }
+
+  if (!selected) return null;
+  return {
+    active: true,
+    filePath: selected.filePath,
+    missCount: selected.misses,
+  };
+}
+
+function applyEditContextMissReadGate(
+  tools: unknown[] | undefined,
+): { tools: unknown[] | undefined; removed: string[]; forcedReadToolName?: string } {
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return { tools, removed: [] };
+  }
+  const removed: string[] = [];
+  const filtered = tools.filter((tool) => {
+    if (!tool || typeof tool !== "object") return true;
+    const row = tool as Record<string, unknown>;
+    const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
+    const rawName = (typeof row.name === "string" ? row.name : "")
+      || (nested && typeof nested.name === "string" ? nested.name : "");
+    const name = rawName.trim();
+    if (!name) return true;
+    const lowered = name.toLowerCase();
+    if (isWriteCapableToolName(lowered)) {
+      removed.push(name);
+      return false;
+    }
+    return true;
+  });
+  const forcedReadToolName = findPreferredReadToolName(filtered);
+  return {
+    tools: filtered,
+    removed,
+    forcedReadToolName,
+  };
+}
+
+function buildEditContextMissGuardPrompt(filePath: string, missCount: number): string {
+  return [
+    `EDIT RECOVERY REQUIRED: ${missCount} consecutive edit-context misses were detected for \`${filePath}\`.`,
+    "Before any Edit/Write/Patch tool call, issue exactly one Read tool call for this same file path to refresh anchors.",
+    "Use that fresh content to prepare a new exact anchor, then apply one focused edit.",
+    "Do not repeat the same old_string/anchor without a fresh read.",
+  ].join("\n");
+}
+
+function buildToolCallMetaById(
+  messages: Array<{ role: string; content: unknown; tool_calls?: unknown }>,
+): Map<string, { toolName: string; filePath?: string }> {
+  const out = new Map<string, { toolName: string; filePath?: string }>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const row = message as Record<string, unknown>;
+    const toolCalls = Array.isArray(row.tool_calls) ? row.tool_calls : [];
+    for (const tc of toolCalls) {
+      if (!tc || typeof tc !== "object") continue;
+      const call = tc as Record<string, unknown>;
+      const id = typeof call.id === "string" ? call.id.trim() : "";
+      const fn = call.function && typeof call.function === "object" ? call.function as Record<string, unknown> : null;
+      const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
+      const filePath = readFilePathFromToolCallArgs(typeof fn?.arguments === "string" ? fn.arguments : "");
+      if (id && name) out.set(id, { toolName: name, filePath });
+    }
+    const parts = Array.isArray(row.content) ? row.content : [];
+    for (const part of parts) {
+      if (!part || typeof part !== "object") continue;
+      const p = part as Record<string, unknown>;
+      if (p.type !== "tool_use") continue;
+      const id = typeof p.id === "string" ? p.id.trim() : "";
+      const name = typeof p.name === "string" ? p.name.trim() : "";
+      const filePath = readFilePathFromUnknownInput(p.input);
+      if (id && name) out.set(id, { toolName: name, filePath });
+    }
+  }
+  return out;
+}
+
+function readFilePathFromToolCallArgs(rawArgs: string): string | undefined {
+  if (!rawArgs) return undefined;
+  try {
+    const parsed = JSON.parse(rawArgs) as Record<string, unknown>;
+    return readFilePathFromUnknownInput(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+function readFilePathFromUnknownInput(input: unknown): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const row = input as Record<string, unknown>;
+  for (const key of ["file_path", "filePath", "path", "file"]) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function canonicalizeToolPath(rawPath: string): string {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return "";
+  return trimmed.replace(/\\/g, "/");
+}
+
+function isEditContextMissText(rawText: string): boolean {
+  for (const candidate of TOOL_FAILURE_PATTERNS) {
+    if (candidate.reason !== "edit_context_miss") continue;
+    if (candidate.re.test(rawText)) return true;
+  }
+  return false;
+}
+
+function isReadToolName(toolName: string): boolean {
+  const lowered = toolName.trim().toLowerCase();
+  return lowered === "read" || lowered === "read_file" || lowered === "readfile" || lowered === "file_read";
+}
+
+function isResolvableReadResult(content: unknown, rawText: string): boolean {
+  const direct = typeof content === "string" ? content.trim() : "";
+  if (direct.startsWith("{")) {
+    const envelope = parseReadSnapshotEnvelope(direct);
+    if (envelope) {
+      return envelope.status === "ok/full_content"
+        || envelope.status === "ok/replayed_snapshot"
+        || envelope.status === "ok/unchanged_snapshot_still_visible";
+    }
+  }
+  if (/unchanged since last read/i.test(rawText)) return false;
+  return rawText.length > 0;
+}
+
+function findPreferredReadToolName(tools: unknown[]): string | undefined {
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object") continue;
+    const row = tool as Record<string, unknown>;
+    const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
+    const rawName = (typeof row.name === "string" ? row.name : "")
+      || (nested && typeof nested.name === "string" ? nested.name : "");
+    const name = rawName.trim();
+    if (!name) continue;
+    if (isReadToolName(name)) return name;
+  }
+  return undefined;
 }
 
 function collectToolResultTextChunks(value: unknown, depth = 0, out: string[] = []): string[] {
@@ -5588,6 +5797,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiToolFailures = collectToolExecutionFailureObservations(
     normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
   );
+  const oaiEditMissGuard = deriveEditContextMissGuardState(
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
   const oaiLatestToolProgress = classifyLatestToolProgress(
     normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
   );
@@ -5603,8 +5815,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
       {
         toolName: failure.toolName,
         toolCallId: failure.toolCallId || null,
+        filePath: failure.filePath || null,
         reason: failure.reason,
         snippet: failure.snippet,
+      },
+    );
+  }
+  if (oaiEditMissGuard?.active) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "edit_context_miss_guard_active",
+      "tool-result-monitor",
+      `forcing_read_before_edit file=${oaiEditMissGuard.filePath} misses=${oaiEditMissGuard.missCount}`,
+      oaiTraceReqId,
+      {
+        filePath: oaiEditMissGuard.filePath,
+        missCount: oaiEditMissGuard.missCount,
       },
     );
   }
@@ -6257,8 +6485,32 @@ app.post("/v1/chat/completions", async (req, reply) => {
   });
   const oaiPhaseFiltered = filterToolsByPhasePolicy(effectiveTools as unknown[], oaiPhasePolicy);
   effectiveTools = oaiPhaseFiltered.tools;
-  const sdkTools = openAIToolsToSDK(effectiveTools as never);
   let effectiveToolChoice = resolvePhaseToolChoice(clientToolChoice as PhaseAwareToolChoice | undefined, oaiPhasePolicy);
+  if (oaiEditMissGuard?.active && !oaiPhasePolicy.active) {
+    const gated = applyEditContextMissReadGate(effectiveTools as unknown[]);
+    effectiveTools = gated.tools ?? effectiveTools;
+    if (gated.removed.length > 0) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "edit_context_miss_guard_enforced",
+        "execution-governor",
+        `removed_write_tools=${gated.removed.length} file=${oaiEditMissGuard.filePath}`,
+        reqId,
+        {
+          filePath: oaiEditMissGuard.filePath,
+          missCount: oaiEditMissGuard.missCount,
+          removed_tools: gated.removed,
+          forced_read_tool: gated.forcedReadToolName ?? null,
+        },
+      );
+    }
+    if (gated.forcedReadToolName) {
+      effectiveToolChoice = { type: "tool", toolName: gated.forcedReadToolName };
+    }
+  }
+  const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const oaiForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
     enabled: oaiPhasePolicy.active,
     source: clientToolChoice !== undefined ? "client" : (effectiveToolChoice !== undefined ? "phase_policy" : "none"),
@@ -6292,6 +6544,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     : messages;
   if (policyPrecheck.pivotPrompt) {
     modelMessages = [...modelMessages, { role: "system" as const, content: policyPrecheck.pivotPrompt }] as typeof modelMessages;
+  }
+  if (oaiEditMissGuard?.active) {
+    modelMessages = [
+      ...modelMessages,
+      { role: "system" as const, content: buildEditContextMissGuardPrompt(oaiEditMissGuard.filePath, oaiEditMissGuard.missCount) },
+    ] as typeof modelMessages;
   }
 
   // Adapter-specific early pivot and same-tool dampening (fires after generic governance).
@@ -7901,6 +8159,9 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeToolFailures = collectToolExecutionFailureObservations(
     normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
   );
+  const claudeEditMissGuard = deriveEditContextMissGuardState(
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
   const claudeLatestToolProgress = classifyLatestToolProgress(
     normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
   );
@@ -7916,8 +8177,24 @@ app.post("/v1/messages", async (req, reply) => {
       {
         toolName: failure.toolName,
         toolCallId: failure.toolCallId || null,
+        filePath: failure.filePath || null,
         reason: failure.reason,
         snippet: failure.snippet,
+      },
+    );
+  }
+  if (claudeEditMissGuard?.active) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "edit_context_miss_guard_active",
+      "tool-result-monitor",
+      `forcing_read_before_edit file=${claudeEditMissGuard.filePath} misses=${claudeEditMissGuard.missCount}`,
+      traceReqId,
+      {
+        filePath: claudeEditMissGuard.filePath,
+        missCount: claudeEditMissGuard.missCount,
       },
     );
   }
@@ -8599,6 +8876,12 @@ app.post("/v1/messages", async (req, reply) => {
   if (claudePolicyPrecheck.pivotPrompt) {
     claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: claudePolicyPrecheck.pivotPrompt }] as typeof claudeModelMessages;
   }
+  if (claudeEditMissGuard?.active) {
+    claudeModelMessages = [
+      ...claudeModelMessages,
+      { role: "system" as const, content: buildEditContextMissGuardPrompt(claudeEditMissGuard.filePath, claudeEditMissGuard.missCount) },
+    ] as typeof claudeModelMessages;
+  }
 
   // Adapter-specific early pivot and same-tool dampening (Claude path).
   // Skip when the execution governor already injected a recovery block.
@@ -8692,11 +8975,35 @@ app.post("/v1/messages", async (req, reply) => {
   });
   const claudePhaseFiltered = filterToolsByPhasePolicy(effectiveClaudeTools as unknown[], claudePhasePolicy);
   effectiveClaudeTools = claudePhaseFiltered.tools;
-  const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
   let effectiveClaudeToolChoice = resolvePhaseToolChoice(
     clientClaudeToolChoice as PhaseAwareToolChoice | undefined,
     claudePhasePolicy,
   );
+  if (claudeEditMissGuard?.active && !claudePhasePolicy.active) {
+    const gated = applyEditContextMissReadGate(effectiveClaudeTools as unknown[]);
+    effectiveClaudeTools = gated.tools ?? effectiveClaudeTools;
+    if (gated.removed.length > 0) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "edit_context_miss_guard_enforced",
+        "execution-governor",
+        `removed_write_tools=${gated.removed.length} file=${claudeEditMissGuard.filePath}`,
+        traceReqId,
+        {
+          filePath: claudeEditMissGuard.filePath,
+          missCount: claudeEditMissGuard.missCount,
+          removed_tools: gated.removed,
+          forced_read_tool: gated.forcedReadToolName ?? null,
+        },
+      );
+    }
+    if (gated.forcedReadToolName) {
+      effectiveClaudeToolChoice = { type: "tool", toolName: gated.forcedReadToolName };
+    }
+  }
+  const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
   const claudeForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
     enabled: claudePhasePolicy.active,
     source: clientClaudeToolChoice !== undefined ? "client" : (effectiveClaudeToolChoice !== undefined ? "phase_policy" : "none"),

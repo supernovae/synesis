@@ -532,11 +532,14 @@ function extractEditedFileHints(events: CommandEvent[]): string[] {
   const hints = new Set<string>();
   for (const e of events) {
     const c = normalizeString(e.command);
-    if (!c.startsWith("edit:")) continue;
-    const file = c.slice("edit:".length).trim();
-    if (!file) continue;
-    hints.add(file);
-    if (hints.size >= 20) break;
+    if (c.startsWith("edit:") || c.startsWith("update:") || c.startsWith("write:")) {
+      const prefixLen = c.indexOf(":") + 1;
+      const file = c.slice(prefixLen).trim();
+      if (file) {
+        hints.add(file);
+        if (hints.size >= 20) break;
+      }
+    }
   }
   return [...hints];
 }

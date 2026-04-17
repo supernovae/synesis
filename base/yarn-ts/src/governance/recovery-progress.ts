@@ -19,6 +19,8 @@ const EDIT_CONTEXT_MISS_PATTERNS: RegExp[] = [
   /\bold[_\s-]?string\b.*\bnot found\b/i,
   /\bnot found in file\b/i,
   /\bexactly once\b/i,
+  /file has not been read yet/i,
+  /read it first before writing/i,
 ];
 
 const GENERIC_FAILURE_PATTERN = /\b(error|failed|invalid|permission denied|operation not permitted)\b/i;
