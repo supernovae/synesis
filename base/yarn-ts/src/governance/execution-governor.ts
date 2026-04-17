@@ -30,6 +30,7 @@ export interface ExecutionGovernorDecision {
     trailingExplorationRunLength?: number;
     trailingProductiveCount?: number;
     hasPlanInContext?: boolean;
+    hasPlanEdit?: boolean;
     planReadCount?: number;
     planCachedRereadCount?: number;
   };
@@ -1245,7 +1246,11 @@ export function evaluateExecutionGovernor(
   let hasPlanEdit = false;
   for (const e of events) {
     const c = e.command;
-    if (c.startsWith("edit:") && c.includes("/.claude/plans/")) { hasPlanEdit = true; continue; }
+    const isPlanPath = c.includes("/.claude/plans/") || c.includes("/plan") || c.includes("plan.md");
+    if ((c.startsWith("edit:") || c.startsWith("write:") || c.startsWith("filewrite:")
+      || c.startsWith("todowrite:") || c.startsWith("taskcreate:")) && isPlanPath) {
+      hasPlanEdit = true; continue;
+    }
     if (c.startsWith("read:") && c.includes("/.claude/plans/")) {
       planReadCount += 1;
       const sig = e.resultSignature;
@@ -1515,6 +1520,7 @@ export function evaluateExecutionGovernor(
         trailingVerificationRunLength,
         trailingExplorationRunLength,
         hasPlanInContext,
+        hasPlanEdit,
       },
     };
   }
@@ -1717,6 +1723,7 @@ export function evaluateExecutionGovernor(
         trailingVerificationRunLength,
         trailingExplorationRunLength,
         hasPlanInContext,
+        hasPlanEdit,
         planReadCount,
         planCachedRereadCount,
       },
@@ -1742,6 +1749,7 @@ export function evaluateExecutionGovernor(
         trailingVerificationRunLength,
         trailingExplorationRunLength,
         hasPlanInContext,
+        hasPlanEdit,
         planReadCount,
         planCachedRereadCount,
       },
@@ -1749,11 +1757,13 @@ export function evaluateExecutionGovernor(
   }
 
   if (matchedRules.includes("no_progress_loop")) {
+    const planJustWritten = hasPlanEdit;
     return {
       pause: true,
       reason: "no_progress_loop",
-      suggestedNextStep:
-        `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling through the same discovery commands. You already have the information you need from prior reads and tool results."} STOP looping. Your ONLY options: (1) Present your summary to the user and END your turn — do NOT call any more tools after your summary text, (2) make exactly ONE code edit if something needs changing. Do NOT re-read files, re-list directories, or re-search after summarizing. If you have already summarized, propose next steps and STOP.`,
+      suggestedNextStep: planJustWritten
+        ? "You just created/updated a plan. STOP verifying and re-scanning. Present the plan to the user NOW as a TEXT summary (no tool calls) and ask which item to work on next. Do NOT re-read files or re-search — you already have all the information. END your turn after presenting the plan."
+        : `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling through the same discovery commands. You already have the information you need from prior reads and tool results."} STOP looping. Your ONLY options: (1) Present your summary to the user and END your turn — do NOT call any more tools after your summary text, (2) make exactly ONE code edit if something needs changing. Do NOT re-read files, re-list directories, or re-search after summarizing. If you have already summarized, propose next steps and STOP.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -1767,6 +1777,7 @@ export function evaluateExecutionGovernor(
         trailingExplorationRunLength,
         trailingProductiveCount,
         hasPlanInContext,
+        hasPlanEdit,
       },
     };
   }
@@ -1870,6 +1881,7 @@ export function evaluateExecutionGovernor(
         trailingVerificationRunLength,
         trailingExplorationRunLength,
         hasPlanInContext,
+        hasPlanEdit,
       },
     };
   }
@@ -1893,6 +1905,7 @@ export function evaluateExecutionGovernor(
         trailingVerificationRunLength,
         trailingExplorationRunLength,
         hasPlanInContext,
+        hasPlanEdit,
       },
     };
   }
@@ -1901,8 +1914,9 @@ export function evaluateExecutionGovernor(
     return {
       pause: true,
       reason: "exploration_stall_no_edit",
-      suggestedNextStep:
-        `You have run ${trailingExplorationRunLength} search/read/list commands without making any code edits${hasPlanInContext ? " (a plan file is loaded)" : ""}. Stop exploring.${hasPlanInContext ? " Trust the plan's status markers — do NOT re-verify items marked complete." : ""} Identify one concrete task to work on, make one code edit (Write/Edit), then run one narrow verification.`,
+      suggestedNextStep: hasPlanEdit
+        ? "You just created/updated a plan. STOP scanning. Present the plan to the user NOW as TEXT (no tool calls) and ask which item to work on next. Do NOT re-read or re-search. END your turn after presenting."
+        : `You have run ${trailingExplorationRunLength} search/read/list commands without making any code edits${hasPlanInContext ? " (a plan file is loaded)" : ""}. Stop exploring.${hasPlanInContext ? " Trust the plan's status markers — do NOT re-verify items marked complete." : ""} Identify one concrete task to work on, make one code edit (Write/Edit), then run one narrow verification.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -1915,6 +1929,7 @@ export function evaluateExecutionGovernor(
         trailingVerificationRunLength,
         trailingExplorationRunLength,
         hasPlanInContext,
+        hasPlanEdit,
       },
     };
   }
@@ -2119,6 +2134,7 @@ export function evaluateExecutionGovernor(
         trailingVerificationRunLength,
         trailingExplorationRunLength,
         hasPlanInContext,
+        hasPlanEdit,
       },
     };
   }
@@ -2139,6 +2155,7 @@ export function evaluateExecutionGovernor(
       trailingVerificationRunLength,
       trailingExplorationRunLength,
       hasPlanInContext,
+      hasPlanEdit,
     },
   };
 }
@@ -2166,9 +2183,15 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Do NOT run another verification command. The build passes. The code is correct. Act on that knowledge.";
       break;
     case "no_progress_loop":
-      step1 = "STOP cycling. You have run many commands without code edits. You already have ALL the information you need from prior tool results — do NOT call any more read/search/list tools.";
-      step2 = "Present your findings to the user as a TEXT response (no tool calls). List what is done, what is missing, and propose next steps. Then END your turn — do NOT continue with more tool calls after the summary.";
-      step3 = "If you already produced a summary, STOP. Do NOT re-verify or re-read. Ask the user what to work on next, or pick ONE missing item and make exactly ONE code edit.";
+      if (decision.telemetry.hasPlanEdit) {
+        step1 = "You just created or updated a plan file. The plan is DONE — do NOT re-verify its contents by scanning the codebase again.";
+        step2 = "Present the plan to the user as TEXT (no tool calls): list what is implemented, what is missing, and proposed next steps. Use an interactive choice tool (AskFollowupQuestion) if available.";
+        step3 = "END your turn after presenting. Do NOT re-read files, re-search, or re-list directories. Wait for the user to choose what to work on.";
+      } else {
+        step1 = "STOP cycling. You have run many commands without code edits. You already have ALL the information you need from prior tool results — do NOT call any more read/search/list tools.";
+        step2 = "Present your findings to the user as a TEXT response (no tool calls). List what is done, what is missing, and propose next steps. Then END your turn — do NOT continue with more tool calls after the summary.";
+        step3 = "If you already produced a summary, STOP. Do NOT re-verify or re-read. Ask the user what to work on next, or pick ONE missing item and make exactly ONE code edit.";
+      }
       break;
     case "verbal_intent_without_action":
       step1 = "STOP declaring intent. You have said 'I'll...' or 'Let me...' multiple times without acting. Do NOT output another plan or narration.";
@@ -2201,9 +2224,15 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Do not run another broad build/test command until that edit is applied.";
       break;
     case "exploration_stall_no_edit":
-      step1 = "STOP searching, reading, and listing files. You have been exploring without making any edits. Do NOT call any more read/search/list tools.";
-      step2 = "If you already have a picture of what exists and what is missing, present it to the user as TEXT (no tool calls) and END your turn. If a plan file was loaded, trust its status markers.";
-      step3 = "If you know what to build, pick ONE missing item and make exactly ONE code edit. Do NOT re-verify what you already checked.";
+      if (decision.telemetry.hasPlanEdit) {
+        step1 = "You just created or updated a plan. STOP exploring — the scan is complete.";
+        step2 = "Present the plan summary to the user as TEXT (no tool calls). Use an interactive choice tool (AskFollowupQuestion) if available to let them pick the next task.";
+        step3 = "END your turn. Do NOT re-read, re-search, or re-list anything.";
+      } else {
+        step1 = "STOP searching, reading, and listing files. You have been exploring without making any edits. Do NOT call any more read/search/list tools.";
+        step2 = "If you already have a picture of what exists and what is missing, present it to the user as TEXT (no tool calls) and END your turn. If a plan file was loaded, trust its status markers.";
+        step3 = "If you know what to build, pick ONE missing item and make exactly ONE code edit. Do NOT re-verify what you already checked.";
+      }
       break;
     case "no_test_files_repeat":
       step1 = "STOP running the test command. '[no test files]' or similar means there are NO tests in that package/directory yet — re-running produces the same result.";
