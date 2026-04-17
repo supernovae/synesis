@@ -213,8 +213,12 @@ describe("execution governor", () => {
   it("pauses completion claims when tasks are not marked done", () => {
     const messages = [
       { role: "assistant", content: "I've completed the clipboard support implementation." },
-      assistantCall("1", "TaskCreate", { title: "Implement Clipboard Support" }),
-      toolResult("1", "task created"),
+      assistantCall("1", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("1", "file content"),
+      assistantCall("2", "grep", { pattern: "clipboard" }),
+      toolResult("2", "match found"),
+      assistantCall("3", "TaskCreate", { title: "Implement Clipboard Support" }),
+      toolResult("3", "task created"),
     ];
     const out = evaluateExecutionGovernor(messages as never);
     expect(out.pause).toBe(true);
@@ -2117,6 +2121,23 @@ describe("phase-aware rule gating", () => {
     // Should NOT be report — the user redirected to new work after the claim
     expect(out.telemetry.phase).not.toBe("report");
     expect(out.telemetry.phase).toBe("edit");
+  });
+
+  it("first-response completion claim from context summary does not lock to report phase", () => {
+    // When the model's very first response references prior context ("Based on the summary,
+    // X is complete") the governor should NOT lock into report phase. With fewer than 3
+    // events, the model is still orienting — it needs exploration tools.
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "scan the codebase and confirm all features are implemented" },
+      { role: "assistant", content: "Based on the previous conversation summary, the completion implementation is complete. Let me verify by reading the files." },
+      assistantCall("r1", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("r1", "main content"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    // Should NOT be report — only 1 event, the model is still orienting
+    expect(out.telemetry.phase).not.toBe("report");
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(out.pause).toBe(false);
   });
 
   // ── Regression fixes ────────────────────────────────────────────────────────

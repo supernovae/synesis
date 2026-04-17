@@ -166,7 +166,11 @@ export function detectSessionPhase(
   }
 
   // Report: completion claim with no subsequent edit pushes to report (fallback when no green verify seen).
-  if (phase !== "finalize" && hasCompletionClaim && !sawVerificationFailure && (phase !== "edit" || !sawVerificationSuccess)) {
+  // Require at least 3 events before allowing report phase. On fresh turns, the model's
+  // first response often references prior context summary ("X is complete") — that's
+  // orientation, not a real completion claim. Locking to report on the first response
+  // traps the model by blocking exploration tools.
+  if (phase !== "finalize" && hasCompletionClaim && !sawVerificationFailure && (phase !== "edit" || !sawVerificationSuccess) && events.length >= 3) {
     const lastEventIdx = events.length - 1;
     const lastCmd = events[lastEventIdx].command;
     const lastIsEdit = lastCmd.startsWith("edit:") || lastCmd === "edit"
@@ -597,7 +601,7 @@ function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
     if ((m.role === "tool" || m.role === "tool_result") && m.tool_call_id) {
       const toolName = toolNameById.get(normalizeString(m.tool_call_id));
       if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
-        const content = typeof m.content === "string" ? m.content : "";
+        const content = contentToText(m.content);
         if (content.trim()) { latestUserIdx = i; break; }
       }
     }
@@ -1347,7 +1351,7 @@ export function evaluateExecutionGovernor(
   if (hasAnyClaim) {
     let lastClaimIdx = -1;
     for (let i = turnMessages.length - 1; i >= 0; i -= 1) {
-      if (turnMessages[i].role === "assistant" && typeof turnMessages[i].content === "string") {
+      if (turnMessages[i].role === "assistant") {
         if (hasCompletionClaimInAssistantText([turnMessages[i]])) {
           lastClaimIdx = i;
           break;
@@ -1410,7 +1414,11 @@ export function evaluateExecutionGovernor(
   if (repeatedTaskCreateReplay >= 1) pushRule("task_creation_replay");
   if (!isInvestigationOnly && declarationFollowthroughViolation) pushRule("declaration_followthrough_required");
   if (!isInvestigationOnly && repeatedAskUserPrompts >= 1 && effectiveNoEditEvidence) pushRule("repeat_user_prompt_loop");
-  if (completionClaimNeedsTaskUpdate) pushRule("completion_claim_requires_task_update");
+  // Require at least 3 events before firing completion-claim rules. On fresh turns, the
+  // model's first response often references prior context ("based on the summary, X is
+  // complete") — that's orientation, not an actionable completion claim. Locking to report
+  // phase on the first response blocks all exploration tools and traps the model.
+  if (completionClaimNeedsTaskUpdate && events.length >= 3) pushRule("completion_claim_requires_task_update");
   if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence) {
     pushRule("verification_after_completion_claim");
   }
