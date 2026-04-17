@@ -8741,17 +8741,6 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
 
-  // Server-side tools are NOT supported in the Claude endpoint (no loop implemented)
-  // if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED && !body.stream) {
-  //   openAIShape.tools = artifactRetrieval.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
-  // }
-  // if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED && !body.stream) {
-  //   openAIShape.tools = knowledgeSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
-  // }
-  // if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED && !body.stream) {
-  //   openAIShape.tools = webSearch.injectToolOpenAI(openAIShape.tools as unknown[]) as never;
-  // }
-
   if (prefixOptimizer) {
     try {
       tierRegistry.setCurrentSessionKey(claudeSessionKey);
@@ -8807,16 +8796,6 @@ app.post("/v1/messages", async (req, reply) => {
   const { resolved, messages } = claudeResolveResult;
   const { adapter: claudeAdapter } = resolved;
   let claudeRawTools = (processedTools as unknown[]) ?? [];
-  // Server-side tools are NOT supported in the Claude endpoint (no loop implemented)
-  // if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED && !body.stream) {
-  //   claudeRawTools = artifactRetrieval.injectToolClaude(claudeRawTools) as never;
-  // }
-  // if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED && !body.stream) {
-  //   claudeRawTools = knowledgeSearch.injectToolClaude(claudeRawTools) as never;
-  // }
-  // if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED && !body.stream) {
-  //   claudeRawTools = webSearch.injectToolClaude(claudeRawTools) as never;
-  // }
 
   const claudeToolBudget = adjustToolSchemaBudgetForSession(
     resolveToolSchemaBudget(

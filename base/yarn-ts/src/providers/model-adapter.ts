@@ -205,6 +205,8 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have. Use explicit phase transitions (explore → edit → verify → report).",
       "- **Progressive narrowing + self-verification**: Each tool call must produce NEW information or make a change. After edits, immediately run relevant tests/verification. Include 'Done when: tests pass, behavior matches spec' criteria.",
       "- **File offset awareness**: When reading large files, use offset/limit parameters to read specific sections. Do not re-read from line 1 if you already have the beginning.",
+      "- **Parallel Tool Limits**: Do NOT emit multiple Edit/Update/Write tool calls for the same file in a single turn. The first edit will change the file and cause the subsequent edits to fail. Make one edit, wait for the result, then make the next.",
+      "- **Blind Writes**: Do NOT use the Write tool on a file without reading it first to verify its current state.",
       "- **Edit failures**: If an Edit/Update call fails, do NOT retry with identical arguments. Re-read the file to get current content, then adjust your old_string to match exactly.",
       "- **Git commit followthrough**: When staging files with git add, follow through with git commit in the same sequence. Do not loop on git status/diff between add and commit.",
       "- **Full verification output**: When running test/build commands, do not pipe output through head/tail. Capture full output so failures are visible.",

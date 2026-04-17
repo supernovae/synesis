@@ -142,6 +142,8 @@ export class ClientAdapterPacks {
       "phase_order=explore|contract|implement|verify_fast|verify_deep",
       "- Prefer search_code or synesis_inspect_repo to locate files/symbols, then read_file (optionally startLine/endLine) — avoid huge undirected reads.",
       "- Never edit a file before inspecting it. Search first unless the user already gave exact file and region.",
+      "- Do NOT emit multiple Edit/Update/Write tool calls for the same file in a single turn. Make one edit, wait for the result, then make the next.",
+      "- Do NOT use the Write tool on a file without reading it first to verify its current state.",
       "- Prefer str_replace for existing files; use write_file for new/generated files or when patching is infeasible after inspection.",
       "- For tests and other existing files, prefer Update/Edit-style targeted diffs; avoid full-file overwrite unless the user explicitly asked to replace the file.",
       "- When tests fail, fix implementation or expected assertions based on contract; do not delete or weaken failing tests just to make the suite pass.",
