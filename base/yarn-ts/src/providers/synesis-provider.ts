@@ -4,7 +4,12 @@ import type { TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
 import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
-import { createDashScopeCacheFetch } from "./dashscope-cache-interceptor.js";
+
+// DashScope explicit cache removed (Alibaba does not provide true KV/prefix caching like vLLM.
+// It capped reported cached_tokens at fixed marker sizes and interfered with self-hosted
+// vLLM KV reporting via broad hasNativeQwenToolParser and marker logic. We now rely on
+// implicit_prefix + full SDK usage reporting for accurate variable cached tokens (80-90%
+// expected on long runs with your vLLM + prefix caching + RAM).
 
 export interface DashScopeCacheOpts {
   enabled: boolean;
@@ -56,34 +61,22 @@ export class SynesisProviderRegistry {
   resolve(
     modelId: string,
     fallbackModelId: string,
-    dashScopeCache?: DashScopeCacheOpts,
+    // dashScopeCache param kept for backward compat in calls from index.ts but is now ignored.
+    // DashScope explicit cache path fully removed to allow clean vLLM KV/prefix cache reporting.
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const selected = this.tierMap.get(modelId) ?? this.tierMap.get(fallbackModelId);
     if (!selected) {
       throw new Error(`No tier config available for ${modelId} or fallback ${fallbackModelId}`);
     }
-    // Detect provider type for telemetry tagging
-    const providerTag = selected.baseUrl.toLowerCase().includes("dashscope") ? "dashscope"
-      : selected.baseUrl.toLowerCase().includes("openrouter") ? "openrouter"
+    // Detect provider type for telemetry tagging (vLLM detection preserved for accurate KV metrics)
+    const providerTag = selected.baseUrl.toLowerCase().includes("openrouter") ? "openrouter"
       : selected.baseUrl.toLowerCase().includes("localhost") || selected.baseUrl.toLowerCase().includes("vllm") ? "vllm"
       : "generic";
-
-    const useDashScopeExplicitCache = Boolean(
-      dashScopeCache?.enabled
-      && selected.baseUrl.toLowerCase().includes("dashscope"),
-    );
-    const dashScopeMarkerLookup =
-      this.prefixOptimizer && this.currentSessionKey
-        ? () => this.prefixOptimizer?.getMarkerIndicesForSession(this.currentSessionKey ?? "") ?? []
-        : undefined;
-    const baseFetch = useDashScopeExplicitCache
-      ? createDashScopeCacheFetch(globalThis.fetch, dashScopeCache?.maxMarkers ?? 3, dashScopeMarkerLookup)
-      : globalThis.fetch;
 
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
       apiKey: selected.apiKey,
-      fetch: createUsageTelemetryFetch(baseFetch, {
+      fetch: createUsageTelemetryFetch(globalThis.fetch, {
         provider: providerTag,
         tier: selected.id,
         model: selected.backendModel,

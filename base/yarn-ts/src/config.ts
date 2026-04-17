@@ -190,12 +190,8 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_ENABLED: z
-    .string()
-    .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS: z.coerce.number().default(3),
-  /** Enable the provider-agnostic prefix optimizer (stable-first message layout). */
+  /** Enable the provider-agnostic prefix optimizer (stable-first message layout; now "none" markers
+   * after DashScope removal to enable full vLLM KV cache reporting). */
   SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED: z
     .string()
     .optional()

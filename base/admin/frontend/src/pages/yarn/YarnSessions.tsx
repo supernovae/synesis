@@ -107,8 +107,9 @@ export default function YarnSessions() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-950">
                   {sessions.map((row) => {
-                    const tok =
-                      row.total_tokens_in + row.total_tokens_out + row.total_tokens_cached;
+                    // Fixed: cached is subset of total_tokens_in per OpenAI semantics; do not double-count in display.
+                    // This addresses the unusually consistent low cached numbers in UI (now relies on accurate vLLM usage).
+                    const tok = row.total_tokens_in + row.total_tokens_out;
                     return (
                       <tr
                         key={row.id}

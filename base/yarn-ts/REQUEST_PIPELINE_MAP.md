@@ -41,8 +41,8 @@ This map traces the production path from inbound chat request to outbound provid
 
 - **Can increase token spend**: enrichment blocks, tool schema expansion, replay loops, server-side tool loops.
 - **Can reduce token spend**: tool-result reduction, validation normalization, transcript pruning, schema pruning.
-- **Can break prefix stability**: volatile system blocks merged early, tool ordering drift, synthetic IDs, nondeterministic JSON serialization, provider options churn.
-- **Current coding-session policy**: sensemaking block injection is disabled in normal coding loops; execution governor handles loop pivots without adding volatile exploration system text.
+- **Can break prefix stability**: volatile system blocks merged early, tool ordering drift, synthetic IDs, nondeterministic JSON serialization, provider options churn. (Golden Trajectories placeholder and excess sensemaking telemetry removed; Qwen3-coder-next prompt now includes explicit Plan→Do→Act discipline to reduce interventions.)
+- **Current coding-session policy**: sensemaking block injection remains disabled (Phase 10); execution governor + enhanced Qwen adapter (with Roo/Cursor-inspired modes, self-verification) handles pivots. Stacking risk reduced via improved prompt.
 
 ## Replay Loops
 

@@ -4,11 +4,11 @@ Node 22 TypeScript orchestration service prototype for replacing Python Yarn.
 
 ## Design Highlights
 
-- Vercel AI SDK Core (`ai`) as direct dependency.
-- `customProvider` mapping for Synesis tiers to admin-owned provider/model assignments.
-- Zod-validated API contracts.
-- Sawtooth context manager with consolidation and log masking.
-- Repeat-loop hard pivot guard.
+- Vercel AI SDK Core (`ai`) as direct dependency; OpenAI/Claude/ACP compliant surfaces for Cursor, Claude Code, Roo, VSCode, Zed, etc.
+- Qwen3CoderAdapter (now supports qwen3-coder-next) with enhanced Plan→Do→Act workflow discipline, explicit phases/modes (Roo/Cursor inspired), self-verification, task tracking — reduces stalls and governor interventions.
+- Deterministic execution governor (tool-event phases: explore/edit/verify/report/finalize) + phase policy for required tools and repair paths.
+- Stable prefix, sawtooth compaction, artifact/server-side tools, transcript pruning for coherent long-context "edit/read/write/complete".
+- Zod-validated contracts, Redis session store, MCP HTTP bridge.
 
 ## Regression checks (policy + image parity)
 
@@ -55,7 +55,7 @@ See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/LIVE_
 - `SYNESIS_YARN_WEB_SEARCH_ENABLED` — inject `synesis_web_search` similarly (planner-backed web; `fetch_pages` is token-heavy).
 - `SYNESIS_YARN_RESPONSE_STYLE_MODE` (default `guidance`) — markdown style policy mode: `off`, `guidance`, or `guardrail`.
 - `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID` (default `true`) — whether style guidance should encourage mermaid diagrams when appropriate.
-- Synthetic workspace handshake is disabled in fix-forward strict mode; provide `project_root` / `shell_cwd` through headers or request metadata for deterministic path anchoring.
+- Token accounting: Shared `@synesis/telemetry/extractUsage` (strengthened for vLLM `cache_hit_tokens`, `prefix_cache_hit_tokens`, etc.). Admin UI no longer double-counts cached tokens in "Tokens" column. DashScope explicit cache + fixed markers removed (was causing consistent 8.2k/16.3k cached; vLLM now reports variable/high KV cache hits on long runs with prefix caching enabled). See `usage-extract.ts`, `synesis-provider.ts`, `provider-cache-hints.ts`.
 
 ## Current Scope
 

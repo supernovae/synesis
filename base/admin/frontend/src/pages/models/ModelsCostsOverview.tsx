@@ -146,15 +146,15 @@ export default function ModelsCostsOverview() {
                     <dd>{yarn.total_requests ?? "—"}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-gray-500">Tokens (in+out+cached)</dt>
+                    <dt className="text-gray-500">Tokens (in+out)</dt>
                     <dd>
                       {fmtTokens(
                         Number(yarn.total_tokens_in || 0) +
-                          Number(yarn.total_tokens_out || 0) +
-                          Number(yarn.total_tokens_cached || 0),
+                          Number(yarn.total_tokens_out || 0)
                       )}
                     </dd>
                   </div>
+                  {/* cached is now accurately reported via vLLM usage + extractUsage; subset of input. See usage-extract.ts and yarn session detail for full breakdown. */}
                   <div className="flex justify-between">
                     <dt className="text-gray-500" title="What we forecast if API doesn't provide costs">Estimated (Forecast)</dt>
                     <dd>

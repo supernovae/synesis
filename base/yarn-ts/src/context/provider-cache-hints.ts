@@ -43,9 +43,10 @@ export function detectCacheStrategy(baseUrl: string, backendModel: string): Cach
     return "deepseek_auto";
   }
 
-  // vLLM, DashScope, and other inference engines benefit from stable
-  // prefix ordering but don't need explicit markers.
-  if (url.includes("dashscope") || url.includes("vllm") || url.includes("localhost") || url.includes("runpod")) {
+  // vLLM (self-hosted with prefix caching + RAM) and similar benefit from stable
+  // prefix ordering for KV cache (implicit_prefix). DashScope explicit path removed
+  // entirely to avoid fixed-marker capping of cached_tokens (now variable/high on long runs).
+  if (url.includes("vllm") || url.includes("localhost") || url.includes("runpod") || url.includes(".svc.cluster.local")) {
     return "implicit_prefix";
   }
 

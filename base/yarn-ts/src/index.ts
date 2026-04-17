@@ -134,7 +134,7 @@ import {
 } from "./adapters/client-adapter-packs.js";
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
-import { detectCacheStrategy, annotateCacheBreakpoints, computePrefixFingerprint, type CacheStrategy } from "./context/provider-cache-hints.js";
+import { detectCacheStrategy, computePrefixFingerprint, type CacheStrategy } from "./context/provider-cache-hints.js"; // annotateCacheBreakpoints was dead import; vLLM now uses implicit_prefix for KV reporting
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
@@ -2113,12 +2113,13 @@ const securityIngestConfig = {
 };
 const tierRegistry = new SynesisProviderRegistry();
 
-const prefixOptimizerMarkerBackend: MarkerBackend =
-  config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_ENABLED ? "dashscope" : "none";
+// DashScope explicit cache and markerBackend removed (see synesis-provider.ts). Prefix optimizer
+// now always uses "none" for markers (relies on implicit_prefix for vLLM KV cache). This allows
+// variable/high cached_tokens reporting from your self-hosted vLLM with prefix caching enabled.
 const prefixOptimizer = config.SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED
   ? new PrefixOptimizer({
-      markerBackend: prefixOptimizerMarkerBackend,
-      maxMarkers: config.SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS,
+      markerBackend: "none" as MarkerBackend,
+      maxMarkers: 0,
       enableReduction: true,
       enableDiagnosticLogging: true,
     })
@@ -2572,18 +2573,8 @@ function enrichWithFrameAndManifest(
     }
   }
 
-  // Inject Golden Trajectories (Experience Library)
-  // If the user intent is recognized as a previously successful task, inject the trajectory.
-  if (detectedGoal) {
-    // In a full implementation, this would query Milvus via the Planner API.
-    // For now, we add a placeholder block if the goal matches a known pattern.
-    if (detectedGoal.toLowerCase().includes("add a new fastapi route")) {
-      volatileBlocks.push({
-        role: "system",
-        content: "<PREVIOUS_SUCCESS>\nSimilar task succeeded previously. Pattern: Create route in app/routers, add schema in app/schemas, and add test in tests/routers.\n</PREVIOUS_SUCCESS>"
-      });
-    }
-  }
+  // Golden Trajectories removed (was placeholder; use planner/router for retrieval instead).
+  // This reduces volatile system blocks, improving prefix stability and reducing model confusion risk.
 
   if (config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED) {
     const detectedLangs = detectLanguagesFromMessages(out);
@@ -3122,9 +3113,9 @@ type ResolveResult =
   | { ok: false; error: string };
 
 const dashScopeCacheOpts: DashScopeCacheOpts = {
-  enabled: config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_ENABLED,
-  maxMarkers: config.SYNESIS_YARN_DASHSCOPE_CACHE_MAX_MARKERS,
-};
+  enabled: false,
+  maxMarkers: 0,
+}; // No-op after DashScope removal; resolve() ignores it. Enables clean vLLM KV cache reporting.
 
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   try {

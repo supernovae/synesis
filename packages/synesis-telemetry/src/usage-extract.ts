@@ -47,6 +47,9 @@ export function extractUsage(raw?: ProviderUsage | null): LlmUsage {
       raw.cachedInputTokens ??
       raw.cached_input_tokens ??
       raw.cache_read_input_tokens ??
+      raw.cache_hit_tokens ??          // vLLM prefix cache
+      raw.prefix_cache_hit_tokens ??   // vLLM specific
+      raw.num_cached_tokens ??         // additional vLLM variants
       raw.inputTokenDetails?.cacheReadTokens ??
       raw.inputTokenDetails?.cachedTokens ??
       raw.prompt_cache_hit_tokens ??

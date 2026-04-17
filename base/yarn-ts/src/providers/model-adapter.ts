@@ -197,12 +197,13 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
     const workflowDiscipline = [
       "",
-      "## Workflow discipline",
+      "## Workflow discipline (Plan → Do → Act)",
+      "- **Plan-first mode**: Begin with explicit research, clarification, and a detailed plan (file paths, steps, success criteria, 'Done when'). Get implicit approval via tool use before heavy implementation. Use <plan> or TaskUpdate for tracking.",
       "- **Focused actions per turn**: Prefer one focused action per turn. Avoid combining unrelated actions (e.g., plan update + code edit). Batching related tool calls (e.g., multiple file reads for context) is acceptable.",
-      "- **Task tracking discipline**: Create task items once per user request. After that, only update existing task items; never create duplicate tasks with the same intent/title.",
+      "- **Task tracking discipline**: Create task items once per user request. After that, only update existing task items; never create duplicate tasks with the same intent/title. Mark complete before claiming done.",
       "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command. Do not re-read the same file unless a previous Edit/Update failed.",
-      "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have.",
-      "- **Progressive narrowing**: Each tool call must produce NEW information or make a change. If a search returns results, act on them — do not search again with slightly different terms.",
+      "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have. Use explicit phase transitions (explore → edit → verify → report).",
+      "- **Progressive narrowing + self-verification**: Each tool call must produce NEW information or make a change. After edits, immediately run relevant tests/verification. Include 'Done when: tests pass, behavior matches spec' criteria.",
       "- **File offset awareness**: When reading large files, use offset/limit parameters to read specific sections. Do not re-read from line 1 if you already have the beginning.",
       "- **Edit failures**: If an Edit/Update call fails, do NOT retry with identical arguments. Re-read the file to get current content, then adjust your old_string to match exactly.",
       "- **Git commit followthrough**: When staging files with git add, follow through with git commit in the same sequence. Do not loop on git status/diff between add and commit.",
@@ -883,19 +884,19 @@ function shellEscape(s: string): string {
 /**
  * Backends that handle the Qwen3-Coder XML tool format server-side,
  * converting XML tool calls to clean JSON before returning them via the API.
+ * DashScope path removed; vLLM with --tool-call-parser=qwen3_coder (or localhost/in-cluster)
+ * uses native parser for shorter tool prompts and better KV cache compatibility.
  */
 function hasNativeQwenToolParser(baseUrl?: string): boolean {
   if (!baseUrl) return false;
   const u = baseUrl.toLowerCase();
-  // DashScope (Alibaba) — all regional endpoints
-  if (u.includes("dashscope")) return true;
-  // Local vLLM with qwen3_coder parser — svc.cluster.local endpoints
-  if (u.includes(".svc.cluster.local") || u.includes("localhost") || u.includes("127.0.0.1")) return true;
+  // Local vLLM with qwen3_coder parser or in-cluster services
+  if (u.includes("vllm") || u.includes(".svc.cluster.local") || u.includes("localhost") || u.includes("127.0.0.1")) return true;
   return false;
 }
 
 export const KNOWN_ADAPTER_FAMILIES = [
-  "qwen3-coder", "deepseek", "kimi", "minimax", "generic",
+  "qwen3-coder", "qwen3-coder-next", "deepseek", "kimi", "minimax", "generic",
 ] as const;
 export type AdapterFamily = (typeof KNOWN_ADAPTER_FAMILIES)[number];
 
@@ -910,7 +911,7 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
     return resolveByFamily(hint as AdapterFamily, baseUrl);
   }
   const m = backendModel.toLowerCase();
-  if (/qwen3.*coder/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
+  if (/qwen3.*coder(-next)?/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
   if (/kimi|moonshot/i.test(m)) return new GenericOpenAIAdapter("kimi");
   if (/minimax|abab/i.test(m)) return new GenericOpenAIAdapter("minimax");
@@ -919,7 +920,9 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
 
 function resolveByFamily(family: AdapterFamily, baseUrl?: string): ModelAdapter {
   switch (family) {
-    case "qwen3-coder": return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
+    case "qwen3-coder":
+    case "qwen3-coder-next":
+      return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
     case "deepseek": return new DeepSeekAdapter();
     case "kimi": return new GenericOpenAIAdapter("kimi");
     case "minimax": return new GenericOpenAIAdapter("minimax");
