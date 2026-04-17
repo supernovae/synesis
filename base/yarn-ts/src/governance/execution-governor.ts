@@ -1301,12 +1301,16 @@ export function evaluateExecutionGovernor(
   if (sawDeclarationOnlyEdit && !sawFollowupConcreteEdit && nonActionAfterDeclarationEdit >= 2) {
     declarationFollowthroughViolation = true;
   }
-  const hasTaskLifecycleTraffic = events.some((e) => {
+  // Scope task-completion enforcement to recent traffic to avoid stale historical
+  // task operations forcing completion-claim pauses in unrelated later turns.
+  const taskStatusScopeEvents = events.slice(Math.max(0, events.length - 24));
+  const hasTaskLifecycleTraffic = taskStatusScopeEvents.some((e) => {
     const tool = normalizeString(e.toolName).toLowerCase();
     return tool.includes("taskcreate") || tool.includes("taskupdate") || tool.includes("todowrite");
   });
-  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaim && !hasTaskDoneStatusUpdate(events);
-  const taskMentionedButNoUpdate = hasTaskMentionInTurnText(turnMessages) && hasCompletionClaim && !hasTaskDoneStatusUpdate(events);
+  const hasTaskDoneUpdateInScope = hasTaskDoneStatusUpdate(taskStatusScopeEvents);
+  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaim && !hasTaskDoneUpdateInScope;
+  const taskMentionedButNoUpdate = hasPlanInContext && hasTaskMentionInTurnText(turnMessages) && hasCompletionClaim && !hasTaskDoneUpdateInScope;
   const planNotFinalized = activePlanStage !== null && activePlanStage !== "finalize" && activePlanStage !== "done";
   if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaim && planNotFinalized)) {
     completionClaimNeedsTaskUpdate = true;

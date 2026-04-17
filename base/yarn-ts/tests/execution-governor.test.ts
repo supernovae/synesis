@@ -963,7 +963,7 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("verbal_intent_without_action");
   });
 
-  it("fires completion_claim_requires_task_update when tasks mentioned in text but no task tool calls", () => {
+  it("does not fire completion_claim_requires_task_update from task words alone without active task context", () => {
     const messages = [
       { role: "user", content: "implement bundle files" },
       { role: "assistant", content: "I'll clean up the duplicate tasks and verify the bundle implementation is complete." },
@@ -972,7 +972,22 @@ describe("execution governor", () => {
       { role: "assistant", content: "The implementation is complete. The build is successful." },
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.matchedRules).toContain("completion_claim_requires_task_update");
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
+  it("does not fire completion_claim_requires_task_update from stale historical task traffic", () => {
+    const messages: Array<{ role: string; content?: string; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string; name?: string }> = [
+      assistantCall("t1", "TaskCreate", { title: "old task" }),
+      toolResult("t1", "task created"),
+    ];
+    for (let i = 0; i < 28; i += 1) {
+      const id = `b${i}`;
+      messages.push(assistantCall(id, "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" }));
+      messages.push(toolResult(id, "PASS"));
+    }
+    messages.push({ role: "assistant", content: "The completion feature is already implemented and working." });
+    const out = evaluateExecutionGovernor(messages as never);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
   });
 
   it("does not fire completion_claim when tasks are updated to done", () => {
