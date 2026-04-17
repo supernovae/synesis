@@ -1200,9 +1200,16 @@ export function evaluateExecutionGovernor(
       trailingExplorationCommands.add(cmd);
     } else if (cmd.startsWith("read:")) {
       const readPath = cmd;
+      const sig = events[i].resultSignature;
+      // Reads that returned "unchanged"/"cached"/"already read" gave the model no new
+      // information. Don't count them towards exploration stall (they're no-ops).
+      // source_file_stale_reread still catches same-file loops regardless.
+      const isNoOpRead = sig && (/unchanged|cached|already.read|file_read_blocked|file_unchanged/i.test(sig));
       explorationReadPaths.set(readPath, (explorationReadPaths.get(readPath) ?? 0) + 1);
-      trailingExplorationRunLength += 1;
-      trailingExplorationCommands.add(readPath);
+      if (!isNoOpRead) {
+        trailingExplorationRunLength += 1;
+        trailingExplorationCommands.add(readPath);
+      }
     }
   }
   // Re-reads of the same file inflate the exploration length (same signal as re-searching)
@@ -1422,7 +1429,7 @@ export function evaluateExecutionGovernor(
   const hasNonExplorationEvents = changedFiles.length > 0
     || events.some((e) => isExecutionVerificationCommand(e.toolName, e.command));
   if (completionClaimNeedsTaskUpdate && hasNonExplorationEvents) pushRule("completion_claim_requires_task_update");
-  if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence) {
+  if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence && hasNonExplorationEvents) {
     pushRule("verification_after_completion_claim");
   }
   if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) pushRule("verification_fail_repeat_block");

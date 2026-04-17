@@ -337,6 +337,7 @@ function applyDiscoveryToolGuardrail(
 function applyExecutionGovernorToolRestrictions(
   tools: unknown[] | undefined,
   matchedRules?: string[],
+  options?: { pureExploration?: boolean },
 ): { tools: unknown[] | undefined; removed: string[] } {
   if (!Array.isArray(tools) || tools.length === 0) return { tools, removed: [] };
   const explorationDominant = matchedRules?.some((r) =>
@@ -369,9 +370,10 @@ function applyExecutionGovernorToolRestrictions(
     deny.add("glob").add("explore").add("agent");
   }
   if (explorationStall) {
-    // Keep targeted reads available when recovering from repeated verification failures;
-    // otherwise the model can get trapped without access to the failing file context.
-    const blockedDiscoveryTools = failureFixContext
+    // During pure exploration (no edits or verification yet), keep read tools available.
+    // The model needs to read files to make progress — removing reads traps it. Only
+    // block broad discovery tools (search, glob, list) to encourage targeted reads.
+    const blockedDiscoveryTools = (failureFixContext || options?.pureExploration)
       ? ["search", "grep", "find", "list_dir", "list_files"]
       : ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"];
     for (const t of blockedDiscoveryTools) {
@@ -5948,7 +5950,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const lastUserIdx = oaiMsgs.map((m) => m.role).lastIndexOf("user");
     const oaiTailIdx = lastUserIdx > 0 ? lastUserIdx : oaiMsgs.length;
     oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
-    const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined, oaiExecutionGovernor.matchedRules);
+    const oaiPureExploration = oaiGovernorPhase === "edit"
+      && !oaiExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
+      && !oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread");
+    const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined, oaiExecutionGovernor.matchedRules, { pureExploration: oaiPureExploration });
     request.tools = restricted.tools as never;
     recordSessionEvent(
       sessionKey,
@@ -8196,7 +8201,10 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeLastUserIdx = claudeMsgs.map((m) => m.role).lastIndexOf("user");
     const claudeTailIdx = claudeLastUserIdx > 0 ? claudeLastUserIdx : claudeMsgs.length;
     claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
-    const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined, claudeExecutionGovernor.matchedRules);
+    const claudePureExploration = claudeGovernorPhase === "edit"
+      && !claudeExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
+      && !claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread");
+    const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined, claudeExecutionGovernor.matchedRules, { pureExploration: claudePureExploration });
     body.tools = restricted.tools as never;
     recordSessionEvent(
       claudeSessionKey,
