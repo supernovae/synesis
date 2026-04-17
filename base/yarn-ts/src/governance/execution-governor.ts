@@ -166,11 +166,12 @@ export function detectSessionPhase(
   }
 
   // Report: completion claim with no subsequent edit pushes to report (fallback when no green verify seen).
-  // Require at least 3 events before allowing report phase. On fresh turns, the model's
-  // first response often references prior context summary ("X is complete") — that's
-  // orientation, not a real completion claim. Locking to report on the first response
-  // traps the model by blocking exploration tools.
-  if (phase !== "finalize" && hasCompletionClaim && !sawVerificationFailure && (phase !== "edit" || !sawVerificationSuccess) && events.length >= 3) {
+  // Only transition when the model has done meaningful work (at least one edit or verification).
+  // Pure exploration sessions (all reads/searches) stay in edit — the completion claim is
+  // likely an observation from prior context summary, not a real claim. This prevents
+  // locking the model out of exploration tools when it's still discovering the codebase.
+  const hasNonExplorationWork = hasEdited || sawVerificationSuccess || sawVerificationFailure;
+  if (phase !== "finalize" && hasCompletionClaim && !sawVerificationFailure && (phase !== "edit" || !sawVerificationSuccess) && hasNonExplorationWork) {
     const lastEventIdx = events.length - 1;
     const lastCmd = events[lastEventIdx].command;
     const lastIsEdit = lastCmd.startsWith("edit:") || lastCmd === "edit"
@@ -1414,11 +1415,13 @@ export function evaluateExecutionGovernor(
   if (repeatedTaskCreateReplay >= 1) pushRule("task_creation_replay");
   if (!isInvestigationOnly && declarationFollowthroughViolation) pushRule("declaration_followthrough_required");
   if (!isInvestigationOnly && repeatedAskUserPrompts >= 1 && effectiveNoEditEvidence) pushRule("repeat_user_prompt_loop");
-  // Require at least 3 events before firing completion-claim rules. On fresh turns, the
-  // model's first response often references prior context ("based on the summary, X is
-  // complete") — that's orientation, not an actionable completion claim. Locking to report
-  // phase on the first response blocks all exploration tools and traps the model.
-  if (completionClaimNeedsTaskUpdate && events.length >= 3) pushRule("completion_claim_requires_task_update");
+  // Only fire completion-claim enforcement when the model has done non-exploration work
+  // (edits or verification). During pure exploration the model's text often references prior
+  // context ("features are already implemented") as orientation — not a real claim that the
+  // current task is finished.
+  const hasNonExplorationEvents = changedFiles.length > 0
+    || events.some((e) => isExecutionVerificationCommand(e.toolName, e.command));
+  if (completionClaimNeedsTaskUpdate && hasNonExplorationEvents) pushRule("completion_claim_requires_task_update");
   if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence) {
     pushRule("verification_after_completion_claim");
   }

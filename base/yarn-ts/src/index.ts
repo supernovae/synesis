@@ -7700,10 +7700,21 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeMsgCount = (body.messages as unknown[]).length;
   const claudeRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, claudeMsgCount - claudeRecentExempt);
-  const claudeLastIncomingRole = Array.isArray(body.messages) && body.messages.length > 0
-    ? ((body.messages as Array<{ role?: string }>)[body.messages.length - 1]).role
+  // Claude protocol: tool results are sent as role:"user" with type:"tool_result" content
+  // blocks. Only reset counters on genuine new user prompts (text content), not tool results.
+  // A message that is ALL tool_result blocks is a tool-loop continuation; one with text is
+  // a new user prompt.
+  const claudeLastMsg = Array.isArray(body.messages) && body.messages.length > 0
+    ? (body.messages as Array<{ role?: string; content?: unknown }>)[body.messages.length - 1]
     : undefined;
-  if (claudeLastIncomingRole === "user") {
+  const claudeIsToolResultOnly = claudeLastMsg?.role === "user"
+    && Array.isArray(claudeLastMsg.content)
+    && (claudeLastMsg.content as Array<{ type?: string }>).length > 0
+    && (claudeLastMsg.content as Array<{ type?: string }>).every(
+      (b) => b && typeof b === "object" && b.type === "tool_result",
+    );
+  const claudeIsNewUserPrompt = claudeLastMsg?.role === "user" && !claudeIsToolResultOnly;
+  if (claudeIsNewUserPrompt) {
     session.consecutiveToolCalls = 0;
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";

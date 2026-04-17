@@ -213,10 +213,10 @@ describe("execution governor", () => {
   it("pauses completion claims when tasks are not marked done", () => {
     const messages = [
       { role: "assistant", content: "I've completed the clipboard support implementation." },
-      assistantCall("1", "read_file", { path: "cmd/synesis/ask.go" }),
-      toolResult("1", "file content"),
-      assistantCall("2", "grep", { pattern: "clipboard" }),
-      toolResult("2", "match found"),
+      assistantCall("1", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "a", new_string: "b" }),
+      toolResult("1", "Applied edit"),
+      assistantCall("2", "bash", { command: "go test ./..." }),
+      toolResult("2", "ok"),
       assistantCall("3", "TaskCreate", { title: "Implement Clipboard Support" }),
       toolResult("3", "task created"),
     ];
@@ -2134,10 +2134,31 @@ describe("phase-aware rule gating", () => {
       toolResult("r1", "main content"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    // Should NOT be report — only 1 event, the model is still orienting
+    // Should NOT be report — only exploration events, no edits or verification
     expect(out.telemetry.phase).not.toBe("report");
     expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
     expect(out.pause).toBe(false);
+  });
+
+  it("completion claim during pure exploration (many reads) does not trigger report phase", () => {
+    // A "big prompt" scan: model reads many files while referencing prior context.
+    // All events are reads — no edits, no verification. Governor should stay in edit,
+    // not lock to report and strip exploration tools.
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "implement the remaining features and verify everything works" },
+      { role: "assistant", content: "I'll analyze the codebase. Based on previous context, the completion feature is already implemented. Let me verify the rest." },
+      assistantCall("r1", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("r1", "main content"),
+      assistantCall("r2", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("r2", "ask content"),
+      assistantCall("r3", "grep", { pattern: "func run" }),
+      toolResult("r3", "3 matches"),
+      assistantCall("r4", "read_file", { path: "cmd/synesis/chat.go" }),
+      toolResult("r4", "chat content"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.telemetry.phase).not.toBe("report");
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
   });
 
   // ── Regression fixes ────────────────────────────────────────────────────────
