@@ -1420,7 +1420,7 @@ function deriveEditContextMissGuardState(
       lastMissIdx: i,
     };
     states.set(filePath, nextState);
-    if (nextState.misses >= 2 && nextState.lastMissIdx > nextState.lastReadIdx) {
+    if (nextState.misses >= 1 && nextState.lastMissIdx > nextState.lastReadIdx) {
       if (!selected || nextState.lastMissIdx >= selected.lastMissIdx) {
         selected = {
           filePath: nextState.filePath,
@@ -6473,27 +6473,37 @@ app.post("/v1/chat/completions", async (req, reply) => {
     phase: oaiGovernorPhase,
     matchedRules: oaiExecutionGovernor.matchedRules,
     stream: !!normalizedRequest.stream,
+    editContextMissActive: oaiEditMissGuard?.active === true,
   });
   const oaiPhaseFiltered = filterToolsByPhasePolicy(effectiveTools as unknown[], oaiPhasePolicy);
   effectiveTools = oaiPhaseFiltered.tools;
   let effectiveToolChoice = resolvePhaseToolChoice(clientToolChoice as PhaseAwareToolChoice | undefined, oaiPhasePolicy);
-  if (oaiEditMissGuard?.active && !oaiPhasePolicy.active) {
-    const gated = applyEditContextMissReadGate(effectiveTools as unknown[]);
-    effectiveTools = gated.tools ?? effectiveTools;
-    if (gated.removed.length > 0) {
+  if (oaiEditMissGuard?.active) {
+    // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
+    // forces write-only tools AND the model has stale anchors), we added Read back to the
+    // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
+    // policy), strip write tools entirely and force Read. In both modes, force tool_choice=Read
+    // to break the loop.
+    const guardMode = oaiPhasePolicy.active ? "alongside_phase_policy" : "standalone";
+    const gated = guardMode === "standalone"
+      ? applyEditContextMissReadGate(effectiveTools as unknown[])
+      : { tools: effectiveTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveTools as unknown[]) };
+    if (guardMode === "standalone") effectiveTools = gated.tools ?? effectiveTools;
+    if (gated.removed.length > 0 || gated.forcedReadToolName) {
       recordSessionEvent(
         sessionKey,
         identity.userId,
         identity.orgId,
         "edit_context_miss_guard_enforced",
         "execution-governor",
-        `removed_write_tools=${gated.removed.length} file=${oaiEditMissGuard.filePath}`,
+        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${oaiEditMissGuard.filePath}`,
         reqId,
         {
           filePath: oaiEditMissGuard.filePath,
           missCount: oaiEditMissGuard.missCount,
           removed_tools: gated.removed,
           forced_read_tool: gated.forcedReadToolName ?? null,
+          guard_mode: guardMode,
         },
       );
     }
@@ -8942,6 +8952,7 @@ app.post("/v1/messages", async (req, reply) => {
     phase: claudeGovernorPhase,
     matchedRules: claudeExecutionGovernor.matchedRules,
     stream: !!body.stream,
+    editContextMissActive: claudeEditMissGuard?.active === true,
   });
   const claudePhaseFiltered = filterToolsByPhasePolicy(effectiveClaudeTools as unknown[], claudePhasePolicy);
   effectiveClaudeTools = claudePhaseFiltered.tools;
@@ -8949,23 +8960,32 @@ app.post("/v1/messages", async (req, reply) => {
     clientClaudeToolChoice as PhaseAwareToolChoice | undefined,
     claudePhasePolicy,
   );
-  if (claudeEditMissGuard?.active && !claudePhasePolicy.active) {
-    const gated = applyEditContextMissReadGate(effectiveClaudeTools as unknown[]);
-    effectiveClaudeTools = gated.tools ?? effectiveClaudeTools;
-    if (gated.removed.length > 0) {
+  if (claudeEditMissGuard?.active) {
+    // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
+    // forces write-only tools AND the model has stale anchors), we added Read back to the
+    // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
+    // policy), strip write tools entirely and force Read. In both modes, force tool_choice=Read
+    // to break the loop.
+    const guardMode = claudePhasePolicy.active ? "alongside_phase_policy" : "standalone";
+    const gated = guardMode === "standalone"
+      ? applyEditContextMissReadGate(effectiveClaudeTools as unknown[])
+      : { tools: effectiveClaudeTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveClaudeTools as unknown[]) };
+    if (guardMode === "standalone") effectiveClaudeTools = gated.tools ?? effectiveClaudeTools;
+    if (gated.removed.length > 0 || gated.forcedReadToolName) {
       recordSessionEvent(
         claudeSessionKey,
         claudeIdentity.userId,
         claudeIdentity.orgId,
         "edit_context_miss_guard_enforced",
         "execution-governor",
-        `removed_write_tools=${gated.removed.length} file=${claudeEditMissGuard.filePath}`,
+        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${claudeEditMissGuard.filePath}`,
         traceReqId,
         {
           filePath: claudeEditMissGuard.filePath,
           missCount: claudeEditMissGuard.missCount,
           removed_tools: gated.removed,
           forced_read_tool: gated.forcedReadToolName ?? null,
+          guard_mode: guardMode,
         },
       );
     }

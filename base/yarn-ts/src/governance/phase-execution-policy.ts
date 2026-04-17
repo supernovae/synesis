@@ -10,6 +10,9 @@ export interface PhaseExecutionPolicyInput {
   phase: SessionPhase;
   matchedRules: string[];
   stream: boolean;
+  /** When true, the model has recently failed repeated edits due to stale anchors.
+   *  This overrides the source_file_stale_reread restriction to allow Read alongside writes. */
+  editContextMissActive?: boolean;
 }
 
 export interface PhaseExecutionPolicyDecision {
@@ -60,8 +63,12 @@ export function derivePhaseExecutionPolicy(input: PhaseExecutionPolicyInput): Ph
     || matched.has("verification_stall_no_edit")
     || matched.has("verification_fail_repeat_block")
     || matched.has("verification_same_failure_signature_replay");
+  // When the model has been failing edits due to stale anchors, it needs to re-read
+  // the file before it can successfully edit. Override the source_file_stale_reread
+  // restriction (which normally bans Read) to allow Read alongside write tools.
+  const allowRead = input.editContextMissActive === true;
   const allowedCanonicalTools = sourceStaleRereadFixRequired
-    ? ["Edit", "Write", "Update"]
+    ? (allowRead ? ["Read", "Edit", "Write", "Update"] : ["Edit", "Write", "Update"])
     : (verifyFixRequired ? ["Read", "Edit", "Write", "Update"] : ["Bash"]);
 
   return {
