@@ -61,8 +61,8 @@ export class SynesisProviderRegistry {
   resolve(
     modelId: string,
     fallbackModelId: string,
-    // dashScopeCache param kept for backward compat in calls from index.ts but is now ignored.
-    // DashScope explicit cache path fully removed to allow clean vLLM KV/prefix cache reporting.
+    /** @deprecated ignored — DashScope explicit cache removed; kept for call-site compatibility. */
+    _dashScopeCache?: DashScopeCacheOpts,
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const selected = this.tierMap.get(modelId) ?? this.tierMap.get(fallbackModelId);
     if (!selected) {

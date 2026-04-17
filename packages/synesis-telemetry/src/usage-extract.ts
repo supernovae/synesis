@@ -18,6 +18,10 @@ interface ProviderUsage {
   input_tokens?: number;
   output_tokens?: number;
   cache_read_input_tokens?: number;
+  /** Some vLLM / OpenAI-compatible stacks report prefix-cache hits under these keys. */
+  cache_hit_tokens?: number;
+  prefix_cache_hit_tokens?: number;
+  num_cached_tokens?: number;
   cache_creation_input_tokens?: number;
   cache_creation_tokens?: number;
   inputTokenDetails?: { cacheReadTokens?: number; cachedTokens?: number; cacheWriteTokens?: number };
