@@ -1733,7 +1733,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "no_progress_loop",
       suggestedNextStep:
-        `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling through the same discovery commands. You already have the information you need from prior reads and tool results."} STOP looping and take ONE action: (1) SUMMARIZE your findings to the user — list what is implemented and what is missing, (2) make exactly ONE code edit if something needs changing, or (3) run ONE test command if you need verification. Do NOT re-list directories or re-search patterns you already checked.`,
+        `You have run ${trailingNoProgressLength} commands (${trailingProductiveCount} productive) without a code edit. ${trailingProductiveCount > 0 ? "Your builds/tests ran successfully — that means the code is working." : "You are cycling through the same discovery commands. You already have the information you need from prior reads and tool results."} STOP looping. Your ONLY options: (1) Present your summary to the user and END your turn — do NOT call any more tools after your summary text, (2) make exactly ONE code edit if something needs changing. Do NOT re-read files, re-list directories, or re-search after summarizing. If you have already summarized, propose next steps and STOP.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -2146,9 +2146,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Do NOT run another verification command. The build passes. The code is correct. Act on that knowledge.";
       break;
     case "no_progress_loop":
-      step1 = "STOP cycling. You have run many commands (ls, grep, reads, tests) without code edits. You already have the information you need from prior tool results.";
-      step2 = "SUMMARIZE your findings NOW: tell the user which features are implemented and which are missing. Or if a task is done, update the plan/task status.";
-      step3 = "Do NOT re-list directories, re-search patterns, or re-read files you already have. If something needs changing, make exactly ONE code edit.";
+      step1 = "STOP cycling. You have run many commands without code edits. You already have ALL the information you need from prior tool results — do NOT call any more read/search/list tools.";
+      step2 = "Present your findings to the user as a TEXT response (no tool calls). List what is done, what is missing, and propose next steps. Then END your turn — do NOT continue with more tool calls after the summary.";
+      step3 = "If you already produced a summary, STOP. Do NOT re-verify or re-read. Ask the user what to work on next, or pick ONE missing item and make exactly ONE code edit.";
       break;
     case "verbal_intent_without_action":
       step1 = "STOP declaring intent. You have said 'I'll...' or 'Let me...' multiple times without acting. Do NOT output another plan or narration.";
@@ -2181,9 +2181,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Do not run another broad build/test command until that edit is applied.";
       break;
     case "exploration_stall_no_edit":
-      step1 = "STOP searching, reading, and listing files. You have been exploring without making progress.";
-      step2 = "If a plan file was loaded, trust its status markers. Identify the next INCOMPLETE task.";
-      step3 = "Make one concrete code edit (Write/Edit) for the next task, then run one narrow verification.";
+      step1 = "STOP searching, reading, and listing files. You have been exploring without making any edits. Do NOT call any more read/search/list tools.";
+      step2 = "If you already have a picture of what exists and what is missing, present it to the user as TEXT (no tool calls) and END your turn. If a plan file was loaded, trust its status markers.";
+      step3 = "If you know what to build, pick ONE missing item and make exactly ONE code edit. Do NOT re-verify what you already checked.";
       break;
     case "no_test_files_repeat":
       step1 = "STOP running the test command. '[no test files]' or similar means there are NO tests in that package/directory yet — re-running produces the same result.";
