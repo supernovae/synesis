@@ -291,7 +291,7 @@ describe("execution governor", () => {
       toolResult("2", "Build OK"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.pause).toBe(false);
+    expect(out.pause).toBe(true);
     expect(out.reason).toBe("verification_done_report");
     expect(out.matchedRules).toContain("verification_done_report");
   });

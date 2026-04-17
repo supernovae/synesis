@@ -1613,7 +1613,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "completion_claim_requires_task_update",
       suggestedNextStep:
-        "You claimed completion but task statuses were not marked done. Update existing task entries to done (TaskUpdate/TodoWrite) for completed scope before reporting final completion.",
+        "You claimed completion but task statuses were not marked done. If a task list exists, update entries to done (TaskUpdate/TodoWrite) now. If there is no task list, respond directly to the user with a concise summary of what was completed and verified. Do NOT run more tests.",
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -1745,7 +1745,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "finalize_action_required",
       suggestedNextStep:
-        "You are in finalize phase after green verification. Stop further reads/tests/searches. Take one completion action now: (1) mark tasks done via TaskUpdate/TodoWrite, (2) run git add+commit (and push if requested), or (3) provide the final completion report to the user.",
+        "You are in finalize phase after green verification. Do NOT run more tests or read commands — they are already passing. Take one completion action NOW: (1) write a direct summary to the user confirming what was verified and completed, (2) mark tasks done via TaskUpdate/TodoWrite if a task list exists, or (3) run git add+commit/push if that was requested.",
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -1930,10 +1930,10 @@ export function evaluateExecutionGovernor(
 
   if (matchedRules.includes("verification_done_report")) {
     return {
-      pause: false,
+      pause: true,
       reason: "verification_done_report",
       suggestedNextStep:
-        "Verification is already passing and no new edits were made. Do not rerun verification; continue with the next requested non-verification action (for example update plan state) and provide a concise completion report.",
+        "Tests are already passing and no edits were made since the last run. Running the same passing test again adds no new information. Your NEXT action MUST be one of: (A) write a direct summary to the user confirming what was verified, or (B) proceed to the next task in the plan. Do NOT run any more test or build commands.",
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -2130,9 +2130,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Use that result immediately: if failing, make one concrete fix; if passing, report completion.";
       break;
     case "finalize_action_required":
-      step1 = "You are in FINALIZE phase after green verification. STOP additional exploration and verification commands.";
-      step2 = "Take one completion action now: mark tasks done, OR commit/push changes (if requested), OR provide final completion report.";
-      step3 = "Do not run another read/search/test command in finalize phase.";
+      step1 = "You are in FINALIZE phase — tests are GREEN. DO NOT run any more test, build, or read commands.";
+      step2 = "Your ONLY valid next action: write a direct user-facing summary of what was verified, OR mark tasks done (TaskUpdate/TodoWrite), OR run git commit/push if that was requested.";
+      step3 = "Running passing tests again is not a completion action. Report done or move to the next task.";
       break;
     case "repeat_user_prompt_loop":
       step1 = "STOP asking the same focus question. The user already answered.";
