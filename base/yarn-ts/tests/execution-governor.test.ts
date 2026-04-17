@@ -2232,6 +2232,30 @@ describe("phase-aware rule gating", () => {
     expect(out.matchedRules).not.toContain("verbal_intent_without_action");
   });
 
+  it("prompt-forward scoping: prior session history does not trigger behavioral rules", () => {
+    // Simulates a user coming back after lunch with 80+ messages of prior history.
+    // The governor should only evaluate behavior since the latest user prompt.
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [];
+    // Prior session: lots of reads, searches, and even completion claims from earlier work
+    messages.push({ role: "user", content: "implement the CLI features from the plan" });
+    for (let i = 0; i < 30; i++) {
+      messages.push(assistantCall(`old-r${i}`, "read_file", { path: `cmd/synesis/file${i % 8}.go` }));
+      messages.push(toolResult(`old-r${i}`, "package main\nfunc something() {}"));
+    }
+    messages.push({ role: "assistant", content: "All features are already implemented." });
+    // NEW prompt from the user (back from lunch)
+    messages.push({ role: "user", content: "can you verify all features are complete and list what is missing?" });
+    // Model does 2 reads — should NOT fire any rules yet (fresh start from prompt)
+    messages.push(assistantCall("new-r1", "read_file", { path: "cmd/synesis/main.go" }));
+    messages.push(toolResult("new-r1", "package main\nfunc main() {}"));
+    messages.push(assistantCall("new-r2", "search", { pattern: "func run" }));
+    messages.push(toolResult("new-r2", "3 matches found"));
+
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).toEqual(["allow"]);
+  });
+
   it("verification_churn_no_edit fires in explore phase when failures are present", () => {
     // "make sure X works" → explore phase, but failures should still trigger churn rule
     const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [

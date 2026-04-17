@@ -982,13 +982,28 @@ export function evaluateExecutionGovernor(
   const profile = opts.profile ?? "balanced_completion";
   const activePlanStage = opts.activePlanStage ?? null;
   const thresholds = thresholdsForProfile(profile);
-  const lastUserIdx = (() => {
+  // Find the last GENUINE user prompt — not tool results. In Claude's Messages API,
+  // tool results are sent as role:"user" messages with only tool_result content blocks.
+  // We need the actual user prompt (has text) so behavioral evaluation starts from
+  // "the human asked a question" — not from the middle of a tool-call loop.
+  const lastUserPromptIdx = (() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i]?.role === "user") return i;
+      const m = messages[i];
+      if (m?.role !== "user") continue;
+      const text = contentToText(m.content).trim();
+      if (!text) continue;
+      // Claude tool_result messages may embed text alongside tool_result blocks.
+      // If content is an array and EVERY block is tool_result, skip it.
+      if (Array.isArray(m.content)
+        && (m.content as Array<{ type?: string }>).length > 0
+        && (m.content as Array<{ type?: string }>).every(
+          (b) => b && typeof b === "object" && b.type === "tool_result",
+        )) continue;
+      return i;
     }
     return -1;
   })();
-  const turnMessages = lastUserIdx >= 0 ? messages.slice(lastUserIdx + 1) : messages;
+  const turnMessages = lastUserPromptIdx >= 0 ? messages.slice(lastUserPromptIdx + 1) : messages;
   const events = extractCommandEvents(turnMessages);
   const changedFiles = extractEditedFileHints(events);
   const userText = extractUserText(messages);
