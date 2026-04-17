@@ -366,6 +366,22 @@ function normalizeString(v: unknown): string {
   return "";
 }
 
+/**
+ * Extract text from a message's content field, handling both plain strings
+ * and Claude-style array content blocks ({type: "text", text: "..."}).
+ */
+function contentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((b): b is { type: string; text: string } =>
+        b && typeof b === "object" && (b as Record<string, unknown>).type === "text" && typeof (b as Record<string, unknown>).text === "string")
+      .map((b) => b.text)
+      .join("\n");
+  }
+  return "";
+}
+
 function parseArgsToCommand(toolName: string, args: unknown): string {
   if (typeof args === "string") {
     const t = args.trim();
@@ -447,8 +463,9 @@ function parseArgsToObject(args: unknown): Record<string, unknown> | null {
 }
 
 function normalizeResultSignature(content: unknown): string {
-  if (typeof content !== "string" || !content.trim()) return "";
-  return content
+  const text = contentToText(content);
+  if (!text.trim()) return "";
+  return text
     .toLowerCase()
     .replace(/\x1b\[[0-9;]*m/g, "")
     .replace(/\b\d+(\.\d+)?\s*(ms|s|sec|seconds|m)\b/g, "<t>")
@@ -548,8 +565,8 @@ function matchesCompletionClaimPattern(text: string): boolean {
 
 function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): boolean {
   const assistantText = messages
-    .filter((m) => m.role === "assistant" && typeof m.content === "string")
-    .map((m) => String(m.content).toLowerCase())
+    .filter((m) => m.role === "assistant")
+    .map((m) => contentToText(m.content).toLowerCase())
     .join("\n");
   if (!assistantText.trim()) return false;
   return matchesCompletionClaimPattern(assistantText);
@@ -590,8 +607,8 @@ function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
   const startIdx = latestUserIdx >= 0 ? latestUserIdx + 1 : 0;
   const assistantText = messages
     .slice(startIdx)
-    .filter((m) => m.role === "assistant" && typeof m.content === "string")
-    .map((m) => String(m.content).toLowerCase())
+    .filter((m) => m.role === "assistant")
+    .map((m) => contentToText(m.content).toLowerCase())
     .join("\n");
   if (!assistantText.trim()) return false;
   return matchesCompletionClaimPattern(assistantText);
@@ -599,8 +616,8 @@ function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
 
 function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
   const text = messages
-    .filter((m) => (m.role === "assistant" || m.role === "user") && typeof m.content === "string")
-    .map((m) => String(m.content).toLowerCase())
+    .filter((m) => m.role === "assistant" || m.role === "user")
+    .map((m) => contentToText(m.content).toLowerCase())
     .join("\n");
   return /\b(tasks?|todos?|task list|open tasks|pending tasks|duplicate tasks|remaining tasks|clean\s*up.*tasks)\b/.test(text);
 }
@@ -626,8 +643,8 @@ function countVerbalIntentStreak(messages: GovernorInputMessage[], events: Comma
 
   let streak = 0;
   for (const m of messages) {
-    if (m.role !== "assistant" || typeof m.content !== "string") continue;
-    const text = m.content.trim().toLowerCase();
+    if (m.role !== "assistant") continue;
+    const text = contentToText(m.content).trim().toLowerCase();
     if (!text) continue;
     if (/\b(i'll|i will|let me|let's)\s+\w/.test(text)) {
       streak += 1;
@@ -657,8 +674,8 @@ function countVerificationIntentWithoutAction(messages: GovernorInputMessage[], 
 
   let streak = 0;
   for (const m of messages) {
-    if (m.role !== "assistant" || typeof m.content !== "string") continue;
-    const text = m.content.trim().toLowerCase();
+    if (m.role !== "assistant") continue;
+    const text = contentToText(m.content).trim().toLowerCase();
     if (!text) continue;
     if (
       /\b(let me|i'?ll|i will)\b.{0,40}\b(run|rerun|execute|check|see)\b.{0,25}\b(test|tests|completion tests?|build|verify|verification)\b/.test(text)
@@ -711,8 +728,9 @@ function isDeclarationOnlyEditResultSignature(sig: string): boolean {
 
 function extractUserText(messages: GovernorInputMessage[]): string {
   return messages
-    .filter((m) => m.role === "user" && typeof m.content === "string")
-    .map((m) => String(m.content))
+    .filter((m) => m.role === "user")
+    .map((m) => contentToText(m.content))
+    .filter(Boolean)
     .join("\n")
     .toLowerCase();
 }
@@ -735,15 +753,16 @@ function extractLatestUserText(messages: GovernorInputMessage[]): string {
   // Walk backward: first user-facing tool result or user message wins.
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
-    if (m.role === "user" && typeof m.content === "string") {
-      return String(m.content).toLowerCase();
+    if (m.role === "user") {
+      const text = contentToText(m.content);
+      if (text.trim()) return text.toLowerCase();
     }
     // Tool results from user-facing tools (AskUserQuestion etc.) carry the user's choice.
     if ((m.role === "tool" || m.role === "tool_result") && m.tool_call_id) {
       const toolName = toolNameById.get(normalizeString(m.tool_call_id));
       if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
-        const content = typeof m.content === "string" ? m.content : "";
-        if (content.trim()) return content.toLowerCase();
+        const text = contentToText(m.content);
+        if (text.trim()) return text.toLowerCase();
       }
     }
   }
@@ -929,7 +948,7 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
   // words like "invalid tool parameters" that should not block green verification bypass.
   const joined = messages
     .filter((m) => m.role === "tool" || m.role === "tool_result")
-    .map((m) => (typeof m.content === "string" ? m.content : ""))
+    .map((m) => contentToText(m.content))
     .join("\n")
     .toLowerCase();
   if (!joined.trim()) return false;
