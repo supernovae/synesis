@@ -324,25 +324,12 @@ function extractToolUseFilePath(input: unknown): string | undefined {
   return v.length > 0 ? v : undefined;
 }
 
-function isReadLikeToolName(name: string): boolean {
-  const lower = name.trim().toLowerCase();
-  return lower === "read" || lower === "read_file" || lower === "readfile";
-}
-
-function isUnchangedReadStub(content: string): boolean {
-  const lower = content.trim().toLowerCase();
-  return lower.includes("unchanged since last read")
-    || lower === "file unchanged"
-    || lower === "unchanged";
-}
-
 export function claudeMessagesToOpenAI(
   messages: ClaudeMessage[],
   reduceToolResult?: ReduceToolResultFn
 ): OpenAIChatMessage[] {
   const out: OpenAIChatMessage[] = [];
   const toolUseById = new Map<string, ToolUseMeta>();
-  const readContentByPath = new Map<string, string>();
   for (const m of messages) {
     if (typeof m.content === "string") {
       out.push({ role: m.role, content: m.content });
@@ -383,16 +370,7 @@ export function claudeMessagesToOpenAI(
       const baseResultContent = typeof tr.content === "string"
         ? tr.content
         : JSON.stringify(tr.content ?? "");
-      let effectiveResultContent = baseResultContent;
-      if (isReadLikeToolName(String(toolName ?? ""))) {
-        const filePath = toolMeta?.filePath;
-        if (isUnchangedReadStub(baseResultContent) && filePath) {
-          const cached = readContentByPath.get(filePath);
-          if (cached) effectiveResultContent = cached;
-        } else if (filePath && !isUnchangedReadStub(baseResultContent)) {
-          readContentByPath.set(filePath, baseResultContent);
-        }
-      }
+      const effectiveResultContent = baseResultContent;
       const resultContent = reduceToolResult
         ? reduceToolResult(effectiveResultContent, toolName, toolUseId)
         : effectiveResultContent;

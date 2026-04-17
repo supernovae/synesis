@@ -34,8 +34,8 @@ describe("ContentAddressedDedup", () => {
     const { messages, dedupCount } = dedup.processMessages(msgs);
     expect(dedupCount).toBe(1);
     expect(messages[1].content).toContain("main.go");
-    expect(messages[1].content).not.toContain("FILE_UNCHANGED");
-    expect(messages[3].content).toContain("FILE_UNCHANGED");
+    expect(messages[1].content).not.toContain('"status":"ok/unchanged_snapshot_still_visible"');
+    expect(messages[3].content).toContain('"status":"ok/unchanged_snapshot_still_visible"');
     expect(messages[3].content).toContain("main.go");
   });
 
@@ -49,8 +49,8 @@ describe("ContentAddressedDedup", () => {
     ];
     const { messages, dedupCount } = dedup.processMessages(msgs);
     expect(dedupCount).toBe(0);
-    expect(messages[1].content).not.toContain("FILE_UNCHANGED");
-    expect(messages[3].content).not.toContain("FILE_UNCHANGED");
+    expect(messages[1].content).not.toContain('"status":"ok/unchanged_snapshot_still_visible"');
+    expect(messages[3].content).not.toContain('"status":"ok/unchanged_snapshot_still_visible"');
   });
 
   it("does not dedup different files", () => {
@@ -62,8 +62,8 @@ describe("ContentAddressedDedup", () => {
     ];
     const { messages, dedupCount } = dedup.processMessages(msgs);
     expect(dedupCount).toBe(0);
-    expect(messages[1].content).not.toContain("FILE_UNCHANGED");
-    expect(messages[2].content).not.toContain("FILE_UNCHANGED");
+    expect(messages[1].content).not.toContain('"status":"ok/unchanged_snapshot_still_visible"');
+    expect(messages[2].content).not.toContain('"status":"ok/unchanged_snapshot_still_visible"');
   });
 
   it("does not dedup non-file tools", () => {
@@ -167,7 +167,7 @@ describe("ContentAddressedDedup", () => {
     // This is the known bug: isPlanFile("main.go") is false, so dedup fires.
     // With the tool_call_id resolution fix, providing the real path prevents this.
     expect(dedupCount).toBe(1);
-    expect(messages[3].content).toContain("FILE_UNCHANGED");
+    expect(messages[3].content).toContain('"status":"ok/unchanged_snapshot_still_visible"');
   });
 
   it("resolves file path from tool_call arguments over content extraction", () => {
@@ -190,8 +190,8 @@ describe("ContentAddressedDedup", () => {
     ];
     const { dedupCount, messages } = dedup.processMessages(msgs as never);
     expect(dedupCount).toBe(1);
-    expect(messages[4].content).toContain("FILE_UNCHANGED");
-    expect(messages[4].content).toContain('path="correct.go"');
+    expect(messages[4].content).toContain('"status":"ok/unchanged_snapshot_still_visible"');
+    expect(messages[4].content).toContain('"path":"correct.go"');
     expect(messages[4].content).not.toContain("wrong.go");
   });
 
@@ -211,5 +211,19 @@ describe("ContentAddressedDedup", () => {
     expect(stats.totalReads).toBe(9);
     expect(stats.deduplicatedReads).toBe(6);
     expect(stats.charsSaved).toBeGreaterThan(5000);
+  });
+
+  it("emits needs_targeted_read status after repeated unchanged reads", () => {
+    const dedup = new ContentAddressedDedup();
+    const msgs = [
+      readResult("main.go", goSource),
+      readResult("main.go", goSource),
+      readResult("main.go", goSource),
+      readResult("main.go", goSource),
+    ];
+    const { messages } = dedup.processMessages(msgs as never);
+    expect(String(messages[1].content)).toContain('"status":"ok/unchanged_snapshot_still_visible"');
+    expect(String(messages[2].content)).toContain('"status":"ok/unchanged_snapshot_still_visible"');
+    expect(String(messages[3].content)).toContain('"status":"needs_targeted_read"');
   });
 });

@@ -1271,6 +1271,28 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("re-read the plan file");
   });
 
+  it("treats typed unchanged snapshot status as cached reread signal", () => {
+    const planPath = "/Users/test/.claude/plans/my-plan.md";
+    const unchanged = JSON.stringify({
+      kind: "synesis_file_read",
+      status: "ok/unchanged_snapshot_still_visible",
+      path: planPath,
+    });
+    const messages = [
+      { role: "user", content: "load plan and continue" },
+      assistantCall("1", "read_file", { path: planPath }),
+      toolResult("1", "---\ntitle: Plan\n---\n# tasks"),
+      assistantCall("2", "read_file", { path: planPath }),
+      toolResult("2", unchanged),
+      assistantCall("3", "read_file", { path: planPath }),
+      toolResult("3", unchanged),
+      assistantCall("4", "read_file", { path: planPath }),
+      toolResult("4", unchanged),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("plan_reread_loop");
+  });
+
   it("does not fire plan_reread_loop when plan was edited between reads", () => {
     const planPath = "/Users/test/.claude/plans/my-plan.md";
     const messages = [

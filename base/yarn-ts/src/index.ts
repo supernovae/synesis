@@ -81,6 +81,8 @@ import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
+import { FileSnapshotRegistry } from "./reduction/file-snapshot-registry.js";
+import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normalizer.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
 import { clearSessionMemory, getSessionMemoryCount, initMemoryToolStore } from "./mcp/handlers/memory-tools.js";
@@ -2091,6 +2093,7 @@ const transcriptPruning = new TranscriptPruningService({
   assistantCondenseChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS,
 });
 const contentDedupBySession = new Map<string, ContentAddressedDedup>();
+const fileSnapshotBySession = new Map<string, FileSnapshotRegistry>();
 const structuralIndexBySession = new Map<string, IncrementalStructuralIndex>();
 const memoryGovernorBySession = new Map<string, MemoryGovernorTracker>();
 function getContentDedup(sessionKey: string): ContentAddressedDedup {
@@ -2108,6 +2111,14 @@ function getContentDedup(sessionKey: string): ContentAddressedDedup {
     contentDedupBySession.set(sessionKey, dedup);
   }
   return dedup;
+}
+function getFileSnapshotRegistry(sessionKey: string): FileSnapshotRegistry {
+  let registry = fileSnapshotBySession.get(sessionKey);
+  if (!registry) {
+    registry = new FileSnapshotRegistry();
+    fileSnapshotBySession.set(sessionKey, registry);
+  }
+  return registry;
 }
 function getStructuralIndex(sessionKey: string): IncrementalStructuralIndex | null {
   return structuralIndexBySession.get(sessionKey) ?? null;
@@ -2734,6 +2745,7 @@ function maybeCheckpoint(state: SessionState): void {
   void sawtooth.compressTrajectory(state.history).then((consolidated) => {
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
+    getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");
     svcMetrics.compactionTotal.inc({ type: "sawtooth" });
     svcMetrics.sessionCheckpointTotal.inc();
     const charsAfter = consolidated.summary.length;
@@ -2753,6 +2765,7 @@ async function forceCheckpoint(state: SessionState): Promise<boolean> {
     const consolidated = await sawtooth.compressTrajectory(state.history);
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
+    getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");
     svcMetrics.compactionTotal.inc({ type: "manual" });
     svcMetrics.sessionCheckpointTotal.inc();
     const charsAfter = consolidated.summary.length;
@@ -5480,6 +5493,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.consecutiveRecoveryFires = 0;
     void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch(() => {});
   }
+  {
+    const readSnapshotRegistry = getFileSnapshotRegistry(sessionKey);
+    const readSnapshotNormalization = await normalizeReadSnapshotMessages(
+      normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: unknown }>,
+      readSnapshotRegistry,
+      {
+        projectRoot: oaiPathCtx.projectRoot ?? oaiPathCtx.shellCwd ?? null,
+        anchorDir: oaiPathCtx.shellCwd ?? oaiPathCtx.projectRoot ?? null,
+      },
+    );
+    if (readSnapshotNormalization.normalizedCount > 0) {
+      normalizedOpenAI.messages = readSnapshotNormalization.messages as never;
+      if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+        app.log.debug({
+          reqId: oaiTraceReqId,
+          normalized: readSnapshotNormalization.normalizedCount,
+          replayed: readSnapshotNormalization.replayedCount,
+          fallback: readSnapshotNormalization.fallbackCount,
+        }, "read_snapshot_normalization_applied");
+      }
+    }
+  }
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const oaiDedup = getContentDedup(sessionKey);
     const oaiDedupResult = oaiDedup.processMessages(
@@ -7728,6 +7763,28 @@ app.post("/v1/messages", async (req, reply) => {
     session.lastToolSignalHash = "";
     session.consecutiveRecoveryFires = 0;
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
+  }
+  {
+    const readSnapshotRegistry = getFileSnapshotRegistry(claudeSessionKey);
+    const readSnapshotNormalization = await normalizeReadSnapshotMessages(
+      normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: unknown }>,
+      readSnapshotRegistry,
+      {
+        projectRoot: claudePathCtx.projectRoot ?? claudePathCtx.shellCwd ?? null,
+        anchorDir: claudePathCtx.shellCwd ?? claudePathCtx.projectRoot ?? null,
+      },
+    );
+    if (readSnapshotNormalization.normalizedCount > 0) {
+      normalizedFromClaude.messages = readSnapshotNormalization.messages as never;
+      if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+        app.log.debug({
+          reqId: traceReqId,
+          normalized: readSnapshotNormalization.normalizedCount,
+          replayed: readSnapshotNormalization.replayedCount,
+          fallback: readSnapshotNormalization.fallbackCount,
+        }, "read_snapshot_normalization_applied");
+      }
+    }
   }
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeDedup = getContentDedup(claudeSessionKey);

@@ -1029,12 +1029,14 @@ export class ToolResultReductionService {
     toolName: string | undefined,
     raw: string,
   ): string | null {
+    if (raw.includes('"kind":"synesis_file_read"') || raw.includes('"kind": "synesis_file_read"')) {
+      return null;
+    }
     const trimmed = raw.trim().toLowerCase();
     if (
       trimmed.includes("<file_unchanged") ||
       trimmed.includes("unchanged since last read") ||
-      trimmed.includes("file unchanged") ||
-      (trimmed.length < 120 && trimmed.includes("unchanged"))
+      trimmed.includes("file unchanged")
     ) {
       const pathMatch = raw.match(/path="([^"]+)"/i);
       const extractedPath = pathMatch?.[1] ?? null;

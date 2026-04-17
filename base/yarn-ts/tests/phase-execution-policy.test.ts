@@ -83,6 +83,21 @@ describe("phase execution policy", () => {
     expect(policy.reason).toBe("stale_source_required_action");
   });
 
+  it.each([
+    ["qwen3-coder", true],
+    ["generic", false],
+  ])("regression matrix: stale reread policy activation for %s", (family, active) => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: family,
+      enabledFamilies: ["qwen3-coder"],
+      phase: "edit",
+      matchedRules: ["source_file_stale_reread"],
+      stream: false,
+    });
+    expect(policy.active).toBe(active);
+  });
+
   it("keeps Read available during fix-required mode for context refresh", () => {
     const policy = derivePhaseExecutionPolicy({
       enabled: true,

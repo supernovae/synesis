@@ -1219,7 +1219,7 @@ export function evaluateExecutionGovernor(
       // Reads that returned "unchanged"/"cached"/"already read" gave the model no new
       // information. Don't count them towards exploration stall (they're no-ops).
       // source_file_stale_reread still catches same-file loops regardless.
-      const isNoOpRead = sig && (/unchanged|cached|already.read|file_read_blocked|file_unchanged/i.test(sig));
+      const isNoOpRead = sig && (/unchanged|cached|already.read|file_read_blocked|file_unchanged|ok\/unchanged_snapshot_still_visible/i.test(sig));
       explorationReadPaths.set(readPath, (explorationReadPaths.get(readPath) ?? 0) + 1);
       if (!isNoOpRead) {
         trailingExplorationRunLength += 1;
@@ -1254,7 +1254,8 @@ export function evaluateExecutionGovernor(
     if (c.startsWith("read:") && c.includes("/.claude/plans/")) {
       planReadCount += 1;
       const sig = e.resultSignature;
-      if (sig.includes("unchanged") || sig.includes("cached") || sig.includes("synesis_plan_loaded") || sig.includes("already read")) {
+      if (sig.includes("unchanged") || sig.includes("cached") || sig.includes("synesis_plan_loaded") || sig.includes("already read")
+        || sig.includes("ok/unchanged_snapshot_still_visible")) {
         planCachedRereadCount += 1;
       }
     }

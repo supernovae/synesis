@@ -16,6 +16,7 @@
  */
 
 import type { IncrementalStructuralIndex } from "../memory/incremental-index.js";
+import { parseReadSnapshotEnvelope } from "./file-snapshot-registry.js";
 
 const READ_TOOL_NAMES = new Set([
   "read", "read_file", "readfile", "file_read",
@@ -29,6 +30,7 @@ interface FileEntry {
   turnIndex: number;
   charCount: number;
   unchangedReadCount: number;
+  snapshotId?: string;
 }
 
 export interface ContentDedupStats {
@@ -82,15 +84,17 @@ export class ContentAddressedDedup {
     const name = (toolName ?? "").toLowerCase();
     if (!READ_TOOL_NAMES.has(name)) return { content, deduplicated: false };
 
-    const filePath = resolvedPath || extractFilePath(content);
+    const parsed = extractReadPayload(content);
+    const filePath = resolvedPath || parsed.filePath || extractFilePath(content);
     if (!filePath) return { content, deduplicated: false };
 
-    if (content.length < 200) return { content, deduplicated: false };
+    const hashSource = parsed.content ?? content;
+    if (hashSource.length < 200) return { content, deduplicated: false };
 
     if (isPlanFile(filePath)) return { content, deduplicated: false };
 
     this.stats.totalReads += 1;
-    const hash = fastHash(content);
+    const hash = fastHash(hashSource);
     const existing = this.fileMap.get(filePath);
 
     if (existing && existing.hash === hash) {
@@ -103,18 +107,39 @@ export class ContentAddressedDedup {
       this.stats.charsSaved += content.length;
       const HARD_BLOCK_THRESHOLD = 3;
       if (existing.unchangedReadCount >= HARD_BLOCK_THRESHOLD) {
-        const stub = `<FILE_READ_BLOCKED path="${filePath}" reads="${existing.unchangedReadCount}" />\nYou have read this file ${existing.unchangedReadCount} times and it has not changed. The content is already in your context. STOP re-reading it and use the information you already have. Make a decision and act on it.`;
+        const stub = JSON.stringify({
+          kind: "synesis_file_read",
+          status: "needs_targeted_read",
+          path: filePath,
+          snapshot_id: existing.snapshotId,
+          content_hash: hash,
+          visibility: "ACTIVE_VISIBLE",
+          reason: "unchanged_read_hard_block",
+          detail: `unchanged_reads=${existing.unchangedReadCount}`,
+        });
         return { content: stub, deduplicated: true, filePath };
       }
-      const stub = [
-        `<FILE_UNCHANGED path="${filePath}" hash="${hash}" first_seen_turn=${existing.turnIndex} chars=${content.length} repeat=${existing.unchangedReadCount} />`,
-        `[Unchanged since last read — you already have this file's content. Do NOT re-read it. Use what you have or make an edit.]`,
-      ].join("\n");
+      const stub = JSON.stringify({
+        kind: "synesis_file_read",
+        status: "ok/unchanged_snapshot_still_visible",
+        path: filePath,
+        snapshot_id: existing.snapshotId,
+        content_hash: hash,
+        visibility: "ACTIVE_VISIBLE",
+        first_seen_turn: existing.turnIndex,
+        repeat: existing.unchangedReadCount,
+      });
       return { content: stub, deduplicated: true, filePath };
     }
 
-    this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length, unchangedReadCount: 0 });
-    this.structuralIndex?.ingestFileRead(filePath, content, hash);
+    this.fileMap.set(filePath, {
+      hash,
+      turnIndex,
+      charCount: hashSource.length,
+      unchangedReadCount: 0,
+      snapshotId: parsed.snapshotId,
+    });
+    this.structuralIndex?.ingestFileRead(filePath, hashSource, hash);
     return { content, deduplicated: false };
   }
 
@@ -229,6 +254,32 @@ function extractFilePath(content: string): string | null {
 
   const match = content.match(/(?:filePath|file_path|path)\s*[:=]\s*"?([^\s"',}{]+)/i);
   return match?.[1] ?? null;
+}
+
+function extractReadPayload(content: string): { filePath: string | null; content: string | null; snapshotId?: string } {
+  const envelope = parseReadSnapshotEnvelope(content);
+  if (envelope) {
+    return {
+      filePath: typeof envelope.path === "string" ? envelope.path : null,
+      content: typeof envelope.content === "string" ? envelope.content : null,
+      snapshotId: envelope.snapshot_id,
+    };
+  }
+  if (content.startsWith("{")) {
+    try {
+      const obj = JSON.parse(content) as Record<string, unknown>;
+      const filePath = typeof obj.filePath === "string"
+        ? obj.filePath
+        : (typeof obj.file_path === "string"
+          ? obj.file_path
+          : (typeof obj.path === "string" ? obj.path : null));
+      const body = typeof obj.content === "string" ? obj.content : null;
+      return { filePath, content: body };
+    } catch {
+      return { filePath: null, content: null };
+    }
+  }
+  return { filePath: null, content: null };
 }
 
 function fastHash(content: string): string {
