@@ -195,11 +195,16 @@ export function detectSessionPhase(
  */
 const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
   explore: new Set([
-    // Exploration stalls — only redundant re-reads, not breadth
+    // Exploration stalls — redundant re-reads and cycling without progress
     "broad_discovery_repeat",
     "bounded_exploration_budget",
     "plan_reread_loop",
     "source_file_stale_reread",
+    "exploration_stall_no_edit",
+    // Progress / intent loops — even in explore, the model shouldn't narrate
+    // "I'll explore..." 18 times without producing a result.
+    "no_progress_loop",
+    "verbal_intent_without_action",
     // Concrete failures always fire — even during investigation, if a verification
     // command keeps failing without edits the model must stop cycling.
     "verification_churn_no_edit",
