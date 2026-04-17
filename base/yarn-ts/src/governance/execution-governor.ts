@@ -1724,7 +1724,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "source_file_stale_reread",
       suggestedNextStep:
-        `You have read \`${shortPath}\` ${maxSourceFileRereadCount} times without editing it. You already know its contents. STOP re-reading it. Take ONE concrete action now: (A) run a test command to verify behavior, (B) make a code edit (Write/StrReplace) to address what you saw in the file, or (C) ask the user what is still unclear.`,
+        `You have read \`${shortPath}\` ${maxSourceFileRereadCount} times without editing it. "Unchanged since last read" means the file content is ALREADY in your conversation from an earlier read — it has NOT changed. You have the full content. Do NOT try to read it again. Make your code edit NOW using the content you already have (Write/StrReplace), or run ONE test if you need verification.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -2151,9 +2151,9 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step3 = "Take one concrete action: Edit the plan to mark a task done, OR make a code edit (Write/Edit) for the next task, OR ask the user.";
       break;
     case "source_file_stale_reread":
-      step1 = "STOP re-reading the same source file. You have already read it and its content has not changed. You already know what is in that file.";
-      step2 = "You do NOT need to re-read it again to 'see how it is integrated' or 'check if it is wired'. You have that information already.";
-      step3 = "Take ONE concrete action now: (A) run a test command (e.g. `go test ./... -run TestXxx -v`, `npx vitest run`, `pytest -k test_foo`), (B) make a code edit (Write/StrReplace), or (C) ask the user what is still unclear.";
+      step1 = "STOP. 'Unchanged since last read' means the file content is ALREADY in your conversation history from an earlier read. The file has NOT changed on disk. You have the FULL content — scroll up in your context to find it.";
+      step2 = "Do NOT attempt to read this file again. The read tool will return 'Unchanged' every time because you already have the content. Re-reading will never give you new information.";
+      step3 = "Write your code edit NOW using the file content already in your context. Use Write or StrReplace to add/modify the code. If you cannot find the content in your context, ask the user to paste the relevant section.";
       break;
     case "verification_after_completion_claim":
       step1 = "You ALREADY said the work is done. STOP running builds, tests, git status, and diffs. There is nothing to verify.";

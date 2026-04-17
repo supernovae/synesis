@@ -538,7 +538,7 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("source_file_stale_reread");
     // Recovery message should name the file and tell the model to take action
     expect(out.suggestedNextStep).toContain("a.go");
-    expect(out.suggestedNextStep).toContain("STOP re-reading");
+    expect(out.suggestedNextStep).toContain("Unchanged since last read");
   });
 
   it("does not trigger bounded_exploration_budget for reads outside sliding window", () => {
@@ -1607,7 +1607,7 @@ describe("execution governor", () => {
     const block = executionGovernorRecoveryRewriteBlock(decision);
     // authcmd.go was read 3× (events 4, 7, 12) → source_file_stale_reread fires first
     expect(block).toContain("authcmd.go");
-    expect(block).toContain("STOP re-reading");
+    expect(block).toContain("Unchanged since last read");
   });
 
   // --- source_file_stale_reread: the main.go repeated read loop ---
@@ -1629,7 +1629,7 @@ describe("execution governor", () => {
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("source_file_stale_reread");
     expect(out.suggestedNextStep).toContain("main.go");
-    expect(out.suggestedNextStep).toContain("STOP re-reading");
+    expect(out.suggestedNextStep).toContain("Unchanged since last read");
     expect(out.suggestedNextStep).toContain("3 times");
   });
 
