@@ -195,7 +195,10 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "bounded_exploration_budget",
     "plan_reread_loop",
     "source_file_stale_reread",
-    // Concrete failures always fire
+    // Concrete failures always fire — even during investigation, if a verification
+    // command keeps failing without edits the model must stop cycling.
+    "verification_churn_no_edit",
+    "verification_fail_repeat_block",
     "no_test_files_repeat",
     "dependency_install_replay",
     "test_entry_contract",
@@ -941,7 +944,7 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
     || /\b0\s*errors?\b/.test(joined)
     || /\berrors?\s*:\s*0\b/.test(joined)
     || /\ball tests passed\b/.test(joined);
-  if (zeroFailureOnly && !/\b(1|[2-9]\d*)\s+failed\b|\bpanic\b|\btraceback\b/.test(joined)) return false;
+  if (zeroFailureOnly && !/\b(1|[2-9]\d*)\s+failed\b|\bpanic\b|\btraceback\b|\bexit\s+code\s+[1-9]/.test(joined)) return false;
   if (/\bexit\s+code\s+([1-9]\d*)\b/.test(joined)) return true;
   return /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|not\s+ok\b/.test(joined);
 }
@@ -1344,14 +1347,24 @@ export function evaluateExecutionGovernor(
       }
     }
   }
-  const verbalIntentStreak = countVerbalIntentStreak(turnMessages, events);
-  const verificationIntentStreak = countVerificationIntentWithoutAction(turnMessages, events);
+  // Verbal/verification intent streaks look only at a recent window to avoid
+  // reporting inflated counts ("115 times") in long-running sessions where the
+  // model may have been productively working before getting stuck.
+  const INTENT_RECENCY_MESSAGES = 40;
+  const INTENT_RECENCY_EVENTS = 20;
+  const recentMessagesForIntent = turnMessages.slice(-INTENT_RECENCY_MESSAGES);
+  const recentEventsForIntent = events.slice(-INTENT_RECENCY_EVENTS);
+  const verbalIntentStreak = countVerbalIntentStreak(recentMessagesForIntent, recentEventsForIntent);
+  const verificationIntentStreak = countVerificationIntentWithoutAction(recentMessagesForIntent, recentEventsForIntent);
   const hasCommitFinalizeAction = events.some((e) => /\bgit\s+(commit|push)\b/.test(normalizeString(e.command).toLowerCase()));
   const hasFinalizeAction = hasTaskDoneStatusUpdate(events) || hasCommitFinalizeAction;
 
   // Read-only investigation intent: based on the LATEST user message only,
   // so a follow-up "implement both" overrides an earlier "scan the repo" prompt.
-  const isInvestigationOnly = isReadOnlyInvestigationIntent(latestUserText);
+  // If the turn contains actual failures, the model is no longer "just investigating"
+  // — it must act (make an edit) to resolve the failure. Downgrade investigation-only
+  // so that source_file_stale_reread, verbal_intent, and churn rules can fire.
+  const isInvestigationOnly = isReadOnlyInvestigationIntent(latestUserText) && !hasFailures;
 
   if (broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");

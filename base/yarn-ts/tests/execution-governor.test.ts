@@ -2118,4 +2118,98 @@ describe("phase-aware rule gating", () => {
     expect(out.telemetry.phase).not.toBe("report");
     expect(out.telemetry.phase).toBe("edit");
   });
+
+  // ── Regression fixes ────────────────────────────────────────────────────────
+
+  it("investigation-only is downgraded to false when failures are present", () => {
+    // "make sure X works" is normally classified as investigation-only, which would
+    // block churn rules. Failures override that classification so the governor fires.
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "can we make sure the completion task is done and works as expected" },
+      assistantCall("t1", "bash", { command: "go test ./cmd/synesis -v" }),
+      toolResult("t1", "PASS\nok cmd/synesis 0.1s"),
+      assistantCall("b1", "bash", { command: "./synesis completion --help 2>&1" }),
+      toolResult("b1", "Error: Exit code 1\nError: unsupported shell: --help"),
+      assistantCall("t2", "bash", { command: "go test ./cmd/synesis -v" }),
+      toolResult("t2", "PASS\nok cmd/synesis 0.1s"),
+      assistantCall("b2", "bash", { command: "./synesis completion --help 2>&1" }),
+      toolResult("b2", "Error: Exit code 1\nError: unsupported shell: --help"),
+      assistantCall("t3", "bash", { command: "go test ./cmd/synesis -v" }),
+      toolResult("t3", "PASS\nok cmd/synesis 0.1s"),
+      assistantCall("b3", "bash", { command: "./synesis completion --help 2>&1" }),
+      toolResult("b3", "Error: Exit code 1\nError: unsupported shell: --help"),
+      assistantCall("t4", "bash", { command: "go test ./cmd/synesis -v" }),
+      toolResult("t4", "PASS\nok cmd/synesis 0.1s"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    // Must pause — repeated failures with no edits
+    expect(out.pause).toBe(true);
+    expect(["verification_churn_no_edit", "verification_fail_repeat_block"]).toContain(out.reason);
+  });
+
+  it("hasFailureSignals: exit code 1 is not suppressed by all-tests-passed output in same turn", () => {
+    // When go test PASS output and a failing binary exit-code appear in the same turn,
+    // hasFailureSignals should return true (i.e. the exit code is not swallowed by the
+    // zero-failure bypass that would normally suppress words like "error").
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "make sure the completion feature works" },
+      assistantCall("t1", "bash", { command: "go test ./..." }),
+      // Contains "all tests passed"-like success output AND a binary failure in same batch
+      toolResult("t1", "--- PASS: TestRunCompletion_Bash\nPASS\nok  cmd/synesis  0.1s"),
+      assistantCall("b1", "bash", { command: "./synesis completion --help 2>&1" }),
+      toolResult("b1", "Error: Exit code 1\nError: unsupported shell: --help"),
+    ];
+    // After one pass+fail turn we do not necessarily pause, but failures must be visible.
+    // Run enough repetitions to trigger verification_churn_no_edit.
+    for (let i = 2; i <= 5; i++) {
+      messages.push(assistantCall(`t${i}`, "bash", { command: "go test ./..." }));
+      messages.push(toolResult(`t${i}`, "PASS\nok  cmd/synesis  0.1s"));
+      messages.push(assistantCall(`b${i}`, "bash", { command: "./synesis completion --help 2>&1" }));
+      messages.push(toolResult(`b${i}`, "Error: Exit code 1\nError: unsupported shell: --help"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_churn_no_edit");
+  });
+
+  it("verbal intent streak uses a recent window and does not report inflated counts from long sessions", () => {
+    // A very long session (many turns) should not cause verbal_intent_without_action
+    // to report hundreds of occurrences. The window caps the streak count.
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "fix the failing test" },
+    ];
+    // 50+ rounds of exploration with verbal intent phrases — OUTSIDE the recency window
+    for (let i = 0; i < 50; i++) {
+      messages.push({ role: "assistant", content: "I'll check the file to understand the issue." });
+      messages.push(assistantCall(`r${i}`, "read_file", { path: `src/file${i % 5}.ts` }));
+      messages.push(toolResult(`r${i}`, "content"));
+    }
+    // Then a fresh edit resets things
+    messages.push(assistantCall("e1", "str_replace_based_edit_tool", { path: "src/main.ts", old_string: "a", new_string: "b" }));
+    messages.push(toolResult("e1", "ok"));
+    // After the edit, only 2 verbal-only messages (below streak threshold of 3)
+    messages.push({ role: "assistant", content: "I'll verify the fix now." });
+    messages.push({ role: "assistant", content: "Let me run the tests." });
+    messages.push(assistantCall("t1", "bash", { command: "go test ./..." }));
+    messages.push(toolResult("t1", "PASS"));
+    const out = evaluateExecutionGovernor(messages);
+    // After an edit, verbal_intent_without_action must NOT fire regardless of how long the session was
+    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+  });
+
+  it("verification_churn_no_edit fires in explore phase when failures are present", () => {
+    // "make sure X works" → explore phase, but failures should still trigger churn rule
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "make sure the completion feature is done and works as expected from the plan" },
+    ];
+    for (let i = 0; i < 5; i++) {
+      messages.push(assistantCall(`t${i}`, "bash", { command: "go test ./cmd/synesis -v" }));
+      messages.push(toolResult(`t${i}`, "PASS\nok cmd/synesis 0.1s"));
+      messages.push(assistantCall(`b${i}`, "bash", { command: "./synesis completion --help 2>&1" }));
+      messages.push(toolResult(`b${i}`, "Error: Exit code 1\nError: unsupported shell: --help (use bash or zsh)"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_churn_no_edit");
+  });
 });
