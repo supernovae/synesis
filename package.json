@@ -1,4 +1,5 @@
 {
+  "name": "synesis",
   "private": true,
   "optionalDependencies": {
     "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.15"
@@ -11,6 +12,7 @@
     "base/admin-mcp-ts"
   ],
   "overrides": {
+    "protobufjs": "7.5.5",
     "axios": "1.15.0",
     "follow-redirects": "1.16.0",
     "langsmith": "0.5.19",
