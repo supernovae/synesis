@@ -5902,12 +5902,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   session.lastGovernorPhase = oaiGovernorPhase;
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const oaiHasProductiveWork = (oaiExecutionGovernor.telemetry.trailingProductiveCount ?? 0) > 0;
-    if (oaiHasProductiveWork && session.consecutiveRecoveryFires > 0) {
-      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
-    } else {
-      session.consecutiveRecoveryFires += 1;
-    }
+    session.consecutiveRecoveryFires += 1;
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const oaiHardStopDedup = getContentDedup(sessionKey);
@@ -8144,12 +8139,7 @@ app.post("/v1/messages", async (req, reply) => {
   }
   session.lastGovernorPhase = claudeGovernorPhase;
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const claudeHasProductiveWork = (claudeExecutionGovernor.telemetry.trailingProductiveCount ?? 0) > 0;
-    if (claudeHasProductiveWork && session.consecutiveRecoveryFires > 0) {
-      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
-    } else {
-      session.consecutiveRecoveryFires += 1;
-    }
+    session.consecutiveRecoveryFires += 1;
     const HARD_STOP_THRESHOLD = 5;
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
       const claudeHardStopDedup = getContentDedup(claudeSessionKey);
