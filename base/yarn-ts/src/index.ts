@@ -356,6 +356,11 @@ function applyExecutionGovernorToolRestrictions(
   ) ?? false;
   const repeatUserPromptLoop = matchedRules?.some((r) => r === "repeat_user_prompt_loop") ?? false;
   const verificationIntentHardGate = matchedRules?.some((r) => r === "verification_intent_without_action") ?? false;
+  const finalizeGreenLock = matchedRules?.some((r) =>
+    r === "verification_done_report" || r === "finalize_action_required"
+  ) && matchedRules?.some((r) =>
+    r === "completion_claim_requires_task_update" || r === "verification_done_report"
+  );
 
   const deny = new Set<string>();
   if (explorationDominant) {
@@ -375,6 +380,11 @@ function applyExecutionGovernorToolRestrictions(
   }
   if (repeatUserPromptLoop) {
     for (const t of ["askuserquestion", "ask_user_question", "askuser", "askquestion", "user_question"]) {
+      deny.add(t);
+    }
+  }
+  if (finalizeGreenLock) {
+    for (const t of ["bash", "shell", "run_test", "run_build", "run_lint", "execute", "terminal"]) {
       deny.add(t);
     }
   }
