@@ -846,6 +846,28 @@ export interface TraceRecord {
     time_to_first_token_ms?: number;
   };
   decision_ledger?: unknown[];
+  optimization_ledger?: {
+    inputCharsOriginal?: number;
+    inputCharsAfterReduction?: number;
+    inputCharsAfterPruning?: number;
+    inputCharsAfterDedup?: number;
+    inputCharsAfterNormalization?: number;
+    inputCharsFinal?: number;
+    toolResultsOriginalChars?: number;
+    toolResultsReducedChars?: number;
+    responseDedupHits?: number;
+    responseDedupMisses?: number;
+    blockStoreHits?: number;
+    blockStoreMisses?: number;
+    contentDedupHits?: number;
+    jitterLinesExtracted?: number;
+    historicalNormReplacements?: number;
+    toolIdRewrites?: number;
+    prefixStableBytes?: number;
+    upstreamCachedTokens?: number;
+    estimatedTokensSaved?: number;
+    pipelineLatencyMs?: number;
+  };
 }
 
 export interface TraceStats {
