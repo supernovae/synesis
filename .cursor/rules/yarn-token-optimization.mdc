@@ -1,0 +1,56 @@
+# Yarn Token Optimization Pipeline
+
+Yarn proxies LLM requests and applies a multi-stage optimization pipeline to minimize upstream GPU token costs using CPU-side normalization, dedup, and caching. All optimizations are provider-agnostic and fail-safe (bypass to pass-through on error).
+
+## Pipeline order (OpenAI path, same for Claude after message conversion)
+
+1. **Tool Result Reduction** (`src/reduction/tool-result-reducer.ts`) — 60+ output-family classifiers compress test/lint/build/git output
+2. **Validation Normalization** (`src/validation/service.ts`) — normalize lint/test format
+3. **Transcript Pruning** (`src/reduction/transcript-pruning.ts`) — budget-based eviction of stale turns
+4. **Read Snapshot Normalization** (`src/reduction/read-snapshot-normalizer.ts`) — file hash registry, unchanged hints → stubs
+5. **Content-Addressed Dedup** (`src/reduction/content-addressed-dedup.ts`) — per-session file-read dedup by hash
+6. **Response Dedup** (`src/dedupe/ResponseDedupe.ts`) — identical tool+args with same result hash → cached stub
+7. **Historical Normalization** (`src/reduction/historical-normalizer.ts`) — timestamps, paths, tool-call IDs in old messages → stable values
+8. **Jitter Buffer** (`src/compat/jitter-buffer.ts`) — volatile metadata from system+user messages → trailing ENVIRONMENT block
+9. **System Enrichment** (`enrichWithFrameAndManifest` in `src/index.ts`) — typed PromptFrame blocks stored in BlockStore
+10. **Attention Positioning** (`src/context/attention-positioning.ts`) — reorder system blocks for lost-in-the-middle
+11. **Prefix Optimizer** (`src/providers/prefix-optimizer/`) — KV-cache-friendly message reordering, tool canonicalization
+12. **Trust Pipeline** (`src/security/transcript-trust.ts`) — injection scan + trust packets
+13. **Context Admission** — final size gate + OptimizationLedger emit
+
+## Key invariants
+
+- **Fail-safe:** Every optimization catches errors and falls back to unmodified content. Log `*_bypass` events.
+- **Provider-agnostic:** Optimizations produce byte-stable token sequences that benefit ANY upstream KV cache (Anthropic prefix, vLLM PagedAttention, DashScope). Provider-specific markers are additive.
+- **Observable:** `OptimizationLedger` (`src/telemetry/optimization-ledger.ts`) emits `optimization_ledger` log on every request with tokens saved at each stage.
+- **Keep window:** Historical normalization and transcript pruning share the same `computeKeepFromIndex` boundary. Recent messages are preserved exactly.
+- **Content-addressed:** `BlockStore` (`src/store/block-store.ts`) guarantees byte-identical output for identical logical content. Use `blockStore.intern(content)` for any prompt block that should be cache-stable.
+
+## Do not
+
+- Add volatile content (timestamps, session IDs, PIDs) to system prompt blocks — use the jitter buffer extraction pattern instead.
+- Reorder the pipeline stages — the order is designed so each stage operates on progressively more normalized content.
+- Skip `ResponseDedupe` for read/search tools — these are the highest-value dedup targets.
+- Add ML dependencies (`transformers`, `torch`) to yarn-ts — see `ml-service-boundary` rule.
+- Remove or change the `computeKeepFromIndex` boundary without updating both transcript pruning AND historical normalization.
+
+## Config flags (optimization-related)
+
+| Flag | Default | What it controls |
+|------|---------|-----------------|
+| `SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED` | `true` | Response dedup in main pipeline |
+| `SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED` | `false` | Extend dedup beyond read/search |
+| `SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED` | `true` | Timestamp/path/ID stabilization in old messages |
+| `SYNESIS_YARN_JITTER_BUFFER_ENABLED` | `true` | Volatile metadata extraction |
+| `SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED` | `true` | KV-cache message reordering |
+| `SYNESIS_YARN_DEDUPE_ENABLED` | `true` | Tool call dedup layer |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED` | `true` | Budget-based transcript eviction |
+| `SYNESIS_YARN_REQUEST_FORENSICS_MODE` | `lightweight` | `off` / `lightweight` / `full` payload forensics |
+
+## Files
+
+- Full architecture doc: [`docs/token-optimization-architecture.md`](base/yarn-ts/docs/token-optimization-architecture.md)
+- BlockStore: [`src/store/block-store.ts`](base/yarn-ts/src/store/block-store.ts)
+- OptimizationLedger: [`src/telemetry/optimization-ledger.ts`](base/yarn-ts/src/telemetry/optimization-ledger.ts)
+- Historical Normalizer: [`src/reduction/historical-normalizer.ts`](base/yarn-ts/src/reduction/historical-normalizer.ts)
+- Jitter Buffer: [`src/compat/jitter-buffer.ts`](base/yarn-ts/src/compat/jitter-buffer.ts)

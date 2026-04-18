@@ -83,6 +83,9 @@ import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
 import { FileSnapshotRegistry, parseReadSnapshotEnvelope } from "./reduction/file-snapshot-registry.js";
 import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normalizer.js";
+import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
+import { BlockStore } from "./store/block-store.js";
+import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
 import { clearSessionMemory, getSessionMemoryCount, initMemoryToolStore } from "./mcp/handlers/memory-tools.js";
@@ -2105,7 +2108,7 @@ const app = Fastify({
 await app.register(fastifyRateLimit, { global: false });
 
 const yarnDedupeLayer =
-  config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED && config.SYNESIS_YARN_DEDUPE_ENABLED
+  config.SYNESIS_YARN_DEDUPE_ENABLED
     ? new DedupeLayer({
         maxCacheEntries: config.SYNESIS_YARN_DEDUPE_CACHE_MAX,
         maxSearchQueryChars: config.SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS,
@@ -2116,6 +2119,8 @@ const yarnDedupeLayer =
           ),
       })
     : null;
+
+const blockStore = new BlockStore();
 
 const yarnToolPrefixCache =
   config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED && config.SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED
@@ -5606,6 +5611,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const request = parsed.data;
   const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
   const oaiTaskCue = extractLatestUserPromptFromMessages(request.messages as Array<{ role: string; content: unknown }>);
+  const oaiOptLedger = new OptimizationLedger();
+  oaiOptLedger.recordOriginal(request.messages as Array<{ content?: unknown }>);
 
   // Sorted tools for cache stability
   if (config.SYNESIS_YARN_SORTED_TOOLS_ENABLED && request.tools) {
@@ -5760,6 +5767,65 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
       if (oaiDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
         app.log.debug({ reqId: oaiTraceReqId, dedupCount: oaiDedupResult.dedupCount, paths: oaiDedupResult.dedupPaths }, "content_dedup_applied");
+      }
+    }
+    // Response dedupe: replace identical tool results with compact stubs
+    if (config.SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED && yarnDedupeLayer) {
+      const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
+      let responseDedupHits = 0;
+      for (let mi = 0; mi < oaiMsgs.length; mi++) {
+        const m = oaiMsgs[mi];
+        if (m.role !== "tool" || typeof m.content !== "string") continue;
+        const toolName = m.name ?? "";
+        let toolInput: unknown;
+        if (m.tool_call_id) {
+          for (let ai = mi - 1; ai >= 0; ai--) {
+            const am = oaiMsgs[ai];
+            if (am.role === "assistant" && am.tool_calls) {
+              const match = am.tool_calls.find((tc) => tc.id === m.tool_call_id);
+              if (match?.function?.arguments) {
+                try { toolInput = JSON.parse(match.function.arguments); } catch { toolInput = match.function.arguments; }
+                break;
+              }
+            }
+          }
+        }
+        try {
+          const wrapped = yarnDedupeLayer.responseDedupe.wrapToolResult(toolName, toolInput, m.content);
+          if (wrapped !== m.content) {
+            oaiMsgs[mi] = { ...m, content: wrapped };
+            responseDedupHits += 1;
+            oaiOptLedger?.addResponseDedupHit();
+          } else {
+            oaiOptLedger?.addResponseDedupMiss();
+          }
+        } catch (e) {
+          app.log.warn({ reqId: oaiTraceReqId, err: (e as Error).message }, "response_dedupe_bypass");
+        }
+      }
+      if (responseDedupHits > 0) {
+        normalizedOpenAI.messages = oaiMsgs as never;
+        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+          app.log.debug({ reqId: oaiTraceReqId, hits: responseDedupHits }, "response_dedupe_applied");
+        }
+      }
+    }
+    // Historical normalization: stabilize old content for prefix cache
+    if (config.SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED) {
+      const histMsgs = normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
+      const keepFromIdx = transcriptPruning.computeKeepFromIndex?.(histMsgs as never) ?? histMsgs.length;
+      const histResult = normalizeHistoricalContent(histMsgs as never, keepFromIdx);
+      if (histResult.stats.messagesNormalized > 0) {
+        normalizedOpenAI.messages = histResult.messages as never;
+        oaiOptLedger?.addHistoricalNormReplacements(histResult.stats.timestampsReplaced + histResult.stats.pathsNormalized);
+      }
+      const idResult = stabilizeToolCallIds(normalizedOpenAI.messages as never, keepFromIdx);
+      if (idResult.rewriteCount > 0) {
+        normalizedOpenAI.messages = idResult.messages as never;
+        oaiOptLedger?.addToolIdRewrites(idResult.rewriteCount);
+        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+          app.log.debug({ reqId: oaiTraceReqId, rewrites: idResult.rewriteCount }, "tool_id_stabilization_applied");
+        }
       }
     }
     const oaiPlanRemediation = remediatePlanFileStubs(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>);
@@ -7274,6 +7340,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       sensemakingReason: oaiSensemakingResult?.reason,
       governorDecision: oaiExecutionGovernor,
     });
+    oaiOptLedger.setUpstreamCachedTokens(usage.cachedTokens ?? 0);
+    oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
+    app.log.info({ reqId, ...oaiOptLedger.toLogRecord() }, "optimization_ledger");
+
     persistAndEmitDecisionTelemetry({
       state: session,
       requestId: reqId,
@@ -7849,6 +7919,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sensemakingReason: oaiSensemakingResult?.reason,
     governorDecision: oaiExecutionGovernor,
   });
+  oaiOptLedger.setUpstreamCachedTokens(oaiStreamUsage.cachedTokens ?? 0);
+  oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
+  app.log.info({ reqId, ...oaiOptLedger.toLogRecord() }, "optimization_ledger");
+
   persistAndEmitDecisionTelemetry({
     state: session,
     requestId: reqId,

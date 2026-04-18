@@ -522,6 +522,23 @@ const EnvSchema = z.object({
   SYNESIS_YARN_DEDUPE_CACHE_MAX: z.coerce.number().default(512),
   SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS: z.coerce.number().default(4096),
 
+  // Response dedupe: wrap identical tool results with compact stubs (wired into main pipeline)
+  SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  // Broad response dedupe: extend beyond read/search to list_files, glob, etc.
+  SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+
+  // Historical content normalization (timestamps, paths, tool IDs in old messages)
+  SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+
   // Tool prefix cache (LRU tool results after collapse; wraps executor only)
   SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED: z
     .string()
@@ -539,6 +556,17 @@ const EnvSchema = z.object({
     if (!Number.isFinite(v)) return 0.1;
     return Math.min(1, Math.max(0, v));
   }),
+  // "lightweight" (default): always-on size + prefix-stability metrics, no payload capture.
+  // "full": additionally captures payload preview. "off": disabled.
+  SYNESIS_YARN_REQUEST_FORENSICS_MODE: z
+    .string()
+    .optional()
+    .transform((v) => {
+      const val = (v ?? "lightweight").toLowerCase();
+      if (val === "full" || val === "off") return val;
+      return "lightweight" as const;
+    }),
+  // Legacy compat: explicit true/false overrides mode to full/off when set.
   SYNESIS_YARN_REQUEST_FORENSICS_ENABLED: z
     .string()
     .optional()

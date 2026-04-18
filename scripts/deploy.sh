@@ -62,17 +62,20 @@ set -euo pipefail
 #   - SYNESIS_YARN_RESPONSE_STYLE_MODE (default guidance) and SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID (default true) — stylized markdown response guidance.
 #   - Workspace handshake disabled in strict fix-forward mode; clients must send project_root/shell_cwd anchors.
 #
-# Yarn token optimization (M10 + transcript pruning):
+# Yarn token optimization (M10 + transcript pruning + KV-cache pipeline):
 #   - SYNESIS_YARN_STABLE_PREFIX_ENABLED (default true) — stable system prompt prefix for provider cache hits.
 #   - SYNESIS_YARN_JSON_COMPACTION_ENABLED (default true) — compact JSON in tool results.
 #   - SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED (default true) — attention-aware message positioning.
 #   - SYNESIS_YARN_SORTED_TOOLS_ENABLED (default true) — deterministic tool ordering for cache.
 #   - SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED (default true) — evict stale tool results, dedup file reads, condense old assistant turns.
 #   - SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS (default 5), BUDGET_CHARS (120000), STUB_MAX_CHARS (400), ASSISTANT_CONDENSE_CHARS (2000).
-#   - SYNESIS_YARN_REQUEST_FORENSICS_ENABLED (default true via deploy.sh patch) — provider-boundary request forensics (LCP/first-change/breakdown).
+#   - SYNESIS_YARN_REQUEST_FORENSICS_MODE (default lightweight) — off/lightweight/full payload forensics. Lightweight always-on.
 #   - SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD (default false) and MAX_PREVIEW_CHARS (default 4000) — optional payload preview capture.
 #   - SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED (default true) — enable phase-aware tool_choice/tool filtering.
 #   - SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES (default qwen3-coder) — comma-separated model families for phase policy.
+#   - SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED (default true) — replace identical tool results with compact stubs.
+#   - SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED (default false) — extend dedup beyond read/search to list_files, glob, etc.
+#   - SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED (default true) — stabilize timestamps/paths/tool-call-IDs in old messages for KV cache.
 #
 # Yarn Eval Gym (docs/coder/EVAL_GYM.md):
 #   - SYNESIS_YARN_EVAL_API_ENABLED (default true) — exposes /v1/eval/* routes (scenario runner, results, export).
@@ -1279,6 +1282,12 @@ patch_yarn_tool_collapse_envs() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRIES" "$pcache_entries" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES" "$pcache_bytes" "$container"
 
+    # KV-cache optimization pipeline
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED" "${SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED" "${SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED:-false}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED" "${SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED:-true}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REQUEST_FORENSICS_MODE" "${SYNESIS_YARN_REQUEST_FORENSICS_MODE:-lightweight}" "$container"
+
     if [[ -n "${SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST:-}" ]]; then
         _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST" "${SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST}" "$container"
     fi
@@ -1495,6 +1504,12 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM "false"
     _flag SYNESIS_YARN_DEDUPE_ENABLED                  "true"
     _flag SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED       "true"
+
+    # ── KV-cache optimization pipeline (response dedup, historical normalize, forensics) ──
+    _flag SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED         "true"
+    _flag SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED   "false"
+    _flag SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED    "true"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REQUEST_FORENSICS_MODE" "${SYNESIS_YARN_REQUEST_FORENSICS_MODE:-lightweight}" "$container"
 
     # ── Eval Gym: scenario runner, session observer, training data export ──
     _flag SYNESIS_YARN_EVAL_API_ENABLED                "true"

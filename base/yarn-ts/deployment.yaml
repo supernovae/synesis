@@ -164,6 +164,15 @@ spec:
               value: "512"
             - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES
               value: "262144"
+            # ── KV-cache optimization pipeline ──
+            - name: SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED
+              value: "false"
+            - name: SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_REQUEST_FORENSICS_MODE
+              value: "lightweight"
             # ── Eval Gym: scenario runner, session observer, training data ──
             - name: SYNESIS_YARN_EVAL_API_ENABLED
               value: "true"

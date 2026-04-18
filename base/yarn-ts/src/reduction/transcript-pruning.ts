@@ -144,8 +144,11 @@ export class TranscriptPruningService {
    * Compute the message index from which we preserve full content.
    * Uses user-turn boundaries first, then falls back to tool-result count
    * for single-turn agent loops where the turn-based heuristic yields 0.
+   *
+   * Public so other normalization stages (historical normalizer, tool-ID
+   * stabilizer) can use the same boundary for consistency.
    */
-  private computeKeepFromIndex(messages: MessageLike[]): number {
+  computeKeepFromIndex(messages: MessageLike[]): number {
     const userTurnBoundaries = computeUserTurnBoundaries(messages);
     const turnBased = userTurnBoundaries.length > this.config.keepTurns
       ? userTurnBoundaries[userTurnBoundaries.length - this.config.keepTurns]

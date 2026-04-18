@@ -1,0 +1,73 @@
+import { describe, it, expect } from "vitest";
+import { OptimizationLedger } from "../src/telemetry/optimization-ledger.js";
+
+describe("OptimizationLedger", () => {
+  it("records original message sizes", () => {
+    const ledger = new OptimizationLedger();
+    ledger.recordOriginal([
+      { content: "hello" },
+      { content: "world!" },
+    ]);
+    const snap = ledger.finalize();
+    expect(snap.inputCharsOriginal).toBe(11);
+  });
+
+  it("computes estimated tokens saved", () => {
+    const ledger = new OptimizationLedger();
+    ledger.recordOriginal([{ content: "a".repeat(4000) }]);
+    ledger.recordFinal([{ content: "a".repeat(2000) }]);
+    const snap = ledger.finalize();
+    expect(snap.estimatedTokensSaved).toBe(500);
+  });
+
+  it("accumulates dedup hits", () => {
+    const ledger = new OptimizationLedger();
+    ledger.addResponseDedupHit();
+    ledger.addResponseDedupHit();
+    ledger.addResponseDedupMiss();
+    const snap = ledger.finalize();
+    expect(snap.responseDedupHits).toBe(2);
+    expect(snap.responseDedupMisses).toBe(1);
+  });
+
+  it("tracks block store hits", () => {
+    const ledger = new OptimizationLedger();
+    ledger.addBlockStoreHit();
+    ledger.addBlockStoreHit();
+    ledger.addBlockStoreMiss();
+    const snap = ledger.finalize();
+    expect(snap.blockStoreHits).toBe(2);
+    expect(snap.blockStoreMisses).toBe(1);
+  });
+
+  it("records pipeline latency", () => {
+    const ledger = new OptimizationLedger();
+    const snap = ledger.finalize();
+    expect(snap.pipelineLatencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("toLogRecord omits zero-value fields", () => {
+    const ledger = new OptimizationLedger();
+    ledger.recordOriginal([{ content: "test" }]);
+    ledger.recordFinal([{ content: "test" }]);
+    const log = ledger.toLogRecord();
+    expect(log.inputCharsOriginal).toBe(4);
+    expect(log.inputCharsFinal).toBe(4);
+    expect(log.responseDedupHits).toBeUndefined();
+    expect(log.estimatedTokensSaved).toBeUndefined();
+  });
+
+  it("handles non-string content via JSON.stringify", () => {
+    const ledger = new OptimizationLedger();
+    ledger.recordOriginal([{ content: { key: "value" } }]);
+    const snap = ledger.finalize();
+    expect(snap.inputCharsOriginal).toBeGreaterThan(0);
+  });
+
+  it("handles null/undefined content gracefully", () => {
+    const ledger = new OptimizationLedger();
+    ledger.recordOriginal([{ content: null }, {}]);
+    const snap = ledger.finalize();
+    expect(snap.inputCharsOriginal).toBe(0);
+  });
+});

@@ -32,12 +32,23 @@ describe("splitJitter", () => {
     expect(jitterBlock).toContain("branch=main");
   });
 
-  it("does not modify non-system messages", () => {
+  it("extracts jitter from user messages", () => {
     const msgs = [
       { role: "user", content: "Today's date: 2026-03-27" },
     ];
     const { stableMessages, jitterBlock } = splitJitter(msgs);
+    expect(stableMessages).toHaveLength(0);
+    expect(jitterBlock).toContain("Today's date: 2026-03-27");
+  });
+
+  it("does not modify assistant or tool messages", () => {
+    const msgs = [
+      { role: "assistant", content: "Today's date: 2026-03-27" },
+      { role: "tool", content: "cwd=/tmp/foo" },
+    ];
+    const { stableMessages, jitterBlock } = splitJitter(msgs);
     expect(stableMessages[0].content).toBe("Today's date: 2026-03-27");
+    expect(stableMessages[1].content).toBe("cwd=/tmp/foo");
     expect(jitterBlock).toBeNull();
   });
 
