@@ -5715,6 +5715,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveRecoveryFires = 0;
+    // Also clear verification-block flags so a prior turn's failed/green verification
+    // loop does not gate the new task attempt before it even starts.
+    session.blockBroadVerificationUntilEdit = false;
+    session.blockFailingVerificationUntilEdit = false;
     void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch(() => {});
   }
   {
@@ -5816,7 +5820,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
   );
   const oaiLatestToolProgress = classifyLatestToolProgress(
-    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    (normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>)
+      .slice(findLastUserPromptIdx(normalizedOpenAI.messages as Array<{ role?: string; content?: unknown }>) + 1),
   );
   for (const failure of oaiToolFailures) {
     recordSessionEvent(
@@ -8088,6 +8093,8 @@ app.post("/v1/messages", async (req, reply) => {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveRecoveryFires = 0;
+    session.blockBroadVerificationUntilEdit = false;
+    session.blockFailingVerificationUntilEdit = false;
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
   }
   {
@@ -8189,7 +8196,8 @@ app.post("/v1/messages", async (req, reply) => {
     normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
   );
   const claudeLatestToolProgress = classifyLatestToolProgress(
-    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    (normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>)
+      .slice(findLastUserPromptIdx(normalizedFromClaude.messages as Array<{ role?: string; content?: unknown }>) + 1),
   );
   for (const failure of claudeToolFailures) {
     recordSessionEvent(
