@@ -447,6 +447,149 @@ function RolePhaseSummary({ spans }: { spans: SpanRecord[] }) {
   );
 }
 
+function fmtTokens(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return n.toLocaleString();
+}
+
+interface OptLedger {
+  inputCharsOriginal?: number;
+  inputCharsAfterReduction?: number;
+  inputCharsAfterPruning?: number;
+  inputCharsAfterDedup?: number;
+  inputCharsAfterNormalization?: number;
+  inputCharsFinal?: number;
+  toolResultsOriginalChars?: number;
+  toolResultsReducedChars?: number;
+  responseDedupHits?: number;
+  responseDedupMisses?: number;
+  blockStoreHits?: number;
+  contentDedupHits?: number;
+  jitterLinesExtracted?: number;
+  historicalNormReplacements?: number;
+  toolIdRewrites?: number;
+  prefixStableBytes?: number;
+  upstreamCachedTokens?: number;
+  estimatedTokensSaved?: number;
+  pipelineLatencyMs?: number;
+}
+
+function OptimizationLedgerPanel({ ledger }: { ledger: OptLedger }) {
+  const saved = ledger.estimatedTokensSaved ?? 0;
+  const origChars = ledger.inputCharsOriginal ?? 0;
+  const finalChars = ledger.inputCharsFinal ?? 0;
+  const reductionPct = origChars > 0 ? ((origChars - finalChars) / origChars * 100) : 0;
+
+  const stages = [
+    { label: "Original input", chars: origChars },
+    { label: "After tool reduction", chars: ledger.inputCharsAfterReduction },
+    { label: "After transcript pruning", chars: ledger.inputCharsAfterPruning },
+    { label: "After content dedup", chars: ledger.inputCharsAfterDedup },
+    { label: "After normalization", chars: ledger.inputCharsAfterNormalization },
+    { label: "Final (sent to provider)", chars: finalChars },
+  ].filter(s => s.chars != null && s.chars > 0) as { label: string; chars: number }[];
+
+  const maxChars = Math.max(...stages.map(s => s.chars), 1);
+
+  const hits = [
+    { label: "Response dedup hits", value: ledger.responseDedupHits },
+    { label: "Response dedup misses", value: ledger.responseDedupMisses },
+    { label: "Block store hits", value: ledger.blockStoreHits },
+    { label: "Content dedup hits", value: ledger.contentDedupHits },
+    { label: "Jitter lines extracted", value: ledger.jitterLinesExtracted },
+    { label: "Historical normalizations", value: ledger.historicalNormReplacements },
+    { label: "Tool ID rewrites", value: ledger.toolIdRewrites },
+  ].filter(h => h.value != null && h.value > 0) as { label: string; value: number }[];
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+          Optimization Pipeline
+        </h3>
+        <div className="flex items-center gap-3">
+          {saved > 0 && (
+            <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-300">
+              ~{fmtTokens(saved)} tokens saved
+            </span>
+          )}
+          {reductionPct > 0 && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {reductionPct.toFixed(1)}% reduction
+            </span>
+          )}
+          {(ledger.pipelineLatencyMs ?? 0) > 0 && (
+            <span className="text-xs text-gray-400">
+              {fmtDuration(ledger.pipelineLatencyMs!)} pipeline
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Funnel visualization */}
+      {stages.length > 1 && (
+        <div className="mb-4 space-y-1">
+          {stages.map((stage, i) => {
+            const widthPct = Math.max(8, (stage.chars / maxChars) * 100);
+            const isLast = i === stages.length - 1;
+            return (
+              <div key={stage.label} className="flex items-center gap-3">
+                <span className="w-44 shrink-0 text-right text-xs text-gray-500 dark:text-gray-400">
+                  {stage.label}
+                </span>
+                <div className="relative flex-1">
+                  <div
+                    className={`h-5 rounded ${isLast ? "bg-green-400 dark:bg-green-600" : "bg-indigo-200 dark:bg-indigo-800"}`}
+                    style={{ width: `${widthPct}%` }}
+                  />
+                </div>
+                <span className="w-20 text-right font-mono text-xs text-gray-700 dark:text-gray-300">
+                  {stage.chars.toLocaleString()}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Metrics grid */}
+      <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+        {(ledger.toolResultsOriginalChars ?? 0) > 0 && (
+          <div className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Tool results reduced</span>
+            <span className="font-mono text-xs text-gray-900 dark:text-white">
+              {(ledger.toolResultsOriginalChars ?? 0).toLocaleString()} → {(ledger.toolResultsReducedChars ?? 0).toLocaleString()} chars
+            </span>
+          </div>
+        )}
+        {(ledger.upstreamCachedTokens ?? 0) > 0 && (
+          <div className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Upstream KV-cached</span>
+            <span className="font-mono text-xs text-green-600 dark:text-green-400">
+              {fmtTokens(ledger.upstreamCachedTokens!)} tokens
+            </span>
+          </div>
+        )}
+        {(ledger.prefixStableBytes ?? 0) > 0 && (
+          <div className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Prefix stable bytes</span>
+            <span className="font-mono text-xs text-gray-900 dark:text-white">
+              {(ledger.prefixStableBytes!).toLocaleString()}
+            </span>
+          </div>
+        )}
+        {hits.map(h => (
+          <div key={h.label} className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
+            <span className="text-xs text-gray-500 dark:text-gray-400">{h.label}</span>
+            <span className="font-mono text-xs text-gray-900 dark:text-white">{h.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const QUICK_PROMPTS = [
   "Summarize this trace.",
   "Where did it fail or underperform?",
@@ -899,6 +1042,10 @@ export default function TraceDetail() {
           <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Trace context</h3>
           <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
             {[
+              ["turn_index", "Turn index"],
+              ["phase", "Phase"],
+              ["reducedToolResults", "Reduced tool results"],
+              ["tokensSavedByReduction", "Tokens saved (reduction)"],
               ["token_budget_total", "Budget total"],
               ["token_budget_remaining", "Budget remaining"],
               ["token_budget_consumed", "Budget consumed"],
@@ -1064,6 +1211,11 @@ export default function TraceDetail() {
             </span>
           )}
         </div>
+      )}
+
+      {/* Optimization Pipeline (Yarn per-request ledger) */}
+      {trace.optimization_ledger && (
+        <OptimizationLedgerPanel ledger={trace.optimization_ledger} />
       )}
 
       {/* Token by role + Role phase summary */}

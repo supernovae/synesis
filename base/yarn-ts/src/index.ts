@@ -85,7 +85,7 @@ import { FileSnapshotRegistry, parseReadSnapshotEnvelope } from "./reduction/fil
 import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normalizer.js";
 import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
 import { BlockStore } from "./store/block-store.js";
-import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
+import { OptimizationLedger, type OptimizationLedgerSnapshot } from "./telemetry/optimization-ledger.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
@@ -3291,6 +3291,7 @@ function persistSessionAndUsage(
   escalated = false,
   snapshot?: DecisionSnapshot,
   trajectory?: RequestTrajectoryInput,
+  optimizationLedger?: OptimizationLedgerSnapshot,
 ): void {
   const persistSpan = getTracer().startSpan("yarn.persist_session", {
     "yarn.request_id": requestId,
@@ -3614,12 +3615,14 @@ function persistSessionAndUsage(
     latency_ms: latencyMs,
     ...(snapshot ? snapshotToTraceFields(snapshot) : {}),
     trace_context: {
+      ...(snapshot ? snapshotToTraceFields(snapshot).trace_context : {}),
       turn_index: state.record.requestCount,
       root_user_prompt: rootPromptSnippet || undefined,
       latest_user_prompt: latestPromptSnippet || undefined,
       parent_trace_id: parentTraceId,
       root_trace_id: rootTraceId,
     },
+    ...(optimizationLedger ? { optimization_ledger: optimizationLedger } : {}),
     has_error: finishReason === "error" || undefined,
   };
   emitTrace(trace, traceEmitterConfig, app.log);
@@ -3641,6 +3644,7 @@ function persistAndEmitDecisionTelemetry(input: {
   sessionKey: string;
   userId: string;
   orgId: string;
+  optimizationLedger?: OptimizationLedgerSnapshot;
 }): void {
   persistSessionAndUsage(
     input.state,
@@ -3653,6 +3657,7 @@ function persistAndEmitDecisionTelemetry(input: {
     input.escalated,
     input.snapshot,
     input.trajectory,
+    input.optimizationLedger,
   );
   maybeCheckpoint(input.state);
   emitDecisionEvents(input.sessionKey, input.userId, input.orgId, input.requestId, input.snapshot);
@@ -7346,6 +7351,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
     oaiOptLedger.setUpstreamCachedTokens(usage.cachedTokens ?? 0);
     oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
+    const oaiLedgerSnap = oaiOptLedger.finalize();
     app.log.info({ reqId, ...oaiOptLedger.toLogRecord() }, "optimization_ledger");
 
     persistAndEmitDecisionTelemetry({
@@ -7370,6 +7376,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       sessionKey,
       userId: identity.userId,
       orgId: identity.orgId,
+      optimizationLedger: oaiLedgerSnap,
     });
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
@@ -7925,6 +7932,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   });
   oaiOptLedger.setUpstreamCachedTokens(oaiStreamUsage.cachedTokens ?? 0);
   oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
+  const oaiStreamLedgerSnap = oaiOptLedger.finalize();
   app.log.info({ reqId, ...oaiOptLedger.toLogRecord() }, "optimization_ledger");
 
   persistAndEmitDecisionTelemetry({
@@ -7949,6 +7957,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sessionKey,
     userId: identity.userId,
     orgId: identity.orgId,
+    optimizationLedger: oaiStreamLedgerSnap,
   });
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({

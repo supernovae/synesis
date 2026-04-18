@@ -359,7 +359,10 @@ async def get_trace_chain(
 
 def _enrich_detail(record: dict) -> None:
     """Promote enriched decision fields from full_record to top level for the detail view."""
-    for key in ("evidence_summary", "decision_ledger", "trace_context", "streaming", "taxonomy"):
+    for key in (
+        "evidence_summary", "decision_ledger", "trace_context", "streaming",
+        "taxonomy", "optimization_ledger",
+    ):
         if key not in record and key in record.get("full_record", {}):
             record[key] = record["full_record"][key]
     ledger = record.get("decision_ledger")
@@ -377,3 +380,12 @@ def _enrich_detail(record: dict) -> None:
         cache_write = int(tokens.get("cache_creation_tokens", 0) or 0)
         if cache_write > 0:
             record.setdefault("total_cache_creation_tokens", cache_write)
+
+    opt = record.get("optimization_ledger")
+    if isinstance(opt, dict):
+        saved = int(opt.get("estimatedTokensSaved", 0) or 0)
+        if saved > 0:
+            record.setdefault("tokens_saved_by_optimization", saved)
+        pipeline_ms = int(opt.get("pipelineLatencyMs", 0) or 0)
+        if pipeline_ms > 0:
+            record.setdefault("optimization_pipeline_ms", pipeline_ms)
