@@ -86,6 +86,7 @@ import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normali
 import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
 import { BlockStore } from "./store/block-store.js";
 import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
+import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
 import { clearSessionMemory, getSessionMemoryCount, initMemoryToolStore } from "./mcp/handlers/memory-tools.js";
@@ -2493,15 +2494,22 @@ function enrichWithFrameAndManifest(
       promptProfileIds: [],
       promptProfileHashes: [],
     };
-  let systemPrefix = partition.stablePrefix;
+
+  // Intern stable prefix via BlockStore — identical logical content across
+  // turns produces the exact same string reference for upstream KV reuse.
+  const stablePrefix = blockStore.intern(partition.stablePrefix);
+
   const effectiveRoot = pathHints?.projectRoot ?? pathHints?.shellCwd;
+  let projectContext: string | null = null;
   if (topLevelDirs && topLevelDirs.length > 0 && effectiveRoot) {
-    systemPrefix += `\n<PROJECT_ROOT path="${effectiveRoot}" dirs="${topLevelDirs.join(",")}" />`;
+    projectContext = blockStore.intern(`<PROJECT_ROOT path="${effectiveRoot}" dirs="${topLevelDirs.join(",")}" />`);
   }
 
   if (config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    let prefixContent = stablePrefix;
+    if (projectContext) prefixContent += "\n" + projectContext;
     const enriched: Array<{ role: string; content: unknown }> = [
-      { role: "system", content: systemPrefix },
+      { role: "system", content: prefixContent },
       ...out,
     ];
     return {
@@ -2513,10 +2521,9 @@ function enrichWithFrameAndManifest(
     };
   }
 
-  const volatileBlocks: Array<{ role: string; content: string }> = [];
-  if (volatileAdapterBlock) {
-    volatileBlocks.push({ role: "system", content: volatileAdapterBlock });
-  }
+  // Build PromptFrame: each block interned individually for byte stability.
+  let workingFrameBlock: string | null = null;
+  let structuralCriticBlock: string | null = null;
 
   const wfPathHints =
     config.SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME && pathHints
@@ -2534,7 +2541,7 @@ function enrichWithFrameAndManifest(
         const frame = workingFrameService.build(out);
         detectedPhase = phaseFromFrame(frame.currentPhase);
         detectedGoal = frame.goal;
-        volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame, wfPathHints) });
+        workingFrameBlock = workingFrameService.toSystemBlock(frame, wfPathHints);
       } else {
         const template = manifestGetTemplate(classification.projectKind);
         const filePaths = (allText.match(FILE_RE_GLOBAL) ?? []).map((f: string) => f.trim());
@@ -2549,10 +2556,7 @@ function enrichWithFrameAndManifest(
           if (config.SYNESIS_YARN_STRUCTURAL_CRITIC_ENABLED) {
             const critique = manifestCritique(comparison);
             if (!critique.passed && critique.requiredMissing > 0) {
-              volatileBlocks.push({
-                role: "system",
-                content: `<STRUCTURAL_CRITIC>\n${critique.summary}\n</STRUCTURAL_CRITIC>`,
-              });
+              structuralCriticBlock = `<STRUCTURAL_CRITIC>\n${critique.summary}\n</STRUCTURAL_CRITIC>`;
             }
           }
         } else {
@@ -2565,45 +2569,40 @@ function enrichWithFrameAndManifest(
           : richFrame.phase === "explore" ? "explore"
           : "implementation";
         detectedGoal = richFrame.currentGoal;
-        volatileBlocks.push({ role: "system", content: workingFrameService.toRichSystemBlock(richFrame, wfPathHints) });
+        workingFrameBlock = workingFrameService.toRichSystemBlock(richFrame, wfPathHints);
       }
     } else {
       const frame = workingFrameService.build(out);
       detectedPhase = phaseFromFrame(frame.currentPhase);
       detectedGoal = frame.goal;
-      volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame, wfPathHints) });
+      workingFrameBlock = workingFrameService.toSystemBlock(frame, wfPathHints);
     }
   }
 
+  let projectManifestBlock: string | null = null;
   if (config.SYNESIS_YARN_PROJECT_MANIFEST_ENABLED) {
     const manifest = projectManifestService.build(out);
-    volatileBlocks.push({ role: "system", content: projectManifestService.toSystemBlock(manifest) });
+    projectManifestBlock = projectManifestService.toSystemBlock(manifest);
   }
 
+  let structuralIndexBlock: string | null = null;
   if (config.SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED) {
     const sessionIdx = getStructuralIndex(sessionKey);
     if (sessionIdx) {
       const stats = sessionIdx.getStats();
       if (stats.fileCount > 0) {
-        const repoMap = sessionIdx.renderMap(config.SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET);
-        if (repoMap) {
-          volatileBlocks.push({ role: "system", content: repoMap });
-        }
+        structuralIndexBlock = sessionIdx.renderMap(config.SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET) ?? null;
       }
     }
   }
 
+  let fileSummaryBlock: string | null = null;
   const enrichDedup = getContentDedup(sessionKey);
   if (enrichDedup.getTrackedFileCount() > 0) {
-    const filesBlock = enrichDedup.generateFilesSummaryBlock();
-    if (filesBlock) {
-      volatileBlocks.push({ role: "system", content: filesBlock });
-    }
+    fileSummaryBlock = enrichDedup.generateFilesSummaryBlock() ?? null;
   }
 
-  // Golden Trajectories removed (was placeholder; use planner/router for retrieval instead).
-  // This reduces volatile system blocks, improving prefix stability and reducing model confusion risk.
-
+  let verificationPlanBlock: string | null = null;
   if (config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED) {
     const detectedLangs = detectLanguagesFromMessages(out);
     if (detectedLangs.length > 0) {
@@ -2613,10 +2612,7 @@ function enrichWithFrameAndManifest(
         config.SYNESIS_YARN_VERIFICATION_MAX_ROUNDS,
         config.SYNESIS_YARN_VERIFICATION_BUDGET_MS,
       );
-      const vBlock = formatVerificationPlanBlock(vPlan);
-      if (vBlock) {
-        volatileBlocks.push({ role: "system", content: vBlock });
-      }
+      verificationPlanBlock = formatVerificationPlanBlock(vPlan) ?? null;
     }
   }
 
@@ -2629,41 +2625,49 @@ function enrichWithFrameAndManifest(
     allowMermaid: config.SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID,
     adminOverride: responseStyleOverride,
   });
-  if (responseStyleBlock) {
-    volatileBlocks.push({ role: "system", content: responseStyleBlock });
-  }
-
-  for (const block of governanceBlocks ?? []) {
-    if (block && block.trim()) {
-      volatileBlocks.push({ role: "system", content: block });
-    }
-  }
 
   const intentGateBlock = buildIntentGateBlock(out);
-  if (intentGateBlock) {
-    volatileBlocks.push({ role: "system", content: intentGateBlock });
-  }
 
-  volatileBlocks.push({ role: "system", content: TOOL_EFFICIENCY_GUIDANCE });
+  // Assemble the PromptFrame. Each semi-stable block is interned via BlockStore
+  // so identical content across turns produces identical byte sequences.
+  const frame: PromptFrame = {
+    stablePrefix,
+    projectContext,
+    volatileAdapter: volatileAdapterBlock ?? null,
+    workingFrame: workingFrameBlock,
+    structuralCritic: structuralCriticBlock,
+    projectManifest: projectManifestBlock ? blockStore.intern(projectManifestBlock) : null,
+    structuralIndex: structuralIndexBlock ? blockStore.intern(structuralIndexBlock) : null,
+    fileSummary: fileSummaryBlock,
+    verificationPlan: verificationPlanBlock ? blockStore.intern(verificationPlanBlock) : null,
+    responseStyle: responseStyleBlock ? blockStore.intern(responseStyleBlock) : null,
+    governanceBlocks: (governanceBlocks ?? []).filter((b) => b && b.trim()),
+    intentGate: intentGateBlock,
+    toolEfficiency: blockStore.intern(TOOL_EFFICIENCY_GUIDANCE),
+  };
 
-  const volatileConcat = volatileBlocks.map((b) => b.content).join("\n---\n");
-  const volatileHash = crypto.createHash("sha256").update(volatileConcat).digest("hex").slice(0, 16);
+  // Volatile hash memoization: if the volatile portion is identical to
+  // last turn, reuse the prior string reference (avoids allocation and
+  // produces byte-identical upstream prefix).
+  const volatileFingerprint = computeVolatileFingerprint(frame);
+  const volatileHash = crypto.createHash("sha256").update(volatileFingerprint).digest("hex").slice(0, 16);
 
-  let resolvedVolatile: string;
   if (sessionState?.lastVolatileHash === volatileHash && sessionState.lastVolatileContent) {
-    resolvedVolatile = sessionState.lastVolatileContent;
-  } else {
-    resolvedVolatile = volatileConcat;
-    if (sessionState) {
-      sessionState.lastVolatileHash = volatileHash;
-      sessionState.lastVolatileContent = volatileConcat;
-    }
+    // Reuse last turn's content string — same reference, same bytes
+  } else if (sessionState) {
+    sessionState.lastVolatileHash = volatileHash;
+    sessionState.lastVolatileContent = volatileFingerprint;
   }
+
+  const resolvedVolatile = sessionState?.lastVolatileContent ?? volatileFingerprint;
+
+  let prefixContent = frame.stablePrefix;
+  if (frame.projectContext) prefixContent += "\n" + frame.projectContext;
 
   const enriched: Array<{ role: string; content: unknown }> = [
-    { role: "system", content: systemPrefix },
+    { role: "system", content: prefixContent },
     ...(resolvedVolatile ? [{ role: "system", content: resolvedVolatile }] : []),
-    ...out
+    ...out,
   ];
 
   const finalMessages = config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED
