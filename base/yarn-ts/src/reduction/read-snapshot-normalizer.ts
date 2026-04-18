@@ -27,6 +27,15 @@ type MessageLike = {
 export interface ReadSnapshotNormalizationOptions {
   projectRoot?: string | null;
   anchorDir?: string | null;
+  /**
+   * The message index of the last genuine human turn (not a tool-result user message).
+   * When provided, any snapshot whose lastSeenTurn is <= this index is treated as
+   * stale from the current turn's perspective: if the model explicitly reads the file
+   * again we replay the full content instead of returning "unchanged_snapshot_still_visible".
+   * This prevents the model from getting stuck after an interrupt/restart where the
+   * snapshot exists from the previous sub-session but the model's context was cleared.
+   */
+  lastUserPromptIdx?: number;
 }
 
 export interface ReadSnapshotNormalizationResult {
@@ -99,7 +108,12 @@ export async function normalizeReadSnapshotMessages(
 
     if (isUnchangedHint(raw)) {
       const snapshot = registry.getByPath(canonicalPath);
-      if (snapshot && snapshot.visibilityState === "ACTIVE_VISIBLE") {
+      // If the snapshot was recorded before the current user turn, the model's context
+      // may have been reset (interrupt/restart). Replay the full content so the model
+      // can actually use it rather than spinning on "unchanged" forever.
+      const turnBoundary = options.lastUserPromptIdx ?? -1;
+      const snapshotIsStale = snapshot !== null && snapshot.lastSeenTurn <= turnBoundary;
+      if (snapshot && snapshot.visibilityState === "ACTIVE_VISIBLE" && !snapshotIsStale) {
         out.push({
           ...m,
           content: buildReadSnapshotEnvelope({
@@ -116,7 +130,17 @@ export async function normalizeReadSnapshotMessages(
         continue;
       }
       if (snapshot && snapshot.lastFullContent) {
-        registry.markVisible(snapshot.canonicalPath);
+        // Replay the content — either snapshot is STALE (from a prior turn) or not
+        // yet ACTIVE_VISIBLE. Refresh lastSeenTurn so subsequent reads in this same
+        // turn correctly return "unchanged" rather than replaying again.
+        registry.recordFullContent({
+          rawPath: snapshot.canonicalPath,
+          content: snapshot.lastFullContent,
+          lineRange: lineRange ?? snapshot.lastLineRange,
+          source: "replay",
+          turnIndex: i,
+          anchorDir: options.anchorDir,
+        });
         out.push({
           ...m,
           content: buildReadSnapshotEnvelope({

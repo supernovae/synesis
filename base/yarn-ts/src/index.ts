@@ -1371,6 +1371,25 @@ function collectToolExecutionFailureObservations(
   return observations;
 }
 
+/**
+ * Finds the index of the last genuine human user message (not a tool-result wrapper).
+ * Used to determine the turn boundary for snapshot replay decisions.
+ */
+function findLastUserPromptIdx(messages: Array<{ role?: string; content?: unknown }>): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "user") continue;
+    // Skip pure tool-result user messages (array of only tool_result blocks)
+    if (Array.isArray(m.content) && m.content.length > 0
+      && (m.content as Array<{ type?: string }>).every((b) => b?.type === "tool_result")) continue;
+    // Must have some text content
+    const text = typeof m.content === "string" ? m.content.trim() : "";
+    if (!text && !Array.isArray(m.content)) continue;
+    return i;
+  }
+  return -1;
+}
+
 type EditContextMissGuardState = {
   active: boolean;
   filePath: string;
@@ -5702,6 +5721,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       {
         projectRoot: oaiPathCtx.projectRoot ?? oaiPathCtx.shellCwd ?? null,
         anchorDir: oaiPathCtx.shellCwd ?? oaiPathCtx.projectRoot ?? null,
+        lastUserPromptIdx: findLastUserPromptIdx(normalizedOpenAI.messages as Array<{ role?: string; content?: unknown }>),
       },
     );
     if (readSnapshotNormalization.normalizedCount > 0) {
@@ -8074,6 +8094,7 @@ app.post("/v1/messages", async (req, reply) => {
       {
         projectRoot: claudePathCtx.projectRoot ?? claudePathCtx.shellCwd ?? null,
         anchorDir: claudePathCtx.shellCwd ?? claudePathCtx.projectRoot ?? null,
+        lastUserPromptIdx: findLastUserPromptIdx(normalizedFromClaude.messages as Array<{ role?: string; content?: unknown }>),
       },
     );
     if (readSnapshotNormalization.normalizedCount > 0) {

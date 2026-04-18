@@ -193,7 +193,7 @@ describe("claudeMessagesToOpenAI", () => {
     expect(result[2].content).toBe("file1.ts\nfile2.ts");
   });
 
-  it("reuses last read content when Claude returns unchanged stub", () => {
+  it("passes through unchanged hint as-is (replay is handled by the normalizer layer)", () => {
     const result = claudeMessagesToOpenAI([
       {
         role: "assistant",
@@ -223,7 +223,9 @@ describe("claudeMessagesToOpenAI", () => {
     const toolMsgs = result.filter((m) => m.role === "tool");
     expect(toolMsgs).toHaveLength(2);
     expect(toolMsgs[0].content).toBe("# Plan\n- item 1\n- item 2");
-    expect(toolMsgs[1].content).toBe("# Plan\n- item 1\n- item 2");
+    // claudeMessagesToOpenAI passes the stub through; normalizeReadSnapshotMessages
+    // replays the file content when it processes these messages server-side.
+    expect(toolMsgs[1].content).toBe("Unchanged since last read");
   });
 
   it("passes tool_use_id to reducer callback", () => {
