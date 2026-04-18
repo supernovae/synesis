@@ -113,7 +113,11 @@ export async function normalizeReadSnapshotMessages(
       // can actually use it rather than spinning on "unchanged" forever.
       const turnBoundary = options.lastUserPromptIdx ?? -1;
       const snapshotIsStale = snapshot !== null && snapshot.lastSeenTurn <= turnBoundary;
-      if (snapshot && snapshot.visibilityState === "ACTIVE_VISIBLE" && !snapshotIsStale) {
+      // For full-file reads with a current, visible snapshot: return "unchanged" — the
+      // model already has the content in context. Skip this for range reads (pages X-Y):
+      // the model asked for a specific slice and can't find it from just "unchanged".
+      const requestHasRange = lineRange != null;
+      if (snapshot && snapshot.visibilityState === "ACTIVE_VISIBLE" && !snapshotIsStale && !requestHasRange) {
         out.push({
           ...m,
           content: buildReadSnapshotEnvelope({
@@ -130,13 +134,22 @@ export async function normalizeReadSnapshotMessages(
         continue;
       }
       if (snapshot && snapshot.lastFullContent) {
-        // Replay the content — either snapshot is STALE (from a prior turn) or not
-        // yet ACTIVE_VISIBLE. Refresh lastSeenTurn so subsequent reads in this same
-        // turn correctly return "unchanged" rather than replaying again.
+        // Replay the content — either snapshot is STALE (from a prior turn), the
+        // request specifies a range, or the snapshot is not yet ACTIVE_VISIBLE.
+        // Refresh lastSeenTurn so subsequent full-file reads in this same turn
+        // correctly return "unchanged" rather than replaying again.
+        // For range reads: extract the requested slice from the full content so the
+        // model gets exactly the lines it asked for.
+        const contentForRange = requestHasRange
+          ? sliceSnapshotContent(snapshot.lastFullContent, lineRange)
+          : snapshot.lastFullContent;
+        const rangeToStore = requestHasRange
+          ? (lineRange ?? snapshot.lastLineRange)
+          : snapshot.lastLineRange;
         registry.recordFullContent({
           rawPath: snapshot.canonicalPath,
-          content: snapshot.lastFullContent,
-          lineRange: lineRange ?? snapshot.lastLineRange,
+          content: snapshot.lastFullContent,  // always store full content in registry
+          lineRange: rangeToStore,
           source: "replay",
           turnIndex: i,
           anchorDir: options.anchorDir,
@@ -152,7 +165,7 @@ export async function normalizeReadSnapshotMessages(
             visibility: "ACTIVE_VISIBLE",
             source: "replay",
             line_range: lineRange ?? snapshot.lastLineRange,
-            content: snapshot.lastFullContent,
+            content: contentForRange,
           }),
         });
         normalizedCount += 1;
@@ -325,3 +338,17 @@ function parseReadPayload(raw: string): { filePath: string | null; content: stri
     return { filePath: null, content: raw };
   }
 }
+
+/**
+ * Extracts the lines covered by the given range from the full file content.
+ * Line numbers are 1-based and inclusive. Falls back to the full content if
+ * the range cannot be applied (e.g. startLine is beyond EOF).
+ */
+function sliceSnapshotContent(fullContent: string, range: SnapshotLineRange): string {
+  const lines = fullContent.split("\n");
+  const start = Math.max(1, range.startLine) - 1;  // 0-based
+  const end = Math.min(lines.length, range.endLine);  // 0-based exclusive
+  if (start >= lines.length) return fullContent;  // range beyond EOF → full content
+  return lines.slice(start, end).join("\n");
+}
+
