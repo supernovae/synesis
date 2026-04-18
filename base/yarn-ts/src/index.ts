@@ -1399,12 +1399,16 @@ type EditContextMissGuardState = {
 function deriveEditContextMissGuardState(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
 ): EditContextMissGuardState | null {
-  const toolMetaById = buildToolCallMetaById(messages);
+  // Window to messages after the last genuine user prompt so that edit failures
+  // from a previous session/interrupt don't bleed into the current task attempt.
+  const turnBoundaryIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
+  const turnMessages = turnBoundaryIdx >= 0 ? messages.slice(turnBoundaryIdx + 1) : messages;
+  const toolMetaById = buildToolCallMetaById(turnMessages);
   const states = new Map<string, { filePath: string; misses: number; lastReadIdx: number; lastMissIdx: number }>();
   let selected: { filePath: string; misses: number; lastMissIdx: number } | null = null;
 
-  for (let i = 0; i < messages.length; i += 1) {
-    const message = messages[i];
+  for (let i = 0; i < turnMessages.length; i += 1) {
+    const message = turnMessages[i];
     if (message.role !== "tool" && message.role !== "tool_result") continue;
     const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
     const meta = toolCallId ? toolMetaById.get(toolCallId) : undefined;
