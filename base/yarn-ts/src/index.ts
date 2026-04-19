@@ -4469,17 +4469,74 @@ function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSigna
   };
 }
 
+const WRITE_PROGRESS_TOOL_NAMES = new Set([
+  "write",
+  "writefile",
+  "write_file",
+  "filewrite",
+  "edit",
+  "update",
+  "applypatch",
+  "apply_patch",
+  "strreplace",
+  "str_replace",
+  "replace",
+  "multi_edit",
+  "multiedit",
+]);
+
+function normalizeToolNameForProgress(name: unknown): string {
+  return typeof name === "string" ? name.trim().toLowerCase() : "";
+}
+
+function resolveToolNameFromCallId(
+  messages: Array<{ role: string; tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }> }>,
+  toolCallId: string,
+): string {
+  if (!toolCallId) return "";
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== "assistant" || !Array.isArray(message.tool_calls)) continue;
+    const call = message.tool_calls.find((c) => typeof c?.id === "string" && c.id === toolCallId);
+    if (!call) continue;
+    const toolName = normalizeToolNameForProgress(call.function?.name ?? call.name);
+    if (toolName) return toolName;
+  }
+  return "";
+}
+
 function detectToolProgress(
   session: SessionState,
-  messages: Array<{ role: string; content: unknown }>
+  messages: Array<{
+    role: string;
+    content: unknown;
+    name?: string;
+    tool_call_id?: string;
+    tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }>;
+  }>,
 ): { state: ToolProgressState; signalHash: string | null } {
-  const toolMessages = [...messages].reverse().filter((m) => m.role === "tool");
+  const toolMessages = [...messages].reverse().filter((m) => m.role === "tool" || m.role === "tool_result");
   if (toolMessages.length === 0) {
     return { state: "unknown", signalHash: null };
   }
   const latest = toolMessages[0];
   const signal = normalizedToolOutputSignal(latest.content).slice(0, 4000);
   const hash = crypto.createHash("sha256").update(signal).digest("hex");
+  const latestToolName = (() => {
+    const direct = normalizeToolNameForProgress(latest.name);
+    if (direct) return direct;
+    const toolCallId = typeof latest.tool_call_id === "string" ? latest.tool_call_id : "";
+    return resolveToolNameFromCallId(messages, toolCallId);
+  })();
+
+  // A successful write/edit tool result is progress even if the textual output
+  // is identical to the previous turn (e.g. repeated "Updated <file> successfully").
+  if (WRITE_PROGRESS_TOOL_NAMES.has(latestToolName) && signal && !looksLikeFailureSignal(signal)) {
+    session.lastToolSignalHash = hash;
+    session.stagnantToolCycles = 0;
+    return { state: "progress", signalHash: hash };
+  }
+
   if (!session.lastToolSignalHash) {
     session.lastToolSignalHash = hash;
     session.stagnantToolCycles = 0;
@@ -5931,6 +5988,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     );
   }
+  if (oaiLatestToolProgress.hasRecentWriteSuccess) {
+    session.stagnantToolCycles = 0;
+    session.lastToolSignalHash = "";
+  }
   if (oaiLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
     recordSessionEvent(
@@ -6203,8 +6264,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: oaiRepeatAwarePivot,
-    toolProgressState: oaiToolProgress.state,
-    stagnantToolCycles: session.stagnantToolCycles,
+    toolProgressState: oaiLatestToolProgress.hasRecentWriteSuccess ? "progress" : oaiToolProgress.state,
+    stagnantToolCycles: oaiLatestToolProgress.hasRecentWriteSuccess ? 0 : session.stagnantToolCycles,
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
@@ -8319,6 +8380,10 @@ app.post("/v1/messages", async (req, reply) => {
       },
     );
   }
+  if (claudeLatestToolProgress.hasRecentWriteSuccess) {
+    session.stagnantToolCycles = 0;
+    session.lastToolSignalHash = "";
+  }
   if (claudeLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
     recordSessionEvent(
@@ -8594,8 +8659,8 @@ app.post("/v1/messages", async (req, reply) => {
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: claudeRepeatAwarePivot,
-    toolProgressState: claudeToolProgress.state,
-    stagnantToolCycles: session.stagnantToolCycles,
+    toolProgressState: claudeLatestToolProgress.hasRecentWriteSuccess ? "progress" : claudeToolProgress.state,
+    stagnantToolCycles: claudeLatestToolProgress.hasRecentWriteSuccess ? 0 : session.stagnantToolCycles,
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
