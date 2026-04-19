@@ -1189,13 +1189,16 @@ export function evaluateExecutionGovernor(
   let trailingRunHasVerification = false;
   const trailingReadPaths = new Map<string, number>();
   for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (events[i].command.startsWith("edit:") || events[i].command === "edit") break;
-    if (isVerificationCommand(events[i].toolName, events[i].command)) {
+    const vc = events[i].command;
+    if (vc.startsWith("edit:") || vc === "edit"
+      || vc.startsWith("write:") || vc === "write"
+      || vc.startsWith("filewrite:") || vc === "filewrite") break;
+    if (isVerificationCommand(events[i].toolName, vc)) {
       trailingVerificationRunLength += 1;
-      trailingVerificationCommands.add(events[i].command);
+      trailingVerificationCommands.add(vc);
       trailingRunHasVerification = true;
-    } else if (events[i].command.startsWith("read:")) {
-      const readPath = events[i].command;
+    } else if (vc.startsWith("read:")) {
+      const readPath = vc;
       trailingReadPaths.set(readPath, (trailingReadPaths.get(readPath) ?? 0) + 1);
     }
   }
@@ -1218,9 +1221,12 @@ export function evaluateExecutionGovernor(
   const trailingExplorationCommands = new Set<string>();
   const explorationReadPaths = new Map<string, number>();
   for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (events[i].command.startsWith("edit:") || events[i].command === "edit") break;
-    if (isVerificationCommand(events[i].toolName, events[i].command)) break;
-    const cmd = events[i].command;
+    const ec = events[i].command;
+    if (ec.startsWith("edit:") || ec === "edit"
+      || ec.startsWith("write:") || ec === "write"
+      || ec.startsWith("filewrite:") || ec === "filewrite") break;
+    if (isVerificationCommand(events[i].toolName, ec)) break;
+    const cmd = ec;
     if (cmd.startsWith("search:") || cmd.startsWith("glob:") || cmd.startsWith("list:")) {
       trailingExplorationRunLength += 1;
       trailingExplorationCommands.add(cmd);
@@ -1277,26 +1283,35 @@ export function evaluateExecutionGovernor(
   // within the session without an intervening edit of that file, regardless of
   // whether the result says "unchanged" (not all clients surface that signal).
   // This catches "let me check main.go" × N loops.
+  // Scan backward so that reads before the most recent write to a file are invisible to the
+  // stale-reread rule.  Example: read×3 → write → read×2.  The forward scan would count 3
+  // reads (the pre-write ones) and fire immediately; the backward scan counts only the 2
+  // post-write reads, which is the semantically correct "reads since last edit" signal.
   const sourceFileReadCounts = new Map<string, number>();
   const sourceFileEditPaths = new Set<string>();
-  let maxSourceFileRereadCount = 0;
-  let maxSourceFileRereadPath = "";
-  for (const e of events) {
-    const c = e.command;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const c = events[i].command;
     if ((c.startsWith("edit:") || c.startsWith("write:") || c.startsWith("filewrite:")) && !c.includes("/.claude/plans/")) {
-      sourceFileEditPaths.add(c.replace(/^(edit:|write:|filewrite:)/, ""));
+      const path = c.replace(/^(edit:|write:|filewrite:)/, "");
+      sourceFileEditPaths.add(path);
+      // Reads already counted before we reached this write belong to a prior read-cycle;
+      // discard them so only post-write reads contribute to the stale threshold.
+      sourceFileReadCounts.delete(path);
     }
     if (c.startsWith("read:") && !c.includes("/.claude/plans/")) {
       const path = c.slice("read:".length);
-      const prev = sourceFileReadCounts.get(path) ?? 0;
-      // Reset counter if the file was edited since last read
-      const wasEdited = sourceFileEditPaths.has(path);
-      const count = wasEdited ? 1 : prev + 1;
-      sourceFileReadCounts.set(path, count);
-      if (count > maxSourceFileRereadCount) {
-        maxSourceFileRereadCount = count;
-        maxSourceFileRereadPath = path;
+      // Once a write is seen (backwards), ignore earlier reads for that file.
+      if (!sourceFileEditPaths.has(path)) {
+        sourceFileReadCounts.set(path, (sourceFileReadCounts.get(path) ?? 0) + 1);
       }
+    }
+  }
+  let maxSourceFileRereadCount = 0;
+  let maxSourceFileRereadPath = "";
+  for (const [path, count] of sourceFileReadCounts) {
+    if (count > maxSourceFileRereadCount) {
+      maxSourceFileRereadCount = count;
+      maxSourceFileRereadPath = path;
     }
   }
   const sourceFileStaleRereadThreshold = 3;
