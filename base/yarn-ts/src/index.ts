@@ -155,6 +155,7 @@ import {
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
+import { detectToolProgress } from "./policy/tool-progress-detector.js";
 import {
   extractToolSchemaName,
   pruneToolSchemas,
@@ -4290,8 +4291,6 @@ async function runPreFinalizeCritic(
   }
 }
 
-type ToolProgressState = "stagnant" | "progress" | "unknown";
-
 function normalizeForSignal(value: unknown): unknown {
   if (value === null || value === undefined) return value ?? "";
   if (typeof value !== "object") return value;
@@ -4467,88 +4466,6 @@ function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSigna
     failureSignatureHash: failureRepeatCount >= 2 ? latest.failureHash : "",
     broadDiscoveryRepeatCount,
   };
-}
-
-const WRITE_PROGRESS_TOOL_NAMES = new Set([
-  "write",
-  "writefile",
-  "write_file",
-  "filewrite",
-  "edit",
-  "update",
-  "applypatch",
-  "apply_patch",
-  "strreplace",
-  "str_replace",
-  "replace",
-  "multi_edit",
-  "multiedit",
-]);
-
-function normalizeToolNameForProgress(name: unknown): string {
-  return typeof name === "string" ? name.trim().toLowerCase() : "";
-}
-
-function resolveToolNameFromCallId(
-  messages: Array<{ role: string; tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }> }>,
-  toolCallId: string,
-): string {
-  if (!toolCallId) return "";
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.role !== "assistant" || !Array.isArray(message.tool_calls)) continue;
-    const call = message.tool_calls.find((c) => typeof c?.id === "string" && c.id === toolCallId);
-    if (!call) continue;
-    const toolName = normalizeToolNameForProgress(call.function?.name ?? call.name);
-    if (toolName) return toolName;
-  }
-  return "";
-}
-
-function detectToolProgress(
-  session: SessionState,
-  messages: Array<{
-    role: string;
-    content: unknown;
-    name?: string;
-    tool_call_id?: string;
-    tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }>;
-  }>,
-): { state: ToolProgressState; signalHash: string | null } {
-  const toolMessages = [...messages].reverse().filter((m) => m.role === "tool" || m.role === "tool_result");
-  if (toolMessages.length === 0) {
-    return { state: "unknown", signalHash: null };
-  }
-  const latest = toolMessages[0];
-  const signal = normalizedToolOutputSignal(latest.content).slice(0, 4000);
-  const hash = crypto.createHash("sha256").update(signal).digest("hex");
-  const latestToolName = (() => {
-    const direct = normalizeToolNameForProgress(latest.name);
-    if (direct) return direct;
-    const toolCallId = typeof latest.tool_call_id === "string" ? latest.tool_call_id : "";
-    return resolveToolNameFromCallId(messages, toolCallId);
-  })();
-
-  // A successful write/edit tool result is progress even if the textual output
-  // is identical to the previous turn (e.g. repeated "Updated <file> successfully").
-  if (WRITE_PROGRESS_TOOL_NAMES.has(latestToolName) && signal && !looksLikeFailureSignal(signal)) {
-    session.lastToolSignalHash = hash;
-    session.stagnantToolCycles = 0;
-    return { state: "progress", signalHash: hash };
-  }
-
-  if (!session.lastToolSignalHash) {
-    session.lastToolSignalHash = hash;
-    session.stagnantToolCycles = 0;
-    return { state: "progress", signalHash: hash };
-  }
-  if (session.lastToolSignalHash === hash) {
-    session.stagnantToolCycles += 1;
-    return { state: "stagnant", signalHash: hash };
-  }
-  session.lastToolSignalHash = hash;
-  session.stagnantToolCycles = 0;
-  return { state: "progress", signalHash: hash };
 }
 
 function toolLoopSoftFailMessage(decision: PolicyDecision): string {
@@ -6157,7 +6074,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const oaiToolProgress = detectToolProgress(
     session,
-    normalizedOpenAI.messages as Array<{ role: string; content: unknown }>
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }> }>,
+    {
+      normalizeSignal: (content) => normalizedToolOutputSignal(content),
+      looksLikeFailure: looksLikeFailureSignal,
+    },
   );
   const oaiCommandLoop = analyzeRecentCommandLoop(
     normalizedOpenAI.messages as Array<ToolLoopMessage>,
@@ -8552,7 +8473,11 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeToolProgress = detectToolProgress(
     session,
-    normalizedFromClaude.messages as Array<{ role: string; content: unknown }>
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }> }>,
+    {
+      normalizeSignal: (content) => normalizedToolOutputSignal(content),
+      looksLikeFailure: looksLikeFailureSignal,
+    },
   );
   const claudeCommandLoop = analyzeRecentCommandLoop(
     normalizedFromClaude.messages as Array<ToolLoopMessage>,

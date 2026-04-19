@@ -52,21 +52,21 @@ describe("resolveAdapter", () => {
     expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
   });
 
-  it("enables nativeToolParser for DashScope URLs", () => {
+  it("disables nativeToolParser for DashScope URLs", () => {
     const adapter = resolveAdapter(
       "qwen3-coder-next",
       "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     ) as Qwen3CoderAdapter;
     expect(adapter).toBeInstanceOf(Qwen3CoderAdapter);
-    expect(adapter.nativeToolParser).toBe(true);
+    expect(adapter.nativeToolParser).toBe(false);
   });
 
-  it("enables nativeToolParser for DashScope US URLs", () => {
+  it("disables nativeToolParser for DashScope US URLs", () => {
     const adapter = resolveAdapter(
       "qwen3-coder-next",
       "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
     ) as Qwen3CoderAdapter;
-    expect(adapter.nativeToolParser).toBe(true);
+    expect(adapter.nativeToolParser).toBe(false);
   });
 
   it("enables nativeToolParser for local vLLM (svc.cluster.local)", () => {
@@ -161,11 +161,12 @@ describe("resolveAdapter with adapterHint", () => {
 
   it("KNOWN_ADAPTER_FAMILIES contains all expected families", () => {
     expect(KNOWN_ADAPTER_FAMILIES).toContain("qwen3-coder");
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("qwen3-coder-next");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("deepseek");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("kimi");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("minimax");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("generic");
-    expect(KNOWN_ADAPTER_FAMILIES).toHaveLength(5);
+    expect(KNOWN_ADAPTER_FAMILIES).toHaveLength(6);
   });
 });
 
