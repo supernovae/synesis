@@ -37,6 +37,37 @@ describe("read snapshot normalizer", () => {
     expect(toolContent).toContain('"path":"/tmp/a.ts"');
   });
 
+  it("normalizes tool_result role payloads the same as tool payloads", async () => {
+    const registry = new FileSnapshotRegistry();
+    const messages: Array<Record<string, unknown>> = [
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "tr1",
+            type: "function",
+            function: {
+              name: "read_file",
+              arguments: JSON.stringify({ file_path: "/tmp/a-tool-result.ts" }),
+            },
+          },
+        ],
+      },
+      {
+        role: "tool_result",
+        name: "read_file",
+        tool_call_id: "tr1",
+        content: JSON.stringify({ filePath: "/tmp/a-tool-result.ts", content: "const x = 1;\n" }),
+      },
+    ];
+    const out = await normalizeReadSnapshotMessages(messages as never, registry, {});
+    expect(out.normalizedCount).toBe(1);
+    const toolContent = String(out.messages[1].content);
+    expect(toolContent).toContain('"status":"ok/full_content"');
+    expect(toolContent).toContain('"path":"/tmp/a-tool-result.ts"');
+  });
+
   it("replays snapshot after compaction when unchanged hint arrives", async () => {
     const registry = new FileSnapshotRegistry();
     registry.recordFullContent({

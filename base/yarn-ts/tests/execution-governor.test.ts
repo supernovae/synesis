@@ -226,6 +226,30 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("completion_claim_requires_task_update");
   });
 
+  it("pauses completion claims while activePlanStage is not finalized", () => {
+    const messages = [
+      { role: "user", content: "implement clipboard support" },
+      { role: "assistant", content: "I've completed the clipboard support implementation." },
+      assistantCall("1", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "a", new_string: "b" }),
+      toolResult("1", "Applied edit"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, { activePlanStage: "implement" });
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("completion_claim_requires_task_update");
+    expect(out.matchedRules).toContain("completion_claim_requires_task_update");
+  });
+
+  it("does not pause completion claims from plan stage when activePlanStage is finalize", () => {
+    const messages = [
+      { role: "user", content: "implement clipboard support" },
+      { role: "assistant", content: "I've completed the clipboard support implementation." },
+      assistantCall("1", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "a", new_string: "b" }),
+      toolResult("1", "Applied edit"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, { activePlanStage: "finalize" });
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
   it("does not pause completion claims when TodoWrite marks tasks done", () => {
     const messages = [
       { role: "assistant", content: "I've completed the clipboard support implementation." },
@@ -285,6 +309,38 @@ describe("execution governor", () => {
     expect(out.pause).toBe(false);
     expect(out.matchedRules).not.toContain("no_repeat_without_change");
     expect(out.telemetry.noEditEvidence).toBe(false);
+  });
+
+  it("advises git commit followthrough after git add without commit", () => {
+    const messages = [
+      { role: "user", content: "finish and commit the change" },
+      assistantCall("1", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "a", new_string: "b" }),
+      toolResult("1", "Applied edit"),
+      assistantCall("2", "bash", { command: "git add -A" }),
+      toolResult("2", ""),
+      assistantCall("3", "bash", { command: "git status --short" }),
+      toolResult("3", "M cmd/synesis/ask.go"),
+      assistantCall("4", "bash", { command: "git diff --stat HEAD" }),
+      toolResult("4", " cmd/synesis/ask.go | 2 +-"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never);
+    expect(out.pause).toBe(false);
+    expect(out.reason).toBe("git_commit_followthrough");
+    expect(out.matchedRules).toContain("git_commit_followthrough");
+  });
+
+  it("pauses dependency install replay when the same install command repeats", () => {
+    const messages = [
+      { role: "user", content: "fix the dependency issue and continue" },
+      assistantCall("1", "bash", { command: "npm install" }),
+      toolResult("1", "up to date"),
+      assistantCall("2", "bash", { command: "npm install" }),
+      toolResult("2", "up to date"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("dependency_install_replay");
+    expect(out.matchedRules).toContain("dependency_install_replay");
   });
 
   it("pauses repeated successful narrow verification and asks for completion report", () => {
@@ -1667,6 +1723,22 @@ describe("execution governor", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     // After an edit the read counter resets — only 2 reads since the edit, below threshold
+    expect(out.matchedRules).not.toContain("source_file_stale_reread");
+  });
+
+  it("source_file_stale_reread does NOT fire when the edit tool is named Write", () => {
+    const messages = [
+      { role: "user", content: "finish the completion feature" },
+      assistantCall("1", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("1", "package main\n\nfunc main() {"),
+      assistantCall("2", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("2", "package main\n\nfunc main() {"),
+      assistantCall("3", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("3", "package main\n\nfunc main() {"),
+      assistantCall("4", "Write", { file_path: "cmd/synesis/main.go", content: "package main\n\nfunc main() {}\n// updated" }),
+      toolResult("4", "Updated cmd/synesis/main.go successfully"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
     expect(out.matchedRules).not.toContain("source_file_stale_reread");
   });
 

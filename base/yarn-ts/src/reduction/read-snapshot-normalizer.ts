@@ -58,7 +58,7 @@ export async function normalizeReadSnapshotMessages(
 
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
-    if (m.role !== "tool") {
+    if (m.role !== "tool" && m.role !== "tool_result") {
       out.push(m);
       continue;
     }

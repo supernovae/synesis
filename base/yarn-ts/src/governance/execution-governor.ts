@@ -423,9 +423,25 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
     const p = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
     if (p) return `read:${p}`;
   }
-  if (tool.includes("write_file") || tool.includes("apply_patch") || tool.includes("str_replace") || tool === "edit" || tool === "update") {
-    const p = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
-    if (p) return `edit:${p}`;
+  const filePath = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
+  const isWriteTool = tool === "write"
+    || tool === "filewrite"
+    || tool.includes("write_file")
+    || tool === "writefile";
+  if (isWriteTool) {
+    if (filePath) return `write:${filePath}`;
+    return "write";
+  }
+  const isEditTool = tool === "edit"
+    || tool === "update"
+    || tool === "applypatch"
+    || tool.includes("apply_patch")
+    || tool === "strreplace"
+    || tool.includes("str_replace")
+    || tool === "multi_edit"
+    || tool === "multiedit";
+  if (isEditTool) {
+    if (filePath) return `edit:${filePath}`;
     return "edit";
   }
   if (tool.includes("list_files") || tool.includes("read_dir") || tool.includes("read_directory")) {

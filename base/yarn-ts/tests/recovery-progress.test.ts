@@ -22,6 +22,26 @@ describe("classifyLatestToolProgress", () => {
     expect(signal.toolName).toBe("Write");
   });
 
+  it("treats apply_patch alias as write-capable progress", () => {
+    const signal = classifyLatestToolProgress([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "w2",
+            function: { name: "apply_patch", arguments: "{\"path\":\"foo.go\"}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "w2", content: "Applied patch successfully to foo.go" },
+    ]);
+
+    expect(signal.hasRecentWriteSuccess).toBe(true);
+    expect(signal.hasRecentEditContextMiss).toBe(false);
+    expect(signal.toolName).toBe("apply_patch");
+  });
+
   it("flags edit context misses without reporting success", () => {
     const signal = classifyLatestToolProgress([
       {

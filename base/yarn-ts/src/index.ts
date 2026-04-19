@@ -6350,8 +6350,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const filesSummary = oaiDedup.generateFilesSummaryBlock();
     if (filesSummary) recovery += "\n" + filesSummary;
     const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; content: unknown }>;
-    const lastUserIdx = oaiMsgs.map((m) => m.role).lastIndexOf("user");
-    const oaiTailIdx = lastUserIdx > 0 ? lastUserIdx : oaiMsgs.length;
+    const oaiLastUserPromptIdx = findLastUserPromptIdx(oaiMsgs as Array<{ role?: string; content?: unknown }>);
+    const oaiTailIdx = oaiLastUserPromptIdx >= 0 ? oaiLastUserPromptIdx + 1 : oaiMsgs.length;
     oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
     const oaiPureExploration = oaiGovernorPhase === "edit"
       && !oaiExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
@@ -8741,8 +8741,8 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
     if (claudeFilesSummary) recovery += "\n" + claudeFilesSummary;
     const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; content: unknown }>;
-    const claudeLastUserIdx = claudeMsgs.map((m) => m.role).lastIndexOf("user");
-    const claudeTailIdx = claudeLastUserIdx > 0 ? claudeLastUserIdx : claudeMsgs.length;
+    const claudeLastUserPromptIdx = findLastUserPromptIdx(claudeMsgs as Array<{ role?: string; content?: unknown }>);
+    const claudeTailIdx = claudeLastUserPromptIdx >= 0 ? claudeLastUserPromptIdx + 1 : claudeMsgs.length;
     claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
     const claudePureExploration = claudeGovernorPhase === "edit"
       && !claudeExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")

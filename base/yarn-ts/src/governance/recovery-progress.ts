@@ -27,10 +27,14 @@ const GENERIC_FAILURE_PATTERN = /\b(error|failed|invalid|permission denied|opera
 
 const WRITE_CAPABLE_TOOLS = new Set([
   "write",
+  "writefile",
+  "write_file",
   "edit",
   "update",
   "applypatch",
+  "apply_patch",
   "strreplace",
+  "str_replace",
   "filewrite",
   "replace",
   "multi_edit",
