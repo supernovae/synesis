@@ -3,6 +3,7 @@ import { suggestScopedVerificationCommand } from "../verification/test-scope-sel
 export interface GovernorInputMessage {
   role: string;
   content: unknown;
+  name?: string;
   tool_call_id?: string;
   tool_calls?: Array<{
     id?: string;
@@ -679,21 +680,45 @@ function extractCommandEvents(messages: GovernorInputMessage[]): CommandEvent[] 
   const callById = new Map<string, { command: string; toolName: string; argsObject?: Record<string, unknown> | null }>();
   const out: CommandEvent[] = [];
   for (const msg of messages) {
-    if (msg.role === "assistant" && Array.isArray(msg.tool_calls)) {
-      for (const call of msg.tool_calls) {
-        const id = normalizeString(call.id);
-        if (!id) continue;
-        const toolName = normalizeString(call.function?.name ?? call.name).toLowerCase();
-        const rawArgs = call.function?.arguments ?? call.input;
-        const command = parseArgsToCommand(toolName, rawArgs) || `tool:${toolName || "unknown"}`;
-        callById.set(id, { command, toolName, argsObject: parseArgsToObject(rawArgs) });
+    if (msg.role === "assistant") {
+      if (Array.isArray(msg.tool_calls)) {
+        for (const call of msg.tool_calls) {
+          const id = normalizeString(call.id);
+          if (!id) continue;
+          const toolName = normalizeString(call.function?.name ?? call.name).toLowerCase();
+          const rawArgs = call.function?.arguments ?? call.input;
+          const command = parseArgsToCommand(toolName, rawArgs) || `tool:${toolName || "unknown"}`;
+          callById.set(id, { command, toolName, argsObject: parseArgsToObject(rawArgs) });
+        }
+      }
+      if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (!part || typeof part !== "object") continue;
+          const p = part as Record<string, unknown>;
+          if (p.type !== "tool_use") continue;
+          const id = normalizeString(p.id);
+          if (!id) continue;
+          const toolName = normalizeString(p.name).toLowerCase();
+          const rawArgs = p.input;
+          const command = parseArgsToCommand(toolName, rawArgs) || `tool:${toolName || "unknown"}`;
+          callById.set(id, { command, toolName, argsObject: parseArgsToObject(rawArgs) });
+        }
       }
       continue;
     }
     if (msg.role !== "tool" && msg.role !== "tool_result") continue;
     const id = normalizeString(msg.tool_call_id);
-    if (!id) continue;
-    const item = callById.get(id);
+    let item = id ? callById.get(id) : undefined;
+    if (!item) {
+      const fallbackToolName = normalizeString(msg.name).toLowerCase();
+      if (!fallbackToolName) continue;
+      const fallbackCommand = parseArgsToCommand(fallbackToolName, {}) || `tool:${fallbackToolName || "unknown"}`;
+      item = {
+        command: fallbackCommand,
+        toolName: fallbackToolName,
+        argsObject: null,
+      };
+    }
     if (!item) continue;
     out.push({
       ...item,

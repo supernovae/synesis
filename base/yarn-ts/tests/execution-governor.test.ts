@@ -16,6 +16,9 @@ function assistantCall(id: string, name: string, args: unknown) {
 function toolResult(id: string, content: string) {
   return { role: "tool", tool_call_id: id, content };
 }
+function assistantToolUse(id: string, name: string, input: unknown) {
+  return { role: "assistant", content: [{ type: "tool_use", id, name, input }] };
+}
 
 describe("execution governor", () => {
   it("pauses repeated broad tests", () => {
@@ -194,6 +197,19 @@ describe("execution governor", () => {
       toolResult("3", "Error: String to replace not found in file."),
     ];
     const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("edit_failure_replay");
+    expect(out.matchedRules).toContain("edit_failure_replay");
+  });
+
+  it("detects replay from Claude tool_use edit failures without tool_call_id", () => {
+    const messages = [
+      assistantToolUse("u1", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      { role: "tool_result", name: "Edit", content: "Error: String to replace not found in file." },
+      assistantToolUse("u2", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      { role: "tool_result", name: "Edit", content: "Error: String to replace not found in file." },
+    ];
+    const out = evaluateExecutionGovernor(messages as never);
     expect(out.pause).toBe(true);
     expect(out.reason).toBe("edit_failure_replay");
     expect(out.matchedRules).toContain("edit_failure_replay");
