@@ -16,7 +16,13 @@
  */
 
 import type { IncrementalStructuralIndex } from "../memory/incremental-index.js";
-import { parseReadSnapshotEnvelope } from "./file-snapshot-registry.js";
+import {
+  buildReadSnapshotEnvelope,
+  normalizeLineRange,
+  parseReadSnapshotEnvelope,
+  type SnapshotCompleteness,
+  type SnapshotLineRange,
+} from "./file-snapshot-registry.js";
 
 const READ_TOOL_NAMES = new Set([
   "read", "read_file", "readfile", "file_read",
@@ -31,6 +37,12 @@ interface FileEntry {
   charCount: number;
   unchangedReadCount: number;
   snapshotId?: string;
+  contentHash?: string;
+  source?: string;
+  cachedContent?: string;
+  requestedRange?: SnapshotLineRange;
+  returnedRange?: SnapshotLineRange;
+  completeness?: SnapshotCompleteness;
 }
 
 export interface ContentDedupStats {
@@ -99,37 +111,77 @@ export class ContentAddressedDedup {
 
     if (existing && existing.hash === hash) {
       if (existing.turnIndex < this.contextWindowStart - this.stalenessMargin) {
-        this.fileMap.set(filePath, { hash, turnIndex, charCount: content.length, unchangedReadCount: 0 });
+        this.fileMap.set(filePath, {
+          hash,
+          turnIndex,
+          charCount: hashSource.length,
+          unchangedReadCount: 0,
+          snapshotId: parsed.snapshotId ?? existing.snapshotId,
+          contentHash: parsed.contentHash ?? existing.contentHash ?? hash,
+          source: parsed.source ?? existing.source,
+          cachedContent: parsed.content ?? existing.cachedContent,
+          requestedRange: parsed.requestedRange ?? existing.requestedRange,
+          returnedRange: parsed.returnedRange ?? existing.returnedRange,
+          completeness: parsed.completeness ?? existing.completeness,
+        });
         return { content, deduplicated: false };
       }
       existing.unchangedReadCount += 1;
-      this.stats.deduplicatedReads += 1;
-      this.stats.charsSaved += content.length;
       const HARD_BLOCK_THRESHOLD = 3;
       if (existing.unchangedReadCount >= HARD_BLOCK_THRESHOLD) {
-        const stub = JSON.stringify({
+        const pivotEnvelope = buildReadSnapshotEnvelope({
           kind: "synesis_file_read",
           status: "needs_targeted_read",
           path: filePath,
           snapshot_id: existing.snapshotId,
-          content_hash: hash,
+          content_hash: existing.contentHash ?? hash,
           visibility: "ACTIVE_VISIBLE",
-          reason: "unchanged_read_hard_block",
-          detail: `unchanged_reads=${existing.unchangedReadCount}`,
+          requested_range: existing.requestedRange,
+          returned_range: existing.returnedRange,
+          line_range: existing.returnedRange,
+          completeness: existing.completeness ?? inferCompleteness(existing.requestedRange, existing.returnedRange),
+          reason: "unchanged_read_loop_pivot",
+          detail: `identical_reads=${existing.unchangedReadCount}`,
         });
-        return { content: stub, deduplicated: true, filePath };
+        this.stats.deduplicatedReads += 1;
+        this.stats.charsSaved += Math.max(0, content.length - pivotEnvelope.length);
+        return { content: pivotEnvelope, deduplicated: true, filePath };
       }
-      const stub = JSON.stringify({
+      if (typeof existing.cachedContent === "string" && existing.cachedContent.length > 0) {
+        const replayEnvelope = buildReadSnapshotEnvelope({
+          kind: "synesis_file_read",
+          status: "ok/replayed_snapshot",
+          path: filePath,
+          canonical_path: filePath,
+          snapshot_id: existing.snapshotId,
+          content_hash: existing.contentHash ?? hash,
+          visibility: "ACTIVE_VISIBLE",
+          source: "replay",
+          requested_range: existing.requestedRange,
+          returned_range: existing.returnedRange,
+          line_range: existing.returnedRange,
+          completeness: existing.completeness ?? inferCompleteness(existing.requestedRange, existing.returnedRange),
+          reason: "dedup_replay",
+          detail: `identical_reads=${existing.unchangedReadCount}`,
+          content: existing.cachedContent,
+        });
+        this.stats.deduplicatedReads += 1;
+        this.stats.charsSaved += Math.max(0, content.length - replayEnvelope.length);
+        return { content: replayEnvelope, deduplicated: true, filePath };
+      }
+      const unchangedStub = buildReadSnapshotEnvelope({
         kind: "synesis_file_read",
-        status: "ok/unchanged_snapshot_still_visible",
+        status: "needs_targeted_read",
         path: filePath,
         snapshot_id: existing.snapshotId,
-        content_hash: hash,
+        content_hash: existing.contentHash ?? hash,
         visibility: "ACTIVE_VISIBLE",
-        first_seen_turn: existing.turnIndex,
-        repeat: existing.unchangedReadCount,
+        reason: "meta_only_read_replay_unavailable",
+        detail: `identical_reads=${existing.unchangedReadCount}`,
       });
-      return { content: stub, deduplicated: true, filePath };
+      this.stats.deduplicatedReads += 1;
+      this.stats.charsSaved += Math.max(0, content.length - unchangedStub.length);
+      return { content: unchangedStub, deduplicated: true, filePath };
     }
 
     this.fileMap.set(filePath, {
@@ -138,6 +190,12 @@ export class ContentAddressedDedup {
       charCount: hashSource.length,
       unchangedReadCount: 0,
       snapshotId: parsed.snapshotId,
+      contentHash: parsed.contentHash ?? hash,
+      source: parsed.source,
+      cachedContent: parsed.content ?? undefined,
+      requestedRange: parsed.requestedRange,
+      returnedRange: parsed.returnedRange,
+      completeness: parsed.completeness ?? inferCompleteness(parsed.requestedRange, parsed.returnedRange),
     });
     this.structuralIndex?.ingestFileRead(filePath, hashSource, hash);
     return { content, deduplicated: false };
@@ -155,7 +213,7 @@ export class ContentAddressedDedup {
     let dedupCount = 0;
     const dedupPaths: string[] = [];
     const out = messages.map((m, idx) => {
-      if (m.role !== "tool") return m;
+      if (m.role !== "tool" && m.role !== "tool_result") return m;
       const raw = typeof m.content === "string" ? m.content : "";
       if (!raw) return m;
       const resolvedPath = m.tool_call_id ? toolCallPathMap.get(m.tool_call_id) : undefined;
@@ -256,13 +314,31 @@ function extractFilePath(content: string): string | null {
   return match?.[1] ?? null;
 }
 
-function extractReadPayload(content: string): { filePath: string | null; content: string | null; snapshotId?: string } {
+function extractReadPayload(content: string): {
+  filePath: string | null;
+  content: string | null;
+  snapshotId?: string;
+  contentHash?: string;
+  source?: string;
+  requestedRange?: SnapshotLineRange;
+  returnedRange?: SnapshotLineRange;
+  completeness?: SnapshotCompleteness;
+} {
   const envelope = parseReadSnapshotEnvelope(content);
   if (envelope) {
+    const requestedRange = normalizeLineRange(envelope.requested_range ?? envelope.line_range);
+    const returnedRange = normalizeLineRange(envelope.returned_range ?? envelope.line_range ?? requestedRange);
     return {
-      filePath: typeof envelope.path === "string" ? envelope.path : null,
+      filePath: typeof envelope.canonical_path === "string"
+        ? envelope.canonical_path
+        : (typeof envelope.path === "string" ? envelope.path : null),
       content: typeof envelope.content === "string" ? envelope.content : null,
       snapshotId: envelope.snapshot_id,
+      contentHash: envelope.content_hash,
+      source: envelope.source,
+      requestedRange,
+      returnedRange,
+      completeness: normalizeCompleteness(envelope.completeness),
     };
   }
   if (content.startsWith("{")) {
@@ -274,12 +350,69 @@ function extractReadPayload(content: string): { filePath: string | null; content
           ? obj.file_path
           : (typeof obj.path === "string" ? obj.path : null));
       const body = typeof obj.content === "string" ? obj.content : null;
-      return { filePath, content: body };
+      const requestedRange = normalizeLineRange(
+        extractRange(obj.requested_range)
+        ?? extractRange(obj.requestedRange)
+        ?? extractRange(obj.line_range),
+      );
+      const returnedRange = normalizeLineRange(
+        extractRange(obj.returned_range)
+        ?? extractRange(obj.returnedRange)
+        ?? extractRange(obj.line_range)
+        ?? requestedRange,
+      );
+      return {
+        filePath,
+        content: body,
+        snapshotId: typeof obj.snapshot_id === "string" ? obj.snapshot_id : undefined,
+        contentHash: typeof obj.content_hash === "string" ? obj.content_hash : undefined,
+        source: typeof obj.source === "string" ? obj.source : undefined,
+        requestedRange,
+        returnedRange,
+        completeness: normalizeCompleteness(obj.completeness)
+          ?? (obj.truncated === true ? "partial" : inferCompleteness(requestedRange, returnedRange)),
+      };
     } catch {
-      return { filePath: null, content: null };
+      return { filePath: null, content: null, completeness: undefined };
     }
   }
-  return { filePath: null, content: null };
+  return { filePath: null, content: null, completeness: undefined };
+}
+
+function extractRange(raw: unknown): SnapshotLineRange | undefined {
+  if (!raw) return undefined;
+  if (Array.isArray(raw) && raw.length >= 2) {
+    if (!Number.isFinite(Number(raw[0])) || !Number.isFinite(Number(raw[1]))) return undefined;
+    return normalizeLineRange({
+      startLine: Number(raw[0]),
+      endLine: Number(raw[1]),
+    });
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const row = raw as Record<string, unknown>;
+  const start = row.startLine ?? row.start_line;
+  const end = row.endLine ?? row.end_line;
+  if (!Number.isFinite(Number(start)) || !Number.isFinite(Number(end))) return undefined;
+  return normalizeLineRange({
+    startLine: Number(start),
+    endLine: Number(end),
+  });
+}
+
+function normalizeCompleteness(raw: unknown): SnapshotCompleteness | undefined {
+  if (typeof raw !== "string") return undefined;
+  const lowered = raw.trim().toLowerCase();
+  if (lowered === "full") return "full";
+  if (lowered === "partial") return "partial";
+  return undefined;
+}
+
+function inferCompleteness(
+  requestedRange?: SnapshotLineRange,
+  returnedRange?: SnapshotLineRange,
+): SnapshotCompleteness {
+  if (requestedRange || returnedRange) return "partial";
+  return "full";
 }
 
 function fastHash(content: string): string {

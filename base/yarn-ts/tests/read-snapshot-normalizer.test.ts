@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FileSnapshotRegistry } from "../src/reduction/file-snapshot-registry.js";
 import { normalizeReadSnapshotMessages } from "../src/reduction/read-snapshot-normalizer.js";
 import { claudeMessagesToOpenAI } from "../src/tool-mapping.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -84,7 +84,7 @@ describe("read snapshot normalizer", () => {
     expect(toolContent).toContain("export const b = 2;");
   });
 
-  it("allows compact unchanged response while snapshot remains active", async () => {
+  it("replays real content when unchanged hint arrives and snapshot is active", async () => {
     const registry = new FileSnapshotRegistry();
     registry.recordFullContent({
       rawPath: "/tmp/c.ts",
@@ -95,8 +95,9 @@ describe("read snapshot normalizer", () => {
     const messages = openAIToolTriplet("c3", "/tmp/c.ts", "Unchanged since last read");
     const out = await normalizeReadSnapshotMessages(messages as never, registry, {});
     const toolContent = String(out.messages[1].content);
-    expect(toolContent).toContain('"status":"ok/unchanged_snapshot_still_visible"');
-    expect(toolContent).not.toContain('"content":"export const c = 3;');
+    expect(toolContent).toContain('"status":"ok/replayed_snapshot"');
+    expect(toolContent).toContain('"content":"export const c = 3;\\n"');
+    expect(toolContent).toContain('"reason":"unchanged_hint"');
   });
 
   it("falls back to filesystem read when snapshot was evicted", async () => {
@@ -157,6 +158,83 @@ describe("read snapshot normalizer", () => {
     const toolContent = String(out.messages[1].content);
     expect(toolContent).toContain('"status":"ok/replayed_snapshot"');
     expect(toolContent).toContain('"line_range":{"startLine":2,"endLine":3}');
+    expect(toolContent).toContain('"completeness":"partial"');
+    expect(toolContent).toContain('"content":"L2\\nL3"');
+  });
+
+  it("forces targeted reread when partial snapshot cannot satisfy requested range", async () => {
+    const registry = new FileSnapshotRegistry();
+    registry.recordFullContent({
+      rawPath: "/tmp/partial-only.ts",
+      content: "L1\nL2\n",
+      requestedRange: { startLine: 1, endLine: 2 },
+      returnedRange: { startLine: 1, endLine: 2 },
+      completeness: "partial",
+      source: "client_full_read",
+      turnIndex: 1,
+    });
+    const messages: Array<Record<string, unknown>> = [
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "partial-miss",
+            type: "function",
+            function: { name: "read_file", arguments: JSON.stringify({ file_path: "/tmp/partial-only.ts", line_range: [10, 20] }) },
+          },
+        ],
+      },
+      { role: "tool", name: "read_file", tool_call_id: "partial-miss", content: "Unchanged since last read" },
+    ];
+    const out = await normalizeReadSnapshotMessages(messages as never, registry, {});
+    const toolContent = String(out.messages[1].content);
+    expect(toolContent).toContain('"status":"needs_targeted_read"');
+    expect(toolContent).toContain('"reason":"partial_snapshot_range_mismatch"');
+  });
+
+  it("blocks replay when cached snapshot version is stale", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-stale-snapshot-"));
+    const filePath = path.join(root, "stale.ts");
+    writeFileSync(filePath, "export const stale = 1;\n", "utf8");
+    const firstStat = statSync(filePath);
+    const registry = new FileSnapshotRegistry();
+    registry.recordFullContent({
+      rawPath: filePath,
+      content: "export const stale = 1;\n",
+      source: "client_full_read",
+      turnIndex: 1,
+      fsVersion: {
+        mtimeMs: firstStat.mtimeMs,
+        size: firstStat.size,
+        ctimeMs: firstStat.ctimeMs,
+        refreshedAtMs: Date.now(),
+      },
+    });
+    writeFileSync(filePath, "export const stale = 2;\n", "utf8");
+    utimesSync(filePath, new Date(), new Date(Date.now() + 2000));
+
+    const messages = openAIToolTriplet("stale-1", filePath, "Unchanged since last read");
+    const out = await normalizeReadSnapshotMessages(messages as never, registry, { projectRoot: root });
+    const toolContent = String(out.messages[1].content);
+    expect(toolContent).toContain('"status":"needs_targeted_read"');
+    expect(toolContent).toContain('"reason":"stale_snapshot_version"');
+  });
+
+  it("replays cached content for already-in-memory style hints", async () => {
+    const registry = new FileSnapshotRegistry();
+    registry.recordFullContent({
+      rawPath: "/tmp/meta.ts",
+      content: "export const meta = 1;\n",
+      source: "client_full_read",
+      turnIndex: 1,
+    });
+    const messages = openAIToolTriplet("meta-1", "/tmp/meta.ts", "Already in memory, skipping read.");
+    const out = await normalizeReadSnapshotMessages(messages as never, registry, {});
+    const toolContent = String(out.messages[1].content);
+    expect(toolContent).toContain('"status":"ok/replayed_snapshot"');
+    expect(toolContent).toContain('"reason":"in_memory_hint"');
+    expect(toolContent).toContain('"content":"export const meta = 1;\\n"');
   });
 
   it("applies the same normalization after Claude conversion (transport matrix)", async () => {

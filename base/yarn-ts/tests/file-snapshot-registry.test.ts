@@ -44,6 +44,31 @@ describe("FileSnapshotRegistry", () => {
     expect(a?.snapshotId).not.toBe(b?.snapshotId);
   });
 
+  it("keeps last full content when latest snapshot is partial", () => {
+    const registry = new FileSnapshotRegistry();
+    registry.recordFullContent({
+      rawPath: "/tmp/range.ts",
+      content: "L1\nL2\nL3\nL4\n",
+      source: "client_full_read",
+      turnIndex: 1,
+    });
+    const partial = registry.recordFullContent({
+      rawPath: "/tmp/range.ts",
+      content: "L2\nL3",
+      requestedRange: { startLine: 2, endLine: 3 },
+      returnedRange: { startLine: 2, endLine: 3 },
+      completeness: "partial",
+      source: "client_full_read",
+      turnIndex: 2,
+    });
+    expect(partial?.completeness).toBe("partial");
+    expect(partial?.requestedRange).toEqual({ startLine: 2, endLine: 3 });
+    expect(partial?.returnedRange).toEqual({ startLine: 2, endLine: 3 });
+    expect(partial?.lastContent).toBe("L2\nL3");
+    expect(partial?.lastFullContent).toBe("L1\nL2\nL3\nL4\n");
+    expect(partial?.versionIdentity.contentHash).toBe(partial?.contentHash);
+  });
+
   it("detects unchanged hint variants", () => {
     expect(isUnchangedHint("Unchanged since last read")).toBe(true);
     expect(isUnchangedHint('<FILE_UNCHANGED path="a" />')).toBe(true);
@@ -63,5 +88,9 @@ describe("FileSnapshotRegistry", () => {
     });
     expect(ranged.ok).toBe(true);
     expect(ranged.content).toBe("L2\nL3");
+    expect(ranged.requestedRange).toEqual({ startLine: 2, endLine: 3 });
+    expect(ranged.returnedRange).toEqual({ startLine: 2, endLine: 3 });
+    expect(ranged.completeness).toBe("partial");
+    expect(ranged.versionIdentity?.filesystem?.size).toBeGreaterThan(0);
   });
 });

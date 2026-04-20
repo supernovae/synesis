@@ -1699,12 +1699,18 @@ function isResolvableReadResult(content: unknown, rawText: string): boolean {
   if (direct.startsWith("{")) {
     const envelope = parseReadSnapshotEnvelope(direct);
     if (envelope) {
-      return envelope.status === "ok/full_content"
-        || envelope.status === "ok/replayed_snapshot"
-        || envelope.status === "ok/unchanged_snapshot_still_visible";
+      const hasContent = typeof envelope.content === "string" && envelope.content.trim().length > 0;
+      if (envelope.status === "ok/full_content" || envelope.status === "ok/replayed_snapshot") {
+        return hasContent;
+      }
+      if (envelope.status === "ok/unchanged_snapshot_still_visible") {
+        return hasContent;
+      }
+      return false;
     }
   }
   if (/unchanged since last read/i.test(rawText)) return false;
+  if (/already read|already in memory|already in context|already loaded|cached/i.test(rawText)) return false;
   return rawText.length > 0;
 }
 
