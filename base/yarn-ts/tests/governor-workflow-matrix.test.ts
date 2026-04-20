@@ -142,4 +142,20 @@ describe("governor workflow matrix", () => {
     expect(out.matchedRules).toContain("edit_failure_replay");
     expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
   });
+
+  it("captures repeated 'String to replace not found' misses as edit replay", () => {
+    const messages = [
+      { role: "user", content: "finish ask.go if anything is missing" },
+      assistantCall("1", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("1", "package main"),
+      assistantCall("2", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      toolResult("2", "Error: String to replace not found in file."),
+      assistantCall("3", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("3", "Unchanged since last read"),
+      assistantCall("4", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      toolResult("4", "Error: String to replace not found in file."),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, { activePlanStage: "implement" });
+    expect(out.matchedRules).toContain("edit_failure_replay");
+  });
 });

@@ -1424,7 +1424,13 @@ function deriveEditContextMissGuardState(
   const turnBoundaryIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
   const turnMessages = turnBoundaryIdx >= 0 ? messages.slice(turnBoundaryIdx + 1) : messages;
   const toolMetaById = buildToolCallMetaById(turnMessages);
-  const states = new Map<string, { filePath: string; misses: number; lastReadIdx: number; lastMissIdx: number }>();
+  const states = new Map<string, {
+    filePath: string;
+    misses: number;
+    missesSinceRead: number;
+    lastReadIdx: number;
+    lastMissIdx: number;
+  }>();
   let selected: { filePath: string; misses: number; lastMissIdx: number } | null = null;
 
   for (let i = 0; i < turnMessages.length; i += 1) {
@@ -1446,7 +1452,8 @@ function deriveEditContextMissGuardState(
       const prev = states.get(filePath);
       states.set(filePath, {
         filePath,
-        misses: 0,
+        misses: prev?.misses ?? 0,
+        missesSinceRead: 0,
         lastReadIdx: i,
         lastMissIdx: prev?.lastMissIdx ?? -1,
       });
@@ -1456,14 +1463,16 @@ function deriveEditContextMissGuardState(
     if (!isWriteCapableToolName(toolName) || !isEditContextMissText(rawText)) continue;
     const prev = states.get(filePath);
     const nextMisses = prev ? prev.misses + 1 : 1;
+    const nextMissesSinceRead = prev ? prev.missesSinceRead + 1 : 1;
     const nextState = {
       filePath,
       misses: nextMisses,
+      missesSinceRead: nextMissesSinceRead,
       lastReadIdx: prev?.lastReadIdx ?? -1,
       lastMissIdx: i,
     };
     states.set(filePath, nextState);
-    if (nextState.misses >= 1 && nextState.lastMissIdx > nextState.lastReadIdx) {
+    if (nextState.missesSinceRead >= 1 && nextState.lastMissIdx > nextState.lastReadIdx) {
       if (!selected || nextState.lastMissIdx >= selected.lastMissIdx) {
         selected = {
           filePath: nextState.filePath,
@@ -1513,12 +1522,19 @@ function applyEditContextMissReadGate(
 }
 
 function buildEditContextMissGuardPrompt(filePath: string, missCount: number): string {
-  return [
-    `EDIT RECOVERY REQUIRED: ${missCount} consecutive edit-context misses were detected for \`${filePath}\`.`,
+  const lines = [
+    `EDIT RECOVERY REQUIRED: ${missCount} recent edit-context misses were detected for \`${filePath}\`.`,
     "Before any Edit/Write/Patch tool call, issue exactly one Read tool call for this same file path to refresh anchors.",
     "Use that fresh content to prepare a new exact anchor, then apply one focused edit.",
     "Do not repeat the same old_string/anchor without a fresh read.",
-  ].join("\n");
+  ];
+  if (missCount >= 2) {
+    lines.push(
+      "If the refreshed file still does not match your expected anchor, stop retrying the same replacement.",
+      "Pivot to verification of existing behavior and tests, or choose a different exact anchor before the next edit.",
+    );
+  }
+  return lines.join("\n");
 }
 
 function buildToolCallMetaById(
@@ -6379,15 +6395,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "verification_after_completion_claim",
       "completion_claim_requires_task_update",
       "repeat_user_prompt_loop",
+      "edit_failure_replay",
+      "consecutive_edit_failures",
     ]);
     const oaiHasTerminalRule = oaiExecutionGovernor.matchedRules.some((rule) => oaiTerminalRules.has(rule));
+    const oaiHasBlockingToolFailure = oaiToolFailures.some((failure) => failure.reason !== "edit_already_applied");
     const oaiHasConcreteProgress =
       oaiLatestToolProgress.hasRecentWriteSuccess
-      || (oaiToolProgress.state === "progress" && !oaiLatestToolProgress.hasRecentFailure);
+      || (
+        oaiToolProgress.state === "progress"
+        && !oaiLatestToolProgress.hasRecentFailure
+        && !oaiHasBlockingToolFailure
+        && oaiEditMissGuard?.active !== true
+      );
     const oaiShouldHoldRecoveryFire =
       oaiLatestToolProgress.hasRecentEditContextMiss
       && oaiExecutionGovernor.matchedRules.length === 1
-      && oaiExecutionGovernor.matchedRules[0] === "source_file_stale_reread";
+      && oaiExecutionGovernor.matchedRules[0] === "source_file_stale_reread"
+      && (oaiEditMissGuard?.missCount ?? 0) <= 1;
     if (oaiShouldHoldRecoveryFire) {
       recordSessionEvent(
         sessionKey,
@@ -6419,6 +6444,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           progress_state: oaiToolProgress.state,
           has_recent_write_success: oaiLatestToolProgress.hasRecentWriteSuccess,
           has_recent_failure: oaiLatestToolProgress.hasRecentFailure,
+          has_blocking_tool_failure: oaiHasBlockingToolFailure,
+          edit_miss_guard_active: oaiEditMissGuard?.active === true,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
       );
@@ -8938,15 +8965,24 @@ app.post("/v1/messages", async (req, reply) => {
       "verification_after_completion_claim",
       "completion_claim_requires_task_update",
       "repeat_user_prompt_loop",
+      "edit_failure_replay",
+      "consecutive_edit_failures",
     ]);
     const claudeHasTerminalRule = claudeExecutionGovernor.matchedRules.some((rule) => claudeTerminalRules.has(rule));
+    const claudeHasBlockingToolFailure = claudeToolFailures.some((failure) => failure.reason !== "edit_already_applied");
     const claudeHasConcreteProgress =
       claudeLatestToolProgress.hasRecentWriteSuccess
-      || (claudeToolProgress.state === "progress" && !claudeLatestToolProgress.hasRecentFailure);
+      || (
+        claudeToolProgress.state === "progress"
+        && !claudeLatestToolProgress.hasRecentFailure
+        && !claudeHasBlockingToolFailure
+        && claudeEditMissGuard?.active !== true
+      );
     const claudeShouldHoldRecoveryFire =
       claudeLatestToolProgress.hasRecentEditContextMiss
       && claudeExecutionGovernor.matchedRules.length === 1
-      && claudeExecutionGovernor.matchedRules[0] === "source_file_stale_reread";
+      && claudeExecutionGovernor.matchedRules[0] === "source_file_stale_reread"
+      && (claudeEditMissGuard?.missCount ?? 0) <= 1;
     if (claudeShouldHoldRecoveryFire) {
       recordSessionEvent(
         claudeSessionKey,
@@ -8978,6 +9014,8 @@ app.post("/v1/messages", async (req, reply) => {
           progress_state: claudeToolProgress.state,
           has_recent_write_success: claudeLatestToolProgress.hasRecentWriteSuccess,
           has_recent_failure: claudeLatestToolProgress.hasRecentFailure,
+          has_blocking_tool_failure: claudeHasBlockingToolFailure,
+          edit_miss_guard_active: claudeEditMissGuard?.active === true,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
       );

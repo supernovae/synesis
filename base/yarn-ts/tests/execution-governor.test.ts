@@ -184,6 +184,21 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("already contain the changes");
   });
 
+  it("treats 'String to replace not found in file' as edit failure replay", () => {
+    const messages = [
+      assistantCall("1", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      toolResult("1", "Error: String to replace not found in file."),
+      assistantCall("2", "Read", { file_path: "cmd/synesis/ask.go" }),
+      toolResult("2", "package main"),
+      assistantCall("3", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      toolResult("3", "Error: String to replace not found in file."),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("edit_failure_replay");
+    expect(out.matchedRules).toContain("edit_failure_replay");
+  });
+
   it("does not treat idempotent edit responses as edit failures", () => {
     const messages = [
       { role: "user", content: "wire up --print-request flag" },

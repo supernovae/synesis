@@ -760,7 +760,7 @@ function hasNoTestFilesSignature(sig: string): boolean {
 function hasEditFailureSignature(sig: string): boolean {
   if (!sig) return false;
   if (hasIdempotentEditSignature(sig)) return false;
-  return /error editing file|old_string.*not found|failed to apply patch|did not match file content/.test(sig);
+  return /error editing file|old[_\s-]?string.*not found|string to replace.*not found|not found in file|failed to find context|exactly once|failed to apply patch|did not match file content/.test(sig);
 }
 
 function hasIdempotentEditSignature(sig: string): boolean {
