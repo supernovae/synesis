@@ -153,6 +153,7 @@ import {
   ensureSystemMessagesAtBeginning,
   sanitizeToolCalls
 } from "./tool-mapping.js";
+import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
@@ -6751,10 +6752,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     modelMessages = [...modelMessages, { role: "system" as const, content: policyPrecheck.pivotPrompt }] as typeof modelMessages;
   }
   if (oaiEditMissGuard?.active) {
-    modelMessages = [
-      ...modelMessages,
-      { role: "system" as const, content: buildEditContextMissGuardPrompt(oaiEditMissGuard.filePath, oaiEditMissGuard.missCount) },
-    ] as typeof modelMessages;
+    modelMessages = appendSystemMessageAndNormalize(
+      modelMessages as Array<{ role: string; content?: unknown }>,
+      buildEditContextMissGuardPrompt(oaiEditMissGuard.filePath, oaiEditMissGuard.missCount),
+    ) as typeof modelMessages;
   }
 
   // Adapter-specific early pivot and same-tool dampening (fires after generic governance).
@@ -6789,7 +6790,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             "adapter_qwen_ignored_pivot_hard_stop",
           );
           const forcedRecovery = `${earlyPivot}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          modelMessages = [...modelMessages, { role: "system" as const, content: forcedRecovery }] as typeof modelMessages;
+          modelMessages = appendSystemMessageAndNormalize(
+            modelMessages as Array<{ role: string; content?: unknown }>,
+            forcedRecovery,
+          ) as typeof modelMessages;
           markQwenIntervention(sessionKey, turnMarker, pivotKind);
           recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_auto_recover", "adapter", `${pivotKind}: forced continue after ignored pivots`, oaiTraceReqId);
         } else if (decision === "suppress") {
@@ -6798,7 +6802,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
-          modelMessages = [...modelMessages, { role: "system" as const, content: earlyPivot }] as typeof modelMessages;
+          modelMessages = appendSystemMessageAndNormalize(
+            modelMessages as Array<{ role: string; content?: unknown }>,
+            earlyPivot,
+          ) as typeof modelMessages;
           markQwenIntervention(sessionKey, turnMarker, pivotKind);
           app.log.info(
             { sessionKey, family: adapter.family, pivotLen: earlyPivot.length },
@@ -6819,7 +6826,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             "adapter_qwen_ignored_pivot_hard_stop",
           );
           const forcedRecovery = `${dampening}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          modelMessages = [...modelMessages, { role: "system" as const, content: forcedRecovery }] as typeof modelMessages;
+          modelMessages = appendSystemMessageAndNormalize(
+            modelMessages as Array<{ role: string; content?: unknown }>,
+            forcedRecovery,
+          ) as typeof modelMessages;
           markQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
           recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_auto_recover", "adapter", "dampening: forced continue after ignored pivots", oaiTraceReqId);
         } else if (decision === "suppress") {
@@ -6828,13 +6838,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
-          modelMessages = [...modelMessages, { role: "system" as const, content: dampening }] as typeof modelMessages;
+          modelMessages = appendSystemMessageAndNormalize(
+            modelMessages as Array<{ role: string; content?: unknown }>,
+            dampening,
+          ) as typeof modelMessages;
           markQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
           app.log.info({ sessionKey, family: adapter.family, dampenLen: dampening.length }, "adapter_dampening_oai");
         }
       }
     }
   }
+
+  modelMessages = normalizeSystemMessageOrdering(modelMessages as Array<{ role: string }>) as typeof modelMessages;
 
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
   const adapterSampling = adapter.defaultSamplingParams?.();
@@ -6936,10 +6951,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
           `reasons=${firstValidation.reasons.join(",") || "unknown"}`,
           reqId,
         );
-        currentMessages = [
-          ...currentMessages,
-          { role: "system", content: buildRequiredRepairPrompt(oaiGovernorPhase, oaiPhasePolicy.allowedCanonicalTools) } as never,
-        ];
+        currentMessages = appendSystemMessageAndNormalize(
+          currentMessages as Array<{ role: string; content?: unknown }>,
+          buildRequiredRepairPrompt(oaiGovernorPhase, oaiPhasePolicy.allowedCanonicalTools),
+        ) as typeof currentMessages;
         const repairForensics = captureRequestForensics(
           sessionKey,
           reqId,
@@ -6979,13 +6994,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             reqId,
           );
           effectiveToolChoice = "auto";
-          currentMessages = [
-            ...currentMessages,
-            {
-              role: "system",
-              content: "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
-            } as never,
-          ];
+          currentMessages = appendSystemMessageAndNormalize(
+            currentMessages as Array<{ role: string; content?: unknown }>,
+            "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
+          ) as typeof currentMessages;
           const fallbackForensics = captureRequestForensics(
             sessionKey,
             reqId,
@@ -9172,10 +9184,10 @@ app.post("/v1/messages", async (req, reply) => {
     claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: claudePolicyPrecheck.pivotPrompt }] as typeof claudeModelMessages;
   }
   if (claudeEditMissGuard?.active) {
-    claudeModelMessages = [
-      ...claudeModelMessages,
-      { role: "system" as const, content: buildEditContextMissGuardPrompt(claudeEditMissGuard.filePath, claudeEditMissGuard.missCount) },
-    ] as typeof claudeModelMessages;
+    claudeModelMessages = appendSystemMessageAndNormalize(
+      claudeModelMessages as Array<{ role: string; content?: unknown }>,
+      buildEditContextMissGuardPrompt(claudeEditMissGuard.filePath, claudeEditMissGuard.missCount),
+    ) as typeof claudeModelMessages;
   }
 
   // Adapter-specific early pivot and same-tool dampening (Claude path).
@@ -9209,7 +9221,10 @@ app.post("/v1/messages", async (req, reply) => {
             "adapter_qwen_ignored_pivot_hard_stop",
           );
           const forcedRecovery = `${earlyPivot}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: forcedRecovery }] as typeof claudeModelMessages;
+          claudeModelMessages = appendSystemMessageAndNormalize(
+            claudeModelMessages as Array<{ role: string; content?: unknown }>,
+            forcedRecovery,
+          ) as typeof claudeModelMessages;
           markQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
           recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_auto_recover", "adapter", `${pivotKind}: forced continue after ignored pivots`, traceReqId);
         } else if (decision === "suppress") {
@@ -9218,7 +9233,10 @@ app.post("/v1/messages", async (req, reply) => {
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
-          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: earlyPivot }] as typeof claudeModelMessages;
+          claudeModelMessages = appendSystemMessageAndNormalize(
+            claudeModelMessages as Array<{ role: string; content?: unknown }>,
+            earlyPivot,
+          ) as typeof claudeModelMessages;
           markQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
           app.log.info(
             { sessionKey: claudeSessionKey, family: claudeAdapter.family, pivotLen: earlyPivot.length },
@@ -9239,7 +9257,10 @@ app.post("/v1/messages", async (req, reply) => {
             "adapter_qwen_ignored_pivot_hard_stop",
           );
           const forcedRecovery = `${dampening}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: forcedRecovery }] as typeof claudeModelMessages;
+          claudeModelMessages = appendSystemMessageAndNormalize(
+            claudeModelMessages as Array<{ role: string; content?: unknown }>,
+            forcedRecovery,
+          ) as typeof claudeModelMessages;
           markQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
           recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_auto_recover", "adapter", "dampening: forced continue after ignored pivots", traceReqId);
         } else if (decision === "suppress") {
@@ -9248,13 +9269,18 @@ app.post("/v1/messages", async (req, reply) => {
             "adapter_qwen_cooldown_suppressed",
           );
         } else {
-          claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: dampening }] as typeof claudeModelMessages;
+          claudeModelMessages = appendSystemMessageAndNormalize(
+            claudeModelMessages as Array<{ role: string; content?: unknown }>,
+            dampening,
+          ) as typeof claudeModelMessages;
           markQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
           app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, dampenLen: dampening.length }, "adapter_dampening_claude");
         }
       }
     }
   }
+
+  claudeModelMessages = normalizeSystemMessageOrdering(claudeModelMessages as Array<{ role: string }>) as typeof claudeModelMessages;
 
   const adapterClaudeProviderOptions = claudeAdapter.providerOptions?.();
   const providerOptions = body.thinking
@@ -9440,10 +9466,10 @@ app.post("/v1/messages", async (req, reply) => {
               `reasons=${validation.reasons.join(",") || "unknown"}`,
               traceReqId,
             );
-            currentMessages = [
-              ...currentMessages,
-              { role: "system", content: buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools) } as never,
-            ];
+            currentMessages = appendSystemMessageAndNormalize(
+              currentMessages as Array<{ role: string; content?: unknown }>,
+              buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools),
+            ) as typeof currentMessages;
             streamedResult = await generateText({
               model: resolved.model as never,
               messages: currentMessages,
@@ -9468,13 +9494,10 @@ app.post("/v1/messages", async (req, reply) => {
                 traceReqId,
               );
               effectiveClaudeToolChoice = "auto";
-              currentMessages = [
-                ...currentMessages,
-                {
-                  role: "system",
-                  content: "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
-                } as never,
-              ];
+              currentMessages = appendSystemMessageAndNormalize(
+                currentMessages as Array<{ role: string; content?: unknown }>,
+                "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
+              ) as typeof currentMessages;
               streamedResult = await generateText({
                 model: resolved.model as never,
                 messages: currentMessages,
@@ -10417,10 +10440,10 @@ app.post("/v1/messages", async (req, reply) => {
             `reasons=${validation.reasons.join(",") || "unknown"}`,
             reqId,
           );
-          currentMessages = [
-            ...currentMessages,
-            { role: "system", content: buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools) } as never,
-          ];
+          currentMessages = appendSystemMessageAndNormalize(
+            currentMessages as Array<{ role: string; content?: unknown }>,
+            buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools),
+          ) as typeof currentMessages;
           const repairForensics = captureRequestForensics(
             claudeSessionKey,
             reqId,
@@ -10459,13 +10482,10 @@ app.post("/v1/messages", async (req, reply) => {
               reqId,
             );
             effectiveClaudeToolChoice = "auto";
-            currentMessages = [
-              ...currentMessages,
-              {
-                role: "system",
-                content: "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
-              } as never,
-            ];
+            currentMessages = appendSystemMessageAndNormalize(
+              currentMessages as Array<{ role: string; content?: unknown }>,
+              "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
+            ) as typeof currentMessages;
             const fallbackForensics = captureRequestForensics(
               claudeSessionKey,
               reqId,
