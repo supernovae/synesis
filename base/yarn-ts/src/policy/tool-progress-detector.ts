@@ -81,7 +81,7 @@ export function detectToolProgress(
   }
   const latest = toolMessages[0];
   const signal = normalizeSignal(latest.content).slice(0, 4000);
-  const hash = crypto.createHash("sha256").update(signal).digest("hex");
+  const failureSignal = looksLikeFailure(signal);
 
   const latestToolName = (() => {
     const direct = normalizeToolNameForProgress(latest.name);
@@ -91,11 +91,17 @@ export function detectToolProgress(
   })();
 
   // Treat successful write/edit outputs as progress even if output text repeats.
-  if (WRITE_PROGRESS_TOOL_NAMES.has(latestToolName) && signal && !looksLikeFailure(signal)) {
+  if (WRITE_PROGRESS_TOOL_NAMES.has(latestToolName) && signal && !failureSignal) {
+    const hash = crypto.createHash("sha256").update(signal).digest("hex");
     session.lastToolSignalHash = hash;
     session.stagnantToolCycles = 0;
     return { state: "progress", signalHash: hash };
   }
+
+  const hashSource = failureSignal
+    ? `failure:${latestToolName || "unknown_tool"}`
+    : signal;
+  const hash = crypto.createHash("sha256").update(hashSource).digest("hex");
 
   if (!session.lastToolSignalHash) {
     session.lastToolSignalHash = hash;

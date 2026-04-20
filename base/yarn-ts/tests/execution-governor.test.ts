@@ -184,6 +184,19 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("already contain the changes");
   });
 
+  it("does not treat idempotent edit responses as edit failures", () => {
+    const messages = [
+      { role: "user", content: "wire up --print-request flag" },
+      assistantCall("1", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "x", new_string: "y" }),
+      toolResult("1", "No changes made: replacement already present in file"),
+      assistantCall("2", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "x", new_string: "y" }),
+      toolResult("2", "Already replaced in previous edit"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("edit_failure_replay");
+    expect(out.matchedRules).not.toContain("consecutive_edit_failures");
+  });
+
   it("pauses duplicate task creation replay", () => {
     const messages = [
       assistantCall("1", "TaskCreate", { title: "Implement Clipboard Support" }),
@@ -239,6 +252,20 @@ describe("execution governor", () => {
     expect(out.pause).toBe(true);
     expect(out.reason).toBe("completion_claim_requires_task_update");
     expect(out.matchedRules).toContain("completion_claim_requires_task_update");
+  });
+
+  it("does not force completion-claim task-update pause while active repair is underway", () => {
+    const messages = [
+      { role: "user", content: "finish wiring ask command flags" },
+      { role: "assistant", content: "This is already implemented." },
+      assistantCall("1", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "model := fs.String", new_string: "model := fs.String" }),
+      toolResult("1", "Error editing file: old_string not found"),
+      assistantCall("2", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "model := fs.String", new_string: "model := fs.String" }),
+      toolResult("2", "Error editing file: old_string not found"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, { activePlanStage: "implement" });
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(out.matchedRules).toContain("edit_failure_replay");
   });
 
   it("does not pause completion claims from plan stage when activePlanStage is finalize", () => {
@@ -1962,6 +1989,15 @@ describe("detectSessionPhase", () => {
       ev("git diff --stat", "bash"),
     ];
     expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("report");
+  });
+
+  it("stays in edit when completion claim is followed by edit-context misses", () => {
+    const events = [
+      ev("edit:src/main.ts", "str_replace", "ok"),
+      ev("edit:src/main.ts", "str_replace", "error editing file: old_string not found"),
+      ev("read:src/main.ts", "read_file", "unchanged since last read"),
+    ];
+    expect(detectSessionPhase(events, "fix the bug", ["src/main.ts"], true)).toBe("edit");
   });
 
   it("stays in edit if completion claim followed by last event being an edit", () => {

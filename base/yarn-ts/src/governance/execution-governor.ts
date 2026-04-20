@@ -128,10 +128,14 @@ export function detectSessionPhase(
   let hasEdited = false;
   let sawVerificationFailure = false;
   let sawVerificationSuccess = false;
+  let sawEditFailure = false;
 
   for (const e of events) {
     const c = e.command;
     const isEdit = isEditCommand(c);
+    if (isEdit && hasEditFailureSignature(e.resultSignature)) {
+      sawEditFailure = true;
+    }
     const isSuccessfulEdit = isEdit
       && !(e.resultSignature && (e.resultSignature.includes("error") || e.resultSignature.includes("failed") || e.resultSignature.includes("no match")));
 
@@ -169,7 +173,14 @@ export function detectSessionPhase(
   // likely an observation from prior context summary, not a real claim. This prevents
   // locking the model out of exploration tools when it's still discovering the codebase.
   const hasNonExplorationWork = hasEdited || sawVerificationSuccess || sawVerificationFailure;
-  if (phase !== "finalize" && hasCompletionClaim && !sawVerificationFailure && (phase !== "edit" || !sawVerificationSuccess) && hasNonExplorationWork) {
+  if (
+    phase !== "finalize"
+    && hasCompletionClaim
+    && !sawVerificationFailure
+    && !sawEditFailure
+    && (phase !== "edit" || !sawVerificationSuccess)
+    && hasNonExplorationWork
+  ) {
     const lastEventIdx = events.length - 1;
     const lastCmd = events[lastEventIdx].command;
     const lastIsEdit = isEditCommand(lastCmd);
@@ -748,7 +759,13 @@ function hasNoTestFilesSignature(sig: string): boolean {
 
 function hasEditFailureSignature(sig: string): boolean {
   if (!sig) return false;
-  return /error editing file|old_string.*not found|failed to apply patch|no changes made|did not match file content/.test(sig);
+  if (hasIdempotentEditSignature(sig)) return false;
+  return /error editing file|old_string.*not found|failed to apply patch|did not match file content/.test(sig);
+}
+
+function hasIdempotentEditSignature(sig: string): boolean {
+  if (!sig) return false;
+  return /already\s+(?:replaced|exists|present)|already\s+contains|no changes (?:made|needed)|nothing to (?:replace|update)/.test(sig);
 }
 
 function matchesCompletionClaimPattern(text: string): boolean {
@@ -1553,6 +1570,7 @@ export function evaluateExecutionGovernor(
   // updating the plan, committing, or moving on. Count verification+exploration events
   // after the last assistant message that contains a completion claim.
   let verificationAfterCompletionClaim = 0;
+  let hasActiveRepairEvidenceAfterCompletionClaim = false;
   const hasAnyClaim = hasCompletionClaim;
   if (hasAnyClaim) {
     let lastClaimIdx = -1;
@@ -1568,6 +1586,9 @@ export function evaluateExecutionGovernor(
       const postClaimEvents = extractCommandEvents(turnMessages.slice(lastClaimIdx));
       for (const e of postClaimEvents) {
         const c = e.command;
+        if (isEditCommand(c) && hasEditFailureSignature(e.resultSignature)) {
+          hasActiveRepairEvidenceAfterCompletionClaim = true;
+        }
         if (isEditCommand(c)
           || c.startsWith("taskcreate:") || c.startsWith("taskupdate:") || c.startsWith("todowrite:")) {
           break;
@@ -1626,7 +1647,9 @@ export function evaluateExecutionGovernor(
   // current task is finished.
   const hasNonExplorationEvents = changedFiles.length > 0
     || events.some((e) => isExecutionVerificationCommand(e.toolName, e.command));
-  if (completionClaimNeedsTaskUpdate && hasNonExplorationEvents) pushRule("completion_claim_requires_task_update");
+  if (completionClaimNeedsTaskUpdate && hasNonExplorationEvents && !hasActiveRepairEvidenceAfterCompletionClaim) {
+    pushRule("completion_claim_requires_task_update");
+  }
   if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence && hasNonExplorationEvents) {
     pushRule("verification_after_completion_claim");
   }

@@ -9,6 +9,7 @@ type MessageLike = {
 export type LatestToolProgressSignal = {
   hasRecentWriteSuccess: boolean;
   hasRecentEditContextMiss: boolean;
+  hasRecentFailure: boolean;
   toolName: string;
   toolCallId: string;
   snippet: string;
@@ -48,6 +49,7 @@ export function classifyLatestToolProgress(messages: MessageLike[]): LatestToolP
     return {
       hasRecentWriteSuccess: false,
       hasRecentEditContextMiss: false,
+      hasRecentFailure: false,
       toolName: "",
       toolCallId: "",
       snippet: "",
@@ -64,11 +66,13 @@ export function classifyLatestToolProgress(messages: MessageLike[]): LatestToolP
   const isWriteCapable = WRITE_CAPABLE_TOOLS.has(toolName.toLowerCase());
   const hasEditContextMiss = EDIT_CONTEXT_MISS_PATTERNS.some((re) => re.test(rawText));
   const hasGenericFailure = GENERIC_FAILURE_PATTERN.test(rawText);
+  const hasRecentFailure = hasEditContextMiss || hasGenericFailure;
   const hasWriteSuccess = isWriteCapable && !!rawText && !hasEditContextMiss && !hasGenericFailure;
 
   return {
     hasRecentWriteSuccess: hasWriteSuccess,
     hasRecentEditContextMiss: hasEditContextMiss,
+    hasRecentFailure,
     toolName,
     toolCallId,
     snippet,

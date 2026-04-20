@@ -350,7 +350,7 @@ function applyDiscoveryToolGuardrail(
 function applyExecutionGovernorToolRestrictions(
   tools: unknown[] | undefined,
   matchedRules?: string[],
-  options?: { pureExploration?: boolean },
+  options?: { pureExploration?: boolean; preserveReadTools?: boolean },
 ): { tools: unknown[] | undefined; removed: string[] } {
   if (!Array.isArray(tools) || tools.length === 0) return { tools, removed: [] };
   const explorationDominant = matchedRules?.some((r) =>
@@ -431,6 +431,7 @@ function applyExecutionGovernorToolRestrictions(
       removed.push(rawName || name);
       return false;
     }
+    if (options?.preserveReadTools && isReadToolName(name)) return true;
     if (!deny.has(name)) return true;
     removed.push(rawName || name);
     return false;
@@ -1315,6 +1316,12 @@ const TOOL_FAILURE_PATTERNS: Array<{ reason: string; re: RegExp }> = [
   { reason: "patch_apply_failed", re: /\b(apply\s*patch|patch)\b.*\b(failed|error)\b/i },
   { reason: "write_permission_denied", re: /\b(permission denied|operation not permitted)\b/i },
 ];
+const TOOL_IDEMPOTENT_PATTERNS: RegExp[] = [
+  /\balready (?:replaced|exists|present)\b/i,
+  /\balready contains\b/i,
+  /\bno changes (?:made|needed)\b/i,
+  /\bnothing to (?:replace|update)\b/i,
+];
 
 function collectToolExecutionFailureObservations(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
@@ -1365,6 +1372,9 @@ function collectToolExecutionFailureObservations(
         reason = candidate.reason;
         break;
       }
+    }
+    if (!reason && isWriteCapableToolName(toolName) && TOOL_IDEMPOTENT_PATTERNS.some((re) => re.test(lower))) {
+      reason = "edit_already_applied";
     }
     if (!reason && isWriteCapableToolName(toolName) && /\b(error|failed|invalid)\b/i.test(rawText)) {
       reason = "write_tool_error";
@@ -1581,6 +1591,23 @@ function isReadToolName(toolName: string): boolean {
   return lowered === "read" || lowered === "read_file" || lowered === "readfile" || lowered === "file_read";
 }
 
+function toolDefinitionName(tool: unknown): string {
+  if (!tool || typeof tool !== "object") return "";
+  const row = tool as Record<string, unknown>;
+  const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
+  return ((typeof row.name === "string" ? row.name : "")
+    || (nested && typeof nested.name === "string" ? nested.name : "")).trim();
+}
+
+function findReadToolDefinition(tools: unknown[] | undefined): unknown | undefined {
+  if (!Array.isArray(tools)) return undefined;
+  for (const tool of tools) {
+    const name = toolDefinitionName(tool);
+    if (name && isReadToolName(name)) return tool;
+  }
+  return undefined;
+}
+
 function isResolvableReadResult(content: unknown, rawText: string): boolean {
   const direct = typeof content === "string" ? content.trim() : "";
   if (direct.startsWith("{")) {
@@ -1597,16 +1624,33 @@ function isResolvableReadResult(content: unknown, rawText: string): boolean {
 
 function findPreferredReadToolName(tools: unknown[]): string | undefined {
   for (const tool of tools) {
-    if (!tool || typeof tool !== "object") continue;
-    const row = tool as Record<string, unknown>;
-    const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
-    const rawName = (typeof row.name === "string" ? row.name : "")
-      || (nested && typeof nested.name === "string" ? nested.name : "");
-    const name = rawName.trim();
+    const name = toolDefinitionName(tool);
     if (!name) continue;
     if (isReadToolName(name)) return name;
   }
   return undefined;
+}
+
+function ensureReadToolAvailabilityForEditMissGuard(
+  tools: unknown[] | undefined,
+  fallbackTools: unknown[] | undefined,
+): { tools: unknown[] | undefined; readToolName?: string; rehydrated: boolean; available: boolean } {
+  const current = Array.isArray(tools) ? [...tools] : [];
+  const existing = findPreferredReadToolName(current);
+  if (existing) {
+    return { tools: current, readToolName: existing, rehydrated: false, available: true };
+  }
+  const fallbackRead = findReadToolDefinition(fallbackTools);
+  if (!fallbackRead) {
+    return { tools: current, rehydrated: false, available: false };
+  }
+  const fallbackName = toolDefinitionName(fallbackRead) || findPreferredReadToolName([fallbackRead]) || "Read";
+  return {
+    tools: [...current, fallbackRead],
+    readToolName: fallbackName,
+    rehydrated: true,
+    available: true,
+  };
 }
 
 function collectToolResultTextChunks(value: unknown, depth = 0, out: string[] = []): string[] {
@@ -5904,11 +5948,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
       .slice(findLastUserPromptIdx(normalizedOpenAI.messages as Array<{ role?: string; content?: unknown }>) + 1),
   );
   for (const failure of oaiToolFailures) {
+    const oaiFailureEventKind = failure.reason === "edit_already_applied"
+      ? "client_tool_idempotent_observed"
+      : "client_tool_error_observed";
     recordSessionEvent(
       sessionKey,
       identity.userId,
       identity.orgId,
-      "client_tool_error_observed",
+      oaiFailureEventKind,
       "tool-result-monitor",
       `tool=${failure.toolName} reason=${failure.reason} ${failure.snippet}`,
       oaiTraceReqId,
@@ -6222,8 +6269,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: oaiRepeatAwarePivot,
-    toolProgressState: oaiLatestToolProgress.hasRecentWriteSuccess ? "progress" : oaiToolProgress.state,
-    stagnantToolCycles: oaiLatestToolProgress.hasRecentWriteSuccess ? 0 : session.stagnantToolCycles,
+    toolProgressState: oaiLatestToolProgress.hasRecentWriteSuccess
+      ? "progress"
+      : (oaiLatestToolProgress.hasRecentFailure ? "stagnant" : oaiToolProgress.state),
+    stagnantToolCycles: oaiLatestToolProgress.hasRecentWriteSuccess
+      ? 0
+      : (oaiLatestToolProgress.hasRecentFailure ? Math.max(session.stagnantToolCycles, 1) : session.stagnantToolCycles),
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
@@ -6289,6 +6340,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     return reply.code(400).send(policyRejectOpenAIBody(policyPrecheck));
   }
+  const oaiClientToolInventory = Array.isArray(request.tools) ? [...(request.tools as unknown[])] : [];
   if (shouldStripGlobFromTools(sessionKey)) {
     const globStrip = stripGlobFromTools(request.tools as unknown[] | undefined);
     if (globStrip.stripped) {
@@ -6330,7 +6382,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ]);
     const oaiHasTerminalRule = oaiExecutionGovernor.matchedRules.some((rule) => oaiTerminalRules.has(rule));
     const oaiHasConcreteProgress =
-      oaiLatestToolProgress.hasRecentWriteSuccess || oaiToolProgress.state === "progress";
+      oaiLatestToolProgress.hasRecentWriteSuccess
+      || (oaiToolProgress.state === "progress" && !oaiLatestToolProgress.hasRecentFailure);
     const oaiShouldHoldRecoveryFire =
       oaiLatestToolProgress.hasRecentEditContextMiss
       && oaiExecutionGovernor.matchedRules.length === 1
@@ -6365,6 +6418,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           matched_rules: oaiExecutionGovernor.matchedRules,
           progress_state: oaiToolProgress.state,
           has_recent_write_success: oaiLatestToolProgress.hasRecentWriteSuccess,
+          has_recent_failure: oaiLatestToolProgress.hasRecentFailure,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
       );
@@ -6437,7 +6491,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
       && !oaiExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
       && !oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread")
       && !oaiExecutionGovernor.matchedRules.includes("no_progress_loop");
-    const restricted = applyExecutionGovernorToolRestrictions(request.tools as unknown[] | undefined, oaiExecutionGovernor.matchedRules, { pureExploration: oaiPureExploration });
+    const restricted = applyExecutionGovernorToolRestrictions(
+      request.tools as unknown[] | undefined,
+      oaiExecutionGovernor.matchedRules,
+      {
+        pureExploration: oaiPureExploration,
+        preserveReadTools: oaiEditMissGuard?.active === true,
+      },
+    );
     request.tools = restricted.tools as never;
     recordSessionEvent(
       sessionKey,
@@ -6696,7 +6757,47 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ? applyEditContextMissReadGate(effectiveTools as unknown[])
       : { tools: effectiveTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveTools as unknown[]) };
     if (guardMode === "standalone") effectiveTools = gated.tools ?? effectiveTools;
-    if (gated.removed.length > 0 || gated.forcedReadToolName) {
+    let forcedReadToolName = gated.forcedReadToolName;
+    const ensuredRead = ensureReadToolAvailabilityForEditMissGuard(
+      effectiveTools as unknown[] | undefined,
+      oaiClientToolInventory,
+    );
+    effectiveTools = ensuredRead.tools ?? effectiveTools;
+    if (!forcedReadToolName && ensuredRead.readToolName) {
+      forcedReadToolName = ensuredRead.readToolName;
+    }
+    if (ensuredRead.rehydrated) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "edit_context_miss_guard_rehydrated_read",
+        "execution-governor",
+        `Reintroduced read tool for edit-context recovery file=${oaiEditMissGuard.filePath}`,
+        reqId,
+        {
+          filePath: oaiEditMissGuard.filePath,
+          read_tool: ensuredRead.readToolName ?? null,
+        },
+      );
+    }
+    if (!ensuredRead.available) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "edit_context_miss_guard_read_missing",
+        "execution-governor",
+        `Invariant violation: no read-capable tool available while edit-context guard is active for ${oaiEditMissGuard.filePath}`,
+        reqId,
+        {
+          filePath: oaiEditMissGuard.filePath,
+          matched_rules: oaiExecutionGovernor.matchedRules,
+          phase: oaiGovernorPhase,
+        },
+      );
+    }
+    if (gated.removed.length > 0 || forcedReadToolName || ensuredRead.rehydrated || !ensuredRead.available) {
       recordSessionEvent(
         sessionKey,
         identity.userId,
@@ -6709,13 +6810,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
           filePath: oaiEditMissGuard.filePath,
           missCount: oaiEditMissGuard.missCount,
           removed_tools: gated.removed,
-          forced_read_tool: gated.forcedReadToolName ?? null,
+          forced_read_tool: forcedReadToolName ?? null,
           guard_mode: guardMode,
+          read_rehydrated: ensuredRead.rehydrated,
+          read_available: ensuredRead.available,
         },
       );
     }
-    if (gated.forcedReadToolName) {
-      effectiveToolChoice = { type: "tool", toolName: gated.forcedReadToolName };
+    if (forcedReadToolName) {
+      effectiveToolChoice = { type: "tool", toolName: forcedReadToolName };
     }
   }
   const sdkTools = openAIToolsToSDK(effectiveTools as never);
@@ -8401,11 +8504,14 @@ app.post("/v1/messages", async (req, reply) => {
       .slice(findLastUserPromptIdx(normalizedFromClaude.messages as Array<{ role?: string; content?: unknown }>) + 1),
   );
   for (const failure of claudeToolFailures) {
+    const claudeFailureEventKind = failure.reason === "edit_already_applied"
+      ? "client_tool_idempotent_observed"
+      : "client_tool_error_observed";
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
       claudeIdentity.orgId,
-      "client_tool_error_observed",
+      claudeFailureEventKind,
       "tool-result-monitor",
       `tool=${failure.toolName} reason=${failure.reason} ${failure.snippet}`,
       traceReqId,
@@ -8722,8 +8828,12 @@ app.post("/v1/messages", async (req, reply) => {
     consecutiveToolCalls: session.consecutiveToolCalls,
     consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
     consecutiveToolCallsPivot: claudeRepeatAwarePivot,
-    toolProgressState: claudeLatestToolProgress.hasRecentWriteSuccess ? "progress" : claudeToolProgress.state,
-    stagnantToolCycles: claudeLatestToolProgress.hasRecentWriteSuccess ? 0 : session.stagnantToolCycles,
+    toolProgressState: claudeLatestToolProgress.hasRecentWriteSuccess
+      ? "progress"
+      : (claudeLatestToolProgress.hasRecentFailure ? "stagnant" : claudeToolProgress.state),
+    stagnantToolCycles: claudeLatestToolProgress.hasRecentWriteSuccess
+      ? 0
+      : (claudeLatestToolProgress.hasRecentFailure ? Math.max(session.stagnantToolCycles, 1) : session.stagnantToolCycles),
     stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
@@ -8789,6 +8899,7 @@ app.post("/v1/messages", async (req, reply) => {
     }
     return reply.code(400).send(policyRejectClaudeBody(claudePolicyPrecheck));
   }
+  const claudeClientToolInventory = Array.isArray(body.tools) ? [...(body.tools as unknown[])] : [];
   if (shouldStripGlobFromTools(claudeSessionKey)) {
     const claudeGlobStrip = stripGlobFromTools(body.tools as unknown[] | undefined);
     if (claudeGlobStrip.stripped) {
@@ -8830,7 +8941,8 @@ app.post("/v1/messages", async (req, reply) => {
     ]);
     const claudeHasTerminalRule = claudeExecutionGovernor.matchedRules.some((rule) => claudeTerminalRules.has(rule));
     const claudeHasConcreteProgress =
-      claudeLatestToolProgress.hasRecentWriteSuccess || claudeToolProgress.state === "progress";
+      claudeLatestToolProgress.hasRecentWriteSuccess
+      || (claudeToolProgress.state === "progress" && !claudeLatestToolProgress.hasRecentFailure);
     const claudeShouldHoldRecoveryFire =
       claudeLatestToolProgress.hasRecentEditContextMiss
       && claudeExecutionGovernor.matchedRules.length === 1
@@ -8865,6 +8977,7 @@ app.post("/v1/messages", async (req, reply) => {
           matched_rules: claudeExecutionGovernor.matchedRules,
           progress_state: claudeToolProgress.state,
           has_recent_write_success: claudeLatestToolProgress.hasRecentWriteSuccess,
+          has_recent_failure: claudeLatestToolProgress.hasRecentFailure,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
       );
@@ -8937,7 +9050,14 @@ app.post("/v1/messages", async (req, reply) => {
       && !claudeExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
       && !claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread")
       && !claudeExecutionGovernor.matchedRules.includes("no_progress_loop");
-    const restricted = applyExecutionGovernorToolRestrictions(body.tools as unknown[] | undefined, claudeExecutionGovernor.matchedRules, { pureExploration: claudePureExploration });
+    const restricted = applyExecutionGovernorToolRestrictions(
+      body.tools as unknown[] | undefined,
+      claudeExecutionGovernor.matchedRules,
+      {
+        pureExploration: claudePureExploration,
+        preserveReadTools: claudeEditMissGuard?.active === true,
+      },
+    );
     body.tools = restricted.tools as never;
     recordSessionEvent(
       claudeSessionKey,
@@ -9314,7 +9434,47 @@ app.post("/v1/messages", async (req, reply) => {
       ? applyEditContextMissReadGate(effectiveClaudeTools as unknown[])
       : { tools: effectiveClaudeTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveClaudeTools as unknown[]) };
     if (guardMode === "standalone") effectiveClaudeTools = gated.tools ?? effectiveClaudeTools;
-    if (gated.removed.length > 0 || gated.forcedReadToolName) {
+    let forcedReadToolName = gated.forcedReadToolName;
+    const ensuredRead = ensureReadToolAvailabilityForEditMissGuard(
+      effectiveClaudeTools as unknown[] | undefined,
+      claudeClientToolInventory,
+    );
+    effectiveClaudeTools = ensuredRead.tools ?? effectiveClaudeTools;
+    if (!forcedReadToolName && ensuredRead.readToolName) {
+      forcedReadToolName = ensuredRead.readToolName;
+    }
+    if (ensuredRead.rehydrated) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "edit_context_miss_guard_rehydrated_read",
+        "execution-governor",
+        `Reintroduced read tool for edit-context recovery file=${claudeEditMissGuard.filePath}`,
+        traceReqId,
+        {
+          filePath: claudeEditMissGuard.filePath,
+          read_tool: ensuredRead.readToolName ?? null,
+        },
+      );
+    }
+    if (!ensuredRead.available) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "edit_context_miss_guard_read_missing",
+        "execution-governor",
+        `Invariant violation: no read-capable tool available while edit-context guard is active for ${claudeEditMissGuard.filePath}`,
+        traceReqId,
+        {
+          filePath: claudeEditMissGuard.filePath,
+          matched_rules: claudeExecutionGovernor.matchedRules,
+          phase: claudeGovernorPhase,
+        },
+      );
+    }
+    if (gated.removed.length > 0 || forcedReadToolName || ensuredRead.rehydrated || !ensuredRead.available) {
       recordSessionEvent(
         claudeSessionKey,
         claudeIdentity.userId,
@@ -9327,13 +9487,15 @@ app.post("/v1/messages", async (req, reply) => {
           filePath: claudeEditMissGuard.filePath,
           missCount: claudeEditMissGuard.missCount,
           removed_tools: gated.removed,
-          forced_read_tool: gated.forcedReadToolName ?? null,
+          forced_read_tool: forcedReadToolName ?? null,
           guard_mode: guardMode,
+          read_rehydrated: ensuredRead.rehydrated,
+          read_available: ensuredRead.available,
         },
       );
     }
-    if (gated.forcedReadToolName) {
-      effectiveClaudeToolChoice = { type: "tool", toolName: gated.forcedReadToolName };
+    if (forcedReadToolName) {
+      effectiveClaudeToolChoice = { type: "tool", toolName: forcedReadToolName };
     }
   }
   const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);

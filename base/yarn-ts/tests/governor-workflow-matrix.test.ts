@@ -123,4 +123,23 @@ describe("governor workflow matrix", () => {
     const finalizeStage = evaluateExecutionGovernor(messages as never, { activePlanStage: "finalize" });
     expect(finalizeStage.matchedRules).not.toContain("completion_claim_requires_task_update");
   });
+
+  it("keeps repair flow active for completion-claim + stale-read + edit-miss collisions", () => {
+    const messages = [
+      { role: "user", content: "verify and finish ask.go updates" },
+      { role: "assistant", content: "This is already implemented." },
+      assistantCall("1", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("1", "package main"),
+      assistantCall("2", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("2", "Unchanged since last read"),
+      assistantCall("3", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "model := fs.String", new_string: "model := fs.String" }),
+      toolResult("3", "Error editing file: old_string not found"),
+      assistantCall("4", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "model := fs.String", new_string: "model := fs.String" }),
+      toolResult("4", "Error editing file: old_string not found"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, { activePlanStage: "implement" });
+    expect(out.telemetry.phase).toBe("edit");
+    expect(out.matchedRules).toContain("edit_failure_replay");
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
 });

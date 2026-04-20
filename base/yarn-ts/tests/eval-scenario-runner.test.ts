@@ -223,6 +223,64 @@ describe("runScenario", () => {
     expect(result.adminTelemetry?.status).toBe("ok");
   });
 
+  it("fails scenarios when admin telemetry reports forbidden governor rules", async () => {
+    const configWithAdmin = {
+      ...baseConfig,
+      adminUrl: "http://test-admin:8000",
+      adminToken: "admintoken",
+    };
+    const failIfRuleScenario: EvalScenario = {
+      id: "test-fail-if-rule",
+      name: "Fail if forbidden rule fires",
+      category: "governor_regression",
+      description: "Ensure failIfRules trips from admin telemetry.",
+      target: {},
+      turns: [{ messages: [{ role: "user", content: "Do work" }] }],
+      scoring: {
+        maxTotalTurns: 2,
+        failIfRules: ["completion_claim_requires_task_update"],
+      },
+    };
+    mockFetch
+      // chat completion
+      .mockResolvedValueOnce(makeOaiResponse("Done"))
+      // execution_governor_evaluated
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [{ metadata_json: { matched_rules: ["completion_claim_requires_task_update"] }, detail: "phase=report rules=completion_claim_requires_task_update pause=true" }] }),
+      })
+      // execution_governor_recovery_rewrite
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [] }),
+      })
+      // execution_governor_hard_stop
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [] }),
+      })
+      // phase_execution_policy_applied
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [] }),
+      })
+      // tool_loop_soft_fail
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: [] }),
+      });
+
+    const result = await runScenario(configWithAdmin, failIfRuleScenario);
+    expect(result.passed).toBe(false);
+    expect(result.failureReasons.some((r) => r.includes("Forbidden governor rules fired"))).toBe(true);
+    expect(result.allGovernorRules).toContain("completion_claim_requires_task_update");
+  });
+
   it("reports unreachable admin telemetry when session-events endpoint fails", async () => {
     const configWithAdmin = {
       ...baseConfig,

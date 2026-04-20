@@ -85,4 +85,21 @@ describe("tool-progress-detector", () => {
     expect(out.state).toBe("stagnant");
     expect(session.stagnantToolCycles).toBe(1);
   });
+
+  it("treats changing failure text on the same tool as stagnant", () => {
+    const session = sessionState();
+    const first: ToolProgressMessage[] = [
+      { role: "assistant", content: "", tool_calls: [{ id: "w1", function: { name: "apply_patch" } }] },
+      { role: "tool", name: "apply_patch", tool_call_id: "w1", content: "Error editing file: old_string not found" },
+    ];
+    const second: ToolProgressMessage[] = [
+      ...first,
+      { role: "assistant", content: "", tool_calls: [{ id: "w2", function: { name: "apply_patch" } }] },
+      { role: "tool", name: "apply_patch", tool_call_id: "w2", content: "Failed to apply patch: did not match file content" },
+    ];
+    detectToolProgress(session, first);
+    const out = detectToolProgress(session, second);
+    expect(out.state).toBe("stagnant");
+    expect(session.stagnantToolCycles).toBe(1);
+  });
 });

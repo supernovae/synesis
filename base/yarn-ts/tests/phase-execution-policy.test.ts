@@ -83,6 +83,22 @@ describe("phase execution policy", () => {
     expect(policy.reason).toBe("stale_source_required_action");
   });
 
+  it("keeps Read available for stale reread when edit-context miss recovery is active", () => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: "qwen3-coder",
+      enabledFamilies: ["qwen3-coder"],
+      phase: "edit",
+      matchedRules: ["source_file_stale_reread"],
+      stream: false,
+      editContextMissActive: true,
+    });
+    expect(policy.active).toBe(true);
+    expect(policy.toolChoice).toBe("required");
+    expect(policy.allowedCanonicalTools).toEqual(["Read", "Edit", "Write", "Update"]);
+    expect(policy.reason).toBe("stale_source_required_action");
+  });
+
   it.each([
     ["qwen3-coder", true],
     ["generic", false],

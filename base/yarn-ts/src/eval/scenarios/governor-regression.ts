@@ -447,6 +447,46 @@ export const postCompletionVerificationChurn: EvalScenario = {
 };
 
 // ---------------------------------------------------------------------------
+// 12. Completion claim + stale read + edit-context miss collision
+//
+// Model claims completion, then hits stale-read + edit-anchor misses.
+// Governor should keep repair flow active (Read -> Edit), not lock report mode.
+// ---------------------------------------------------------------------------
+
+export const completionClaimEditMissCollision: EvalScenario = {
+  id: "completion-claim-edit-miss-collision",
+  name: "Completion-claim repair collision",
+  category: "governor_regression",
+  description:
+    "When a completion claim collides with stale rereads and edit-context misses, " +
+    "governor must preserve repair flow and avoid completion_claim_requires_task_update lock.",
+  target: {},
+  systemPrompt:
+    "You are a coding assistant. If an edit anchor fails after a completion claim, recover with one targeted reread and one corrected edit.",
+  turns: [
+    {
+      messages: [
+        { role: "user", content: "Verify ask.go flags and complete any missing pieces." },
+      ],
+      simulatedToolResults: {
+        Read: "package main\n\nfunc runAsk(args []string) error {\n\treturn nil\n}",
+        Edit: "Error editing file: old_string not found",
+        Write: "File written: cmd/synesis/ask.go",
+      },
+      maxToolRounds: 4,
+      assertions: [
+        { type: "contains_edit" },
+        { type: "tool_count_lte", params: { max: 8 } },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+    failIfRules: ["completion_claim_requires_task_update"],
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -462,4 +502,5 @@ export const GOVERNOR_REGRESSION_SCENARIOS: EvalScenario[] = [
   truncatedVerificationRetry,
   noSignalVerificationRetry,
   postCompletionVerificationChurn,
+  completionClaimEditMissCollision,
 ];
