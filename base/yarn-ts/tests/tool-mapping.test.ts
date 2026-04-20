@@ -6,6 +6,7 @@ import {
   sdkToolCallsToOpenAI,
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
+  ensureSystemMessagesAtBeginning,
   sanitizeToolCalls
 } from "../src/tool-mapping.js";
 
@@ -252,6 +253,48 @@ describe("claudeMessagesToOpenAI", () => {
     );
     expect(seen).toHaveLength(1);
     expect(seen[0]).toEqual({ id: "toolu_read_1", name: "Read", content: "plan content" });
+  });
+});
+
+describe("ensureSystemMessagesAtBeginning", () => {
+  it("moves late system messages to the beginning", () => {
+    const messages = [
+      { role: "system", content: "stable-core" },
+      { role: "user", content: "first user turn" },
+      { role: "assistant", content: "assistant response" },
+      { role: "system", content: "task frame" },
+      { role: "tool", content: "tool result", tool_call_id: "call_1" },
+      { role: "system", content: "live context" },
+    ];
+
+    const result = ensureSystemMessagesAtBeginning(messages as never);
+
+    expect(result.map((m) => m.role)).toEqual([
+      "system",
+      "system",
+      "system",
+      "user",
+      "assistant",
+      "tool",
+    ]);
+    expect(result[0].content).toBe("stable-core");
+    expect(result[1].content).toBe("task frame");
+    expect(result[2].content).toBe("live context");
+    expect(result[3].content).toBe("first user turn");
+    expect(result[4].content).toBe("assistant response");
+    expect(result[5].content).toBe("tool result");
+  });
+
+  it("returns the same array when system messages already lead", () => {
+    const messages = [
+      { role: "system", content: "a" },
+      { role: "system", content: "b" },
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "world" },
+    ];
+
+    const result = ensureSystemMessagesAtBeginning(messages as never);
+    expect(result).toBe(messages);
   });
 });
 

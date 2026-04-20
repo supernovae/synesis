@@ -6,6 +6,7 @@ import { ClaudeMessagesRequestSchema, OpenAIChatCompletionRequestSchema } from "
 import {
   claudeMessagesToOpenAI,
   claudeToolsToSDK,
+  ensureSystemMessagesAtBeginning,
   mapToolChoice,
   openAIMessagesToModelMessages,
   openAIToolsToSDK,
@@ -22,6 +23,17 @@ function loadFixture<T = Record<string, unknown>>(profile: string, file: string)
 
 describe("client payload conformance fixtures", () => {
   const packs = new ClientAdapterPacks();
+
+  function assertStrictSystemFirst(messages: Array<{ role: string }>): void {
+    let sawNonSystem = false;
+    for (const msg of messages) {
+      if (msg.role === "system") {
+        expect(sawNonSystem).toBe(false);
+      } else {
+        sawNonSystem = true;
+      }
+    }
+  }
 
   it("claude-code fixture parses and round-trips tool_use/tool_result", () => {
     const body = loadFixture("claude-code", "tool_use_payload.json");
@@ -78,6 +90,45 @@ describe("client payload conformance fixtures", () => {
 
     const mappedChoice = mapToolChoice(parsed.data.tool_choice);
     expect(mappedChoice).toEqual({ type: "tool", toolName: "list_dir" });
+  });
+
+  it("normalizes optimized transcripts to strict OpenAI system-first ordering", () => {
+    const optimizedLikeMessages = [
+      { role: "system", content: "core instructions" },
+      { role: "user", content: "please implement feature x" },
+      {
+        role: "assistant",
+        content: "running tool",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "Read", arguments: "{\"file_path\":\"src/index.ts\"}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "file contents" },
+      // Prefix optimizer can append dynamic system context late in the turn.
+      { role: "system", content: "<WORKING_FRAME>goal=implement feature x</WORKING_FRAME>" },
+      { role: "system", content: "<SESSION_EXECUTION_CONTEXT>cwd=/repo</SESSION_EXECUTION_CONTEXT>" },
+    ];
+
+    const systemOrdered = ensureSystemMessagesAtBeginning(optimizedLikeMessages as never);
+    const sanitized = sanitizeToolCalls(systemOrdered as never);
+
+    // Conformance invariant for strict OpenAI-compatible gateways:
+    // no system message may appear after any non-system message.
+    assertStrictSystemFirst(sanitized);
+
+    // Preserve valid assistant -> tool adjacency after ordering + sanitization.
+    const assistantIdx = sanitized.findIndex((m) => m.role === "assistant" && m.tool_calls?.[0]?.id === "call_1");
+    expect(assistantIdx).toBeGreaterThanOrEqual(0);
+    expect(sanitized[assistantIdx + 1]?.role).toBe("tool");
+    expect(sanitized[assistantIdx + 1]?.tool_call_id).toBe("call_1");
+
+    // Still convertible to SDK model messages used by request dispatch.
+    const modelMessages = openAIMessagesToModelMessages(sanitized as never);
+    expect(modelMessages.length).toBeGreaterThan(0);
   });
 });
 

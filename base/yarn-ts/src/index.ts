@@ -150,6 +150,7 @@ import {
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
   openAIMessagesToModelMessages,
+  ensureSystemMessagesAtBeginning,
   sanitizeToolCalls
 } from "./tool-mapping.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
@@ -3153,7 +3154,8 @@ const dashScopeCacheOpts: DashScopeCacheOpts = {
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   try {
     const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER, dashScopeCacheOpts);
-    const sanitized = sanitizeToolCalls(request.messages as never);
+    const systemOrdered = ensureSystemMessagesAtBeginning(request.messages as never);
+    const sanitized = sanitizeToolCalls(systemOrdered as never);
     const messages = openAIMessagesToModelMessages(sanitized);
     return { ok: true, resolved, messages };
   } catch {

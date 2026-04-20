@@ -17,6 +17,42 @@ interface OpenAIChatMessage {
 let synthCounter = 0;
 
 /**
+ * Ensure all system messages are grouped at the beginning of the transcript.
+ *
+ * Some OpenAI-compatible gateways (including LiteLLM-backed providers) reject
+ * requests when a system message appears after user/assistant/tool messages.
+ * We preserve relative order within both groups:
+ *   - system messages keep their original order
+ *   - non-system messages keep their original order
+ */
+export function ensureSystemMessagesAtBeginning(messages: OpenAIChatMessage[]): OpenAIChatMessage[] {
+  if (messages.length < 2) return messages;
+
+  let sawNonSystem = false;
+  let hasLateSystem = false;
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      if (sawNonSystem) {
+        hasLateSystem = true;
+        break;
+      }
+    } else {
+      sawNonSystem = true;
+    }
+  }
+
+  if (!hasLateSystem) return messages;
+
+  const systemMessages: OpenAIChatMessage[] = [];
+  const nonSystemMessages: OpenAIChatMessage[] = [];
+  for (const msg of messages) {
+    if (msg.role === "system") systemMessages.push(msg);
+    else nonSystemMessages.push(msg);
+  }
+  return [...systemMessages, ...nonSystemMessages];
+}
+
+/**
  * Repair malformed tool_calls in conversation history so strict providers
  * (e.g. DeepInfra) don't reject the request with 422.
  *
