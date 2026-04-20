@@ -444,6 +444,7 @@ step-by-step instructions.
 
 ## Related Documentation
 
+- [GOVERNOR_STATE_GRAPH.md](./GOVERNOR_STATE_GRAPH.md) -- visual state/loop map for governor phases and escalation
 - [EVAL_GYM.md](EVAL_GYM.md) -- integrated exerciser, observer, and training data pipeline
 - [observability-verification-and-evals.md](observability-verification-and-evals.md) -- trace analytics and eval harness
 - [qwen-stability-feedback-loop.md](qwen-stability-feedback-loop.md) -- closed-loop training pipeline and trajectory contract

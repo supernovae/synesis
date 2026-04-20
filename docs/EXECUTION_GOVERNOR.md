@@ -9,6 +9,8 @@ the governor evaluates the conversation on every HTTP request from the
 client (Claude Code, Cursor, etc.) and injects recovery guidance or
 hard-stops the response before it reaches the backend model.
 
+For a visual graph view of the current state machine and escalation flow, see `docs/coder/GOVERNOR_STATE_GRAPH.md`.
+
 ## Problem: flat rules vs. session phases
 
 Early versions used a flat bag of 29 rules, all gated on "has the model
