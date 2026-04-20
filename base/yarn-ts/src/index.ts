@@ -223,6 +223,7 @@ type SessionState = {
   pruningWatermark: number;
   consecutiveRecoveryFires: number;
   consecutiveEditContextMisses: number;
+  editReplayHardStopGraceUsed: boolean;
   lastGovernorPhase?: import("./governance/execution-governor.js").SessionPhase;
 };
 
@@ -370,6 +371,9 @@ function applyExecutionGovernorToolRestrictions(
     || r === "verification_fail_repeat_block"
     || r === "verification_churn_no_edit"
   ) ?? false;
+  const editReplayContext = matchedRules?.some((r) =>
+    r === "edit_failure_replay" || r === "consecutive_edit_failures"
+  ) ?? false;
   const repeatUserPromptLoop = matchedRules?.some((r) => r === "repeat_user_prompt_loop") ?? false;
   const verificationIntentHardGate = matchedRules?.some((r) => r === "verification_intent_without_action") ?? false;
   const finalizeGreenLock = matchedRules?.some((r) =>
@@ -403,6 +407,12 @@ function applyExecutionGovernorToolRestrictions(
   }
   if (finalizeGreenLock) {
     for (const t of ["bash", "shell", "run_test", "run_build", "run_lint", "execute", "terminal"]) {
+      deny.add(t);
+    }
+  }
+  if (editReplayContext) {
+    // In edit-replay recovery, avoid full-file write churn and force anchored edits.
+    for (const t of ["write", "write_file", "writefile", "file_write", "filewrite"]) {
       deny.add(t);
     }
   }
@@ -2993,6 +3003,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     pruningWatermark: 0,
     consecutiveRecoveryFires: 0,
     consecutiveEditContextMisses: 0,
+    editReplayHardStopGraceUsed: false,
   };
   sessions.set(key, state);
   return state;
@@ -5802,6 +5813,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.lastToolSignalHash = "";
     session.consecutiveRecoveryFires = 0;
     session.consecutiveEditContextMisses = 0;
+    session.editReplayHardStopGraceUsed = false;
     // Also clear verification-block flags so a prior turn's failed/green verification
     // loop does not gate the new task attempt before it even starts.
     session.blockBroadVerificationUntilEdit = false;
@@ -6014,6 +6026,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveEditContextMisses = 0;
+    session.editReplayHardStopGraceUsed = false;
   } else if (oaiEditMissFailureCount > 0) {
     session.consecutiveEditContextMisses += 1;
   } else if (oaiLatestToolProgress.hasRecentFailure) {
@@ -6515,6 +6528,35 @@ app.post("/v1/chat/completions", async (req, reply) => {
       session.consecutiveRecoveryFires += 1;
     }
     const HARD_STOP_THRESHOLD = 7;
+    const oaiEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
+    const oaiOnlyEditReplayTerminal =
+      oaiTerminalMatchedRules.length > 0
+      && oaiTerminalMatchedRules.every((rule) => oaiEditReplayTerminalRules.has(rule) || rule === "allow");
+    let oaiGrantedHardStopGrace = false;
+    if (
+      session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD
+      && oaiHasTerminalRule
+      && oaiOnlyEditReplayTerminal
+      && !session.editReplayHardStopGraceUsed
+    ) {
+      session.editReplayHardStopGraceUsed = true;
+      session.consecutiveRecoveryFires = HARD_STOP_THRESHOLD - 1;
+      oaiGrantedHardStopGrace = true;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "execution_governor_hard_stop_grace",
+        "execution-governor",
+        `Granted one hard-stop grace for edit replay recovery at ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}`,
+        oaiTraceReqId,
+        {
+          phase: oaiGovernorPhase,
+          matched_rules: oaiExecutionGovernor.matchedRules,
+          consecutive_recovery_fires: session.consecutiveRecoveryFires,
+        },
+      );
+    }
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && oaiHasTerminalRule) {
       const oaiHardStopDedup = getContentDedup(sessionKey);
       const oaiHardStopFilesList = oaiHardStopDedup.generateFilesSummaryBlock() ?? "";
@@ -6569,6 +6611,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
     }
     let recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
+    if (oaiGrantedHardStopGrace) {
+      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. Do not use full-file Write tools in this attempt. If the change already exists, stop editing and run targeted verification.";
+    }
     const oaiDedup = getContentDedup(sessionKey);
     const filesSummary = oaiDedup.generateFilesSummaryBlock();
     if (filesSummary) recovery += "\n" + filesSummary;
@@ -6600,6 +6645,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   } else if (!oaiExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
+    if (!oaiHasActiveEditMissFailure) {
+      session.editReplayHardStopGraceUsed = false;
+    }
   }
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
   const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
@@ -8487,6 +8535,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.lastToolSignalHash = "";
     session.consecutiveRecoveryFires = 0;
     session.consecutiveEditContextMisses = 0;
+    session.editReplayHardStopGraceUsed = false;
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
@@ -8638,6 +8687,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveEditContextMisses = 0;
+    session.editReplayHardStopGraceUsed = false;
   } else if (claudeEditMissFailureCount > 0) {
     session.consecutiveEditContextMisses += 1;
   } else if (claudeLatestToolProgress.hasRecentFailure) {
@@ -9142,6 +9192,35 @@ app.post("/v1/messages", async (req, reply) => {
       session.consecutiveRecoveryFires += 1;
     }
     const HARD_STOP_THRESHOLD = 7;
+    const claudeEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
+    const claudeOnlyEditReplayTerminal =
+      claudeTerminalMatchedRules.length > 0
+      && claudeTerminalMatchedRules.every((rule) => claudeEditReplayTerminalRules.has(rule) || rule === "allow");
+    let claudeGrantedHardStopGrace = false;
+    if (
+      session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD
+      && claudeHasTerminalRule
+      && claudeOnlyEditReplayTerminal
+      && !session.editReplayHardStopGraceUsed
+    ) {
+      session.editReplayHardStopGraceUsed = true;
+      session.consecutiveRecoveryFires = HARD_STOP_THRESHOLD - 1;
+      claudeGrantedHardStopGrace = true;
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "execution_governor_hard_stop_grace",
+        "execution-governor",
+        `Granted one hard-stop grace for edit replay recovery at ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}`,
+        traceReqId,
+        {
+          phase: claudeGovernorPhase,
+          matched_rules: claudeExecutionGovernor.matchedRules,
+          consecutive_recovery_fires: session.consecutiveRecoveryFires,
+        },
+      );
+    }
     if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && claudeHasTerminalRule) {
       const claudeHardStopDedup = getContentDedup(claudeSessionKey);
       const claudeHardStopFilesList = claudeHardStopDedup.generateFilesSummaryBlock() ?? "";
@@ -9196,6 +9275,9 @@ app.post("/v1/messages", async (req, reply) => {
       );
     }
     let recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
+    if (claudeGrantedHardStopGrace) {
+      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. Do not use full-file Write tools in this attempt. If the change already exists, stop editing and run targeted verification.";
+    }
     const claudeDedup = getContentDedup(claudeSessionKey);
     const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
     if (claudeFilesSummary) recovery += "\n" + claudeFilesSummary;
@@ -9227,6 +9309,9 @@ app.post("/v1/messages", async (req, reply) => {
     );
   } else if (!claudeExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
+    if (!claudeHasActiveEditMissFailure) {
+      session.editReplayHardStopGraceUsed = false;
+    }
   }
 
   const claudeRole = TIER_TO_ROLE[claudeOrchestration.tier];
