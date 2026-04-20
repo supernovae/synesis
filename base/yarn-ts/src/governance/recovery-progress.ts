@@ -64,7 +64,8 @@ export function classifyLatestToolProgress(messages: MessageLike[]): LatestToolP
   const rawText = chunks.join("\n").trim();
   const snippet = rawText.replace(/\s+/g, " ").slice(0, 220);
   const isWriteCapable = WRITE_CAPABLE_TOOLS.has(toolName.toLowerCase());
-  const hasEditContextMiss = EDIT_CONTEXT_MISS_PATTERNS.some((re) => re.test(rawText));
+  // Edit-context-miss signals are only meaningful for write-capable tools.
+  const hasEditContextMiss = isWriteCapable && EDIT_CONTEXT_MISS_PATTERNS.some((re) => re.test(rawText));
   const hasGenericFailure = GENERIC_FAILURE_PATTERN.test(rawText);
   const hasRecentFailure = hasEditContextMiss || hasGenericFailure;
   const hasWriteSuccess = isWriteCapable && !!rawText && !hasEditContextMiss && !hasGenericFailure;

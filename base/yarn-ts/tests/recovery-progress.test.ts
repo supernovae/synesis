@@ -62,6 +62,27 @@ describe("classifyLatestToolProgress", () => {
     expect(signal.toolName).toBe("Edit");
   });
 
+  it("does not classify non-write tool failures as edit-context misses", () => {
+    const signal = classifyLatestToolProgress([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "b1",
+            function: { name: "Bash", arguments: "{\"command\":\"go test ./pkg/jq -v\"}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "b1", content: "jq_test.go:11: Error: String to replace not found in file." },
+    ]);
+
+    expect(signal.hasRecentWriteSuccess).toBe(false);
+    expect(signal.hasRecentEditContextMiss).toBe(false);
+    expect(signal.hasRecentFailure).toBe(true);
+    expect(signal.toolName).toBe("Bash");
+  });
+
   it("ignores non-write tools even when they succeed", () => {
     const signal = classifyLatestToolProgress([
       {

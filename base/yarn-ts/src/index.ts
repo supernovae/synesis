@@ -1337,6 +1337,13 @@ const TOOL_IDEMPOTENT_PATTERNS: RegExp[] = [
   /\bno changes (?:made|needed)\b/i,
   /\bnothing to (?:replace|update)\b/i,
 ];
+const WRITE_ONLY_FAILURE_REASONS = new Set([
+  "edit_error",
+  "edit_context_miss",
+  "patch_apply_failed",
+  "write_permission_denied",
+  "write_tool_error",
+]);
 
 function collectToolExecutionFailureObservations(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
@@ -1380,18 +1387,20 @@ function collectToolExecutionFailureObservations(
     const mappedMeta = toolCallId ? (toolMetaById.get(toolCallId) ?? null) : null;
     const mappedName = mappedMeta?.toolName ?? "";
     const toolName = (typeof message.name === "string" ? message.name : mappedName).trim() || "unknown_tool";
+    const writeCapableTool = isWriteCapableToolName(toolName);
     const lower = rawText.toLowerCase();
     let reason = "";
     for (const candidate of TOOL_FAILURE_PATTERNS) {
+      if (WRITE_ONLY_FAILURE_REASONS.has(candidate.reason) && !writeCapableTool) continue;
       if (candidate.re.test(lower)) {
         reason = candidate.reason;
         break;
       }
     }
-    if (!reason && isWriteCapableToolName(toolName) && TOOL_IDEMPOTENT_PATTERNS.some((re) => re.test(lower))) {
+    if (!reason && writeCapableTool && TOOL_IDEMPOTENT_PATTERNS.some((re) => re.test(lower))) {
       reason = "edit_already_applied";
     }
-    if (!reason && isWriteCapableToolName(toolName) && /\b(error|failed|invalid)\b/i.test(rawText)) {
+    if (!reason && writeCapableTool && /\b(error|failed|invalid)\b/i.test(rawText)) {
       reason = "write_tool_error";
     }
     if (!reason) continue;
@@ -1423,6 +1432,11 @@ function findLastUserPromptIdx(messages: Array<{ role?: string; content?: unknow
     return i;
   }
   return -1;
+}
+
+function sliceMessagesSinceLastUserPrompt<T extends { role?: string; content?: unknown }>(messages: T[]): T[] {
+  const boundary = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
+  return boundary >= 0 ? messages.slice(boundary + 1) : messages;
 }
 
 type EditContextMissGuardState = {
@@ -6035,18 +6049,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
       oaiTraceReqId,
     );
   }
+  const oaiTurnMessages = sliceMessagesSinceLastUserPrompt(
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
   const oaiToolFailures = collectToolExecutionFailureObservations(
-    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+    oaiTurnMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
   );
   const oaiEditMissGuard = deriveEditContextMissGuardState(
-    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    oaiTurnMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
   );
   const oaiLatestToolProgress = classifyLatestToolProgress(
-    (normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>)
-      .slice(findLastUserPromptIdx(normalizedOpenAI.messages as Array<{ role?: string; content?: unknown }>) + 1),
+    oaiTurnMessages,
   );
   const oaiLatestReadRefresh = classifyLatestReadRefresh(
-    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    oaiTurnMessages,
   );
   const oaiHadForceReadPending = session.editMissForceReadPending;
   if (oaiHadForceReadPending && oaiLatestReadRefresh.hasRecentReadSuccess) {
@@ -8767,18 +8783,20 @@ app.post("/v1/messages", async (req, reply) => {
       traceReqId,
     );
   }
+  const claudeTurnMessages = sliceMessagesSinceLastUserPrompt(
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
   const claudeToolFailures = collectToolExecutionFailureObservations(
-    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+    claudeTurnMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
   );
   const claudeEditMissGuard = deriveEditContextMissGuardState(
-    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    claudeTurnMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
   );
   const claudeLatestToolProgress = classifyLatestToolProgress(
-    (normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>)
-      .slice(findLastUserPromptIdx(normalizedFromClaude.messages as Array<{ role?: string; content?: unknown }>) + 1),
+    claudeTurnMessages,
   );
   const claudeLatestReadRefresh = classifyLatestReadRefresh(
-    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    claudeTurnMessages,
   );
   const claudeHadForceReadPending = session.editMissForceReadPending;
   if (claudeHadForceReadPending && claudeLatestReadRefresh.hasRecentReadSuccess) {

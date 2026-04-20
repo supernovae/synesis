@@ -1347,11 +1347,18 @@ export function evaluateExecutionGovernor(
   for (const e of events) {
     const c = normalizeString(e.command);
     if (!isEditCommand(c)) continue;
-    if (!hasEditFailureSignature(e.resultSignature)) continue;
-    const key = `${c}|${e.resultSignature}`;
-    const next = (editFailureReplay.get(key) ?? 0) + 1;
-    editFailureReplay.set(key, next);
-    if (next >= 2) repeatedEditFailureReplay += 1;
+    if (hasEditFailureSignature(e.resultSignature)) {
+      const key = `${c}|${e.resultSignature}`;
+      const next = (editFailureReplay.get(key) ?? 0) + 1;
+      editFailureReplay.set(key, next);
+      if (next >= 2) repeatedEditFailureReplay += 1;
+      continue;
+    }
+    // A successful edit indicates concrete progress. Reset replay counters so
+    // stale failures from earlier in the same turn do not force terminal replay
+    // once the model has already moved the file forward.
+    editFailureReplay.clear();
+    repeatedEditFailureReplay = 0;
   }
   for (const e of events) {
     const c = normalizeString(e.command);

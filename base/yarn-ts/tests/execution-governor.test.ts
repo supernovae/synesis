@@ -259,6 +259,22 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("consecutive_edit_failures");
   });
 
+  it("resets edit failure replay after a successful edit in the same turn", () => {
+    const messages = [
+      assistantCall("1", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "A", new_string: "B" }),
+      toolResult("1", "Error: String to replace not found in file."),
+      assistantCall("2", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "A", new_string: "B" }),
+      toolResult("2", "Error: String to replace not found in file."),
+      assistantCall("3", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "B", new_string: "C" }),
+      toolResult("3", "Applied edit"),
+      assistantCall("4", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "A", new_string: "B" }),
+      toolResult("4", "Error: String to replace not found in file."),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("edit_failure_replay");
+    expect(out.matchedRules).not.toContain("consecutive_edit_failures");
+  });
+
   it("pauses duplicate task creation replay", () => {
     const messages = [
       assistantCall("1", "TaskCreate", { title: "Implement Clipboard Support" }),
@@ -385,6 +401,19 @@ describe("execution governor", () => {
     const out = evaluateExecutionGovernor(messages);
     expect(out.telemetry.noEditEvidence).toBe(true);
     expect(out.matchedRules).toContain("verification_fail_repeat_block");
+  });
+
+  it("does not infer edit-failure replay from verification errors that contain edit-like text", () => {
+    const messages = [
+      { role: "user", content: "verify jq support and add tests" },
+      assistantCall("1", "bash", { command: "go test ./pkg/jq -v" }),
+      toolResult("1", "jq_test.go:11: Error: String to replace not found in file."),
+      assistantCall("2", "bash", { command: "go test ./pkg/jq -v" }),
+      toolResult("2", "jq_test.go:11: Error: String to replace not found in file."),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("edit_failure_replay");
+    expect(out.matchedRules).not.toContain("consecutive_edit_failures");
   });
 
   it("does not re-pause on stale loop history after a new user turn", () => {
