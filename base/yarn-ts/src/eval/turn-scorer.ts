@@ -51,6 +51,91 @@ const ANNOTATION_MARKERS = [
   "SYNESIS_VERIFICATION_GAP",
 ];
 
+const EDIT_TOOL_NAMES = new Set([
+  "write",
+  "edit",
+  "applypatch",
+  "filewrite",
+  "strreplace",
+  "write_file",
+  "file_write",
+  "edit_file",
+  "str_replace",
+  "apply_patch",
+  "replace_in_file",
+]);
+
+const PLAN_READ_TOOL_NAMES = new Set([
+  "read",
+  "read_file",
+  "glob",
+  "list_dir",
+  "search",
+  "search_code",
+  "grep",
+]);
+
+const PLAN_WRITE_TOOL_NAMES = new Set([
+  "write",
+  "write_file",
+  "file_write",
+  "edit",
+  "edit_file",
+  "str_replace",
+  "apply_patch",
+  "applypatch",
+  "filewrite",
+  "strreplace",
+]);
+
+function normalizeToolName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function isEditTool(toolName: string): boolean {
+  return EDIT_TOOL_NAMES.has(normalizeToolName(toolName));
+}
+
+function containsGovernorPauseMarker(content: string): boolean {
+  return content.includes("GOVERNOR PAUSE:") || content.includes("GOVERNOR HARD STOP");
+}
+
+function hasTurnExecutionError(turnResults: TurnResult[]): boolean {
+  return turnResults.some((tr) =>
+    tr.anomalies.some((a) =>
+      a.kind === "turn_execution_error" ||
+      /^Turn \d+ failed: /i.test(a.detail),
+    ),
+  );
+}
+
+function inferScenarioOutcome(
+  turnResults: TurnResult[],
+  allGovernorRules: string[],
+): "completed" | "governor_stopped" | "incomplete" {
+  const governorPaused =
+    allGovernorRules.some((r) => r !== "allow" && r !== "disabled") ||
+    turnResults.some((tr) =>
+      tr.messages.some(
+        (m) =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          containsGovernorPauseMarker(m.content),
+      ),
+    );
+  if (governorPaused) return "governor_stopped";
+  if (hasTurnExecutionError(turnResults)) return "incomplete";
+
+  const assistantMessages = turnResults.flatMap((tr) =>
+    tr.messages.filter((m) => m.role === "assistant"),
+  );
+  const lastAssistant = assistantMessages[assistantMessages.length - 1];
+  if (lastAssistant && !(lastAssistant.tool_calls?.length ?? 0)) {
+    return "completed";
+  }
+  return "incomplete";
+}
+
 // ---------------------------------------------------------------------------
 // Anomaly detection (heuristic, no assertions required)
 // ---------------------------------------------------------------------------
@@ -96,10 +181,8 @@ export function detectAnomalies(messages: EvalChatMessage[]): Anomaly[] {
   }
 
   // Waffling markers without edits
-  const hasEdit = assistantMessages.some(m =>
-    (m.tool_calls ?? []).some(tc =>
-      ["Write", "Edit", "ApplyPatch", "FileWrite", "StrReplace"].includes(tc.function.name),
-    ),
+  const hasEdit = assistantMessages.some((m) =>
+    (m.tool_calls ?? []).some((tc) => isEditTool(tc.function.name)),
   );
   if (!hasEdit) {
     for (const m of assistantMessages) {
@@ -143,8 +226,9 @@ export function detectAnomalies(messages: EvalChatMessage[]): Anomaly[] {
       const args = tc.function.arguments;
       const isPlanPath = args.includes(".claude/plans/") || args.includes("plans/");
       if (!isPlanPath) continue;
-      if (["Read", "Glob", "Search"].includes(tc.function.name)) planReads.push(i);
-      if (["Write", "Edit", "ApplyPatch", "FileWrite", "StrReplace"].includes(tc.function.name)) planWrites.push(i);
+      const toolName = normalizeToolName(tc.function.name);
+      if (PLAN_READ_TOOL_NAMES.has(toolName)) planReads.push(i);
+      if (PLAN_WRITE_TOOL_NAMES.has(toolName)) planWrites.push(i);
     }
   }
   for (const writeIdx of planWrites) {
@@ -185,10 +269,10 @@ function evaluateAssertion(
       const pauseRules = governorRules.filter(r => r !== "allow" && r !== "disabled");
       // Also detect from message content when admin API is unavailable
       const contentPause = messages.some(
-        m =>
+        (m) =>
           m.role === "assistant" &&
           typeof m.content === "string" &&
-          (m.content.includes("GOVERNOR PAUSE:") || m.content.includes("GOVERNOR HARD STOP")),
+          containsGovernorPauseMarker(m.content),
       );
       const passed = pauseRules.length > 0 || contentPause;
       return {
@@ -203,10 +287,10 @@ function evaluateAssertion(
     case "governor_not_paused": {
       const pauseRules = governorRules.filter(r => r !== "allow" && r !== "disabled");
       const contentPause = messages.some(
-        m =>
+        (m) =>
           m.role === "assistant" &&
           typeof m.content === "string" &&
-          (m.content.includes("GOVERNOR PAUSE:") || m.content.includes("GOVERNOR HARD STOP")),
+          containsGovernorPauseMarker(m.content),
       );
       const passed = pauseRules.length === 0 && !contentPause;
       return {
@@ -217,11 +301,9 @@ function evaluateAssertion(
     }
 
     case "contains_edit": {
-      const hasEdit = messages.some(m =>
+      const hasEdit = messages.some((m) =>
         m.role === "assistant" &&
-        (m.tool_calls ?? []).some(tc =>
-          ["Write", "Edit", "ApplyPatch", "FileWrite", "StrReplace"].includes(tc.function.name),
-        ),
+        (m.tool_calls ?? []).some((tc) => isEditTool(tc.function.name)),
       );
       return { assertion, passed: hasEdit, detail: hasEdit ? "Edit found" : "No edit tool calls" };
     }
@@ -314,6 +396,14 @@ export function scoreScenario(
   const failures: string[] = [];
   let score = 1.0;
 
+  if (criteria.requiredOutcome) {
+    const observed = inferScenarioOutcome(turnResults, allGovernorRules);
+    if (observed !== criteria.requiredOutcome) {
+      failures.push(`Required outcome not reached: expected ${criteria.requiredOutcome}, got ${observed}`);
+      score -= 0.3;
+    }
+  }
+
   if (turnResults.length > criteria.maxTotalTurns) {
     failures.push(`Exceeded max turns: ${turnResults.length} > ${criteria.maxTotalTurns}`);
     score -= 0.3;
@@ -346,6 +436,11 @@ export function scoreScenario(
   if (totalAssertionsFailed > 0) {
     failures.push(`${totalAssertionsFailed} turn assertion(s) failed`);
     score -= 0.1 * totalAssertionsFailed;
+  }
+
+  if (hasTurnExecutionError(turnResults)) {
+    failures.push("Turn execution failed before scenario completion");
+    score -= 0.4;
   }
 
   const totalAnomalies = turnResults.reduce((n, tr) => n + tr.anomalies.filter(a => a.severity === "error").length, 0);

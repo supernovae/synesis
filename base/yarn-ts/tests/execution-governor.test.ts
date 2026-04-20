@@ -415,6 +415,38 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("synesis_inspect_repo");
   });
 
+  it("pauses repeated broad discovery loop on list_dir root", () => {
+    const messages = [
+      assistantCall("1", "list_dir", { path: "." }),
+      toolResult("1", "cmd/\npkg/\nREADME.md"),
+      assistantCall("2", "list_dir", { path: "." }),
+      toolResult("2", "cmd/\npkg/\nREADME.md"),
+      assistantCall("3", "list_dir", { path: "." }),
+      toolResult("3", "cmd/\npkg/\nREADME.md"),
+      assistantCall("4", "list_dir", { path: "." }),
+      toolResult("4", "cmd/\npkg/\nREADME.md"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("broad_discovery_repeat");
+  });
+
+  it("treats synesis_inspect_repo(list_dir=.) as broad discovery", () => {
+    const messages = [
+      assistantCall("1", "synesis_inspect_repo", { list_dir: "." }),
+      toolResult("1", "repo inventory"),
+      assistantCall("2", "synesis_inspect_repo", { list_dir: "." }),
+      toolResult("2", "repo inventory"),
+      assistantCall("3", "synesis_inspect_repo", { list_dir: "." }),
+      toolResult("3", "repo inventory"),
+      assistantCall("4", "synesis_inspect_repo", { list_dir: "." }),
+      toolResult("4", "repo inventory"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("broad_discovery_repeat");
+  });
+
   it("formats recovery rewrite block for exploration loops", () => {
     const messages = [
       assistantCall("1", "Glob", { glob_pattern: "*" }),

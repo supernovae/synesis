@@ -1,0 +1,167 @@
+{
+  "summary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "avgScore": 0.9,
+    "totalDurationMs": 7819
+  },
+  "results": [
+    {
+      "scenarioId": "no-test-files-repeat",
+      "scenarioName": "No test files repeat",
+      "category": "governor_regression",
+      "passed": false,
+      "score": 0.9,
+      "totalTurns": 1,
+      "totalToolRounds": 2,
+      "totalAnomalies": 2,
+      "governorInterventions": 0,
+      "allGovernorRules": [],
+      "turnResults": [
+        {
+          "turnIndex": 0,
+          "toolRounds": 2,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Verify the bundle package has tests. If not, create them."
+            },
+            {
+              "role": "assistant",
+              "content": "<plan>\nI need to verify if the bundle package has tests and create them if they don't exist. Let me break this down into steps:\n\n1. First, I'll explore the project structure to understand where the bundle package is located\n2. Check if there are existing test files for the bundle package\n3. If tests don't exist, I'll need to create them\n\nLet me start by exploring the directory structure to find the bundle package.\n</plan>\n",
+              "tool_calls": [
+                {
+                  "id": "call_4312d080a82d42979b00d052",
+                  "type": "function",
+                  "function": {
+                    "name": "Bash",
+                    "arguments": "{\"command\":\"find . -type f -name \\\"*.go\\\" | grep -i bundle | head -20\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": "?   synesis.sh/synesis/pkg/bundle   [no test files]\nok  synesis.sh/synesis/cmd/synesis  (cached)",
+              "tool_call_id": "call_4312d080a82d42979b00d052"
+            },
+            {
+              "role": "assistant",
+              "content": "I'll help you verify if the bundle package has tests and create them if they don't exist. Let me start by exploring the project structure to locate the bundle package.\n",
+              "tool_calls": [
+                {
+                  "id": "call_fefd4973b7a44a9381b81f4d",
+                  "type": "function",
+                  "function": {
+                    "name": "Bash",
+                    "arguments": "{\"command\":\"find . -type f -name \\\"*.go\\\" | grep -E \\\"(bundle|main)\\\" | head -20\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": "?   synesis.sh/synesis/pkg/bundle   [no test files]\nok  synesis.sh/synesis/cmd/synesis  (cached)",
+              "tool_call_id": "call_fefd4973b7a44a9381b81f4d"
+            },
+            {
+              "role": "assistant",
+              "content": "I'll help you verify if the bundle package has tests and create them if they don't exist. Let me start by exploring the project structure to locate the bundle package.\n\n<function=Bash>\n<parameter=command>\nfind . -type f -name \"*.go\" | grep -i bundle | head -20\n</parameter>\n</function>\n</tool_call>"
+            }
+          ],
+          "governorRulesFired": [],
+          "assertionResults": [
+            {
+              "assertion": {
+                "type": "contains_edit"
+              },
+              "passed": false,
+              "detail": "No edit tool calls"
+            },
+            {
+              "assertion": {
+                "type": "no_repeated_tool"
+              },
+              "passed": true,
+              "detail": "No repeats"
+            }
+          ],
+          "latencyMs": 7569,
+          "anomalies": [
+            {
+              "kind": "stub_content_detected",
+              "detail": "Tool result contains stub phrase: \"(cached)\"",
+              "severity": "warning"
+            },
+            {
+              "kind": "stub_content_detected",
+              "detail": "Tool result contains stub phrase: \"(cached)\"",
+              "severity": "warning"
+            }
+          ],
+          "adminTelemetryStatus": "unreachable",
+          "adminTelemetryDetail": "event_kind=execution_governor_evaluated status=404"
+        }
+      ],
+      "failureReasons": [
+        "1 turn assertion(s) failed"
+      ],
+      "durationMs": 7819,
+      "targetUrl": "https://synesis-yarn.apps.openshiftdemo.dev",
+      "model": "auto",
+      "timestamp": "2026-04-20T04:41:04.355Z",
+      "adminTelemetry": {
+        "status": "unreachable",
+        "detail": "event_kind=execution_governor_evaluated status=404"
+      }
+    }
+  ],
+  "trajectoryRows": [
+    {
+      "task_id": "eval:no-test-files-repeat:2026-04-20T04:41:04.355Z",
+      "session_id": "eval-gym-no-test-files-repeat",
+      "model_id": "auto",
+      "runtime_profile": "balanced_completion",
+      "user_intent": "governor_regression",
+      "trajectory_steps": [
+        {
+          "turn_index": 0,
+          "tool_rounds": 2,
+          "tool_sequence": [
+            "Bash",
+            "Bash"
+          ],
+          "anomaly_count": 2,
+          "assertion_pass_rate": 0.5,
+          "governor_rules": [],
+          "latency_ms": 7569
+        }
+      ],
+      "outcome": "stalled",
+      "failure_tags": [
+        "1 turn assertion(s) failed"
+      ],
+      "strength_tags": [],
+      "quality_signals": {
+        "score": 0.9,
+        "total_turns": 1,
+        "total_tool_rounds": 2,
+        "total_anomalies": 2,
+        "governor_interventions": 0,
+        "duration_ms": 7819
+      },
+      "governor": {
+        "interventions": 0,
+        "rules_fired": []
+      },
+      "training_signals": {
+        "governor_intervened": false,
+        "governor_rules": [],
+        "no_edit_evidence": false,
+        "evidence_delta": "stalled"
+      },
+      "gold_next_step": ""
+    }
+  ]
+}

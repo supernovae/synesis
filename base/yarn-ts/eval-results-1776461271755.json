@@ -1,0 +1,122 @@
+{
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "avgScore": 1,
+    "totalDurationMs": 3439
+  },
+  "results": [
+    {
+      "scenarioId": "verbal-intent-without-action",
+      "scenarioName": "Verbal intent without action",
+      "category": "governor_regression",
+      "passed": true,
+      "score": 1,
+      "totalTurns": 1,
+      "totalToolRounds": 0,
+      "totalAnomalies": 0,
+      "governorInterventions": 0,
+      "allGovernorRules": [],
+      "turnResults": [
+        {
+          "turnIndex": 0,
+          "toolRounds": 0,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Add a --verbose flag to the CLI. Use the Write tool to create the file."
+            },
+            {
+              "role": "assistant",
+              "content": "I'll help you add a `--verbose` flag to the CLI. First, I need to explore the project structure to understand how the CLI is organized and where to create the file.\n\n",
+              "tool_calls": [
+                {
+                  "id": "chatcmpl-tool-bb9693d2c2a53432",
+                  "type": "function",
+                  "function": {
+                    "name": "list_dir",
+                    "arguments": "{\"path\":\".\"}"
+                  }
+                }
+              ]
+            }
+          ],
+          "governorRulesFired": [],
+          "assertionResults": [
+            {
+              "assertion": {
+                "type": "no_waffling_markers"
+              },
+              "passed": true,
+              "detail": "No waffling"
+            },
+            {
+              "assertion": {
+                "type": "tool_count_lte",
+                "params": {
+                  "max": 6
+                }
+              },
+              "passed": true,
+              "detail": "1 tool calls (max 6)"
+            }
+          ],
+          "latencyMs": 3435,
+          "anomalies": []
+        }
+      ],
+      "failureReasons": [],
+      "durationMs": 3439,
+      "targetUrl": "https://coder.kybern.dev",
+      "model": "auto",
+      "timestamp": "2026-04-17T21:27:51.754Z"
+    }
+  ],
+  "trajectoryRows": [
+    {
+      "task_id": "eval:verbal-intent-without-action:2026-04-17T21:27:51.754Z",
+      "session_id": "eval-gym-verbal-intent-without-action",
+      "model_id": "auto",
+      "runtime_profile": "balanced_completion",
+      "user_intent": "governor_regression",
+      "trajectory_steps": [
+        {
+          "turn_index": 0,
+          "tool_rounds": 0,
+          "tool_sequence": [
+            "list_dir"
+          ],
+          "anomaly_count": 0,
+          "assertion_pass_rate": 1,
+          "governor_rules": [],
+          "latency_ms": 3435
+        }
+      ],
+      "outcome": "completed",
+      "failure_tags": [],
+      "strength_tags": [
+        "clean_completion"
+      ],
+      "quality_signals": {
+        "score": 1,
+        "total_turns": 1,
+        "total_tool_rounds": 0,
+        "total_anomalies": 0,
+        "governor_interventions": 0,
+        "duration_ms": 3439
+      },
+      "governor": {
+        "interventions": 0,
+        "rules_fired": []
+      },
+      "training_signals": {
+        "governor_intervened": false,
+        "governor_rules": [],
+        "no_edit_evidence": false,
+        "evidence_delta": "positive"
+      },
+      "gold_next_step": ""
+    }
+  ]
+}

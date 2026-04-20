@@ -108,6 +108,34 @@ describe("runScenario", () => {
     expect(firstBody.tools[0].function.name).toBe("Write");
   });
 
+  it("maps aliased tool names to simulated results", async () => {
+    const scenarioWithAlias: EvalScenario = {
+      id: "test-alias-tools",
+      name: "Alias tool loop test",
+      category: "e2e_build",
+      description: "Tests alias mapping for simulated tool results",
+      target: {},
+      turns: [{
+        messages: [{ role: "user", content: "Write a file" }],
+        simulatedToolResults: {
+          Write: "File written successfully.",
+        },
+        maxToolRounds: 2,
+      }],
+      scoring: { maxTotalTurns: 3 },
+    };
+
+    mockFetch
+      .mockResolvedValueOnce(makeOaiResponse("", [
+        { id: "tc-1", function: { name: "write_file", arguments: '{"file_path":"test.ts"}' } },
+      ]))
+      .mockResolvedValueOnce(makeOaiResponse("File has been written."));
+
+    const result = await runScenario(baseConfig, scenarioWithAlias);
+    expect(result.totalToolRounds).toBe(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("counts policy-layer intervention rules from admin session events", async () => {
     const configWithAdmin = {
       ...baseConfig,

@@ -119,6 +119,8 @@ export const verificationStallNoEdit: EvalScenario = {
       simulatedToolResults: {
         Bash: "ok  synesis.sh/synesis/cmd/synesis  (cached)\n?   synesis.sh/synesis/pkg/bundle   [no test files]",
         Read: "package bundle\n\nimport \"os\"\n\ntype Bundle struct {\n\tName string\n\tFiles []string\n}\n\nfunc LoadBundle(path string) (*Bundle, error) {\n\tdata, _ := os.ReadFile(path)\n\t_ = data\n\treturn &Bundle{}, nil\n}",
+        Write: "File written: pkg/bundle/bundle_test.go",
+        Edit: "Applied patch to pkg/bundle/bundle_test.go",
       },
       maxToolRounds: 3,
       assertions: [

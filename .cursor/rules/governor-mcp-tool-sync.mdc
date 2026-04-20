@@ -1,0 +1,39 @@
+---
+description: Keep Yarn governor tool semantics aligned with MCP tool contracts and aliases
+globs: base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/src/mcp/index.ts,base/yarn-ts/src/mcp/handlers/coding-tools.ts,base/yarn-ts/src/eval/scenario-runner.ts,base/yarn-ts/src/eval/turn-scorer.ts,packages/synesis-mcp-tools/src/dispatch.ts,packages/synesis-mcp-tools/src/register-synesis-tools.ts,packages/synesis-mcp-tools/src/catalog.ts,base/yarn-ts/tests/execution-governor.test.ts,base/yarn-ts/tests/eval-scenario-runner.test.ts,base/yarn-ts/tests/eval-turn-scorer.test.ts
+alwaysApply: false
+---
+
+# Governor <-> MCP Tool Sync
+
+When adding, renaming, aliasing, or reclassifying tools, keep these surfaces synchronized in the same change:
+
+1. **Canonical platform names**:
+   - `packages/synesis-mcp-tools/src/dispatch.ts` (`SYNESIS_MCP_TOOL_NAMES` + `dispatchSynesisTool`)
+   - `packages/synesis-mcp-tools/src/register-synesis-tools.ts`
+   - `packages/synesis-mcp-tools/src/catalog.ts`
+2. **Yarn MCP exposure/governance**:
+   - `base/yarn-ts/src/mcp/index.ts` (`SYNESIS_PLATFORM_TOOL_SET`, allowlists, route behavior)
+   - `base/yarn-ts/src/mcp/handlers/coding-tools.ts` (native tool names/schemas)
+3. **Governor behavior mapping**:
+   - `base/yarn-ts/src/governance/execution-governor.ts`
+   - Update `parseArgsToCommand()` normalization for new names/arg keys.
+   - Update discovery classification (`isBroadDiscoveryCommand`, exploration/read/search detection) for new discovery tools.
+4. **Eval harness parity**:
+   - `base/yarn-ts/src/eval/scenario-runner.ts` alias resolution for simulated tool results.
+   - `base/yarn-ts/src/eval/turn-scorer.ts` edit-tool detection (`contains_edit` + waffling suppression).
+
+## Required verification when tool mappings change
+
+- Add/update deterministic tests in:
+  - `base/yarn-ts/tests/execution-governor.test.ts`
+  - `base/yarn-ts/tests/eval-scenario-runner.test.ts`
+  - `base/yarn-ts/tests/eval-turn-scorer.test.ts`
+- Run:
+  - `npm run test -- tests/execution-governor.test.ts tests/eval-turn-scorer.test.ts tests/eval-scenario-runner.test.ts`
+
+## Never do this
+
+- Do not add a new tool alias in only one layer (catalog, dispatch, governor, or eval).
+- Do not change tool argument keys without updating governor argument parsing fallbacks.
+- Do not mark a new discovery/edit tool as supported unless governor + eval both understand it.

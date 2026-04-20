@@ -134,6 +134,7 @@ export interface TurnResult {
 
 export interface Anomaly {
   kind:
+    | "turn_execution_error"
     | "repeated_content"
     | "repeated_tool_call"
     | "waffling_marker"

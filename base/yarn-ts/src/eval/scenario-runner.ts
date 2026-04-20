@@ -219,20 +219,58 @@ async function chatCompletions(
 // Simulated tool result lookup
 //
 // Resolution order:
-//   1. Exact key match (case-sensitive)
-//   2. Case-insensitive key match  (e.g. "Bash" → "bash")
+//   1. Exact/case-insensitive key match
+//   2. Alias-equivalent key match (write_file -> Write, list_dir -> Glob, etc.)
 //   3. Catch-all "*" key
 // ---------------------------------------------------------------------------
+
+const TOOL_NAME_EQUIVALENTS: Record<string, string[]> = {
+  read: ["read_file", "readfile"],
+  read_file: ["read", "readfile"],
+  readfile: ["read", "read_file"],
+  write: ["write_file", "file_write", "filewrite"],
+  write_file: ["write", "file_write", "filewrite", "edit", "str_replace", "apply_patch"],
+  file_write: ["write", "write_file", "filewrite"],
+  filewrite: ["write", "write_file", "file_write"],
+  edit: ["str_replace", "apply_patch", "write_file"],
+  str_replace: ["edit", "apply_patch", "write", "write_file"],
+  apply_patch: ["edit", "str_replace", "write", "write_file"],
+  bash: ["shell"],
+  shell: ["bash"],
+  glob: ["list_dir", "synesis_inspect_repo", "search", "search_code", "grep"],
+  list_dir: ["glob", "synesis_inspect_repo", "search", "search_code", "bash"],
+  search: ["search_code", "grep", "glob", "list_dir", "synesis_inspect_repo"],
+  search_code: ["search", "grep", "glob", "list_dir", "synesis_inspect_repo"],
+  grep: ["search", "search_code", "glob", "list_dir"],
+  synesis_inspect_repo: ["list_dir", "glob", "search", "search_code", "read", "read_file", "bash"],
+};
+
+function findCaseInsensitiveKey(map: Record<string, string>, candidate: string): string | undefined {
+  if (candidate in map) return candidate;
+  const lower = candidate.toLowerCase();
+  return Object.keys(map).find((k) => k.toLowerCase() === lower);
+}
 
 function lookupSimulatedResult(
   simulatedToolResults: Record<string, string>,
   toolName: string,
 ): string | undefined {
-  if (toolName in simulatedToolResults) return simulatedToolResults[toolName];
-  const lower = toolName.toLowerCase();
-  for (const key of Object.keys(simulatedToolResults)) {
-    if (key !== "*" && key.toLowerCase() === lower) return simulatedToolResults[key];
+  const normalized = toolName.trim().toLowerCase();
+  if (!normalized) {
+    if ("*" in simulatedToolResults) return simulatedToolResults["*"];
+    const firstKey = Object.keys(simulatedToolResults)[0];
+    return firstKey ? simulatedToolResults[firstKey] : undefined;
   }
+
+  const direct = findCaseInsensitiveKey(simulatedToolResults, toolName.trim());
+  if (direct) return simulatedToolResults[direct];
+
+  const equivalents = TOOL_NAME_EQUIVALENTS[normalized] ?? [];
+  for (const alias of equivalents) {
+    const mapped = findCaseInsensitiveKey(simulatedToolResults, alias);
+    if (mapped) return simulatedToolResults[mapped];
+  }
+
   if ("*" in simulatedToolResults) return simulatedToolResults["*"];
   return undefined;
 }
@@ -466,7 +504,7 @@ export async function runScenario(
         assertionResults: [],
         latencyMs: 0,
         anomalies: [{
-          kind: "repeated_content",
+          kind: "turn_execution_error",
           detail: `Turn ${i} failed: ${err instanceof Error ? err.message : String(err)}`,
           severity: "error",
         }],

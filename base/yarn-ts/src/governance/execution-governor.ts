@@ -419,6 +419,14 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
     const pattern = normalizeString(row.glob_pattern ?? row.pattern ?? row.glob);
     return pattern ? `glob:${pattern}` : "glob:*";
   }
+  if (tool.includes("inspect_repo") || tool.includes("synesis_inspect_repo")) {
+    const query = normalizeString(row.query ?? row.pattern ?? row.search ?? row.search_code);
+    if (query) return `search:${query}`;
+    const pattern = normalizeString(row.glob_pattern ?? row.glob);
+    if (pattern) return `glob:${pattern}`;
+    const path = normalizeString(row.list_dir ?? row.path ?? row.dir ?? row.directory);
+    return path ? `list:${path}` : "list:.";
+  }
   if (tool.includes("read_file") || tool === "read") {
     const p = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
     if (p) return `read:${p}`;
@@ -444,12 +452,18 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
     if (filePath) return `edit:${filePath}`;
     return "edit";
   }
-  if (tool.includes("list_files") || tool.includes("read_dir") || tool.includes("read_directory")) {
-    const path = normalizeString(row.path || row.dir || row.directory);
-    if (path) return `list:${path}`;
+  if (
+    tool.includes("list_files")
+    || tool.includes("read_dir")
+    || tool.includes("read_directory")
+    || tool === "list_dir"
+    || tool.includes("listdir")
+  ) {
+    const path = normalizeString(row.list_dir || row.path || row.dir || row.directory);
+    return path ? `list:${path}` : "list:.";
   }
   if (tool.includes("search") || tool.includes("grep")) {
-    const query = normalizeString(row.query || row.pattern);
+    const query = normalizeString(row.query || row.pattern || row.search || row.search_code);
     if (query) return `search:${query}`;
   }
   if (USER_FACING_TOOL_RE.test(tool)) {
@@ -538,7 +552,14 @@ function isBroadDiscoveryCommand(toolName: string, command: string): boolean {
   if (tool.includes("glob")) {
     return cmd === "glob:*" || cmd === "glob:**/*" || cmd.startsWith("glob:**/");
   }
-  if (tool.includes("list_files") || tool.includes("read_dir") || tool.includes("read_directory")) {
+  if (
+    tool.includes("list_files")
+    || tool.includes("read_dir")
+    || tool.includes("read_directory")
+    || tool === "list_dir"
+    || tool.includes("listdir")
+    || tool.includes("inspect_repo")
+  ) {
     return cmd === "list:." || cmd === "list:/" || cmd === "list:";
   }
   return false;
@@ -1391,7 +1412,14 @@ export function evaluateExecutionGovernor(
     }
     if (!sawDeclarationOnlyEdit || sawFollowupConcreteEdit) continue;
     const t = normalizeString(e.toolName).toLowerCase();
-    const isReadOrSearch = t.includes("read") || t.includes("search") || t.includes("grep") || t.includes("glob");
+    const isReadOrSearch =
+      t.includes("read")
+      || t.includes("search")
+      || t.includes("grep")
+      || t.includes("glob")
+      || t === "list_dir"
+      || t.includes("listdir")
+      || t.includes("inspect_repo");
     if (isReadOrSearch) nonActionAfterDeclarationEdit += 1;
   }
   if (sawDeclarationOnlyEdit && !sawFollowupConcreteEdit && nonActionAfterDeclarationEdit >= 2) {

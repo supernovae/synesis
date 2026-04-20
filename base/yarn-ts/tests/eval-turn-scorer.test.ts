@@ -50,6 +50,16 @@ describe("detectAnomalies", () => {
     expect(anomalies.some(a => a.kind === "waffling_marker")).toBe(false);
   });
 
+  it("treats write_file as an edit tool", () => {
+    const messages: EvalChatMessage[] = [
+      msg("assistant", "I'll implement the feature.", [
+        { function: { name: "write_file", arguments: '{"file_path":"test.go","content":"package main"}' } },
+      ]),
+    ];
+    const anomalies = detectAnomalies(messages);
+    expect(anomalies.some(a => a.kind === "waffling_marker")).toBe(false);
+  });
+
   it("detects stub content in tool results", () => {
     const messages: EvalChatMessage[] = [
       { role: "tool", content: "Unchanged since last read", tool_call_id: "tc-1" },
@@ -95,6 +105,15 @@ describe("scoreTurn", () => {
   it("passes contains_edit when Write tool present", () => {
     const messages: EvalChatMessage[] = [
       msg("assistant", "", [{ function: { name: "Write", arguments: "{}" } }]),
+    ];
+    const assertions: TurnAssertion[] = [{ type: "contains_edit" }];
+    const results = scoreTurn(assertions, messages, [], []);
+    expect(results[0].passed).toBe(true);
+  });
+
+  it("passes contains_edit when write_file tool present", () => {
+    const messages: EvalChatMessage[] = [
+      msg("assistant", "", [{ function: { name: "write_file", arguments: "{}" } }]),
     ];
     const assertions: TurnAssertion[] = [{ type: "contains_edit" }];
     const results = scoreTurn(assertions, messages, [], []);
@@ -239,5 +258,43 @@ describe("scoreScenario", () => {
     };
     const { score } = scoreScenario(criteria, [turnWithError], [], 0);
     expect(score).toBeLessThan(1);
+  });
+
+  it("fails when a turn execution error is present", () => {
+    const criteria: ScoringCriteria = { maxTotalTurns: 5 };
+    const turnWithExecutionFailure: TurnResult = {
+      ...baseTurn,
+      anomalies: [{ kind: "turn_execution_error", detail: "Turn 0 failed: timeout", severity: "error" }],
+    };
+    const { passed, failureReasons } = scoreScenario(criteria, [turnWithExecutionFailure], [], 0);
+    expect(passed).toBe(false);
+    expect(failureReasons.some((r) => r.includes("Turn execution failed"))).toBe(true);
+  });
+
+  it("enforces requiredOutcome=completed", () => {
+    const criteria: ScoringCriteria = {
+      maxTotalTurns: 5,
+      requiredOutcome: "completed",
+    };
+    const completedTurn: TurnResult = {
+      ...baseTurn,
+      messages: [{ role: "assistant", content: "Done.", tool_calls: [] }],
+    };
+    const { passed } = scoreScenario(criteria, [completedTurn], [], 0);
+    expect(passed).toBe(true);
+  });
+
+  it("fails requiredOutcome=governor_stopped when no pause signal exists", () => {
+    const criteria: ScoringCriteria = {
+      maxTotalTurns: 5,
+      requiredOutcome: "governor_stopped",
+    };
+    const completedTurn: TurnResult = {
+      ...baseTurn,
+      messages: [{ role: "assistant", content: "Done.", tool_calls: [] }],
+    };
+    const { passed, failureReasons } = scoreScenario(criteria, [completedTurn], [], 0);
+    expect(passed).toBe(false);
+    expect(failureReasons.some((r) => r.includes("Required outcome not reached"))).toBe(true);
   });
 });
