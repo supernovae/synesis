@@ -222,6 +222,7 @@ type SessionState = {
   lastVolatileHash?: string;
   pruningWatermark: number;
   consecutiveRecoveryFires: number;
+  consecutiveEditContextMisses: number;
   lastGovernorPhase?: import("./governance/execution-governor.js").SessionPhase;
 };
 
@@ -1313,6 +1314,9 @@ const TOOL_FAILURE_PATTERNS: Array<{ reason: string; re: RegExp }> = [
   { reason: "edit_context_miss", re: /\bold[_\s-]?string\b.*\bnot found\b/i },
   { reason: "edit_context_miss", re: /\bnot found in file\b/i },
   { reason: "edit_context_miss", re: /\bexactly once\b/i },
+  { reason: "edit_context_miss", re: /\bfound \d+ matches\b.*\breplace_all\b.*\bfalse\b/i },
+  { reason: "edit_context_miss", re: /\breplace_all is false\b/i },
+  { reason: "edit_context_miss", re: /\buniquely identify the instance\b/i },
   { reason: "patch_apply_failed", re: /\b(apply\s*patch|patch)\b.*\b(failed|error)\b/i },
   { reason: "write_permission_denied", re: /\b(permission denied|operation not permitted)\b/i },
 ];
@@ -2988,6 +2992,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     record,
     pruningWatermark: 0,
     consecutiveRecoveryFires: 0,
+    consecutiveEditContextMisses: 0,
   };
   sessions.set(key, state);
   return state;
@@ -5796,6 +5801,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveRecoveryFires = 0;
+    session.consecutiveEditContextMisses = 0;
     // Also clear verification-block flags so a prior turn's failed/green verification
     // loop does not gate the new task attempt before it even starts.
     session.blockBroadVerificationUntilEdit = false;
@@ -5999,9 +6005,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     );
   }
+  const oaiEditMissFailureCount = oaiToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
   if (oaiLatestToolProgress.hasRecentWriteSuccess) {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
+    session.consecutiveEditContextMisses = 0;
+  } else if (oaiEditMissFailureCount > 0) {
+    session.consecutiveEditContextMisses += 1;
+  } else if (oaiLatestToolProgress.hasRecentFailure) {
+    session.consecutiveEditContextMisses = 0;
   }
   if (oaiLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
@@ -6231,8 +6243,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
-  const oaiEditMissFailureCount = oaiToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
-  if (oaiEditMissFailureCount >= 2 && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")) {
+  if (
+    (oaiEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2)
+    && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
+  ) {
     oaiExecutionGovernor = {
       ...oaiExecutionGovernor,
       pause: true,
@@ -6248,9 +6262,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       identity.orgId,
       "execution_governor_edit_miss_override",
       "execution-governor",
-      `Forced edit_failure_replay due to ${oaiEditMissFailureCount} edit-context-miss failures in current turn`,
+      `Forced edit_failure_replay (turn_misses=${oaiEditMissFailureCount}, consecutive_turn_misses=${session.consecutiveEditContextMisses})`,
       oaiTraceReqId,
-      { edit_miss_failures: oaiEditMissFailureCount, matched_rules: oaiExecutionGovernor.matchedRules },
+      {
+        edit_miss_failures: oaiEditMissFailureCount,
+        consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
+        matched_rules: oaiExecutionGovernor.matchedRules,
+      },
     );
   }
   const oaiLoopObs = deriveGovernorLoopObservability(
@@ -8461,6 +8479,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveRecoveryFires = 0;
+    session.consecutiveEditContextMisses = 0;
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
@@ -8603,9 +8622,15 @@ app.post("/v1/messages", async (req, reply) => {
       },
     );
   }
+  const claudeEditMissFailureCount = claudeToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
   if (claudeLatestToolProgress.hasRecentWriteSuccess) {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
+    session.consecutiveEditContextMisses = 0;
+  } else if (claudeEditMissFailureCount > 0) {
+    session.consecutiveEditContextMisses += 1;
+  } else if (claudeLatestToolProgress.hasRecentFailure) {
+    session.consecutiveEditContextMisses = 0;
   }
   if (claudeLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
@@ -8838,8 +8863,10 @@ app.post("/v1/messages", async (req, reply) => {
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
-  const claudeEditMissFailureCount = claudeToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
-  if (claudeEditMissFailureCount >= 2 && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")) {
+  if (
+    (claudeEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2)
+    && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
+  ) {
     claudeExecutionGovernor = {
       ...claudeExecutionGovernor,
       pause: true,
@@ -8855,9 +8882,13 @@ app.post("/v1/messages", async (req, reply) => {
       claudeIdentity.orgId,
       "execution_governor_edit_miss_override",
       "execution-governor",
-      `Forced edit_failure_replay due to ${claudeEditMissFailureCount} edit-context-miss failures in current turn`,
+      `Forced edit_failure_replay (turn_misses=${claudeEditMissFailureCount}, consecutive_turn_misses=${session.consecutiveEditContextMisses})`,
       traceReqId,
-      { edit_miss_failures: claudeEditMissFailureCount, matched_rules: claudeExecutionGovernor.matchedRules },
+      {
+        edit_miss_failures: claudeEditMissFailureCount,
+        consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
+        matched_rules: claudeExecutionGovernor.matchedRules,
+      },
     );
   }
   const claudeLoopObs = deriveGovernorLoopObservability(

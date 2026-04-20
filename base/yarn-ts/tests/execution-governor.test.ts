@@ -19,6 +19,9 @@ function toolResult(id: string, content: string) {
 function assistantToolUse(id: string, name: string, input: unknown) {
   return { role: "assistant", content: [{ type: "tool_use", id, name, input }] };
 }
+function claudeToolResult(name: string, content: unknown) {
+  return { role: "tool_result", name, content: [{ type: "tool_result", content }] };
+}
 
 describe("execution governor", () => {
   it("pauses repeated broad tests", () => {
@@ -210,6 +213,34 @@ describe("execution governor", () => {
       { role: "tool_result", name: "Edit", content: "Error: String to replace not found in file." },
     ];
     const out = evaluateExecutionGovernor(messages as never);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("edit_failure_replay");
+    expect(out.matchedRules).toContain("edit_failure_replay");
+  });
+
+  it("detects replay from Claude tool_result blocks with nested content", () => {
+    const messages = [
+      assistantToolUse("u1", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      claudeToolResult("Edit", "Error: String to replace not found in file."),
+      assistantToolUse("u2", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      claudeToolResult("Edit", "Error: String to replace not found in file."),
+    ];
+    const out = evaluateExecutionGovernor(messages as never);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("edit_failure_replay");
+    expect(out.matchedRules).toContain("edit_failure_replay");
+  });
+
+  it("treats replace_all multi-match edit errors as edit failure replay", () => {
+    const messages = [
+      assistantCall("1", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      toolResult("1", "Error: Found 419 matches of the string to replace, but replace_all is false. Please provide more context to uniquely identify the instance."),
+      assistantCall("2", "Read", { file_path: "cmd/synesis/ask.go" }),
+      toolResult("2", "package main"),
+      assistantCall("3", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      toolResult("3", "Error: Found 419 matches of the string to replace, but replace_all is false. Please provide more context to uniquely identify the instance."),
+    ];
+    const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.reason).toBe("edit_failure_replay");
     expect(out.matchedRules).toContain("edit_failure_replay");

@@ -523,19 +523,36 @@ function extractPathLikeArg(row: Record<string, unknown>): string {
 }
 
 /**
- * Extract text from a message's content field, handling both plain strings
- * and Claude-style array content blocks ({type: "text", text: "..."}).
+ * Extract text from a message content payload.
+ * Supports plain strings, Claude-style text blocks, and nested tool_result blocks.
  */
 function contentToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((b): b is { type: string; text: string } =>
-        b && typeof b === "object" && (b as Record<string, unknown>).type === "text" && typeof (b as Record<string, unknown>).text === "string")
-      .map((b) => b.text)
-      .join("\n");
-  }
-  return "";
+  const chunks: string[] = [];
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (text) chunks.push(text);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const part of value) visit(part);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const row = value as Record<string, unknown>;
+    const text = typeof row.text === "string" ? row.text.trim() : "";
+    if (text) chunks.push(text);
+    for (const key of ["error", "message", "output"]) {
+      const candidate = row[key];
+      if (typeof candidate === "string" && candidate.trim()) {
+        chunks.push(candidate.trim());
+      }
+    }
+    const nested = row.content;
+    if (nested !== undefined) visit(nested);
+  };
+  visit(content);
+  return chunks.join("\n");
 }
 
 function parseArgsToCommand(toolName: string, args: unknown): string {
@@ -785,7 +802,7 @@ function hasNoTestFilesSignature(sig: string): boolean {
 function hasEditFailureSignature(sig: string): boolean {
   if (!sig) return false;
   if (hasIdempotentEditSignature(sig)) return false;
-  return /error editing file|old[_\s-]?string.*not found|string to replace.*not found|not found in file|failed to find context|exactly once|failed to apply patch|did not match file content/.test(sig);
+  return /error editing file|old[_\s-]?string.*not found|string to replace.*not found|not found in file|failed to find context|exactly once|replace_all is false|found (?:<n>|\d+) matches.*replace_all.*false|uniquely identify the instance|failed to apply patch|did not match file content/.test(sig);
 }
 
 function hasIdempotentEditSignature(sig: string): boolean {
