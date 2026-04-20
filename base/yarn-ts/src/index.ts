@@ -224,6 +224,7 @@ type SessionState = {
   consecutiveRecoveryFires: number;
   consecutiveEditContextMisses: number;
   editReplayHardStopGraceUsed: boolean;
+  editMissForceReadPending: boolean;
   lastGovernorPhase?: import("./governance/execution-governor.js").SessionPhase;
 };
 
@@ -1549,6 +1550,61 @@ function buildEditContextMissGuardPrompt(filePath: string, missCount: number): s
     );
   }
   return lines.join("\n");
+}
+
+type LatestReadRefreshSignal = {
+  hasRecentReadSuccess: boolean;
+  toolName: string;
+  toolCallId: string;
+  filePath: string;
+  snippet: string;
+};
+
+function classifyLatestReadRefresh(
+  messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+): LatestReadRefreshSignal {
+  const turnBoundaryIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
+  const turnMessages = turnBoundaryIdx >= 0 ? messages.slice(turnBoundaryIdx + 1) : messages;
+  const toolMetaById = buildToolCallMetaById(turnMessages);
+  for (let i = turnMessages.length - 1; i >= 0; i -= 1) {
+    const message = turnMessages[i];
+    if (message.role !== "tool" && message.role !== "tool_result") continue;
+    const chunks = collectToolResultTextChunks(message.content);
+    if (chunks.length === 0) continue;
+    const rawText = chunks.join("\n").trim();
+    if (!rawText) continue;
+    const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
+    const mappedMeta = toolCallId ? (toolMetaById.get(toolCallId) ?? null) : null;
+    const mappedName = mappedMeta?.toolName ?? "";
+    const toolName = (typeof message.name === "string" ? message.name : mappedName).trim();
+    if (!toolName || !isReadToolName(toolName)) continue;
+    return {
+      hasRecentReadSuccess: isResolvableReadResult(message.content, rawText),
+      toolName,
+      toolCallId,
+      filePath: canonicalizeToolPath(mappedMeta?.filePath ?? ""),
+      snippet: rawText.replace(/\s+/g, " ").slice(0, 220),
+    };
+  }
+  return {
+    hasRecentReadSuccess: false,
+    toolName: "",
+    toolCallId: "",
+    filePath: "",
+    snippet: "",
+  };
+}
+
+function buildEditContextMissForcedReadPrompt(filePath?: string): string {
+  const target = filePath && filePath.trim()
+    ? `for \`${filePath.trim()}\``
+    : "for the file you are trying to edit";
+  return [
+    "TOKEN-SAVING RECOVERY MODE: repeated edit anchor failures are still active.",
+    `Your next action MUST be exactly one Read tool call ${target}.`,
+    "Do not run Edit/Write/Test/Search tools in this turn.",
+    "After that single Read result, perform one anchored edit in the next turn.",
+  ].join("\n");
 }
 
 function buildToolCallMetaById(
@@ -3004,6 +3060,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     consecutiveRecoveryFires: 0,
     consecutiveEditContextMisses: 0,
     editReplayHardStopGraceUsed: false,
+    editMissForceReadPending: false,
   };
   sessions.set(key, state);
   return state;
@@ -5814,6 +5871,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.consecutiveRecoveryFires = 0;
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
+    session.editMissForceReadPending = false;
     // Also clear verification-block flags so a prior turn's failed/green verification
     // loop does not gate the new task attempt before it even starts.
     session.blockBroadVerificationUntilEdit = false;
@@ -5981,6 +6039,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
     (normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>)
       .slice(findLastUserPromptIdx(normalizedOpenAI.messages as Array<{ role?: string; content?: unknown }>) + 1),
   );
+  const oaiLatestReadRefresh = classifyLatestReadRefresh(
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
+  const oaiHadForceReadPending = session.editMissForceReadPending;
+  if (oaiHadForceReadPending && oaiLatestReadRefresh.hasRecentReadSuccess) {
+    session.editMissForceReadPending = false;
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "edit_context_miss_forced_read_satisfied",
+      "execution-governor",
+      `Forced read recovery satisfied via ${oaiLatestReadRefresh.toolName || "read"} ${oaiLatestReadRefresh.filePath || "<unknown file>"}`,
+      oaiTraceReqId,
+      {
+        toolName: oaiLatestReadRefresh.toolName || null,
+        toolCallId: oaiLatestReadRefresh.toolCallId || null,
+        filePath: oaiLatestReadRefresh.filePath || null,
+        snippet: oaiLatestReadRefresh.snippet || null,
+      },
+    );
+  }
   for (const failure of oaiToolFailures) {
     const oaiFailureEventKind = failure.reason === "edit_already_applied"
       ? "client_tool_idempotent_observed"
@@ -6021,16 +6101,39 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiHasActiveEditMissFailure =
     oaiEditMissFailureCount > 0
     || oaiLatestToolProgress.hasRecentEditContextMiss
-    || oaiEditMissGuard?.active === true;
+    || oaiEditMissGuard?.active === true
+    || session.editMissForceReadPending;
   if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure) {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
+    session.editMissForceReadPending = false;
   } else if (oaiEditMissFailureCount > 0) {
     session.consecutiveEditContextMisses += 1;
   } else if (oaiLatestToolProgress.hasRecentFailure) {
     session.consecutiveEditContextMisses = 0;
+  }
+  const oaiShouldArmForceReadRecovery =
+    oaiLatestToolProgress.hasRecentEditContextMiss
+    && (oaiEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2);
+  if (oaiShouldArmForceReadRecovery) {
+    if (!session.editMissForceReadPending) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "edit_context_miss_forced_read_armed",
+        "execution-governor",
+        `Armed forced read recovery after edit misses (turn=${oaiEditMissFailureCount}, consecutive=${session.consecutiveEditContextMisses})`,
+        oaiTraceReqId,
+        {
+          edit_miss_failures: oaiEditMissFailureCount,
+          consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
+        },
+      );
+    }
+    session.editMissForceReadPending = true;
   }
   if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
@@ -6222,6 +6325,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           editContextMissActive:
             oaiEditMissGuard?.active === true
             || oaiLatestToolProgress.hasRecentEditContextMiss
+            || session.editMissForceReadPending
             || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
         },
       );
@@ -6469,11 +6573,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
     const oaiHasTerminalRule = oaiTerminalMatchedRules.some((rule) => oaiTerminalRules.has(rule));
     const oaiHasBlockingToolFailure = oaiToolFailures.some((failure) => failure.reason !== "edit_already_applied");
+    const oaiForcedReadRecoverySatisfied =
+      oaiHadForceReadPending && oaiLatestReadRefresh.hasRecentReadSuccess;
     const oaiHasConcreteProgress =
       (oaiLatestToolProgress.hasRecentWriteSuccess
         && !oaiHasActiveEditMissFailure
         && !oaiHasBlockingToolFailure
         && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay"))
+      || oaiForcedReadRecoverySatisfied
       || (
         oaiToolProgress.state === "progress"
         && !oaiLatestToolProgress.hasRecentFailure
@@ -6520,6 +6627,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           has_recent_failure: oaiLatestToolProgress.hasRecentFailure,
           has_blocking_tool_failure: oaiHasBlockingToolFailure,
           has_active_edit_miss_failure: oaiHasActiveEditMissFailure,
+          forced_read_recovery_satisfied: oaiForcedReadRecoverySatisfied,
           edit_miss_guard_active: oaiEditMissGuard?.active === true,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
@@ -6652,6 +6760,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.consecutiveRecoveryFires = 0;
     if (!oaiHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
+      session.editMissForceReadPending = false;
     }
   }
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
@@ -6883,22 +6992,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
     phase: oaiGovernorPhase,
     matchedRules: oaiExecutionGovernor.matchedRules,
     stream: !!normalizedRequest.stream,
-    editContextMissActive: oaiEditMissGuard?.active === true,
+    editContextMissActive: oaiEditMissGuard?.active === true || session.editMissForceReadPending,
   });
   const oaiPhaseFiltered = filterToolsByPhasePolicy(effectiveTools as unknown[], oaiPhasePolicy);
   effectiveTools = oaiPhaseFiltered.tools;
   let effectiveToolChoice = resolvePhaseToolChoice(clientToolChoice as PhaseAwareToolChoice | undefined, oaiPhasePolicy);
-  if (oaiEditMissGuard?.active) {
+  const oaiForceReadRecovery =
+    session.editMissForceReadPending
+    && oaiExecutionGovernor.matchedRules.includes("edit_failure_replay");
+  if (oaiEditMissGuard?.active || oaiForceReadRecovery) {
+    const guardFilePath = oaiEditMissGuard?.filePath ?? "";
+    const guardMissCount = oaiEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
     // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
     // forces write-only tools AND the model has stale anchors), we added Read back to the
     // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
     // policy), strip write tools entirely and force Read. In both modes, force tool_choice=Read
     // to break the loop.
-    const guardMode = oaiPhasePolicy.active ? "alongside_phase_policy" : "standalone";
-    const gated = guardMode === "standalone"
+    const guardMode = oaiForceReadRecovery
+      ? "forced_read_recovery"
+      : (oaiPhasePolicy.active ? "alongside_phase_policy" : "standalone");
+    const gated = guardMode === "standalone" || guardMode === "forced_read_recovery"
       ? applyEditContextMissReadGate(effectiveTools as unknown[])
       : { tools: effectiveTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveTools as unknown[]) };
-    if (guardMode === "standalone") effectiveTools = gated.tools ?? effectiveTools;
+    if (guardMode === "standalone" || guardMode === "forced_read_recovery") {
+      effectiveTools = gated.tools ?? effectiveTools;
+    }
     let forcedReadToolName = gated.forcedReadToolName;
     const ensuredRead = ensureReadToolAvailabilityForEditMissGuard(
       effectiveTools as unknown[] | undefined,
@@ -6915,10 +7033,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
         identity.orgId,
         "edit_context_miss_guard_rehydrated_read",
         "execution-governor",
-        `Reintroduced read tool for edit-context recovery file=${oaiEditMissGuard.filePath}`,
+        `Reintroduced read tool for edit-context recovery file=${guardFilePath || "<unknown>"}`,
         reqId,
         {
-          filePath: oaiEditMissGuard.filePath,
+          filePath: guardFilePath || null,
           read_tool: ensuredRead.readToolName ?? null,
         },
       );
@@ -6930,10 +7048,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
         identity.orgId,
         "edit_context_miss_guard_read_missing",
         "execution-governor",
-        `Invariant violation: no read-capable tool available while edit-context guard is active for ${oaiEditMissGuard.filePath}`,
+        `Invariant violation: no read-capable tool available while edit-context guard is active for ${guardFilePath || "<unknown>"}`,
         reqId,
         {
-          filePath: oaiEditMissGuard.filePath,
+          filePath: guardFilePath || null,
           matched_rules: oaiExecutionGovernor.matchedRules,
           phase: oaiGovernorPhase,
         },
@@ -6946,11 +7064,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
         identity.orgId,
         "edit_context_miss_guard_enforced",
         "execution-governor",
-        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${oaiEditMissGuard.filePath}`,
+        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
         reqId,
         {
-          filePath: oaiEditMissGuard.filePath,
-          missCount: oaiEditMissGuard.missCount,
+          filePath: guardFilePath || null,
+          missCount: guardMissCount,
           removed_tools: gated.removed,
           forced_read_tool: forcedReadToolName ?? null,
           guard_mode: guardMode,
@@ -6998,10 +7116,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (policyPrecheck.pivotPrompt) {
     modelMessages = [...modelMessages, { role: "system" as const, content: policyPrecheck.pivotPrompt }] as typeof modelMessages;
   }
-  if (oaiEditMissGuard?.active) {
+  if (oaiEditMissGuard?.active || oaiForceReadRecovery) {
+    const recoveryFilePath = oaiEditMissGuard?.filePath ?? oaiLatestReadRefresh.filePath ?? "<unknown>";
+    const recoveryMissCount = oaiEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
+    const editRecoveryPrompt = oaiForceReadRecovery
+      ? buildEditContextMissForcedReadPrompt(recoveryFilePath)
+      : buildEditContextMissGuardPrompt(recoveryFilePath, recoveryMissCount);
     modelMessages = appendSystemMessageAndNormalize(
       modelMessages as Array<{ role: string; content?: unknown }>,
-      buildEditContextMissGuardPrompt(oaiEditMissGuard.filePath, oaiEditMissGuard.missCount),
+      editRecoveryPrompt,
     ) as typeof modelMessages;
   }
 
@@ -8541,6 +8664,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.consecutiveRecoveryFires = 0;
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
+    session.editMissForceReadPending = false;
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
@@ -8647,6 +8771,28 @@ app.post("/v1/messages", async (req, reply) => {
     (normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>)
       .slice(findLastUserPromptIdx(normalizedFromClaude.messages as Array<{ role?: string; content?: unknown }>) + 1),
   );
+  const claudeLatestReadRefresh = classifyLatestReadRefresh(
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
+  const claudeHadForceReadPending = session.editMissForceReadPending;
+  if (claudeHadForceReadPending && claudeLatestReadRefresh.hasRecentReadSuccess) {
+    session.editMissForceReadPending = false;
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "edit_context_miss_forced_read_satisfied",
+      "execution-governor",
+      `Forced read recovery satisfied via ${claudeLatestReadRefresh.toolName || "read"} ${claudeLatestReadRefresh.filePath || "<unknown file>"}`,
+      traceReqId,
+      {
+        toolName: claudeLatestReadRefresh.toolName || null,
+        toolCallId: claudeLatestReadRefresh.toolCallId || null,
+        filePath: claudeLatestReadRefresh.filePath || null,
+        snippet: claudeLatestReadRefresh.snippet || null,
+      },
+    );
+  }
   for (const failure of claudeToolFailures) {
     const claudeFailureEventKind = failure.reason === "edit_already_applied"
       ? "client_tool_idempotent_observed"
@@ -8687,16 +8833,39 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeHasActiveEditMissFailure =
     claudeEditMissFailureCount > 0
     || claudeLatestToolProgress.hasRecentEditContextMiss
-    || claudeEditMissGuard?.active === true;
+    || claudeEditMissGuard?.active === true
+    || session.editMissForceReadPending;
   if (claudeLatestToolProgress.hasRecentWriteSuccess && !claudeHasActiveEditMissFailure) {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
+    session.editMissForceReadPending = false;
   } else if (claudeEditMissFailureCount > 0) {
     session.consecutiveEditContextMisses += 1;
   } else if (claudeLatestToolProgress.hasRecentFailure) {
     session.consecutiveEditContextMisses = 0;
+  }
+  const claudeShouldArmForceReadRecovery =
+    claudeLatestToolProgress.hasRecentEditContextMiss
+    && (claudeEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2);
+  if (claudeShouldArmForceReadRecovery) {
+    if (!session.editMissForceReadPending) {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "edit_context_miss_forced_read_armed",
+        "execution-governor",
+        `Armed forced read recovery after edit misses (turn=${claudeEditMissFailureCount}, consecutive=${session.consecutiveEditContextMisses})`,
+        traceReqId,
+        {
+          edit_miss_failures: claudeEditMissFailureCount,
+          consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
+        },
+      );
+    }
+    session.editMissForceReadPending = true;
   }
   if (claudeLatestToolProgress.hasRecentWriteSuccess && !claudeHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
@@ -8891,6 +9060,7 @@ app.post("/v1/messages", async (req, reply) => {
           editContextMissActive:
             claudeEditMissGuard?.active === true
             || claudeLatestToolProgress.hasRecentEditContextMiss
+            || session.editMissForceReadPending
             || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
         },
       );
@@ -9138,11 +9308,14 @@ app.post("/v1/messages", async (req, reply) => {
     );
     const claudeHasTerminalRule = claudeTerminalMatchedRules.some((rule) => claudeTerminalRules.has(rule));
     const claudeHasBlockingToolFailure = claudeToolFailures.some((failure) => failure.reason !== "edit_already_applied");
+    const claudeForcedReadRecoverySatisfied =
+      claudeHadForceReadPending && claudeLatestReadRefresh.hasRecentReadSuccess;
     const claudeHasConcreteProgress =
       (claudeLatestToolProgress.hasRecentWriteSuccess
         && !claudeHasActiveEditMissFailure
         && !claudeHasBlockingToolFailure
         && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay"))
+      || claudeForcedReadRecoverySatisfied
       || (
         claudeToolProgress.state === "progress"
         && !claudeLatestToolProgress.hasRecentFailure
@@ -9189,6 +9362,7 @@ app.post("/v1/messages", async (req, reply) => {
           has_recent_failure: claudeLatestToolProgress.hasRecentFailure,
           has_blocking_tool_failure: claudeHasBlockingToolFailure,
           has_active_edit_miss_failure: claudeHasActiveEditMissFailure,
+          forced_read_recovery_satisfied: claudeForcedReadRecoverySatisfied,
           edit_miss_guard_active: claudeEditMissGuard?.active === true,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
@@ -9321,6 +9495,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.consecutiveRecoveryFires = 0;
     if (!claudeHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
+      session.editMissForceReadPending = false;
     }
   }
 
@@ -9546,6 +9721,9 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
   const sdkStop = body.stop_sequences && body.stop_sequences.length > 0 ? body.stop_sequences : undefined;
+  const claudeForceReadRecovery =
+    session.editMissForceReadPending
+    && claudeExecutionGovernor.matchedRules.includes("edit_failure_replay");
 
   const claudeModelToolPrompt = mergeToolSystemPrompts(
     claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length),
@@ -9557,10 +9735,15 @@ app.post("/v1/messages", async (req, reply) => {
   if (claudePolicyPrecheck.pivotPrompt) {
     claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: claudePolicyPrecheck.pivotPrompt }] as typeof claudeModelMessages;
   }
-  if (claudeEditMissGuard?.active) {
+  if (claudeEditMissGuard?.active || claudeForceReadRecovery) {
+    const recoveryFilePath = claudeEditMissGuard?.filePath ?? claudeLatestReadRefresh.filePath ?? "<unknown>";
+    const recoveryMissCount = claudeEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
+    const editRecoveryPrompt = claudeForceReadRecovery
+      ? buildEditContextMissForcedReadPrompt(recoveryFilePath)
+      : buildEditContextMissGuardPrompt(recoveryFilePath, recoveryMissCount);
     claudeModelMessages = appendSystemMessageAndNormalize(
       claudeModelMessages as Array<{ role: string; content?: unknown }>,
-      buildEditContextMissGuardPrompt(claudeEditMissGuard.filePath, claudeEditMissGuard.missCount),
+      editRecoveryPrompt,
     ) as typeof claudeModelMessages;
   }
 
@@ -9667,7 +9850,7 @@ app.post("/v1/messages", async (req, reply) => {
     phase: claudeGovernorPhase,
     matchedRules: claudeExecutionGovernor.matchedRules,
     stream: !!body.stream,
-    editContextMissActive: claudeEditMissGuard?.active === true,
+    editContextMissActive: claudeEditMissGuard?.active === true || session.editMissForceReadPending,
   });
   const claudePhaseFiltered = filterToolsByPhasePolicy(effectiveClaudeTools as unknown[], claudePhasePolicy);
   effectiveClaudeTools = claudePhaseFiltered.tools;
@@ -9675,17 +9858,23 @@ app.post("/v1/messages", async (req, reply) => {
     clientClaudeToolChoice as PhaseAwareToolChoice | undefined,
     claudePhasePolicy,
   );
-  if (claudeEditMissGuard?.active) {
+  if (claudeEditMissGuard?.active || claudeForceReadRecovery) {
+    const guardFilePath = claudeEditMissGuard?.filePath ?? "";
+    const guardMissCount = claudeEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
     // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
     // forces write-only tools AND the model has stale anchors), we added Read back to the
     // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
     // policy), strip write tools entirely and force Read. In both modes, force tool_choice=Read
     // to break the loop.
-    const guardMode = claudePhasePolicy.active ? "alongside_phase_policy" : "standalone";
-    const gated = guardMode === "standalone"
+    const guardMode = claudeForceReadRecovery
+      ? "forced_read_recovery"
+      : (claudePhasePolicy.active ? "alongside_phase_policy" : "standalone");
+    const gated = guardMode === "standalone" || guardMode === "forced_read_recovery"
       ? applyEditContextMissReadGate(effectiveClaudeTools as unknown[])
       : { tools: effectiveClaudeTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveClaudeTools as unknown[]) };
-    if (guardMode === "standalone") effectiveClaudeTools = gated.tools ?? effectiveClaudeTools;
+    if (guardMode === "standalone" || guardMode === "forced_read_recovery") {
+      effectiveClaudeTools = gated.tools ?? effectiveClaudeTools;
+    }
     let forcedReadToolName = gated.forcedReadToolName;
     const ensuredRead = ensureReadToolAvailabilityForEditMissGuard(
       effectiveClaudeTools as unknown[] | undefined,
@@ -9702,10 +9891,10 @@ app.post("/v1/messages", async (req, reply) => {
         claudeIdentity.orgId,
         "edit_context_miss_guard_rehydrated_read",
         "execution-governor",
-        `Reintroduced read tool for edit-context recovery file=${claudeEditMissGuard.filePath}`,
+        `Reintroduced read tool for edit-context recovery file=${guardFilePath || "<unknown>"}`,
         traceReqId,
         {
-          filePath: claudeEditMissGuard.filePath,
+          filePath: guardFilePath || null,
           read_tool: ensuredRead.readToolName ?? null,
         },
       );
@@ -9717,10 +9906,10 @@ app.post("/v1/messages", async (req, reply) => {
         claudeIdentity.orgId,
         "edit_context_miss_guard_read_missing",
         "execution-governor",
-        `Invariant violation: no read-capable tool available while edit-context guard is active for ${claudeEditMissGuard.filePath}`,
+        `Invariant violation: no read-capable tool available while edit-context guard is active for ${guardFilePath || "<unknown>"}`,
         traceReqId,
         {
-          filePath: claudeEditMissGuard.filePath,
+          filePath: guardFilePath || null,
           matched_rules: claudeExecutionGovernor.matchedRules,
           phase: claudeGovernorPhase,
         },
@@ -9733,11 +9922,11 @@ app.post("/v1/messages", async (req, reply) => {
         claudeIdentity.orgId,
         "edit_context_miss_guard_enforced",
         "execution-governor",
-        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${claudeEditMissGuard.filePath}`,
+        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
         traceReqId,
         {
-          filePath: claudeEditMissGuard.filePath,
-          missCount: claudeEditMissGuard.missCount,
+          filePath: guardFilePath || null,
+          missCount: guardMissCount,
           removed_tools: gated.removed,
           forced_read_tool: forcedReadToolName ?? null,
           guard_mode: guardMode,
