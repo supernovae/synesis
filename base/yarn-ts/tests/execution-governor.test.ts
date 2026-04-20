@@ -299,6 +299,23 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("edit_failure_replay");
   });
 
+  it("suppresses completion-claim pause while edit-context-miss repair is active", () => {
+    const messages = [
+      { role: "user", content: "verify and finish ask.go updates" },
+      { role: "assistant", content: "This is already implemented." },
+      assistantCall("1", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("1", "package main"),
+      assistantCall("2", "str_replace", { file_path: "cmd/synesis/ask.go", old_string: "jqExpr := fs.String", new_string: "jqExpr := fs.String" }),
+      toolResult("2", "Error: String to replace not found in file."),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      activePlanStage: "implement",
+      editContextMissActive: true,
+    });
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(out.matchedRules).not.toContain("verification_after_completion_claim");
+  });
+
   it("does not pause completion claims from plan stage when activePlanStage is finalize", () => {
     const messages = [
       { role: "user", content: "implement clipboard support" },

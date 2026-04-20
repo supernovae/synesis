@@ -6187,7 +6187,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
         normalizedOpenAI.messages as Array<GovernorInputMessage>,
-        { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: oaiPlanGraph?.activeStage ?? null },
+        {
+          profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+          activePlanStage: oaiPlanGraph?.activeStage ?? null,
+          editContextMissActive:
+            oaiEditMissGuard?.active === true
+            || oaiLatestToolProgress.hasRecentEditContextMiss
+            || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
+        },
       );
       govSpan.setAttribute("governor.pause", decision.pause);
       govSpan.setAttribute("governor.reason", decision.reason ?? "");
@@ -6398,7 +6405,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "edit_failure_replay",
       "consecutive_edit_failures",
     ]);
-    const oaiHasTerminalRule = oaiExecutionGovernor.matchedRules.some((rule) => oaiTerminalRules.has(rule));
+    const oaiSuppressCompletionClaimTerminal =
+      oaiEditMissGuard?.active === true
+      || oaiLatestToolProgress.hasRecentEditContextMiss
+      || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss");
+    const oaiTerminalMatchedRules = oaiExecutionGovernor.matchedRules.filter((rule) =>
+      !(oaiSuppressCompletionClaimTerminal && rule === "completion_claim_requires_task_update"),
+    );
+    const oaiHasTerminalRule = oaiTerminalMatchedRules.some((rule) => oaiTerminalRules.has(rule));
     const oaiHasBlockingToolFailure = oaiToolFailures.some((failure) => failure.reason !== "edit_already_applied");
     const oaiHasConcreteProgress =
       oaiLatestToolProgress.hasRecentWriteSuccess
@@ -6407,6 +6421,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         && !oaiLatestToolProgress.hasRecentFailure
         && !oaiHasBlockingToolFailure
         && oaiEditMissGuard?.active !== true
+        && !(oaiSuppressCompletionClaimTerminal && oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread"))
       );
     const oaiShouldHoldRecoveryFire =
       oaiLatestToolProgress.hasRecentEditContextMiss
@@ -8757,7 +8772,14 @@ app.post("/v1/messages", async (req, reply) => {
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
         normalizedFromClaude.messages as Array<GovernorInputMessage>,
-        { profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE, activePlanStage: claudePlanGraph?.activeStage ?? null },
+        {
+          profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+          activePlanStage: claudePlanGraph?.activeStage ?? null,
+          editContextMissActive:
+            claudeEditMissGuard?.active === true
+            || claudeLatestToolProgress.hasRecentEditContextMiss
+            || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
+        },
       );
       govSpan.setAttribute("governor.pause", decision.pause);
       govSpan.setAttribute("governor.reason", decision.reason ?? "");
@@ -8968,7 +8990,14 @@ app.post("/v1/messages", async (req, reply) => {
       "edit_failure_replay",
       "consecutive_edit_failures",
     ]);
-    const claudeHasTerminalRule = claudeExecutionGovernor.matchedRules.some((rule) => claudeTerminalRules.has(rule));
+    const claudeSuppressCompletionClaimTerminal =
+      claudeEditMissGuard?.active === true
+      || claudeLatestToolProgress.hasRecentEditContextMiss
+      || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss");
+    const claudeTerminalMatchedRules = claudeExecutionGovernor.matchedRules.filter((rule) =>
+      !(claudeSuppressCompletionClaimTerminal && rule === "completion_claim_requires_task_update"),
+    );
+    const claudeHasTerminalRule = claudeTerminalMatchedRules.some((rule) => claudeTerminalRules.has(rule));
     const claudeHasBlockingToolFailure = claudeToolFailures.some((failure) => failure.reason !== "edit_already_applied");
     const claudeHasConcreteProgress =
       claudeLatestToolProgress.hasRecentWriteSuccess
@@ -8977,6 +9006,7 @@ app.post("/v1/messages", async (req, reply) => {
         && !claudeLatestToolProgress.hasRecentFailure
         && !claudeHasBlockingToolFailure
         && claudeEditMissGuard?.active !== true
+        && !(claudeSuppressCompletionClaimTerminal && claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread"))
       );
     const claudeShouldHoldRecoveryFire =
       claudeLatestToolProgress.hasRecentEditContextMiss

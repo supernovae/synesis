@@ -1201,6 +1201,7 @@ function hasFailureSignals(messages: GovernorInputMessage[]): boolean {
 export interface ExecutionGovernorOptions {
   profile?: GovernanceProfileName;
   activePlanStage?: string | null;
+  editContextMissActive?: boolean;
 }
 
 export function evaluateExecutionGovernor(
@@ -1212,6 +1213,7 @@ export function evaluateExecutionGovernor(
     : profileOrOptions;
   const profile = opts.profile ?? "balanced_completion";
   const activePlanStage = opts.activePlanStage ?? null;
+  const editContextMissActive = opts.editContextMissActive === true;
   const thresholds = thresholdsForProfile(profile);
   // Evaluate from the latest real user prompt (ignoring user-role tool_result wrappers).
   const lastUserPromptIdx = findLastGenuineUserPromptIndex(messages);
@@ -1672,10 +1674,21 @@ export function evaluateExecutionGovernor(
   // current task is finished.
   const hasNonExplorationEvents = changedFiles.length > 0
     || events.some((e) => isExecutionVerificationCommand(e.toolName, e.command));
-  if (completionClaimNeedsTaskUpdate && hasNonExplorationEvents && !hasActiveRepairEvidenceAfterCompletionClaim) {
+  if (
+    completionClaimNeedsTaskUpdate
+    && hasNonExplorationEvents
+    && !hasActiveRepairEvidenceAfterCompletionClaim
+    && !editContextMissActive
+  ) {
     pushRule("completion_claim_requires_task_update");
   }
-  if (!isInvestigationOnly && verificationAfterCompletionClaim >= 3 && effectiveNoEditEvidence && hasNonExplorationEvents) {
+  if (
+    !isInvestigationOnly
+    && verificationAfterCompletionClaim >= 3
+    && effectiveNoEditEvidence
+    && hasNonExplorationEvents
+    && !editContextMissActive
+  ) {
     pushRule("verification_after_completion_claim");
   }
   if (repeatedFailingVerification >= 2 && effectiveNoEditEvidence) pushRule("verification_fail_repeat_block");
