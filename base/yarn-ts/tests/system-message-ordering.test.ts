@@ -13,11 +13,12 @@ describe("system message ordering normalization", () => {
     ];
 
     const out = appendSystemMessageAndNormalize(input, "policy guidance");
-    expect(out.filter((m) => m.role === "system")).toHaveLength(2);
+    expect(out.filter((m) => m.role === "system")).toHaveLength(1);
     expect(out[0]?.role).toBe("system");
-    expect(out[1]?.role).toBe("system");
-    expect(out[2]?.role).toBe("user");
-    expect(out[3]?.role).toBe("assistant");
+    expect(String(out[0]?.content)).toContain("client steering");
+    expect(String(out[0]?.content)).toContain("policy guidance");
+    expect(out[1]?.role).toBe("user");
+    expect(out[2]?.role).toBe("assistant");
   });
 
   it("preserves assistant/tool adjacency while reordering Claude/OpenAI-converted turns", () => {
@@ -41,7 +42,7 @@ describe("system message ordering normalization", () => {
 
     const out = normalizeSystemMessageOrdering(input);
     expect(out[0]?.role).toBe("system");
-    expect(out[1]?.role).toBe("system");
+    expect(out.filter((m) => m.role === "system")).toHaveLength(1);
     const assistantIdx = out.findIndex((m) => m.role === "assistant");
     expect(assistantIdx).toBeGreaterThanOrEqual(0);
     expect(out[assistantIdx + 1]?.role).toBe("tool");
@@ -56,8 +57,7 @@ describe("system message ordering normalization", () => {
     const once = appendSystemMessageAndNormalize(base, "phase-required retry prompt");
     const twice = appendSystemMessageAndNormalize(once, "fallback prompt");
     expect(twice[0]?.role).toBe("system");
-    expect(twice[1]?.role).toBe("system");
-    expect(twice[2]?.role).toBe("system");
-    expect(twice[3]?.role).toBe("user");
+    expect(twice.filter((m) => m.role === "system")).toHaveLength(1);
+    expect(twice[1]?.role).toBe("user");
   });
 });

@@ -1,10 +1,11 @@
-import { ensureSystemMessagesAtBeginning } from "../tool-mapping.js";
+import { coalesceLeadingSystemMessages, ensureSystemMessagesAtBeginning } from "../tool-mapping.js";
 
 type RoleMessage = { role: string };
 type RoleContentMessage = RoleMessage & { content?: unknown };
 
 export function normalizeSystemMessageOrdering<T extends RoleMessage>(messages: T[]): T[] {
-  return ensureSystemMessagesAtBeginning(messages as never) as T[];
+  const ordered = ensureSystemMessagesAtBeginning(messages as never);
+  return coalesceLeadingSystemMessages(ordered as never) as T[];
 }
 
 export function appendSystemMessageAndNormalize<T extends RoleContentMessage>(
