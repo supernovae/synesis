@@ -15,6 +15,8 @@
     "bench:reducers": "tsx scripts/bench-reducers.ts",
     "verify:live": "tsx scripts/live-verify.ts",
     "verify:live:full": "SYNESIS_VERIFY_MODE=full tsx scripts/live-verify.ts",
+    "verify:openai-conformance": "tsx scripts/openai-conformance.ts",
+    "test:openai-conformance": "vitest run tests/openai-compat.test.ts tests/contracts.test.ts tests/tool-mapping.test.ts tests/client-payload-conformance.test.ts",
     "verify:ab": "tsx scripts/ab-reducer-compare.ts",
     "verify:tiers": "tsx scripts/tier-compare.ts",
     "scaffold:reducer": "tsx scripts/scaffold-reducer.ts",
