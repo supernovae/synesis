@@ -102,4 +102,54 @@ describe("tool-progress-detector", () => {
     expect(out.state).toBe("stagnant");
     expect(session.stagnantToolCycles).toBe(1);
   });
+
+  it("treats repeated non-write failures for the same command as stagnant", () => {
+    const session = sessionState();
+    const first: ToolProgressMessage[] = [
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "b1", function: { name: "Bash", arguments: "{\"command\":\"go test ./pkg/jq/ -run TestApply_FieldAccess\"}" } }],
+      },
+      { role: "tool", name: "Bash", tool_call_id: "b1", content: "Error: Exit code 1\n--- FAIL: TestApply_FieldAccess (0.00s)" },
+    ];
+    const second: ToolProgressMessage[] = [
+      ...first,
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "b2", function: { name: "Bash", arguments: "{\"command\":\"go test ./pkg/jq/ -run TestApply_FieldAccess\"}" } }],
+      },
+      { role: "tool", name: "Bash", tool_call_id: "b2", content: "Error: Exit code 1\n--- FAIL: TestApply_FieldAccess (0.00s)" },
+    ];
+    detectToolProgress(session, first);
+    const out = detectToolProgress(session, second);
+    expect(out.state).toBe("stagnant");
+    expect(session.stagnantToolCycles).toBe(1);
+  });
+
+  it("treats non-write failures for different commands as progress", () => {
+    const session = sessionState();
+    const first: ToolProgressMessage[] = [
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "b1", function: { name: "Bash", arguments: "{\"command\":\"go test ./pkg/jq/ -run TestApply_FieldAccess\"}" } }],
+      },
+      { role: "tool", name: "Bash", tool_call_id: "b1", content: "Error: Exit code 1\n--- FAIL: TestApply_FieldAccess (0.00s)" },
+    ];
+    const second: ToolProgressMessage[] = [
+      ...first,
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "b2", function: { name: "Bash", arguments: "{\"command\":\"go test ./pkg/jq/ -run TestApply_ArrayIndex\"}" } }],
+      },
+      { role: "tool", name: "Bash", tool_call_id: "b2", content: "Error: Exit code 1\n--- FAIL: TestApply_ArrayIndex (0.00s)" },
+    ];
+    detectToolProgress(session, first);
+    const out = detectToolProgress(session, second);
+    expect(out.state).toBe("progress");
+    expect(session.stagnantToolCycles).toBe(0);
+  });
 });

@@ -1376,7 +1376,8 @@ function collectToolExecutionFailureObservations(
 
   const observations: ToolExecutionFailureObservation[] = [];
   const seen = new Set<string>();
-  for (const message of messages) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
     if (message.role !== "tool" && message.role !== "tool_result") continue;
     const chunks = collectToolResultTextChunks(message.content);
     if (chunks.length === 0) continue;
@@ -1432,6 +1433,28 @@ function findLastUserPromptIdx(messages: Array<{ role?: string; content?: unknow
     return i;
   }
   return -1;
+}
+
+function isToolResultOnlyUserContent(content: unknown): boolean {
+  return Array.isArray(content)
+    && content.length > 0
+    && (content as Array<{ type?: string }>).every((b) => b?.type === "tool_result");
+}
+
+function hasGenuineUserTextContent(content: unknown): boolean {
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return (content as Array<{ type?: string; text?: unknown }>).some((b) => {
+    if (!b || typeof b !== "object") return false;
+    if (b.type !== "text") return false;
+    return typeof b.text === "string" && b.text.trim().length > 0;
+  });
+}
+
+function isGenuineUserPromptMessage(message: { role?: string; content?: unknown } | undefined): boolean {
+  if (!message || message.role !== "user") return false;
+  if (isToolResultOnlyUserContent(message.content)) return false;
+  return hasGenuineUserTextContent(message.content);
 }
 
 function sliceMessagesSinceLastUserPrompt<T extends { role?: string; content?: unknown }>(messages: T[]): T[] {
@@ -5878,16 +5901,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiMsgCount = (request.messages as unknown[]).length;
   const oaiRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, oaiMsgCount - oaiRecentExempt);
-  // When the latest incoming message is a user prompt, the client is starting a
-  // new turn. Reset tool-loop counters so history from the previous turn's stall
-  // does not immediately trip the policy engine on the first request of the new turn.
-  const oaiLastIncomingRole = Array.isArray(request.messages) && request.messages.length > 0
-    ? (request.messages[request.messages.length - 1] as { role?: string }).role
+  // Reset loop counters only on a genuine user prompt (not synthetic tool-result wrappers).
+  const oaiLastIncomingMessage = Array.isArray(request.messages) && request.messages.length > 0
+    ? (request.messages[request.messages.length - 1] as { role?: string; content?: unknown })
     : undefined;
-  if (oaiLastIncomingRole === "user") {
+  if (isGenuineUserPromptMessage(oaiLastIncomingMessage)) {
     session.consecutiveToolCalls = 0;
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
+    session.awaitingToolLoopUserAck = false;
+    session.toolLoopAckAnchorUserHash = "";
+    session.toolLoopNoUserAckCount = 0;
     session.consecutiveRecoveryFires = 0;
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
@@ -6383,6 +6407,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (
     oaiExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
     || oaiExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
+    || oaiExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
@@ -8665,24 +8690,19 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeMsgCount = (body.messages as unknown[]).length;
   const claudeRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, claudeMsgCount - claudeRecentExempt);
-  // Claude protocol: tool results are sent as role:"user" with type:"tool_result" content
-  // blocks. Only reset counters on genuine new user prompts (text content), not tool results.
-  // A message that is ALL tool_result blocks is a tool-loop continuation; one with text is
-  // a new user prompt.
+  // Claude protocol sends tool results as role:"user"/tool_result blocks.
+  // Reset only on genuine user prompts that include text.
   const claudeLastMsg = Array.isArray(body.messages) && body.messages.length > 0
     ? (body.messages as Array<{ role?: string; content?: unknown }>)[body.messages.length - 1]
     : undefined;
-  const claudeIsToolResultOnly = claudeLastMsg?.role === "user"
-    && Array.isArray(claudeLastMsg.content)
-    && (claudeLastMsg.content as Array<{ type?: string }>).length > 0
-    && (claudeLastMsg.content as Array<{ type?: string }>).every(
-      (b) => b && typeof b === "object" && b.type === "tool_result",
-    );
-  const claudeIsNewUserPrompt = claudeLastMsg?.role === "user" && !claudeIsToolResultOnly;
+  const claudeIsNewUserPrompt = isGenuineUserPromptMessage(claudeLastMsg);
   if (claudeIsNewUserPrompt) {
     session.consecutiveToolCalls = 0;
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
+    session.awaitingToolLoopUserAck = false;
+    session.toolLoopAckAnchorUserHash = "";
+    session.toolLoopNoUserAckCount = 0;
     session.consecutiveRecoveryFires = 0;
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
@@ -9044,15 +9064,7 @@ app.post("/v1/messages", async (req, reply) => {
     body.messages as Array<{ role: string; content: unknown }>,
   );
   const latestClaudeUserHash = hashTextSignal(latestClaudeUser?.content ?? "");
-  const claudeUserIsRealAck = (() => {
-    if (!latestClaudeUser) return false;
-    const content = latestClaudeUser.content;
-    if (typeof content === "string") return content.trim().length > 0;
-    if (!Array.isArray(content)) return false;
-    return (content as Array<{ type?: string }>).some(
-      (b) => b.type === "text",
-    );
-  })();
+  const claudeUserIsRealAck = isGenuineUserPromptMessage(latestClaudeUser);
   if (session.awaitingToolLoopUserAck) {
     if (claudeUserIsRealAck && latestClaudeUserHash !== session.toolLoopAckAnchorUserHash) {
       session.awaitingToolLoopUserAck = false;
@@ -9120,6 +9132,7 @@ app.post("/v1/messages", async (req, reply) => {
   if (
     claudeExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
     || claudeExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
+    || claudeExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }

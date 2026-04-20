@@ -12,7 +12,7 @@ export type ToolProgressMessage = {
   content: unknown;
   name?: string;
   tool_call_id?: string;
-  tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }>;
+  tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown }; name?: string; input?: unknown }>;
 };
 
 export interface ToolProgressDetectorOptions {
@@ -67,6 +67,59 @@ function resolveToolNameFromCallId(messages: ToolProgressMessage[], toolCallId: 
   return "";
 }
 
+function parseJsonObjectLoose(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function commandFromToolInput(input: unknown): string {
+  if (typeof input === "string") {
+    const parsed = parseJsonObjectLoose(input);
+    if (parsed) return commandFromToolInput(parsed);
+    return input.replace(/\s+/g, " ").trim().slice(0, 512);
+  }
+  if (!input || typeof input !== "object") return "";
+  const row = input as Record<string, unknown>;
+  for (const key of ["command", "cmd", "script"]) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.replace(/\s+/g, " ").trim().slice(0, 512);
+    }
+  }
+  const globPattern = row.glob_pattern;
+  if (typeof globPattern === "string" && globPattern.trim()) {
+    return `glob:${globPattern.replace(/\s+/g, " ").trim().slice(0, 256)}`;
+  }
+  const path = row.path ?? row.dir ?? row.directory;
+  if (typeof path === "string" && path.trim()) {
+    return `path:${path.replace(/\s+/g, " ").trim().slice(0, 256)}`;
+  }
+  return "";
+}
+
+function resolveToolCommandFromCallId(messages: ToolProgressMessage[], toolCallId: string): string {
+  if (!toolCallId) return "";
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== "assistant" || !Array.isArray(message.tool_calls)) continue;
+    const call = message.tool_calls.find((c) => typeof c?.id === "string" && c.id === toolCallId);
+    if (!call) continue;
+    const fromFunctionArgs = commandFromToolInput(call.function?.arguments);
+    if (fromFunctionArgs) return fromFunctionArgs;
+    const fromInput = commandFromToolInput(call.input);
+    if (fromInput) return fromInput;
+  }
+  return "";
+}
+
 export function detectToolProgress(
   session: ToolProgressSessionState,
   messages: ToolProgressMessage[],
@@ -89,9 +142,12 @@ export function detectToolProgress(
     const toolCallId = typeof latest.tool_call_id === "string" ? latest.tool_call_id : "";
     return resolveToolNameFromCallId(messages, toolCallId);
   })();
+  const latestToolCallId = typeof latest.tool_call_id === "string" ? latest.tool_call_id : "";
+  const latestToolCommand = resolveToolCommandFromCallId(messages, latestToolCallId);
+  const isWriteProgressTool = WRITE_PROGRESS_TOOL_NAMES.has(latestToolName);
 
   // Treat successful write/edit outputs as progress even if output text repeats.
-  if (WRITE_PROGRESS_TOOL_NAMES.has(latestToolName) && signal && !failureSignal) {
+  if (isWriteProgressTool && signal && !failureSignal) {
     const hash = crypto.createHash("sha256").update(signal).digest("hex");
     session.lastToolSignalHash = hash;
     session.stagnantToolCycles = 0;
@@ -99,7 +155,9 @@ export function detectToolProgress(
   }
 
   const hashSource = failureSignal
-    ? `failure:${latestToolName || "unknown_tool"}`
+    ? isWriteProgressTool
+      ? `failure:${latestToolName || "unknown_tool"}`
+      : `failure:${latestToolName || "unknown_tool"}:${latestToolCommand || "unknown_command"}:${signal.slice(0, 1200)}`
     : signal;
   const hash = crypto.createHash("sha256").update(hashSource).digest("hex");
 
