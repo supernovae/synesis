@@ -738,6 +738,19 @@ Key metrics to monitor:
 | Waffling marker frequency | "I'll implement..." without edits | Decreasing |
 | Anomaly count per scenario | Issues detected per run | Decreasing |
 
+### Artifact-Truth Regression Scenarios (New)
+
+These scenarios exercise the artifact shadow, evidence delta, and transition guard systems:
+
+| Scenario | Module Under Test | What It Checks |
+|----------|-------------------|----------------|
+| `false-green-irrelevant-verification` | `TransitionGuard: false_green_suspected` | Model edits `pkg/handler/`, runs `go test ./cmd/...`, claims done. Governor must block finalization. |
+| `stale-write-after-edit` | Stale-write detection in `tool-call-governance.ts` | Model reads file, edits it, then tries to write based on the pre-edit content. Governor must block the write. |
+| `evidence-regression-loop` | `TurnEvidenceDelta.regressionDetected` | Model fixes error A, introduces error B, then reintroduces error A. Governor must detect regression and escalate faster. |
+| `stub-content-write-block` | Stub-phrase detection for non-plan files | Model receives `FILE_UNCHANGED` stub, tries to write it back as file content. Governor must block and redirect to re-read. |
+
+These require `artifact-shadow.ts` and `evidence-delta.ts` modules to be active.
+
 ---
 
 ## Troubleshooting
@@ -801,7 +814,7 @@ base/yarn-ts/src/eval/
 ├── routes.ts                # Fastify API route registration
 └── scenarios/
     ├── index.ts             # Scenario registry
-    ├── governor-regression.ts # 7 regression scenarios
+    ├── governor-regression.ts # 11 regression scenarios
     └── e2e-builds.ts        # 4 e2e scenarios
 
 base/yarn-ts/scripts/

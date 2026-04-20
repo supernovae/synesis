@@ -34,6 +34,7 @@ export interface ExecutionGovernorDecision {
     hasPlanEdit?: boolean;
     planReadCount?: number;
     planCachedRereadCount?: number;
+    activeGuards?: TransitionGuard[];
   };
 }
 
@@ -45,6 +46,81 @@ export interface CommandEvent {
 }
 
 export type SessionPhase = "explore" | "edit" | "verify" | "report" | "finalize";
+
+export type TransitionGuard =
+  | "needs_fresh_read"
+  | "partial_context"
+  | "needs_relevant_verification"
+  | "false_green_suspected"
+  | "completion_blocked";
+
+type ArtifactShadowView = ReadonlyMap<string, { stale: boolean; completeness: "full" | "partial"; readReturnedContent: boolean }>;
+
+/**
+ * Compute active transition guards from artifact shadows and verification scope.
+ */
+export function computeTransitionGuards(
+  changedFiles: readonly string[],
+  verificationCommands: readonly CommandEvent[],
+  sawVerificationSuccess: boolean,
+  sawVerificationFailure: boolean,
+  artifactShadows?: ArtifactShadowView,
+): TransitionGuard[] {
+  const guards: TransitionGuard[] = [];
+  if (!artifactShadows || artifactShadows.size === 0) return guards;
+
+  for (const f of changedFiles) {
+    const normalized = f.replace(/\\/g, "/");
+    for (const [path, shadow] of artifactShadows) {
+      if (path.endsWith(normalized) || normalized.endsWith(path.split("/").pop() ?? "\0")) {
+        if (shadow.stale) guards.push("needs_fresh_read");
+        if (shadow.completeness === "partial") guards.push("partial_context");
+        break;
+      }
+    }
+  }
+
+  if (changedFiles.length > 0 && sawVerificationSuccess && !sawVerificationFailure) {
+    const lastVerif = verificationCommands.length > 0
+      ? verificationCommands[verificationCommands.length - 1]
+      : null;
+    if (lastVerif && !verificationScopeCoversChangedFiles(lastVerif.command, changedFiles)) {
+      guards.push("needs_relevant_verification");
+      guards.push("false_green_suspected");
+    }
+  }
+
+  if (guards.length > 0) {
+    const hasBlocker = guards.includes("needs_fresh_read")
+      || guards.includes("false_green_suspected");
+    if (hasBlocker) guards.push("completion_blocked");
+  }
+
+  return [...new Set(guards)];
+}
+
+/**
+ * Check whether a verification command's scope covers the changed files.
+ * Heuristic: extract the package/directory scope from common test runners
+ * and check for path-prefix intersection.
+ */
+function verificationScopeCoversChangedFiles(
+  command: string,
+  changedFiles: readonly string[],
+): boolean {
+  if (changedFiles.length === 0) return true;
+  const scopeMatch = command.match(
+    /(?:go\s+test|pytest|vitest|jest|npm\s+test|cargo\s+test)\s+(\S+)/i,
+  );
+  if (!scopeMatch) return true;
+  let scope = scopeMatch[1].replace(/^\.\//, "").replace(/\/\.\.\.$/, "");
+  if (scope === "." || scope === "./..." || scope === "...") return true;
+  scope = scope.replace(/\\/g, "/");
+  return changedFiles.some((f) => {
+    const n = f.replace(/\\/g, "/");
+    return n.includes(scope) || scope.includes(n.replace(/\/[^/]+$/, ""));
+  });
+}
 
 /**
  * Single source of truth for command patterns that count as "verification"
@@ -322,6 +398,8 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "broad_to_narrow_verification",
     "edit_before_retest",
     "no_repeat_without_change",
+    // Transition guards
+    "false_green_suspected",
     // Progress / workflow
     "no_progress_loop",
     "verbal_intent_without_action",
@@ -362,6 +440,8 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "completion_claim_requires_task_update",
     "git_commit_followthrough",
     "repeat_user_prompt_loop",
+    // Transition guards
+    "false_green_suspected",
   ]),
 };
 
@@ -371,6 +451,7 @@ function isRuleAllowedInPhase(rule: string, phase: SessionPhase): boolean {
 
 // Explicit precedence for multi-rule matches. Highest priority appears first.
 const RULE_PRIORITY_ORDER = [
+  "false_green_suspected",
   "finalize_action_required",
   "verification_after_completion_claim",
   "completion_claim_requires_task_update",
@@ -1219,6 +1300,10 @@ export interface ExecutionGovernorOptions {
   profile?: GovernanceProfileName;
   activePlanStage?: string | null;
   editContextMissActive?: boolean;
+  /** Per-file artifact shadows from FileSnapshotRegistry for stale/partial detection. */
+  artifactShadows?: ReadonlyMap<string, { stale: boolean; completeness: "full" | "partial"; readReturnedContent: boolean }>;
+  /** Model family for dynamic threshold adjustment (e.g. "qwen", "claude", "gpt"). */
+  modelFamily?: string;
 }
 
 export function evaluateExecutionGovernor(
@@ -1266,7 +1351,18 @@ export function evaluateExecutionGovernor(
   const hasCompletionClaim = hasActiveCompletionClaim(messages);
   // Full-turn claim: any completion text in the entire turn (for phase-independent rules)
   const hasTurnCompletionClaim = hasCompletionClaimInAssistantText(turnMessages);
-  const sessionPhase = detectSessionPhase(events, latestUserText, changedFiles, hasCompletionClaim);
+  let sessionPhase = detectSessionPhase(events, latestUserText, changedFiles, hasCompletionClaim);
+  const verificationEvents = events.filter((e) => isVerificationLike(e.toolName, e.command));
+  const sawAnyVerificationSuccess = verificationEvents.some((e) => hasSuccessSignature(e.resultSignature) || !e.resultSignature);
+  const sawAnyVerificationFailure = verificationEvents.some((e) => hasFailureSignature(e.resultSignature));
+  const activeGuards = computeTransitionGuards(
+    changedFiles, verificationEvents,
+    sawAnyVerificationSuccess, sawAnyVerificationFailure,
+    opts.artifactShadows,
+  );
+  if (sessionPhase === "finalize" && activeGuards.includes("false_green_suspected")) {
+    sessionPhase = "verify";
+  }
   const matchedRules: string[] = [];
   const pushRule = (rule: string) => {
     if (isRuleAllowedInPhase(rule, sessionPhase)) matchedRules.push(rule);
@@ -1772,6 +1868,10 @@ export function evaluateExecutionGovernor(
   matchedRules.length = 0;
   matchedRules.push(...prioritized);
 
+  if (activeGuards.includes("false_green_suspected")) {
+    pushRule("false_green_suspected");
+  }
+
   if (matchedRules.length === 0) {
     return {
       pause: false,
@@ -1789,6 +1889,29 @@ export function evaluateExecutionGovernor(
         trailingExplorationRunLength,
         hasPlanInContext,
         hasPlanEdit,
+        activeGuards: activeGuards.length > 0 ? activeGuards : undefined,
+      },
+    };
+  }
+
+  if (matchedRules.includes("false_green_suspected")) {
+    const changedList = changedFiles.slice(0, 5).join(", ");
+    return {
+      pause: true,
+      reason: "false_green_suspected",
+      suggestedNextStep:
+        `Your verification passed but may not cover the files you changed (${changedList}). Run a targeted test that exercises the changed code before claiming completion.`,
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        activeGuards,
       },
     };
   }

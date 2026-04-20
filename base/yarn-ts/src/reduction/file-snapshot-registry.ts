@@ -215,6 +215,11 @@ export class FileSnapshotRegistry {
   size(): number {
     return this.byPath.size;
   }
+
+  /** Iterate over all snapshot records (for artifact shadow projection). */
+  records(): IterableIterator<FileSnapshotRecord> {
+    return this.byPath.values();
+  }
 }
 
 export function isUnchangedHint(raw: string): boolean {

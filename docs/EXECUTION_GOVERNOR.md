@@ -97,12 +97,44 @@ with compact stubs:
   content. Do NOT re-read it."
 - Third+ re-read: `<FILE_READ_BLOCKED ... />` + hard block message
 
+### Artifact-truth governance
+
+The governor consults `FileSnapshotRegistry` via `ArtifactReadShadow` to
+detect stale-read, partial-context, and stale-write conditions. This
+goes beyond transcript-pattern matching: the governor knows whether the
+model's last read of a file returned actual content or a dedup stub, and
+whether the file has been edited since.
+
+Write/edit tool calls that target stale or stub-only files are blocked
+with a synthetic error directing the model to re-read first.
+
+### Evidence progression
+
+`TurnEvidenceDelta` replaces the previous `evidence_delta: "unknown"`
+placeholder. The governor compares consecutive failure signatures,
+counts error lines, detects regressions (a previously-resolved signature
+reappearing), and classifies progress as improved/changed/stalled/regressed.
+
+Evidence delta modulates the recovery streak: improvements decrement
+faster, regressions escalate faster toward hard stop.
+
+### Verification relevance
+
+`Verify → Finalize` is now gated on the verification command's scope
+actually covering the changed files. When the model edits `pkg/handler/`
+but runs `go test ./cmd/...`, the governor detects `false_green_suspected`
+and demotes the phase back to verify with guidance to run a targeted test.
+
 ### Tool removal during stalls
 
 When `exploration_stall_no_edit`, `no_progress_loop`, or
 `verbal_intent_without_action` fires, the governor removes read/search
 tools from the tool list: `read_file`, `read`, `search`, `grep`, `find`,
 `list_dir`, `list_files`. The model physically cannot call them.
+
+Per-rule recovery allowlists can override category-level deny sets for
+key rules (e.g. `edit_failure_replay` permits `read` + `edit` with a
+`required_first: "read"` constraint).
 
 ### Proactive file manifest
 
@@ -112,11 +144,13 @@ This gives the model awareness of what it has without needing to re-read.
 
 ## Hard stop escalation
 
-The governor uses a 5-tier escalation:
+The governor uses a 7-tier escalation (threshold configurable):
 
 1. **Fire 1**: Inject recovery guidance as system message, restrict tools
 2. **Fire 2–4**: Progressively stronger guidance, more tools removed
-3. **Fire 5**: Hard stop — return a soft-fail response telling the model
+3. **Fire 5–6**: Evidence delta modulates speed: regression adds +2 per
+   fire, stalled adds +1, improvement subtracts -2
+4. **Fire 7+**: Hard stop — return a soft-fail response telling the model
    to act on what it has or report to the user
 
 The hard stop includes the `FILES_ALREADY_READ` manifest so the model
@@ -150,7 +184,12 @@ different rules apply in different execution phases, replacing the flat
 
 | File | Role |
 |------|------|
-| `base/yarn-ts/src/governance/execution-governor.ts` | Rule evaluation, phase detection, recovery generation |
+| `base/yarn-ts/src/governance/execution-governor.ts` | Rule evaluation, phase detection, transition guards, recovery generation |
+| `base/yarn-ts/src/governance/artifact-shadow.ts` | `ArtifactReadShadow` type, `buildArtifactShadows` from registry |
+| `base/yarn-ts/src/governance/evidence-delta.ts` | `TurnEvidenceDelta`, `computeEvidenceDelta`, streak adjustment |
 | `base/yarn-ts/src/index.ts` | Governor integration, hard stop, tool restriction |
 | `base/yarn-ts/src/reduction/content-addressed-dedup.ts` | File read dedup, FILES_ALREADY_READ |
-| `base/yarn-ts/tests/execution-governor.test.ts` | 84+ test cases |
+| `base/yarn-ts/src/path-governance/tool-call-governance.ts` | Stale-write detection, stub-content blocking |
+| `base/yarn-ts/tests/execution-governor.test.ts` | 181+ test cases |
+| `base/yarn-ts/tests/artifact-shadow.test.ts` | Artifact shadow unit tests |
+| `base/yarn-ts/tests/evidence-delta.test.ts` | Evidence delta unit tests |

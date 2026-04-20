@@ -32,6 +32,12 @@ Plain text hard-stop guidance is useful for humans, but clients need machine-rea
   "recovery_attempts_used": 5,
   "hard_stop_threshold": 5,
   "next_automatic_step_allowed": false,
+  "evidence_delta": "stalled",
+  "active_guards": ["false_green_suspected"],
+  "artifact_context": {
+    "stale_files": ["src/handler.go"],
+    "partial_files": []
+  },
   "next_actions": [
     {
       "id": "run_targeted_test",
@@ -61,6 +67,16 @@ Plain text hard-stop guidance is useful for humans, but clients need machine-rea
   "resume_hint": "Reply with action id and optional arguments, for example: run_targeted_test command=\"go test ./cmd/synesis -run TestRunCompletion -v\""
 }
 ```
+
+### New fields (v2)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `evidence_delta` | `"improved" \| "changed" \| "stalled" \| "regressed" \| "unknown"` | Evidence progression state at pause time |
+| `active_guards` | `string[]` | Transition guards that contributed to the pause (e.g. `["false_green_suspected"]`) |
+| `artifact_context` | `{ stale_files: string[], partial_files: string[] }` | Files with stale or incomplete reads at pause time |
+
+These fields are populated from `TurnEvidenceDelta`, `TransitionGuard`, and `ArtifactReadShadow` respectively.
 
 ## Transport placement
 

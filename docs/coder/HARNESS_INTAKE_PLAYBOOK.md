@@ -29,6 +29,8 @@ Only ship candidates that are `high/medium transferability`, `S/M effort`, and h
 | 9 | Request-forensics cache/effective-input KPIs | Evals & observability playbooks | `telemetry/request-forensics.ts` | S | token_efficiency |
 | 10 | Replay-first rollout for guardrails | SWE-bench/OpenHands eval practice | `tests/*replay*`, `tests/*guardrail*` | M | safety,success_rate |
 | 11 | Governor telemetry on every evaluation | Internal loop analysis | `telemetry/decision-snapshot.ts`, `index.ts` | S | token_efficiency,safety |
+| 12 | Artifact-truth shadow for all file reads | Governor audit (internal) | `governance/artifact-shadow.ts` | M | success_rate,safety |
+| 13 | Structured evidence-delta for retry budgets | Governor audit (internal) | `governance/evidence-delta.ts` | M | success_rate,token_efficiency |
 
 ## Standard Adoption Workflow
 

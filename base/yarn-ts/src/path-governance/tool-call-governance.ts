@@ -7,6 +7,7 @@ import {
 import { canonicalValidationToolName } from "../tool-aliases.js";
 import {
   validatePlanWriteContent,
+  containsStubPhrase,
   hashContent,
   type PlanContentShadow,
   type PlanWriteValidationResult,
@@ -27,6 +28,12 @@ export interface GovernToolCallOptions {
   blockBroadVerificationForGreen?: boolean;
   blockVerificationForFailure?: boolean;
   planContentShadow?: PlanContentShadow | null;
+  /** Per-file artifact shadows for stale-write detection on non-plan files. */
+  artifactShadows?: ReadonlyMap<string, { stale: boolean; canonicalPath: string }>;
+  /** Current turn index for edit-turn tracking. */
+  currentTurnIndex?: number;
+  /** Callback to record an edit turn for artifact shadow staleness. */
+  onEditTurn?: (canonicalPath: string, turnIndex: number) => void;
 }
 
 export interface PlanWriteAuditRecord {
@@ -50,6 +57,16 @@ export interface GovernedToolCall {
   blockedBashDrift: boolean;
   validationMissing: string[];
   planWriteAudit?: PlanWriteAuditRecord;
+  blockedStaleWrite?: boolean;
+  blockedStubContent?: boolean;
+}
+
+const WRITE_CAPABLE_LOGICAL = new Set([
+  "Write", "Edit", "Update", "MultiEdit", "FileWrite", "ApplyPatch", "StrReplace",
+]);
+
+function isPlanPath(filePath: string): boolean {
+  return /\.claude\/plans\//.test(filePath);
 }
 
 /** One-line JSON on stderr + exit 2 — parseable by agents (schema_version bumps are breaking). */
@@ -197,6 +214,44 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
       out.input = bashPlanCheck.replacement.input;
       out.blockedWriteCapable = true;
       return out;
+    }
+  }
+
+  const isWriteTool = WRITE_CAPABLE_LOGICAL.has(logicalName);
+  if (isWriteTool) {
+    const writePath = typeof out.input.file_path === "string" ? out.input.file_path.trim()
+      : typeof out.input.path === "string" ? out.input.path.trim() : "";
+    const writeContent = typeof out.input.content === "string" ? out.input.content
+      : typeof out.input.new_string === "string" ? out.input.new_string : "";
+    if (writeContent && !isPlanPath(writePath)) {
+      const stubPhrase = containsStubPhrase(writeContent);
+      if (stubPhrase) {
+        const msg = `[Write blocked: stub content detected]\nThe proposed write contains metadata/stub content ("${stubPhrase}") instead of actual file content. Re-read the file with Read(${writePath}) to get the current content, then retry your edit.`;
+        out.toolName = `Synesis_Error_StubContentWrite`;
+        out.input = { synesis_error: true, reason: "stub_content_detected", detail: stubPhrase, message: msg, retryable: true };
+        out.blockedStubContent = true;
+        return out;
+      }
+    }
+    if (writePath && opts.artifactShadows) {
+      const normalizedWritePath = writePath.replace(/\\/g, "/");
+      for (const [, shadow] of opts.artifactShadows) {
+        const shadowBase = shadow.canonicalPath.replace(/\\/g, "/");
+        if (shadowBase.endsWith(normalizedWritePath) || normalizedWritePath.endsWith(shadowBase.split("/").pop() ?? "\0")) {
+          if (shadow.stale) {
+            const msg = `[Write blocked: stale context]\nThe file "${writePath}" has been edited since your last read. Re-read it with Read(${writePath}) to get the current content, then retry your edit.`;
+            out.toolName = `Synesis_Error_StaleWrite`;
+            out.input = { synesis_error: true, reason: "stale_context_write", path: writePath, message: msg, retryable: true };
+            out.blockedStaleWrite = true;
+            return out;
+          }
+          break;
+        }
+      }
+    }
+    if (writePath && opts.onEditTurn && opts.currentTurnIndex !== undefined) {
+      const resolvedPath = path.isAbsolute(writePath) ? writePath : path.resolve(opts.shellCwd || opts.projectRoot || "", writePath);
+      opts.onEditTurn(resolvedPath.replace(/\\/g, "/"), opts.currentTurnIndex);
     }
   }
 

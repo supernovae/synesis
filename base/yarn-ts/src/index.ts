@@ -203,6 +203,9 @@ import {
   type PhaseAwareToolChoice,
 } from "./governance/phase-execution-policy.js";
 import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
+import { buildArtifactShadows, summarizeArtifactContext } from "./governance/artifact-shadow.js";
+import { computeEvidenceDelta, summarizeEvidenceDelta, evidenceDeltaStreakAdjustment } from "./governance/evidence-delta.js";
+import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
@@ -226,6 +229,14 @@ type SessionState = {
   editReplayHardStopGraceUsed: boolean;
   editMissForceReadPending: boolean;
   lastGovernorPhase?: import("./governance/execution-governor.js").SessionPhase;
+  /** Per-file edit-turn tracking for artifact shadow staleness. */
+  artifactEditTurns: Map<string, number>;
+  /** All distinct failure signatures observed in this session. */
+  seenFailureSignatures: Set<string>;
+  /** The failure signature from the previous governor evaluation. */
+  previousFailureSignature: string | null;
+  /** Latest computed evidence delta for training signal export. */
+  lastEvidenceDelta: TurnEvidenceDelta | null;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -3104,6 +3115,10 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     consecutiveEditContextMisses: 0,
     editReplayHardStopGraceUsed: false,
     editMissForceReadPending: false,
+    artifactEditTurns: new Map(),
+    seenFailureSignatures: new Set(),
+    previousFailureSignature: null,
+    lastEvidenceDelta: null,
   };
   sessions.set(key, state);
   return state;
@@ -3778,8 +3793,8 @@ function persistSessionAndUsage(
         governor_rules: snapshot?.governor?.matchedRules ?? [],
         no_edit_evidence: snapshot?.governor?.telemetry?.noEditEvidence ?? false,
         trailing_verification_stall: (snapshot?.governor?.telemetry?.trailingVerificationRunLength ?? 0) >= 3,
-        false_green_detected: false,
-        evidence_delta: "unknown",
+        false_green_detected: snapshot?.governor?.telemetry?.activeGuards?.includes("false_green_suspected") ?? false,
+        evidence_delta: summarizeEvidenceDelta(state.lastEvidenceDelta),
       },
     },
   });
@@ -6361,6 +6376,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiCommandLoop = analyzeRecentCommandLoop(
     normalizedOpenAI.messages as Array<ToolLoopMessage>,
   );
+  const oaiArtifactShadows = buildArtifactShadows(
+    getFileSnapshotRegistry(sessionKey),
+    session.artifactEditTurns,
+  );
   let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
@@ -6373,6 +6392,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             || oaiLatestToolProgress.hasRecentEditContextMiss
             || session.editMissForceReadPending
             || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
+          artifactShadows: oaiArtifactShadows,
         },
       );
       govSpan.setAttribute("governor.pause", decision.pause);
@@ -6680,7 +6700,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         },
       );
     } else {
-      session.consecutiveRecoveryFires += 1;
+      const oaiStreakAdj = evidenceDeltaStreakAdjustment(session.lastEvidenceDelta);
+      session.consecutiveRecoveryFires += Math.max(1, 1 + Math.max(0, oaiStreakAdj));
     }
     const HARD_STOP_THRESHOLD = 7;
     const oaiEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
@@ -9086,6 +9107,10 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeCommandLoop = analyzeRecentCommandLoop(
     normalizedFromClaude.messages as Array<ToolLoopMessage>,
   );
+  const claudeArtifactShadows = buildArtifactShadows(
+    getFileSnapshotRegistry(claudeSessionKey),
+    session.artifactEditTurns,
+  );
   let claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
@@ -9098,6 +9123,7 @@ app.post("/v1/messages", async (req, reply) => {
             || claudeLatestToolProgress.hasRecentEditContextMiss
             || session.editMissForceReadPending
             || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
+          artifactShadows: claudeArtifactShadows,
         },
       );
       govSpan.setAttribute("governor.pause", decision.pause);
@@ -9405,7 +9431,8 @@ app.post("/v1/messages", async (req, reply) => {
         },
       );
     } else {
-      session.consecutiveRecoveryFires += 1;
+      const claudeStreakAdj = evidenceDeltaStreakAdjustment(session.lastEvidenceDelta);
+      session.consecutiveRecoveryFires += Math.max(1, 1 + Math.max(0, claudeStreakAdj));
     }
     const HARD_STOP_THRESHOLD = 7;
     const claudeEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);

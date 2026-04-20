@@ -394,21 +394,109 @@ Re-read the plan file with Read({path}) to get the current content, then retry y
 | `tests/plan-content-shadow.test.ts` | Unit tests for shadow module |
 | `tests/path-governance.test.ts` | Integration tests for plan write governance |
 
-## Known Gaps and Roadmap
+## Artifact Shadow Governance
 
-These are identified gaps from the governor audit. Each is a planned future improvement:
+The governor now consults an **ArtifactReadShadow** for every file the model has interacted with, not just plan files. This bridges `FileSnapshotRegistry` (which already tracks per-file content hashes, completeness, and turn indices) into the governor's decision path.
+
+### ArtifactReadShadow
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `canonicalPath` | string | Absolute resolved file path |
+| `contentHash` | string | SHA-256 content hash from last read |
+| `contentLength` | number | Byte length of last read content |
+| `completeness` | `"full" \| "partial"` | Whether the model read the entire file or a line range |
+| `lastReadTurn` | number | Turn index of the last real (non-stub) read |
+| `lastEditTurn` | number? | Turn index of the last write/edit to this path |
+| `readReturnedContent` | boolean | False when last read returned a dedup stub, not content |
+| `stale` | boolean | True when file was edited after the last real read |
+
+### Stale-Write and Stub-Content Detection
+
+When a write/edit tool targets a file with `stale: true`, `governToolCall` blocks the write with a synthetic error directing the model to re-read. Non-plan file writes are also checked for known stub phrases (`FILE_UNCHANGED`, `SYNESIS_TOOL_GUARDRAIL`, etc.).
+
+### Protection Parity (Plan vs Non-Plan)
+
+| Protection | Plan files | Non-plan files |
+|---|---|---|
+| Content shadow (hash, length, last read) | `PlanContentShadow` | `ArtifactReadShadow` via `FileSnapshotRegistry` |
+| Stub phrase blocking on write | Yes | Yes |
+| Size regression check | Yes (< 30% of shadow) | No |
+| Stale-read detection before write | Yes | Yes |
+| Read-returned-content tracking | Yes (annotations) | Yes (`readReturnedContent` flag) |
+
+### Implementation Files
+
+| File | Role |
+|------|------|
+| `src/governance/artifact-shadow.ts` | `ArtifactReadShadow` type, `buildArtifactShadows`, `summarizeArtifactContext` |
+| `src/path-governance/tool-call-governance.ts` | Stale-write detection, stub-content blocking for non-plan writes |
+| `tests/artifact-shadow.test.ts` | Unit tests for shadow projection and staleness |
+
+## Evidence Delta Tracking
+
+The governor computes a structured **TurnEvidenceDelta** on each evaluation, replacing the previous `evidence_delta: "unknown"` placeholder in training signals.
+
+### TurnEvidenceDelta Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `previousFailureSignature` | string? | Normalized failure signature from the previous turn |
+| `currentFailureSignature` | string? | Normalized failure signature from this turn |
+| `signatureChanged` | boolean | Whether the failure signature changed between turns |
+| `failureCountDelta` | number | Change in error line count (negative = improvement) |
+| `seenSignatures` | `Set<string>` | All distinct failure signatures seen this session |
+| `regressionDetected` | boolean | Current signature matches a previously-resolved one |
+
+### Recovery Streak Modulation
+
+| Condition | Streak adjustment | Rationale |
+|-----------|-------------------|-----------|
+| `failureCountDelta < 0` | -2 | Real progress toward green |
+| `newArtifactCreated` | -1 | Test file created |
+| `signatureChanged`, count same or higher | 0 (hold) | Different problem, not improvement |
+| Same failure replayed | +1 | No progress |
+| `regressionDetected` | +2 | Going backward |
+
+### Training Signal Export
+
+`training_signals.evidence_delta` now exports: `"improved"`, `"changed"`, `"stalled"`, `"regressed"`, or `"unknown"`.
+
+### Implementation Files
+
+| File | Role |
+|------|------|
+| `src/governance/evidence-delta.ts` | `TurnEvidenceDelta`, `computeEvidenceDelta`, `summarizeEvidenceDelta`, `evidenceDeltaStreakAdjustment` |
+| `tests/evidence-delta.test.ts` | Unit tests for delta computation, summary, and streak adjustment |
+
+## Transition Guards
+
+Transition guards gate phase transitions without adding new phases to the FSM.
+
+| Guard | Trigger | Effect |
+|-------|---------|--------|
+| `needs_fresh_read` | Edited file has `stale: true` | Blocks premature completion |
+| `partial_context` | Edited file has `completeness: "partial"` | Warns about incomplete view |
+| `needs_relevant_verification` | Verification scope doesn't intersect changed files | Blocks finalization |
+| `false_green_suspected` | Green verification + irrelevant scope | Demotes `finalize` to `verify` |
+| `completion_blocked` | Any blocking guard active | Prevents completion claim |
+
+When `false_green_suspected` is active, `detectSessionPhase` demotes `finalize` back to `verify` and fires the `false_green_suspected` rule. Guards are exposed in `telemetry.activeGuards` and `training_signals.false_green_detected`.
+
+## Known Gaps and Roadmap
 
 | Gap | Description | Status |
 |-----|-------------|--------|
-| Result classification blind spots | Missing classifiers for environment blockers, false-green states; `isVerificationCommand` does not cover tsc/make/bazel/mypy | Planned |
-| Evidence progression tracking | No `TurnEvidenceDelta` computation; cannot detect "retries with no new evidence" | Planned |
+| Result classification blind spots | Missing classifiers for environment blockers; `isVerificationCommand` does not cover tsc/make/bazel/mypy | Planned |
+| Evidence progression tracking | `TurnEvidenceDelta` with `seenSignatures` and regression detection | **Shipped** |
 | Retry budgets by failure class | No per-class counters (compile, test, env, false-green) with exhaustion triggers | Planned |
 | Contradiction-triggered re-plan | No detection when plan assumes a file/module exists but it does not | Planned |
-| Artifact-presence checks | No structured check for test files, migrations, configs before verification | Planned |
+| Artifact-presence checks | `ArtifactReadShadow` with stale-write and stub-content blocking | **Shipped** |
+| False-green detection | `TransitionGuard: false_green_suspected` blocks `Verify → Finalize` on irrelevant green | **Shipped** |
 | Structured step-state schema | No `StepVerdict` type integrated with PlanGraph nodes | Planned |
 | Targeted verification | Recovery blocks do not include the exact narrowed command from `suggestScopedVerificationCommand` | Planned |
 | LLM verifier evaluation | Evaluate whether ambiguous classifications warrant a lightweight LLM verifier pass | Planned |
-| Expanded telemetry export | Internal counters (repeatedFailingVerification, verbalIntentStreak, etc.) not fully surfaced | Planned |
+| Expanded telemetry export | Internal counters not fully surfaced | Planned |
 
 ## Regression Testing with Eval Gym
 

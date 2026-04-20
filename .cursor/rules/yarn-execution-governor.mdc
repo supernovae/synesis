@@ -1,6 +1,6 @@
 ---
 description: Yarn execution governor — phase-aware FSM architecture, rule taxonomy, and regression avoidance
-globs: base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/src/index.ts,base/yarn-ts/tests/execution-governor.test.ts
+globs: base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/src/governance/artifact-shadow.ts,base/yarn-ts/src/governance/evidence-delta.ts,base/yarn-ts/src/index.ts,base/yarn-ts/tests/execution-governor.test.ts,base/yarn-ts/tests/artifact-shadow.test.ts,base/yarn-ts/tests/evidence-delta.test.ts
 alwaysApply: false
 ---
 
@@ -65,6 +65,9 @@ Rules fall into categories. When modifying, respect the phase gates:
 - **`isReadOnlyInvestigationIntent`** — Detects prompts like "scan", "audit", "verify all features", "make sure everything is implemented". Uses two tiers: strong verbs (scan, audit, examine) that always signal investigation, and weak verbs (check, validate, make sure) that require a completeness qualifier (every, all, implemented).
 - **`isProductiveCommand`** — Detects successful builds, tests, binary execution. These earn a threshold bonus on `no_progress_loop` (+1 each, max +4) and cause `consecutiveRecoveryFires` to decrement instead of increment.
 - **`effectiveNoEditEvidence`** — `noEditEvidence && !isInvestigationOnly`. Guards most stall rules. Investigation sessions get `isInvestigationOnly = true`, which disables edit-demanding rules.
+- **`ArtifactReadShadow`** — Per-file governor shadow bridged from `FileSnapshotRegistry`. Tracks `stale` (file edited after last real read), `readReturnedContent` (false when dedup stub), `completeness` (full/partial). Used to block stale-context edits and detect false-green verification.
+- **`TurnEvidenceDelta`** — Structured delta between consecutive failure signatures. Fields: `signatureChanged`, `failureCountDelta`, `regressionDetected`, `seenSignatures`. Modulates recovery streak (improvement = -2, regression = +2).
+- **`TransitionGuard`** — Guards that block phase transitions without adding new states. Values: `needs_fresh_read`, `partial_context`, `needs_relevant_verification`, `false_green_suspected`, `completion_blocked`. The `false_green_suspected` guard demotes `finalize` back to `verify`.
 
 ## Do not
 
@@ -73,6 +76,8 @@ Rules fall into categories. When modifying, respect the phase gates:
 - Reset `consecutiveRecoveryFires` inside the hard stop block — it's already reset there; double-reset masks bugs.
 - Add new rules without a test case that exercises both the fire and no-fire paths.
 - Assume the governor runs between every tool call — it runs between **requests** (Claude Code batches multiple tool calls per request).
+- Allow `Verify → Finalize` without checking that the verification covers the changed files — this enables false-green completion.
+- Treat a dedup stub (`FILE_UNCHANGED`) as equivalent to having file content for edit purposes — the model needs a real read.
 
 ## Testing
 
@@ -85,6 +90,11 @@ Test helpers: `assistantCall(id, toolName, args)`, `toolResult(id, content)` —
 
 ## Files
 
-- [`execution-governor.ts`](base/yarn-ts/src/governance/execution-governor.ts) — Rule evaluation, recovery block generation, tool restrictions
-- [`index.ts`](base/yarn-ts/src/index.ts) — Governor integration: `consecutiveRecoveryFires`, hard stop, recovery injection (both OpenAI and Claude paths)
-- [`execution-governor.test.ts`](base/yarn-ts/tests/execution-governor.test.ts) — 84+ test cases
+- [`execution-governor.ts`](base/yarn-ts/src/governance/execution-governor.ts) — Rule evaluation, phase detection, transition guards, recovery block generation
+- [`artifact-shadow.ts`](base/yarn-ts/src/governance/artifact-shadow.ts) — `ArtifactReadShadow` type, `buildArtifactShadows` projection from `FileSnapshotRegistry`
+- [`evidence-delta.ts`](base/yarn-ts/src/governance/evidence-delta.ts) — `TurnEvidenceDelta`, `computeEvidenceDelta`, streak adjustment logic
+- [`index.ts`](base/yarn-ts/src/index.ts) — Governor integration: shadow computation, evidence delta, `consecutiveRecoveryFires`, hard stop
+- [`tool-call-governance.ts`](base/yarn-ts/src/path-governance/tool-call-governance.ts) — Stale-write detection, stub-content blocking for non-plan files
+- [`execution-governor.test.ts`](base/yarn-ts/tests/execution-governor.test.ts) — 181+ test cases
+- [`artifact-shadow.test.ts`](base/yarn-ts/tests/artifact-shadow.test.ts) — Shadow projection unit tests
+- [`evidence-delta.test.ts`](base/yarn-ts/tests/evidence-delta.test.ts) — Evidence delta unit tests
