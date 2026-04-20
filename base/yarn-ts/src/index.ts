@@ -6183,7 +6183,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiCommandLoop = analyzeRecentCommandLoop(
     normalizedOpenAI.messages as Array<ToolLoopMessage>,
   );
-  const oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
+  let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
         normalizedOpenAI.messages as Array<GovernorInputMessage>,
@@ -6230,6 +6230,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
     || oaiExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
   ) {
     session.blockFailingVerificationUntilEdit = true;
+  }
+  const oaiEditMissFailureCount = oaiToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
+  if (oaiEditMissFailureCount >= 2 && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")) {
+    oaiExecutionGovernor = {
+      ...oaiExecutionGovernor,
+      pause: true,
+      reason: "edit_failure_replay",
+      matchedRules: ["edit_failure_replay", ...new Set(oaiExecutionGovernor.matchedRules)],
+      suggestedNextStep:
+        oaiExecutionGovernor.suggestedNextStep
+        ?? "Repeated edit anchor failures detected. Read the file once, choose an exact current anchor, and apply one focused edit. If the behavior is already present, verify and move on.",
+    };
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "execution_governor_edit_miss_override",
+      "execution-governor",
+      `Forced edit_failure_replay due to ${oaiEditMissFailureCount} edit-context-miss failures in current turn`,
+      oaiTraceReqId,
+      { edit_miss_failures: oaiEditMissFailureCount, matched_rules: oaiExecutionGovernor.matchedRules },
+    );
   }
   const oaiLoopObs = deriveGovernorLoopObservability(
     normalizedOpenAI.messages as Array<{ role: string; tool_calls?: unknown }>,
@@ -8768,7 +8790,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeCommandLoop = analyzeRecentCommandLoop(
     normalizedFromClaude.messages as Array<ToolLoopMessage>,
   );
-  const claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
+  let claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
         normalizedFromClaude.messages as Array<GovernorInputMessage>,
@@ -8815,6 +8837,28 @@ app.post("/v1/messages", async (req, reply) => {
     || claudeExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
   ) {
     session.blockFailingVerificationUntilEdit = true;
+  }
+  const claudeEditMissFailureCount = claudeToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
+  if (claudeEditMissFailureCount >= 2 && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")) {
+    claudeExecutionGovernor = {
+      ...claudeExecutionGovernor,
+      pause: true,
+      reason: "edit_failure_replay",
+      matchedRules: ["edit_failure_replay", ...new Set(claudeExecutionGovernor.matchedRules)],
+      suggestedNextStep:
+        claudeExecutionGovernor.suggestedNextStep
+        ?? "Repeated edit anchor failures detected. Read the file once, choose an exact current anchor, and apply one focused edit. If the behavior is already present, verify and move on.",
+    };
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "execution_governor_edit_miss_override",
+      "execution-governor",
+      `Forced edit_failure_replay due to ${claudeEditMissFailureCount} edit-context-miss failures in current turn`,
+      traceReqId,
+      { edit_miss_failures: claudeEditMissFailureCount, matched_rules: claudeExecutionGovernor.matchedRules },
+    );
   }
   const claudeLoopObs = deriveGovernorLoopObservability(
     normalizedFromClaude.messages as Array<{ role: string; tool_calls?: unknown }>,
