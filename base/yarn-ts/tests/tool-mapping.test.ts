@@ -7,6 +7,7 @@ import {
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
   ensureSystemMessagesAtBeginning,
+  coalesceLeadingSystemMessages,
   sanitizeToolCalls,
   openAIMessagesToModelMessages,
 } from "../src/tool-mapping.js";
@@ -320,6 +321,30 @@ describe("ensureSystemMessagesAtBeginning", () => {
 
     const result = ensureSystemMessagesAtBeginning(messages as never);
     expect(result).toBe(messages);
+  });
+});
+
+describe("coalesceLeadingSystemMessages", () => {
+  it("merges multiple leading system messages into one", () => {
+    const messages = [
+      { role: "system", content: "A" },
+      { role: "system", content: "B" },
+      { role: "user", content: "U" },
+    ];
+    const out = coalesceLeadingSystemMessages(messages as never);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ role: "system", content: "A\n\nB" });
+    expect(out[1]).toEqual({ role: "user", content: "U" });
+  });
+
+  it("does not change transcripts with one leading system message", () => {
+    const messages = [
+      { role: "system", content: "A" },
+      { role: "user", content: "U" },
+      { role: "assistant", content: "R" },
+    ];
+    const out = coalesceLeadingSystemMessages(messages as never);
+    expect(out).toEqual(messages);
   });
 });
 

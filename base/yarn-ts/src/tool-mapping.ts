@@ -108,6 +108,29 @@ export function ensureSystemMessagesAtBeginning(messages: OpenAIChatMessage[]): 
 }
 
 /**
+ * Some strict gateways tolerate exactly one leading system message.
+ * Merge contiguous leading system messages into a single equivalent block.
+ */
+export function coalesceLeadingSystemMessages(messages: OpenAIChatMessage[]): OpenAIChatMessage[] {
+  if (messages.length < 2) return messages;
+  const out: OpenAIChatMessage[] = [];
+  const leadingSystem: OpenAIChatMessage[] = [];
+  let idx = 0;
+  while (idx < messages.length && messages[idx]?.role === "system") {
+    leadingSystem.push(messages[idx]!);
+    idx++;
+  }
+  if (leadingSystem.length <= 1) return messages;
+  const merged = leadingSystem
+    .map((m) => normalizeContentToText(m.content))
+    .filter((s) => s.trim().length > 0)
+    .join("\n\n");
+  out.push({ role: "system", content: merged });
+  for (let i = idx; i < messages.length; i++) out.push(messages[i]!);
+  return out;
+}
+
+/**
  * Repair malformed tool_calls in conversation history so strict providers
  * (e.g. DeepInfra) don't reject the request with 422.
  *

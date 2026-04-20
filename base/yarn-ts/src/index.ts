@@ -151,6 +151,7 @@ import {
   claudeMessagesToOpenAI,
   openAIMessagesToModelMessages,
   ensureSystemMessagesAtBeginning,
+  coalesceLeadingSystemMessages,
   sanitizeToolCalls
 } from "./tool-mapping.js";
 import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
@@ -3167,12 +3168,13 @@ function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   try {
     const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER, dashScopeCacheOpts);
     const systemOrdered = ensureSystemMessagesAtBeginning(request.messages as never);
-    const sanitized = sanitizeToolCalls(systemOrdered as never);
+    const systemCoalesced = coalesceLeadingSystemMessages(systemOrdered as never);
+    const sanitized = sanitizeToolCalls(systemCoalesced as never);
     let toolCallsSanitized = false;
     try {
-      toolCallsSanitized = JSON.stringify(systemOrdered) !== JSON.stringify(sanitized);
+      toolCallsSanitized = JSON.stringify(systemCoalesced) !== JSON.stringify(sanitized);
     } catch {
-      toolCallsSanitized = systemOrdered.length !== sanitized.length;
+      toolCallsSanitized = systemCoalesced.length !== sanitized.length;
     }
     const messages = openAIMessagesToModelMessages(sanitized);
     return {
