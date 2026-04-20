@@ -6529,9 +6529,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     const HARD_STOP_THRESHOLD = 7;
     const oaiEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
+    const oaiMatchedTerminalRules = oaiTerminalMatchedRules.filter((rule) => oaiTerminalRules.has(rule));
     const oaiOnlyEditReplayTerminal =
-      oaiTerminalMatchedRules.length > 0
-      && oaiTerminalMatchedRules.every((rule) => oaiEditReplayTerminalRules.has(rule) || rule === "allow");
+      oaiMatchedTerminalRules.length > 0
+      && oaiMatchedTerminalRules.every((rule) => oaiEditReplayTerminalRules.has(rule));
     let oaiGrantedHardStopGrace = false;
     if (
       session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD
@@ -6625,12 +6626,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
       && !oaiExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
       && !oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread")
       && !oaiExecutionGovernor.matchedRules.includes("no_progress_loop");
+    const oaiPreserveReadForReplay =
+      oaiEditMissGuard?.active === true
+      || oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
+      || oaiExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
     const restricted = applyExecutionGovernorToolRestrictions(
       request.tools as unknown[] | undefined,
       oaiExecutionGovernor.matchedRules,
       {
         pureExploration: oaiPureExploration,
-        preserveReadTools: oaiEditMissGuard?.active === true,
+        preserveReadTools: oaiPreserveReadForReplay,
       },
     );
     request.tools = restricted.tools as never;
@@ -9193,9 +9198,10 @@ app.post("/v1/messages", async (req, reply) => {
     }
     const HARD_STOP_THRESHOLD = 7;
     const claudeEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
+    const claudeMatchedTerminalRules = claudeTerminalMatchedRules.filter((rule) => claudeTerminalRules.has(rule));
     const claudeOnlyEditReplayTerminal =
-      claudeTerminalMatchedRules.length > 0
-      && claudeTerminalMatchedRules.every((rule) => claudeEditReplayTerminalRules.has(rule) || rule === "allow");
+      claudeMatchedTerminalRules.length > 0
+      && claudeMatchedTerminalRules.every((rule) => claudeEditReplayTerminalRules.has(rule));
     let claudeGrantedHardStopGrace = false;
     if (
       session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD
@@ -9289,12 +9295,16 @@ app.post("/v1/messages", async (req, reply) => {
       && !claudeExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
       && !claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread")
       && !claudeExecutionGovernor.matchedRules.includes("no_progress_loop");
+    const claudePreserveReadForReplay =
+      claudeEditMissGuard?.active === true
+      || claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
+      || claudeExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
     const restricted = applyExecutionGovernorToolRestrictions(
       body.tools as unknown[] | undefined,
       claudeExecutionGovernor.matchedRules,
       {
         pureExploration: claudePureExploration,
-        preserveReadTools: claudeEditMissGuard?.active === true,
+        preserveReadTools: claudePreserveReadForReplay,
       },
     );
     body.tools = restricted.tools as never;
