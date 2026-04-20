@@ -6006,7 +6006,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
   const oaiEditMissFailureCount = oaiToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
-  if (oaiLatestToolProgress.hasRecentWriteSuccess) {
+  const oaiHasActiveEditMissFailure =
+    oaiEditMissFailureCount > 0
+    || oaiLatestToolProgress.hasRecentEditContextMiss
+    || oaiEditMissGuard?.active === true;
+  if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure) {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveEditContextMisses = 0;
@@ -6015,7 +6019,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   } else if (oaiLatestToolProgress.hasRecentFailure) {
     session.consecutiveEditContextMisses = 0;
   }
-  if (oaiLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
+  if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
     recordSessionEvent(
       sessionKey,
@@ -6446,21 +6450,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "consecutive_edit_failures",
     ]);
     const oaiSuppressCompletionClaimTerminal =
-      oaiEditMissGuard?.active === true
-      || oaiLatestToolProgress.hasRecentEditContextMiss
-      || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss");
+      oaiHasActiveEditMissFailure;
     const oaiTerminalMatchedRules = oaiExecutionGovernor.matchedRules.filter((rule) =>
       !(oaiSuppressCompletionClaimTerminal && rule === "completion_claim_requires_task_update"),
     );
     const oaiHasTerminalRule = oaiTerminalMatchedRules.some((rule) => oaiTerminalRules.has(rule));
     const oaiHasBlockingToolFailure = oaiToolFailures.some((failure) => failure.reason !== "edit_already_applied");
     const oaiHasConcreteProgress =
-      oaiLatestToolProgress.hasRecentWriteSuccess
+      (oaiLatestToolProgress.hasRecentWriteSuccess
+        && !oaiHasActiveEditMissFailure
+        && !oaiHasBlockingToolFailure
+        && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay"))
       || (
         oaiToolProgress.state === "progress"
         && !oaiLatestToolProgress.hasRecentFailure
         && !oaiHasBlockingToolFailure
-        && oaiEditMissGuard?.active !== true
+        && !oaiHasActiveEditMissFailure
+        && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
         && !(oaiSuppressCompletionClaimTerminal && oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread"))
       );
     const oaiShouldHoldRecoveryFire =
@@ -6500,6 +6506,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           has_recent_write_success: oaiLatestToolProgress.hasRecentWriteSuccess,
           has_recent_failure: oaiLatestToolProgress.hasRecentFailure,
           has_blocking_tool_failure: oaiHasBlockingToolFailure,
+          has_active_edit_miss_failure: oaiHasActiveEditMissFailure,
           edit_miss_guard_active: oaiEditMissGuard?.active === true,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
@@ -8623,7 +8630,11 @@ app.post("/v1/messages", async (req, reply) => {
     );
   }
   const claudeEditMissFailureCount = claudeToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
-  if (claudeLatestToolProgress.hasRecentWriteSuccess) {
+  const claudeHasActiveEditMissFailure =
+    claudeEditMissFailureCount > 0
+    || claudeLatestToolProgress.hasRecentEditContextMiss
+    || claudeEditMissGuard?.active === true;
+  if (claudeLatestToolProgress.hasRecentWriteSuccess && !claudeHasActiveEditMissFailure) {
     session.stagnantToolCycles = 0;
     session.lastToolSignalHash = "";
     session.consecutiveEditContextMisses = 0;
@@ -8632,7 +8643,7 @@ app.post("/v1/messages", async (req, reply) => {
   } else if (claudeLatestToolProgress.hasRecentFailure) {
     session.consecutiveEditContextMisses = 0;
   }
-  if (claudeLatestToolProgress.hasRecentWriteSuccess && session.consecutiveRecoveryFires > 0) {
+  if (claudeLatestToolProgress.hasRecentWriteSuccess && !claudeHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
     recordSessionEvent(
       claudeSessionKey,
@@ -9066,21 +9077,23 @@ app.post("/v1/messages", async (req, reply) => {
       "consecutive_edit_failures",
     ]);
     const claudeSuppressCompletionClaimTerminal =
-      claudeEditMissGuard?.active === true
-      || claudeLatestToolProgress.hasRecentEditContextMiss
-      || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss");
+      claudeHasActiveEditMissFailure;
     const claudeTerminalMatchedRules = claudeExecutionGovernor.matchedRules.filter((rule) =>
       !(claudeSuppressCompletionClaimTerminal && rule === "completion_claim_requires_task_update"),
     );
     const claudeHasTerminalRule = claudeTerminalMatchedRules.some((rule) => claudeTerminalRules.has(rule));
     const claudeHasBlockingToolFailure = claudeToolFailures.some((failure) => failure.reason !== "edit_already_applied");
     const claudeHasConcreteProgress =
-      claudeLatestToolProgress.hasRecentWriteSuccess
+      (claudeLatestToolProgress.hasRecentWriteSuccess
+        && !claudeHasActiveEditMissFailure
+        && !claudeHasBlockingToolFailure
+        && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay"))
       || (
         claudeToolProgress.state === "progress"
         && !claudeLatestToolProgress.hasRecentFailure
         && !claudeHasBlockingToolFailure
-        && claudeEditMissGuard?.active !== true
+        && !claudeHasActiveEditMissFailure
+        && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
         && !(claudeSuppressCompletionClaimTerminal && claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread"))
       );
     const claudeShouldHoldRecoveryFire =
@@ -9120,6 +9133,7 @@ app.post("/v1/messages", async (req, reply) => {
           has_recent_write_success: claudeLatestToolProgress.hasRecentWriteSuccess,
           has_recent_failure: claudeLatestToolProgress.hasRecentFailure,
           has_blocking_tool_failure: claudeHasBlockingToolFailure,
+          has_active_edit_miss_failure: claudeHasActiveEditMissFailure,
           edit_miss_guard_active: claudeEditMissGuard?.active === true,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
         },
