@@ -237,6 +237,8 @@ type SessionState = {
   previousFailureSignature: string | null;
   /** Latest computed evidence delta for training signal export. */
   lastEvidenceDelta: TurnEvidenceDelta | null;
+  /** Track incoming message count to detect external (client-side) compaction. */
+  lastIncomingMessageCount: number;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -3119,6 +3121,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     seenFailureSignatures: new Set(),
     previousFailureSignature: null,
     lastEvidenceDelta: null,
+    lastIncomingMessageCount: 0,
   };
   sessions.set(key, state);
   return state;
@@ -3176,6 +3179,7 @@ function maybeCheckpoint(state: SessionState): void {
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
     getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");
+    getContentDedup(state.record.sessionKey).reset();
     svcMetrics.compactionTotal.inc({ type: "sawtooth" });
     svcMetrics.sessionCheckpointTotal.inc();
     const charsAfter = consolidated.summary.length;
@@ -3196,6 +3200,7 @@ async function forceCheckpoint(state: SessionState): Promise<boolean> {
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
     getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");
+    getContentDedup(state.record.sessionKey).reset();
     svcMetrics.compactionTotal.inc({ type: "manual" });
     svcMetrics.sessionCheckpointTotal.inc();
     const charsAfter = consolidated.summary.length;
@@ -5962,6 +5967,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const oaiDedup = getContentDedup(sessionKey);
+    if (session.lastIncomingMessageCount > 0 && oaiMsgCount < session.lastIncomingMessageCount * 0.6) {
+      oaiDedup.reset();
+      getFileSnapshotRegistry(sessionKey).markCompaction("SUMMARY_ONLY");
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "external_compaction_detected", "dedup_reset", `msgs ${session.lastIncomingMessageCount} -> ${oaiMsgCount}`);
+    }
+    session.lastIncomingMessageCount = oaiMsgCount;
     const oaiDedupResult = oaiDedup.processMessages(
       normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
     );
@@ -8757,6 +8768,13 @@ app.post("/v1/messages", async (req, reply) => {
   }
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeDedup = getContentDedup(claudeSessionKey);
+    // Detect external (client-side) compaction: message count dropped significantly
+    if (session.lastIncomingMessageCount > 0 && claudeMsgCount < session.lastIncomingMessageCount * 0.6) {
+      claudeDedup.reset();
+      getFileSnapshotRegistry(claudeSessionKey).markCompaction("SUMMARY_ONLY");
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "external_compaction_detected", "dedup_reset", `msgs ${session.lastIncomingMessageCount} -> ${claudeMsgCount}`);
+    }
+    session.lastIncomingMessageCount = claudeMsgCount;
     const claudeDedupResult = claudeDedup.processMessages(
       normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
     );

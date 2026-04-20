@@ -857,6 +857,10 @@ export function normalizeWorkspaceRelativeFilePath(filePath: string): string {
   p = p.replace(/\\/g, "/");
   p = p.replace(/^\.\/+/, "");
   p = p.replace(/\/{2,}/g, "/");
+  // Fix missing leading slash on absolute-looking paths (common post-compaction hallucination)
+  if (/^(Users|home|root)\//.test(p)) {
+    p = `/${p}`;
+  }
   const preHallucinated = p;
   p = normalizeHallucinatedLinuxWritePath(p);
   const hallucinatedLinuxPathRewritten = preHallucinated !== p;

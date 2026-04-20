@@ -446,6 +446,16 @@ describe("normalizeWorkspaceRelativeFilePath", () => {
       ),
     ).toBe("aws-cost-calculator/main.go");
   });
+
+  it("prepends / when path starts with Users/ (missing leading slash hallucination)", () => {
+    expect(normalizeWorkspaceRelativeFilePath("Users/bymiller/src/synesis-shell/cmd/synesis/ask.go"))
+      .toBe("/Users/bymiller/src/synesis-shell/cmd/synesis/ask.go");
+  });
+
+  it("treats home/user/... as hallucinated linux path and strips to relative", () => {
+    expect(normalizeWorkspaceRelativeFilePath("home/user/project/main.py"))
+      .toBe("project/main.py");
+  });
 });
 
 describe("constrainFileToolPathToProjectRoot", () => {
