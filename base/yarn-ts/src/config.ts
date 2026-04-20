@@ -556,6 +556,10 @@ const EnvSchema = z.object({
     if (!Number.isFinite(v)) return 0.1;
     return Math.min(1, Math.max(0, v));
   }),
+  SYNESIS_YARN_TRANSCRIPT_TRANSFORM_LOG_SAMPLE_RATE: z.coerce.number().default(0.05).transform((v) => {
+    if (!Number.isFinite(v)) return 0.05;
+    return Math.min(1, Math.max(0, v));
+  }),
   // "lightweight" (default): always-on size + prefix-stability metrics, no payload capture.
   // "full": additionally captures payload preview. "off": disabled.
   SYNESIS_YARN_REQUEST_FORENSICS_MODE: z

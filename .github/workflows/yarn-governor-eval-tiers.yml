@@ -51,7 +51,7 @@ jobs:
         run: npm run ci:governor:pr
 
   governor-nightly:
-    name: Governor nightly replay + budget
+    name: Governor nightly replay + budget + swebench
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: self-hosted
     timeout-minutes: 35
@@ -67,10 +67,11 @@ jobs:
           cache: npm
           cache-dependency-path: base/yarn-ts/package-lock.json
 
-      - name: Nightly regression eval + budget
+      - name: Nightly regression + swebench evals
         env:
           SYNESIS_EVAL_TARGET_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
           SYNESIS_EVAL_TARGET_KEY: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
+          SYNESIS_EVAL_BASELINE_JSON: ${{ vars.SYNESIS_EVAL_BASELINE_JSON }}
         run: |
           set -euo pipefail
           if [ -z "${SYNESIS_EVAL_TARGET_URL:-}" ]; then
@@ -79,6 +80,14 @@ jobs:
           fi
           if [ -z "${SYNESIS_EVAL_TARGET_KEY:-}" ]; then
             echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
+            exit 1
+          fi
+          if [ -z "${SYNESIS_EVAL_BASELINE_JSON:-}" ]; then
+            echo "Missing repository variable SYNESIS_EVAL_BASELINE_JSON."
+            exit 1
+          fi
+          if [ ! -f "${SYNESIS_EVAL_BASELINE_JSON}" ]; then
+            echo "Baseline file not found at ${SYNESIS_EVAL_BASELINE_JSON}."
             exit 1
           fi
           npm ci
@@ -92,6 +101,7 @@ jobs:
           path: |
             base/yarn-ts/eval-governor-regression.json
             base/yarn-ts/eval-governor-budget.json
+            base/yarn-ts/eval-governor-swebench.json
           if-no-files-found: ignore
 
   governor-prerelease:
@@ -115,6 +125,7 @@ jobs:
         env:
           SYNESIS_EVAL_TARGET_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
           SYNESIS_EVAL_TARGET_KEY: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
+          SYNESIS_EVAL_BASELINE_JSON: ${{ vars.SYNESIS_EVAL_BASELINE_JSON }}
         run: |
           set -euo pipefail
           if [ -z "${SYNESIS_EVAL_TARGET_URL:-}" ]; then
@@ -123,6 +134,14 @@ jobs:
           fi
           if [ -z "${SYNESIS_EVAL_TARGET_KEY:-}" ]; then
             echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
+            exit 1
+          fi
+          if [ -z "${SYNESIS_EVAL_BASELINE_JSON:-}" ]; then
+            echo "Missing repository variable SYNESIS_EVAL_BASELINE_JSON."
+            exit 1
+          fi
+          if [ ! -f "${SYNESIS_EVAL_BASELINE_JSON}" ]; then
+            echo "Baseline file not found at ${SYNESIS_EVAL_BASELINE_JSON}."
             exit 1
           fi
           npm ci
@@ -137,4 +156,5 @@ jobs:
             base/yarn-ts/eval-governor-regression.json
             base/yarn-ts/eval-governor-budget.json
             base/yarn-ts/eval-governor-e2e.json
+            base/yarn-ts/eval-governor-swebench.json
           if-no-files-found: ignore

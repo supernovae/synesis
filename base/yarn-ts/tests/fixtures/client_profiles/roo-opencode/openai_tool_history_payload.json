@@ -1,0 +1,73 @@
+{
+  "model": "synesis-core",
+  "stream": false,
+  "max_tokens": 128,
+  "tool_choice": "auto",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a coding assistant."
+    },
+    {
+      "role": "user",
+      "content": "Find TODO markers in src."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_1",
+          "type": "function",
+          "function": {
+            "name": "search_code",
+            "arguments": "{\"query\":\"TODO\",\"path\":\"src\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "search_code",
+      "tool_call_id": "call_1",
+      "content": "src/app.ts:17:// TODO: remove debug log"
+    },
+    {
+      "role": "user",
+      "content": "Now patch it."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "search_code",
+        "description": "Search repository content",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string" },
+            "path": { "type": "string" }
+          },
+          "required": ["query"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "str_replace",
+        "description": "Patch a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "old_string": { "type": "string" },
+            "new_string": { "type": "string" }
+          },
+          "required": ["path", "old_string", "new_string"]
+        }
+      }
+    }
+  ]
+}

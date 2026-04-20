@@ -7,7 +7,8 @@ import {
   sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
   ensureSystemMessagesAtBeginning,
-  sanitizeToolCalls
+  sanitizeToolCalls,
+  openAIMessagesToModelMessages,
 } from "../src/tool-mapping.js";
 
 describe("openAIToolsToSDK", () => {
@@ -55,6 +56,9 @@ describe("mapToolChoice", () => {
   it("maps object tool choice", () => {
     expect(mapToolChoice({ type: "tool", name: "bash" })).toEqual({ type: "tool", toolName: "bash" });
     expect(mapToolChoice({ type: "function", function: { name: "bash" } })).toEqual({ type: "tool", toolName: "bash" });
+    expect(mapToolChoice({ type: "required" })).toBe("required");
+    expect(mapToolChoice({ type: "none" })).toBe("none");
+    expect(mapToolChoice({ type: "auto" })).toBe("auto");
   });
 
   it("returns undefined for null/undefined", () => {
@@ -65,6 +69,27 @@ describe("mapToolChoice", () => {
   it("returns undefined for invalid values", () => {
     expect(mapToolChoice("sometimes")).toBeUndefined();
     expect(mapToolChoice({ type: "weird" })).toBeUndefined();
+  });
+});
+
+describe("openAIMessagesToModelMessages", () => {
+  it("preserves structured user content blocks instead of lossy string coercion", () => {
+    const result = openAIMessagesToModelMessages([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Inspect this screenshot." },
+          { type: "image_url", image_url: { url: "https://example.test/screenshot.png" } },
+        ],
+      },
+    ] as never);
+    expect(result).toHaveLength(1);
+    const user = result[0] as { role: string; content: unknown };
+    expect(user.role).toBe("user");
+    expect(Array.isArray(user.content)).toBe(true);
+    if (!Array.isArray(user.content)) return;
+    expect(user.content[0]).toEqual({ type: "text", text: "Inspect this screenshot." });
+    expect((user.content[1] as { type: string }).type).toBe("text");
   });
 });
 

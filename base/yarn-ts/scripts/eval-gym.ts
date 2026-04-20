@@ -62,6 +62,68 @@ const config: EvalRunnerConfig = {
   conversationIdPrefix: "eval-gym",
 };
 
+type EvalSummaryMetrics = {
+  total: number;
+  passed: number;
+  failed: number;
+  sessionCompleted: number;
+  sessionCompletionRate: number;
+  recoveryLoopScenarios: number;
+  recoveryLoopRate: number;
+  hardStopScenarios: number;
+  hardStopIncidence: number;
+  medianTurnsToComplete: number | null;
+  avgScore: number;
+  totalDurationMs: number;
+};
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle] ?? null;
+  const left = sorted[middle - 1];
+  const right = sorted[middle];
+  if (left === undefined || right === undefined) return null;
+  return Number(((left + right) / 2).toFixed(3));
+}
+
+function hasRecoveryLoopSignal(result: ScenarioResult): boolean {
+  return result.allGovernorRules.some((rule) =>
+    rule === "governor:recovery_rewrite" || rule.includes("loop") || rule.includes("repeat"),
+  );
+}
+
+function hasHardStopSignal(result: ScenarioResult): boolean {
+  return result.allGovernorRules.includes("governor:hard_stop");
+}
+
+function computeSummaryMetrics(results: ScenarioResult[]): EvalSummaryMetrics {
+  const total = results.length;
+  const passed = results.filter((r) => r.passed).length;
+  const failed = total - passed;
+  const sessionCompleted = results.filter((r) => r.sessionCompletionKpi?.completed).length;
+  const recoveryLoopScenarios = results.filter(hasRecoveryLoopSignal).length;
+  const hardStopScenarios = results.filter(hasHardStopSignal).length;
+  const completedTurns = results
+    .filter((r) => r.sessionCompletionKpi?.completed)
+    .map((r) => r.totalTurns);
+  return {
+    total,
+    passed,
+    failed,
+    sessionCompleted,
+    sessionCompletionRate: Number((total > 0 ? sessionCompleted / total : 0).toFixed(3)),
+    recoveryLoopScenarios,
+    recoveryLoopRate: Number((total > 0 ? recoveryLoopScenarios / total : 0).toFixed(3)),
+    hardStopScenarios,
+    hardStopIncidence: Number((total > 0 ? hardStopScenarios / total : 0).toFixed(3)),
+    medianTurnsToComplete: median(completedTurns),
+    avgScore: Number((total > 0 ? results.reduce((s, r) => s + r.score, 0) / total : 0).toFixed(3)),
+    totalDurationMs: results.reduce((s, r) => s + r.durationMs, 0),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -130,7 +192,8 @@ async function main() {
 
   // Print results
   const verbose = hasFlag("verbose");
-  printResults(results, verbose);
+  const summary = computeSummaryMetrics(results);
+  printResults(results, verbose, summary);
 
   // Export training data
   const exportFormat = getArg("export") as TrainingFormat | undefined;
@@ -145,13 +208,7 @@ async function main() {
   if (hasFlag("json")) {
     const outPath = getArg("out") ?? `eval-results-${Date.now()}.json`;
     const output = {
-      summary: {
-        total: results.length,
-        passed: results.filter(r => r.passed).length,
-        failed: results.filter(r => !r.passed).length,
-        avgScore: Number((results.reduce((s, r) => s + r.score, 0) / results.length).toFixed(3)),
-        totalDurationMs: results.reduce((s, r) => s + r.durationMs, 0),
-      },
+      summary,
       results,
       trajectoryRows: results.map(scenarioResultToTrajectoryRow),
     };
@@ -171,7 +228,7 @@ async function main() {
 // Output formatting
 // ---------------------------------------------------------------------------
 
-function printResults(results: ScenarioResult[], verbose: boolean) {
+function printResults(results: ScenarioResult[], verbose: boolean, summary: EvalSummaryMetrics) {
   const COL = { id: 38, status: 8, score: 7, turns: 7, anomalies: 10, time: 10 };
 
   console.log(
@@ -212,11 +269,16 @@ function printResults(results: ScenarioResult[], verbose: boolean) {
     }
   }
 
-  const passed = results.filter(r => r.passed).length;
-  const total = results.length;
-  const avgScore = results.reduce((s, r) => s + r.score, 0) / total;
-  const totalTime = results.reduce((s, r) => s + r.durationMs, 0);
-  console.log(`\n  ${passed}/${total} passed | avg score: ${avgScore.toFixed(3)} | total time: ${totalTime}ms\n`);
+  console.log(
+    "\n"
+    + `  ${summary.passed}/${summary.total} passed`
+    + ` | session completion: ${summary.sessionCompleted}/${summary.total} (${summary.sessionCompletionRate})`
+    + ` | recovery loops: ${summary.recoveryLoopScenarios}/${summary.total} (${summary.recoveryLoopRate})`
+    + ` | hard stops: ${summary.hardStopScenarios}/${summary.total} (${summary.hardStopIncidence})`
+    + ` | median turns-to-complete: ${summary.medianTurnsToComplete ?? "n/a"}`
+    + ` | avg score: ${summary.avgScore.toFixed(3)}`
+    + ` | total time: ${summary.totalDurationMs}ms\n`,
+  );
 }
 
 main().catch((err) => {

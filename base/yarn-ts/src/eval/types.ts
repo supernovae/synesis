@@ -32,7 +32,8 @@ export type EvalCategory =
   | "governor_regression"
   | "e2e_build"
   | "recovery"
-  | "plan_management";
+  | "plan_management"
+  | "swe_bench";
 
 export interface EvalScenario {
   id: string;
@@ -104,6 +105,14 @@ export interface ScoringCriteria {
   maxGovernorInterventions?: number;
   /** Expected terminal state. */
   requiredOutcome?: "completed" | "governor_stopped";
+  /** Require concrete verification evidence (passing build/test output). */
+  requireVerificationEvidence?: boolean;
+  /** Require at least one concrete completion signal (task finished + verification). */
+  requireSessionCompletionKpi?: boolean;
+  /** Require specific tool actions to appear in assistant tool calls. */
+  requiredToolActions?: string[];
+  /** Require file/artifact path evidence in tool inputs or outputs. */
+  requiredArtifactPaths?: string[];
   /** Fail the scenario if any of these governor rules fire. */
   failIfRules?: string[];
   /** Pass only if ALL of these governor rules fire (regression tests). */
@@ -163,6 +172,11 @@ export interface ScenarioResult {
   targetUrl: string;
   model: string;
   timestamp: string;
+  sessionCompletionKpi?: {
+    taskFinished: boolean;
+    verificationEvidence: boolean;
+    completed: boolean;
+  };
   adminTelemetry?: {
     status: "ok" | "unreachable" | "unauthorized" | "disabled";
     detail?: string;

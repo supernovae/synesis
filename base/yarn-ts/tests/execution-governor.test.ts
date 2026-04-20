@@ -5,6 +5,8 @@ import {
   buildExecutionGovernorHardStopUserMessage,
   buildExecutionGovernorPauseEnvelope,
   detectSessionPhase,
+  inferGovernorPhaseFromMessages,
+  governorPhaseToWorkflowPhase,
   type CommandEvent,
 } from "../src/governance/execution-governor.js";
 
@@ -2394,5 +2396,70 @@ describe("phase-aware rule gating", () => {
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("verification_churn_no_edit");
+  });
+
+  it("treats Update alias as an edit-capable action for phase transitions", () => {
+    const events: CommandEvent[] = [
+      { command: "update:src/main.ts", toolName: "update", resultSignature: "ok" },
+      { command: "npm test", toolName: "bash", resultSignature: "PASS" },
+    ];
+    const phase = detectSessionPhase(events, "finish implementation", ["src/main.ts"], false);
+    expect(phase).toBe("verify");
+  });
+
+  it("captures unknown tools as opaque command events instead of dropping them", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [];
+    for (let i = 0; i < 9; i += 1) {
+      messages.push(assistantCall(`u${i}`, "MysteryTool", { command: "scan everything" }));
+      messages.push(toolResult(`u${i}`, "ok"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("no_progress_loop");
+  });
+
+  it("maps inferred governor phase to orchestration workflow phase", () => {
+    const messages = [
+      { role: "user", content: "Implement the fix and run tests." },
+      assistantCall("p1", "Write", { file_path: "src/app.ts", content: "export const ready = true;" }),
+      toolResult("p1", "File written"),
+      assistantCall("p2", "Bash", { command: "npm test -- app.test.ts" }),
+      toolResult("p2", "PASS app.test.ts"),
+    ];
+    const governorPhase = inferGovernorPhaseFromMessages(messages as never);
+    expect(governorPhase).toBe("verify");
+    expect(governorPhaseToWorkflowPhase(governorPhase)).toBe("validation");
+  });
+
+  it("orders multi-match rules using explicit priority model", () => {
+    const messages = [
+      { role: "assistant", content: "I'll verify now." },
+      { role: "assistant", content: "Let me verify again." },
+      { role: "assistant", content: "I'll check one more time." },
+      assistantCall("r1", "Read", { file_path: "src/app.ts" }),
+      toolResult("r1", "same content"),
+      assistantCall("r2", "Read", { file_path: "src/app.ts" }),
+      toolResult("r2", "same content"),
+      assistantCall("r3", "Read", { file_path: "src/app.ts" }),
+      toolResult("r3", "same content"),
+      assistantCall("r4", "Read", { file_path: "src/app.ts" }),
+      toolResult("r4", "same content"),
+      assistantCall("r5", "Read", { file_path: "src/app.ts" }),
+      toolResult("r5", "same content"),
+      assistantCall("r6", "Read", { file_path: "src/app.ts" }),
+      toolResult("r6", "same content"),
+      assistantCall("r7", "Read", { file_path: "src/app.ts" }),
+      toolResult("r7", "same content"),
+      assistantCall("r8", "Read", { file_path: "src/app.ts" }),
+      toolResult("r8", "same content"),
+      assistantCall("r9", "Read", { file_path: "src/app.ts" }),
+      toolResult("r9", "same content"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("no_progress_loop");
+    expect(out.matchedRules).toContain("verbal_intent_without_action");
+    const noProgressIdx = out.matchedRules.indexOf("no_progress_loop");
+    const verbalIdx = out.matchedRules.indexOf("verbal_intent_without_action");
+    expect(noProgressIdx).toBeGreaterThanOrEqual(0);
+    expect(verbalIdx).toBeGreaterThan(noProgressIdx);
   });
 });

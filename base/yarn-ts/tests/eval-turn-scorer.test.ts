@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectAnomalies, scoreTurn, scoreScenario } from "../src/eval/turn-scorer.js";
+import { detectAnomalies, scoreTurn, scoreScenario, computeSessionCompletionKpi } from "../src/eval/turn-scorer.js";
 import type { EvalChatMessage, TurnAssertion, TurnResult, ScoringCriteria } from "../src/eval/types.js";
 
 function msg(role: string, content: string, toolCalls?: Array<{ function: { name: string; arguments: string } }>): EvalChatMessage {
@@ -185,6 +185,33 @@ describe("scoreTurn", () => {
   });
 });
 
+describe("computeSessionCompletionKpi", () => {
+  it("marks completion only when edit + verification + completion signal are present", () => {
+    const turnResults: TurnResult[] = [
+      {
+        turnIndex: 0,
+        toolRounds: 2,
+        messages: [
+          msg("assistant", "Applying fix", [{ function: { name: "Write", arguments: '{"path":"src/a.ts"}' } }]),
+          { role: "tool", content: "File written: src/a.ts", tool_call_id: "tc-0" },
+          msg("assistant", "", [{ function: { name: "Bash", arguments: '{"command":"npm test -- src/a.test.ts"}' } }]),
+          { role: "tool", content: "PASS src/a.test.ts\n0 failed", tool_call_id: "tc-0" },
+          msg("assistant", "Done and completed."),
+        ],
+        governorRulesFired: [],
+        assertionResults: [],
+        latencyMs: 120,
+        anomalies: [],
+      },
+    ];
+
+    const kpi = computeSessionCompletionKpi(turnResults);
+    expect(kpi.taskFinished).toBe(true);
+    expect(kpi.verificationEvidence).toBe(true);
+    expect(kpi.completed).toBe(true);
+  });
+});
+
 describe("scoreScenario", () => {
   const baseTurn: TurnResult = {
     turnIndex: 0,
@@ -296,5 +323,66 @@ describe("scoreScenario", () => {
     const { passed, failureReasons } = scoreScenario(criteria, [completedTurn], [], 0);
     expect(passed).toBe(false);
     expect(failureReasons.some((r) => r.includes("Required outcome not reached"))).toBe(true);
+  });
+
+  it("fails when verification evidence is required but absent", () => {
+    const criteria: ScoringCriteria = {
+      maxTotalTurns: 5,
+      requireVerificationEvidence: true,
+    };
+    const turn: TurnResult = {
+      ...baseTurn,
+      messages: [msg("assistant", "Done.", [{ function: { name: "Write", arguments: '{"path":"x.ts"}' } }])],
+    };
+    const { passed, failureReasons } = scoreScenario(criteria, [turn], [], 0);
+    expect(passed).toBe(false);
+    expect(failureReasons.some((r) => r.includes("verification evidence"))).toBe(true);
+  });
+
+  it("enforces session completion KPI when requested", () => {
+    const criteria: ScoringCriteria = {
+      maxTotalTurns: 5,
+      requireSessionCompletionKpi: true,
+    };
+    const turn: TurnResult = {
+      ...baseTurn,
+      messages: [
+        msg("assistant", "", [{ function: { name: "Write", arguments: '{"path":"x.ts"}' } }]),
+        { role: "tool", content: "Wrote x.ts", tool_call_id: "tc-0" },
+        msg("assistant", "", [{ function: { name: "Bash", arguments: '{"command":"npm test"}' } }]),
+        { role: "tool", content: "All tests passed", tool_call_id: "tc-0" },
+        msg("assistant", "Implemented and finished."),
+      ],
+    };
+    const { passed } = scoreScenario(criteria, [turn], [], 0);
+    expect(passed).toBe(true);
+  });
+
+  it("fails when required tool actions are missing", () => {
+    const criteria: ScoringCriteria = {
+      maxTotalTurns: 5,
+      requiredToolActions: ["Write", "Bash"],
+    };
+    const turn: TurnResult = {
+      ...baseTurn,
+      messages: [msg("assistant", "", [{ function: { name: "Write", arguments: '{"path":"x.ts"}' } }])],
+    };
+    const { passed, failureReasons } = scoreScenario(criteria, [turn], [], 0);
+    expect(passed).toBe(false);
+    expect(failureReasons.some((r) => r.includes("Missing required tool actions"))).toBe(true);
+  });
+
+  it("fails when required artifact evidence is missing", () => {
+    const criteria: ScoringCriteria = {
+      maxTotalTurns: 5,
+      requiredArtifactPaths: ["src/needed.ts"],
+    };
+    const turn: TurnResult = {
+      ...baseTurn,
+      messages: [msg("assistant", "", [{ function: { name: "Write", arguments: '{"path":"src/other.ts"}' } }])],
+    };
+    const { passed, failureReasons } = scoreScenario(criteria, [turn], [], 0);
+    expect(passed).toBe(false);
+    expect(failureReasons.some((r) => r.includes("Missing required artifact evidence"))).toBe(true);
   });
 });

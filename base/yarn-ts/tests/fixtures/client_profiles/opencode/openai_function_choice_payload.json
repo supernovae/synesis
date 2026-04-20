@@ -1,0 +1,37 @@
+{
+  "model": "synesis-core",
+  "stream": false,
+  "tool_choice": {
+    "type": "function",
+    "function": {
+      "name": "write_file"
+    }
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "Apply focused edits."
+    },
+    {
+      "role": "user",
+      "content": "Create src/version.ts with a version constant."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Write a file to disk",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["file_path", "content"]
+        }
+      }
+    }
+  ]
+}

@@ -161,3 +161,41 @@ describe("Claude tool_choice mapping", () => {
     });
   });
 });
+
+describe("client profile parity matrix", () => {
+  it.each([
+    {
+      profile: "claude-code",
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_cc_1", name: "Read", input: { file_path: "main.ts" } }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_cc_1", content: "export const ok = true;" }] },
+      ],
+    },
+    {
+      profile: "roo-opencode",
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_roo_1", name: "Search", input: { query: "TODO" } }] },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Here is the tool result." },
+            { type: "tool_result", tool_use_id: "toolu_roo_1", content: [{ line: 1, text: "TODO: finish tests" }] },
+          ],
+        },
+      ],
+    },
+    {
+      profile: "cursor-bridge",
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_cursor_1", name: "Bash", input: { command: "npm test" } }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_cursor_1", content: "PASS 3 tests" }] },
+      ],
+    },
+  ])("keeps assistant->tool linkage for $profile payloads", ({ messages }) => {
+    const converted = claudeMessagesToOpenAI(messages as never);
+    const assistant = converted.find((m) => m.role === "assistant");
+    const tool = converted.find((m) => m.role === "tool");
+    expect(assistant?.tool_calls?.[0]?.id).toBeDefined();
+    expect(tool?.tool_call_id).toBe(assistant?.tool_calls?.[0]?.id);
+  });
+});

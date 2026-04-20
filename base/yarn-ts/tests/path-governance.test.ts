@@ -62,6 +62,32 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("unsafe_shell");
   });
 
+  it.each([
+    { clientKind: "claude-code", expectedTool: "Synesis_Error_UnsafeShell", expectsSynthetic: true },
+    { clientKind: "cursor", expectedTool: "Bash", expectsSynthetic: false },
+    { clientKind: "roo", expectedTool: "Bash", expectsSynthetic: false },
+    { clientKind: "opencode", expectedTool: "Bash", expectsSynthetic: false },
+  ])(
+    "client matrix applies deterministic unsafe-shell handling for $clientKind",
+    ({ clientKind, expectedTool, expectsSynthetic }) => {
+      const out = governToolCall({
+        toolName: "Bash",
+        input: { command: "rm -rf /tmp/test" },
+        shellCwd: "/Users/me/repo",
+        enforcePathRoot: true,
+        blockBashPathDrift: true,
+        clientKind,
+      });
+      expect(out.toolName).toBe(expectedTool);
+      expect(out.blockedUnsafeShell).toBe(true);
+      if (expectsSynthetic) {
+        expect(out.input.synesis_error).toBe(true);
+      } else {
+        expect(String(out.input.command)).toContain("unsafe_shell");
+      }
+    },
+  );
+
   it("rewrites blocked unsafe shell to synthetic error tool for claude-code", () => {
     const out = governToolCall({
       toolName: "Bash",

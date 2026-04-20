@@ -6,6 +6,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { evaluateRegressionBudget } from "../src/eval/regression-budget.js";
 import type { ScenarioResult } from "../src/eval/types.js";
 
@@ -49,9 +50,31 @@ if (!baselinePath) {
   process.exit(1);
 }
 
+const allowSameBaseline = process.argv.includes("--allow-same-baseline");
+if (!allowSameBaseline && resolve(candidatePath) === resolve(baselinePath)) {
+  console.error("ERROR: Candidate and baseline paths resolve to the same file.");
+  console.error("       Provide a distinct baseline artifact via --baseline or SYNESIS_EVAL_BASELINE_JSON.");
+  process.exit(1);
+}
+
 const summaryOut = getArg("summary-out") ?? "eval-regression-budget-summary.json";
 const candidate = loadResults(candidatePath);
 const baseline = loadResults(baselinePath);
+
+const baselineIds = new Set(baseline.map((row) => row.scenarioId));
+const candidateIds = new Set(candidate.map((row) => row.scenarioId));
+const missingFromCandidate = [...baselineIds].filter((id) => !candidateIds.has(id));
+const extraInCandidate = [...candidateIds].filter((id) => !baselineIds.has(id));
+if (missingFromCandidate.length > 0 || extraInCandidate.length > 0) {
+  console.error("ERROR: Candidate/baseline scenario sets do not match.");
+  if (missingFromCandidate.length > 0) {
+    console.error(`       Missing in candidate (${missingFromCandidate.length}): ${missingFromCandidate.slice(0, 8).join(", ")}`);
+  }
+  if (extraInCandidate.length > 0) {
+    console.error(`       Extra in candidate (${extraInCandidate.length}): ${extraInCandidate.slice(0, 8).join(", ")}`);
+  }
+  process.exit(1);
+}
 
 const evaluation = evaluateRegressionBudget({
   baseline,
@@ -65,7 +88,17 @@ const evaluation = evaluateRegressionBudget({
   },
 });
 
-writeFileSync(summaryOut, JSON.stringify(evaluation, null, 2), "utf8");
+const summary = {
+  ...evaluation,
+  integrity: {
+    candidatePath,
+    baselinePath,
+    samePathAllowed: allowSameBaseline,
+    scenarioCount: candidateIds.size,
+  },
+};
+
+writeFileSync(summaryOut, JSON.stringify(summary, null, 2), "utf8");
 
 console.log("Regression budget summary:");
 console.log(`- Baseline pass rate: ${evaluation.baseline.passRate}`);

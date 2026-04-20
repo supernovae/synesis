@@ -18,6 +18,9 @@
  *   SYNESIS_TEST_TOKEN             PAT fallback
  *   SYNESIS_VERIFY_MODEL           Target model alias (default: synesis-core)
  *   SYNESIS_OPENAI_CONFORMANCE_TIMEOUT_MS  Request timeout (default: 45000)
+ *   SYNESIS_OPENAI_CONFORMANCE_MODE strict|compat (default: strict)
+ *     - strict: fails if extension fields (ex: synesis_governor_pause) appear in normal payloads
+ *     - compat: permits extension fields but still validates payload shape
  *
  * Usage:
  *   npm run verify:openai-conformance
@@ -38,6 +41,7 @@ type CheckResult = {
 type Report = {
   url: string;
   model: string;
+  mode: "strict" | "compat";
   startedAt: string;
   durationMs: number;
   checks: CheckResult[];
@@ -54,6 +58,11 @@ type HttpResult = {
   body: string;
 };
 
+type ToolChoiceVariant = {
+  label: string;
+  value: unknown;
+};
+
 const BASE_URL = (process.env.SYNESIS_YARN_EVAL_URL ?? process.env.SYNESIS_YARN_URL ?? "").replace(/\/+$/, "");
 const TOKEN = (
   process.env.SYNESIS_TEST_PAT_TOKEN ??
@@ -63,9 +72,31 @@ const TOKEN = (
 ).trim();
 const MODEL = process.env.SYNESIS_VERIFY_MODEL ?? "synesis-core";
 const TIMEOUT_MS = Number(process.env.SYNESIS_OPENAI_CONFORMANCE_TIMEOUT_MS ?? "45000");
+const MODE: "strict" | "compat" =
+  (process.env.SYNESIS_OPENAI_CONFORMANCE_MODE ?? "strict").toLowerCase() === "compat"
+    ? "compat"
+    : "strict";
+const ALLOW_EXTENSION_FIELDS = MODE === "compat";
 
 const JSON_OUT = getArgValue("--json");
 const DRY_RUN = hasFlag("--dry-run");
+
+const SIMPLE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "echo_status",
+      description: "Echo status for compatibility checks",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+];
 
 function hasFlag(flag: string): boolean {
   return process.argv.includes(flag);
@@ -89,6 +120,13 @@ function safeJsonParse<T = unknown>(raw: string): T | null {
   } catch {
     return null;
   }
+}
+
+function extensionFieldCompatibilityDetail(fieldName: string, location: string): string {
+  if (ALLOW_EXTENSION_FIELDS) {
+    return `Observed extension field ${fieldName} in ${location}, allowed in compat mode`;
+  }
+  return `Unexpected extension field ${fieldName} in ${location}`;
 }
 
 async function request(
@@ -232,7 +270,62 @@ async function checkChatNonStreamBasic(): Promise<Omit<CheckResult, "name" | "la
   if (!usage || typeof usage.total_tokens !== "number") {
     return { pass: false, status: res.status, detail: "Expected OpenAI usage fields in non-stream response" };
   }
+  if (Object.prototype.hasOwnProperty.call(parsed, "synesis_governor_pause")) {
+    if (ALLOW_EXTENSION_FIELDS) {
+      return {
+        pass: true,
+        status: res.status,
+        detail: extensionFieldCompatibilityDetail("synesis_governor_pause", "non-stream completion payload"),
+      };
+    }
+    return {
+      pass: false,
+      status: res.status,
+      detail: extensionFieldCompatibilityDetail("synesis_governor_pause", "non-stream completion payload"),
+    };
+  }
   return { pass: true, status: res.status };
+}
+
+async function checkToolChoiceVariants(): Promise<Omit<CheckResult, "name" | "latencyMs">> {
+  const variants: ToolChoiceVariant[] = [
+    { label: "auto", value: "auto" },
+    { label: "none", value: "none" },
+    { label: "required", value: "required" },
+    { label: "any", value: "any" },
+    { label: "tool-object", value: { type: "tool", name: "echo_status" } },
+    { label: "function-object", value: { type: "function", function: { name: "echo_status" } } },
+  ];
+  const failures: string[] = [];
+
+  for (const variant of variants) {
+    const payload = {
+      model: MODEL,
+      stream: false,
+      max_tokens: 16,
+      tools: SIMPLE_TOOLS,
+      tool_choice: variant.value,
+      messages: [
+        { role: "system", content: "Be concise." },
+        { role: "user", content: "Reply with OK." },
+      ],
+    };
+    const res = await request("/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (res.status !== 200) {
+      failures.push(`${variant.label}:${res.status}`);
+    }
+  }
+
+  if (failures.length > 0) {
+    return {
+      pass: false,
+      detail: `Tool choice variants failed: ${failures.join(", ")}`,
+    };
+  }
+  return { pass: true, detail: `variants=${variants.length}` };
 }
 
 async function checkLateSystemAccepted(): Promise<Omit<CheckResult, "name" | "latencyMs">> {
@@ -304,6 +397,51 @@ async function checkToolHistoryAccepted(): Promise<Omit<CheckResult, "name" | "l
   return { pass: true, status: res.status };
 }
 
+async function checkMalformedToolHistoryRepair(): Promise<Omit<CheckResult, "name" | "latencyMs">> {
+  const payload = {
+    model: MODEL,
+    stream: false,
+    max_tokens: 64,
+    tools: SIMPLE_TOOLS,
+    messages: [
+      { role: "system", content: "Be concise." },
+      { role: "user", content: "Summarize status." },
+      {
+        role: "assistant",
+        content: "Calling a malformed tool shape.",
+        tool_calls: [
+          {
+            id: "",
+            type: "function",
+            function: {
+              name: "echo_status",
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        name: "echo_status",
+        tool_call_id: "",
+        content: { status: "ok" },
+      },
+      { role: "user", content: "Continue." },
+    ],
+  };
+  const res = await request("/v1/chat/completions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (res.status !== 200) {
+    return {
+      pass: false,
+      status: res.status,
+      detail: `Malformed tool history rejected: ${snippet(res.body)}`,
+    };
+  }
+  return { pass: true, status: res.status };
+}
+
 async function checkStreamChunks(): Promise<Omit<CheckResult, "name" | "latencyMs">> {
   const payload = {
     model: MODEL,
@@ -320,6 +458,27 @@ async function checkStreamChunks(): Promise<Omit<CheckResult, "name" | "latencyM
     body: JSON.stringify(payload),
   });
   if (res.status !== 200) return { pass: false, status: res.status, detail: snippet(res.body) };
+  const contentType = res.headers["content-type"] ?? "";
+  if (!contentType.toLowerCase().includes("text/event-stream")) {
+    return {
+      pass: false,
+      status: res.status,
+      detail: `Expected SSE content-type, got "${contentType}"`,
+    };
+  }
+
+  const allNonEmptyLines = res.body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const invalidSseLines = allNonEmptyLines.filter((line) => line !== "[DONE]" && !line.startsWith("data: "));
+  if (invalidSseLines.length > 0) {
+    return {
+      pass: false,
+      status: res.status,
+      detail: `Invalid SSE lines present: ${invalidSseLines.slice(0, 3).join(" | ")}`,
+    };
+  }
 
   const dataLines = res.body
     .split(/\r?\n/)
@@ -343,6 +502,20 @@ async function checkStreamChunks(): Promise<Omit<CheckResult, "name" | "latencyM
       pass: false,
       status: res.status,
       detail: `Expected chat.completion.chunk payload, got: ${firstJson.slice(0, 200)}`,
+    };
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed, "synesis_governor_pause")) {
+    if (ALLOW_EXTENSION_FIELDS) {
+      return {
+        pass: true,
+        status: res.status,
+        detail: extensionFieldCompatibilityDetail("synesis_governor_pause", "stream chunk payload"),
+      };
+    }
+    return {
+      pass: false,
+      status: res.status,
+      detail: extensionFieldCompatibilityDetail("synesis_governor_pause", "stream chunk payload"),
     };
   }
   return { pass: true, status: res.status };
@@ -378,6 +551,7 @@ async function main(): Promise<void> {
       dryRun: true,
       baseUrl: BASE_URL || "(unset)",
       model: MODEL,
+      mode: MODE,
       timeoutMs: TIMEOUT_MS,
       tokenConfigured: TOKEN.length > 0,
       jsonOut: JSON_OUT,
@@ -402,8 +576,10 @@ async function main(): Promise<void> {
   await runCheck(checks, "GET /v1/models shape", checkModelsList);
   await runCheck(checks, "POST /v1/chat/completions requires auth", checkChatAuthRequired);
   await runCheck(checks, "POST /v1/chat/completions non-stream shape", checkChatNonStreamBasic);
+  await runCheck(checks, "POST /v1/chat/completions tool_choice variant matrix", checkToolChoiceVariants);
   await runCheck(checks, "POST /v1/chat/completions accepts late system input", checkLateSystemAccepted);
   await runCheck(checks, "POST /v1/chat/completions accepts assistant tool history", checkToolHistoryAccepted);
+  await runCheck(checks, "POST /v1/chat/completions repairs malformed tool history", checkMalformedToolHistoryRepair);
   await runCheck(checks, "POST /v1/chat/completions stream chunk protocol", checkStreamChunks);
   await runCheck(checks, "POST /v1/chat/completions invalid payload returns 400", checkInvalidPayloadReturns400);
 
@@ -413,6 +589,7 @@ async function main(): Promise<void> {
   const report: Report = {
     url: BASE_URL,
     model: MODEL,
+    mode: MODE,
     startedAt,
     durationMs: Date.now() - t0,
     checks,

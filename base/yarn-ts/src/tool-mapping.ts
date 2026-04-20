@@ -16,6 +16,61 @@ interface OpenAIChatMessage {
 
 let synthCounter = 0;
 
+type SDKTextPart = { type: "text"; text: string };
+
+function normalizeContentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (content === undefined || content === null) return "";
+  return stableJsonStringify(content);
+}
+
+function contentBlocksToTextParts(content: unknown): SDKTextPart[] {
+  if (!Array.isArray(content)) return [];
+  const parts: SDKTextPart[] = [];
+  for (const block of content) {
+    if (typeof block === "string") {
+      const text = block.trim();
+      if (text) parts.push({ type: "text", text: block });
+      continue;
+    }
+    if (!block || typeof block !== "object") continue;
+    const row = block as Record<string, unknown>;
+    const type = typeof row.type === "string" ? row.type : "";
+    const blockText =
+      typeof row.text === "string"
+        ? row.text
+        : (typeof row.content === "string" ? row.content : "");
+    if (
+      blockText
+      && (type === "" || type === "text" || type === "input_text")
+    ) {
+      parts.push({ type: "text", text: blockText });
+      continue;
+    }
+    // Keep unknown multimodal blocks visible to the model instead of lossy
+    // [object Object] coercion.
+    parts.push({ type: "text", text: stableJsonStringify(row) });
+  }
+  return parts;
+}
+
+function normalizeUserContent(content: unknown): string | SDKTextPart[] {
+  if (typeof content === "string") return content;
+  const parts = contentBlocksToTextParts(content);
+  if (parts.length > 0) return parts;
+  if (content === undefined || content === null) return "";
+  return stableJsonStringify(content);
+}
+
+function extractAssistantText(content: unknown): string {
+  if (typeof content === "string") return content;
+  const parts = contentBlocksToTextParts(content);
+  if (parts.length > 0) {
+    return parts.map((p) => p.text).join("\n");
+  }
+  return "";
+}
+
 /**
  * Ensure all system messages are grouped at the beginning of the transcript.
  *
@@ -191,14 +246,14 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
   for (const m of messages) {
     switch (m.role) {
       case "system":
-        out.push({ role: "system", content: String(m.content ?? "") });
+        out.push({ role: "system", content: normalizeContentToText(m.content) });
         break;
       case "user":
-        out.push({ role: "user", content: String(m.content ?? "") });
+        out.push({ role: "user", content: normalizeUserContent(m.content) } as ModelMessage);
         break;
       case "assistant": {
         const parts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
-        const text = typeof m.content === "string" ? m.content : "";
+        const text = extractAssistantText(m.content);
         if (text) parts.push({ type: "text", text });
         if (m.tool_calls) {
           for (const tc of m.tool_calls) {
@@ -230,7 +285,7 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
         break;
       }
       default:
-        out.push({ role: "user", content: String(m.content ?? "") });
+        out.push({ role: "user", content: normalizeUserContent(m.content) } as ModelMessage);
     }
   }
   return out;

@@ -15,7 +15,7 @@ import type {
   TurnResult,
   ScenarioResult,
 } from "./types.js";
-import { scoreTurn, scoreScenario, detectAnomalies } from "./turn-scorer.js";
+import { scoreTurn, scoreScenario, detectAnomalies, computeSessionCompletionKpi } from "./turn-scorer.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_TOOL_ROUNDS = 3;
@@ -520,6 +520,7 @@ export async function runScenario(
   const { passed, score, failureReasons } = scoreScenario(
     scenario.scoring, turnResults, allGovernorRules, governorInterventions,
   );
+  const sessionCompletionKpi = computeSessionCompletionKpi(turnResults);
 
   return {
     scenarioId: scenario.id,
@@ -538,6 +539,7 @@ export async function runScenario(
     targetUrl: config.targetUrl,
     model,
     timestamp: new Date().toISOString(),
+    sessionCompletionKpi,
     adminTelemetry: {
       status: aggregateTelemetryStatus,
       detail: aggregateTelemetryDetail,

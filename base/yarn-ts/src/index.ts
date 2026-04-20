@@ -187,6 +187,8 @@ import {
   executionGovernorRecoveryRewriteBlock,
   buildExecutionGovernorHardStopUserMessage,
   buildExecutionGovernorPauseEnvelope,
+  inferGovernorPhaseFromMessages,
+  governorPhaseToWorkflowPhase,
   type GovernorPauseEnvelope,
   type GovernorInputMessage,
 } from "./governance/execution-governor.js";
@@ -3143,7 +3145,16 @@ import {
 } from "./session/workspace-context-handshake.js";
 
 type ResolveResult =
-  | { ok: true; resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter }; messages: ReturnType<typeof openAIMessagesToModelMessages> }
+  | {
+      ok: true;
+      resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter };
+      messages: ReturnType<typeof openAIMessagesToModelMessages>;
+      transforms: {
+        systemMessagesReordered: boolean;
+        toolCallsSanitized: boolean;
+        messageCountDelta: number;
+      };
+    }
   | { ok: false; error: string };
 
 const dashScopeCacheOpts: DashScopeCacheOpts = {
@@ -3156,8 +3167,23 @@ function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
     const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER, dashScopeCacheOpts);
     const systemOrdered = ensureSystemMessagesAtBeginning(request.messages as never);
     const sanitized = sanitizeToolCalls(systemOrdered as never);
+    let toolCallsSanitized = false;
+    try {
+      toolCallsSanitized = JSON.stringify(systemOrdered) !== JSON.stringify(sanitized);
+    } catch {
+      toolCallsSanitized = systemOrdered.length !== sanitized.length;
+    }
     const messages = openAIMessagesToModelMessages(sanitized);
-    return { ok: true, resolved, messages };
+    return {
+      ok: true,
+      resolved,
+      messages,
+      transforms: {
+        systemMessagesReordered: systemOrdered !== (request.messages as never),
+        toolCallsSanitized,
+        messageCountDelta: sanitized.length - ((request.messages as unknown[])?.length ?? 0),
+      },
+    };
   } catch {
     return { ok: false, error: "No model configuration available — the service may still be initializing" };
   }
@@ -5988,8 +6014,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiOrchestratorPhaseOverride = parseOrchestratorPhaseHeader(
     String(req.headers["x-synesis-orchestrator-phase"] ?? ""),
   );
+  const oaiGovernorPreviewPhase = inferGovernorPhaseFromMessages(
+    normalizedOpenAI.messages as Array<GovernorInputMessage>,
+  );
+  const oaiFramePhase = oaiPreFrame ? phaseFromFrame(oaiPreFrame.currentPhase) : undefined;
   const oaiWorkingPhase: WorkflowPhase | undefined =
-    oaiOrchestratorPhaseOverride ?? (oaiPreFrame ? phaseFromFrame(oaiPreFrame.currentPhase) : undefined);
+    oaiOrchestratorPhaseOverride
+    ?? oaiFramePhase
+    ?? governorPhaseToWorkflowPhase(oaiGovernorPreviewPhase);
   const oaiWorkingFrameGoal: string | undefined = oaiPreFrame?.goal;
 
   let oaiPrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
@@ -6262,6 +6294,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   const oaiGovernorPhase = oaiExecutionGovernor.telemetry.phase;
+  const oaiGovernorWorkflowPhase = governorPhaseToWorkflowPhase(oaiGovernorPhase);
+  if (oaiWorkingPhase && oaiWorkingPhase !== oaiGovernorWorkflowPhase) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "governor_orchestrator_phase_mismatch",
+      "execution-governor",
+      `working=${oaiWorkingPhase} governor=${oaiGovernorWorkflowPhase}`,
+      oaiTraceReqId,
+      {
+        governor_phase: oaiGovernorPhase,
+        governor_workflow_phase: oaiGovernorWorkflowPhase,
+        orchestrator_working_phase: oaiWorkingPhase,
+        orchestrator_phase_override: oaiOrchestratorPhaseOverride ?? null,
+      },
+    );
+  }
   if (session.lastGovernorPhase && oaiGovernorPhase !== session.lastGovernorPhase) {
     session.consecutiveRecoveryFires = 0;
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "governor_phase_transition", "execution-governor",
@@ -6269,6 +6319,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   session.lastGovernorPhase = oaiGovernorPhase;
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const oaiTerminalRules = new Set([
+      "finalize_action_required",
+      "verification_after_completion_claim",
+      "completion_claim_requires_task_update",
+      "repeat_user_prompt_loop",
+    ]);
+    const oaiHasTerminalRule = oaiExecutionGovernor.matchedRules.some((rule) => oaiTerminalRules.has(rule));
+    const oaiHasConcreteProgress =
+      oaiLatestToolProgress.hasRecentWriteSuccess || oaiToolProgress.state === "progress";
     const oaiShouldHoldRecoveryFire =
       oaiLatestToolProgress.hasRecentEditContextMiss
       && oaiExecutionGovernor.matchedRules.length === 1
@@ -6289,11 +6348,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
           toolCallId: oaiLatestToolProgress.toolCallId || null,
         },
       );
+    } else if (oaiHasConcreteProgress) {
+      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "execution_governor_recovery_reset",
+        "execution-governor",
+        "Decremented recovery streak due to concrete progress evidence",
+        oaiTraceReqId,
+        {
+          matched_rules: oaiExecutionGovernor.matchedRules,
+          progress_state: oaiToolProgress.state,
+          has_recent_write_success: oaiLatestToolProgress.hasRecentWriteSuccess,
+          consecutive_recovery_fires: session.consecutiveRecoveryFires,
+        },
+      );
     } else {
       session.consecutiveRecoveryFires += 1;
     }
-    const HARD_STOP_THRESHOLD = 5;
-    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
+    const HARD_STOP_THRESHOLD = 7;
+    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && oaiHasTerminalRule) {
       const oaiHardStopDedup = getContentDedup(sessionKey);
       const oaiHardStopFilesList = oaiHardStopDedup.generateFilesSummaryBlock() ?? "";
       const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
@@ -6328,6 +6404,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
       maybeCheckpoint(session);
       return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream, pauseEnvelope);
+    }
+    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && !oaiHasTerminalRule) {
+      session.consecutiveRecoveryFires = HARD_STOP_THRESHOLD - 1;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "execution_governor_hard_stop_deferred",
+        "execution-governor",
+        `Deferred hard stop because only advisory rules fired (${oaiExecutionGovernor.matchedRules.join(",")})`,
+        oaiTraceReqId,
+        {
+          phase: oaiGovernorPhase,
+          matched_rules: oaiExecutionGovernor.matchedRules,
+          consecutive_recovery_fires: session.consecutiveRecoveryFires,
+        },
+      );
     }
     let recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
     const oaiDedup = getContentDedup(sessionKey);
@@ -6515,7 +6608,30 @@ app.post("/v1/chat/completions", async (req, reply) => {
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "resolve_failure", "tier-registry", resolveResult.error, reqId);
     return reply.code(503).send({ error: { type: "service_unavailable", message: resolveResult.error } });
   }
-  const { resolved, messages } = resolveResult;
+  const { resolved, messages, transforms: oaiTranscriptTransforms } = resolveResult;
+  if (
+    (oaiTranscriptTransforms.systemMessagesReordered || oaiTranscriptTransforms.toolCallsSanitized)
+    && shouldSampleBySeed(
+      `${sessionKey}:${reqId}:openai-transform`,
+      config.SYNESIS_YARN_TRANSCRIPT_TRANSFORM_LOG_SAMPLE_RATE,
+    )
+  ) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "transcript_transform_applied",
+      "request-normalizer",
+      `system_reordered=${oaiTranscriptTransforms.systemMessagesReordered} tool_sanitized=${oaiTranscriptTransforms.toolCallsSanitized} delta=${oaiTranscriptTransforms.messageCountDelta}`,
+      reqId,
+      {
+        path: "openai",
+        system_messages_reordered: oaiTranscriptTransforms.systemMessagesReordered,
+        tool_calls_sanitized: oaiTranscriptTransforms.toolCallsSanitized,
+        message_count_delta: oaiTranscriptTransforms.messageCountDelta,
+      },
+    );
+  }
   const { adapter } = resolved;
   const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
   const toolBudget = adjustToolSchemaBudgetForSession(
@@ -8384,8 +8500,14 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeOrchestratorPhaseOverride = parseOrchestratorPhaseHeader(
     String(req.headers["x-synesis-orchestrator-phase"] ?? ""),
   );
+  const claudeGovernorPreviewPhase = inferGovernorPhaseFromMessages(
+    normalizedFromClaude.messages as Array<GovernorInputMessage>,
+  );
+  const claudeFramePhase = claudePreFrame ? phaseFromFrame(claudePreFrame.currentPhase) : undefined;
   const claudeWorkingPhase: WorkflowPhase | undefined =
-    claudeOrchestratorPhaseOverride ?? (claudePreFrame ? phaseFromFrame(claudePreFrame.currentPhase) : undefined);
+    claudeOrchestratorPhaseOverride
+    ?? claudeFramePhase
+    ?? governorPhaseToWorkflowPhase(claudeGovernorPreviewPhase);
   const claudeWorkingFrameGoal: string | undefined = claudePreFrame?.goal;
 
   let claudePrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
@@ -8661,6 +8783,24 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   const claudeGovernorPhase = claudeExecutionGovernor.telemetry.phase;
+  const claudeGovernorWorkflowPhase = governorPhaseToWorkflowPhase(claudeGovernorPhase);
+  if (claudeWorkingPhase && claudeWorkingPhase !== claudeGovernorWorkflowPhase) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "governor_orchestrator_phase_mismatch",
+      "execution-governor",
+      `working=${claudeWorkingPhase} governor=${claudeGovernorWorkflowPhase}`,
+      traceReqId,
+      {
+        governor_phase: claudeGovernorPhase,
+        governor_workflow_phase: claudeGovernorWorkflowPhase,
+        orchestrator_working_phase: claudeWorkingPhase,
+        orchestrator_phase_override: claudeOrchestratorPhaseOverride ?? null,
+      },
+    );
+  }
   if (session.lastGovernorPhase && claudeGovernorPhase !== session.lastGovernorPhase) {
     session.consecutiveRecoveryFires = 0;
     recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "governor_phase_transition", "execution-governor",
@@ -8668,6 +8808,15 @@ app.post("/v1/messages", async (req, reply) => {
   }
   session.lastGovernorPhase = claudeGovernorPhase;
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const claudeTerminalRules = new Set([
+      "finalize_action_required",
+      "verification_after_completion_claim",
+      "completion_claim_requires_task_update",
+      "repeat_user_prompt_loop",
+    ]);
+    const claudeHasTerminalRule = claudeExecutionGovernor.matchedRules.some((rule) => claudeTerminalRules.has(rule));
+    const claudeHasConcreteProgress =
+      claudeLatestToolProgress.hasRecentWriteSuccess || claudeToolProgress.state === "progress";
     const claudeShouldHoldRecoveryFire =
       claudeLatestToolProgress.hasRecentEditContextMiss
       && claudeExecutionGovernor.matchedRules.length === 1
@@ -8688,11 +8837,28 @@ app.post("/v1/messages", async (req, reply) => {
           toolCallId: claudeLatestToolProgress.toolCallId || null,
         },
       );
+    } else if (claudeHasConcreteProgress) {
+      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "execution_governor_recovery_reset",
+        "execution-governor",
+        "Decremented recovery streak due to concrete progress evidence",
+        traceReqId,
+        {
+          matched_rules: claudeExecutionGovernor.matchedRules,
+          progress_state: claudeToolProgress.state,
+          has_recent_write_success: claudeLatestToolProgress.hasRecentWriteSuccess,
+          consecutive_recovery_fires: session.consecutiveRecoveryFires,
+        },
+      );
     } else {
       session.consecutiveRecoveryFires += 1;
     }
-    const HARD_STOP_THRESHOLD = 5;
-    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD) {
+    const HARD_STOP_THRESHOLD = 7;
+    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && claudeHasTerminalRule) {
       const claudeHardStopDedup = getContentDedup(claudeSessionKey);
       const claudeHardStopFilesList = claudeHardStopDedup.generateFilesSummaryBlock() ?? "";
       const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
@@ -8727,6 +8893,23 @@ app.post("/v1/messages", async (req, reply) => {
       );
       maybeCheckpoint(session);
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream, pauseEnvelope);
+    }
+    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && !claudeHasTerminalRule) {
+      session.consecutiveRecoveryFires = HARD_STOP_THRESHOLD - 1;
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "execution_governor_hard_stop_deferred",
+        "execution-governor",
+        `Deferred hard stop because only advisory rules fired (${claudeExecutionGovernor.matchedRules.join(",")})`,
+        traceReqId,
+        {
+          phase: claudeGovernorPhase,
+          matched_rules: claudeExecutionGovernor.matchedRules,
+          consecutive_recovery_fires: session.consecutiveRecoveryFires,
+        },
+      );
     }
     let recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
     const claudeDedup = getContentDedup(claudeSessionKey);
@@ -8853,12 +9036,9 @@ app.post("/v1/messages", async (req, reply) => {
     if (claudeBlocks.length > 0) {
       const combined = claudeBlocks.join("\n\n");
       const claudeMsgs = openAIShape.messages as Array<{ role: string; content: unknown }>;
-      const claudeSysIdx = claudeMsgs.findIndex((m) => m.role === "system");
-      if (claudeSysIdx >= 0 && typeof claudeMsgs[claudeSysIdx].content === "string") {
-        claudeMsgs[claudeSysIdx] = { ...claudeMsgs[claudeSysIdx], content: `${claudeMsgs[claudeSysIdx].content}\n\n${combined}` };
-      } else {
-        claudeMsgs.unshift({ role: "system", content: combined });
-      }
+      // Keep user-authored steering blocks intact. Inject provider-side guidance
+      // as a dedicated system turn rather than mutating existing system content.
+      claudeMsgs.push({ role: "system", content: combined });
       openAIShape.messages = claudeMsgs as never;
     }
   }
@@ -8915,7 +9095,30 @@ app.post("/v1/messages", async (req, reply) => {
       error: { type: "service_unavailable", message: claudeResolveResult.error }
     });
   }
-  const { resolved, messages } = claudeResolveResult;
+  const { resolved, messages, transforms: claudeTranscriptTransforms } = claudeResolveResult;
+  if (
+    (claudeTranscriptTransforms.systemMessagesReordered || claudeTranscriptTransforms.toolCallsSanitized)
+    && shouldSampleBySeed(
+      `${claudeSessionKey}:${traceReqId}:claude-transform`,
+      config.SYNESIS_YARN_TRANSCRIPT_TRANSFORM_LOG_SAMPLE_RATE,
+    )
+  ) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "transcript_transform_applied",
+      "request-normalizer",
+      `system_reordered=${claudeTranscriptTransforms.systemMessagesReordered} tool_sanitized=${claudeTranscriptTransforms.toolCallsSanitized} delta=${claudeTranscriptTransforms.messageCountDelta}`,
+      traceReqId,
+      {
+        path: "claude",
+        system_messages_reordered: claudeTranscriptTransforms.systemMessagesReordered,
+        tool_calls_sanitized: claudeTranscriptTransforms.toolCallsSanitized,
+        message_count_delta: claudeTranscriptTransforms.messageCountDelta,
+      },
+    );
+  }
   const { adapter: claudeAdapter } = resolved;
   let claudeRawTools = (processedTools as unknown[]) ?? [];
 

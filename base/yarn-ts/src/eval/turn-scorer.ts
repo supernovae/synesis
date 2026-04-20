@@ -109,6 +109,88 @@ function hasTurnExecutionError(turnResults: TurnResult[]): boolean {
   );
 }
 
+const VERIFICATION_CMD_RE = /\b(test|tests|pytest|vitest|jest|go test|go build|build|lint|typecheck|tsc)\b/i;
+const VERIFICATION_SUCCESS_RE = /\b(pass(ed)?|ok\b|build successful|all tests passed|0 failed|tests?\s+passed)\b/i;
+const VERIFICATION_FAILURE_RE = /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|exit\s+code\s+[1-9]/i;
+const COMPLETION_SIGNAL_RE = /\b(done|completed|finished|implemented|resolved)\b/i;
+const VERIFICATION_NON_FAILURE_RE = /\b0\s+failed\b|\bno\s+failures?\b/i;
+
+function normalizeTool(tool: string): string {
+  return tool.trim().toLowerCase();
+}
+
+function hasVerificationToolIntent(name: string, args: string): boolean {
+  const normalized = normalizeTool(name);
+  if (normalized.includes("run_test") || normalized === "bash" || normalized === "shell") {
+    return VERIFICATION_CMD_RE.test(args);
+  }
+  return VERIFICATION_CMD_RE.test(normalized) || VERIFICATION_CMD_RE.test(args);
+}
+
+function hasVerificationEvidence(turnResults: TurnResult[]): boolean {
+  for (const turn of turnResults) {
+    const verifyToolCallIds = new Set<string>();
+    let sawVerificationIntent = false;
+    for (const msg of turn.messages) {
+      if (msg.role === "assistant" && Array.isArray(msg.tool_calls)) {
+        for (const call of msg.tool_calls) {
+          const args = typeof call.function.arguments === "string" ? call.function.arguments : JSON.stringify(call.function.arguments ?? "");
+          if (hasVerificationToolIntent(call.function.name, args)) {
+            sawVerificationIntent = true;
+            verifyToolCallIds.add(call.id);
+          }
+        }
+      }
+      if (msg.role === "tool" && sawVerificationIntent) {
+        const linkedToVerification = !msg.tool_call_id || verifyToolCallIds.size === 0 || verifyToolCallIds.has(msg.tool_call_id);
+        if (!linkedToVerification) continue;
+        const text = typeof msg.content === "string" ? msg.content : "";
+        const hasSuccess = VERIFICATION_SUCCESS_RE.test(text);
+        const hasFailure = VERIFICATION_FAILURE_RE.test(text) && !VERIFICATION_NON_FAILURE_RE.test(text);
+        if (hasSuccess && !hasFailure) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function hasAnyEditAction(turnResults: TurnResult[]): boolean {
+  return turnResults.some((turn) =>
+    turn.messages.some((msg) =>
+      msg.role === "assistant"
+      && (msg.tool_calls ?? []).some((tc) => isEditTool(tc.function.name)),
+    ),
+  );
+}
+
+function hasCompletionSignal(turnResults: TurnResult[]): boolean {
+  const assistantMessages = turnResults.flatMap((tr) =>
+    tr.messages.filter((m) => m.role === "assistant"),
+  );
+  const textualSignal = assistantMessages.some((m) =>
+    typeof m.content === "string" && COMPLETION_SIGNAL_RE.test(m.content),
+  );
+  const lastAssistant = assistantMessages[assistantMessages.length - 1];
+  const finalNarrativeResponse = !!lastAssistant && !(lastAssistant.tool_calls?.length ?? 0);
+  return textualSignal || finalNarrativeResponse;
+}
+
+export function computeSessionCompletionKpi(turnResults: TurnResult[]): {
+  taskFinished: boolean;
+  verificationEvidence: boolean;
+  completed: boolean;
+} {
+  const taskFinished = hasAnyEditAction(turnResults) && hasCompletionSignal(turnResults);
+  const verificationEvidence = hasVerificationEvidence(turnResults);
+  return {
+    taskFinished,
+    verificationEvidence,
+    completed: taskFinished && verificationEvidence,
+  };
+}
+
 function inferScenarioOutcome(
   turnResults: TurnResult[],
   allGovernorRules: string[],
@@ -125,6 +207,11 @@ function inferScenarioOutcome(
     );
   if (governorPaused) return "governor_stopped";
   if (hasTurnExecutionError(turnResults)) return "incomplete";
+
+  const completionKpi = computeSessionCompletionKpi(turnResults);
+  if (completionKpi.completed) {
+    return "completed";
+  }
 
   const assistantMessages = turnResults.flatMap((tr) =>
     tr.messages.filter((m) => m.role === "assistant"),
@@ -383,6 +470,37 @@ function evaluateAssertion(
   }
 }
 
+function hasRequiredToolAction(turnResults: TurnResult[], requiredToolName: string): boolean {
+  const normalizedRequired = normalizeTool(requiredToolName);
+  return turnResults.some((turn) =>
+    turn.messages.some((msg) =>
+      msg.role === "assistant"
+      && (msg.tool_calls ?? []).some((call) => normalizeTool(call.function.name) === normalizedRequired),
+    ),
+  );
+}
+
+function hasArtifactPathEvidence(turnResults: TurnResult[], artifactPath: string): boolean {
+  const needle = artifactPath.trim();
+  if (!needle) return true;
+  return turnResults.some((turn) =>
+    turn.messages.some((msg) => {
+      if (msg.role === "assistant") {
+        return (msg.tool_calls ?? []).some((call) => {
+          const args = typeof call.function.arguments === "string"
+            ? call.function.arguments
+            : JSON.stringify(call.function.arguments ?? "");
+          return args.includes(needle);
+        });
+      }
+      if (msg.role === "tool") {
+        return typeof msg.content === "string" && msg.content.includes(needle);
+      }
+      return false;
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Scenario-level scoring
 // ---------------------------------------------------------------------------
@@ -395,6 +513,7 @@ export function scoreScenario(
 ): { passed: boolean; score: number; failureReasons: string[] } {
   const failures: string[] = [];
   let score = 1.0;
+  const completionKpi = computeSessionCompletionKpi(turnResults);
 
   if (criteria.requiredOutcome) {
     const observed = inferScenarioOutcome(turnResults, allGovernorRules);
@@ -412,6 +531,38 @@ export function scoreScenario(
   if (criteria.maxGovernorInterventions !== undefined && governorInterventions > criteria.maxGovernorInterventions) {
     failures.push(`Too many governor interventions: ${governorInterventions} > ${criteria.maxGovernorInterventions}`);
     score -= 0.2;
+  }
+
+  if (criteria.requireVerificationEvidence && !completionKpi.verificationEvidence) {
+    failures.push("Missing concrete verification evidence (passing build/test output)");
+    score -= 0.2;
+  }
+
+  if (criteria.requireSessionCompletionKpi && !completionKpi.completed) {
+    failures.push(
+      `Session completion KPI not met (taskFinished=${completionKpi.taskFinished}, verificationEvidence=${completionKpi.verificationEvidence})`,
+    );
+    score -= 0.25;
+  }
+
+  if (criteria.requiredToolActions?.length) {
+    const missingTools = criteria.requiredToolActions.filter((toolName) =>
+      !hasRequiredToolAction(turnResults, toolName),
+    );
+    if (missingTools.length > 0) {
+      failures.push(`Missing required tool actions: ${missingTools.join(", ")}`);
+      score -= 0.15;
+    }
+  }
+
+  if (criteria.requiredArtifactPaths?.length) {
+    const missingArtifacts = criteria.requiredArtifactPaths.filter((artifactPath) =>
+      !hasArtifactPathEvidence(turnResults, artifactPath),
+    );
+    if (missingArtifacts.length > 0) {
+      failures.push(`Missing required artifact evidence: ${missingArtifacts.join(", ")}`);
+      score -= 0.15;
+    }
   }
 
   if (criteria.failIfRules?.length) {

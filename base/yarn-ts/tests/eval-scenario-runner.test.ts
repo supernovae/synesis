@@ -64,6 +64,11 @@ describe("runScenario", () => {
     expect(result.scenarioId).toBe("test-simple");
     expect(result.totalTurns).toBe(1);
     expect(result.passed).toBe(true);
+    expect(result.sessionCompletionKpi).toEqual({
+      taskFinished: false,
+      verificationEvidence: false,
+      completed: false,
+    });
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const [url, opts] = mockFetch.mock.calls[0];
@@ -106,6 +111,40 @@ describe("runScenario", () => {
     const firstBody = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(Array.isArray(firstBody.tools)).toBe(true);
     expect(firstBody.tools[0].function.name).toBe("Write");
+  });
+
+  it("reports completed session KPI when edit + verification + completion happen", async () => {
+    const scenarioWithCompletionKpi: EvalScenario = {
+      id: "test-completion-kpi",
+      name: "Completion KPI test",
+      category: "swe_bench",
+      description: "Ensures runner emits completion KPI",
+      target: {},
+      turns: [{
+        messages: [{ role: "user", content: "Fix and verify" }],
+        simulatedToolResults: {
+          Write: "File written: src/fix.ts",
+          Bash: "PASS src/fix.test.ts\n0 failed",
+        },
+        maxToolRounds: 3,
+      }],
+      scoring: {
+        maxTotalTurns: 3,
+        requireSessionCompletionKpi: true,
+      },
+    };
+
+    mockFetch
+      .mockResolvedValueOnce(makeOaiResponse("", [
+        { id: "tc-1", function: { name: "Write", arguments: '{"path":"src/fix.ts"}' } },
+        { id: "tc-2", function: { name: "Bash", arguments: '{"command":"npm test -- src/fix.test.ts"}' } },
+      ]))
+      .mockResolvedValueOnce(makeOaiResponse("Implemented and completed."));
+
+    const result = await runScenario(baseConfig, scenarioWithCompletionKpi);
+    expect(result.sessionCompletionKpi?.completed).toBe(true);
+    expect(result.sessionCompletionKpi?.verificationEvidence).toBe(true);
+    expect(result.sessionCompletionKpi?.taskFinished).toBe(true);
   });
 
   it("maps aliased tool names to simulated results", async () => {

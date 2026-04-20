@@ -131,10 +131,7 @@ export function detectSessionPhase(
 
   for (const e of events) {
     const c = e.command;
-    const isEdit = c.startsWith("edit:") || c === "edit"
-      || c.startsWith("write:") || c === "write"
-      || c.startsWith("filewrite:") || c === "filewrite"
-      || c.startsWith("applypatch:") || c === "applypatch";
+    const isEdit = isEditCommand(c);
     const isSuccessfulEdit = isEdit
       && !(e.resultSignature && (e.resultSignature.includes("error") || e.resultSignature.includes("failed") || e.resultSignature.includes("no match")));
 
@@ -175,8 +172,7 @@ export function detectSessionPhase(
   if (phase !== "finalize" && hasCompletionClaim && !sawVerificationFailure && (phase !== "edit" || !sawVerificationSuccess) && hasNonExplorationWork) {
     const lastEventIdx = events.length - 1;
     const lastCmd = events[lastEventIdx].command;
-    const lastIsEdit = lastCmd.startsWith("edit:") || lastCmd === "edit"
-      || lastCmd.startsWith("write:") || lastCmd === "write";
+    const lastIsEdit = isEditCommand(lastCmd);
     if (!lastIsEdit) {
       phase = "report";
     }
@@ -188,6 +184,51 @@ export function detectSessionPhase(
   }
 
   return phase;
+}
+
+function findLastGenuineUserPromptIndex(messages: GovernorInputMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m?.role !== "user") continue;
+    const text = contentToText(m.content).trim();
+    if (!text) continue;
+    if (
+      Array.isArray(m.content)
+      && (m.content as Array<{ type?: string }>).length > 0
+      && (m.content as Array<{ type?: string }>).every(
+        (b) => b && typeof b === "object" && b.type === "tool_result",
+      )
+    ) continue;
+    return i;
+  }
+  return -1;
+}
+
+export function inferGovernorPhaseFromMessages(messages: GovernorInputMessage[]): SessionPhase {
+  const lastUserPromptIdx = findLastGenuineUserPromptIndex(messages);
+  const turnMessages = lastUserPromptIdx >= 0 ? messages.slice(lastUserPromptIdx + 1) : messages;
+  const events = extractCommandEvents(turnMessages);
+  const changedFiles = extractEditedFileHints(events);
+  const latestUserText = extractLatestUserText(messages);
+  const hasCompletionClaim = hasActiveCompletionClaim(messages);
+  return detectSessionPhase(events, latestUserText, changedFiles, hasCompletionClaim);
+}
+
+export function governorPhaseToWorkflowPhase(
+  phase: SessionPhase,
+): "explore" | "planning" | "implementation" | "validation" {
+  switch (phase) {
+    case "explore":
+      return "explore";
+    case "edit":
+      return "implementation";
+    case "verify":
+      return "validation";
+    case "report":
+    case "finalize":
+    default:
+      return "validation";
+  }
 }
 
 /**
@@ -316,6 +357,58 @@ function isRuleAllowedInPhase(rule: string, phase: SessionPhase): boolean {
   return PHASE_ALLOWED_RULES[phase].has(rule);
 }
 
+// Explicit precedence for multi-rule matches. Highest priority appears first.
+const RULE_PRIORITY_ORDER = [
+  "finalize_action_required",
+  "verification_after_completion_claim",
+  "completion_claim_requires_task_update",
+  "consecutive_edit_failures",
+  "edit_failure_replay",
+  "verification_fail_repeat_block",
+  "verification_same_failure_signature_replay",
+  "verification_churn_no_edit",
+  "verification_stall_no_edit",
+  "verification_truncated_output",
+  "verification_no_signal_repeat",
+  "verification_done_report",
+  "no_test_files_repeat",
+  "source_file_stale_reread",
+  "plan_reread_loop",
+  "no_progress_loop",
+  "exploration_stall_no_edit",
+  "declaration_followthrough_required",
+  "task_creation_replay",
+  "repeat_user_prompt_loop",
+  "verification_intent_without_action",
+  "verbal_intent_without_action",
+  "dependency_install_replay",
+  "git_commit_followthrough",
+  "broad_to_narrow_verification",
+  "edit_before_retest",
+  "no_repeat_without_change",
+  "verification_green_repeat_block",
+  "verification_already_green",
+  "test_entry_contract",
+  "cleanup_todo_harvest",
+  "bounded_exploration_budget",
+  "broad_discovery_repeat",
+] as const;
+
+const RULE_PRIORITY_MAP = new Map<string, number>(
+  RULE_PRIORITY_ORDER.map((rule, index) => [rule, RULE_PRIORITY_ORDER.length - index]),
+);
+
+function prioritizeMatchedRules(rules: string[]): string[] {
+  const unique = [...new Set(rules)];
+  unique.sort((a, b) => {
+    const pa = RULE_PRIORITY_MAP.get(a) ?? 0;
+    const pb = RULE_PRIORITY_MAP.get(b) ?? 0;
+    if (pa !== pb) return pb - pa;
+    return a.localeCompare(b);
+  });
+  return unique;
+}
+
 export type GovernanceProfileName = "safety_strict" | "balanced_completion" | "strict_control";
 
 interface GovernorThresholds {
@@ -377,6 +470,46 @@ function normalizeString(v: unknown): string {
   return "";
 }
 
+const EDIT_COMMAND_PREFIXES = ["edit:", "write:", "filewrite:", "applypatch:", "update:"];
+
+function isEditCommand(command: string): boolean {
+  const normalized = normalizeString(command).toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "edit" || normalized === "write" || normalized === "filewrite" || normalized === "applypatch" || normalized === "update") {
+    return true;
+  }
+  return EDIT_COMMAND_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function isTaskLifecycleCommand(command: string): boolean {
+  const normalized = normalizeString(command).toLowerCase();
+  if (!normalized) return false;
+  return normalized === "taskcreate"
+    || normalized === "taskupdate"
+    || normalized === "todowrite"
+    || normalized.startsWith("taskcreate:")
+    || normalized.startsWith("taskupdate:")
+    || normalized.startsWith("todowrite:");
+}
+
+function extractCommandTarget(command: string): string {
+  const normalized = normalizeString(command);
+  const idx = normalized.indexOf(":");
+  if (idx < 0) return "";
+  return normalized.slice(idx + 1).trim();
+}
+
+function extractPathLikeArg(row: Record<string, unknown>): string {
+  return normalizeString(
+    row.filePath
+    ?? row.file_path
+    ?? row.path
+    ?? row.target_file
+    ?? row.directory
+    ?? row.dir,
+  );
+}
+
 /**
  * Extract text from a message's content field, handling both plain strings
  * and Claude-style array content blocks ({type: "text", text: "..."}).
@@ -428,10 +561,10 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
     return path ? `list:${path}` : "list:.";
   }
   if (tool.includes("read_file") || tool === "read") {
-    const p = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
+    const p = extractPathLikeArg(row);
     if (p) return `read:${p}`;
   }
-  const filePath = normalizeString(row.filePath || row.file_path || row.path || row.target_file);
+  const filePath = extractPathLikeArg(row);
   const isWriteTool = tool === "write"
     || tool === "filewrite"
     || tool.includes("write_file")
@@ -485,7 +618,21 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
       : "";
     return firstTodo ? `todowrite:${firstTodo}` : "todowrite";
   }
-  return "";
+  const fallbackCommand = normalizeString(
+    row.command
+    ?? row.cmd
+    ?? row.script
+    ?? row.query
+    ?? row.pattern
+    ?? row.search
+    ?? row.search_code
+    ?? row.title
+    ?? row.name
+    ?? row.content
+    ?? filePath,
+  );
+  const suffix = fallbackCommand ? `:${fallbackCommand.slice(0, 120)}` : "";
+  return `tool:${tool || "unknown"}${suffix}`;
 }
 
 function parseArgsToObject(args: unknown): Record<string, unknown> | null {
@@ -527,8 +674,7 @@ function extractCommandEvents(messages: GovernorInputMessage[]): CommandEvent[] 
         if (!id) continue;
         const toolName = normalizeString(call.function?.name ?? call.name).toLowerCase();
         const rawArgs = call.function?.arguments ?? call.input;
-        const command = parseArgsToCommand(toolName, rawArgs);
-        if (!command) continue;
+        const command = parseArgsToCommand(toolName, rawArgs) || `tool:${toolName || "unknown"}`;
         callById.set(id, { command, toolName, argsObject: parseArgsToObject(rawArgs) });
       }
       continue;
@@ -569,9 +715,8 @@ function extractEditedFileHints(events: CommandEvent[]): string[] {
   const hints = new Set<string>();
   for (const e of events) {
     const c = normalizeString(e.command);
-    if (c.startsWith("edit:") || c.startsWith("update:") || c.startsWith("write:")) {
-      const prefixLen = c.indexOf(":") + 1;
-      const file = c.slice(prefixLen).trim();
+    if (isEditCommand(c)) {
+      const file = extractCommandTarget(c);
       if (file) {
         hints.add(file);
         if (hints.size >= 20) break;
@@ -684,13 +829,8 @@ function countVerbalIntentStreak(messages: GovernorInputMessage[], events: Comma
   // "I'll verify/rebase..." + repeated Read/List/Search with no actual progress.
   const hasProgressAction = events.some((e) =>
     isVerificationCommand(e.toolName, e.command)
-    || e.command.startsWith("edit:") || e.command === "edit"
-    || e.command.startsWith("write:") || e.command === "write"
-    || e.command.startsWith("filewrite:") || e.command === "filewrite"
-    || e.command.startsWith("applypatch:") || e.command === "applypatch"
-    || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
-    || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
-    || e.command.startsWith("todowrite:") || e.command === "todowrite",
+    || isEditCommand(e.command)
+    || isTaskLifecycleCommand(e.command),
   );
   if (hasProgressAction) return 0;
 
@@ -715,13 +855,8 @@ function countVerificationIntentWithoutAction(messages: GovernorInputMessage[], 
   if (hasAnyVerificationCommand) return 0;
 
   const hasRealEditOrTaskAction = events.some((e) =>
-    e.command.startsWith("edit:") || e.command === "edit"
-    || e.command.startsWith("write:") || e.command === "write"
-    || e.command.startsWith("filewrite:") || e.command === "filewrite"
-    || e.command.startsWith("applypatch:") || e.command === "applypatch"
-    || e.command.startsWith("taskcreate:") || e.command === "taskcreate"
-    || e.command.startsWith("taskupdate:") || e.command === "taskupdate"
-    || e.command.startsWith("todowrite:") || e.command === "todowrite",
+    isEditCommand(e.command)
+    || isTaskLifecycleCommand(e.command),
   );
   if (hasRealEditOrTaskAction) return 0;
 
@@ -1036,27 +1171,8 @@ export function evaluateExecutionGovernor(
   const profile = opts.profile ?? "balanced_completion";
   const activePlanStage = opts.activePlanStage ?? null;
   const thresholds = thresholdsForProfile(profile);
-  // Find the last GENUINE user prompt — not tool results. In Claude's Messages API,
-  // tool results are sent as role:"user" messages with only tool_result content blocks.
-  // We need the actual user prompt (has text) so behavioral evaluation starts from
-  // "the human asked a question" — not from the middle of a tool-call loop.
-  const lastUserPromptIdx = (() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const m = messages[i];
-      if (m?.role !== "user") continue;
-      const text = contentToText(m.content).trim();
-      if (!text) continue;
-      // Claude tool_result messages may embed text alongside tool_result blocks.
-      // If content is an array and EVERY block is tool_result, skip it.
-      if (Array.isArray(m.content)
-        && (m.content as Array<{ type?: string }>).length > 0
-        && (m.content as Array<{ type?: string }>).every(
-          (b) => b && typeof b === "object" && b.type === "tool_result",
-        )) continue;
-      return i;
-    }
-    return -1;
-  })();
+  // Evaluate from the latest real user prompt (ignoring user-role tool_result wrappers).
+  const lastUserPromptIdx = findLastGenuineUserPromptIndex(messages);
   const turnMessages = lastUserPromptIdx >= 0 ? messages.slice(lastUserPromptIdx + 1) : messages;
   const events = extractCommandEvents(turnMessages);
   const changedFiles = extractEditedFileHints(events);
@@ -1095,7 +1211,7 @@ export function evaluateExecutionGovernor(
     if (isRuleAllowedInPhase(rule, sessionPhase)) matchedRules.push(rule);
   };
   const hasRunTest = events.some((e) => isVerificationLike(e.toolName, e.command));
-  const hasEdit = events.some((e) => e.command.startsWith("edit:") || e.command === "edit");
+  const hasEdit = events.some((e) => isEditCommand(e.command));
 
   const BROAD_DISCOVERY_WINDOW = 20;
   const windowStart = Math.max(0, events.length - BROAD_DISCOVERY_WINDOW);
@@ -1169,7 +1285,7 @@ export function evaluateExecutionGovernor(
   }
   for (const e of events) {
     const c = normalizeString(e.command);
-    if (!c.startsWith("edit:")) continue;
+    if (!isEditCommand(c)) continue;
     if (!hasEditFailureSignature(e.resultSignature)) continue;
     const key = `${c}|${e.resultSignature}`;
     const next = (editFailureReplay.get(key) ?? 0) + 1;
@@ -1199,8 +1315,7 @@ export function evaluateExecutionGovernor(
   let consecutiveEditFailures = 0;
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const c = normalizeString(events[i].command);
-    if (c.startsWith("edit:") || c === "edit" || c.startsWith("write:") || c === "write"
-      || c.startsWith("filewrite:") || c === "filewrite" || c.startsWith("applypatch:") || c === "applypatch") {
+    if (isEditCommand(c)) {
       if (hasEditFailureSignature(events[i].resultSignature)) {
         consecutiveEditFailures += 1;
       } else {
@@ -1227,9 +1342,7 @@ export function evaluateExecutionGovernor(
   const trailingReadPaths = new Map<string, number>();
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const vc = events[i].command;
-    if (vc.startsWith("edit:") || vc === "edit"
-      || vc.startsWith("write:") || vc === "write"
-      || vc.startsWith("filewrite:") || vc === "filewrite") break;
+    if (isEditCommand(vc)) break;
     if (isVerificationCommand(events[i].toolName, vc)) {
       trailingVerificationRunLength += 1;
       trailingVerificationCommands.add(vc);
@@ -1259,9 +1372,7 @@ export function evaluateExecutionGovernor(
   const explorationReadPaths = new Map<string, number>();
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const ec = events[i].command;
-    if (ec.startsWith("edit:") || ec === "edit"
-      || ec.startsWith("write:") || ec === "write"
-      || ec.startsWith("filewrite:") || ec === "filewrite") break;
+    if (isEditCommand(ec)) break;
     if (isVerificationCommand(events[i].toolName, ec)) break;
     const cmd = ec;
     if (cmd.startsWith("search:") || cmd.startsWith("glob:") || cmd.startsWith("list:")) {
@@ -1301,8 +1412,7 @@ export function evaluateExecutionGovernor(
   for (const e of events) {
     const c = e.command;
     const isPlanPath = c.includes("/.claude/plans/") || c.includes("/plan") || c.includes("plan.md");
-    if ((c.startsWith("edit:") || c.startsWith("write:") || c.startsWith("filewrite:")
-      || c.startsWith("todowrite:") || c.startsWith("taskcreate:")) && isPlanPath) {
+    if ((isEditCommand(c) || c.startsWith("todowrite:") || c.startsWith("taskcreate:")) && isPlanPath) {
       hasPlanEdit = true; continue;
     }
     if (c.startsWith("read:") && c.includes("/.claude/plans/")) {
@@ -1328,12 +1438,12 @@ export function evaluateExecutionGovernor(
   const sourceFileEditPaths = new Set<string>();
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const c = events[i].command;
-    if ((c.startsWith("edit:") || c.startsWith("write:") || c.startsWith("filewrite:")) && !c.includes("/.claude/plans/")) {
-      const path = c.replace(/^(edit:|write:|filewrite:)/, "");
-      sourceFileEditPaths.add(path);
+    if (isEditCommand(c) && !c.includes("/.claude/plans/")) {
+      const path = extractCommandTarget(c);
+      if (path) sourceFileEditPaths.add(path);
       // Reads already counted before we reached this write belong to a prior read-cycle;
       // discard them so only post-write reads contribute to the stale threshold.
-      sourceFileReadCounts.delete(path);
+      if (path) sourceFileReadCounts.delete(path);
     }
     if (c.startsWith("read:") && !c.includes("/.claude/plans/")) {
       const path = c.slice("read:".length);
@@ -1369,9 +1479,7 @@ export function evaluateExecutionGovernor(
   let editFailureCount = 0;
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const c = events[i].command;
-    if (c.startsWith("edit:") || c === "edit" || c.startsWith("write:") || c === "write"
-      || c.startsWith("filewrite:") || c === "filewrite"
-      || c.startsWith("applypatch:") || c === "applypatch"
+    if (isEditCommand(c)
       || c.startsWith("taskcreate:") || c.startsWith("taskupdate:") || c.startsWith("todowrite:")) {
       const sig = events[i].resultSignature;
       if (sig && (sig.includes("error") || sig.includes("failed") || sig.includes("no match"))) {
@@ -1398,7 +1506,7 @@ export function evaluateExecutionGovernor(
   let nonActionAfterDeclarationEdit = 0;
   for (const e of events) {
     const c = normalizeString(e.command);
-    if (c.startsWith("edit:")) {
+    if (isEditCommand(c)) {
       if (isDeclarationOnlyEditResultSignature(e.resultSignature)) {
         sawDeclarationOnlyEdit = true;
         sawFollowupConcreteEdit = false;
@@ -1460,7 +1568,7 @@ export function evaluateExecutionGovernor(
       const postClaimEvents = extractCommandEvents(turnMessages.slice(lastClaimIdx));
       for (const e of postClaimEvents) {
         const c = e.command;
-        if (c.startsWith("edit:") || c === "edit" || c.startsWith("write:") || c === "write"
+        if (isEditCommand(c)
           || c.startsWith("taskcreate:") || c.startsWith("taskupdate:") || c.startsWith("todowrite:")) {
           break;
         }
@@ -1574,6 +1682,10 @@ export function evaluateExecutionGovernor(
   if (cleanupHarvestRequested && hasEdit && !hasTodoHarvest(events)) {
     pushRule("cleanup_todo_harvest");
   }
+
+  const prioritized = prioritizeMatchedRules(matchedRules);
+  matchedRules.length = 0;
+  matchedRules.push(...prioritized);
 
   if (matchedRules.length === 0) {
     return {

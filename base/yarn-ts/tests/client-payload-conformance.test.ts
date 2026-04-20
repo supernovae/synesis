@@ -92,6 +92,38 @@ describe("client payload conformance fixtures", () => {
     expect(mappedChoice).toEqual({ type: "tool", toolName: "list_dir" });
   });
 
+  it.each([
+    {
+      profile: "roo-opencode",
+      file: "openai_tool_history_payload.json",
+      expectedMode: "ide",
+      expectedToolChoice: "auto",
+    },
+    {
+      profile: "opencode",
+      file: "openai_function_choice_payload.json",
+      expectedMode: "ide",
+      expectedToolChoice: { type: "tool", toolName: "write_file" },
+    },
+  ])("client matrix accepts $profile OpenAI payload shape", ({ profile, file, expectedMode, expectedToolChoice }) => {
+    const body = loadFixture(profile, file);
+    const parsed = OpenAIChatCompletionRequestSchema.safeParse(body);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    const profileConfig = packs.resolve(profile);
+    expect(profileConfig.mode).toBe(expectedMode);
+
+    const mappedChoice = mapToolChoice(parsed.data.tool_choice);
+    expect(mappedChoice).toEqual(expectedToolChoice as never);
+
+    const sanitized = sanitizeToolCalls(parsed.data.messages as never);
+    const assistantIdx = sanitized.findIndex((m) => m.role === "assistant" && (m.tool_calls?.length ?? 0) > 0);
+    if (assistantIdx >= 0) {
+      expect(sanitized[assistantIdx + 1]?.role).toBe("tool");
+    }
+  });
+
   it("normalizes optimized transcripts to strict OpenAI system-first ordering", () => {
     const optimizedLikeMessages = [
       { role: "system", content: "core instructions" },
@@ -129,6 +161,31 @@ describe("client payload conformance fixtures", () => {
     // Still convertible to SDK model messages used by request dispatch.
     const modelMessages = openAIMessagesToModelMessages(sanitized as never);
     expect(modelMessages.length).toBeGreaterThan(0);
+  });
+
+  it("preserves user-authored steering when policy guidance is appended", () => {
+    const userGuidance = [
+      "<AGENT_MD>",
+      "Prefer minimal diffs and run targeted tests before summarizing.",
+      "</AGENT_MD>",
+    ].join("\n");
+    const policyGuidance = "<SYNESIS_GOVERNOR>Use one focused verification step.</SYNESIS_GOVERNOR>";
+    const messages = [
+      { role: "system", content: userGuidance },
+      { role: "user", content: "Finish the remaining task." },
+      { role: "system", content: policyGuidance },
+    ];
+    const normalized = sanitizeToolCalls(ensureSystemMessagesAtBeginning(messages as never) as never);
+    const systemMessages = normalized.filter((m) => m.role === "system");
+    expect(systemMessages).toHaveLength(2);
+    expect(systemMessages[0]?.content).toBe(userGuidance);
+    expect(systemMessages[1]?.content).toBe(policyGuidance);
+    const modelMessages = openAIMessagesToModelMessages(normalized as never);
+    const renderedUserGuidance = modelMessages.find((m) => m.role === "system");
+    expect(renderedUserGuidance).toBeDefined();
+    if (renderedUserGuidance) {
+      expect(String(renderedUserGuidance.content)).toContain("Prefer minimal diffs");
+    }
   });
 });
 
