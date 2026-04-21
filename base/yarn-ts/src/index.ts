@@ -377,6 +377,7 @@ function applyExecutionGovernorToolRestrictions(
     || r === "no_progress_loop"
     || r === "source_file_stale_reread"
     || r === "verbal_intent_without_action"
+    || r === "repeated_assistant_intro"
     || r === "verification_intent_without_action"
     || r === "finalize_action_required"
   ) ?? false;

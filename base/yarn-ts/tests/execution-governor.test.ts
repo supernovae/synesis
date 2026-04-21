@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateExecutionGovernor,
+  countRepeatedAssistantIntroEdges,
   executionGovernorRecoveryRewriteBlock,
   buildExecutionGovernorHardStopUserMessage,
   buildExecutionGovernorPauseEnvelope,
@@ -1122,6 +1123,39 @@ describe("execution governor", () => {
     const out = evaluateExecutionGovernor(messages);
     // verification_churn_no_edit fires after 4+ repeated failures (churnThreshold = max(4, stallThreshold-2))
     expect(out.matchedRules).toContain("verification_churn_no_edit");
+  });
+
+  it("countRepeatedAssistantIntroEdges splits paragraphs before normalizing whitespace", () => {
+    const intro =
+      "I'll continue fixing the remaining issues. Based on the conversation history, I need to "
+      + "fix duplicate functions in pkg/jq/jq.go. Let me start by reading the current state of the files:";
+    const edges = countRepeatedAssistantIntroEdges([
+      { role: "assistant", content: intro },
+      { role: "assistant", content: `${intro}\n\n(read tool returned)` },
+    ]);
+    expect(edges).toBe(1);
+  });
+
+  it("fires repeated_assistant_intro when the same opening paragraph repeats with a failed edit (not only noEditEvidence)", () => {
+    const intro =
+      "I'll continue fixing the remaining issues. Based on the conversation history, I need to "
+      + "fix duplicate functions in pkg/jq/jq.go, fix syntax in pkg/output/output.go, and add tests. "
+      + "Let me start by reading the current state of the files:";
+    const messages = [
+      { role: "user", content: "please continue and finish the feature" },
+      { role: "assistant", content: intro },
+      assistantCall("1", "read_file", { path: "pkg/jq/jq.go" }),
+      toolResult("1", "package jq\n"),
+      { role: "assistant", content: `${intro}\n\n(read tool returned)` },
+      assistantCall("2", "Update", { file_path: "pkg/jq/jq.go", old_string: "x", new_string: "y" }),
+      toolResult("2", "Error: String to replace not found in file."),
+      { role: "assistant", content: `${intro}\n\n(retrying)` },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("repeated_assistant_intro");
+    expect(out.reason).toBe("repeated_assistant_intro");
+    expect(out.suggestedNextStep).toMatch(/git diff|string not found|stale/i);
   });
 
   it("fires verbal_intent_without_action on repeated 'I'll' declarations without any tool calls", () => {

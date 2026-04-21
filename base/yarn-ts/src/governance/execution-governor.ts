@@ -35,6 +35,8 @@ export interface ExecutionGovernorDecision {
     planReadCount?: number;
     planCachedRereadCount?: number;
     activeGuards?: TransitionGuard[];
+    /** Consecutive assistant messages whose opening paragraph matched the previous (duplicate narration). */
+    repeatedAssistantIntroEdges?: number;
   };
 }
 
@@ -334,6 +336,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     // Progress / intent loops — even in explore, the model shouldn't narrate
     // "I'll explore..." 18 times without producing a result.
     "no_progress_loop",
+    "repeated_assistant_intro",
     "verbal_intent_without_action",
     // Concrete failures always fire — even during investigation, if a verification
     // command keeps failing without edits the model must stop cycling.
@@ -372,6 +375,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "broad_to_narrow_verification",
     // Progress / workflow
     "no_progress_loop",
+    "repeated_assistant_intro",
     "verbal_intent_without_action",
     "verification_intent_without_action",
     "repeat_user_prompt_loop",
@@ -402,6 +406,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "false_green_suspected",
     // Progress / workflow
     "no_progress_loop",
+    "repeated_assistant_intro",
     "verbal_intent_without_action",
     "verification_intent_without_action",
     "repeat_user_prompt_loop",
@@ -419,6 +424,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "verification_churn_no_edit",
     "exploration_stall_no_edit",
     "no_progress_loop",
+    "repeated_assistant_intro",
     "verbal_intent_without_action",
     "verification_intent_without_action",
     "repeat_user_prompt_loop",
@@ -440,6 +446,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "completion_claim_requires_task_update",
     "git_commit_followthrough",
     "repeat_user_prompt_loop",
+    "repeated_assistant_intro",
     // Transition guards
     "false_green_suspected",
   ]),
@@ -468,6 +475,7 @@ const RULE_PRIORITY_ORDER = [
   "source_file_stale_reread",
   "plan_reread_loop",
   "no_progress_loop",
+  "repeated_assistant_intro",
   "exploration_stall_no_edit",
   "declaration_followthrough_required",
   "task_creation_replay",
@@ -1018,6 +1026,37 @@ function countVerificationIntentWithoutAction(messages: GovernorInputMessage[], 
     }
   }
   return streak;
+}
+
+/**
+ * Count consecutive assistant messages whose first paragraph (normalized) matches
+ * the previous assistant's opening. Catches "I'll continue fixing…" repeated across
+ * turns even when tools run (verbal_intent_without_action only counts "I'll" without
+ * concrete progress actions in events, which reads/edits satisfy).
+ */
+/** Exported for unit tests; same logic as verbal-loop detection. */
+export function countRepeatedAssistantIntroEdges(messages: GovernorInputMessage[]): number {
+  const MIN_INTRO_LEN = 60;
+  let lastOpening: string | null = null;
+  let edges = 0;
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    const text = contentToText(m.content).trim();
+    if (!text) continue;
+    // Split first paragraph BEFORE collapsing whitespace — otherwise "\n\n" becomes spaces
+    // and the "first paragraph" incorrectly includes suffix lines like "(read tool returned)".
+    const firstParaRaw = text.split(/\n\n+/)[0] ?? text;
+    const opening = firstParaRaw.toLowerCase().replace(/\s+/g, " ").slice(0, 400);
+    if (opening.length < MIN_INTRO_LEN) {
+      lastOpening = opening;
+      continue;
+    }
+    if (lastOpening !== null && opening === lastOpening) {
+      edges += 1;
+    }
+    lastOpening = opening;
+  }
+  return edges;
 }
 
 function hasTaskDoneStatusUpdate(events: CommandEvent[]): boolean {
@@ -1753,6 +1792,7 @@ export function evaluateExecutionGovernor(
   const recentEventsForIntent = events.slice(-INTENT_RECENCY_EVENTS);
   const verbalIntentStreak = countVerbalIntentStreak(recentMessagesForIntent, recentEventsForIntent);
   const verificationIntentStreak = countVerificationIntentWithoutAction(recentMessagesForIntent, recentEventsForIntent);
+  const repeatedAssistantIntroEdges = countRepeatedAssistantIntroEdges(recentMessagesForIntent);
   const hasCommitFinalizeAction = events.some((e) => /\bgit\s+(commit|push)\b/.test(normalizeString(e.command).toLowerCase()));
   const hasFinalizeAction = hasTaskDoneStatusUpdate(events) || hasCommitFinalizeAction;
 
@@ -1835,6 +1875,14 @@ export function evaluateExecutionGovernor(
   }
   if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
     pushRule("verbal_intent_without_action");
+  }
+  // Failed edits still populate extractEditedFileHints, clearing noEditEvidence — but duplicate
+  // narration + stale StrReplace is a distinct stall we still want to catch.
+  const hasEditFailureInTurn = events.some(
+    (e) => isEditCommand(e.command) && hasEditFailureSignature(e.resultSignature),
+  );
+  if (!isInvestigationOnly && repeatedAssistantIntroEdges >= 2 && (noEditEvidence || hasEditFailureInTurn)) {
+    pushRule("repeated_assistant_intro");
   }
   // Combined no-progress: fires when verification + exploration interleaving hides the stall.
   // Productive commands (builds, tests, binary runs) earn +1 threshold each, up to +4,
@@ -2169,6 +2217,27 @@ export function evaluateExecutionGovernor(
         trailingProductiveCount,
         hasPlanInContext,
         hasPlanEdit,
+      },
+    };
+  }
+
+  if (matchedRules.includes("repeated_assistant_intro")) {
+    return {
+      pause: true,
+      reason: "repeated_assistant_intro",
+      suggestedNextStep:
+        `You repeated the same opening (${repeatedAssistantIntroEdges + 1} assistant messages share an identical first paragraph) without a successful code edit landing. Do NOT paste that plan again. Either: (1) run \`git diff <path>\` and if your change is already there, stop editing and update the task/plan; (2) for StrReplace/Edit, copy old_string from the CURRENT file (Read full file or use cat) — "string not found" usually means the file already changed or your snippet is stale; (3) make ONE different edit than your last attempt, or reply to the user with a single sentence on what is blocked.`,
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        repeatedAssistantIntroEdges,
       },
     };
   }
@@ -2588,6 +2657,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step1 = "STOP declaring intent. You have said 'I'll...' or 'Let me...' multiple times without acting. Do NOT output another plan or narration.";
       step2 = "Take ONE concrete action now: (A) run ONE test/build Bash command, (B) make one code Edit/Write, or (C) call TaskUpdate/TodoWrite if all tasks are done.";
       step3 = "After that single action, use the result: fix if failing, or report completion if passing/done.";
+      break;
+    case "repeated_assistant_intro":
+      step1 = "STOP repeating the same introductory paragraph. Your last several replies started with the same text — that is not progress.";
+      step2 = "Do not restate the plan. Run `git diff` on the files you care about; if the fix is already applied, stop editing. If not, read the CURRENT file content once and issue ONE edit with an old_string that matches the file on disk today.";
+      step3 = "If an edit tool says 'string not found', your snippet is stale: the file changed or you already applied the edit. Re-read, then replace a smaller unique span.";
       break;
     case "verification_intent_without_action":
       step1 = "STOP saying you will run tests. You repeated test intent without executing any real test command.";
