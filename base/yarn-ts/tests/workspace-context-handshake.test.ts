@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildWorkspaceHandshakeBashCommand,
+  contextFromSessionMetadata,
   extractClaudeToolResult,
   extractOpenAIToolResult,
   hasBashTool,
@@ -85,5 +86,19 @@ describe("workspace-context-handshake", () => {
     expect(hasBashTool([{ name: "Bash" }])).toBe(true);
     expect(hasBashTool([{ type: "function", function: { name: "Bash" } }])).toBe(true);
     expect(hasBashTool([{ name: "Read" }])).toBe(false);
+  });
+
+  it("contextFromSessionMetadata returns hints when only project_root is stored", () => {
+    const h = contextFromSessionMetadata({ workspace_context_project_root: "/repo/a" });
+    expect(h).not.toBeNull();
+    expect(h?.projectRoot).toBe("/repo/a");
+    expect(h?.cwd).toBeNull();
+  });
+
+  it("contextFromSessionMetadata returns hints when only cwd is stored", () => {
+    const h = contextFromSessionMetadata({ workspace_context_cwd: "/repo/a" });
+    expect(h).not.toBeNull();
+    expect(h?.cwd).toBe("/repo/a");
+    expect(h?.projectRoot).toBeNull();
   });
 });

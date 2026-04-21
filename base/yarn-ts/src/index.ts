@@ -4774,10 +4774,12 @@ function getHandshakeAttempts(meta: Record<string, unknown>): number {
 function mergeSessionPathHints(base: SessionPathHints, state: SessionState): SessionPathHints {
   const fromSession = contextFromSessionMetadata(state.record.metadata);
   if (!fromSession) return base;
+  const coalescedRoot = fromSession.projectRoot || fromSession.cwd;
+  const coalescedCwd = fromSession.cwd || fromSession.projectRoot;
   return {
     ...base,
-    projectRoot: base.projectRoot ?? fromSession.projectRoot,
-    shellCwd: base.shellCwd ?? fromSession.cwd,
+    projectRoot: base.projectRoot ?? coalescedRoot ?? null,
+    shellCwd: base.shellCwd ?? coalescedCwd ?? null,
     shell: base.shell ?? fromSession.shell,
     platform: base.platform ?? fromSession.os,
     osVersion: base.osVersion ?? fromSession.arch,

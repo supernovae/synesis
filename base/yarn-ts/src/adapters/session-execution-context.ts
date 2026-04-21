@@ -3,6 +3,8 @@
  * @see docs/clients/SESSION_EXECUTION_CONTEXT.md
  */
 
+import path from "node:path";
+
 const MAX_GIT_SUMMARY = 500;
 const MAX_LABEL = 256;
 const MAX_CUTOFF = 128;
@@ -198,6 +200,19 @@ export function parseSessionExecutionContext(
   };
 }
 
+/** Repo-relative path from project_root to shell_cwd when cwd is inside the repo; otherwise null. */
+function taskDirRelativeToRepo(projectRoot: string, shellCwd: string): string | null {
+  try {
+    const r = path.resolve(projectRoot);
+    const c = path.resolve(shellCwd);
+    const rel = path.relative(r, c);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+    return rel.split(path.sep).join("/");
+  } catch {
+    return null;
+  }
+}
+
 function hasAnyOptional(ctx: ParsedSessionExecutionContext): boolean {
   return !!(
     ctx.platform ||
@@ -258,6 +273,27 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     lines.push(
       "When summarizing verification for the user (bullets, final messages), use human-readable paths: repo-relative directories, scoped package globs (e.g. ./cmd/foo/..., ./internal/...), or state the working directory using project_root or shell_cwd when given. Avoid bare `go test ./...` or `go build ./...` lines without anchoring where the command ran.",
     );
+  }
+  if (ctx.projectRoot || ctx.shellCwd) {
+    lines.push("<FILE_PATH_RESOLUTION>");
+    lines.push(
+      "Read/Write/Edit/Update file_path: use paths relative to project_root when it is set. If only shell_cwd is available, treat shell_cwd as the workspace root for file tools.",
+    );
+    lines.push(
+      "Do not invent a sibling directory or alternate checkout name (e.g. a folder next to the real repo). Strip bogus parent segments and anchor paths under project_root or shell_cwd.",
+    );
+    lines.push(
+      "shell_cwd affects Bash cwd only; when both project_root and shell_cwd are set, file tools still resolve from project_root unless you compose an explicit path under the repo.",
+    );
+    const pr = ctx.projectRoot?.trim();
+    const cw = ctx.shellCwd?.trim();
+    if (pr && cw && pr !== cw) {
+      const sub = taskDirRelativeToRepo(pr, cw);
+      if (sub) {
+        lines.push(`Current shell working directory for this session is repo-relative: ${sub}`);
+      }
+    }
+    lines.push("</FILE_PATH_RESOLUTION>");
   }
   if (ctx.platform) lines.push(`platform=${ctx.platform}`);
   if (ctx.osVersion) lines.push(`os_version=${ctx.osVersion}`);

@@ -91,6 +91,8 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(block).toContain("shell_cwd=");
     expect(block).toContain("aws-cost-calculator/aws-cost-calculator");
     expect(block).toContain("human-readable paths");
+    expect(block).toContain("<FILE_PATH_RESOLUTION>");
+    expect(block).toContain("treat shell_cwd as the workspace root for file tools");
   });
 
   it("appends SESSION_EXECUTION_CONTEXT when workspace root header set", () => {
@@ -100,6 +102,16 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("project_root=/Users/me/calc");
     expect(out).toContain("Language package identity (for example Go `module` path) must come from explicit user input");
     expect(out).toContain("human-readable paths");
+    expect(out).toContain("<FILE_PATH_RESOLUTION>");
+  });
+
+  it("includes repo-relative cwd hint when project_root and shell_cwd differ", () => {
+    const block = toSessionExecutionContextSystemBlock({
+      projectRoot: "/Users/me/monorepo",
+      shellCwd: "/Users/me/monorepo/services/api",
+    });
+    expect(block).toContain("<FILE_PATH_RESOLUTION>");
+    expect(block).toContain("Current shell working directory for this session is repo-relative: services/api");
   });
 
   it("prefers metadata synesis_project_root over header", () => {

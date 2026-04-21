@@ -8,6 +8,15 @@ export interface WorkspaceContextInfo {
   arch?: string;
 }
 
+/** Stored workspace hints from session metadata (handshake or packet backfill); either path may be absent. */
+export interface SessionPathMetadataHints {
+  cwd: string | null;
+  projectRoot: string | null;
+  shell?: string;
+  os?: string;
+  arch?: string;
+}
+
 const MARKER = "SYNESIS_WORKSPACE_CONTEXT_V1";
 
 export function makeWorkspaceHandshakeToolCallId(): string {
@@ -137,16 +146,16 @@ export function extractClaudeToolResult(
   return null;
 }
 
-export function contextFromSessionMetadata(meta: Record<string, unknown>): WorkspaceContextInfo | null {
+export function contextFromSessionMetadata(meta: Record<string, unknown>): SessionPathMetadataHints | null {
   const cwd = normalizePath(String(meta.workspace_context_cwd ?? ""));
   const projectRoot = normalizePath(String(meta.workspace_context_project_root ?? ""));
-  if (!cwd || !projectRoot) return null;
+  if (!cwd && !projectRoot) return null;
   const shell = sanitize(String(meta.workspace_context_shell ?? ""), 200);
   const os = sanitize(String(meta.workspace_context_os ?? ""), 80);
   const arch = sanitize(String(meta.workspace_context_arch ?? ""), 80);
   return {
-    cwd,
-    projectRoot,
+    cwd: cwd || null,
+    projectRoot: projectRoot || null,
     ...(shell ? { shell } : {}),
     ...(os ? { os } : {}),
     ...(arch ? { arch } : {}),
