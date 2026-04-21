@@ -377,7 +377,12 @@ function applyDiscoveryToolGuardrail(
 function applyExecutionGovernorToolRestrictions(
   tools: unknown[] | undefined,
   matchedRules?: string[],
-  options?: { pureExploration?: boolean; preserveReadTools?: boolean; escalatedExploration?: boolean },
+  options?: {
+    pureExploration?: boolean;
+    preserveReadTools?: boolean;
+    escalatedExploration?: boolean;
+    allowWriteFallbackForReplay?: boolean;
+  },
 ): { tools: unknown[] | undefined; removed: string[] } {
   if (!Array.isArray(tools) || tools.length === 0) return { tools, removed: [] };
   const explorationDominant = matchedRules?.some((r) =>
@@ -442,9 +447,11 @@ function applyExecutionGovernorToolRestrictions(
     }
   }
   if (editReplayContext) {
-    // In edit-replay recovery, avoid full-file write churn and force anchored edits.
-    for (const t of ["write", "write_file", "writefile", "file_write", "filewrite"]) {
-      deny.add(t);
+    // Default to anchored edits. If replay keeps failing, allow one controlled write fallback.
+    if (!options?.allowWriteFallbackForReplay) {
+      for (const t of ["write", "write_file", "writefile", "file_write", "filewrite"]) {
+        deny.add(t);
+      }
     }
   }
 
@@ -1386,6 +1393,8 @@ const QWEN_FORCED_PHASE_POLICY_RULES = new Set([
 const GOVERNOR_PRE_PAUSE_RECOVERY_RULES = new Set([
   "source_file_stale_reread",
   "verification_churn_no_edit",
+  "edit_failure_replay",
+  "consecutive_edit_failures",
 ]);
 const GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS = 1;
 
@@ -1489,6 +1498,17 @@ function injectGovernorRecoveryMessage(
 }
 
 function buildGovernorPrePauseRecovery(decision: ExecutionGovernorDecision): string {
+  const editReplayRecovery =
+    decision.matchedRules.includes("edit_failure_replay")
+    || decision.matchedRules.includes("consecutive_edit_failures");
+  if (editReplayRecovery) {
+    return [
+      executionGovernorRecoveryRewriteBlock(decision),
+      "PRE-PAUSE GUIDED RECOVERY: Edit replay loop detected. This is a one-shot recovery attempt before full pause.",
+      "Do exactly three steps: (1) Read the target file once (full relevant block, not a tiny 1-3 line slice), (2) make one anchored Edit/StrReplace using a unique old_string copied from that read, then (3) if that anchor fails again, do one controlled Write/ApplyPatch for that same file using the refreshed content.",
+      "Do not append guessed context to old_string. Do not re-enter discovery loops. After the single write fallback (or successful edit), run one narrow verification command.",
+    ].join("\n\n");
+  }
   return [
     executionGovernorRecoveryRewriteBlock(decision),
     "PRE-PAUSE GUIDED RECOVERY: This is a one-shot guided attempt before full governor pause escalation.",
@@ -1662,6 +1682,7 @@ function buildEditContextMissGuardPrompt(filePath: string, missCount: number): s
   const lines = [
     `EDIT RECOVERY REQUIRED: ${missCount} recent edit-context misses were detected for \`${filePath}\`.`,
     "Before any Edit/Write/Patch tool call, issue exactly one Read tool call for this same file path to refresh anchors.",
+    "Read a substantial block (for example 20-60 lines around the target, or the full file if small) so the next anchor is unambiguous.",
     "Use that fresh content to prepare a new exact anchor, then apply one focused edit.",
     "Do not repeat the same old_string/anchor without a fresh read.",
     "If the editor reports multiple matches (for example replace_all=false with many matches), choose a smaller unique anchor first instead of retrying the same broad replacement.",
@@ -3155,7 +3176,10 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     resetRecoveryCounters();
   }
 
-  if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED) {
+  const hasExplicitConversation = typeof identity.conversationId === "string" && identity.conversationId.trim().length > 0;
+  const allowCarryForwardBootstrap = !hasExplicitConversation;
+
+  if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED && allowCarryForwardBootstrap) {
     const prevContinuity = await sessionStore.loadContinuity(identity.userId);
     if (prevContinuity) {
       const block = sessionContinuity.toSystemBlock(prevContinuity);
@@ -3165,7 +3189,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     }
   }
 
-  if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED) {
+  if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED && allowCarryForwardBootstrap) {
     try {
       const pgContinuity = await usageWriter.loadLatestContinuity(identity.userId, config.SYNESIS_YARN_RECALL_MAX_AGE_MS);
       if (pgContinuity) {
@@ -7160,7 +7184,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       recovery += "\n\nESCALATED: You have already gathered sufficient information. Your repeated exploration is not producing new knowledge. You MUST now proceed to editing. Do not run any more git, grep, find, read, or bash discovery commands. Use the information you already have to make your edit. If you are unsure what to edit, stop and ask the user.";
     }
     if (oaiGrantedHardStopGrace) {
-      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. Do not use full-file Write tools in this attempt. If the change already exists, stop editing and run targeted verification.";
+      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. If that anchor fails once more, immediately do one controlled Write/ApplyPatch for that same file (no extra discovery), then run targeted verification.";
     }
     const oaiDedup = getContentDedup(sessionKey);
     const filesSummary = oaiDedup.generateFilesSummaryBlock();
@@ -7184,6 +7208,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         pureExploration: oaiPureExploration,
         preserveReadTools: oaiPreserveReadForReplay,
         escalatedExploration: oaiExplorationEscalated,
+        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 2,
       },
     );
     request.tools = restricted.tools as never;
@@ -7709,9 +7734,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const tierSamplingDefaults = resolvedTierConfig?.samplingDefaults;
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
   const adapterSampling = adapter.defaultSamplingParams?.();
+  const oaiSupportsTopK = adapter.family !== "minimax";
   const oaiEffectiveTemp = request.temperature ?? tierSamplingDefaults?.temperature ?? adapterSampling?.temperature;
   const oaiEffectiveTopP = request.top_p ?? tierSamplingDefaults?.top_p ?? adapterSampling?.top_p;
-  const oaiEffectiveTopK = request.top_k ?? tierSamplingDefaults?.top_k;
+  const oaiEffectiveTopK = oaiSupportsTopK ? (request.top_k ?? tierSamplingDefaults?.top_k) : undefined;
   const oaiEffectiveMinP = request.min_p ?? tierSamplingDefaults?.min_p;
   const oaiEffectivePresencePenalty = request.presence_penalty ?? tierSamplingDefaults?.presence_penalty;
   const oaiEffectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
@@ -10244,7 +10270,7 @@ app.post("/v1/messages", async (req, reply) => {
       recovery += "\n\nESCALATED: You have already gathered sufficient information. Your repeated exploration is not producing new knowledge. You MUST now proceed to editing. Do not run any more git, grep, find, read, or bash discovery commands. Use the information you already have to make your edit. If you are unsure what to edit, stop and ask the user.";
     }
     if (claudeGrantedHardStopGrace) {
-      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. Do not use full-file Write tools in this attempt. If the change already exists, stop editing and run targeted verification.";
+      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. If that anchor fails once more, immediately do one controlled Write/ApplyPatch for that same file (no extra discovery), then run targeted verification.";
     }
     const claudeDedup = getContentDedup(claudeSessionKey);
     const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
@@ -10268,6 +10294,7 @@ app.post("/v1/messages", async (req, reply) => {
         pureExploration: claudePureExploration,
         preserveReadTools: claudePreserveReadForReplay,
         escalatedExploration: claudeExplorationEscalated,
+        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 2,
       },
     );
     body.tools = restricted.tools as never;
@@ -10820,11 +10847,12 @@ app.post("/v1/messages", async (req, reply) => {
     );
   }
   const claudeAdapterSampling = claudeAdapter.defaultSamplingParams?.();
+  const claudeSupportsTopK = claudeAdapter.family !== "minimax";
   const claudeEffectiveTemp =
     body.temperature ?? claudeTierSamplingDefaults?.temperature ?? claudeAdapterSampling?.temperature;
   const claudeEffectiveTopP =
     body.top_p ?? claudeTierSamplingDefaults?.top_p ?? claudeAdapterSampling?.top_p;
-  const claudeEffectiveTopK = body.top_k ?? claudeTierSamplingDefaults?.top_k;
+  const claudeEffectiveTopK = claudeSupportsTopK ? (body.top_k ?? claudeTierSamplingDefaults?.top_k) : undefined;
   const claudeEffectivePresencePenalty =
     body.presence_penalty ?? claudeTierSamplingDefaults?.presence_penalty;
   const claudeSamplingOptions = {

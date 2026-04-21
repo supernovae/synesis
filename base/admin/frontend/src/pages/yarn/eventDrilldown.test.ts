@@ -49,14 +49,23 @@ const events: YarnSessionEventRow[] = [
     metadata_json: { missing_tool_results: true, vercel_ai_sdk_error: true },
     created_at: "2026-04-01T10:00:01Z",
   },
+  {
+    id: 4,
+    event_kind: "client_tool_error_observed",
+    component: "tool-result-monitor",
+    detail: "tool=Edit reason=edit_context_miss String to replace not found in file",
+    request_id: "rq-2",
+    metadata_json: { reason: "edit_context_miss", toolName: "Edit", filePath: "cmd/synesis/ask.go" },
+    created_at: "2026-04-01T10:00:02Z",
+  },
 ];
 
 describe("event drilldown helpers", () => {
   it("lists and filters event kinds", () => {
-    expect(eventKinds(events)).toEqual(["request_trajectory_v1", "runtime_error", "stream_error"]);
+    expect(eventKinds(events)).toEqual(["client_tool_error_observed", "request_trajectory_v1", "runtime_error", "stream_error"]);
     expect(eventKindCount(events, "runtime_error")).toBe(1);
     expect(filterEventsByKinds(events, ["runtime_error"]).map((ev) => ev.id)).toEqual([2]);
-    expect(filterEventsByKinds(events, []).map((ev) => ev.id)).toEqual([1, 2, 3]);
+    expect(filterEventsByKinds(events, []).map((ev) => ev.id)).toEqual([1, 2, 3, 4]);
   });
 
   it("extracts trajectory highlights for metadata rendering", () => {
@@ -75,7 +84,9 @@ describe("event drilldown helpers", () => {
   it("filters event diagnostics presets for Vercel SDK and missing tool results", () => {
     expect(filterEventsByDiagnosticPreset(events, "vercel_sdk_errors").map((ev) => ev.id)).toEqual([2, 3]);
     expect(filterEventsByDiagnosticPreset(events, "missing_tool_results").map((ev) => ev.id)).toEqual([3]);
+    expect(filterEventsByDiagnosticPreset(events, "edit_context_miss").map((ev) => ev.id)).toEqual([4]);
     expect(diagnosticPresetCount(events, "vercel_sdk_errors")).toBe(2);
     expect(diagnosticPresetCount(events, "missing_tool_results")).toBe(1);
+    expect(diagnosticPresetCount(events, "edit_context_miss")).toBe(1);
   });
 });

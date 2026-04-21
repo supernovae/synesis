@@ -34,7 +34,7 @@ import {
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
-import { fmtCost, fmtDurationMs } from "../../lib/formatUsage";
+import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
 
 const PERIOD_OPTIONS = [
   { label: "24h", hours: 24 },
@@ -249,6 +249,88 @@ export default function YarnOverview() {
                     <span>Trajectory events</span>
                     <span className="font-medium">{intelligence.trajectory_events.toLocaleString()}</span>
                   </div>
+                </div>
+              </ChartCard>
+
+              <ChartCard
+                title="Edit Anchor Misses"
+                subtitle="edit_context_miss incidents and token burn"
+              >
+                <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                  <div className="flex items-center justify-between">
+                    <span>Event rate</span>
+                    <span className="font-medium">
+                      {(intelligence.edit_context_miss.event_rate * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Impacted requests</span>
+                    <span className="font-medium">
+                      {intelligence.edit_context_miss.impacted_requests.toLocaleString()} / {intelligence.requests.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Impacted sessions</span>
+                    <span className="font-medium">{intelligence.edit_context_miss.impacted_sessions.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Token burn on impacted requests</span>
+                    <span className="font-medium">{fmtTokens(intelligence.edit_context_miss.impacted_tokens)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Cache hit on impacted requests</span>
+                    <span className="font-medium">
+                      {(intelligence.edit_context_miss.impacted_cache_hit_estimate * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Effective cost on impacted requests</span>
+                    <span className="font-medium">{fmtCost(intelligence.edit_context_miss.impacted_cost_usd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Request mapping coverage</span>
+                    <span className="font-medium">
+                      {(intelligence.edit_context_miss.mapping_coverage * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      Top impacted models
+                    </p>
+                    {intelligence.edit_context_miss.top_models.length === 0 ? (
+                      <p className="mt-2 text-sm text-gray-500">No edit-anchor miss events in this window.</p>
+                    ) : (
+                      <div className="mt-2 space-y-1.5">
+                        {intelligence.edit_context_miss.top_models.map((row) => (
+                          <div key={`${row.provider}:${row.model}`} className="flex items-center justify-between text-sm">
+                            <span className="truncate pr-2 text-gray-700 dark:text-gray-300">
+                              {row.provider} / {row.model}
+                            </span>
+                            <span className="text-right text-gray-500 dark:text-gray-400">
+                              {row.requests} req · {fmtTokens(row.total_tokens)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {intelligence.edit_context_miss.top_files.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Most-missed files
+                      </p>
+                      <div className="mt-2 space-y-1.5">
+                        {intelligence.edit_context_miss.top_files.slice(0, 4).map((row) => (
+                          <div key={row.file_path} className="flex items-center justify-between text-sm">
+                            <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{row.file_path}</span>
+                            <span className="text-gray-500 dark:text-gray-400">{row.miss_count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </ChartCard>
 

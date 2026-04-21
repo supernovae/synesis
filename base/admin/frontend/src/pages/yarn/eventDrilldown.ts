@@ -6,7 +6,7 @@ export interface TrajectoryHighlight {
   tone?: "good" | "warn" | "neutral";
 }
 
-export type EventDiagnosticPreset = "vercel_sdk_errors" | "missing_tool_results";
+export type EventDiagnosticPreset = "vercel_sdk_errors" | "missing_tool_results" | "edit_context_miss";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -62,13 +62,31 @@ function hasMissingToolResultsFlag(ev: YarnSessionEventRow): boolean {
   return hasTruthyFlag(ev.metadata_json, "missing_tool_results");
 }
 
+function hasEditContextMissFlag(ev: YarnSessionEventRow): boolean {
+  const detail = (ev.detail || "").toLowerCase();
+  if (
+    detail.includes("edit_context_miss")
+    || detail.includes("string to replace not found")
+    || detail.includes("replace_all is false")
+  ) {
+    return true;
+  }
+  if (!isRecord(ev.metadata_json)) return false;
+  const reason = ev.metadata_json["reason"];
+  if (typeof reason === "string" && reason.trim().toLowerCase() === "edit_context_miss") {
+    return true;
+  }
+  return false;
+}
+
 export function filterEventsByDiagnosticPreset(
   events: YarnSessionEventRow[],
   preset: EventDiagnosticPreset | null,
 ): YarnSessionEventRow[] {
   if (!preset) return events;
   if (preset === "vercel_sdk_errors") return events.filter((ev) => hasVercelSdkErrorFlag(ev));
-  return events.filter((ev) => hasMissingToolResultsFlag(ev));
+  if (preset === "missing_tool_results") return events.filter((ev) => hasMissingToolResultsFlag(ev));
+  return events.filter((ev) => hasEditContextMissFlag(ev));
 }
 
 export function diagnosticPresetCount(events: YarnSessionEventRow[], preset: EventDiagnosticPreset): number {

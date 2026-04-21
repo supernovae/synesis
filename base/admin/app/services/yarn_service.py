@@ -476,6 +476,139 @@ async def get_yarn_intelligence(
         )
         finish_reason_counts = {(r.finish_reason or "unknown"): int(r.count or 0) for r in finish_reason_res}
 
+        edit_miss_rollup_sql = text(
+            """
+            WITH scoped_events AS (
+              SELECT request_id, session_key
+              FROM yarn_session_events
+              WHERE event_kind = 'client_tool_error_observed'
+                AND created_at >= :cutoff
+                AND (:uid = '' OR user_id = :uid)
+                AND (:oid = '' OR org_id = :oid)
+                AND COALESCE(metadata_json->>'reason', '') = 'edit_context_miss'
+            ),
+            request_hits AS (
+              SELECT DISTINCT request_id
+              FROM scoped_events
+              WHERE COALESCE(request_id, '') <> ''
+            ),
+            joined_usage AS (
+              SELECT
+                u.request_id,
+                (COALESCE(u.tokens_in, 0) + COALESCE(u.tokens_out, 0))::bigint AS total_tokens,
+                COALESCE(u.tokens_cached, 0)::bigint AS cached_tokens,
+                CASE
+                  WHEN COALESCE(u.actual_cost_usd, 0) > 0 THEN COALESCE(u.actual_cost_usd, 0)
+                  ELSE COALESCE(u.estimated_cost_usd, 0)
+                END::float AS effective_cost_usd
+              FROM yarn_usage_log u
+              JOIN request_hits rh ON rh.request_id = u.request_id
+            )
+            SELECT
+              (SELECT COUNT(*)::int FROM scoped_events) AS miss_events,
+              (SELECT COUNT(*)::int FROM request_hits) AS impacted_requests,
+              (SELECT COUNT(*)::int FROM joined_usage) AS mapped_requests,
+              (SELECT COUNT(DISTINCT session_key)::int FROM scoped_events) AS impacted_sessions,
+              (SELECT COALESCE(SUM(total_tokens), 0)::bigint FROM joined_usage) AS impacted_tokens,
+              (SELECT COALESCE(SUM(cached_tokens), 0)::bigint FROM joined_usage) AS impacted_cached_tokens,
+              (SELECT COALESCE(SUM(effective_cost_usd), 0)::float FROM joined_usage) AS impacted_cost_usd
+            """
+        )
+        edit_miss_rollup_row = (
+            (
+                await session.execute(
+                    edit_miss_rollup_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+        edit_miss_top_models_sql = text(
+            """
+            WITH request_hits AS (
+              SELECT DISTINCT request_id
+              FROM yarn_session_events
+              WHERE event_kind = 'client_tool_error_observed'
+                AND created_at >= :cutoff
+                AND (:uid = '' OR user_id = :uid)
+                AND (:oid = '' OR org_id = :oid)
+                AND COALESCE(metadata_json->>'reason', '') = 'edit_context_miss'
+                AND COALESCE(request_id, '') <> ''
+            )
+            SELECT
+              COALESCE(NULLIF(u.provider, ''), 'unknown') AS provider,
+              COALESCE(NULLIF(u.model, ''), 'unknown') AS model,
+              COUNT(*)::int AS requests,
+              COALESCE(SUM(COALESCE(u.tokens_in, 0) + COALESCE(u.tokens_out, 0)), 0)::bigint AS total_tokens,
+              COALESCE(SUM(COALESCE(u.tokens_cached, 0)), 0)::bigint AS cached_tokens,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN COALESCE(u.actual_cost_usd, 0) > 0 THEN COALESCE(u.actual_cost_usd, 0)
+                    ELSE COALESCE(u.estimated_cost_usd, 0)
+                  END
+                ),
+                0
+              )::float AS effective_cost_usd
+            FROM yarn_usage_log u
+            JOIN request_hits rh ON rh.request_id = u.request_id
+            GROUP BY provider, model
+            ORDER BY requests DESC, total_tokens DESC
+            LIMIT 8
+            """
+        )
+        edit_miss_top_models_rows = (
+            (
+                await session.execute(
+                    edit_miss_top_models_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        edit_miss_top_files_sql = text(
+            """
+            SELECT
+              COALESCE(NULLIF(metadata_json->>'filePath', ''), '<unknown>') AS file_path,
+              COUNT(*)::int AS miss_count
+            FROM yarn_session_events
+            WHERE event_kind = 'client_tool_error_observed'
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+              AND COALESCE(metadata_json->>'reason', '') = 'edit_context_miss'
+            GROUP BY file_path
+            ORDER BY miss_count DESC, file_path ASC
+            LIMIT 8
+            """
+        )
+        edit_miss_top_files_rows = (
+            (
+                await session.execute(
+                    edit_miss_top_files_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+
         trajectory_sql = text(
             """
             SELECT
@@ -584,6 +717,25 @@ async def get_yarn_intelligence(
     total_tokens = int(row.total_tokens or 0)
     cached_tokens = int(row.cached_tokens or 0)
     cache_hit_estimate = (cached_tokens / total_tokens) if total_tokens else 0.0
+    edit_miss_events = int(edit_miss_rollup_row["miss_events"] or 0)
+    edit_miss_impacted_requests = int(edit_miss_rollup_row["impacted_requests"] or 0)
+    edit_miss_mapped_requests = int(edit_miss_rollup_row["mapped_requests"] or 0)
+    edit_miss_impacted_sessions = int(edit_miss_rollup_row["impacted_sessions"] or 0)
+    edit_miss_impacted_tokens = int(edit_miss_rollup_row["impacted_tokens"] or 0)
+    edit_miss_impacted_cached_tokens = int(edit_miss_rollup_row["impacted_cached_tokens"] or 0)
+    edit_miss_impacted_cost_usd = float(edit_miss_rollup_row["impacted_cost_usd"] or 0.0)
+    edit_miss_event_rate = (edit_miss_events / requests) if requests else 0.0
+    edit_miss_request_rate = (edit_miss_impacted_requests / requests) if requests else 0.0
+    edit_miss_mapping_coverage = (
+        edit_miss_mapped_requests / edit_miss_impacted_requests
+        if edit_miss_impacted_requests
+        else 0.0
+    )
+    edit_miss_cache_hit_estimate = (
+        edit_miss_impacted_cached_tokens / edit_miss_impacted_tokens
+        if edit_miss_impacted_tokens
+        else 0.0
+    )
     patch_ops = int(trajectory_row["patch_ops"] or 0)
     whole_write_ops = int(trajectory_row["whole_write_ops"] or 0)
     patch_ratio = (patch_ops / (patch_ops + whole_write_ops)) if (patch_ops + whole_write_ops) > 0 else 0.0
@@ -606,6 +758,38 @@ async def get_yarn_intelligence(
         "trajectory_bucket_counts": trajectory_bucket_counts,
         "top_models": top_models,
         "finish_reason_counts": finish_reason_counts,
+        "edit_context_miss": {
+            "events": edit_miss_events,
+            "event_rate": round(edit_miss_event_rate, 4),
+            "impacted_requests": edit_miss_impacted_requests,
+            "request_rate": round(edit_miss_request_rate, 4),
+            "mapped_requests": edit_miss_mapped_requests,
+            "mapping_coverage": round(edit_miss_mapping_coverage, 4),
+            "unmapped_requests": max(edit_miss_impacted_requests - edit_miss_mapped_requests, 0),
+            "impacted_sessions": edit_miss_impacted_sessions,
+            "impacted_tokens": edit_miss_impacted_tokens,
+            "impacted_cached_tokens": edit_miss_impacted_cached_tokens,
+            "impacted_cache_hit_estimate": round(edit_miss_cache_hit_estimate, 4),
+            "impacted_cost_usd": round(edit_miss_impacted_cost_usd, 4),
+            "top_models": [
+                {
+                    "provider": str(r["provider"] or "unknown"),
+                    "model": str(r["model"] or "unknown"),
+                    "requests": int(r["requests"] or 0),
+                    "total_tokens": int(r["total_tokens"] or 0),
+                    "cached_tokens": int(r["cached_tokens"] or 0),
+                    "effective_cost_usd": round(float(r["effective_cost_usd"] or 0), 4),
+                }
+                for r in edit_miss_top_models_rows
+            ],
+            "top_files": [
+                {
+                    "file_path": str(r["file_path"] or "<unknown>"),
+                    "miss_count": int(r["miss_count"] or 0),
+                }
+                for r in edit_miss_top_files_rows
+            ],
+        },
     }
 
 

@@ -329,6 +329,18 @@ export default function YarnSessionDetail() {
                 >
                   Missing tool results ({diagnosticPresetCount(data.events, "missing_tool_results")})
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPreset("edit_context_miss")}
+                  className={clsx(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium",
+                    selectedPreset === "edit_context_miss"
+                      ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-300"
+                      : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+                  )}
+                >
+                  Edit anchor misses ({diagnosticPresetCount(data.events, "edit_context_miss")})
+                </button>
               </div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <button

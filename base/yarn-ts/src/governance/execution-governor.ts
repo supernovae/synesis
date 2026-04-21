@@ -508,6 +508,16 @@ const RULE_PRIORITY_MAP = new Map<string, number>(
   RULE_PRIORITY_ORDER.map((rule, index) => [rule, RULE_PRIORITY_ORDER.length - index]),
 );
 
+const EDIT_REPLAY_NOISE_RULES = new Set([
+  "broad_to_narrow_verification",
+  "edit_before_retest",
+  "no_repeat_without_change",
+  "verification_already_green",
+  "verification_green_repeat_block",
+  "bounded_exploration_budget",
+  "broad_discovery_repeat",
+]);
+
 function prioritizeMatchedRules(rules: string[]): string[] {
   const unique = [...new Set(rules)];
   unique.sort((a, b) => {
@@ -517,6 +527,14 @@ function prioritizeMatchedRules(rules: string[]): string[] {
     return a.localeCompare(b);
   });
   return unique;
+}
+
+function focusRulesForEditReplay(rules: string[]): string[] {
+  const hasEditReplayTerminal =
+    rules.includes("edit_failure_replay") || rules.includes("consecutive_edit_failures");
+  if (!hasEditReplayTerminal) return rules;
+  const focused = rules.filter((rule) => !EDIT_REPLAY_NOISE_RULES.has(rule));
+  return focused.length > 0 ? focused : rules;
 }
 
 export type GovernanceProfileName = "safety_strict" | "balanced_completion" | "strict_control";
@@ -1953,7 +1971,7 @@ export function evaluateExecutionGovernor(
     pushRule("cleanup_todo_harvest");
   }
 
-  const prioritized = prioritizeMatchedRules(matchedRules);
+  const prioritized = focusRulesForEditReplay(prioritizeMatchedRules(matchedRules));
   matchedRules.length = 0;
   matchedRules.push(...prioritized);
 

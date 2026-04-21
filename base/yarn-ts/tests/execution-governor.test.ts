@@ -248,6 +248,37 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("edit_failure_replay");
   });
 
+  it("suppresses advisory verification/discovery noise when edit replay is active", () => {
+    const messages = [
+      { role: "user", content: "fix ask.go build errors" },
+      assistantCall("1", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "foo", new_string: "bar" }),
+      toolResult("1", "Error: String to replace not found in file."),
+      assistantCall("2", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "foo", new_string: "bar" }),
+      toolResult("2", "Error: String to replace not found in file."),
+      assistantCall("3", "bash", { command: "go build ./..." }),
+      toolResult("3", "ok"),
+      assistantCall("4", "bash", { command: "go build ./..." }),
+      toolResult("4", "ok"),
+      assistantCall("5", "read_file", { path: "cmd/synesis/ask.go" }),
+      toolResult("5", "package main"),
+      assistantCall("6", "read_file", { path: "cmd/synesis/main.go" }),
+      toolResult("6", "package main"),
+      assistantCall("7", "read_file", { path: "pkg/output/output.go" }),
+      toolResult("7", "package output"),
+      assistantCall("8", "read_file", { path: "pkg/jq/jq.go" }),
+      toolResult("8", "package jq"),
+      assistantCall("9", "read_file", { path: "pkg/jq/jq_test.go" }),
+      toolResult("9", "package jq"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("edit_failure_replay");
+    expect(out.matchedRules).toContain("edit_failure_replay");
+    expect(out.matchedRules).not.toContain("verification_already_green");
+    expect(out.matchedRules).not.toContain("broad_to_narrow_verification");
+    expect(out.matchedRules).not.toContain("bounded_exploration_budget");
+  });
+
   it("does not treat idempotent edit responses as edit failures", () => {
     const messages = [
       { role: "user", content: "wire up --print-request flag" },

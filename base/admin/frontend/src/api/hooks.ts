@@ -2185,6 +2185,32 @@ export interface YarnIntelligence {
   trajectory_bucket_counts: Record<string, number>;
   top_models: Array<{ model: string; requests: number; estimated_cost_usd: number; actual_cost_usd: number }>;
   finish_reason_counts: Record<string, number>;
+  edit_context_miss: {
+    events: number;
+    event_rate: number;
+    impacted_requests: number;
+    request_rate: number;
+    mapped_requests: number;
+    mapping_coverage: number;
+    unmapped_requests: number;
+    impacted_sessions: number;
+    impacted_tokens: number;
+    impacted_cached_tokens: number;
+    impacted_cache_hit_estimate: number;
+    impacted_cost_usd: number;
+    top_models: Array<{
+      provider: string;
+      model: string;
+      requests: number;
+      total_tokens: number;
+      cached_tokens: number;
+      effective_cost_usd: number;
+    }>;
+    top_files: Array<{
+      file_path: string;
+      miss_count: number;
+    }>;
+  };
 }
 
 export interface YarnRuntimeTelemetry {
