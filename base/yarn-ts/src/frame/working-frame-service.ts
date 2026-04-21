@@ -82,7 +82,15 @@ export class WorkingFrameService {
     let currentPhase: WorkingFrame["currentPhase"] = "implementation";
     if (/\b(explore|discover|research|investigate|understand)\b/i.test(latestUser)) currentPhase = "explore";
     else if (/\b(plan|roadmap|design)\b/i.test(latestUser)) currentPhase = "planning";
-    else if (/\b(test|verify|validate|check)\b/i.test(latestUser)) currentPhase = "validation";
+    else if (/\b(test|verify|validate|check)\b/i.test(latestUser)) {
+      // "Run tests after you implement" should stay implementation; reserve validation
+      // for verify-first prompts (no strong implementation / fix verbs).
+      const implFirst = /\b(fix|fixed|fixes|fixing|implement|implementation|implementing|finish|finishing|finished|refactor|refactoring|migrate|migrating|complete the feature|ship|patch|write code|code change|add (a |the )?(function|handler|method|field)|make (the |an )?edit)\b/i.test(
+        latestUser,
+      );
+      const verifyOnly = /\b(only verify|verify only|just run tests|smoke test|do not change code|no code changes)\b/i.test(latestUser);
+      if (!implFirst || verifyOnly) currentPhase = "validation";
+    }
 
     // Context eviction: if we are not in explore phase, only look at recent messages for active files
     // to avoid dragging in files that were only relevant during exploration.

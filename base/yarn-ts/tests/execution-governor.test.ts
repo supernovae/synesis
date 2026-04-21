@@ -8,6 +8,7 @@ import {
   detectSessionPhase,
   inferGovernorPhaseFromMessages,
   governorPhaseToWorkflowPhase,
+  resolveGovernanceUserCue,
   type CommandEvent,
 } from "../src/governance/execution-governor.js";
 
@@ -2158,6 +2159,31 @@ describe("detectSessionPhase", () => {
       ev("read:src/util.ts", "read_file"),
     ];
     expect(detectSessionPhase(events, "scan repo and make sure every feature is implemented", [], false)).toBe("explore");
+  });
+
+  it("does not force explore over verify when investigation user has completion claim but build failed", () => {
+    const events = [
+      ev("go build ./cmd/foo 2>&1", "bash", "# pkg\n./foo.go:12:18: undefined: MissingFn\n"),
+    ];
+    expect(
+      detectSessionPhase(
+        events,
+        "scan repo and make sure every feature is implemented",
+        [],
+        true,
+      ),
+    ).toBe("verify");
+  });
+
+  it("resolveGovernanceUserCue prefers last role=user over trailing AskUser tool result", () => {
+    const messages = [
+      { role: "user", content: "Implement the feature and run go test once." },
+      assistantCall("a1", "AskUserQuestion", { question: "Pick", "options": ["A"] }),
+      { role: "tool", name: "AskUserQuestion", tool_call_id: "a1", content: "A" },
+    ];
+    const cue = resolveGovernanceUserCue(messages as never);
+    expect(cue.source).toBe("user_message");
+    expect(cue.text).toContain("implement");
   });
 
   // --- phase FSM: verify transition with cross-ecosystem runners ---

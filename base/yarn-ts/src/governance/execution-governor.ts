@@ -268,9 +268,18 @@ export function detectSessionPhase(
     }
   }
 
-  // Investigation intent keeps us in explore even if tests ran, as long as no edits
+  // Investigation intent keeps us in explore even if tests ran, as long as no edits —
+  // unless we already have failure-driven verification/edit failures: then the model
+  // must act, not stay in read-only explore.
   if (isInvestigation && !hasEdited) {
-    phase = "explore";
+    const hasFailureDrivenSignals = sawVerificationFailure
+      || sawEditFailure
+      || events.some(
+        (e) => isVerificationCommand(e.toolName, e.command) && isCompileLikeFailureSignature(e.resultSignature),
+      );
+    if (!hasFailureDrivenSignals) {
+      phase = "explore";
+    }
   }
 
   return phase;
@@ -1104,38 +1113,6 @@ function extractUserText(messages: GovernorInputMessage[]): string {
 
 const USER_FACING_TOOL_RE = /askuser|ask_user|user_question|askquestion|useranswer|user_input/i;
 
-function extractLatestUserText(messages: GovernorInputMessage[]): string {
-  // Build a map of tool-call IDs → tool names so we can identify user-facing tool results.
-  const toolNameById = new Map<string, string>();
-  for (const m of messages) {
-    if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
-      for (const call of m.tool_calls) {
-        const id = normalizeString(call.id);
-        const name = normalizeString(call.function?.name ?? call.name).toLowerCase();
-        if (id && name) toolNameById.set(id, name);
-      }
-    }
-  }
-
-  // Walk backward: first user-facing tool result or user message wins.
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const m = messages[i];
-    if (m.role === "user") {
-      const text = contentToText(m.content);
-      if (text.trim()) return text.toLowerCase();
-    }
-    // Tool results from user-facing tools (AskUserQuestion etc.) carry the user's choice.
-    if ((m.role === "tool" || m.role === "tool_result") && m.tool_call_id) {
-      const toolName = toolNameById.get(normalizeString(m.tool_call_id));
-      if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
-        const text = contentToText(m.content);
-        if (text.trim()) return text.toLowerCase();
-      }
-    }
-  }
-  return "";
-}
-
 function needsTestEntryGate(userText: string): boolean {
   return /\b(add|write|create|build).{0,30}\btests?\b/.test(userText)
     || /\bcomprehensive test suite\b/.test(userText);
@@ -1301,6 +1278,70 @@ function isReadOnlyInvestigationIntent(userText: string): boolean {
   // investigation even though they contain edit-adjacent words in subordinate clauses.
   const investigationDominant = /\b(make sure|ensure|verify|validate|check|scan)\b.{0,40}\b(is |are |was |were |has been|have been|implemented|complete|working|correct|present|exist)\b/.test(text);
   return investigationDominant;
+}
+
+export type GovernanceUserTextSource = "user_message" | "askuser_tool_result" | "empty";
+
+/**
+ * Latest user *directive* for governance phase / investigation heuristics.
+ * Prefer the most recent `role=user` text (aligned with the working frame).
+ * When that text is read-only investigation, newer AskUser-style answers after
+ * that user message override the cue (implementation redirect from a choice).
+ * Otherwise AskUser payloads cannot override a substantive fix/implement user line.
+ */
+export function resolveGovernanceUserCue(messages: GovernorInputMessage[]): {
+  text: string;
+  source: GovernanceUserTextSource;
+} {
+  let lastUserIdx = -1;
+  let lastUserRaw = "";
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    lastUserIdx = i;
+    lastUserRaw = contentToText(m.content).trim();
+    break;
+  }
+
+  const toolNameById = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+      for (const call of m.tool_calls) {
+        const id = normalizeString(call.id);
+        const name = normalizeString(call.function?.name ?? call.name).toLowerCase();
+        if (id && name) toolNameById.set(id, name);
+      }
+    }
+  }
+
+  if (lastUserIdx >= 0 && lastUserRaw) {
+    const lastLower = lastUserRaw.toLowerCase();
+    if (isReadOnlyInvestigationIntent(lastLower)) {
+      for (let i = messages.length - 1; i > lastUserIdx; i -= 1) {
+        const m = messages[i];
+        if ((m.role !== "tool" && m.role !== "tool_result") || !m.tool_call_id) continue;
+        const toolName = toolNameById.get(normalizeString(m.tool_call_id));
+        if (!toolName || !USER_FACING_TOOL_RE.test(toolName)) continue;
+        const t = contentToText(m.content).trim();
+        if (t) return { text: t.toLowerCase(), source: "askuser_tool_result" };
+      }
+    }
+    return { text: lastLower, source: "user_message" };
+  }
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if ((m.role !== "tool" && m.role !== "tool_result") || !m.tool_call_id) continue;
+    const toolName = toolNameById.get(normalizeString(m.tool_call_id));
+    if (!toolName || !USER_FACING_TOOL_RE.test(toolName)) continue;
+    const text = contentToText(m.content).trim();
+    if (text) return { text: text.toLowerCase(), source: "askuser_tool_result" };
+  }
+  return { text: "", source: "empty" };
+}
+
+function extractLatestUserText(messages: GovernorInputMessage[]): string {
+  return resolveGovernanceUserCue(messages).text;
 }
 
 function isTruncatedVerificationCommand(command: string): boolean {

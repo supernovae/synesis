@@ -198,6 +198,7 @@ import {
   buildExecutionGovernorPauseEnvelope,
   inferGovernorPhaseFromMessages,
   governorPhaseToWorkflowPhase,
+  resolveGovernanceUserCue,
   type GovernorPauseEnvelope,
   type GovernorInputMessage,
 } from "./governance/execution-governor.js";
@@ -6716,6 +6717,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiGovernorPhase = oaiExecutionGovernor.telemetry.phase;
   const oaiGovernorWorkflowPhase = governorPhaseToWorkflowPhase(oaiGovernorPhase);
   if (oaiWorkingPhase && oaiWorkingPhase !== oaiGovernorWorkflowPhase) {
+    const oaiGovUserCue = resolveGovernanceUserCue(normalizedOpenAI.messages as GovernorInputMessage[]);
     recordSessionEvent(
       sessionKey,
       identity.userId,
@@ -6729,6 +6731,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         governor_workflow_phase: oaiGovernorWorkflowPhase,
         orchestrator_working_phase: oaiWorkingPhase,
         orchestrator_phase_override: oaiOrchestratorPhaseOverride ?? null,
+        latest_user_text_source: oaiGovUserCue.source,
       },
     );
   }
@@ -9554,6 +9557,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeGovernorPhase = claudeExecutionGovernor.telemetry.phase;
   const claudeGovernorWorkflowPhase = governorPhaseToWorkflowPhase(claudeGovernorPhase);
   if (claudeWorkingPhase && claudeWorkingPhase !== claudeGovernorWorkflowPhase) {
+    const claudeGovUserCue = resolveGovernanceUserCue(normalizedFromClaude.messages as GovernorInputMessage[]);
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
@@ -9567,6 +9571,7 @@ app.post("/v1/messages", async (req, reply) => {
         governor_workflow_phase: claudeGovernorWorkflowPhase,
         orchestrator_working_phase: claudeWorkingPhase,
         orchestrator_phase_override: claudeOrchestratorPhaseOverride ?? null,
+        latest_user_text_source: claudeGovUserCue.source,
       },
     );
   }

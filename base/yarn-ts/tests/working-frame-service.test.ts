@@ -33,4 +33,24 @@ describe("WorkingFrameService", () => {
     expect(block).toContain("project_root=/Users/me/repo");
     expect(block).toContain("shell_cwd=/Users/me/repo/sub");
   });
+
+  it("keeps implementation phase when user mentions tests alongside fix/implement verbs", () => {
+    const svc = new WorkingFrameService(8);
+    const frame = svc.build([
+      {
+        role: "user",
+        content:
+          "Please continue and finish the feature. Run the test once, verify the output, and fix any failures.",
+      },
+    ]);
+    expect(frame.currentPhase).toBe("implementation");
+  });
+
+  it("still uses validation for verify-only prompts", () => {
+    const svc = new WorkingFrameService(8);
+    const frame = svc.build([
+      { role: "user", content: "Only verify CI passes. Do not change code." },
+    ]);
+    expect(frame.currentPhase).toBe("validation");
+  });
 });

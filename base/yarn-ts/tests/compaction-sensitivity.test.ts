@@ -45,5 +45,6 @@ describe("compaction-sensitivity", () => {
     expect(looksLikeVerificationFailureOutput("--- FAIL: TestFoo (0.00s)")).toBe(true);
     expect(looksLikeVerificationFailureOutput("error TS2322: Type 'string' is not assignable")).toBe(true);
     expect(looksLikeVerificationFailureOutput("all tests passed")).toBe(false);
+    expect(looksLikeVerificationFailureOutput("./ask.go:306:18: undefined: extractPathField")).toBe(true);
   });
 });

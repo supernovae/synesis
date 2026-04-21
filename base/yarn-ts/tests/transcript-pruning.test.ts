@@ -274,6 +274,35 @@ describe("TranscriptPruningService", () => {
     });
   });
 
+  describe("failing verification literal retention", () => {
+    it("does not stub away an early failing go build when pruning fires", () => {
+      const failOut = "# pkg\n./ask.go:306:18: undefined: extractPathField\n" + "x".repeat(700);
+      const messages: Record<string, unknown>[] = [
+        msg("user", "fix build"),
+        bashCall("b0", "go build ./cmd/synesis/ 2>&1"),
+        bashResult("b0", failOut),
+      ];
+      for (let i = 0; i < 14; i++) {
+        messages.push(msg("assistant", `step ${i}`));
+        messages.push(bashCall(`h${i}`, `echo hi${i}`));
+        messages.push(bashResult(`h${i}`, "ok\n".repeat(120)));
+      }
+      const svc = new TranscriptPruningService({
+        enabled: true,
+        keepTurns: 1,
+        keepToolResults: 3,
+        budgetChars: 4000,
+        stubMaxChars: 120,
+        assistantCondenseChars: 2000,
+      });
+      const r = svc.prune(messages);
+      expect(r.pruned).toBe(true);
+      const failMsg = r.messages[2];
+      expect(String(failMsg.content)).toContain("undefined:");
+      expect(String(failMsg.content)).not.toContain("TOOL_RESULT_PRUNED");
+    });
+  });
+
   describe("stats tracking", () => {
     it("accumulates stats across calls", () => {
       const svc = new TranscriptPruningService({

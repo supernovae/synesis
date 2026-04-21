@@ -101,5 +101,6 @@ export function looksLikeVerificationFailureOutput(raw: string): boolean {
     || /exit code [1-9]/i.test(raw)
     || /\btests? failed\b/i.test(raw)
     || /\bcompilation failed\b/i.test(raw)
+    || /\bundefined:\s*\S+/i.test(raw)
   );
 }

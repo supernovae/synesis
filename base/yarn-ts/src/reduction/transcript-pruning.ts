@@ -1,3 +1,4 @@
+import { looksLikeVerificationFailureOutput } from "../context/compaction-sensitivity.js";
 import { normalizeCommandOutputForComparison } from "./output-normalization.js";
 import type { ArtifactStore } from "../state/artifact-store.js";
 
@@ -88,6 +89,25 @@ const SHELL_TOOLS = new Set([
   "shell", "terminal", "run_bash",
 ]);
 
+function isShellLikeToolName(name: string | undefined): boolean {
+  const n = (name ?? "").trim().toLowerCase();
+  return SHELL_TOOLS.has(n) || n.includes("bash") || n.includes("shell") || n.includes("terminal");
+}
+
+/** Indices of recent failing shell/test tool bodies — never stub-evict these (safe literal context). */
+function protectedFailingVerificationToolIndices(messages: MessageLike[]): Set<number> {
+  const failIdx: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role !== "tool") continue;
+    const raw = contentString(messages[i].content);
+    if (raw.length < 80) continue;
+    if (!isShellLikeToolName(messages[i].name)) continue;
+    if (!looksLikeVerificationFailureOutput(raw)) continue;
+    failIdx.push(i);
+  }
+  return new Set(failIdx.slice(-3));
+}
+
 const FILE_PATH_KEYS = ["filePath", "file_path", "path", "file"];
 
 export class TranscriptPruningService {
@@ -171,9 +191,10 @@ export class TranscriptPruningService {
 
     const keepFromIndex = this.computeKeepFromIndex(messages);
 
+    const protectedFailIdx = protectedFailingVerificationToolIndices(messages);
     let out = this.deduplicateCommands(messages, keepFromIndex);
     out = this.deduplicateFileReads(out, keepFromIndex);
-    out = this.evictStaleToolResults(out, keepFromIndex);
+    out = this.evictStaleToolResults(out, keepFromIndex, protectedFailIdx);
     out = this.condenseOldAssistant(out, keepFromIndex);
     out = this.collapseNearDuplicateOutputs(out, keepFromIndex);
 
@@ -334,9 +355,11 @@ export class TranscriptPruningService {
   private evictStaleToolResults(
     messages: MessageLike[],
     keepFromIndex: number,
+    protectedIndices: Set<number>,
   ): MessageLike[] {
     return messages.map((m, i) => {
       if (i >= keepFromIndex) return m;
+      if (protectedIndices.has(i)) return m;
       if (m.role !== "tool") return m;
       const raw = contentString(m.content);
       if (raw.length <= this.config.stubMaxChars) return m;
@@ -420,6 +443,10 @@ export class TranscriptPruningService {
       const fp = contentFingerprint(raw);
       const latest = fingerprintToLatest.get(fp);
       if (latest === undefined || latest === i) return m;
+      const rawLatest = contentString(messages[latest].content);
+      const failI = looksLikeVerificationFailureOutput(raw);
+      const failLatest = looksLikeVerificationFailureOutput(rawLatest);
+      if (failI !== failLatest) return m;
       const handle = this.retainPayload(raw);
       this.stats.nearDuplicatesCollapsed += 1;
       const toolEsc = escapeXmlAttr(m.name ?? "unknown");
