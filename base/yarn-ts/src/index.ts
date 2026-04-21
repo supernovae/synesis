@@ -199,6 +199,7 @@ import {
   inferGovernorPhaseFromMessages,
   governorPhaseToWorkflowPhase,
   resolveGovernanceUserCue,
+  type ExecutionGovernorDecision,
   type GovernorPauseEnvelope,
   type GovernorInputMessage,
 } from "./governance/execution-governor.js";
@@ -247,6 +248,8 @@ type SessionState = {
   lastEvidenceDelta: TurnEvidenceDelta | null;
   /** Track incoming message count to detect external (client-side) compaction. */
   lastIncomingMessageCount: number;
+  /** One-shot pre-pause recovery attempts keyed by phase+rule. */
+  governorPrePauseAttemptsByRule: Map<string, number>;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -1380,6 +1383,11 @@ const QWEN_FORCED_PHASE_POLICY_RULES = new Set([
   "source_file_stale_reread",
   "edit_failure_replay",
 ]);
+const GOVERNOR_PRE_PAUSE_RECOVERY_RULES = new Set([
+  "source_file_stale_reread",
+  "verification_churn_no_edit",
+]);
+const GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS = 1;
 
 function collectToolExecutionFailureObservations(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
@@ -1469,6 +1477,40 @@ function findLastUserPromptIdx(messages: Array<{ role?: string; content?: unknow
     return i;
   }
   return -1;
+}
+
+function injectGovernorRecoveryMessage(
+  messages: Array<{ role: string; content: unknown }>,
+  recovery: string,
+): void {
+  const lastUserPromptIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
+  const tailIdx = lastUserPromptIdx >= 0 ? lastUserPromptIdx + 1 : messages.length;
+  messages.splice(tailIdx, 0, { role: "system", content: recovery });
+}
+
+function buildGovernorPrePauseRecovery(decision: ExecutionGovernorDecision): string {
+  return [
+    executionGovernorRecoveryRewriteBlock(decision),
+    "PRE-PAUSE GUIDED RECOVERY: This is a one-shot guided attempt before full governor pause escalation.",
+    "Take exactly one focused action now: Read the failing file once if needed, make one concrete edit, then run one narrow verification command.",
+  ].join("\n\n");
+}
+
+function consumeGovernorPrePauseRecoveryAttempt(
+  session: SessionState,
+  phase: string,
+  matchedRules: string[],
+): { applied: boolean; rule?: string; attempt?: number } {
+  const rule = matchedRules.find((candidate) => GOVERNOR_PRE_PAUSE_RECOVERY_RULES.has(candidate));
+  if (!rule) return { applied: false };
+  const key = `${phase}:${rule}`;
+  const attempts = session.governorPrePauseAttemptsByRule.get(key) ?? 0;
+  if (attempts >= GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS) {
+    return { applied: false, rule, attempt: attempts };
+  }
+  const nextAttempt = attempts + 1;
+  session.governorPrePauseAttemptsByRule.set(key, nextAttempt);
+  return { applied: true, rule, attempt: nextAttempt };
 }
 
 function isToolResultOnlyUserContent(content: unknown): boolean {
@@ -3172,6 +3214,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     previousFailureSignature: null,
     lastEvidenceDelta: null,
     lastIncomingMessageCount: 0,
+    governorPrePauseAttemptsByRule: new Map(),
   };
   sessions.set(key, state);
   return state;
@@ -6170,6 +6213,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     // loop does not gate the new task attempt before it even starts.
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
+    session.governorPrePauseAttemptsByRule.clear();
     void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch(() => {});
   }
   {
@@ -6441,6 +6485,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
+    session.governorPrePauseAttemptsByRule.clear();
     recordSessionEvent(
       sessionKey,
       identity.userId,
@@ -6866,10 +6911,47 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   if (session.lastGovernorPhase && oaiGovernorPhase !== session.lastGovernorPhase) {
     session.consecutiveRecoveryFires = 0;
+    session.governorPrePauseAttemptsByRule.clear();
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "governor_phase_transition", "execution-governor",
       `${session.lastGovernorPhase} → ${oaiGovernorPhase}`, oaiTraceReqId);
   }
   session.lastGovernorPhase = oaiGovernorPhase;
+  if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const oaiPrePauseAttempt = consumeGovernorPrePauseRecoveryAttempt(
+      session,
+      oaiGovernorPhase,
+      oaiExecutionGovernor.matchedRules,
+    );
+    if (oaiPrePauseAttempt.applied) {
+      const oaiRecovery = buildGovernorPrePauseRecovery(oaiExecutionGovernor);
+      const oaiDedup = getContentDedup(sessionKey);
+      const oaiFilesSummary = oaiDedup.generateFilesSummaryBlock();
+      injectGovernorRecoveryMessage(
+        normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+        oaiFilesSummary ? `${oaiRecovery}\n${oaiFilesSummary}` : oaiRecovery,
+      );
+      oaiExecutionGovernor = {
+        ...oaiExecutionGovernor,
+        pause: false,
+        reason: `pre_pause_guided_recovery_${oaiPrePauseAttempt.rule ?? "unknown"}`,
+      };
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "execution_governor_pre_pause_recovery",
+        "execution-governor",
+        `Applied guided pre-pause recovery for ${oaiPrePauseAttempt.rule ?? "unknown"} (attempt ${oaiPrePauseAttempt.attempt ?? 0}/${GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS})`,
+        oaiTraceReqId,
+        {
+          phase: oaiGovernorPhase,
+          matched_rules: oaiExecutionGovernor.matchedRules,
+          rule: oaiPrePauseAttempt.rule ?? null,
+          attempt: oaiPrePauseAttempt.attempt ?? null,
+        },
+      );
+    }
+  }
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const oaiTerminalRules = new Set([
       "finalize_action_required",
@@ -7076,10 +7158,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiDedup = getContentDedup(sessionKey);
     const filesSummary = oaiDedup.generateFilesSummaryBlock();
     if (filesSummary) recovery += "\n" + filesSummary;
-    const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; content: unknown }>;
-    const oaiLastUserPromptIdx = findLastUserPromptIdx(oaiMsgs as Array<{ role?: string; content?: unknown }>);
-    const oaiTailIdx = oaiLastUserPromptIdx >= 0 ? oaiLastUserPromptIdx + 1 : oaiMsgs.length;
-    oaiMsgs.splice(oaiTailIdx, 0, { role: "system", content: recovery });
+    injectGovernorRecoveryMessage(
+      normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+      recovery,
+    );
     const oaiPureExploration = oaiGovernorPhase === "edit"
       && !oaiExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
       && !oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread")
@@ -7109,6 +7191,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   } else if (!oaiExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
+    if (!oaiExecutionGovernor.reason.startsWith("pre_pause_guided_recovery_")) {
+      session.governorPrePauseAttemptsByRule.clear();
+    }
     if (!oaiHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;
@@ -9223,6 +9308,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.editMissForceReadPending = false;
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
+    session.governorPrePauseAttemptsByRule.clear();
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
   }
   {
@@ -9488,6 +9574,7 @@ app.post("/v1/messages", async (req, reply) => {
   }
   if (claudeLatestToolProgress.hasRecentWriteSuccess && !claudeHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
+    session.governorPrePauseAttemptsByRule.clear();
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
@@ -9908,10 +9995,47 @@ app.post("/v1/messages", async (req, reply) => {
   }
   if (session.lastGovernorPhase && claudeGovernorPhase !== session.lastGovernorPhase) {
     session.consecutiveRecoveryFires = 0;
+    session.governorPrePauseAttemptsByRule.clear();
     recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "governor_phase_transition", "execution-governor",
       `${session.lastGovernorPhase} → ${claudeGovernorPhase}`, traceReqId);
   }
   session.lastGovernorPhase = claudeGovernorPhase;
+  if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    const claudePrePauseAttempt = consumeGovernorPrePauseRecoveryAttempt(
+      session,
+      claudeGovernorPhase,
+      claudeExecutionGovernor.matchedRules,
+    );
+    if (claudePrePauseAttempt.applied) {
+      const claudeRecovery = buildGovernorPrePauseRecovery(claudeExecutionGovernor);
+      const claudeDedup = getContentDedup(claudeSessionKey);
+      const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
+      injectGovernorRecoveryMessage(
+        normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+        claudeFilesSummary ? `${claudeRecovery}\n${claudeFilesSummary}` : claudeRecovery,
+      );
+      claudeExecutionGovernor = {
+        ...claudeExecutionGovernor,
+        pause: false,
+        reason: `pre_pause_guided_recovery_${claudePrePauseAttempt.rule ?? "unknown"}`,
+      };
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "execution_governor_pre_pause_recovery",
+        "execution-governor",
+        `Applied guided pre-pause recovery for ${claudePrePauseAttempt.rule ?? "unknown"} (attempt ${claudePrePauseAttempt.attempt ?? 0}/${GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS})`,
+        traceReqId,
+        {
+          phase: claudeGovernorPhase,
+          matched_rules: claudeExecutionGovernor.matchedRules,
+          rule: claudePrePauseAttempt.rule ?? null,
+          attempt: claudePrePauseAttempt.attempt ?? null,
+        },
+      );
+    }
+  }
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const claudeTerminalRules = new Set([
       "finalize_action_required",
@@ -10118,10 +10242,10 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeDedup = getContentDedup(claudeSessionKey);
     const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
     if (claudeFilesSummary) recovery += "\n" + claudeFilesSummary;
-    const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; content: unknown }>;
-    const claudeLastUserPromptIdx = findLastUserPromptIdx(claudeMsgs as Array<{ role?: string; content?: unknown }>);
-    const claudeTailIdx = claudeLastUserPromptIdx >= 0 ? claudeLastUserPromptIdx + 1 : claudeMsgs.length;
-    claudeMsgs.splice(claudeTailIdx, 0, { role: "system", content: recovery });
+    injectGovernorRecoveryMessage(
+      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+      recovery,
+    );
     const claudePureExploration = claudeGovernorPhase === "edit"
       && !claudeExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
       && !claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread")
@@ -10151,6 +10275,9 @@ app.post("/v1/messages", async (req, reply) => {
     );
   } else if (!claudeExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
+    if (!claudeExecutionGovernor.reason.startsWith("pre_pause_guided_recovery_")) {
+      session.governorPrePauseAttemptsByRule.clear();
+    }
     if (!claudeHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;

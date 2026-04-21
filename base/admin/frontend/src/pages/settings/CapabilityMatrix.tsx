@@ -86,6 +86,17 @@ function selectorRank(selectorType: CapabilitySelectorType): number {
   return 3;
 }
 
+interface PreviewMatch {
+  id: string;
+  name: string;
+  selectorType: CapabilitySelectorType;
+  selector: string;
+  enabled: boolean;
+  matched: boolean;
+  comparedFieldLabel: string;
+  comparedValue: string;
+}
+
 function resolvePreview(matrix: CapabilityMatrixEffective, input: { modelId: string; family: string; modelPath: string }) {
   const base = Object.fromEntries(
     matrix.supported_capabilities.map((capability) => [capability, matrix.global_optimizations_enabled]),
@@ -95,15 +106,43 @@ function resolvePreview(matrix: CapabilityMatrixEffective, input: { modelId: str
   const normalizedFamily = input.family.trim().toLowerCase();
   const normalizedPath = input.modelPath.trim().toLowerCase();
 
-  const matches = [...matrix.overrides]
-    .filter((row) => row.enabled)
-    .filter((row) => {
+  const evaluations: PreviewMatch[] = [...matrix.overrides]
+    .map((row) => {
       const selector = row.selector.trim().toLowerCase();
-      if (!selector) return false;
-      if (row.selector_type === "exact_model") return normalizedModel === selector;
-      if (row.selector_type === "model_path_prefix") return normalizedPath.length > 0 && normalizedPath.startsWith(selector);
-      return normalizedFamily.length > 0 && normalizedFamily.startsWith(selector);
+      const comparedFieldLabel = row.selector_type === "exact_model"
+        ? "Model ID"
+        : row.selector_type === "model_path_prefix"
+          ? "Model path"
+          : "Family";
+      const comparedValue = row.selector_type === "exact_model"
+        ? normalizedModel
+        : row.selector_type === "model_path_prefix"
+          ? normalizedPath
+          : normalizedFamily;
+      const matched = row.enabled
+        && selector.length > 0
+        && (row.selector_type === "exact_model"
+          ? comparedValue === selector
+          : comparedValue.length > 0 && comparedValue.startsWith(selector));
+      return {
+        id: row.id,
+        name: row.name,
+        selectorType: row.selector_type,
+        selector: row.selector,
+        enabled: row.enabled,
+        matched,
+        comparedFieldLabel,
+        comparedValue,
+      };
     })
+    .sort((a, b) => {
+      const rank = selectorRank(a.selectorType) - selectorRank(b.selectorType);
+      if (rank !== 0) return rank;
+      return a.id.localeCompare(b.id);
+    });
+  const matchedIds = new Set(evaluations.filter((row) => row.matched).map((row) => row.id));
+  const matches = [...matrix.overrides]
+    .filter((row) => matchedIds.has(row.id))
     .sort((a, b) => {
       const rank = selectorRank(a.selector_type) - selectorRank(b.selector_type);
       if (rank !== 0) return rank;
@@ -120,7 +159,12 @@ function resolvePreview(matrix: CapabilityMatrixEffective, input: { modelId: str
     }
   }
 
-  return { resolved: base, matchedIds: matches.map((row) => row.id) };
+  return {
+    resolved: base,
+    matchedIds: matches.map((row) => row.id),
+    matchedLabels: matches.map((row) => row.name.trim() || row.id),
+    evaluations,
+  };
 }
 
 function capabilitySummary(row: CapabilityMatrixOverride): string {
@@ -186,14 +230,46 @@ export default function CapabilityMatrixPage() {
 
   const supportedCapabilities = data?.supported_capabilities ?? [];
 
+  const draftPreviewOverride = useMemo<CapabilityMatrixOverride | null>(() => {
+    if (!data) return null;
+    const selector = formSelector.trim();
+    if (!selector) return null;
+    const current = editingPolicyId ? data.overrides.find((row) => row.id === editingPolicyId) : null;
+    const capabilities: Record<string, boolean> = {};
+    for (const key of data.supported_capabilities) {
+      capabilities[key] = Boolean(formCapabilities[key]);
+    }
+    return {
+      id: current?.id ?? "__draft_override__",
+      name: current?.name ?? "Draft override (unsaved)",
+      enabled: formEnabled,
+      scope: current?.scope ?? "platform",
+      scope_value: current?.scope_value ?? "",
+      org_id: current?.org_id ?? "",
+      selector_type: formSelectorType,
+      selector,
+      priority: formPriority,
+      capabilities,
+      updated_at: current?.updated_at ?? null,
+    };
+  }, [data, formSelector, formSelectorType, formPriority, formEnabled, formCapabilities, editingPolicyId]);
+
   const preview = useMemo(() => {
     if (!data) return null;
-    return resolvePreview(data, {
+    const overrides = (() => {
+      if (!draftPreviewOverride) return data.overrides;
+      if (editingPolicyId) {
+        return data.overrides.map((row) => (row.id === editingPolicyId ? draftPreviewOverride : row));
+      }
+      return [...data.overrides, draftPreviewOverride];
+    })();
+    const previewMatrix: CapabilityMatrixEffective = { ...data, overrides };
+    return resolvePreview(previewMatrix, {
       modelId: previewModelId,
       family: previewFamily,
       modelPath: previewPath,
     });
-  }, [data, previewModelId, previewFamily, previewPath]);
+  }, [data, previewModelId, previewFamily, previewPath, draftPreviewOverride, editingPolicyId]);
 
   const presetSelectorFromPreview = useMemo(
     () =>
@@ -358,6 +434,24 @@ export default function CapabilityMatrixPage() {
     }
     setPresetError("");
     setPresetSelector(presetSelectorFromPreview);
+  }
+
+  function handleUseFormSelectorInPreview() {
+    const selector = formSelector.trim();
+    if (!selector) {
+      setFormError("Enter a selector to preview.");
+      return;
+    }
+    setFormError("");
+    if (formSelectorType === "exact_model") {
+      setPreviewModelId(selector);
+      return;
+    }
+    if (formSelectorType === "family_prefix") {
+      setPreviewFamily(selector);
+      return;
+    }
+    setPreviewPath(selector);
   }
 
   return (
@@ -527,6 +621,21 @@ export default function CapabilityMatrixPage() {
                   onChange={(event) => setFormSelector(event.target.value)}
                   placeholder="qwen3.6-35b-a3b"
                 />
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                    onClick={handleUseFormSelectorInPreview}
+                    disabled={!formSelector.trim()}
+                  >
+                    Use in preview
+                  </button>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {formSelector.trim()
+                      ? `${SELECTOR_LABELS[formSelectorType]}: ${formSelector.trim()}`
+                      : "Enter a selector to update preview context"}
+                  </span>
+                </div>
               </label>
               <label className="text-sm text-gray-600 dark:text-gray-300">
                 Priority
@@ -670,13 +779,34 @@ export default function CapabilityMatrixPage() {
             </div>
             <div className="mt-4 rounded border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Matched overrides: {preview?.matchedIds.join(", ") || "none"}
+                Matched overrides: {preview?.matchedLabels.join(", ") || "none"}
+              </p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Preview includes your live create/edit selector when one is entered.
               </p>
               <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                 {Object.entries(preview?.resolved ?? {}).map(([key, value]) => (
                   <div key={key} className="flex items-center justify-between rounded bg-white px-2 py-1 text-xs dark:bg-gray-900">
                     <span className="font-mono text-gray-700 dark:text-gray-300">{key}</span>
                     <span className={value ? "text-green-600" : "text-gray-500"}>{value ? "enabled" : "disabled"}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 space-y-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Selector checks (updates as you type):</p>
+                {(preview?.evaluations ?? []).map((row) => (
+                  <div
+                    key={row.id}
+                    className="flex items-center justify-between rounded bg-white px-2 py-1 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-300"
+                  >
+                    <span>
+                      {SELECTOR_LABELS[row.selectorType]}:{` `}
+                      <span className="font-mono">{row.selector || "(empty)"}</span>
+                      {!row.enabled ? " (disabled)" : ""}
+                    </span>
+                    <span className={row.matched ? "text-green-600" : "text-gray-500"}>
+                      {row.matched ? "match" : `no match (${row.comparedFieldLabel}: ${row.comparedValue || "empty"})`}
+                    </span>
                   </div>
                 ))}
               </div>
