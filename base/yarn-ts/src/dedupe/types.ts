@@ -4,6 +4,7 @@ export type DedupeLogKind =
   | "exact_duplicate_tool_call"
   | "semantic_segment_dedupe"
   | "response_cached_stub"
+  | "response_cache_hit"
   | "patch_duplicate_skipped";
 
 export interface DedupeLogEvent {

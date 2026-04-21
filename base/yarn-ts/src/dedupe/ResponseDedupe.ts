@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { classifyTool, extractReadPath, extractSearchQuery } from "../tool-collapse/tool-call-collapser.js";
+import { classifyTool } from "../tool-collapse/tool-call-collapser.js";
 import type { DedupeLogEvent } from "./types.js";
 import { hashToolCall } from "./ToolCallDedupe.js";
 import type { DedupeCache } from "./DedupeCache.js";
@@ -17,8 +17,10 @@ export interface ResponseDedupeOptions {
 }
 
 /**
- * When the same tool+args produced the same result hash before, return a compact stub
- * instead of reinjecting the full payload (reduces context / prefill).
+ * Tracks identical read/search tool results in an LRU so we can recognize repeats.
+ * Always reinjects the **full** cached payload on hit — never a stub — so the model
+ * retains trustworthy file/search bytes in context (token savings belong in
+ * content-addressed dedup + replay envelopes, not opaque placeholders).
  */
 export class ResponseDedupe {
   constructor(
@@ -27,7 +29,7 @@ export class ResponseDedupe {
   ) {}
 
   /**
-   * @returns JSON string (either full body or cached stub)
+   * @returns Tool result text (full body; may be reinjected from cache on repeat)
    */
   wrapToolResult(toolName: string, input: unknown, resultText: string): string {
     const k = classifyTool(toolName);
@@ -43,24 +45,11 @@ export class ResponseDedupe {
     const prev = this.cache.getResponse(key);
     if (prev !== undefined) {
       this.opts.log?.({
-        kind: "response_cached_stub",
-        message: "dedupe: response reinjection shortened",
+        kind: "response_cache_hit",
+        message: "dedupe: identical read/search result; reinjecting cached full body",
         detail: key.slice(0, 32),
       });
-      const stub: Record<string, unknown> = {
-        cached: true,
-        note: "identical tool result as prior turn; full body omitted to save context",
-        result_hash: h,
-      };
-      if (k === "read_file") {
-        const p = extractReadPath(input);
-        if (p) stub.file = p;
-      }
-      if (k === "search") {
-        const q = extractSearchQuery(input);
-        if (q) stub.query = q.query;
-      }
-      return JSON.stringify(stub);
+      return prev;
     }
 
     this.cache.setResponse(key, resultText);

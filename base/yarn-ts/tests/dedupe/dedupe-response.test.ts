@@ -22,15 +22,11 @@ describe("ResponseDedupe", () => {
     expect(out).toBe(body);
   });
 
-  it("returns stub on second identical read_file result", () => {
+  it("reinjects full body on second identical read_file result (no opaque stub)", () => {
     const rd = new ResponseDedupe(new DedupeCache(64), {});
     const body = "same";
     expect(rd.wrapToolResult("read_file", { path: "foo.js" }, body)).toBe(body);
-    const stub = rd.wrapToolResult("read_file", { path: "foo.js" }, body);
-    const j = JSON.parse(stub) as Record<string, unknown>;
-    expect(j.cached).toBe(true);
-    expect(j.file).toBe("foo.js");
-    expect(j.note).toMatch(/omitted/);
+    expect(rd.wrapToolResult("read_file", { path: "foo.js" }, body)).toBe(body);
   });
 
   it("does not stub apply_patch results", () => {
