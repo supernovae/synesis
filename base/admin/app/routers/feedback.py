@@ -28,6 +28,29 @@ logger = logging.getLogger("synesis.admin.feedback")
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
 
 
+def _coerce_openwebui_feedback_export(raw: Any) -> list[Any]:
+    """Open WebUI usually returns a JSON array; some versions may wrap the list."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        for key in ("data", "feedbacks", "items", "results", "entries"):
+            inner = raw.get(key)
+            if isinstance(inner, list):
+                return inner
+    return []
+
+
+def _openwebui_export_payload_ok(raw: Any) -> bool:
+    """True if JSON looks like a feedback export (including empty [])."""
+    if isinstance(raw, list):
+        return True
+    if isinstance(raw, dict):
+        return any(
+            isinstance(raw.get(k), list) for k in ("data", "feedbacks", "items", "results", "entries")
+        )
+    return False
+
+
 def _parse_planner_feedback_payload(data: Any) -> list[dict[str, Any]]:
     """Planner returns {\"object\": \"list\", \"data\": [...]} — admin used to read \"entries\" only."""
     if isinstance(data, list):
@@ -403,7 +426,17 @@ async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
                     headers={"Authorization": f"Bearer {token}"},
                 )
             resp.raise_for_status()
-            items = resp.json()
+            raw = resp.json()
+            if not _openwebui_export_payload_ok(raw):
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Open WebUI export returned unexpected JSON (expected a list or an object "
+                        "with a list under data/feedbacks/items/results/entries). "
+                        "Check Open WebUI version vs docs/FEEDBACK_API.md."
+                    ),
+                )
+            items = _coerce_openwebui_feedback_export(raw)
     except httpx.HTTPStatusError as exc:
         err_body = (exc.response.text or "")[:500]
         logger.warning(
@@ -412,21 +445,43 @@ async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
             err_body[:200],
         )
         detail = f"Open WebUI export failed: HTTP {exc.response.status_code}"
-        if exc.response.status_code == 403 and "API key" in err_body and "not enabled" in err_body:
+        if exc.response.status_code == 401:
+            detail += (
+                ". Authentication failed — the Bearer token is invalid or expired. "
+                "Regenerate an API key in Open WebUI (Account → API keys) or obtain a fresh JWT via "
+                "POST /api/v1/auths/signin, then update Kubernetes Secret synesis-openwebui-admin-token "
+                "(or redeploy with SYNESIS_OPENWEBUI_ADMIN_TOKEN set)."
+            )
+        elif exc.response.status_code == 403 and "API key" in err_body and "not enabled" in err_body:
             detail += (
                 ". Open WebUI rejected the sk- API key: set ENABLE_API_KEYS=true on the "
                 "open-webui Deployment and rollout restart, or use a JWT from POST /api/v1/auths/signin "
                 "instead of an API key."
             )
-        elif exc.response.status_code in (401, 403):
-            detail += f" — {err_body[:300]}"
+        elif exc.response.status_code == 403:
+            detail += (
+                ". Forbidden — evaluations export requires an admin-capable token (admin user API key or "
+                "admin JWT). A non-admin API key will not work for GET .../feedbacks/all/export."
+            )
+            if err_body.strip():
+                detail += f" Response: {err_body[:300]}"
         raise HTTPException(status_code=502, detail=detail) from exc
+    except httpx.RequestError as exc:
+        logger.warning("openwebui_sync_transport error=%s", str(exc)[:200])
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Could not reach Open WebUI at {base}: {exc!s}. "
+                "Confirm SYNESIS_OPENWEBUI_URL (cluster DNS, port 8080, correct namespace), "
+                "that the open-webui pods are Ready, and that NetworkPolicy allows traffic "
+                "from synesis-admin to open-webui."
+            ),
+        ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.warning("openwebui_sync_error error=%s", str(exc)[:120])
         raise HTTPException(status_code=502, detail=f"Open WebUI sync failed: {exc!s}") from exc
-
-    if not isinstance(items, list):
-        raise HTTPException(status_code=502, detail="Open WebUI export returned unexpected JSON")
 
     n = await _upsert_openwebui_feedback_rows(items)
     return {"status": "synced", "rows": n}

@@ -104,6 +104,19 @@ Log in to Open WebUI as an **admin** → browser **DevTools → Network** → tr
 
 Then either `export SYNESIS_OPENWEBUI_ADMIN_TOKEN='…'` and run `./scripts/deploy.sh`, or create the Kubernetes Secret manually (see above).
 
+### Chat Feedback sync returns 502 (Bad Gateway)
+
+synesis-admin maps most Open WebUI failures to **HTTP 502** with a **detail** string (shown in the admin UI). Typical causes:
+
+| Cause | What to do |
+|--------|------------|
+| **Expired or rotated token** | Session JWTs (Option C) expire. **Regenerate** an admin **API key** in Open WebUI (Option A) and update Secret `synesis-openwebui-admin-token`, then restart `synesis-admin`. |
+| **Wrong token type** | `webui-api-key` / LiteLLM keys authenticate **Open WebUI → planner**, not **admin → Open WebUI**. Export needs an **admin** API key or admin JWT (`SYNESIS_OPENWEBUI_ADMIN_TOKEN`). |
+| **`ENABLE_API_KEYS=false`** | Open WebUI returns 403 for `sk-` keys; enable API keys on the WebUI deployment (see Option A above). |
+| **Non-admin API key** | `GET .../evaluations/feedbacks/all/export` requires **`get_admin_user`**. Use a token for an **admin** Open WebUI account. |
+| **Unreachable URL** | Wrong `SYNESIS_OPENWEBUI_URL`, DNS, port, or NetworkPolicy blocking `synesis-admin` → `open-webui`. Confirm the Service URL matches your namespace (e.g. `http://open-webui.synesis-webui.svc.cluster.local:8080`). |
+| **Open WebUI image** | Rebuilding the custom Synesis Open WebUI image does **not** replace the admin token. It mainly affects **planner `run_id` on messages** for trace correlation; the evaluations HTTP API is upstream Open WebUI. |
+
 ## Open WebUI Integration
 
 ### Feedback dashboard (inside Open WebUI)
