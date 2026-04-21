@@ -19,3 +19,5 @@ Raise `KEEP_TOOL_RESULTS` or `BUDGET_CHARS` when sessions are long but you still
 
 - **Failing verification / build output**: the last few shell tool results that match `looksLikeVerificationFailureOutput` (see [`compaction-sensitivity.ts`](../../base/yarn-ts/src/context/compaction-sensitivity.ts)) are **never** replaced by `TOOL_RESULT_PRUNED` stubs, so compile/test stderr stays readable.
 - **Near-duplicate collapse**: outputs that fingerprint the same but differ on pass vs fail heuristics are not collapsed into each other.
+- **Current-turn read working set**: in single-user-turn agent loops, transcript pruning keeps a bounded set of recent read literals from the active turn so `keepToolResults` fallback does not evict code the agent just read.
+- **Model-sensitive keep window**: Qwen coder families automatically get a larger transcript budget and `keepToolResults` window, reducing over-eviction without globally disabling pruning.

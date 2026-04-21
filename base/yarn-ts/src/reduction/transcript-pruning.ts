@@ -1,6 +1,8 @@
 import { looksLikeVerificationFailureOutput } from "../context/compaction-sensitivity.js";
 import { normalizeCommandOutputForComparison } from "./output-normalization.js";
 import type { ArtifactStore } from "../state/artifact-store.js";
+import { isUnchangedHint, parseReadSnapshotEnvelope } from "./file-snapshot-registry.js";
+import { inferCompactionSensitivity, type CompactionSensitivity } from "../context/compaction-sensitivity.js";
 
 /**
  * Transcript Pruning Service
@@ -84,14 +86,28 @@ const FILE_OP_TOOLS = new Set([
   "str_replace_editor",
 ]);
 
+const READ_OP_TOOLS = new Set([
+  "read",
+  "read_file",
+  "readfile",
+  "file_read",
+  "str_replace_editor",
+]);
+
 const SHELL_TOOLS = new Set([
   "bash", "run_command", "run_terminal_command", "execute_command",
   "shell", "terminal", "run_bash",
 ]);
 
+const ACTIVE_READ_LITERAL_PRESERVE_CAP = 120_000;
+
 function isShellLikeToolName(name: string | undefined): boolean {
   const n = (name ?? "").trim().toLowerCase();
   return SHELL_TOOLS.has(n) || n.includes("bash") || n.includes("shell") || n.includes("terminal");
+}
+
+function isReadLikeToolName(name: string | undefined): boolean {
+  return READ_OP_TOOLS.has((name ?? "").trim().toLowerCase());
 }
 
 /** Indices of recent failing shell/test tool bodies — never stub-evict these (safe literal context). */
@@ -106,6 +122,59 @@ function protectedFailingVerificationToolIndices(messages: MessageLike[]): Set<n
     failIdx.push(i);
   }
   return new Set(failIdx.slice(-3));
+}
+
+function hasReplayableReadContent(content: unknown): boolean {
+  const raw = contentString(content);
+  if (!raw) return false;
+  if (isUnchangedHint(raw)) return false;
+  if (raw.startsWith("<FILE_SUPERSEDED") || raw.startsWith("<TOOL_RESULT_PRUNED")) return false;
+  const envelope = parseReadSnapshotEnvelope(raw);
+  if (envelope) {
+    return typeof envelope.content === "string" && envelope.content.length > 0;
+  }
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const body = parsed.content ?? parsed.text;
+      if (typeof body === "string" && body.length > 0) return true;
+    } catch {
+      return raw.length > 120;
+    }
+  }
+  return raw.length > 120;
+}
+
+/**
+ * Preserve a bounded set of current-turn read literals so keepToolResults fallback
+ * cannot evict code the model just read in the active user turn.
+ */
+function protectedCurrentTurnReadToolIndices(
+  messages: MessageLike[],
+  maxChars = ACTIVE_READ_LITERAL_PRESERVE_CAP,
+): Set<number> {
+  let lastUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx < 0) return new Set();
+  const protectedIdx: number[] = [];
+  let retainedChars = 0;
+  for (let i = messages.length - 1; i > lastUserIdx; i -= 1) {
+    const m = messages[i];
+    if (m.role !== "tool") continue;
+    if (!isReadLikeToolName(m.name)) continue;
+    if (!hasReplayableReadContent(m.content)) continue;
+    const raw = contentString(m.content);
+    if (protectedIdx.length === 0 || retainedChars + raw.length <= maxChars) {
+      protectedIdx.push(i);
+      retainedChars += raw.length;
+    }
+  }
+  return new Set(protectedIdx);
 }
 
 const FILE_PATH_KEYS = ["filePath", "file_path", "path", "file"];
@@ -152,15 +221,18 @@ export class TranscriptPruningService {
    * pruning fires earlier and avoids carrying 30K+ tokens of stale context
    * for a 160KB codebase.
    */
-  effectiveBudget(projectSizeChars?: number): number {
-    if (!projectSizeChars || projectSizeChars <= 0) return this.config.budgetChars;
+  effectiveBudget(projectSizeChars?: number, sensitivity: CompactionSensitivity = "default"): number {
+    const baseBudget = this.effectiveTranscriptBudgetForSensitivity(sensitivity);
+    if (!projectSizeChars || projectSizeChars <= 0) return baseBudget;
+    const floor = sensitivity === "strict_literals" ? 90_000 : (sensitivity === "qwen_coder" ? 75_000 : 60_000);
     const scaled = projectSizeChars * 3;
-    return Math.min(this.config.budgetChars, Math.max(scaled, 60_000));
+    return Math.min(baseBudget, Math.max(scaled, floor));
   }
 
   prune(
     messages: MessageLike[],
     projectSizeChars?: number,
+    backendModelHint?: string,
   ): { messages: MessageLike[]; pruned: boolean; invocationDelta: TranscriptPruningInvocationDelta } {
     const delta0 = this.captureDeltaSnapshot();
     this.stats.invocations += 1;
@@ -176,7 +248,8 @@ export class TranscriptPruningService {
       return { messages, pruned: false, invocationDelta: zeroDelta() };
     }
 
-    const budget = this.effectiveBudget(projectSizeChars);
+    const sensitivity = inferCompactionSensitivity(backendModelHint ?? "");
+    const budget = this.effectiveBudget(projectSizeChars, sensitivity);
     const totalChars = messages.reduce(
       (sum, m) => sum + contentLength(m.content),
       0,
@@ -189,14 +262,16 @@ export class TranscriptPruningService {
       return { messages, pruned: false, invocationDelta: this.diffDelta(delta0) };
     }
 
-    const keepFromIndex = this.computeKeepFromIndex(messages);
+    const keepFromIndex = this.computeKeepFromIndex(messages, backendModelHint);
 
     const protectedFailIdx = protectedFailingVerificationToolIndices(messages);
+    const protectedReadIdx = protectedCurrentTurnReadToolIndices(messages);
+    const evictProtectedIdx = new Set<number>([...protectedFailIdx, ...protectedReadIdx]);
     let out = this.deduplicateCommands(messages, keepFromIndex);
-    out = this.deduplicateFileReads(out, keepFromIndex);
-    out = this.evictStaleToolResults(out, keepFromIndex, protectedFailIdx);
+    out = this.deduplicateFileReads(out, keepFromIndex, protectedReadIdx);
+    out = this.evictStaleToolResults(out, keepFromIndex, evictProtectedIdx);
     out = this.condenseOldAssistant(out, keepFromIndex);
-    out = this.collapseNearDuplicateOutputs(out, keepFromIndex);
+    out = this.collapseNearDuplicateOutputs(out, keepFromIndex, protectedReadIdx);
 
     const afterChars = out.reduce(
       (sum, m) => sum + contentLength(m.content),
@@ -237,20 +312,37 @@ export class TranscriptPruningService {
    * Public so other normalization stages (historical normalizer, tool-ID
    * stabilizer) can use the same boundary for consistency.
    */
-  computeKeepFromIndex(messages: MessageLike[]): number {
+  computeKeepFromIndex(messages: MessageLike[], backendModelHint?: string): number {
+    const sensitivity = inferCompactionSensitivity(backendModelHint ?? "");
+    const keepToolResults = this.effectiveKeepToolResultsForSensitivity(sensitivity);
     const userTurnBoundaries = computeUserTurnBoundaries(messages);
     const turnBased = userTurnBoundaries.length > this.config.keepTurns
       ? userTurnBoundaries[userTurnBoundaries.length - this.config.keepTurns]
       : 0;
 
-    if (turnBased > 0 || this.config.keepToolResults <= 0) return turnBased;
+    if (turnBased > 0 || keepToolResults <= 0) return turnBased;
 
     const toolIndices: number[] = [];
     for (let i = 0; i < messages.length; i++) {
       if (messages[i].role === "tool") toolIndices.push(i);
     }
-    if (toolIndices.length <= this.config.keepToolResults) return 0;
-    return toolIndices[toolIndices.length - this.config.keepToolResults];
+    if (toolIndices.length <= keepToolResults) return 0;
+    return toolIndices[toolIndices.length - keepToolResults];
+  }
+
+  private effectiveTranscriptBudgetForSensitivity(sensitivity: CompactionSensitivity): number {
+    const base = this.config.budgetChars;
+    if (sensitivity === "strict_literals") return Math.min(Math.max(base + 30_000, Math.floor(base * 1.5)), 180_000);
+    if (sensitivity === "qwen_coder") return Math.min(Math.max(base + 15_000, Math.floor(base * 1.25)), 140_000);
+    return base;
+  }
+
+  private effectiveKeepToolResultsForSensitivity(sensitivity: CompactionSensitivity): number {
+    const base = this.config.keepToolResults;
+    if (base <= 0) return base;
+    if (sensitivity === "strict_literals") return Math.min(Math.max(base + 12, Math.ceil(base * 1.8)), 80);
+    if (sensitivity === "qwen_coder") return Math.min(Math.max(base + 6, Math.ceil(base * 1.35)), 60);
+    return base;
   }
 
   /**
@@ -305,6 +397,7 @@ export class TranscriptPruningService {
   private deduplicateFileReads(
     messages: MessageLike[],
     keepFromIndex: number,
+    protectedIndices: Set<number>,
   ): MessageLike[] {
     const latestReadIndex = new Map<string, number>();
     const contentByIndex = new Map<number, string>();
@@ -322,6 +415,7 @@ export class TranscriptPruningService {
 
     return messages.map((m, i) => {
       if (m.role !== "tool" || !isFileOp(m.name)) return m;
+      if (protectedIndices.has(i)) return m;
       const fp = extractFilePath(m.content);
       if (!fp) return m;
       if (isPlanFilePath(fp)) return m;
@@ -418,6 +512,7 @@ export class TranscriptPruningService {
   private collapseNearDuplicateOutputs(
     messages: MessageLike[],
     keepFromIndex: number,
+    protectedIndices: Set<number>,
   ): MessageLike[] {
     const fingerprintToLatest = new Map<string, number>();
 
@@ -434,6 +529,7 @@ export class TranscriptPruningService {
 
     return messages.map((m, i) => {
       if (m.role !== "tool") return m;
+      if (protectedIndices.has(i)) return m;
       const raw = contentString(m.content);
       if (raw.length < 200) return m;
       if (raw.startsWith("<FILE_SUPERSEDED") || raw.startsWith("<DUPLICATE_CMD_SUPERSEDED")

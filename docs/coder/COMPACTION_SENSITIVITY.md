@@ -6,8 +6,8 @@ Synesis yarn-ts adjusts **server-side** compaction and tool-result reduction bas
 
 | Sensitivity | Trigger (backend model id / name) | Tool reduction | Sawtooth checkpoint |
 |-------------|-----------------------------------|------------------|----------------------|
-| `strict_literals` | Substrings `coder-next`, `qwen3-coder-next`, `qwen3.6-coder-next` | Demotes `aggressive`/`ultra` reducer profile to `balanced`, raises `maxChars`, preserves **verbatim** the last failing verification tool result (bounded), stricter compaction LLM prompt | Checkpoints later (higher tool-call and history thresholds) |
-| `qwen_coder` | Regex `qwen3.*coder` (excluding strict cases above) | Demotes aggressive/ultra to `balanced`, moderate `maxChars` bump | Slightly later checkpoints |
+| `strict_literals` | Substrings `coder-next`, `qwen3-coder-next`, `qwen3.6-coder-next` | Demotes `aggressive`/`ultra` reducer profile to `balanced`, raises `maxChars`, preserves **verbatim** the last failing verification tool result (bounded), uses a larger transcript-prune budget and keep-tool window, stricter compaction LLM prompt | Checkpoints later (higher tool-call and history thresholds) |
+| `qwen_coder` | Regex `qwen3.*coder` (excluding strict cases above) | Demotes aggressive/ultra to `balanced`, moderate `maxChars` bump, gentler transcript-prune keep window/budget | Slightly later checkpoints |
 | `default` | Everything else | Uses `SYNESIS_YARN_REDUCER_PROFILE` and `SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS` as configured | Default `SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS` and history length 60 |
 
 Session Redis metadata key: `synesis_compaction_backend_model` (set each request from orchestrated tier).

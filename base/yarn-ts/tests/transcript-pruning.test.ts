@@ -439,6 +439,99 @@ describe("TranscriptPruningService", () => {
       expect(result.messages[1].content).toContain("TOOL_RESULT_PRUNED");
       expect(result.messages[3].content).toBe("small result");
     });
+
+    it("preserves current-turn read literals even when keepToolResults fallback prunes old tools", () => {
+      const svc = new TranscriptPruningService({
+        ...defaultConfig,
+        keepTurns: 5,
+        keepToolResults: 2,
+        budgetChars: 10,
+        stubMaxChars: 80,
+      });
+      const readBody = [
+        "export const STABLE_LITERAL = true;",
+        "function currentTurnAnchor() { return 42; }",
+        "x".repeat(800),
+      ].join("\n");
+      const messages = [
+        msg("user", "single turn loop"),
+        msg("assistant", "reading target"),
+        fileReadResult("src/current-turn.ts", readBody),
+        msg("assistant", "running checks"),
+        msg("tool", "check-a\n" + "a".repeat(600), "run_command"),
+        msg("assistant", "running checks again"),
+        msg("tool", "check-b\n" + "b".repeat(600), "run_command"),
+        msg("assistant", "one more check"),
+        msg("tool", "check-c\n" + "c".repeat(600), "run_command"),
+      ];
+      const result = svc.prune(messages);
+      expect(result.pruned).toBe(true);
+      expect(String(result.messages[2].content)).toContain("STABLE_LITERAL");
+      expect(String(result.messages[4].content)).toContain("TOOL_RESULT_PRUNED");
+      expect(String(result.messages[6].content)).toContain("check-b");
+      expect(String(result.messages[8].content)).toContain("check-c");
+    });
+
+    it("bounds protected current-turn read literals to avoid unbounded growth", () => {
+      const svc = new TranscriptPruningService({
+        ...defaultConfig,
+        keepTurns: 5,
+        keepToolResults: 1,
+        budgetChars: 10,
+        stubMaxChars: 80,
+      });
+      const oldRead = "export const oldRead = true;\n" + "a".repeat(70_000);
+      const latestRead = "export const latestRead = true;\n" + "b".repeat(70_000);
+      const messages = [
+        msg("user", "single turn loop"),
+        msg("assistant", "first read"),
+        fileReadResult("src/first.ts", oldRead),
+        msg("assistant", "second read"),
+        fileReadResult("src/second.ts", latestRead),
+        msg("assistant", "verify"),
+        msg("tool", "verify-a\n" + "x".repeat(600), "run_command"),
+        msg("assistant", "verify again"),
+        msg("tool", "verify-b\n" + "y".repeat(600), "run_command"),
+      ];
+      const result = svc.prune(messages);
+      expect(result.pruned).toBe(true);
+      expect(String(result.messages[2].content)).toContain("TOOL_RESULT_PRUNED");
+      expect(String(result.messages[4].content)).toContain("latestRead");
+    });
+
+    it("uses gentler keep window for qwen sensitivities", () => {
+      const cfg = {
+        ...defaultConfig,
+        keepTurns: 5,
+        keepToolResults: 2,
+        budgetChars: 10,
+        stubMaxChars: 80,
+      };
+      const big = (label: string, fill: string) => `${label}\n${fill.repeat(35_000)}`;
+      const messages = [
+        msg("user", "single turn loop"),
+        msg("assistant", "first"),
+        msg("tool", big("out-a", "a"), "run_command"),
+        msg("assistant", "second"),
+        msg("tool", big("out-b", "b"), "run_command"),
+        msg("assistant", "third"),
+        msg("tool", big("out-c", "c"), "run_command"),
+        msg("assistant", "fourth"),
+        msg("tool", big("out-d", "d"), "run_command"),
+      ];
+      const defaultSvc = new TranscriptPruningService(cfg);
+      const qwenSvc = new TranscriptPruningService(cfg);
+      const strictSvc = new TranscriptPruningService(cfg);
+      const defaultResult = defaultSvc.prune(messages);
+      const qwenResult = qwenSvc.prune(messages, undefined, "qwen3-coder-30b");
+      const strictResult = strictSvc.prune(messages, undefined, "qwen3.6-coder-next");
+      const defaultStubbed = defaultResult.messages.filter((m) => String(m.content).includes("TOOL_RESULT_PRUNED")).length;
+      const qwenStubbed = qwenResult.messages.filter((m) => String(m.content).includes("TOOL_RESULT_PRUNED")).length;
+      const strictStubbed = strictResult.messages.filter((m) => String(m.content).includes("TOOL_RESULT_PRUNED")).length;
+      expect(defaultStubbed).toBeGreaterThan(qwenStubbed);
+      expect(qwenStubbed).toBeGreaterThanOrEqual(strictStubbed);
+      expect(String(strictResult.messages[2].content)).toContain("out-a");
+    });
   });
 
   describe("duplicate command dedup", () => {

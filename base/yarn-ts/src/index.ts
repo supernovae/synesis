@@ -5946,6 +5946,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const prunedOpenAI = transcriptPruning.prune(
       normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      undefined,
+      oaiCompactionOpts.backendModelHint,
     );
     if (prunedOpenAI.pruned) {
       normalizedOpenAI.messages = prunedOpenAI.messages as never;
@@ -6136,7 +6138,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     // Historical normalization: stabilize old content for prefix cache
     if (config.SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED) {
       const histMsgs = normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
-      const keepFromIdx = transcriptPruning.computeKeepFromIndex?.(histMsgs as never) ?? histMsgs.length;
+      const keepFromIdx = transcriptPruning.computeKeepFromIndex?.(histMsgs as never, oaiCompactionOpts.backendModelHint) ?? histMsgs.length;
       const histResult = normalizeHistoricalContent(histMsgs as never, keepFromIdx);
       if (histResult.stats.messagesNormalized > 0) {
         normalizedOpenAI.messages = histResult.messages as never;
@@ -8846,6 +8848,8 @@ app.post("/v1/messages", async (req, reply) => {
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const prunedClaude = transcriptPruning.prune(
       normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      undefined,
+      claudeCompactionOpts.backendModelHint,
     );
     if (prunedClaude.pruned) {
       normalizedFromClaude.messages = prunedClaude.messages as never;
