@@ -62,6 +62,7 @@ const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
 const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
 const ApiExplorer = lazy(() => import("./pages/settings/ApiExplorer"));
+const CapabilityMatrixPage = lazy(() => import("./pages/settings/CapabilityMatrix"));
 
 const SecurityDashboard = lazy(() => import("./pages/security/SecurityDashboard"));
 const SecurityEvents = lazy(() => import("./pages/security/SecurityEvents"));
@@ -275,6 +276,7 @@ export const router = createBrowserRouter([
       { path: "settings/infra-costs", element: <InfraCosts /> },
       { path: "settings/audit", element: <AuditLog /> },
       { path: "settings/api-docs", element: <ApiExplorer /> },
+      { path: "settings/capability-matrix", element: <CapabilityMatrixPage /> },
     ],
   },
 ]);

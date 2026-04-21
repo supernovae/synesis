@@ -880,3 +880,31 @@ export interface TraceStats {
   total_cost_usd: number;
   traces_per_hour: number;
 }
+
+export type CapabilityMatrixMode = "enforced" | "shadow";
+export type CapabilitySelectorType = "exact_model" | "model_path_prefix" | "family_prefix";
+
+export interface CapabilityMatrixOverride {
+  id: string;
+  name: string;
+  enabled: boolean;
+  scope: string;
+  scope_value: string;
+  org_id: string;
+  selector_type: CapabilitySelectorType;
+  selector: string;
+  priority: number;
+  capabilities: Record<string, boolean>;
+  updated_at: string | null;
+}
+
+export interface CapabilityMatrixEffective {
+  version: number;
+  mode: CapabilityMatrixMode;
+  global_optimizations_enabled: boolean;
+  source_policy_id: string | null;
+  supported_capabilities: string[];
+  overrides: CapabilityMatrixOverride[];
+  etag?: string;
+  total?: number;
+}

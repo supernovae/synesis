@@ -139,6 +139,42 @@ describe("GovernanceClient", () => {
     client.close();
   });
 
+  it("exposes capability matrix payload from effective endpoint", async () => {
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        rules: [],
+        total: 0,
+        etag: "matrix1",
+        capability_matrix: {
+          version: 1,
+          mode: "enforced",
+          global_optimizations_enabled: false,
+          overrides: [
+            {
+              id: "row1",
+              selector_type: "exact_model",
+              selector: "qwen3.6-35b-a3b",
+              capabilities: { "yarn.reducers_enabled": true },
+            },
+          ],
+        },
+      }),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+
+    const client = new GovernanceClient(makeConfig());
+    client.start();
+    await vi.advanceTimersByTimeAsync(100);
+
+    const matrix = client.getCapabilityMatrix();
+    expect(matrix.mode).toBe("enforced");
+    expect(matrix.global_optimizations_enabled).toBe(false);
+    expect(matrix.overrides?.[0]?.id).toBe("row1");
+    client.close();
+  });
+
   it("handles 304 not modified gracefully", async () => {
     const rules = [{
       source: "policy",

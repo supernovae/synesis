@@ -58,6 +58,15 @@ export interface RequestForensicsRecord {
     filteredToolCount?: number;
     downgradedForStreaming?: boolean;
   };
+  capabilityMatrix?: {
+    mode: "enforced" | "shadow";
+    globalOptimizationsEnabled: boolean;
+    modelId: string;
+    modelPath?: string;
+    family?: string;
+    matchedOverrideIds: string[];
+    capabilityHash: string;
+  };
 }
 
 interface BuildInput {
@@ -70,6 +79,7 @@ interface BuildInput {
   toolChoice?: unknown;
   providerOptions?: unknown;
   phasePolicy?: RequestForensicsRecord["phasePolicy"];
+  capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
   previous?: { requestId: string; serialized: string };
   capturePayload: boolean;
   maxPreviewChars: number;
@@ -134,6 +144,7 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
       previousRequestId: input.previous?.requestId,
       summary,
       phasePolicy: input.phasePolicy,
+      capabilityMatrix: input.capabilityMatrix,
       payloadPreview: input.capturePayload ? serialized.slice(0, Math.max(0, input.maxPreviewChars)) : undefined,
     },
   };

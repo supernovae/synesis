@@ -1,0 +1,260 @@
+{
+  "version": 1,
+  "default_capabilities": [
+    "yarn.reducers_enabled",
+    "yarn.transcript_prune_enabled",
+    "yarn.phase_execution_policy_enabled",
+    "yarn.json_compaction_enabled",
+    "yarn.content_dedupe_enabled",
+    "yarn.response_dedupe_enabled",
+    "yarn.historical_normalize_enabled",
+    "planner.context_optimizer_enabled",
+    "webui.builtin_tools_enabled",
+    "webui.file_context_enabled"
+  ],
+  "cases": [
+    {
+      "name": "global_off_defaults_all_false",
+      "matrix": {
+        "version": 1,
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "overrides": []
+      },
+      "input": {
+        "model_id": "qwen3.6-35b-a3b",
+        "family": "qwen3",
+        "model_path": "qwen3/qwen3.6-35b-a3b"
+      },
+      "expected": {
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "resolved_capabilities": {
+          "yarn.reducers_enabled": false,
+          "yarn.transcript_prune_enabled": false,
+          "yarn.phase_execution_policy_enabled": false,
+          "yarn.json_compaction_enabled": false,
+          "yarn.content_dedupe_enabled": false,
+          "yarn.response_dedupe_enabled": false,
+          "yarn.historical_normalize_enabled": false,
+          "planner.context_optimizer_enabled": false,
+          "webui.builtin_tools_enabled": false,
+          "webui.file_context_enabled": false
+        },
+        "matched_override_ids": []
+      }
+    },
+    {
+      "name": "family_override_enables_subset",
+      "matrix": {
+        "version": 1,
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "overrides": [
+          {
+            "id": "fam-qwen",
+            "enabled": true,
+            "selector_type": "family_prefix",
+            "selector": "qwen3",
+            "priority": 10,
+            "capabilities": {
+              "yarn.reducers_enabled": true,
+              "webui.file_context_enabled": true
+            }
+          }
+        ]
+      },
+      "input": {
+        "model_id": "qwen3.6-35b-a3b",
+        "family": "Qwen3-Coder",
+        "model_path": "qwen3/qwen3.6-35b-a3b"
+      },
+      "expected": {
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "resolved_capabilities": {
+          "yarn.reducers_enabled": true,
+          "yarn.transcript_prune_enabled": false,
+          "yarn.phase_execution_policy_enabled": false,
+          "yarn.json_compaction_enabled": false,
+          "yarn.content_dedupe_enabled": false,
+          "yarn.response_dedupe_enabled": false,
+          "yarn.historical_normalize_enabled": false,
+          "planner.context_optimizer_enabled": false,
+          "webui.builtin_tools_enabled": false,
+          "webui.file_context_enabled": true
+        },
+        "matched_override_ids": [
+          "fam-qwen"
+        ]
+      }
+    },
+    {
+      "name": "model_path_beats_family",
+      "matrix": {
+        "version": 1,
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "overrides": [
+          {
+            "id": "fam-qwen",
+            "enabled": true,
+            "selector_type": "family_prefix",
+            "selector": "qwen3",
+            "priority": 10,
+            "capabilities": {
+              "yarn.reducers_enabled": true
+            }
+          },
+          {
+            "id": "path-specific",
+            "enabled": true,
+            "selector_type": "model_path_prefix",
+            "selector": "qwen3/qwen3.6-35b-a3b",
+            "priority": 10,
+            "capabilities": {
+              "yarn.reducers_enabled": false,
+              "yarn.transcript_prune_enabled": true
+            }
+          }
+        ]
+      },
+      "input": {
+        "model_id": "qwen3.6-35b-a3b",
+        "family": "qwen3",
+        "model_path": "qwen3/qwen3.6-35b-a3b"
+      },
+      "expected": {
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "resolved_capabilities": {
+          "yarn.reducers_enabled": false,
+          "yarn.transcript_prune_enabled": true,
+          "yarn.phase_execution_policy_enabled": false,
+          "yarn.json_compaction_enabled": false,
+          "yarn.content_dedupe_enabled": false,
+          "yarn.response_dedupe_enabled": false,
+          "yarn.historical_normalize_enabled": false,
+          "planner.context_optimizer_enabled": false,
+          "webui.builtin_tools_enabled": false,
+          "webui.file_context_enabled": false
+        },
+        "matched_override_ids": [
+          "fam-qwen",
+          "path-specific"
+        ]
+      }
+    },
+    {
+      "name": "exact_model_beats_model_path_and_family",
+      "matrix": {
+        "version": 1,
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "overrides": [
+          {
+            "id": "fam-qwen",
+            "enabled": true,
+            "selector_type": "family_prefix",
+            "selector": "qwen3",
+            "priority": 5,
+            "capabilities": {
+              "yarn.reducers_enabled": true
+            }
+          },
+          {
+            "id": "path-qwen",
+            "enabled": true,
+            "selector_type": "model_path_prefix",
+            "selector": "qwen3/qwen3.6-35b-a3b",
+            "priority": 5,
+            "capabilities": {
+              "yarn.reducers_enabled": false
+            }
+          },
+          {
+            "id": "exact-qwen",
+            "enabled": true,
+            "selector_type": "exact_model",
+            "selector": "qwen3.6-35b-a3b",
+            "priority": 5,
+            "capabilities": {
+              "yarn.reducers_enabled": true,
+              "planner.context_optimizer_enabled": true
+            }
+          }
+        ]
+      },
+      "input": {
+        "model_id": "qwen3.6-35b-a3b",
+        "family": "qwen3",
+        "model_path": "qwen3/qwen3.6-35b-a3b"
+      },
+      "expected": {
+        "mode": "enforced",
+        "global_optimizations_enabled": false,
+        "resolved_capabilities": {
+          "yarn.reducers_enabled": true,
+          "yarn.transcript_prune_enabled": false,
+          "yarn.phase_execution_policy_enabled": false,
+          "yarn.json_compaction_enabled": false,
+          "yarn.content_dedupe_enabled": false,
+          "yarn.response_dedupe_enabled": false,
+          "yarn.historical_normalize_enabled": false,
+          "planner.context_optimizer_enabled": true,
+          "webui.builtin_tools_enabled": false,
+          "webui.file_context_enabled": false
+        },
+        "matched_override_ids": [
+          "fam-qwen",
+          "path-qwen",
+          "exact-qwen"
+        ]
+      }
+    },
+    {
+      "name": "shadow_mode_reports_matches_but_mode_is_shadow",
+      "matrix": {
+        "version": 1,
+        "mode": "shadow",
+        "global_optimizations_enabled": false,
+        "overrides": [
+          {
+            "id": "exact-shadow",
+            "enabled": true,
+            "selector_type": "exact_model",
+            "selector": "deepseek-r1",
+            "priority": 99,
+            "capabilities": {
+              "yarn.phase_execution_policy_enabled": true
+            }
+          }
+        ]
+      },
+      "input": {
+        "model_id": "deepseek-r1",
+        "family": "deepseek",
+        "model_path": "deepseek/deepseek-r1"
+      },
+      "expected": {
+        "mode": "shadow",
+        "global_optimizations_enabled": false,
+        "resolved_capabilities": {
+          "yarn.reducers_enabled": false,
+          "yarn.transcript_prune_enabled": false,
+          "yarn.phase_execution_policy_enabled": true,
+          "yarn.json_compaction_enabled": false,
+          "yarn.content_dedupe_enabled": false,
+          "yarn.response_dedupe_enabled": false,
+          "yarn.historical_normalize_enabled": false,
+          "planner.context_optimizer_enabled": false,
+          "webui.builtin_tools_enabled": false,
+          "webui.file_context_enabled": false
+        },
+        "matched_override_ids": [
+          "exact-shadow"
+        ]
+      }
+    }
+  ]
+}

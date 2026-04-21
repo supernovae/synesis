@@ -4,6 +4,7 @@
  */
 
 import type { AppConfig } from "../config.js";
+import type { CapabilityMatrixDocument } from "./capability-matrix.js";
 
 export interface GovernanceRule {
   source: string;
@@ -29,6 +30,7 @@ export interface GovernanceSnapshot {
   rules: GovernanceRule[];
   total: number;
   etag: string;
+  capability_matrix?: CapabilityMatrixDocument;
   fetchedAt: number;
 }
 
@@ -96,6 +98,15 @@ export class GovernanceClient {
     };
   }
 
+  getCapabilityMatrix(): CapabilityMatrixDocument {
+    return this.snapshot?.capability_matrix ?? {
+      version: 1,
+      mode: "enforced",
+      global_optimizations_enabled: false,
+      overrides: [],
+    };
+  }
+
   private async poll(): Promise<void> {
     this.stats.polls += 1;
     try {
@@ -127,7 +138,12 @@ export class GovernanceClient {
         return;
       }
 
-      const body = await resp.json() as { rules: GovernanceRule[]; total: number; etag: string };
+      const body = await resp.json() as {
+        rules: GovernanceRule[];
+        total: number;
+        etag: string;
+        capability_matrix?: CapabilityMatrixDocument;
+      };
       this.snapshot = { ...body, fetchedAt: Date.now() };
       this.lastEtag = body.etag ?? "";
       this.stats.updates += 1;

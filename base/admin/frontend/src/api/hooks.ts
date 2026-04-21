@@ -24,6 +24,8 @@ import type {
   IngestionRun,
   IngestionStats,
   StagedIngestionDocument,
+  CapabilityMatrixEffective,
+  CapabilitySelectorType,
 } from "../types";
 
 // --- Dashboard ---
@@ -2819,5 +2821,83 @@ export function useYarnLanguagePacks() {
     queryKey: ["yarn", "language-packs"],
     queryFn: () => client.get("/yarn/language-packs").then((r) => r.data),
     refetchInterval: 60_000,
+  });
+}
+
+/* ── Capability Matrix ───────────────────────────────────────────────────── */
+
+const CAPABILITY_MATRIX_QUERY_KEY = ["governance", "capability-matrix"] as const;
+
+export function useCapabilityMatrix(orgId?: string) {
+  return useQuery<CapabilityMatrixEffective>({
+    queryKey: [...CAPABILITY_MATRIX_QUERY_KEY, orgId ?? "platform"],
+    queryFn: () =>
+      client
+        .get("/governance/capability-matrix/effective", { params: orgId ? { org_id: orgId } : undefined })
+        .then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useUpdateCapabilityMatrixGlobal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      mode: "enforced" | "shadow";
+      global_optimizations_enabled: boolean;
+      org_id?: string;
+    }) => client.put("/governance/capability-matrix/global", payload).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export interface CapabilityMatrixOverrideUpsertInput {
+  name?: string;
+  org_id?: string;
+  scope?: string;
+  scope_value?: string;
+  enabled: boolean;
+  selector_type: CapabilitySelectorType;
+  selector: string;
+  priority?: number;
+  capabilities: Record<string, boolean>;
+}
+
+export function useCreateCapabilityMatrixOverride() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CapabilityMatrixOverrideUpsertInput) =>
+      client.post("/governance/capability-matrix/overrides", payload).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useUpdateCapabilityMatrixOverride() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ policyId, ...payload }: CapabilityMatrixOverrideUpsertInput & { policyId: string }) =>
+      client.put(`/governance/capability-matrix/overrides/${policyId}`, payload).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useDeleteCapabilityMatrixOverride() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (policyId: string) =>
+      client.delete(`/governance/capability-matrix/overrides/${policyId}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
   });
 }

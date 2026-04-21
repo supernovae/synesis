@@ -17,6 +17,8 @@ import html
 import inspect
 import re
 import ast
+from urllib import request as urllib_request
+from urllib import error as urllib_error
 
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -144,8 +146,128 @@ from open_webui.env import (
 from open_webui.utils.headers import include_user_info_headers
 from open_webui.constants import TASKS
 
+try:
+    from .capability_matrix import CapabilityMatrixInput, resolve_capability_matrix
+except ImportError:
+    from capability_matrix import CapabilityMatrixInput, resolve_capability_matrix
+
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
+
+CAPABILITY_MATRIX_ADMIN_URL = os.getenv('SYNESIS_ADMIN_URL', '').rstrip('/')
+CAPABILITY_MATRIX_ADMIN_TOKEN = os.getenv('SYNESIS_ADMIN_INTERNAL_TOKEN', '')
+CAPABILITY_MATRIX_CACHE_TTL_S = max(5, int(os.getenv('SYNESIS_WEBUI_CAPABILITY_MATRIX_TTL_S', '30') or '30'))
+_CAPABILITY_MATRIX_CACHE = {
+    'etag': '',
+    'fetched_at': 0.0,
+    'payload': {
+        'version': 1,
+        'mode': 'enforced',
+        'global_optimizations_enabled': False,
+        'overrides': [],
+    },
+}
+
+
+def _infer_model_family(model_id: str) -> str:
+    normalized = str(model_id or '').strip().lower()
+    if not normalized:
+        return 'generic'
+    if '/' in normalized:
+        return normalized.split('/')[0]
+    return normalized.split('-')[0] or 'generic'
+
+
+def _fetch_capability_matrix_payload() -> dict[str, Any]:
+    if not CAPABILITY_MATRIX_ADMIN_URL or not CAPABILITY_MATRIX_ADMIN_TOKEN:
+        return _CAPABILITY_MATRIX_CACHE['payload']
+
+    req = urllib_request.Request(
+        f'{CAPABILITY_MATRIX_ADMIN_URL}/api/v1/governance/capability-matrix/effective',
+        headers={
+            'Authorization': f'Bearer {CAPABILITY_MATRIX_ADMIN_TOKEN}',
+            'x-synesis-service-token': CAPABILITY_MATRIX_ADMIN_TOKEN,
+            'x-synesis-service-name': 'synesis-webui',
+            **({'If-None-Match': f'"{_CAPABILITY_MATRIX_CACHE["etag"]}"'} if _CAPABILITY_MATRIX_CACHE['etag'] else {}),
+        },
+    )
+
+    try:
+        with urllib_request.urlopen(req, timeout=4) as response:
+            status = response.getcode()
+            if status == 304:
+                _CAPABILITY_MATRIX_CACHE['fetched_at'] = time.time()
+                return _CAPABILITY_MATRIX_CACHE['payload']
+            body = response.read().decode('utf-8')
+            payload = json.loads(body)
+            _CAPABILITY_MATRIX_CACHE['payload'] = {
+                'version': int(payload.get('version', 1)),
+                'mode': 'shadow' if payload.get('mode') == 'shadow' else 'enforced',
+                'global_optimizations_enabled': payload.get('global_optimizations_enabled') is True,
+                'overrides': payload.get('overrides', []),
+            }
+            etag = payload.get('etag')
+            if isinstance(etag, str) and etag.strip():
+                _CAPABILITY_MATRIX_CACHE['etag'] = etag.strip().strip('"')
+            _CAPABILITY_MATRIX_CACHE['fetched_at'] = time.time()
+            return _CAPABILITY_MATRIX_CACHE['payload']
+    except urllib_error.HTTPError as e:
+        if e.code == 304:
+            _CAPABILITY_MATRIX_CACHE['fetched_at'] = time.time()
+            return _CAPABILITY_MATRIX_CACHE['payload']
+        log.debug(f'capability matrix fetch failed status={e.code}')
+    except Exception as e:
+        log.debug(f'capability matrix fetch error: {e}')
+    return _CAPABILITY_MATRIX_CACHE['payload']
+
+
+def get_cached_capability_matrix_payload() -> dict[str, Any]:
+    now = time.time()
+    if now - float(_CAPABILITY_MATRIX_CACHE.get('fetched_at', 0.0)) < CAPABILITY_MATRIX_CACHE_TTL_S:
+        return _CAPABILITY_MATRIX_CACHE['payload']
+    return _fetch_capability_matrix_payload()
+
+
+async def resolve_webui_capabilities(model: dict[str, Any]) -> dict[str, Any]:
+    matrix = await asyncio.to_thread(get_cached_capability_matrix_payload)
+    model_info = model.get('info', {}) if isinstance(model, dict) else {}
+    model_meta = model_info.get('meta', {}) if isinstance(model_info, dict) else {}
+    model_capabilities = model_meta.get('capabilities') or {}
+
+    model_id = str(
+        model.get('id')
+        or model.get('model')
+        or model_meta.get('id')
+        or model_meta.get('model_id')
+        or ''
+    )
+    model_path = str(model_meta.get('model_path') or model_meta.get('path') or model_id)
+    family = str(model_meta.get('family') or model_meta.get('model_family') or _infer_model_family(model_id))
+
+    resolution = resolve_capability_matrix(
+        matrix,
+        CapabilityMatrixInput(model_id=model_id, model_path=model_path, family=family),
+    )
+    enforce = resolution.get('mode') == 'enforced'
+
+    builtin_default = bool(model_capabilities.get('builtin_tools', True))
+    file_context_default = bool(model_capabilities.get('file_context', True))
+    resolved_capabilities = resolution.get('resolved_capabilities', {})
+
+    builtin_enabled = builtin_default
+    file_context_enabled = file_context_default
+    if enforce:
+        builtin_enabled = bool(resolved_capabilities.get('webui.builtin_tools_enabled', False))
+        file_context_enabled = bool(resolved_capabilities.get('webui.file_context_enabled', False))
+
+    return {
+        'resolution': resolution,
+        'builtin_tools_enabled': builtin_enabled,
+        'file_context_enabled': file_context_enabled,
+        'model_id': model_id,
+        'model_path': model_path,
+        'family': family,
+    }
 
 
 # We believe in one maker of all models, seen and unseen,
@@ -2653,11 +2775,25 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         if mcp_clients:
             metadata['mcp_clients'] = mcp_clients
 
-        # Inject builtin tools for native function calling based on enabled features and model capability
-        # Check if builtin_tools capability is enabled for this model (defaults to True if not specified)
-        builtin_tools_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get(
-            'builtin_tools', True
+        capability_matrix = await resolve_webui_capabilities(model)
+        metadata['capability_matrix_resolution_v1'] = {
+            'mode': capability_matrix['resolution'].get('mode'),
+            'global_optimizations_enabled': capability_matrix['resolution'].get('global_optimizations_enabled'),
+            'model_id': capability_matrix['model_id'],
+            'model_path': capability_matrix['model_path'],
+            'family': capability_matrix['family'],
+            'matched_override_ids': capability_matrix['resolution'].get('matched_override_ids', []),
+            'resolved_capabilities': capability_matrix['resolution'].get('resolved_capabilities', {}),
+        }
+        log.debug(
+            'capability_matrix_resolution_v1 '
+            f"mode={capability_matrix['resolution'].get('mode')} "
+            f"model={capability_matrix['model_id']} "
+            f"matched={','.join(capability_matrix['resolution'].get('matched_override_ids', [])) or 'none'}"
         )
+
+        # Inject builtin tools for native function calling based on enabled features and model capability
+        builtin_tools_enabled = capability_matrix['builtin_tools_enabled']
         if metadata.get('params', {}).get('function_calling') == 'native' and builtin_tools_enabled:
             # Add file context to user messages
             chat_id = metadata.get('chat_id')
@@ -2693,8 +2829,27 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 except Exception as e:
                     log.exception(e)
 
-    # Check if file context extraction is enabled for this model (default True)
-    file_context_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('file_context', True)
+    capability_meta = metadata.get('capability_matrix_resolution_v1')
+    if not capability_meta:
+        capability_matrix = await resolve_webui_capabilities(model)
+        capability_meta = {
+            'mode': capability_matrix['resolution'].get('mode'),
+            'global_optimizations_enabled': capability_matrix['resolution'].get('global_optimizations_enabled'),
+            'model_id': capability_matrix['model_id'],
+            'model_path': capability_matrix['model_path'],
+            'family': capability_matrix['family'],
+            'matched_override_ids': capability_matrix['resolution'].get('matched_override_ids', []),
+            'resolved_capabilities': capability_matrix['resolution'].get('resolved_capabilities', {}),
+        }
+        metadata['capability_matrix_resolution_v1'] = capability_meta
+
+    # Check if file context extraction is enabled for this model
+    if capability_meta.get('mode') == 'enforced':
+        file_context_enabled = bool(
+            (capability_meta.get('resolved_capabilities', {}) or {}).get('webui.file_context_enabled', False)
+        )
+    else:
+        file_context_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('file_context', True)
 
     if file_context_enabled:
         try:

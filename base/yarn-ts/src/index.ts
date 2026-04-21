@@ -2258,6 +2258,7 @@ function captureRequestForensics(
   toolChoice: unknown,
   providerOptions: unknown,
   phasePolicy?: RequestForensicsRecord["phasePolicy"],
+  capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"],
 ): { record: RequestForensicsRecord; serialized: string } | null {
   if (!config.SYNESIS_YARN_REQUEST_FORENSICS_ENABLED) return null;
   const previous = requestForensicsLastBySession.get(sessionKey);
@@ -2271,6 +2272,7 @@ function captureRequestForensics(
     toolChoice,
     providerOptions,
     phasePolicy,
+    capabilityMatrix,
     previous,
     capturePayload: config.SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD,
     maxPreviewChars: config.SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS,
@@ -2642,6 +2644,7 @@ const policyEngine = new DeterministicPolicyEngine({
 });
 
 import { GovernanceClient } from "./policy/governance-client.js";
+import { resolveCapabilityMatrix, type CapabilityKey } from "./policy/capability-matrix.js";
 const governanceClient = config.SYNESIS_YARN_GOVERNANCE_ENABLED
   ? new GovernanceClient(config)
   : null;
@@ -2692,6 +2695,17 @@ function inferModelFamily(backendModel: string): string {
   if (/deepseek/.test(m)) return "deepseek";
   if (/kimi|moonshot/.test(m)) return "kimi";
   return "generic";
+}
+
+function isMatrixCapabilityEnabled(
+  governanceDisabled: boolean,
+  mode: "enforced" | "shadow",
+  resolvedCapabilities: Record<string, boolean>,
+  key: CapabilityKey,
+): boolean {
+  if (governanceDisabled) return true;
+  if (mode !== "enforced") return true;
+  return resolvedCapabilities[key] === true;
 }
 
 function isQwenModelName(modelName: string | undefined): boolean {
@@ -5941,7 +5955,61 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiCompactionOpts: ReduceMessagesOpts = {
     backendModelHint: resolveCompactionBackendModelHintFromRequestModel(request.model),
   };
-  const reducedOpenAI = config.SYNESIS_YARN_GOVERNANCE_DISABLED
+  const oaiMatrixModelPath = String(oaiCompactionOpts.backendModelHint ?? request.model ?? "");
+  const oaiMatrixModelId = String(request.model ?? oaiCompactionOpts.backendModelHint ?? "");
+  const oaiMatrixFamily = inferModelFamily(oaiMatrixModelPath || oaiMatrixModelId);
+  const oaiCapabilityResolution = resolveCapabilityMatrix(
+    governanceClient?.getCapabilityMatrix() ?? null,
+    {
+      model_id: oaiMatrixModelId,
+      model_path: oaiMatrixModelPath,
+      family: oaiMatrixFamily,
+    },
+  );
+  const oaiReducersEnabled = config.SYNESIS_YARN_REDUCERS_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    oaiCapabilityResolution.mode,
+    oaiCapabilityResolution.resolved_capabilities,
+    "yarn.reducers_enabled",
+  );
+  const oaiTranscriptPruneEnabled = isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    oaiCapabilityResolution.mode,
+    oaiCapabilityResolution.resolved_capabilities,
+    "yarn.transcript_prune_enabled",
+  );
+  const oaiPhasePolicyEnabledByMatrix = isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    oaiCapabilityResolution.mode,
+    oaiCapabilityResolution.resolved_capabilities,
+    "yarn.phase_execution_policy_enabled",
+  );
+  const oaiJsonCompactionEnabled = isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    oaiCapabilityResolution.mode,
+    oaiCapabilityResolution.resolved_capabilities,
+    "yarn.json_compaction_enabled",
+  );
+  const oaiContentDedupeEnabled = config.SYNESIS_YARN_DEDUPE_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    oaiCapabilityResolution.mode,
+    oaiCapabilityResolution.resolved_capabilities,
+    "yarn.content_dedupe_enabled",
+  );
+  const oaiResponseDedupeEnabled = config.SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    oaiCapabilityResolution.mode,
+    oaiCapabilityResolution.resolved_capabilities,
+    "yarn.response_dedupe_enabled",
+  );
+  const oaiHistoricalNormalizeEnabled = config.SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    oaiCapabilityResolution.mode,
+    oaiCapabilityResolution.resolved_capabilities,
+    "yarn.historical_normalize_enabled",
+  );
+  oaiCompactionOpts.jsonCompactionEnabled = oaiJsonCompactionEnabled;
+  const reducedOpenAI = config.SYNESIS_YARN_GOVERNANCE_DISABLED || !oaiReducersEnabled
     ? { messages: request.messages as never, reducedCount: 0 }
     : enrichmentPool.isAvailable()
       ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
@@ -5961,7 +6029,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     reducedOpenAI.messages as never,
     runValidationTierCFallback,
   );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && oaiTranscriptPruneEnabled) {
     const prunedOpenAI = transcriptPruning.prune(
       normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
       undefined,
@@ -6041,6 +6109,45 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  const oaiCapabilityHash = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify(
+        Object.entries(oaiCapabilityResolution.resolved_capabilities)
+          .sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  const oaiForensicsCapabilityMatrix: RequestForensicsRecord["capabilityMatrix"] = {
+    mode: oaiCapabilityResolution.mode,
+    globalOptimizationsEnabled: oaiCapabilityResolution.global_optimizations_enabled,
+    modelId: oaiMatrixModelId,
+    modelPath: oaiMatrixModelPath,
+    family: oaiMatrixFamily,
+    matchedOverrideIds: oaiCapabilityResolution.matched_override_ids,
+    capabilityHash: oaiCapabilityHash,
+  };
+  recordSessionEvent(
+    sessionKey,
+    identity.userId,
+    identity.orgId,
+    "capability_matrix_resolution_v1",
+    "capability-matrix",
+    `mode=${oaiCapabilityResolution.mode} global=${oaiCapabilityResolution.global_optimizations_enabled ? "on" : "off"} matched=${oaiCapabilityResolution.matched_override_ids.join(",") || "none"}`,
+    oaiTraceReqId,
+    {
+      mode: oaiCapabilityResolution.mode,
+      global_optimizations_enabled: oaiCapabilityResolution.global_optimizations_enabled,
+      model_id: oaiMatrixModelId,
+      model_path: oaiMatrixModelPath,
+      family: oaiMatrixFamily,
+      matched_override_ids: oaiCapabilityResolution.matched_override_ids,
+      matched_selectors: oaiCapabilityResolution.matched_selectors,
+      capability_hash: oaiCapabilityHash,
+      resolved_capabilities: oaiCapabilityResolution.resolved_capabilities,
+    },
+  );
   const oaiMsgCount = (request.messages as unknown[]).length;
   const oaiRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, oaiMsgCount - oaiRecentExempt);
@@ -6090,30 +6197,32 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const oaiDedup = getContentDedup(sessionKey);
-    if (session.lastIncomingMessageCount > 0 && oaiMsgCount < session.lastIncomingMessageCount * 0.6) {
+    if (oaiContentDedupeEnabled && session.lastIncomingMessageCount > 0 && oaiMsgCount < session.lastIncomingMessageCount * 0.6) {
       oaiDedup.reset();
       getFileSnapshotRegistry(sessionKey).markCompaction("SUMMARY_ONLY");
       recordSessionEvent(sessionKey, identity.userId, identity.orgId, "external_compaction_detected", "dedup_reset", `msgs ${session.lastIncomingMessageCount} -> ${oaiMsgCount}`);
     }
     session.lastIncomingMessageCount = oaiMsgCount;
-    const oaiDedupResult = oaiDedup.processMessages(
-      normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-    );
-    if (oaiDedupResult.dedupCount > 0) {
-      normalizedOpenAI.messages = oaiDedupResult.messages as never;
-      const memTracker = getMemoryGovernor(sessionKey);
-      for (const p of oaiDedupResult.dedupPaths) {
-        memTracker.trackFileRead(p);
-        if (oaiDedup.getStructuralIndex()?.getFileSummary(p)) {
-          memTracker.trackSummaryGenerated(p);
+    if (oaiContentDedupeEnabled) {
+      const oaiDedupResult = oaiDedup.processMessages(
+        normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      );
+      if (oaiDedupResult.dedupCount > 0) {
+        normalizedOpenAI.messages = oaiDedupResult.messages as never;
+        const memTracker = getMemoryGovernor(sessionKey);
+        for (const p of oaiDedupResult.dedupPaths) {
+          memTracker.trackFileRead(p);
+          if (oaiDedup.getStructuralIndex()?.getFileSummary(p)) {
+            memTracker.trackSummaryGenerated(p);
+          }
         }
-      }
-      if (oaiDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-        app.log.debug({ reqId: oaiTraceReqId, dedupCount: oaiDedupResult.dedupCount, paths: oaiDedupResult.dedupPaths }, "content_dedup_applied");
+        if (oaiDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+          app.log.debug({ reqId: oaiTraceReqId, dedupCount: oaiDedupResult.dedupCount, paths: oaiDedupResult.dedupPaths }, "content_dedup_applied");
+        }
       }
     }
     // Response dedupe: replace identical tool results with compact stubs
-    if (config.SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED && yarnDedupeLayer) {
+    if (oaiResponseDedupeEnabled && yarnDedupeLayer) {
       const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
       let responseDedupHits = 0;
       for (let mi = 0; mi < oaiMsgs.length; mi++) {
@@ -6154,7 +6263,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
     }
     // Historical normalization: stabilize old content for prefix cache
-    if (config.SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED) {
+    if (oaiHistoricalNormalizeEnabled) {
       const histMsgs = normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
       const keepFromIdx = transcriptPruning.computeKeepFromIndex?.(histMsgs as never, oaiCompactionOpts.backendModelHint) ?? histMsgs.length;
       const histResult = normalizeHistoricalContent(histMsgs as never, keepFromIdx);
@@ -7227,8 +7336,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     });
   }
+  const oaiBasePhasePolicyEnabled = config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && oaiPhasePolicyEnabledByMatrix;
   const oaiForcePhasePolicy =
-    !config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED
+    !oaiBasePhasePolicyEnabled
+    && oaiPhasePolicyEnabledByMatrix
     && adapter.family === "qwen3-coder"
     && (
       session.editMissForceReadPending
@@ -7236,7 +7347,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       || oaiExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
     );
   const oaiPhasePolicy = derivePhaseExecutionPolicy({
-    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED || oaiForcePhasePolicy,
+    enabled: oaiBasePhasePolicyEnabled || oaiForcePhasePolicy,
     adapterFamily: adapter.family,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: oaiGovernorPhase,
@@ -7577,6 +7688,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         effectiveToolChoice,
         adapterProviderOptions,
         oaiForensicsPhasePolicy,
+        oaiForensicsCapabilityMatrix,
       );
       finalResult = await generateText({
         model: resolved.model as never,
@@ -7617,6 +7729,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           effectiveToolChoice,
           adapterProviderOptions,
           oaiForensicsPhasePolicy,
+          oaiForensicsCapabilityMatrix,
         );
         finalResult = await generateText({
           model: resolved.model as never,
@@ -7660,6 +7773,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             effectiveToolChoice,
             adapterProviderOptions,
             oaiForensicsPhasePolicy,
+            oaiForensicsCapabilityMatrix,
           );
           finalResult = await generateText({
             model: resolved.model as never,
@@ -7765,6 +7879,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           effectiveToolChoice,
           adapterProviderOptions,
           oaiForensicsPhasePolicy,
+          oaiForensicsCapabilityMatrix,
         );
         finalResult = await generateText({
           model: resolved.model as never,
@@ -8228,6 +8343,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     effectiveToolChoice,
     adapterProviderOptions,
     oaiForensicsPhasePolicy,
+    oaiForensicsCapabilityMatrix,
   );
   const streamed = streamText({
     model: resolved.model as never,
@@ -8827,6 +8943,60 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeCompactionOpts: ReduceMessagesOpts = {
     backendModelHint: resolveCompactionBackendModelHintFromRequestModel(body.model),
   };
+  const claudeMatrixModelPath = String(claudeCompactionOpts.backendModelHint ?? body.model ?? "");
+  const claudeMatrixModelId = String(body.model ?? claudeCompactionOpts.backendModelHint ?? "");
+  const claudeMatrixFamily = inferModelFamily(claudeMatrixModelPath || claudeMatrixModelId);
+  const claudeCapabilityResolution = resolveCapabilityMatrix(
+    governanceClient?.getCapabilityMatrix() ?? null,
+    {
+      model_id: claudeMatrixModelId,
+      model_path: claudeMatrixModelPath,
+      family: claudeMatrixFamily,
+    },
+  );
+  const claudeReducersEnabled = config.SYNESIS_YARN_REDUCERS_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    claudeCapabilityResolution.mode,
+    claudeCapabilityResolution.resolved_capabilities,
+    "yarn.reducers_enabled",
+  );
+  const claudeTranscriptPruneEnabled = isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    claudeCapabilityResolution.mode,
+    claudeCapabilityResolution.resolved_capabilities,
+    "yarn.transcript_prune_enabled",
+  );
+  const claudePhasePolicyEnabledByMatrix = isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    claudeCapabilityResolution.mode,
+    claudeCapabilityResolution.resolved_capabilities,
+    "yarn.phase_execution_policy_enabled",
+  );
+  const claudeJsonCompactionEnabled = isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    claudeCapabilityResolution.mode,
+    claudeCapabilityResolution.resolved_capabilities,
+    "yarn.json_compaction_enabled",
+  );
+  const claudeContentDedupeEnabled = config.SYNESIS_YARN_DEDUPE_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    claudeCapabilityResolution.mode,
+    claudeCapabilityResolution.resolved_capabilities,
+    "yarn.content_dedupe_enabled",
+  );
+  const claudeResponseDedupeEnabled = config.SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    claudeCapabilityResolution.mode,
+    claudeCapabilityResolution.resolved_capabilities,
+    "yarn.response_dedupe_enabled",
+  );
+  const claudeHistoricalNormalizeEnabled = config.SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED && isMatrixCapabilityEnabled(
+    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    claudeCapabilityResolution.mode,
+    claudeCapabilityResolution.resolved_capabilities,
+    "yarn.historical_normalize_enabled",
+  );
+  claudeCompactionOpts.jsonCompactionEnabled = claudeJsonCompactionEnabled;
   // Merge top-level `system` into the message list (parity with Anthropic SDK)
   const claudeSystemMsg = claudeSystemToMessage(body.system);
   const rawOpenAIMessages = withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
@@ -8866,7 +9036,7 @@ app.post("/v1/messages", async (req, reply) => {
     ? sortToolSchemas(toolSearchResult.tools)
     : toolSearchResult.tools;
 
-  const reducedClaude = config.SYNESIS_YARN_GOVERNANCE_DISABLED
+  const reducedClaude = config.SYNESIS_YARN_GOVERNANCE_DISABLED || !claudeReducersEnabled
     ? { messages: openAIMessages as never, reducedCount: 0 }
     : enrichmentPool.isAvailable()
       ? await withSpanAsync("yarn.enrichment", { "yarn.path": "claude" }, () =>
@@ -8886,7 +9056,7 @@ app.post("/v1/messages", async (req, reply) => {
     reducedClaude.messages as never,
     runValidationTierCFallback,
   );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && claudeTranscriptPruneEnabled) {
     const prunedClaude = transcriptPruning.prune(
       normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
       undefined,
@@ -8969,6 +9139,45 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  const claudeCapabilityHash = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify(
+        Object.entries(claudeCapabilityResolution.resolved_capabilities)
+          .sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  const claudeForensicsCapabilityMatrix: RequestForensicsRecord["capabilityMatrix"] = {
+    mode: claudeCapabilityResolution.mode,
+    globalOptimizationsEnabled: claudeCapabilityResolution.global_optimizations_enabled,
+    modelId: claudeMatrixModelId,
+    modelPath: claudeMatrixModelPath,
+    family: claudeMatrixFamily,
+    matchedOverrideIds: claudeCapabilityResolution.matched_override_ids,
+    capabilityHash: claudeCapabilityHash,
+  };
+  recordSessionEvent(
+    claudeSessionKey,
+    claudeIdentity.userId,
+    claudeIdentity.orgId,
+    "capability_matrix_resolution_v1",
+    "capability-matrix",
+    `mode=${claudeCapabilityResolution.mode} global=${claudeCapabilityResolution.global_optimizations_enabled ? "on" : "off"} matched=${claudeCapabilityResolution.matched_override_ids.join(",") || "none"}`,
+    traceReqId,
+    {
+      mode: claudeCapabilityResolution.mode,
+      global_optimizations_enabled: claudeCapabilityResolution.global_optimizations_enabled,
+      model_id: claudeMatrixModelId,
+      model_path: claudeMatrixModelPath,
+      family: claudeMatrixFamily,
+      matched_override_ids: claudeCapabilityResolution.matched_override_ids,
+      matched_selectors: claudeCapabilityResolution.matched_selectors,
+      capability_hash: claudeCapabilityHash,
+      resolved_capabilities: claudeCapabilityResolution.resolved_capabilities,
+    },
+  );
   const claudeMsgCount = (body.messages as unknown[]).length;
   const claudeRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
   session.pruningWatermark = Math.max(session.pruningWatermark, claudeMsgCount - claudeRecentExempt);
@@ -9019,26 +9228,80 @@ app.post("/v1/messages", async (req, reply) => {
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeDedup = getContentDedup(claudeSessionKey);
     // Detect external (client-side) compaction: message count dropped significantly
-    if (session.lastIncomingMessageCount > 0 && claudeMsgCount < session.lastIncomingMessageCount * 0.6) {
+    if (claudeContentDedupeEnabled && session.lastIncomingMessageCount > 0 && claudeMsgCount < session.lastIncomingMessageCount * 0.6) {
       claudeDedup.reset();
       getFileSnapshotRegistry(claudeSessionKey).markCompaction("SUMMARY_ONLY");
       recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "external_compaction_detected", "dedup_reset", `msgs ${session.lastIncomingMessageCount} -> ${claudeMsgCount}`);
     }
     session.lastIncomingMessageCount = claudeMsgCount;
-    const claudeDedupResult = claudeDedup.processMessages(
-      normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-    );
-    if (claudeDedupResult.dedupCount > 0) {
-      normalizedFromClaude.messages = claudeDedupResult.messages as never;
-      const claudeMemTracker = getMemoryGovernor(claudeSessionKey);
-      for (const p of claudeDedupResult.dedupPaths) {
-        claudeMemTracker.trackFileRead(p);
-        if (claudeDedup.getStructuralIndex()?.getFileSummary(p)) {
-          claudeMemTracker.trackSummaryGenerated(p);
+    if (claudeContentDedupeEnabled) {
+      const claudeDedupResult = claudeDedup.processMessages(
+        normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      );
+      if (claudeDedupResult.dedupCount > 0) {
+        normalizedFromClaude.messages = claudeDedupResult.messages as never;
+        const claudeMemTracker = getMemoryGovernor(claudeSessionKey);
+        for (const p of claudeDedupResult.dedupPaths) {
+          claudeMemTracker.trackFileRead(p);
+          if (claudeDedup.getStructuralIndex()?.getFileSummary(p)) {
+            claudeMemTracker.trackSummaryGenerated(p);
+          }
+        }
+        if (claudeDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+          app.log.debug({ reqId: traceReqId, dedupCount: claudeDedupResult.dedupCount, paths: claudeDedupResult.dedupPaths }, "content_dedup_applied");
         }
       }
-      if (claudeDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-        app.log.debug({ reqId: traceReqId, dedupCount: claudeDedupResult.dedupCount, paths: claudeDedupResult.dedupPaths }, "content_dedup_applied");
+    }
+    if (claudeResponseDedupeEnabled && yarnDedupeLayer) {
+      const claudeMsgs = normalizedFromClaude.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
+      let responseDedupHits = 0;
+      for (let mi = 0; mi < claudeMsgs.length; mi++) {
+        const m = claudeMsgs[mi];
+        if (m.role !== "tool" || typeof m.content !== "string") continue;
+        const toolName = m.name ?? "";
+        let toolInput: unknown;
+        if (m.tool_call_id) {
+          for (let ai = mi - 1; ai >= 0; ai--) {
+            const am = claudeMsgs[ai];
+            if (am.role === "assistant" && am.tool_calls) {
+              const match = am.tool_calls.find((tc) => tc.id === m.tool_call_id);
+              if (match?.function?.arguments) {
+                try { toolInput = JSON.parse(match.function.arguments); } catch { toolInput = match.function.arguments; }
+                break;
+              }
+            }
+          }
+        }
+        try {
+          const wrapped = yarnDedupeLayer.responseDedupe.wrapToolResult(toolName, toolInput, m.content);
+          if (wrapped !== m.content) {
+            claudeMsgs[mi] = { ...m, content: wrapped };
+            responseDedupHits += 1;
+          }
+        } catch (e) {
+          app.log.warn({ reqId: traceReqId, err: (e as Error).message }, "response_dedupe_bypass");
+        }
+      }
+      if (responseDedupHits > 0) {
+        normalizedFromClaude.messages = claudeMsgs as never;
+        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+          app.log.debug({ reqId: traceReqId, hits: responseDedupHits }, "response_dedupe_applied");
+        }
+      }
+    }
+    if (claudeHistoricalNormalizeEnabled) {
+      const histMsgs = normalizedFromClaude.messages as Array<{ role: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
+      const keepFromIdx = transcriptPruning.computeKeepFromIndex?.(histMsgs as never, claudeCompactionOpts.backendModelHint) ?? histMsgs.length;
+      const histResult = normalizeHistoricalContent(histMsgs as never, keepFromIdx);
+      if (histResult.stats.messagesNormalized > 0) {
+        normalizedFromClaude.messages = histResult.messages as never;
+      }
+      const idResult = stabilizeToolCallIds(normalizedFromClaude.messages as never, keepFromIdx);
+      if (idResult.rewriteCount > 0) {
+        normalizedFromClaude.messages = idResult.messages as never;
+        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+          app.log.debug({ reqId: traceReqId, rewrites: idResult.rewriteCount }, "tool_id_stabilization_applied");
+        }
       }
     }
     const claudePlanRemediation = remediatePlanFileStubs(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>);
@@ -10231,8 +10494,10 @@ app.post("/v1/messages", async (req, reply) => {
   const providerOptions = body.thinking
     ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
     : adapterClaudeProviderOptions;
+  const claudeBasePhasePolicyEnabled = config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && claudePhasePolicyEnabledByMatrix;
   const claudeForcePhasePolicy =
-    !config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED
+    !claudeBasePhasePolicyEnabled
+    && claudePhasePolicyEnabledByMatrix
     && claudeAdapter.family === "qwen3-coder"
     && (
       session.editMissForceReadPending
@@ -10240,7 +10505,7 @@ app.post("/v1/messages", async (req, reply) => {
       || claudeExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
     );
   const claudePhasePolicy = derivePhaseExecutionPolicy({
-    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED || claudeForcePhasePolicy,
+    enabled: claudeBasePhasePolicyEnabled || claudeForcePhasePolicy,
     adapterFamily: claudeAdapter.family,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: claudeGovernorPhase,
@@ -10593,6 +10858,7 @@ app.post("/v1/messages", async (req, reply) => {
         effectiveClaudeToolChoice,
         providerOptions,
         claudeForensicsPhasePolicy,
+        claudeForensicsCapabilityMatrix,
       );
       const finalResult = streamedResult ?? await generateText({
         model: resolved.model as never,
@@ -10769,6 +11035,7 @@ app.post("/v1/messages", async (req, reply) => {
       effectiveClaudeToolChoice,
       providerOptions,
       claudeForensicsPhasePolicy,
+      claudeForensicsCapabilityMatrix,
     );
     const streamed = streamText({
       model: resolved.model as never,
@@ -11427,6 +11694,7 @@ app.post("/v1/messages", async (req, reply) => {
         effectiveClaudeToolChoice,
         providerOptions,
         claudeForensicsPhasePolicy,
+        claudeForensicsCapabilityMatrix,
       );
       result = await generateText({
         model: resolved.model as never,
@@ -11471,6 +11739,7 @@ app.post("/v1/messages", async (req, reply) => {
             effectiveClaudeToolChoice,
             providerOptions,
             claudeForensicsPhasePolicy,
+            claudeForensicsCapabilityMatrix,
           );
           result = await generateText({
             model: resolved.model as never,
@@ -11513,6 +11782,7 @@ app.post("/v1/messages", async (req, reply) => {
               effectiveClaudeToolChoice,
               providerOptions,
               claudeForensicsPhasePolicy,
+              claudeForensicsCapabilityMatrix,
             );
             result = await generateText({
               model: resolved.model as never,

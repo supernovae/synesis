@@ -79,6 +79,8 @@ export interface ToolResultReductionResult {
 export interface ReduceMessagesOpts {
   /** Tier-resolved backend model id/name; used for Qwen3-Coder compaction sensitivity. */
   backendModelHint?: string;
+  /** Optional per-request override for JSON compaction stage. */
+  jsonCompactionEnabled?: boolean;
 }
 
 const VERIFY_LITERAL_PRESERVE_CAP = 120_000;
@@ -219,6 +221,7 @@ export class ToolResultReductionService {
     pruningWatermark?: number,
     opts?: ReduceMessagesOpts,
   ): ToolResultReductionResult {
+    const jsonCompactionEnabled = opts?.jsonCompactionEnabled ?? this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED;
     const sensitivity: CompactionSensitivity = inferCompactionSensitivity(opts?.backendModelHint ?? "");
     const effProfile = effectiveReducerProfile(this.config.SYNESIS_YARN_REDUCER_PROFILE as ReducerProfileName, sensitivity);
     const effMaxChars = effectiveMaxRawChars(this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS, sensitivity);
@@ -345,7 +348,7 @@ export class ToolResultReductionService {
           }
         }
       } else {
-        const jsonResult = this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED
+        const jsonResult = jsonCompactionEnabled
           ? compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id })
           : null;
         if (jsonResult && jsonResult.compressionRatio > 0.2) {
@@ -384,6 +387,7 @@ export class ToolResultReductionService {
     pruningWatermark?: number,
     opts?: ReduceMessagesOpts,
   ): Promise<ToolResultReductionResult> {
+    const jsonCompactionEnabled = opts?.jsonCompactionEnabled ?? this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED;
     if (!pool.isAvailable()) {
       return this.reduceMessages(messages, taskCue, pruningWatermark, opts);
     }
@@ -543,7 +547,7 @@ export class ToolResultReductionService {
           }
         }
       } else {
-        const compactResult = this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED
+        const compactResult = jsonCompactionEnabled
           ? await pool.compactJsonAsync(raw)
           : null;
         if (compactResult && compactResult.compressionRatio > 0.2) {

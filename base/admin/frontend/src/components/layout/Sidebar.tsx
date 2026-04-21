@@ -190,6 +190,7 @@ const navigation: NavItem[] = [
     children: [
       { label: "System Config", path: "/settings" },
       { label: "Infrastructure Costs", path: "/settings/infra-costs" },
+      { label: "Capability Matrix", path: "/settings/capability-matrix" },
       { label: "Audit trail", path: "/settings/audit" },
       { label: "API Explorer", path: "/settings/api-docs" },
     ],

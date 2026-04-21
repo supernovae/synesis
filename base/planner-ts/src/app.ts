@@ -64,6 +64,8 @@ import { PromptRegistry } from "./prompt-registry.js";
 import { setPlannerPromptSnapshot } from "./prompt-composer.js";
 import { isLikelyClarificationAnswer } from "./clarification/clarification-answer-heuristic.js";
 import type { WebSearchAttribution, WebSearchRequest, WebSearchResponse } from "./retrieval/types.js";
+import { CapabilityMatrixClient } from "./capability-matrix/client.js";
+import { resolveCapabilityMatrix } from "./capability-matrix/resolver.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
@@ -104,6 +106,14 @@ function optionalString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   const s = String(value).trim();
   return s.length > 0 ? s : undefined;
+}
+
+function inferPlannerModelFamily(modelId: string): string {
+  const normalized = String(modelId ?? "").trim().toLowerCase();
+  if (!normalized) return "generic";
+  if (normalized.includes("/")) return normalized.split("/")[0] || "generic";
+  const dash = normalized.split("-")[0];
+  return dash || "generic";
 }
 
 function normalizeSourceSurface(value: unknown): WebSearchAttribution["source_surface"] {
@@ -364,6 +374,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
     logger: app.log,
   });
   promptRegistry.start();
+  const capabilityMatrixClient = new CapabilityMatrixClient({
+    adminUrl: config.SYNESIS_ADMIN_URL,
+    adminToken: config.SYNESIS_ADMIN_INTERNAL_TOKEN,
+    refreshMs: config.SYNESIS_PLANNER_TS_PROMPT_REFRESH_MS,
+    logger: app.log,
+  });
+  capabilityMatrixClient.start();
   const failureStore = new FailureStore();
   const dependencyHealthMonitor = new DependencyHealthMonitor(config, sessionStore);
   const userRateLimiter = new UserRateLimiter({
@@ -381,6 +398,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     streamAdmission.close();
     dependencyHealthMonitor.stop();
     promptRegistry.stop();
+    capabilityMatrixClient.stop();
   });
   dependencyHealthMonitor.start();
 
@@ -491,18 +509,63 @@ export function buildApp(config: AppConfig): FastifyInstance {
       sessionKey,
       requestBody.messages.map((m) => ({ role: m.role, content: m.content ?? "" }))
     );
-    const optimized = optimizeContext(incomingWithSession, {
-      maxCharsPerMessage: config.SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS,
-      recentMessageLimit: config.SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT
+    const tierSettings = resolveTierSettings(requestBody.model);
+    const requestedEffortMode = tierSettings.tier;
+    const plannerMatrixModelId = String(tierSettings.responseModel || tierSettings.requestedModel || requestBody.model || "");
+    const plannerMatrixModelPath = plannerMatrixModelId;
+    const plannerMatrixFamily = inferPlannerModelFamily(plannerMatrixModelId);
+    const plannerCapabilityResolution = resolveCapabilityMatrix(capabilityMatrixClient.getMatrix(), {
+      model_id: plannerMatrixModelId,
+      model_path: plannerMatrixModelPath,
+      family: plannerMatrixFamily,
     });
+    const plannerContextOptimizerEnabled =
+      plannerCapabilityResolution.mode !== "enforced"
+      || plannerCapabilityResolution.resolved_capabilities["planner.context_optimizer_enabled"] === true;
+    const rawCharsTotal = incomingWithSession.reduce((sum, message) => sum + (message.content ?? "").length, 0);
+    const optimized = plannerContextOptimizerEnabled
+      ? optimizeContext(incomingWithSession, {
+          maxCharsPerMessage: config.SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS,
+          recentMessageLimit: config.SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT
+        })
+      : {
+          messages: incomingWithSession,
+          stats: {
+            reducedCount: 0,
+            reducedCharsTotal: rawCharsTotal,
+            rawCharsTotal,
+          },
+        };
     optimizationCounters.reducedCount += optimized.stats.reducedCount;
     optimizationCounters.reducedCharsTotal += optimized.stats.reducedCharsTotal;
     optimizationCounters.rawCharsTotal += optimized.stats.rawCharsTotal;
+    const plannerCapabilityHash = crypto
+      .createHash("sha256")
+      .update(
+        JSON.stringify(
+          Object.entries(plannerCapabilityResolution.resolved_capabilities)
+            .sort(([a], [b]) => a.localeCompare(b)),
+        ),
+      )
+      .digest("hex")
+      .slice(0, 16);
+    app.log.info(
+      {
+        authzTraceId,
+        modelId: plannerMatrixModelId,
+        family: plannerMatrixFamily,
+        modelPath: plannerMatrixModelPath,
+        mode: plannerCapabilityResolution.mode,
+        globalOptimizationsEnabled: plannerCapabilityResolution.global_optimizations_enabled,
+        matchedOverrideIds: plannerCapabilityResolution.matched_override_ids,
+        resolvedCapabilities: plannerCapabilityResolution.resolved_capabilities,
+        capabilityHash: plannerCapabilityHash,
+      },
+      "capability_matrix_resolution_v1",
+    );
 
     const userMessage = [...requestBody.messages].reverse().find((m) => m.role === "user");
     let taskText = userMessage?.content ?? "";
-    const tierSettings = resolveTierSettings(requestBody.model);
-    const requestedEffortMode = tierSettings.tier;
 
     let injectionDetected = false;
     let injectionScanResult: { detected: boolean; patterns_found: string[]; source: string } = {
@@ -593,6 +656,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
       execution_policy: {
         critique_passes: tierSettings.critiquePasses,
         critic_background: config.SYNESIS_PLANNER_TS_CRITIC_BACKGROUND,
+        capability_matrix: {
+          mode: plannerCapabilityResolution.mode,
+          global_optimizations_enabled: plannerCapabilityResolution.global_optimizations_enabled,
+          model_id: plannerMatrixModelId,
+          family: plannerMatrixFamily,
+          model_path: plannerMatrixModelPath,
+          matched_override_ids: plannerCapabilityResolution.matched_override_ids,
+          capability_hash: plannerCapabilityHash,
+          resolved_capabilities: plannerCapabilityResolution.resolved_capabilities,
+          effective_context_optimizer_enabled: plannerContextOptimizerEnabled,
+        },
       },
       run_id: requestBody.conversation_id?.trim() || crypto.randomUUID(),
       traceparent,
@@ -686,6 +760,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     },
     llmResilience: getLlmResilienceStats(),
     promptLibrary: promptRegistry.getStats(),
+    capabilityMatrix: capabilityMatrixClient.getStats(),
     admissionControl: {
       userRateLimit: userRateLimiter.getStats(),
       streamAdmission: streamAdmission.getStats(),
@@ -1316,6 +1391,16 @@ export function buildApp(config: AppConfig): FastifyInstance {
     if (state.error) {
       ctx.failure_stage = state.next_node ?? "unknown";
       ctx.failure_reason = state.error;
+    }
+    const capabilityMatrix = (state.execution_policy as Record<string, unknown> | undefined)?.capability_matrix;
+    if (capabilityMatrix && typeof capabilityMatrix === "object" && !Array.isArray(capabilityMatrix)) {
+      const matrix = capabilityMatrix as Record<string, unknown>;
+      ctx.capability_matrix_mode = matrix.mode;
+      ctx.capability_matrix_global_optimizations_enabled = matrix.global_optimizations_enabled;
+      ctx.capability_matrix_hash = matrix.capability_hash;
+      ctx.capability_matrix_model_id = matrix.model_id;
+      ctx.capability_matrix_family = matrix.family;
+      ctx.capability_matrix_matched_override_ids = matrix.matched_override_ids;
     }
     return ctx;
   }

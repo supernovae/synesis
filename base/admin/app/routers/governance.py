@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -33,6 +35,25 @@ VALID_RULE_TYPES = {"threshold", "escalation", "boundary", "routing", "reducer_c
 
 SCOPE_PRECEDENCE = {"platform": 0, "org": 1, "tenant": 2, "project": 3, "team": 4}
 
+CAPABILITY_MATRIX_KIND = "capability_matrix_v1"
+CAPABILITY_MATRIX_GLOBAL_ROW_TYPE = "global"
+CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE = "override"
+CAPABILITY_MATRIX_MODES = {"enforced", "shadow"}
+CAPABILITY_MATRIX_SELECTOR_TYPES = {"exact_model", "model_path_prefix", "family_prefix"}
+CAPABILITY_MATRIX_KEYS = {
+    "yarn.reducers_enabled",
+    "yarn.transcript_prune_enabled",
+    "yarn.phase_execution_policy_enabled",
+    "yarn.json_compaction_enabled",
+    "yarn.content_dedupe_enabled",
+    "yarn.response_dedupe_enabled",
+    "yarn.historical_normalize_enabled",
+    "planner.context_optimizer_enabled",
+    "webui.builtin_tools_enabled",
+    "webui.file_context_enabled",
+}
+CAPABILITY_SELECTOR_PRECEDENCE = {"family_prefix": 1, "model_path_prefix": 2, "exact_model": 3}
+
 
 def _audit(user: UserInfo, action: str, status: str, summary: str, detail: dict | None = None) -> AdminAuditEvent:
     return AdminAuditEvent(
@@ -45,6 +66,157 @@ def _audit(user: UserInfo, action: str, status: str, summary: str, detail: dict 
         summary=summary,
         detail=detail or {},
     )
+
+
+def _require_platform_admin(user: UserInfo) -> None:
+    if user.role != "platform_admin":
+        raise HTTPException(403, "Requires platform_admin role")
+
+
+def _normalize_capability_key_map(raw: Any) -> dict[str, bool]:
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "capabilities must be an object map of key -> boolean")
+    normalized: dict[str, bool] = {}
+    for key, value in raw.items():
+        if key not in CAPABILITY_MATRIX_KEYS:
+            raise HTTPException(400, f"Unsupported capability key: {key}")
+        if not isinstance(value, bool):
+            raise HTTPException(400, f"Capability '{key}' must be a boolean")
+        normalized[key] = value
+    return normalized
+
+
+def _is_capability_matrix_row(policy: GovernancePolicyDef) -> bool:
+    cfg = policy.rule_config if isinstance(policy.rule_config, dict) else {}
+    return cfg.get("kind") == CAPABILITY_MATRIX_KIND
+
+
+def _capability_matrix_global_doc(row: GovernancePolicyDef | None) -> dict[str, Any]:
+    if not row:
+        return {
+            "version": 1,
+            "mode": "enforced",
+            "global_optimizations_enabled": False,
+            "source_policy_id": None,
+            "updated_at": None,
+        }
+    cfg = row.rule_config if isinstance(row.rule_config, dict) else {}
+    mode = str(cfg.get("mode", "enforced"))
+    if mode not in CAPABILITY_MATRIX_MODES:
+        mode = "enforced"
+    return {
+        "version": int(cfg.get("version", 1)),
+        "mode": mode,
+        "global_optimizations_enabled": bool(cfg.get("global_optimizations_enabled", False)),
+        "source_policy_id": row.policy_id,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def _capability_selector_rank(selector_type: str) -> int:
+    return CAPABILITY_SELECTOR_PRECEDENCE.get(selector_type, 99)
+
+
+def _to_capability_override(policy: GovernancePolicyDef) -> dict[str, Any] | None:
+    cfg = policy.rule_config if isinstance(policy.rule_config, dict) else {}
+    if cfg.get("row_type") != CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE:
+        return None
+    selector_type = str(cfg.get("selector_type", ""))
+    selector = str(cfg.get("selector", "")).strip()
+    if selector_type not in CAPABILITY_MATRIX_SELECTOR_TYPES or not selector:
+        return None
+    capabilities = cfg.get("capabilities", {})
+    if not isinstance(capabilities, dict):
+        return None
+    normalized_capabilities: dict[str, bool] = {}
+    for key, value in capabilities.items():
+        if key not in CAPABILITY_MATRIX_KEYS or not isinstance(value, bool):
+            continue
+        normalized_capabilities[key] = value
+    return {
+        "id": policy.policy_id,
+        "name": policy.name,
+        "enabled": bool(policy.enabled),
+        "scope": policy.scope,
+        "scope_value": policy.scope_value,
+        "org_id": policy.org_id,
+        "selector_type": selector_type,
+        "selector": selector,
+        "priority": int(cfg.get("priority", policy.priority or 0)),
+        "capabilities": normalized_capabilities,
+        "updated_at": policy.updated_at.isoformat() if policy.updated_at else None,
+    }
+
+
+async def _fetch_capability_matrix_rows(session, org_id: str | None = None) -> tuple[GovernancePolicyDef | None, list[dict[str, Any]]]:
+    q = select(GovernancePolicyDef).where(
+        GovernancePolicyDef.rule_type == "feature_toggle",
+    )
+    if org_id:
+        q = q.where((GovernancePolicyDef.org_id == "") | (GovernancePolicyDef.org_id == org_id))
+    else:
+        q = q.where(GovernancePolicyDef.org_id == "")
+    q = q.order_by(GovernancePolicyDef.priority.desc(), GovernancePolicyDef.updated_at.desc())
+    rows = (await session.execute(q)).scalars().all()
+    matrix_rows = [r for r in rows if _is_capability_matrix_row(r)]
+    global_row = next(
+        (
+            row
+            for row in matrix_rows
+            if isinstance(row.rule_config, dict) and row.rule_config.get("row_type") == CAPABILITY_MATRIX_GLOBAL_ROW_TYPE
+        ),
+        None,
+    )
+    overrides = [
+        candidate
+        for candidate in (_to_capability_override(row) for row in matrix_rows)
+        if candidate is not None
+    ]
+    overrides.sort(
+        key=lambda row: (
+            _capability_selector_rank(str(row["selector_type"])),
+            int(row["priority"]),
+            str(row["id"]),
+        )
+    )
+    return global_row, overrides
+
+
+def _compute_capability_matrix_etag(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+async def _ensure_no_selector_conflict(
+    session,
+    selector_type: str,
+    selector: str,
+    org_id: str,
+    exclude_policy_id: str | None = None,
+) -> None:
+    q = select(GovernancePolicyDef).where(GovernancePolicyDef.rule_type == "feature_toggle")
+    if org_id:
+        q = q.where((GovernancePolicyDef.org_id == "") | (GovernancePolicyDef.org_id == org_id))
+    else:
+        q = q.where(GovernancePolicyDef.org_id == "")
+    rows = (await session.execute(q)).scalars().all()
+    selector_type_norm = selector_type.strip().lower()
+    selector_norm = selector.strip().lower()
+    for row in rows:
+        if exclude_policy_id and row.policy_id == exclude_policy_id:
+            continue
+        if not _is_capability_matrix_row(row):
+            continue
+        cfg = row.rule_config if isinstance(row.rule_config, dict) else {}
+        if cfg.get("row_type") != CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE:
+            continue
+        row_selector_type = str(cfg.get("selector_type", "")).strip().lower()
+        row_selector = str(cfg.get("selector", "")).strip().lower()
+        if row_selector_type == selector_type_norm and row_selector == selector_norm:
+            raise HTTPException(
+                409,
+                f"Selector conflict: {selector_type}:{selector} already exists as policy_id={row.policy_id}",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -793,6 +965,7 @@ async def get_effective_governance(
     Returns a flat, prioritized list of active rules. Supports ETag for
     efficient polling by runtime consumers (Yarn, Planner, MCP-TS).
     """
+    capability_matrix_payload: dict[str, Any]
     async with async_session() as session:
         cq = select(GovernanceConstitution).where(GovernanceConstitution.status == "active")
         if org_id:
@@ -862,6 +1035,16 @@ async def get_effective_governance(
                     "priority": p.priority,
                 }
             )
+        matrix_global_row, matrix_overrides = await _fetch_capability_matrix_rows(session, org_id)
+        matrix_global_doc = _capability_matrix_global_doc(matrix_global_row)
+        capability_matrix_payload = {
+            "version": 1,
+            "mode": matrix_global_doc["mode"],
+            "global_optimizations_enabled": matrix_global_doc["global_optimizations_enabled"],
+            "source_policy_id": matrix_global_doc["source_policy_id"],
+            "supported_capabilities": sorted(CAPABILITY_MATRIX_KEYS),
+            "overrides": matrix_overrides,
+        }
 
     rules.sort(
         key=lambda r: (
@@ -872,8 +1055,12 @@ async def get_effective_governance(
         )
     )
 
-    etag_src = "|".join(r.get("clause_id", r.get("policy_id", "")) for r in rules)
-    etag = hashlib.sha256(etag_src.encode()).hexdigest()[:16]
+    etag = _compute_capability_matrix_etag(
+        {
+            "rules": rules,
+            "capability_matrix": capability_matrix_payload,
+        }
+    )
     response.headers["ETag"] = f'"{etag}"'
 
     if_none_match = request.headers.get("if-none-match", "").strip('"')
@@ -884,8 +1071,292 @@ async def get_effective_governance(
     return {
         "rules": rules,
         "total": len(rules),
+        "capability_matrix": capability_matrix_payload,
         "etag": etag,
     }
+
+
+# ---------------------------------------------------------------------------
+# Capability matrix control plane
+# ---------------------------------------------------------------------------
+
+
+class CapabilityMatrixGlobalUpdate(BaseModel):
+    mode: str = Field("enforced")
+    global_optimizations_enabled: bool = Field(False)
+    org_id: str = Field("")
+
+
+class CapabilityMatrixOverrideUpsert(BaseModel):
+    name: str | None = None
+    org_id: str = Field("")
+    scope: str = Field("platform")
+    scope_value: str = Field("")
+    enabled: bool = Field(True)
+    selector_type: str = Field(...)
+    selector: str = Field(..., min_length=1, max_length=256)
+    priority: int = Field(0)
+    capabilities: dict[str, bool] = Field(default_factory=dict)
+
+
+@router.get("/capability-matrix/effective")
+async def get_effective_capability_matrix(
+    request: Request,
+    response: Response,
+    user: UserInfo = Depends(get_current_user),
+    org_id: str | None = Query(None),
+):
+    async with async_session() as session:
+        global_row, overrides = await _fetch_capability_matrix_rows(session, org_id)
+    payload = {
+        "version": 1,
+        "mode": _capability_matrix_global_doc(global_row)["mode"],
+        "global_optimizations_enabled": _capability_matrix_global_doc(global_row)["global_optimizations_enabled"],
+        "source_policy_id": _capability_matrix_global_doc(global_row)["source_policy_id"],
+        "supported_capabilities": sorted(CAPABILITY_MATRIX_KEYS),
+        "overrides": overrides,
+    }
+    etag = _compute_capability_matrix_etag(payload)
+    response.headers["ETag"] = f'"{etag}"'
+    if_none_match = request.headers.get("if-none-match", "").strip('"')
+    if if_none_match == etag:
+        response.status_code = 304
+        return None
+    payload["etag"] = etag
+    payload["total"] = len(overrides)
+    return payload
+
+
+@router.put("/capability-matrix/global")
+async def upsert_capability_matrix_global(
+    body: CapabilityMatrixGlobalUpdate,
+    user: UserInfo = Depends(get_current_user),
+):
+    _require_platform_admin(user)
+    mode = str(body.mode).strip().lower()
+    if mode not in CAPABILITY_MATRIX_MODES:
+        raise HTTPException(400, f"Invalid mode: {body.mode}")
+    async with async_session() as session:
+        global_row, _ = await _fetch_capability_matrix_rows(session, body.org_id or None)
+        if global_row is None:
+            global_row = GovernancePolicyDef(
+                policy_id=str(uuid.uuid4()),
+                name="Capability Matrix Global",
+                description="Global posture for model capability matrix",
+                scope="platform",
+                scope_value="",
+                org_id=body.org_id,
+                category="tooling",
+                constraint_kind="hard",
+                rule_type="feature_toggle",
+                rule_config={},
+                enabled=True,
+                priority=0,
+                created_by=user.username,
+            )
+            session.add(global_row)
+        global_row.enabled = True
+        global_row.scope = "platform"
+        global_row.scope_value = ""
+        global_row.org_id = body.org_id
+        global_row.rule_type = "feature_toggle"
+        global_row.rule_config = {
+            "kind": CAPABILITY_MATRIX_KIND,
+            "row_type": CAPABILITY_MATRIX_GLOBAL_ROW_TYPE,
+            "version": 1,
+            "mode": mode,
+            "global_optimizations_enabled": bool(body.global_optimizations_enabled),
+        }
+        global_row.updated_at = datetime.now(UTC)
+        session.add(
+            _audit(
+                user,
+                "governance.capability_matrix.global.upsert",
+                "ok",
+                f"Updated capability matrix global posture mode={mode}",
+                {
+                    "policy_id": global_row.policy_id,
+                    "org_id": body.org_id,
+                    "mode": mode,
+                    "global_optimizations_enabled": bool(body.global_optimizations_enabled),
+                },
+            )
+        )
+        await session.commit()
+        await session.refresh(global_row)
+    return {
+        "policy_id": global_row.policy_id,
+        "mode": mode,
+        "global_optimizations_enabled": bool(body.global_optimizations_enabled),
+    }
+
+
+@router.post("/capability-matrix/overrides", status_code=201)
+async def create_capability_matrix_override(
+    body: CapabilityMatrixOverrideUpsert,
+    user: UserInfo = Depends(get_current_user),
+):
+    _require_platform_admin(user)
+    selector_type = str(body.selector_type).strip().lower()
+    if selector_type not in CAPABILITY_MATRIX_SELECTOR_TYPES:
+        raise HTTPException(400, f"Invalid selector_type: {body.selector_type}")
+    if body.scope not in VALID_SCOPES:
+        raise HTTPException(400, f"Invalid scope: {body.scope}")
+    capabilities = _normalize_capability_key_map(body.capabilities)
+    policy_id = str(uuid.uuid4())
+    policy_name = (body.name or f"Capability Override: {selector_type}:{body.selector.strip()}").strip()[:256]
+    async with async_session() as session:
+        await _ensure_no_selector_conflict(
+            session,
+            selector_type=selector_type,
+            selector=body.selector.strip(),
+            org_id=body.org_id,
+        )
+        row = GovernancePolicyDef(
+            policy_id=policy_id,
+            name=policy_name,
+            description="Capability matrix override row",
+            scope=body.scope,
+            scope_value=body.scope_value,
+            org_id=body.org_id,
+            category="tooling",
+            constraint_kind="hard",
+            rule_type="feature_toggle",
+            rule_config={
+                "kind": CAPABILITY_MATRIX_KIND,
+                "row_type": CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE,
+                "version": 1,
+                "selector_type": selector_type,
+                "selector": body.selector.strip(),
+                "priority": int(body.priority),
+                "capabilities": capabilities,
+            },
+            enabled=bool(body.enabled),
+            priority=int(body.priority),
+            created_by=user.username,
+        )
+        session.add(row)
+        session.add(
+            _audit(
+                user,
+                "governance.capability_matrix.override.create",
+                "ok",
+                f"Created capability matrix override {selector_type}:{body.selector.strip()}",
+                {
+                    "policy_id": policy_id,
+                    "selector_type": selector_type,
+                    "selector": body.selector.strip(),
+                    "priority": int(body.priority),
+                    "org_id": body.org_id,
+                },
+            )
+        )
+        await session.commit()
+        await session.refresh(row)
+    override = _to_capability_override(row)
+    if not override:
+        raise HTTPException(500, "Failed to materialize override")
+    return override
+
+
+@router.put("/capability-matrix/overrides/{policy_id}")
+async def upsert_capability_matrix_override(
+    policy_id: str,
+    body: CapabilityMatrixOverrideUpsert,
+    user: UserInfo = Depends(get_current_user),
+):
+    _require_platform_admin(user)
+    selector_type = str(body.selector_type).strip().lower()
+    if selector_type not in CAPABILITY_MATRIX_SELECTOR_TYPES:
+        raise HTTPException(400, f"Invalid selector_type: {body.selector_type}")
+    if body.scope not in VALID_SCOPES:
+        raise HTTPException(400, f"Invalid scope: {body.scope}")
+    capabilities = _normalize_capability_key_map(body.capabilities)
+    async with async_session() as session:
+        q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
+        existing = (await session.execute(q)).scalar_one_or_none()
+        if not existing:
+            raise HTTPException(404, "Capability matrix override not found")
+        if not _is_capability_matrix_row(existing):
+            raise HTTPException(409, "Policy exists but is not a capability matrix row")
+        await _ensure_no_selector_conflict(
+            session,
+            selector_type=selector_type,
+            selector=body.selector.strip(),
+            org_id=body.org_id,
+            exclude_policy_id=policy_id,
+        )
+        existing.name = (body.name or existing.name or f"Capability Override: {selector_type}:{body.selector.strip()}").strip()[:256]
+        existing.description = "Capability matrix override row"
+        existing.scope = body.scope
+        existing.scope_value = body.scope_value
+        existing.org_id = body.org_id
+        existing.category = "tooling"
+        existing.constraint_kind = "hard"
+        existing.rule_type = "feature_toggle"
+        existing.enabled = bool(body.enabled)
+        existing.priority = int(body.priority)
+        existing.rule_config = {
+            "kind": CAPABILITY_MATRIX_KIND,
+            "row_type": CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE,
+            "version": 1,
+            "selector_type": selector_type,
+            "selector": body.selector.strip(),
+            "priority": int(body.priority),
+            "capabilities": capabilities,
+        }
+        existing.updated_at = datetime.now(UTC)
+        session.add(
+            _audit(
+                user,
+                "governance.capability_matrix.override.update",
+                "ok",
+                f"Updated capability matrix override {selector_type}:{body.selector.strip()}",
+                {
+                    "policy_id": policy_id,
+                    "selector_type": selector_type,
+                    "selector": body.selector.strip(),
+                    "priority": int(body.priority),
+                    "org_id": body.org_id,
+                },
+            )
+        )
+        await session.commit()
+        await session.refresh(existing)
+    override = _to_capability_override(existing)
+    if not override:
+        raise HTTPException(500, "Failed to materialize override")
+    return override
+
+
+@router.delete("/capability-matrix/overrides/{policy_id}")
+async def delete_capability_matrix_override(
+    policy_id: str,
+    user: UserInfo = Depends(get_current_user),
+):
+    _require_platform_admin(user)
+    async with async_session() as session:
+        q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
+        existing = (await session.execute(q)).scalar_one_or_none()
+        if not existing:
+            raise HTTPException(404, "Capability matrix override not found")
+        if not _is_capability_matrix_row(existing):
+            raise HTTPException(409, "Policy exists but is not a capability matrix row")
+        cfg = existing.rule_config if isinstance(existing.rule_config, dict) else {}
+        if cfg.get("row_type") != CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE:
+            raise HTTPException(409, "Global row cannot be deleted from override endpoint")
+        await session.delete(existing)
+        session.add(
+            _audit(
+                user,
+                "governance.capability_matrix.override.delete",
+                "ok",
+                f"Deleted capability matrix override {policy_id}",
+                {"policy_id": policy_id},
+            )
+        )
+        await session.commit()
+    return {"deleted": policy_id}
 
 
 # ---------------------------------------------------------------------------
