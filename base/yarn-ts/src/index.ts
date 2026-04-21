@@ -6799,9 +6799,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         buildExecutionGovernorHardStopUserMessage({
           consecutiveRecoveryFires: session.consecutiveRecoveryFires,
           matchedRules: oaiExecutionGovernor.matchedRules,
-          filesSummary: oaiHardStopFilesList,
         }),
-      ];
+        ...(oaiHardStopFilesList ? ["", oaiHardStopFilesList] : []),
+      ].join("\n");
       recordSessionEvent(
         sessionKey,
         identity.userId,
@@ -9574,9 +9574,9 @@ app.post("/v1/messages", async (req, reply) => {
         buildExecutionGovernorHardStopUserMessage({
           consecutiveRecoveryFires: session.consecutiveRecoveryFires,
           matchedRules: claudeExecutionGovernor.matchedRules,
-          filesSummary: claudeHardStopFilesList,
         }),
-      ];
+        ...(claudeHardStopFilesList ? ["", claudeHardStopFilesList] : []),
+      ].join("\n");
       recordSessionEvent(
         claudeSessionKey,
         claudeIdentity.userId,
