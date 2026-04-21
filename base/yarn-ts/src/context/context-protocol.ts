@@ -8,13 +8,31 @@ export interface ContextMessage {
   content: string;
 }
 
+import type { CompactionSensitivity } from "./compaction-sensitivity.js";
+
 export interface ConsolidatedState {
   summary: string;
   archivedMessageCount: number;
 }
 
+export interface CheckpointOptions {
+  toolCallsThreshold?: number;
+  historyLengthThreshold?: number;
+}
+
+export interface CompressTrajectoryOptions {
+  sensitivity?: CompactionSensitivity;
+}
+
 export interface ContextProtocol {
-  shouldCheckpoint(history: ContextMessage[], toolCallsSinceCheckpoint: number): boolean;
+  shouldCheckpoint(
+    history: ContextMessage[],
+    toolCallsSinceCheckpoint: number,
+    checkpointOpts?: CheckpointOptions,
+  ): boolean;
   getLanguageHeuristics(ext: string): LanguageHeuristic;
-  compressTrajectory(messages: ContextMessage[]): Promise<ConsolidatedState>;
+  compressTrajectory(
+    messages: ContextMessage[],
+    compressOpts?: CompressTrajectoryOptions,
+  ): Promise<ConsolidatedState>;
 }

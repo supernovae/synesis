@@ -16,6 +16,14 @@ import { createEmptyVerificationStats } from "../verification/types.js";
 import { formatSelfRepairBlock } from "../recall/formatter.js";
 import { formatTerminalVerificationHint, type TerminalSignals } from "../terminal/terminal-signals.js";
 import type { EnrichmentPool } from "../workers/pool.js";
+import {
+  effectiveMaxRawChars,
+  effectiveReducerProfile,
+  inferCompactionSensitivity,
+  looksLikeVerificationFailureOutput,
+  type CompactionSensitivity,
+  type ReducerProfileName,
+} from "../context/compaction-sensitivity.js";
 
 export interface ToolResultLike {
   role: string;
@@ -67,6 +75,13 @@ export interface ToolResultReductionResult {
   messages: ToolResultLike[];
   reducedCount: number;
 }
+
+export interface ReduceMessagesOpts {
+  /** Tier-resolved backend model id/name; used for Qwen3-Coder compaction sensitivity. */
+  backendModelHint?: string;
+}
+
+const VERIFY_LITERAL_PRESERVE_CAP = 120_000;
 
 function toStringContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -185,7 +200,31 @@ export class ToolResultReductionService {
     return map;
   }
 
-  reduceMessages(messages: ToolResultLike[], taskCue?: string, pruningWatermark?: number): ToolResultReductionResult {
+  private findLastVerificationFailureIndex(messages: ToolResultLike[]): number {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role !== "tool") continue;
+      if (!this.isVerificationOutput(m.name)) continue;
+      const normalized = this.buildReductionInput(m.name, m.content);
+      const raw = normalized.raw;
+      if (raw.length > VERIFY_LITERAL_PRESERVE_CAP) continue;
+      if (looksLikeVerificationFailureOutput(raw)) return i;
+    }
+    return -1;
+  }
+
+  reduceMessages(
+    messages: ToolResultLike[],
+    taskCue?: string,
+    pruningWatermark?: number,
+    opts?: ReduceMessagesOpts,
+  ): ToolResultReductionResult {
+    const sensitivity: CompactionSensitivity = inferCompactionSensitivity(opts?.backendModelHint ?? "");
+    const effProfile = effectiveReducerProfile(this.config.SYNESIS_YARN_REDUCER_PROFILE as ReducerProfileName, sensitivity);
+    const effMaxChars = effectiveMaxRawChars(this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS, sensitivity);
+    const lastVerificationFailureIdx =
+      sensitivity === "strict_literals" ? this.findLastVerificationFailureIndex(messages) : -1;
+
     const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
     const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
     const toolCallCmds = this.buildToolCallCommandMap(messages);
@@ -195,6 +234,9 @@ export class ToolResultReductionService {
       if (m.role !== "tool") return m;
       const normalized = this.buildReductionInput(m.name, m.content);
       const raw = normalized.raw;
+      if (msgIdx === lastVerificationFailureIdx) {
+        return { ...m, content: raw };
+      }
       const cacheStub = this.applyReadCacheStubRemediation(m.name, raw);
       if (cacheStub) {
         this.trackTransformation(raw.length, cacheStub.length);
@@ -233,8 +275,8 @@ export class ToolResultReductionService {
             context: {
               toolName: m.name,
               command: resolvedHint,
-              profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
-              maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+              profile: effProfile,
+              maxChars: effMaxChars,
               minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
             }
           });
@@ -250,7 +292,7 @@ export class ToolResultReductionService {
         reducedCount += 1;
         return { ...m, content: dispatched.transformed };
       }
-      const shouldReduce = Boolean(reduced) || (!this.isExemptFromSizeCompaction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
+      const shouldReduce = Boolean(reduced) || (!this.isExemptFromSizeCompaction(m.name) && raw.length > effMaxChars);
       if (!shouldReduce) return { ...m, content: raw };
 
       let summary: string;
@@ -340,10 +382,17 @@ export class ToolResultReductionService {
     pool: EnrichmentPool,
     taskCue?: string,
     pruningWatermark?: number,
+    opts?: ReduceMessagesOpts,
   ): Promise<ToolResultReductionResult> {
     if (!pool.isAvailable()) {
-      return this.reduceMessages(messages, taskCue, pruningWatermark);
+      return this.reduceMessages(messages, taskCue, pruningWatermark, opts);
     }
+
+    const sensitivity: CompactionSensitivity = inferCompactionSensitivity(opts?.backendModelHint ?? "");
+    const effProfile = effectiveReducerProfile(this.config.SYNESIS_YARN_REDUCER_PROFILE as ReducerProfileName, sensitivity);
+    const effMaxChars = effectiveMaxRawChars(this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS, sensitivity);
+    const lastVerificationFailureIdx =
+      sensitivity === "strict_literals" ? this.findLastVerificationFailureIndex(messages) : -1;
 
     const toolIndices: number[] = [];
     const toolInputs: Array<{ raw: string; commandHint: string; allowDispatch: boolean }> = [];
@@ -375,6 +424,10 @@ export class ToolResultReductionService {
       const m = messages[idx];
       const normalized = toolInputs[j];
       const raw = normalized.raw;
+      if (idx === lastVerificationFailureIdx) {
+        out[idx] = { ...m, content: raw };
+        continue;
+      }
       const cacheStub = this.applyReadCacheStubRemediation(m.name, raw);
       if (cacheStub) {
         this.trackTransformation(raw.length, cacheStub.length);
@@ -418,8 +471,8 @@ export class ToolResultReductionService {
             context: {
               toolName: m.name,
               command: resolvedHint,
-              profile: this.config.SYNESIS_YARN_REDUCER_PROFILE,
-              maxChars: this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS,
+              profile: effProfile,
+              maxChars: effMaxChars,
               minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE,
             },
           });
@@ -436,7 +489,7 @@ export class ToolResultReductionService {
         continue;
       }
 
-      const shouldReduce = Boolean(reduced) || (!this.isExemptFromSizeCompaction(m.name) && raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS);
+      const shouldReduce = Boolean(reduced) || (!this.isExemptFromSizeCompaction(m.name) && raw.length > effMaxChars);
       if (!shouldReduce) {
         out[idx] = { ...m, content: raw };
         continue;

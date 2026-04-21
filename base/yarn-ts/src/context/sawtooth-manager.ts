@@ -1,4 +1,12 @@
-import type { ContextMessage, ContextProtocol, ConsolidatedState, LanguageHeuristic } from "./context-protocol.js";
+import type {
+  CheckpointOptions,
+  CompressTrajectoryOptions,
+  ContextMessage,
+  ContextProtocol,
+  ConsolidatedState,
+  LanguageHeuristic,
+} from "./context-protocol.js";
+import { compactionSystemPromptFor, type CompactionSensitivity } from "./compaction-sensitivity.js";
 import { maskVerboseLog } from "./log-mask.js";
 import { EXTENSION_HEURISTICS } from "./heuristics.js";
 
@@ -10,12 +18,6 @@ export interface CompactionStats {
   compactionFailures: number;
   truncationFallbacks: number;
 }
-
-const COMPACTION_SYSTEM = `You are a context compaction engine for a coding assistant.
-Summarize the conversation trajectory into a single <ARCHITECTURAL_STATE> block.
-Preserve: file paths changed, key decisions made, error resolutions, current task state, pending work.
-Omit: raw tool output, redundant retries, verbose logs, greetings.
-Be concise but preserve enough detail that the assistant can continue seamlessly.`;
 
 export class SawtoothContextManager implements ContextProtocol {
   private compactFn: CompactFn | null = null;
@@ -43,24 +45,35 @@ export class SawtoothContextManager implements ContextProtocol {
     return { ...this._stats };
   }
 
-  shouldCheckpoint(history: ContextMessage[], toolCallsSinceCheckpoint: number): boolean {
-    if (toolCallsSinceCheckpoint >= this.checkpointToolCalls) {
+  shouldCheckpoint(
+    history: ContextMessage[],
+    toolCallsSinceCheckpoint: number,
+    checkpointOpts?: CheckpointOptions,
+  ): boolean {
+    const toolTh = checkpointOpts?.toolCallsThreshold ?? this.checkpointToolCalls;
+    const histTh = checkpointOpts?.historyLengthThreshold ?? 60;
+    if (toolCallsSinceCheckpoint >= toolTh) {
       return true;
     }
-    return history.length >= 60;
+    return history.length >= histTh;
   }
 
   getLanguageHeuristics(ext: string): LanguageHeuristic {
     return EXTENSION_HEURISTICS[ext] ?? { extension: ext, maxInlineLogLines: 60 };
   }
 
-  async compressTrajectory(messages: ContextMessage[]): Promise<ConsolidatedState> {
+  async compressTrajectory(
+    messages: ContextMessage[],
+    compressOpts?: CompressTrajectoryOptions,
+  ): Promise<ConsolidatedState> {
+    const sensitivity: CompactionSensitivity = compressOpts?.sensitivity ?? "default";
+    const systemPrompt = compactionSystemPromptFor(sensitivity);
     const masked = messages.map((m) => `${m.role}: ${maskVerboseLog(m.content)}`);
 
     if (this.compactFn) {
       try {
         const userPrompt = masked.join("\n\n");
-        const summary = await this.compactFn(COMPACTION_SYSTEM, userPrompt);
+        const summary = await this.compactFn(systemPrompt, userPrompt);
         this._stats.llmCompactions += 1;
         return { summary, archivedMessageCount: Math.max(0, messages.length - 1) };
       } catch {

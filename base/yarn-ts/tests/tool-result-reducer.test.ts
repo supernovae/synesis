@@ -477,4 +477,20 @@ describe("ToolResultReductionService", () => {
     const wmContent0 = String(withWatermark.messages[0].content);
     expect(noWmContent0).toBe(wmContent0);
   });
+
+  it("preserves literal last failing verification output for Qwen3-Coder-Next compaction hint", () => {
+    const svc = new ToolResultReductionService(makeConfig(500), new ArtifactStore());
+    const failBody =
+      "=== RUN   TestFoo\n--- FAIL: TestFoo (0.00s)\n    foo.go:12: wanted 1 got 2\nFAIL\nexit code 1\n" + "x".repeat(800);
+    const messages = [
+      { role: "tool" as const, name: "bash", content: "ok" },
+      { role: "tool" as const, name: "run_test", content: failBody },
+    ];
+    const out = svc.reduceMessages(messages, undefined, undefined, {
+      backendModelHint: "Qwen/Qwen3-Coder-Next-30B-A3B-Instruct",
+    });
+    const last = String(out.messages[out.messages.length - 1].content);
+    expect(last).toContain("--- FAIL:");
+    expect(last.length).toBeGreaterThan(500);
+  });
 });

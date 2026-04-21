@@ -42,6 +42,12 @@ import {
 import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
 import { PrefixOptimizer, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
+import {
+  effectiveSawtoothCheckpointToolCalls,
+  effectiveSawtoothHistoryLengthThreshold,
+  inferCompactionSensitivity,
+  type CompactionSensitivity,
+} from "./context/compaction-sensitivity.js";
 import { SessionStore, type SessionRecord } from "./state/session-store.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
@@ -78,7 +84,7 @@ import {
 } from "./state/web-search.js";
 import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, runPatternPrefetch, formatPatternBlock, getPatternPrefetchStats } from "./evidence/fast-path.js";
 import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
-import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
+import { ToolResultReductionService, type ReduceMessagesOpts } from "./reduction/tool-result-reducer.js";
 import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
 import { applyIngressCapToToolMessages } from "./reduction/ingress-cap.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
@@ -3181,12 +3187,47 @@ async function casSessionSave(state: SessionState): Promise<void> {
   }
 }
 
+const SYNESIS_COMPACTION_BACKEND_META = "synesis_compaction_backend_model";
+
+function resolveCompactionBackendModelHintFromRequestModel(modelId: string | undefined): string {
+  const id = (modelId ?? "").trim();
+  const fallbackTier = tierRegistry.getTierConfig(config.SYNESIS_YARN_DEFAULT_TIER);
+  if (!id) return (fallbackTier?.backendModel ?? "").trim();
+  const tier = tierRegistry.getTierConfig(id) ?? fallbackTier;
+  return (tier?.backendModel ?? id).trim();
+}
+
+function pinchCompactionBackendModelMetadata(
+  session: SessionState,
+  tierId: string,
+  requestedFallback: string,
+): void {
+  const tier = tierRegistry.getTierConfig(tierId) ?? tierRegistry.getTierConfig(config.SYNESIS_YARN_DEFAULT_TIER);
+  const backend = (tier?.backendModel ?? requestedFallback).trim();
+  if (backend) {
+    session.record.metadata[SYNESIS_COMPACTION_BACKEND_META] = backend;
+  }
+}
+
+function compactionCheckpointHints(state: SessionState): { backendHint: string; sensitivity: CompactionSensitivity } {
+  const meta = String(state.record.metadata[SYNESIS_COMPACTION_BACKEND_META] ?? "").trim();
+  const tierId = String(state.record.lastTier ?? "").trim();
+  const backendHint = meta || resolveCompactionBackendModelHintFromRequestModel(tierId);
+  return { backendHint, sensitivity: inferCompactionSensitivity(backendHint) };
+}
+
 function maybeCheckpoint(state: SessionState): void {
-  if (!sawtooth.shouldCheckpoint(state.history, state.toolCallsSinceCheckpoint)) {
+  const { sensitivity } = compactionCheckpointHints(state);
+  const toolTh = effectiveSawtoothCheckpointToolCalls(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS, sensitivity);
+  const histTh = effectiveSawtoothHistoryLengthThreshold(60, sensitivity);
+  if (!sawtooth.shouldCheckpoint(state.history, state.toolCallsSinceCheckpoint, {
+    toolCallsThreshold: toolTh,
+    historyLengthThreshold: histTh,
+  })) {
     return;
   }
   const charsBefore = state.history.reduce((sum, m) => sum + m.content.length, 0);
-  void sawtooth.compressTrajectory(state.history).then((consolidated) => {
+  void sawtooth.compressTrajectory(state.history, { sensitivity }).then((consolidated) => {
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
     getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");
@@ -3207,7 +3248,8 @@ async function forceCheckpoint(state: SessionState): Promise<boolean> {
   if (state.history.length <= 1) return false;
   const charsBefore = state.history.reduce((sum, m) => sum + m.content.length, 0);
   try {
-    const consolidated = await sawtooth.compressTrajectory(state.history);
+    const { sensitivity } = compactionCheckpointHints(state);
+    const consolidated = await sawtooth.compressTrajectory(state.history, { sensitivity });
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
     getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");
@@ -5877,14 +5919,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     return undefined;
   })();
+  const oaiCompactionOpts: ReduceMessagesOpts = {
+    backendModelHint: resolveCompactionBackendModelHintFromRequestModel(request.model),
+  };
   const reducedOpenAI = config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? { messages: request.messages as never, reducedCount: 0 }
     : enrichmentPool.isAvailable()
       ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
-          toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue, oaiPeekWatermark),
+          toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue, oaiPeekWatermark, oaiCompactionOpts),
         )
       : withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
-          toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue, oaiPeekWatermark),
+          toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue, oaiPeekWatermark, oaiCompactionOpts),
         );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED && reducedOpenAI.reducedCount > 0) {
@@ -6419,6 +6464,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.record.escalationCount += 1;
   }
   session.record.lastTier = orchestration.tier;
+  pinchCompactionBackendModelMetadata(session, orchestration.tier, request.model);
 
   const oaiLastToolId = [...(request.messages as Array<{ role: string; tool_call_id?: string }>)]
     .reverse().find((m) => m.role === "tool")?.tool_call_id ?? "";
@@ -8732,6 +8778,9 @@ app.post("/v1/messages", async (req, reply) => {
     }
     return undefined;
   })();
+  const claudeCompactionOpts: ReduceMessagesOpts = {
+    backendModelHint: resolveCompactionBackendModelHintFromRequestModel(body.model),
+  };
   // Merge top-level `system` into the message list (parity with Anthropic SDK)
   const claudeSystemMsg = claudeSystemToMessage(body.system);
   const rawOpenAIMessages = withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
@@ -8775,10 +8824,10 @@ app.post("/v1/messages", async (req, reply) => {
     ? { messages: openAIMessages as never, reducedCount: 0 }
     : enrichmentPool.isAvailable()
       ? await withSpanAsync("yarn.enrichment", { "yarn.path": "claude" }, () =>
-          toolResultReduction.reduceMessagesAsync(openAIMessages as never, enrichmentPool, claudeTaskCue, claudePeekWatermark),
+          toolResultReduction.reduceMessagesAsync(openAIMessages as never, enrichmentPool, claudeTaskCue, claudePeekWatermark, claudeCompactionOpts),
         )
       : withSpan("yarn.enrichment", { "yarn.path": "claude" }, () =>
-          toolResultReduction.reduceMessages(openAIMessages as never, claudeTaskCue, claudePeekWatermark),
+          toolResultReduction.reduceMessages(openAIMessages as never, claudeTaskCue, claudePeekWatermark, claudeCompactionOpts),
         );
   const claudeToolResultCount = (openAIMessages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED && reducedClaude.reducedCount > 0) {
@@ -9251,6 +9300,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.record.escalationCount += 1;
   }
   session.record.lastTier = claudeOrchestration.tier;
+  pinchCompactionBackendModelMetadata(session, claudeOrchestration.tier, body.model);
 
   const claudeLastToolUseId = lastToolUseIdFromClaudeMessages(
     body.messages as Array<{ role: string; content: unknown }>,
