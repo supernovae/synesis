@@ -74,6 +74,12 @@ interface EditState {
   api_key_env: string;
   max_tokens: string;
   temperature: string;
+  top_p: string;
+  top_k: string;
+  min_p: string;
+  presence_penalty: string;
+  repetition_penalty: string;
+  enable_thinking: "inherit" | "enabled" | "disabled";
   fallbacks: string;
   adapter_hint: string;
 }
@@ -87,13 +93,44 @@ const ADAPTER_FAMILIES = [
   { value: "generic", label: "Generic OpenAI" },
 ] as const;
 
+const QWEN_CODING_PRESET: Pick<
+  EditState,
+  "temperature" | "top_p" | "top_k" | "min_p" | "presence_penalty" | "repetition_penalty" | "enable_thinking"
+> = {
+  temperature: "0.6",
+  top_p: "0.95",
+  top_k: "20",
+  min_p: "0.0",
+  presence_penalty: "0.0",
+  repetition_penalty: "1.0",
+  enable_thinking: "enabled",
+};
+
 function emptyEdit(role: string): EditState {
-  return { role, provider: "openrouter", model: "", endpoint: "", api_key_env: "", max_tokens: "8192", temperature: "0.1", fallbacks: "", adapter_hint: "" };
+  return {
+    role,
+    provider: "openrouter",
+    model: "",
+    endpoint: "",
+    api_key_env: "",
+    max_tokens: "8192",
+    temperature: "0.1",
+    top_p: "",
+    top_k: "",
+    min_p: "",
+    presence_penalty: "",
+    repetition_penalty: "",
+    enable_thinking: "inherit",
+    fallbacks: "",
+    adapter_hint: "",
+  };
 }
 
 function editFromDeployment(d: ModelDeployment): EditState {
-  const mt = (d.litellm_params?.max_tokens as number) ?? 8192;
-  const temp = (d.litellm_params?.temperature as number) ?? 0.1;
+  const lp = d.litellm_params ?? {};
+  const mt = (lp.max_tokens as number) ?? 8192;
+  const temp = (lp.temperature as number) ?? 0.1;
+  const enableThinkingRaw = lp.enable_thinking;
   return {
     role: d.role,
     provider: d.provider || "custom",
@@ -102,6 +139,15 @@ function editFromDeployment(d: ModelDeployment): EditState {
     api_key_env: d.api_key_env || "",
     max_tokens: String(mt),
     temperature: String(temp),
+    top_p: lp.top_p != null ? String(lp.top_p) : "",
+    top_k: lp.top_k != null ? String(lp.top_k) : "",
+    min_p: lp.min_p != null ? String(lp.min_p) : "",
+    presence_penalty: lp.presence_penalty != null ? String(lp.presence_penalty) : "",
+    repetition_penalty: lp.repetition_penalty != null ? String(lp.repetition_penalty) : "",
+    enable_thinking:
+      typeof enableThinkingRaw === "boolean"
+        ? (enableThinkingRaw ? "enabled" : "disabled")
+        : "inherit",
     fallbacks: (d.fallbacks ?? []).join(", "),
     adapter_hint: d.adapter_hint ?? "",
   };
@@ -116,6 +162,40 @@ function mergeEditEndpointFromProvider(
   const def = (providers[state.provider]?.default_endpoint ?? "").trim();
   if (!def) return state;
   return { ...state, endpoint: def };
+}
+
+function applyQwenCodingPreset(state: EditState): EditState {
+  return {
+    ...state,
+    ...QWEN_CODING_PRESET,
+  };
+}
+
+function resetInheritedGenerationOverrides(state: EditState): EditState {
+  return {
+    ...state,
+    top_p: "",
+    top_k: "",
+    min_p: "",
+    presence_penalty: "",
+    repetition_penalty: "",
+    enable_thinking: "inherit",
+  };
+}
+
+function parseOptionalFloat(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed;
+}
+
+function parseOptionalInt(value: string): number | undefined {
+  const parsed = parseOptionalFloat(value);
+  if (parsed === undefined) return undefined;
+  if (!Number.isInteger(parsed)) return undefined;
+  return parsed;
 }
 
 export default function ModelRegistry() {
@@ -188,6 +268,15 @@ export default function ModelRegistry() {
     const fbList = editing.fallbacks.split(",").map((s) => s.trim()).filter(Boolean);
     const parsedMaxTokens = Number(editing.max_tokens);
     const parsedTemp = Number(editing.temperature);
+    const parsedTopP = parseOptionalFloat(editing.top_p);
+    const parsedTopK = parseOptionalInt(editing.top_k);
+    const parsedMinP = parseOptionalFloat(editing.min_p);
+    const parsedPresencePenalty = parseOptionalFloat(editing.presence_penalty);
+    const parsedRepetitionPenalty = parseOptionalFloat(editing.repetition_penalty);
+    const parsedEnableThinking =
+      editing.enable_thinking === "inherit"
+        ? undefined
+        : editing.enable_thinking === "enabled";
     const defEp = (prov?.default_endpoint ?? "").trim();
     const ep = (editing.endpoint ?? "").trim();
     const endpointForApi = defEp && ep === defEp ? "" : ep;
@@ -200,6 +289,15 @@ export default function ModelRegistry() {
         api_key_env: editing.api_key_env,
         max_tokens: parsedMaxTokens > 0 ? parsedMaxTokens : 8192,
         temperature: !isNaN(parsedTemp) && parsedTemp >= 0 ? parsedTemp : 0.1,
+        top_p: parsedTopP != null && parsedTopP >= 0 && parsedTopP <= 1 ? parsedTopP : undefined,
+        top_k: parsedTopK != null && parsedTopK >= 0 ? parsedTopK : undefined,
+        min_p: parsedMinP != null && parsedMinP >= 0 && parsedMinP <= 1 ? parsedMinP : undefined,
+        presence_penalty: parsedPresencePenalty,
+        repetition_penalty:
+          parsedRepetitionPenalty != null && parsedRepetitionPenalty >= 0
+            ? parsedRepetitionPenalty
+            : undefined,
+        enable_thinking: parsedEnableThinking,
         fallbacks: fbList.length ? fbList : undefined,
         adapter_hint: editing.adapter_hint || null,
       },
@@ -621,6 +719,14 @@ function EditModal({
 
   const keyEnv = (editing.api_key_env || prov?.api_key_env || "").trim();
   const catalogKeyBlocked = !!keyEnv && editing.provider !== "custom" && !configuredKeys.has(keyEnv);
+  const hasAdvancedGenerationOverrides = Boolean(
+    editing.top_p.trim()
+    || editing.top_k.trim()
+    || editing.min_p.trim()
+    || editing.presence_penalty.trim()
+    || editing.repetition_penalty.trim()
+    || editing.enable_thinking !== "inherit",
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -784,22 +890,106 @@ function EditModal({
             </div>
           )}
 
-          <Field
-            label="Max Tokens"
-            value={editing.max_tokens}
-            onChange={(v) => setEditing({ ...editing, max_tokens: v })}
-            onBlur={() => { if (!editing.max_tokens.trim() || Number(editing.max_tokens) <= 0) setEditing({ ...editing, max_tokens: "8192" }); }}
-            type="number"
-            hint="LiteLLM default — Chat service overrides per call with its own budget"
-          />
-          <Field
-            label="Temperature"
-            value={editing.temperature}
-            onChange={(v) => setEditing({ ...editing, temperature: v })}
-            onBlur={() => { const n = Number(editing.temperature); if (editing.temperature.trim() === "" || isNaN(n) || n < 0) setEditing({ ...editing, temperature: "0.1" }); }}
-            type="number"
-            hint="LiteLLM default — Chat pipeline sets its own temps per node (0.1 planner node, 0.3 writer)"
-          />
+          <details
+            className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/50"
+            open={hasAdvancedGenerationOverrides || undefined}
+          >
+            <summary className="cursor-pointer select-none text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Advanced generation settings
+            </summary>
+            <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+              Used as model defaults when request-level params are absent. Empty optional fields inherit runtime defaults.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEditing(applyQwenCodingPreset(editing))}
+                className="rounded bg-indigo-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-700"
+              >
+                Apply Qwen Coding Preset
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(resetInheritedGenerationOverrides(editing))}
+                className="rounded border border-gray-300 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Reset to inherited defaults
+              </button>
+              <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                qwen3.6-35b-a3b: temp 0.6, top_p 0.95, top_k 20, thinking enabled
+              </span>
+            </div>
+            <div className="mt-3 space-y-3">
+              <Field
+                label="Max Tokens"
+                value={editing.max_tokens}
+                onChange={(v) => setEditing({ ...editing, max_tokens: v })}
+                onBlur={() => { if (!editing.max_tokens.trim() || Number(editing.max_tokens) <= 0) setEditing({ ...editing, max_tokens: "8192" }); }}
+                type="number"
+                hint="LiteLLM default — Chat service may still enforce per-request budget caps"
+              />
+              <Field
+                label="Temperature"
+                value={editing.temperature}
+                onChange={(v) => setEditing({ ...editing, temperature: v })}
+                onBlur={() => { const n = Number(editing.temperature); if (editing.temperature.trim() === "" || isNaN(n) || n < 0) setEditing({ ...editing, temperature: "0.1" }); }}
+                type="number"
+                hint="Used when callers do not send temperature"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Field
+                  label="Top P"
+                  value={editing.top_p}
+                  onChange={(v) => setEditing({ ...editing, top_p: v })}
+                  type="number"
+                  hint="0..1"
+                />
+                <Field
+                  label="Top K"
+                  value={editing.top_k}
+                  onChange={(v) => setEditing({ ...editing, top_k: v })}
+                  type="number"
+                  hint="integer"
+                />
+                <Field
+                  label="Min P"
+                  value={editing.min_p}
+                  onChange={(v) => setEditing({ ...editing, min_p: v })}
+                  type="number"
+                  hint="0..1"
+                />
+                <Field
+                  label="Presence Penalty"
+                  value={editing.presence_penalty}
+                  onChange={(v) => setEditing({ ...editing, presence_penalty: v })}
+                  type="number"
+                />
+                <Field
+                  label="Repetition Penalty"
+                  value={editing.repetition_penalty}
+                  onChange={(v) => setEditing({ ...editing, repetition_penalty: v })}
+                  type="number"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Thinking Mode
+                </label>
+                <select
+                  value={editing.enable_thinking}
+                  onChange={(e) => setEditing({ ...editing, enable_thinking: e.target.value as EditState["enable_thinking"] })}
+                  className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                >
+                  <option value="inherit">Inherit runtime default</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                  Maps to <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-800">enable_thinking</code> for compatible OpenAI-style providers.
+                </p>
+              </div>
+            </div>
+          </details>
           {/* Rate Card / Pricing */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/50">
             <div className="mb-2 flex items-center justify-between">

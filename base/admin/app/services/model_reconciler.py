@@ -45,7 +45,18 @@ PROTECTED_MODELS = frozenset(
 )
 
 # Compared to detect routing drift (/model/info omits redacted secrets — omit api_key).
-_ROUTING_KEYS = ("model", "api_base", "max_tokens", "temperature")
+_ROUTING_KEYS = (
+    "model",
+    "api_base",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "presence_penalty",
+    "repetition_penalty",
+    "enable_thinking",
+)
 _SECRET_NAME = "provider-api-keys"
 _SECRET_NAMESPACE = os.environ.get("SYNESIS_GATEWAY_NAMESPACE", "synesis-gateway")
 _SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"

@@ -8,8 +8,9 @@ Canonical routing for a role merges, in order:
    ``api_key_env``, ``litellm_prefix`` (required for custom providers), enablement,
    policies. Loaded via ``load_provider_governance_maps()`` in ``model_registry``.
 3. **ModelDeployment** — per-role binding: ``provider``, ``model``, optional
-   ``endpoint`` / ``api_key_env`` overrides, and ``litellm_params`` used only for
-   ``max_tokens`` / ``temperature`` when not supplied on assign.
+   ``endpoint`` / ``api_key_env`` overrides, and ``litellm_params`` used for
+   generation defaults (for example ``max_tokens``, ``temperature``, ``top_p``)
+   when not supplied on assign.
 
 LiteLLM reconciliation and JSON APIs both use
 ``resolve_deployment_routing_for_deployment()`` so stored ``litellm_params`` cannot
@@ -172,6 +173,12 @@ def build_litellm_params(
     *,
     max_tokens: int = 8192,
     temperature: float = 0.1,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repetition_penalty: float | None = None,
+    enable_thinking: bool | None = None,
     litellm_prefix_override: str = "",
 ) -> dict:
     """Construct the litellm_params dict for a deployment.
@@ -186,6 +193,18 @@ def build_litellm_params(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    if top_p is not None:
+        params["top_p"] = top_p
+    if top_k is not None:
+        params["top_k"] = top_k
+    if min_p is not None:
+        params["min_p"] = min_p
+    if presence_penalty is not None:
+        params["presence_penalty"] = presence_penalty
+    if repetition_penalty is not None:
+        params["repetition_penalty"] = repetition_penalty
+    if enable_thinking is not None:
+        params["enable_thinking"] = enable_thinking
     key_env = api_key_env or info.api_key_env
     if key_env:
         params["api_key"] = f"os.environ/{key_env}"

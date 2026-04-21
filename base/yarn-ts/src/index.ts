@@ -7613,10 +7613,37 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   modelMessages = normalizeSystemMessageOrdering(modelMessages as Array<{ role: string }>) as typeof modelMessages;
 
+  const resolvedTierConfig = tierRegistry.getTierConfig(resolved.resolvedModelId);
+  const tierSamplingDefaults = resolvedTierConfig?.samplingDefaults;
   const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
   const adapterSampling = adapter.defaultSamplingParams?.();
-  const oaiEffectiveTemp = request.temperature ?? adapterSampling?.temperature;
-  const oaiEffectiveTopP = adapterSampling?.top_p;
+  const oaiEffectiveTemp = request.temperature ?? tierSamplingDefaults?.temperature ?? adapterSampling?.temperature;
+  const oaiEffectiveTopP = request.top_p ?? tierSamplingDefaults?.top_p ?? adapterSampling?.top_p;
+  const oaiEffectiveTopK = request.top_k ?? tierSamplingDefaults?.top_k;
+  const oaiEffectiveMinP = request.min_p ?? tierSamplingDefaults?.min_p;
+  const oaiEffectivePresencePenalty = request.presence_penalty ?? tierSamplingDefaults?.presence_penalty;
+  const oaiEffectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
+  const oaiEffectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
+  const oaiSamplingOptions = {
+    ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
+    ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+    ...(oaiEffectiveTopK !== undefined ? { topK: Math.max(0, Math.trunc(oaiEffectiveTopK)) } : {}),
+    ...(oaiEffectivePresencePenalty !== undefined ? { presencePenalty: oaiEffectivePresencePenalty } : {}),
+  };
+  const oaiProviderOpenAiOverrides = {
+    ...(oaiEffectiveMinP !== undefined ? { min_p: oaiEffectiveMinP } : {}),
+    ...(oaiEffectiveRepetitionPenalty !== undefined ? { repetition_penalty: oaiEffectiveRepetitionPenalty } : {}),
+    ...(oaiEffectiveEnableThinking !== undefined ? { enable_thinking: oaiEffectiveEnableThinking } : {}),
+  };
+  const oaiProviderOptions = Object.keys(oaiProviderOpenAiOverrides).length
+    ? {
+        ...(adapterProviderOptions ?? {}),
+        openai: {
+          ...((adapterProviderOptions?.openai ?? {}) as Record<string, unknown>),
+          ...oaiProviderOpenAiOverrides,
+        },
+      }
+    : adapterProviderOptions;
   const oaiContextAdmission = evaluateContextAdmission(
     modelMessages as Array<{ role: string; content: unknown }>,
     effectiveTools as unknown[],
@@ -7686,21 +7713,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
         currentMessages as Array<{ role: string; content: unknown }>,
         effectiveTools as unknown[],
         effectiveToolChoice,
-        adapterProviderOptions,
+        oaiProviderOptions,
         oaiForensicsPhasePolicy,
         oaiForensicsCapabilityMatrix,
       );
       finalResult = await generateText({
         model: resolved.model as never,
         messages: currentMessages,
-      maxOutputTokens: clampMaxOutputTokensForSafety(
-        Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
-      ),
-        ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
-        ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+        maxOutputTokens: clampMaxOutputTokensForSafety(
+          Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
+        ),
+        ...oaiSamplingOptions,
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-        ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
+        ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {})
       });
       const firstCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
       let firstValidation = validateRequiredToolCalls(firstCalls, oaiPhasePolicy);
@@ -7727,7 +7753,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           currentMessages as Array<{ role: string; content: unknown }>,
           effectiveTools as unknown[],
           effectiveToolChoice,
-          adapterProviderOptions,
+          oaiProviderOptions,
           oaiForensicsPhasePolicy,
           oaiForensicsCapabilityMatrix,
         );
@@ -7737,11 +7763,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
           maxOutputTokens: clampMaxOutputTokensForSafety(
             Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
           ),
-          ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
-          ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+          ...oaiSamplingOptions,
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-          ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {}),
+          ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {}),
         });
         const repairedUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
         lastOpenAiForensics = finalizeRequestForensics(session, reqId, repairForensics, repairedUsage);
@@ -7771,7 +7796,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             currentMessages as Array<{ role: string; content: unknown }>,
             effectiveTools as unknown[],
             effectiveToolChoice,
-            adapterProviderOptions,
+            oaiProviderOptions,
             oaiForensicsPhasePolicy,
             oaiForensicsCapabilityMatrix,
           );
@@ -7781,11 +7806,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             maxOutputTokens: clampMaxOutputTokensForSafety(
               Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
             ),
-            ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
-            ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+            ...oaiSamplingOptions,
             ...(sdkTools ? { tools: sdkTools } : {}),
             ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-            ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {}),
+            ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {}),
           });
           const fallbackUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
           lastOpenAiForensics = finalizeRequestForensics(session, reqId, fallbackForensics, fallbackUsage);
@@ -7877,7 +7901,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           currentMessages as Array<{ role: string; content: unknown }>,
           effectiveTools as unknown[],
           effectiveToolChoice,
-          adapterProviderOptions,
+          oaiProviderOptions,
           oaiForensicsPhasePolicy,
           oaiForensicsCapabilityMatrix,
         );
@@ -7887,10 +7911,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
           maxOutputTokens: clampMaxOutputTokensForSafety(
             Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
           ),
-          ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
-          ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+          ...oaiSamplingOptions,
           ...(sdkTools ? { tools: sdkTools } : {}),
-          ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {})
+          ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
+          ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {}),
         });
         const loopUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
         lastOpenAiForensics = finalizeRequestForensics(session, reqId, loopForensics, loopUsage);
@@ -8341,7 +8365,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     modelMessages as Array<{ role: string; content: unknown }>,
     effectiveTools as unknown[],
     effectiveToolChoice,
-    adapterProviderOptions,
+    oaiProviderOptions,
     oaiForensicsPhasePolicy,
     oaiForensicsCapabilityMatrix,
   );
@@ -8351,11 +8375,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     maxOutputTokens: clampMaxOutputTokensForSafety(
       Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
     ),
-    ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
-    ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
+    ...oaiSamplingOptions,
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-    ...(adapterProviderOptions ? { providerOptions: adapterProviderOptions as never } : {})
+    ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {})
   });
   reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
   const oaiHeartbeat = startSseHeartbeat({
@@ -10490,9 +10513,32 @@ app.post("/v1/messages", async (req, reply) => {
 
   claudeModelMessages = normalizeSystemMessageOrdering(claudeModelMessages as Array<{ role: string }>) as typeof claudeModelMessages;
 
+  const resolvedClaudeTierConfig = tierRegistry.getTierConfig(resolved.resolvedModelId);
+  const claudeTierSamplingDefaults = resolvedClaudeTierConfig?.samplingDefaults;
   const adapterClaudeProviderOptions = claudeAdapter.providerOptions?.();
-  const providerOptions = body.thinking
-    ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
+  const claudeEffectiveMinP = body.min_p ?? claudeTierSamplingDefaults?.min_p;
+  const claudeEffectiveRepetitionPenalty =
+    body.repetition_penalty ?? claudeTierSamplingDefaults?.repetition_penalty;
+  const claudeEffectiveEnableThinking =
+    body.enable_thinking ?? claudeTierSamplingDefaults?.enable_thinking;
+  const claudeProviderOpenAiOverrides = {
+    ...(body.thinking !== undefined ? { thinking: body.thinking } : {}),
+    ...(claudeEffectiveMinP !== undefined ? { min_p: claudeEffectiveMinP } : {}),
+    ...(claudeEffectiveRepetitionPenalty !== undefined
+      ? { repetition_penalty: claudeEffectiveRepetitionPenalty }
+      : {}),
+    ...(claudeEffectiveEnableThinking !== undefined
+      ? { enable_thinking: claudeEffectiveEnableThinking }
+      : {}),
+  };
+  const providerOptions = Object.keys(claudeProviderOpenAiOverrides).length
+    ? {
+        ...(adapterClaudeProviderOptions ?? {}),
+        openai: {
+          ...((adapterClaudeProviderOptions?.openai ?? {}) as Record<string, unknown>),
+          ...claudeProviderOpenAiOverrides,
+        },
+      }
     : adapterClaudeProviderOptions;
   const claudeBasePhasePolicyEnabled = config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && claudePhasePolicyEnabledByMatrix;
   const claudeForcePhasePolicy =
@@ -10640,8 +10686,21 @@ app.post("/v1/messages", async (req, reply) => {
     );
   }
   const claudeAdapterSampling = claudeAdapter.defaultSamplingParams?.();
-  const claudeEffectiveTemp = body.temperature ?? claudeAdapterSampling?.temperature;
-  const claudeEffectiveTopP = claudeAdapterSampling?.top_p;
+  const claudeEffectiveTemp =
+    body.temperature ?? claudeTierSamplingDefaults?.temperature ?? claudeAdapterSampling?.temperature;
+  const claudeEffectiveTopP =
+    body.top_p ?? claudeTierSamplingDefaults?.top_p ?? claudeAdapterSampling?.top_p;
+  const claudeEffectiveTopK = body.top_k ?? claudeTierSamplingDefaults?.top_k;
+  const claudeEffectivePresencePenalty =
+    body.presence_penalty ?? claudeTierSamplingDefaults?.presence_penalty;
+  const claudeSamplingOptions = {
+    ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
+    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+    ...(claudeEffectiveTopK !== undefined ? { topK: Math.max(0, Math.trunc(claudeEffectiveTopK)) } : {}),
+    ...(claudeEffectivePresencePenalty !== undefined
+      ? { presencePenalty: claudeEffectivePresencePenalty }
+      : {}),
+  };
   const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
   const claudeForceNonStreamKickoff =
     !!body.stream && claudePhasePolicy.active && claudePhasePolicy.toolChoice === "required" && !!claudePhasePolicy.enforceNonStreaming;
@@ -10726,8 +10785,7 @@ app.post("/v1/messages", async (req, reply) => {
           model: resolved.model as never,
           messages: currentMessages,
           maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-          ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+          ...claudeSamplingOptions,
           ...(sdkStop ? { stopSequences: sdkStop } : {}),
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
@@ -10755,8 +10813,7 @@ app.post("/v1/messages", async (req, reply) => {
               model: resolved.model as never,
               messages: currentMessages,
               maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-              ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-              ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+              ...claudeSamplingOptions,
               ...(sdkStop ? { stopSequences: sdkStop } : {}),
               ...(sdkTools ? { tools: sdkTools } : {}),
               ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
@@ -10783,8 +10840,7 @@ app.post("/v1/messages", async (req, reply) => {
                 model: resolved.model as never,
                 messages: currentMessages,
                 maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-                ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-                ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+                ...claudeSamplingOptions,
                 ...(sdkStop ? { stopSequences: sdkStop } : {}),
                 ...(sdkTools ? { tools: sdkTools } : {}),
                 ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
@@ -10864,8 +10920,7 @@ app.post("/v1/messages", async (req, reply) => {
         model: resolved.model as never,
         messages: currentMessages,
         maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+        ...claudeSamplingOptions,
         ...(sdkStop ? { stopSequences: sdkStop } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
@@ -11041,8 +11096,7 @@ app.post("/v1/messages", async (req, reply) => {
       model: resolved.model as never,
       messages: claudeModelMessages,
       maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-      ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+      ...claudeSamplingOptions,
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
@@ -11700,8 +11754,7 @@ app.post("/v1/messages", async (req, reply) => {
         model: resolved.model as never,
         messages: currentMessages,
         maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+        ...claudeSamplingOptions,
         ...(sdkStop ? { stopSequences: sdkStop } : {}),
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
@@ -11745,8 +11798,7 @@ app.post("/v1/messages", async (req, reply) => {
             model: resolved.model as never,
             messages: currentMessages,
             maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-            ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-            ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+            ...claudeSamplingOptions,
             ...(sdkStop ? { stopSequences: sdkStop } : {}),
             ...(sdkTools ? { tools: sdkTools } : {}),
             ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
@@ -11788,8 +11840,7 @@ app.post("/v1/messages", async (req, reply) => {
               model: resolved.model as never,
               messages: currentMessages,
               maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-              ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-              ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
+              ...claudeSamplingOptions,
               ...(sdkStop ? { stopSequences: sdkStop } : {}),
               ...(sdkTools ? { tools: sdkTools } : {}),
               ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),

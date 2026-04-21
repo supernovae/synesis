@@ -166,4 +166,42 @@ describe("fetchTierConfigs", () => {
     expect(tiers[0].outputPerM).toBe(5.0);
     expect(tiers[0].cachedPerM).toBe(0.1);
   });
+
+  it("exposes registry sampling defaults for tier fallback behavior", async () => {
+    stubFetch(
+      {
+        roles: [
+          {
+            role: "coder-core",
+            assigned: true,
+            provider: "openrouter",
+            model: "qwen/qwen3.6-35b-a3b",
+            endpoint: "",
+            litellm_params: {
+              temperature: 0.6,
+              top_p: 0.95,
+              top_k: 20,
+              min_p: 0.0,
+              presence_penalty: 0.0,
+              repetition_penalty: 1.0,
+              enable_thinking: true,
+            },
+          },
+        ],
+      },
+      { costs: [] },
+    );
+
+    const tiers = await fetchTierConfigs(makeConfig());
+    expect(tiers).toHaveLength(1);
+    expect(tiers[0].samplingDefaults).toEqual({
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 20,
+      min_p: 0,
+      presence_penalty: 0,
+      repetition_penalty: 1,
+      enable_thinking: true,
+    });
+  });
 });

@@ -14,6 +14,12 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   messages: z.array(ChatMessageSchema),
   stream: z.boolean().optional().default(false),
   temperature: z.number().optional(),
+  top_p: z.number().optional(),
+  top_k: z.number().optional(),
+  min_p: z.number().optional(),
+  presence_penalty: z.number().optional(),
+  repetition_penalty: z.number().optional(),
+  enable_thinking: z.boolean().optional(),
   max_tokens: z.number().optional(),
   max_completion_tokens: z.number().optional(),
   stream_options: z.object({
@@ -41,6 +47,11 @@ export const ClaudeMessagesRequestSchema = z.object({
   thinking: z.any().optional(),
   temperature: z.number().optional(),
   top_p: z.number().optional(),
+  top_k: z.number().optional(),
+  min_p: z.number().optional(),
+  presence_penalty: z.number().optional(),
+  repetition_penalty: z.number().optional(),
+  enable_thinking: z.boolean().optional(),
   stop_sequences: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional()
 }).passthrough();

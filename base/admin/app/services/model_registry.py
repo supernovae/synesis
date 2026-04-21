@@ -149,6 +149,39 @@ def _resolve_role_endpoint(
     return catalog_eff or (endpoint_field or "").strip() or str(lp_stored.get("api_base") or "").strip()
 
 
+def _coerce_optional_float(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_optional_int(raw: Any) -> int | None:
+    if raw is None:
+        return None
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_optional_bool(raw: Any) -> bool | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    s = str(raw).strip().lower()
+    if s in {"true", "1", "yes", "on"}:
+        return True
+    if s in {"false", "0", "no", "off"}:
+        return False
+    return None
+
+
 def resolve_deployment_routing_for_parts(
     *,
     provider: str,
@@ -159,6 +192,12 @@ def resolve_deployment_routing_for_parts(
     maps: ProviderGovernanceMaps,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repetition_penalty: float | None = None,
+    enable_thinking: bool | None = None,
 ) -> ResolvedDeploymentRouting:
     """Merge catalog + governance + assignment fields into LiteLLM params (single reconciliation path)."""
     p = (provider or "").strip()
@@ -166,6 +205,18 @@ def resolve_deployment_routing_for_parts(
     lp_stored = dict(stored_litellm_params or {})
     mt = int(max_tokens if max_tokens is not None else lp_stored.get("max_tokens") or 8192)
     temp = float(temperature if temperature is not None else lp_stored.get("temperature") or 0.3)
+    eff_top_p = _coerce_optional_float(top_p if top_p is not None else lp_stored.get("top_p"))
+    eff_top_k = _coerce_optional_int(top_k if top_k is not None else lp_stored.get("top_k"))
+    eff_min_p = _coerce_optional_float(min_p if min_p is not None else lp_stored.get("min_p"))
+    eff_presence_penalty = _coerce_optional_float(
+        presence_penalty if presence_penalty is not None else lp_stored.get("presence_penalty")
+    )
+    eff_repetition_penalty = _coerce_optional_float(
+        repetition_penalty if repetition_penalty is not None else lp_stored.get("repetition_penalty")
+    )
+    eff_enable_thinking = _coerce_optional_bool(
+        enable_thinking if enable_thinking is not None else lp_stored.get("enable_thinking")
+    )
     resolved_endpoint = _resolve_role_endpoint(
         provider=p,
         endpoint_field=endpoint_field,
@@ -182,6 +233,12 @@ def resolve_deployment_routing_for_parts(
         api_key_env=effective_api_key_env,
         max_tokens=mt,
         temperature=temp,
+        top_p=eff_top_p,
+        top_k=eff_top_k,
+        min_p=eff_min_p,
+        presence_penalty=eff_presence_penalty,
+        repetition_penalty=eff_repetition_penalty,
+        enable_thinking=eff_enable_thinking,
         litellm_prefix_override=prefix_ov,
     )
     return ResolvedDeploymentRouting(lp, effective_api_key_env, resolved_endpoint)
@@ -391,6 +448,12 @@ async def assign_role(
     api_key_env: str = "",
     max_tokens: int = 8192,
     temperature: float = 0.3,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repetition_penalty: float | None = None,
+    enable_thinking: bool | None = None,
     fallbacks: list[str] | None = None,
     adapter_hint: str | None = None,
     description: str = "",
@@ -401,10 +464,10 @@ async def assign_role(
     Deactivates the previous assignment (writing history), then creates or
     updates the active deployment for this role.  Returns the new assignment dict.
 
-    NOTE: Coder roles (coder-pulse, coder-core, coder-horizon) should use
-    temperature=1.0 per the Qwen3-Coder-Next model card.  Yarn's adapter
-    layer enforces this as a fallback, but setting it here keeps the admin
-    registry honest.
+    NOTE: Role defaults are persisted in ``litellm_params`` and can include
+    provider-specific generation controls (temperature/top_p/top_k/min_p/
+    presence_penalty/repetition_penalty/enable_thinking). Runtime request
+    payloads may override these at call-time.
     """
     if role not in KNOWN_ROLES:
         raise ValueError(f"Unknown role: {role}")
@@ -421,6 +484,12 @@ async def assign_role(
         maps=maps,
         max_tokens=max_tokens,
         temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        min_p=min_p,
+        presence_penalty=presence_penalty,
+        repetition_penalty=repetition_penalty,
+        enable_thinking=enable_thinking,
     )
     lp = routing.litellm_params
     effective_api_key_env = routing.effective_api_key_env

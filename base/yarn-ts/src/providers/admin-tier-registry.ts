@@ -72,6 +72,7 @@ export interface TierConfig {
   cachedPerM: number | null;
   pricingSource: PricingSource;
   adapterHint?: string | null;
+  samplingDefaults?: ModelSamplingDefaults;
 }
 
 export interface RoleAssignmentConfig {
@@ -82,12 +83,23 @@ export interface RoleAssignmentConfig {
   apiKey: string;
   provider: string;
   adapterHint?: string | null;
+  samplingDefaults?: ModelSamplingDefaults;
 }
 
 export interface TierRegistrySnapshot {
   tiers: TierConfig[];
   roleAssignments: RoleAssignmentConfig[];
   promptSnapshot?: PromptSnapshot;
+}
+
+export interface ModelSamplingDefaults {
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  min_p?: number;
+  presence_penalty?: number;
+  repetition_penalty?: number;
+  enable_thinking?: boolean;
 }
 
 export type PromptProfile = z.infer<typeof PromptProfileSchema>;
@@ -114,6 +126,44 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   dashscope: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
   "dashscope-us": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
 };
+
+function asFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1 ? true : value === 0 ? false : undefined;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function parseSamplingDefaults(lp: Record<string, unknown>): ModelSamplingDefaults | undefined {
+  const out: ModelSamplingDefaults = {};
+  const temperature = asFiniteNumber(lp.temperature);
+  if (temperature !== undefined) out.temperature = temperature;
+  const topP = asFiniteNumber(lp.top_p);
+  if (topP !== undefined) out.top_p = topP;
+  const topK = asFiniteNumber(lp.top_k);
+  if (topK !== undefined) out.top_k = topK;
+  const minP = asFiniteNumber(lp.min_p);
+  if (minP !== undefined) out.min_p = minP;
+  const presencePenalty = asFiniteNumber(lp.presence_penalty);
+  if (presencePenalty !== undefined) out.presence_penalty = presencePenalty;
+  const repetitionPenalty = asFiniteNumber(lp.repetition_penalty);
+  if (repetitionPenalty !== undefined) out.repetition_penalty = repetitionPenalty;
+  const enableThinking = asBoolean(lp.enable_thinking);
+  if (enableThinking !== undefined) out.enable_thinking = enableThinking;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 export function resolveTierRates(
   registryRates: PricingRates | undefined,
@@ -173,7 +223,8 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       continue;
     }
     const provider = (row.provider ?? "").toLowerCase();
-    const lp = row.litellm_params ?? {};
+    const lp = (row.litellm_params ?? {}) as Record<string, unknown>;
+    const samplingDefaults = parseSamplingDefaults(lp);
     const endpoint = (row.endpoint ?? "").trim() || String(lp.api_base ?? "").trim() || PROVIDER_BASE_URLS[provider] || config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL;
     const keyEnv = (row.api_key_env ?? "").trim();
     const apiKey = (keyEnv ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
@@ -185,6 +236,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       apiKey,
       provider,
       adapterHint: row.adapter_hint ?? null,
+      samplingDefaults,
     });
     const tierId = ROLE_TO_TIER[row.role];
     if (!tierId) {
@@ -213,6 +265,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       cachedPerM: rates.cached_input_per_million,
       pricingSource,
       adapterHint: row.adapter_hint ?? null,
+      samplingDefaults,
     });
   }
   return { tiers: out, roleAssignments, promptSnapshot };
