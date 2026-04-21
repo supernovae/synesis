@@ -154,7 +154,7 @@ describe("ContentAddressedDedup", () => {
     expect(dedupCount).toBe(0);
   });
 
-  it("dedup bypasses plan file exemption when extractFilePath picks wrong path from content", () => {
+  it("plain-text reads still replay full body on dedup (wrong path from content is separate issue)", () => {
     const dedup = new ContentAddressedDedup();
     const planContent = "# My Plan\n\npath: main.go\n\n## Tasks\n- implement feature\n" + "x".repeat(300);
     const msgs = [
@@ -164,12 +164,11 @@ describe("ContentAddressedDedup", () => {
       { role: "tool", name: "read_file", content: planContent },
     ];
     const { dedupCount, messages } = dedup.processMessages(msgs as never);
-    // Without tool_call args, extractFilePath picks "main.go" from content.
-    // This is the known bug: isPlanFile("main.go") is false, so dedup fires.
-    // With the tool_call_id resolution fix, providing the real path prevents this.
+    // Without tool_call args, extractFilePath picks "main.go" from content — isPlanFile is false.
+    // Dedup still runs, but we cache the raw tool body (hashSource) so replay is not meta-only.
     expect(dedupCount).toBe(1);
-    expect(messages[3].content).toContain('"status":"needs_targeted_read"');
-    expect(messages[3].content).toContain('"reason":"meta_only_read_replay_unavailable"');
+    expect(String(messages[3].content)).toContain('"status":"ok/replayed_snapshot"');
+    expect(String(messages[3].content)).toContain("# My Plan");
   });
 
   it("resolves file path from tool_call arguments over content extraction", () => {

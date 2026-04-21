@@ -11,7 +11,8 @@
  * Strategy:
  * 1. Hash each file read result by path + content
  * 2. First occurrence: pass through unchanged, record hash + turn index
- * 3. Subsequent identical reads: replace with `<FILE_UNCHANGED path="..." hash="..." first_seen_turn=N />`
+ * 3. Subsequent identical reads: replace with a compact replay envelope that still carries
+ *    the same bytes we hashed (see cached replay), or a pivot stub after many repeats.
  * 4. Changed reads (same path, different content): pass through, update hash
  */
 
@@ -119,7 +120,7 @@ export class ContentAddressedDedup {
           snapshotId: parsed.snapshotId ?? existing.snapshotId,
           contentHash: parsed.contentHash ?? existing.contentHash ?? hash,
           source: parsed.source ?? existing.source,
-          cachedContent: parsed.content ?? existing.cachedContent,
+          cachedContent: hashSource,
           requestedRange: parsed.requestedRange ?? existing.requestedRange,
           returnedRange: parsed.returnedRange ?? existing.returnedRange,
           completeness: parsed.completeness ?? existing.completeness,
@@ -192,7 +193,7 @@ export class ContentAddressedDedup {
       snapshotId: parsed.snapshotId,
       contentHash: parsed.contentHash ?? hash,
       source: parsed.source,
-      cachedContent: parsed.content ?? undefined,
+      cachedContent: hashSource,
       requestedRange: parsed.requestedRange,
       returnedRange: parsed.returnedRange,
       completeness: parsed.completeness ?? inferCompleteness(parsed.requestedRange, parsed.returnedRange),
