@@ -40,6 +40,7 @@ export interface ToolResultReductionStats {
   reducerFailures: number;
   compactionFailures: number;
   guidedTruncationCount: number;
+  guidedTrimArtifactsStored: number;
   taskPrunedCount: number;
   taskPrunedLinesKept: number;
   taskPrunedLinesDropped: number;
@@ -99,6 +100,7 @@ export class ToolResultReductionService {
     reducerFailures: 0,
     compactionFailures: 0,
     guidedTruncationCount: 0,
+    guidedTrimArtifactsStored: 0,
     taskPrunedCount: 0,
     taskPrunedLinesKept: 0,
     taskPrunedLinesDropped: 0,
@@ -885,17 +887,29 @@ export class ToolResultReductionService {
     const preview = oversizedByLines
       ? lines.slice(0, previewLines).join("\n")
       : raw.slice(0, Math.min(raw.length, 2400));
-    return [
+    let artifactLine = "";
+    if (this.config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ARTIFACT_RETENTION_ENABLED !== false) {
+      try {
+        const id = this.artifactStore.putToolResult(raw).id;
+        this.stats.guidedTrimArtifactsStored += 1;
+        artifactLine = `artifact_handle=${id} recovery=synesis_artifact_retrieve`;
+      } catch {
+        artifactLine = "";
+      }
+    }
+    const linesOut = [
       `<SYNESIS_TOOL_GUARDRAIL status="truncated" code="tool_output_truncated_guided" version="1">`,
       `tool=${toolName ?? "unknown"}`,
       `lines_total=${lines.length}`,
       `chars_total=${raw.length}`,
       `lines_shown=${previewLines}`,
       `next_action=use_more_specific_path_or_pattern`,
-      `[Truncated] Tool output exceeded guardrail thresholds. Showing a bounded preview.`,
+      ...(artifactLine ? [artifactLine] : []),
+      `[Truncated] Tool output exceeded guardrail thresholds. Showing a bounded preview; full bytes stored for retrieval when artifact_handle is present.`,
       preview,
       "</SYNESIS_TOOL_GUARDRAIL>",
-    ].join("\n");
+    ];
+    return linesOut.join("\n");
   }
 
   private applyTaskConditionedPruning(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ArtifactStore } from "../src/state/artifact-store.js";
 import { TranscriptPruningService } from "../src/reduction/transcript-pruning.js";
 
 function msg(
@@ -126,6 +127,31 @@ describe("TranscriptPruningService", () => {
   });
 
   describe("stale tool result eviction", () => {
+    it("embeds artifact_handle when ArtifactStore is wired (H2)", () => {
+      const store = new ArtifactStore({ maxPayloadBytes: 1_000_000, maxCount: 100 });
+      const svc = new TranscriptPruningService(
+        {
+          ...defaultConfig,
+          keepTurns: 1,
+          budgetChars: 10,
+          stubMaxChars: 50,
+          artifactRetentionEnabled: true,
+        },
+        store,
+      );
+      const bigOutput = "x".repeat(500);
+      const messages = [
+        msg("user", "run test"),
+        msg("assistant", "running"),
+        msg("tool", bigOutput, "run_command"),
+        msg("user", "done"),
+      ];
+      const result = svc.prune(messages);
+      expect(result.messages[2].content).toContain("TOOL_RESULT_PRUNED");
+      expect(String(result.messages[2].content)).toMatch(/artifact_handle="art_/);
+      expect(result.invocationDelta.artifactsStored).toBeGreaterThan(0);
+    });
+
     it("evicts large tool results from old turns", () => {
       const svc = new TranscriptPruningService({
         ...defaultConfig,

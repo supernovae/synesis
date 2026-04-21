@@ -1,4 +1,5 @@
 import { normalizeCommandOutputForComparison } from "./output-normalization.js";
+import type { ArtifactStore } from "../state/artifact-store.js";
 
 /**
  * Transcript Pruning Service
@@ -40,6 +41,18 @@ export interface TranscriptPruningConfig {
   stubMaxChars: number;
   /** Max chars for a condensed old assistant message. */
   assistantCondenseChars: number;
+  /** Store pruned/superseded bytes in ArtifactStore when a store is configured (see README invariants H2). */
+  artifactRetentionEnabled?: boolean;
+}
+
+/** Per-request delta for harness telemetry. */
+export interface TranscriptPruningInvocationDelta {
+  commandsDeduped: number;
+  fileDeduped: number;
+  toolResultsEvicted: number;
+  assistantCondensed: number;
+  nearDuplicatesCollapsed: number;
+  artifactsStored: number;
 }
 
 export interface TranscriptPruningStats {
@@ -50,6 +63,7 @@ export interface TranscriptPruningStats {
   toolResultsEvicted: number;
   assistantCondensed: number;
   nearDuplicatesCollapsed: number;
+  artifactsStored: number;
   charsBefore: number;
   charsAfter: number;
   totalCharsSaved: number;
@@ -85,12 +99,32 @@ export class TranscriptPruningService {
     toolResultsEvicted: 0,
     assistantCondensed: 0,
     nearDuplicatesCollapsed: 0,
+    artifactsStored: 0,
     charsBefore: 0,
     charsAfter: 0,
     totalCharsSaved: 0,
   };
 
-  constructor(private readonly config: TranscriptPruningConfig) {}
+  constructor(
+    private readonly config: TranscriptPruningConfig,
+    private readonly artifactStore?: ArtifactStore | null,
+  ) {}
+
+  private artifactRetentionOn(): boolean {
+    return Boolean(this.artifactStore && this.config.artifactRetentionEnabled !== false);
+  }
+
+  /** Store raw tool bytes and return artifact id for stub embedding (H2). */
+  private retainPayload(raw: string): string | undefined {
+    if (!this.artifactRetentionOn() || raw.length === 0) return undefined;
+    try {
+      const id = this.artifactStore!.putToolResult(raw).id;
+      this.stats.artifactsStored += 1;
+      return id;
+    } catch {
+      return undefined;
+    }
+  }
 
   /**
    * Compute effective budget, optionally scaled down for small projects.
@@ -104,10 +138,22 @@ export class TranscriptPruningService {
     return Math.min(this.config.budgetChars, Math.max(scaled, 60_000));
   }
 
-  prune(messages: MessageLike[], projectSizeChars?: number): { messages: MessageLike[]; pruned: boolean } {
+  prune(
+    messages: MessageLike[],
+    projectSizeChars?: number,
+  ): { messages: MessageLike[]; pruned: boolean; invocationDelta: TranscriptPruningInvocationDelta } {
+    const delta0 = this.captureDeltaSnapshot();
     this.stats.invocations += 1;
+    const zeroDelta = (): TranscriptPruningInvocationDelta => ({
+      commandsDeduped: 0,
+      fileDeduped: 0,
+      toolResultsEvicted: 0,
+      assistantCondensed: 0,
+      nearDuplicatesCollapsed: 0,
+      artifactsStored: 0,
+    });
     if (!this.config.enabled) {
-      return { messages, pruned: false };
+      return { messages, pruned: false, invocationDelta: zeroDelta() };
     }
 
     const budget = this.effectiveBudget(projectSizeChars);
@@ -120,7 +166,7 @@ export class TranscriptPruningService {
     if (totalChars <= budget) {
       this.stats.skippedUnderBudget += 1;
       this.stats.charsAfter += totalChars;
-      return { messages, pruned: false };
+      return { messages, pruned: false, invocationDelta: this.diffDelta(delta0) };
     }
 
     const keepFromIndex = this.computeKeepFromIndex(messages);
@@ -137,7 +183,29 @@ export class TranscriptPruningService {
     );
     this.stats.charsAfter += afterChars;
     this.stats.totalCharsSaved += Math.max(0, totalChars - afterChars);
-    return { messages: out, pruned: totalChars !== afterChars };
+    return { messages: out, pruned: totalChars !== afterChars, invocationDelta: this.diffDelta(delta0) };
+  }
+
+  private captureDeltaSnapshot(): TranscriptPruningInvocationDelta {
+    return {
+      commandsDeduped: this.stats.commandsDeduped,
+      fileDeduped: this.stats.fileDeduped,
+      toolResultsEvicted: this.stats.toolResultsEvicted,
+      assistantCondensed: this.stats.assistantCondensed,
+      nearDuplicatesCollapsed: this.stats.nearDuplicatesCollapsed,
+      artifactsStored: this.stats.artifactsStored,
+    };
+  }
+
+  private diffDelta(before: TranscriptPruningInvocationDelta): TranscriptPruningInvocationDelta {
+    return {
+      commandsDeduped: this.stats.commandsDeduped - before.commandsDeduped,
+      fileDeduped: this.stats.fileDeduped - before.fileDeduped,
+      toolResultsEvicted: this.stats.toolResultsEvicted - before.toolResultsEvicted,
+      assistantCondensed: this.stats.assistantCondensed - before.assistantCondensed,
+      nearDuplicatesCollapsed: this.stats.nearDuplicatesCollapsed - before.nearDuplicatesCollapsed,
+      artifactsStored: this.stats.artifactsStored - before.artifactsStored,
+    };
   }
 
   /**
@@ -191,11 +259,17 @@ export class TranscriptPruningService {
       if (!cmd) return m;
       const latest = latestByCommand.get(cmd);
       if (latest === undefined || latest === i) return m;
+      const raw = contentString(m.content);
+      const handle = this.retainPayload(raw);
       this.stats.commandsDeduped += 1;
       const shortCmd = cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
+      const escCmd = escapeXmlAttr(shortCmd);
+      const handleAttr = handle
+        ? ` artifact_handle="${escapeXmlAttr(handle)}" recovery="synesis_artifact_retrieve"`
+        : "";
       return {
         ...m,
-        content: `<DUPLICATE_CMD_SUPERSEDED cmd="${shortCmd}" latest_at_msg=${latest} />`,
+        content: `<DUPLICATE_CMD_SUPERSEDED cmd="${escCmd}" latest_at_msg=${latest}${handleAttr} />`,
       };
     });
   }
@@ -239,10 +313,16 @@ export class TranscriptPruningService {
         if (currentContent.length < 200 || currentContent !== latestContent) return m;
       }
 
+      const raw = contentString(m.content);
+      const handle = this.retainPayload(raw);
       this.stats.fileDeduped += 1;
+      const pathEsc = escapeXmlAttr(fp);
+      const handleAttr = handle
+        ? ` artifact_handle="${escapeXmlAttr(handle)}" recovery="synesis_artifact_retrieve"`
+        : "";
       return {
         ...m,
-        content: `<FILE_SUPERSEDED path="${fp}" latest_at_msg=${latest} />`,
+        content: `<FILE_SUPERSEDED path="${pathEsc}" latest_at_msg=${latest}${handleAttr} />`,
       };
     });
   }
@@ -263,12 +343,21 @@ export class TranscriptPruningService {
       if (raw.startsWith("<FILE_SUPERSEDED") || raw.startsWith("<DUPLICATE_CMD_SUPERSEDED")) return m;
       const evictPath = isFileOp(m.name) ? extractFilePath(m.content) : null;
       if (evictPath && isPlanFilePath(evictPath)) return m;
+      const handle = this.retainPayload(raw);
       this.stats.toolResultsEvicted += 1;
       const lines = raw.split("\n").length;
       const preview = raw.slice(0, 120).replace(/\n/g, " ");
+      const toolEsc = escapeXmlAttr(m.name ?? "unknown");
+      const handleAttr = handle
+        ? ` artifact_handle="${escapeXmlAttr(handle)}" recovery="synesis_artifact_retrieve"`
+        : "";
       return {
         ...m,
-        content: `<TOOL_RESULT_PRUNED tool="${m.name ?? "unknown"}" chars="${raw.length}" lines="${lines}">\n${preview}...\n</TOOL_RESULT_PRUNED>`,
+        content:
+          `<TOOL_RESULT_PRUNED tool="${toolEsc}" chars="${raw.length}" lines="${lines}"${handleAttr}>\n`
+          + `${preview}...\n`
+          + "Recover full output via synesis_artifact_retrieve with artifact_handle when present.\n"
+          + "</TOOL_RESULT_PRUNED>",
       };
     });
   }
@@ -331,10 +420,15 @@ export class TranscriptPruningService {
       const fp = contentFingerprint(raw);
       const latest = fingerprintToLatest.get(fp);
       if (latest === undefined || latest === i) return m;
+      const handle = this.retainPayload(raw);
       this.stats.nearDuplicatesCollapsed += 1;
+      const toolEsc = escapeXmlAttr(m.name ?? "unknown");
+      const handleAttr = handle
+        ? ` artifact_handle="${escapeXmlAttr(handle)}" recovery="synesis_artifact_retrieve"`
+        : "";
       return {
         ...m,
-        content: `<NEAR_DUPLICATE_OUTPUT tool="${m.name ?? "unknown"}" chars="${raw.length}" same_as_msg=${latest} />`,
+        content: `<NEAR_DUPLICATE_OUTPUT tool="${toolEsc}" chars="${raw.length}" same_as_msg=${latest}${handleAttr} />`,
       };
     });
   }
@@ -432,4 +526,11 @@ function contentFingerprint(raw: string): string {
     sampled.push(lines[i].trim().replace(/\d+/g, "#").replace(/\s+/g, " "));
   }
   return sampled.join("\n");
+}
+
+function escapeXmlAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
 }

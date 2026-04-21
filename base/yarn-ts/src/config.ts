@@ -296,6 +296,22 @@ const EnvSchema = z.object({
   SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS: z.coerce.number().default(60_000),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS: z.coerce.number().default(400),
   SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS: z.coerce.number().default(2000),
+  /** When true, store superseded/pruned tool bytes in ArtifactStore and embed artifact_handle on stubs (H2). */
+  SYNESIS_YARN_TRANSCRIPT_PRUNE_ARTIFACT_RETENTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /**
+   * Max UTF-8 bytes per tool message body after JSON parse. 0 = disabled.
+   * Replaces oversized tool results before reducer to avoid OOM on huge logs.
+   */
+  SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES: z.coerce.number().default(0),
+
+  // Harness telemetry — structured logs for lossy ops (prune, trim, ingress cap, interventions)
+  SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
   // Recall engine — confidence-based bypass / enrichment
   SYNESIS_YARN_RECALL_BYPASS_ENABLED: z

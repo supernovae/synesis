@@ -80,6 +80,7 @@ import { runEvidencePrefetch, formatEvidenceBlock, getEvidencePrefetchStats, run
 import { initPatternFeedback, getPatternFeedbackStats } from "./evidence/pattern-feedback.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { TranscriptPruningService } from "./reduction/transcript-pruning.js";
+import { applyIngressCapToToolMessages } from "./reduction/ingress-cap.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
 import { FileSnapshotRegistry, parseReadSnapshotEnvelope } from "./reduction/file-snapshot-registry.js";
 import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normalizer.js";
@@ -2522,14 +2523,18 @@ function toClaudeServerWebSearchEvent(
 
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
-const transcriptPruning = new TranscriptPruningService({
-  enabled: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED,
-  keepTurns: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS,
-  keepToolResults: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS,
-  budgetChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS,
-  stubMaxChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS,
-  assistantCondenseChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS,
-});
+const transcriptPruning = new TranscriptPruningService(
+  {
+    enabled: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED,
+    keepTurns: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS,
+    keepToolResults: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS,
+    budgetChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS,
+    stubMaxChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS,
+    assistantCondenseChars: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS,
+    artifactRetentionEnabled: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ARTIFACT_RETENTION_ENABLED,
+  },
+  artifactStore,
+);
 const contentDedupBySession = new Map<string, ContentAddressedDedup>();
 const fileSnapshotBySession = new Map<string, FileSnapshotRegistry>();
 const structuralIndexBySession = new Map<string, IncrementalStructuralIndex>();
@@ -5830,6 +5835,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiOptLedger = new OptimizationLedger();
   oaiOptLedger.recordOriginal(request.messages as Array<{ content?: unknown }>);
 
+  if (config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES > 0 && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const ingress = applyIngressCapToToolMessages(
+      request.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES,
+    );
+    if (ingress.cappedToolResults > 0) {
+      request.messages = ingress.messages as never;
+      if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+        app.log.info(
+          {
+            reqId: oaiTraceReqId,
+            capped_tool_results: ingress.cappedToolResults,
+            bytes_reclaimed: ingress.bytesReclaimed,
+            max_bytes: config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES,
+          },
+          "yarn_harness_ingress_cap",
+        );
+      }
+    }
+  }
+
   // Sorted tools for cache stability
   if (config.SYNESIS_YARN_SORTED_TOOLS_ENABLED && request.tools) {
     request.tools = sortToolSchemas(request.tools) as never;
@@ -5859,6 +5885,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
           toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue, oaiPeekWatermark),
         );
   const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
+  if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED && reducedOpenAI.reducedCount > 0) {
+    app.log.info(
+      { reqId: oaiTraceReqId, tool_result_reduced: reducedOpenAI.reducedCount },
+      "yarn_harness_tool_result_reduction",
+    );
+  }
   const normalizedOpenAI = await validationNormalization.normalizeMessagesAsync(
     reducedOpenAI.messages as never,
     runValidationTierCFallback,
@@ -5869,6 +5901,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
     if (prunedOpenAI.pruned) {
       normalizedOpenAI.messages = prunedOpenAI.messages as never;
+    }
+    if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+      const d = prunedOpenAI.invocationDelta;
+      if (
+        prunedOpenAI.pruned
+        || d.commandsDeduped > 0
+        || d.fileDeduped > 0
+        || d.toolResultsEvicted > 0
+        || d.assistantCondensed > 0
+        || d.nearDuplicatesCollapsed > 0
+        || d.artifactsStored > 0
+      ) {
+        app.log.info(
+          { reqId: oaiTraceReqId, pruned: prunedOpenAI.pruned, transcript_prune: d },
+          "yarn_harness_transcript_prune",
+        );
+      }
     }
   }
   const oaiTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
@@ -7251,10 +7300,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   // Adapter-specific early pivot and same-tool dampening (fires after generic governance).
-  // Skip when the execution governor already injected a recovery block — stacking both
-  // creates compound noise that confuses the model with overlapping guidance.
-  const oaiGovernorAlreadyIntervened = oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED;
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !policyPrecheck.pivotPrompt && !oaiGovernorAlreadyIntervened && adapter.family === "qwen3-coder") {
+  // Skip when policy pivot, edit-miss recovery, forced read, or governor soft-fail already applied (H4).
+  const oaiGovernanceRecoveryActive = Boolean(
+    policyPrecheck.pivotPrompt
+    || oaiEditMissGuard?.active
+    || oaiForceReadRecovery
+    || (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+  );
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapter.family === "qwen3-coder" && oaiGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+    app.log.info(
+      {
+        reqId: oaiTraceReqId,
+        policy_pivot: Boolean(policyPrecheck.pivotPrompt),
+        edit_miss_guard: Boolean(oaiEditMissGuard?.active),
+        force_read_recovery: oaiForceReadRecovery,
+        governor_soft_fail_pause: Boolean(oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+      },
+      "yarn_harness_adapter_pivot_skipped",
+    );
+  }
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !oaiGovernanceRecoveryActive && adapter.family === "qwen3-coder") {
     const oaiRecentCalls = oaiRecentCallsForSteering;
     const oaiRecentAssistantText = extractRecentAssistantText(
       normalizedRequest.messages as Array<{ role: string; content: unknown }>,
@@ -8673,7 +8738,27 @@ app.post("/v1/messages", async (req, reply) => {
   // Enforce Vercel tool protocol invariants (assistant tool_call -> tool_result adjacency/order)
   // on Claude-converted histories to prevent resume-time MissingToolResultsError class failures.
   const sanitizedOpenAIMessages = sanitizeToolCalls(rawOpenAIMessages as never);
-  const openAIMessages = claudeSystemMsg ? [claudeSystemMsg, ...sanitizedOpenAIMessages] : sanitizedOpenAIMessages;
+  let openAIMessages = claudeSystemMsg ? [claudeSystemMsg, ...sanitizedOpenAIMessages] : sanitizedOpenAIMessages;
+  if (config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES > 0 && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const claudeIngress = applyIngressCapToToolMessages(
+      openAIMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES,
+    );
+    if (claudeIngress.cappedToolResults > 0) {
+      openAIMessages = claudeIngress.messages as typeof openAIMessages;
+      if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+        app.log.info(
+          {
+            reqId: traceReqId,
+            capped_tool_results: claudeIngress.cappedToolResults,
+            bytes_reclaimed: claudeIngress.bytesReclaimed,
+            max_bytes: config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES,
+          },
+          "yarn_harness_ingress_cap",
+        );
+      }
+    }
+  }
 
   // Tool-search policy: strip defer_loading / tool_reference in disable mode
   const toolSearchResult = applyToolSearchPolicy(
@@ -8694,6 +8779,12 @@ app.post("/v1/messages", async (req, reply) => {
           toolResultReduction.reduceMessages(openAIMessages as never, claudeTaskCue, claudePeekWatermark),
         );
   const claudeToolResultCount = (openAIMessages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
+  if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED && reducedClaude.reducedCount > 0) {
+    app.log.info(
+      { reqId: traceReqId, tool_result_reduced: reducedClaude.reducedCount },
+      "yarn_harness_tool_result_reduction",
+    );
+  }
   const normalizedFromClaude = await validationNormalization.normalizeMessagesAsync(
     reducedClaude.messages as never,
     runValidationTierCFallback,
@@ -8704,6 +8795,23 @@ app.post("/v1/messages", async (req, reply) => {
     );
     if (prunedClaude.pruned) {
       normalizedFromClaude.messages = prunedClaude.messages as never;
+    }
+    if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+      const cd = prunedClaude.invocationDelta;
+      if (
+        prunedClaude.pruned
+        || cd.commandsDeduped > 0
+        || cd.fileDeduped > 0
+        || cd.toolResultsEvicted > 0
+        || cd.assistantCondensed > 0
+        || cd.nearDuplicatesCollapsed > 0
+        || cd.artifactsStored > 0
+      ) {
+        app.log.info(
+          { reqId: traceReqId, pruned: prunedClaude.pruned, transcript_prune: cd },
+          "yarn_harness_transcript_prune",
+        );
+      }
     }
   }
   const claudeTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
@@ -9909,10 +10017,26 @@ app.post("/v1/messages", async (req, reply) => {
     ) as typeof claudeModelMessages;
   }
 
-  // Adapter-specific early pivot and same-tool dampening (Claude path).
-  // Skip when the execution governor already injected a recovery block.
-  const claudeGovernorAlreadyIntervened = claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED;
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudePolicyPrecheck.pivotPrompt && !claudeGovernorAlreadyIntervened && claudeAdapter.family === "qwen3-coder") {
+  // Adapter-specific early pivot and same-tool dampening (Claude path). Same H4 as OpenAI path.
+  const claudeGovernanceRecoveryActive = Boolean(
+    claudePolicyPrecheck.pivotPrompt
+    || claudeEditMissGuard?.active
+    || claudeForceReadRecovery
+    || (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+  );
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && claudeAdapter.family === "qwen3-coder" && claudeGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+    app.log.info(
+      {
+        reqId: traceReqId,
+        policy_pivot: Boolean(claudePolicyPrecheck.pivotPrompt),
+        edit_miss_guard: Boolean(claudeEditMissGuard?.active),
+        force_read_recovery: claudeForceReadRecovery,
+        governor_soft_fail_pause: Boolean(claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+      },
+      "yarn_harness_adapter_pivot_skipped",
+    );
+  }
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudeGovernanceRecoveryActive && claudeAdapter.family === "qwen3-coder") {
     const claudeRecentCalls = claudeRecentCallsForSteering;
     const claudeRecentAssistantText = extractRecentAssistantText(
       normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
