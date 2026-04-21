@@ -13,6 +13,8 @@ import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { Activity, Clock, DollarSign, AlertTriangle, Trash2, Building2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import type { TraceRecord } from "../../types";
+import { formatProviderCacheSummary, getProviderTokenRollup } from "./providerTokenRollup";
 
 function fmtDate(ts: number) {
   if (!ts) return "";
@@ -64,17 +66,21 @@ export default function TraceList() {
 
   const enriched = useMemo(
     () =>
-      traces.map((t) => ({
-        ...t,
-        _time: fmtDate(t.timestamp),
-        _duration: fmtDuration(t.total_duration_ms),
-        _cost: fmtCost(t.actual_cost_usd && t.actual_cost_usd > 0 ? t.actual_cost_usd : t.estimated_cost_usd),
-        _query: t.query_snippet?.slice(0, 80) || "—",
-        _status: t.has_error ? "error" : "ok",
-        _critic: t.critic_scores?.weighted_overall
-          ? `${Number(t.critic_scores.weighted_overall).toFixed(1)}`
-          : "—",
-      })),
+      traces.map((t: TraceRecord) => {
+        const pr = getProviderTokenRollup(t);
+        return {
+          ...t,
+          _time: fmtDate(t.timestamp),
+          _duration: fmtDuration(t.total_duration_ms),
+          _cost: fmtCost(t.actual_cost_usd && t.actual_cost_usd > 0 ? t.actual_cost_usd : t.estimated_cost_usd),
+          _query: t.query_snippet?.slice(0, 80) || "—",
+          _status: t.has_error ? "error" : "ok",
+          _critic: t.critic_scores?.weighted_overall
+            ? `${Number(t.critic_scores.weighted_overall).toFixed(1)}`
+            : "—",
+          _provider_cache: pr ? formatProviderCacheSummary(pr) : "—",
+        };
+      }),
     [traces],
   );
 
@@ -380,6 +386,18 @@ export default function TraceList() {
               },
               { key: "_duration", label: "Duration", sortable: true },
               { key: "total_tokens", label: "Tokens", sortable: true },
+              {
+                key: "_provider_cache",
+                label: "Provider cache",
+                className: "max-w-[12rem] whitespace-normal text-xs text-gray-600 dark:text-gray-400",
+                render: (row: Record<string, unknown>) => (
+                  <span
+                    title="From trace.tokens when present: hit %, cache-read, cache-write. Zeros mean no provider-reported cache activity."
+                  >
+                    {String(row._provider_cache ?? "—")}
+                  </span>
+                ),
+              },
               { key: "_cost", label: "Cost", sortable: true },
               { key: "difficulty", label: "Difficulty", sortable: true },
               {

@@ -298,6 +298,8 @@ export interface ActiveCostEntry {
   input_per_million: number;
   /** When set, used for cached prompt tokens; otherwise ~10% of input rate (server default). */
   input_cached_per_million?: number | null;
+  /** When set, Coder cost estimates bill cache-creation (write) tokens at this rate (USD per 1M). */
+  input_cache_write_per_million?: number | null;
   output_per_million: number;
   monthly_fixed_cost: number;
   cost_formula: string;
@@ -339,6 +341,7 @@ export interface ModelCost {
   provider?: string;
   input_per_million: number;
   input_cached_per_million?: number | null;
+  input_cache_write_per_million?: number | null;
   output_per_million: number;
   monthly_fixed_cost: number;
   cost_formula: string;
@@ -794,6 +797,16 @@ export interface TraceClassification {
   cynefin_domain?: "clear" | "complicated" | "complex" | "chaotic";
 }
 
+/** Yarn / gateway rollup of provider usage.tokens when present on the trace payload. */
+export interface TraceProviderTokens {
+  prompt_tokens?: number;
+  cached_prompt_tokens?: number;
+  cache_creation_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  [key: string]: unknown;
+}
+
 export interface TraceRecord {
   trace_id: string;
   conversation_id?: string;
@@ -807,6 +820,13 @@ export interface TraceRecord {
   timestamp: number;
   total_duration_ms: number;
   total_tokens: number;
+  /** Raw provider token fields when the emitter stored `usage.tokens` on the trace. */
+  tokens?: TraceProviderTokens;
+  /** Prompt tokens as reported by the provider (detail API may enrich from `tokens`). */
+  total_prompt_tokens_reported?: number | null;
+  total_completion_tokens_reported?: number;
+  /** Fraction of prompt_tokens that were cache hits (cached / prompt); null if prompt is 0. */
+  prompt_cache_hit_ratio?: number | null;
   /** Sum of per-call cached prompt tokens when the provider returned them. */
   total_cached_prompt_tokens?: number;
   /** Sum of per-call cache creation (write) tokens when the provider returned them. */

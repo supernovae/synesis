@@ -668,6 +668,7 @@ async def _build_active_cost_rows() -> list[dict]:
                     "provider": provider,
                     "input_per_million": manual["input_per_million"],
                     "input_cached_per_million": manual.get("input_cached_per_million"),
+                    "input_cache_write_per_million": manual.get("input_cache_write_per_million"),
                     "output_per_million": manual["output_per_million"],
                     "monthly_fixed_cost": manual.get("monthly_fixed_cost", 0.0),
                     "cost_formula": manual.get("cost_formula", ""),
@@ -691,6 +692,7 @@ async def _build_active_cost_rows() -> list[dict]:
                         "provider": provider,
                         "input_per_million": infra["input_per_million"],
                         "input_cached_per_million": None,
+                        "input_cache_write_per_million": None,
                         "output_per_million": infra["output_per_million"],
                         "monthly_fixed_cost": infra.get("hourly_rate", 0) * 730,
                         "cost_formula": f"{infra.get('cloud', '')} {infra.get('instance_type', '')} @ ${infra.get('hourly_rate', 0):.2f}/hr",
@@ -715,6 +717,7 @@ async def _build_active_cost_rows() -> list[dict]:
                     "provider": provider,
                     "input_per_million": rates[0],
                     "input_cached_per_million": cached_rate,
+                    "input_cache_write_per_million": rates[3] if len(rates) > 3 else None,
                     "output_per_million": rates[1],
                     "monthly_fixed_cost": 0.0,
                     "cost_formula": "",
@@ -735,6 +738,7 @@ async def _build_active_cost_rows() -> list[dict]:
                 "provider": provider,
                 "input_per_million": 1.0,
                 "input_cached_per_million": 0.1,
+                "input_cache_write_per_million": None,
                 "output_per_million": 5.0,
                 "monthly_fixed_cost": 0.0,
                 "cost_formula": "",
@@ -748,12 +752,13 @@ async def _build_active_cost_rows() -> list[dict]:
 
 def _pricing_by_role_from_active_rows(
     active_rows: list[dict],
-) -> dict[str, tuple[float, float, float | None]]:
+) -> dict[str, tuple[float, float, float | None, float | None]]:
     return {
         str(r.get("role", "")): (
             float(r.get("input_per_million", 0.0) or 0.0),
             float(r.get("output_per_million", 0.0) or 0.0),
             (float(r.get("input_cached_per_million")) if r.get("input_cached_per_million") is not None else None),
+            (float(r.get("input_cache_write_per_million")) if r.get("input_cache_write_per_million") is not None else None),
         )
         for r in active_rows
     }
@@ -873,7 +878,7 @@ async def costs_by_model(
                         node_name=node,
                         model_name=call.get("model", ""),
                     )
-                    inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
+                    inp_r, out_r, ic_r, icw_r = pricing_by_role.get(role, (0.0, 0.0, None, None))
                     est = parse_recorded_estimated_cost(call)
                     agg["estimated_cost_usd"] += (
                         est
@@ -883,6 +888,7 @@ async def costs_by_model(
                             input_per_million=inp_r,
                             output_per_million=out_r,
                             input_cached_per_million=ic_r,
+                            input_cache_write_per_million=icw_r,
                         )
                     )
                     agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
@@ -950,7 +956,7 @@ async def costs_by_role(
                     agg["completion_tokens"] += call.get("completion_tokens", 0)
                     agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     agg["requests"] += 1
-                    inp_r, out_r, ic_r = pricing.get(role, (0.0, 0.0, None))
+                    inp_r, out_r, ic_r, icw_r = pricing.get(role, (0.0, 0.0, None, None))
                     est = parse_recorded_estimated_cost(call)
                     agg["estimated_cost_usd"] += (
                         est
@@ -960,6 +966,7 @@ async def costs_by_role(
                             input_per_million=inp_r,
                             output_per_million=out_r,
                             input_cached_per_million=ic_r,
+                            input_cache_write_per_million=icw_r,
                         )
                     )
                     agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)

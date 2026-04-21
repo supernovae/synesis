@@ -3660,6 +3660,7 @@ function persistSessionAndUsage(
     input_per_million: Number(tier?.inputPerM ?? 0),
     output_per_million: Number(tier?.outputPerM ?? 0),
     cached_input_per_million: tier?.cachedPerM ?? null,
+    cache_write_input_per_million: tier?.cacheWritePerM ?? null,
   };
   let pricingSource: PricingSource = tier?.pricingSource ?? "unknown";
   const result = computeCost(
@@ -3908,6 +3909,11 @@ function persistSessionAndUsage(
       cost: {
         tokens_in: usage.inputTokens,
         tokens_out: usage.outputTokens,
+        tokens_cached: usage.cachedTokens,
+        cache_creation_tokens: usage.cacheCreationTokens,
+        cache_hit_ratio: usage.inputTokens > 0
+          ? Number((usage.cachedTokens / usage.inputTokens).toFixed(4))
+          : 0,
         tokens_saved_by_reduction: tokensSavedByReduction,
         latency_ms: latencyMs,
         tool_latency_ms_total: undefined,
@@ -3967,6 +3973,7 @@ function persistSessionAndUsage(
         input_per_million: Number(tier?.inputPerM ?? 0),
         output_per_million: Number(tier?.outputPerM ?? 0),
         cached_input_per_million: tier?.cachedPerM ?? null,
+        cache_write_input_per_million: tier?.cacheWritePerM ?? null,
       },
     },
     latency_ms: latencyMs,

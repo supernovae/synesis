@@ -23,7 +23,3 @@ alwaysApply: false
 
 - **FastAPI** — OpenAPI UI at `/api/docs`; schema at `/api/openapi.json`. The SPA catch-all must **not** shadow these (routes registered before `/{full_path:path}`).
 - **Consistency** — Prefer shared Pydantic models, `HTTPException(detail=...)`, and tag routers in OpenAPI when touching `main.py`.
-
-## Backlog
-
-See [docs/admin/TODO.md](docs/admin/TODO.md) (API explorer embed, future admin MCP, unfinished ingestion sources UI).

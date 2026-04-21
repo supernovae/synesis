@@ -15,6 +15,13 @@ interface TelemetryOpts {
   model: string;
 }
 
+function parseFireworksHeaderInt(headers: Headers, name: string): number | undefined {
+  const raw = headers.get(name);
+  if (raw == null || raw === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 export function createUsageTelemetryFetch(
   nativeFetch: typeof globalThis.fetch,
   opts: TelemetryOpts,
@@ -53,6 +60,15 @@ export function createUsageTelemetryFetch(
 
     if (!isStreaming || !resp.body) return resp;
 
+    const hdrCached =
+      opts.provider === "fireworks"
+        ? parseFireworksHeaderInt(resp.headers, "fireworks-cached-prompt-tokens")
+        : undefined;
+    const hdrPrompt =
+      opts.provider === "fireworks"
+        ? parseFireworksHeaderInt(resp.headers, "fireworks-prompt-tokens")
+        : undefined;
+
     const [forSDK, forDiag] = resp.body.tee();
 
     (async () => {
@@ -76,10 +92,18 @@ export function createUsageTelemetryFetch(
             const parsed = JSON.parse(lastUsage);
             const usage = parsed?.usage;
             const details = usage?.prompt_tokens_details;
-            const cached = details?.cached_tokens ?? 0;
-            const creation = details?.cache_creation_input_tokens ?? 0;
-            const prompt = usage?.prompt_tokens ?? 0;
+            let cached = Number(details?.cached_tokens ?? 0);
+            let prompt = Number(usage?.prompt_tokens ?? 0);
+            const creation = Number(
+              details?.cache_creation_input_tokens ?? usage?.cache_creation_tokens ?? 0,
+            );
             const completion = usage?.completion_tokens ?? 0;
+            if (hdrCached !== undefined && hdrCached > cached) {
+              cached = hdrCached;
+            }
+            if (hdrPrompt !== undefined && hdrPrompt > 0 && (!Number.isFinite(prompt) || prompt === 0)) {
+              prompt = hdrPrompt;
+            }
 
             console.log(JSON.stringify({
               level: 20,
@@ -93,6 +117,7 @@ export function createUsageTelemetryFetch(
               cache_creation: creation,
               cache_hit_pct: prompt > 0 ? Math.round((cached / prompt) * 100) : 0,
               message_count: messageCount,
+              ...(hdrCached !== undefined ? { fireworks_header_cached_tokens: hdrCached } : {}),
               ...(prefixHashes ? { prefix_hashes: prefixHashes } : {}),
               ...(toolsHash ? { tools_hash: toolsHash } : {}),
             }));

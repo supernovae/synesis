@@ -117,6 +117,7 @@ export class PricingRegistry {
           input_per_million?: number;
           output_per_million?: number;
           input_cached_per_million?: number | null;
+          input_cache_write_per_million?: number | null;
           pricing_source?: string;
         }>;
         roles?: Array<{
@@ -124,6 +125,7 @@ export class PricingRegistry {
           input_per_million?: number;
           output_per_million?: number;
           input_cached_per_million?: number | null;
+          input_cache_write_per_million?: number | null;
           pricing_source?: string;
         }>;
       };
@@ -136,6 +138,10 @@ export class PricingRegistry {
           input_per_million: Number(row.input_per_million ?? 0),
           output_per_million: Number(row.output_per_million ?? 0),
           cached_input_per_million: row.input_cached_per_million ?? null,
+          cache_write_input_per_million:
+            row.input_cache_write_per_million == null
+              ? null
+              : Number(row.input_cache_write_per_million),
         };
         nextSources[row.role] =
           (row.pricing_source as PricingSource) ?? "manual";

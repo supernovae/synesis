@@ -50,6 +50,8 @@ const CostRowSchema = z.object({
   input_per_million: z.number().optional(),
   output_per_million: z.number().optional(),
   input_cached_per_million: z.number().nullable().optional(),
+  /** When set, estimated cost includes cache write tokens at this $/1M; else cache_creation billed at input rate. */
+  input_cache_write_per_million: z.number().nullable().optional(),
   pricing_source: z.string().optional(),
 });
 
@@ -70,6 +72,8 @@ export interface TierConfig {
   inputPerM: number;
   outputPerM: number;
   cachedPerM: number | null;
+  /** Optional USD per 1M cache-creation (write) tokens for cost estimates. */
+  cacheWritePerM: number | null;
   pricingSource: PricingSource;
   adapterHint?: string | null;
   samplingDefaults?: ModelSamplingDefaults;
@@ -250,6 +254,10 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
         cost?.input_cached_per_million == null
           ? null
           : Number(cost.input_cached_per_million),
+      cache_write_input_per_million:
+        cost?.input_cache_write_per_million == null
+          ? null
+          : Number(cost.input_cache_write_per_million),
     };
     const { rates, pricingSource } = resolveTierRates(
       registryRates,
@@ -263,6 +271,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       inputPerM: rates.input_per_million,
       outputPerM: rates.output_per_million,
       cachedPerM: rates.cached_input_per_million,
+      cacheWritePerM: rates.cache_write_input_per_million ?? null,
       pricingSource,
       adapterHint: row.adapter_hint ?? null,
       samplingDefaults,

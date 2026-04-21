@@ -13,6 +13,7 @@ describe("SynesisProviderRegistry", () => {
         inputPerM: 0.1,
         outputPerM: 0.2,
         cachedPerM: 0.01,
+        cacheWritePerM: null,
         pricingSource: "manual",
       },
     ]);

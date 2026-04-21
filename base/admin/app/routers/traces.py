@@ -373,13 +373,25 @@ def _enrich_detail(record: dict) -> None:
             record.setdefault("decision_escalated", entry.get("escalated"))
 
     tokens = record.get("tokens")
+    if not isinstance(tokens, dict):
+        fr = record.get("full_record")
+        if isinstance(fr, dict) and isinstance(fr.get("tokens"), dict):
+            tokens = fr["tokens"]
+            record.setdefault("tokens", tokens)
     if isinstance(tokens, dict):
+        prompt_in = int(tokens.get("prompt_tokens", 0) or 0)
         cached = int(tokens.get("cached_prompt_tokens", 0) or 0)
-        if cached > 0:
-            record.setdefault("total_cached_prompt_tokens", cached)
         cache_write = int(tokens.get("cache_creation_tokens", 0) or 0)
-        if cache_write > 0:
-            record.setdefault("total_cache_creation_tokens", cache_write)
+        completion_in = int(tokens.get("completion_tokens", 0) or 0)
+        # Always surface provider-reported cache fields (including zeros) for trace UI / waste detection.
+        record["total_cached_prompt_tokens"] = cached
+        record["total_cache_creation_tokens"] = cache_write
+        record["total_prompt_tokens_reported"] = prompt_in
+        record["total_completion_tokens_reported"] = completion_in
+        if prompt_in > 0:
+            record["prompt_cache_hit_ratio"] = round(cached / prompt_in, 6)
+        else:
+            record["prompt_cache_hit_ratio"] = None
 
     opt = record.get("optimization_ledger")
     if isinstance(opt, dict):

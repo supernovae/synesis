@@ -45,6 +45,42 @@ describe("computeCost", () => {
     expect(result.pricing_source).toBe("manual");
   });
 
+  it("bills cache_creation_tokens at input rate when cache_write rate unset", () => {
+    const result = computeCost(
+      {
+        ...ZERO_USAGE,
+        prompt_tokens: 500,
+        cached_prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 500,
+        cache_creation_tokens: 1000,
+      },
+      { input_per_million: 2.0, output_per_million: 8.0, cached_input_per_million: null },
+    );
+    const expected = (500 / 1e6) * 2.0 + (1000 / 1e6) * 2.0;
+    expect(result.estimated_cost_usd).toBeCloseTo(expected, 8);
+  });
+
+  it("bills cache_creation_tokens at cache_write rate when set", () => {
+    const result = computeCost(
+      {
+        ...ZERO_USAGE,
+        prompt_tokens: 0,
+        cached_prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        cache_creation_tokens: 1_000_000,
+      },
+      {
+        input_per_million: 3.0,
+        output_per_million: 15.0,
+        cached_input_per_million: null,
+        cache_write_input_per_million: 0.5,
+      },
+    );
+    expect(result.estimated_cost_usd).toBeCloseTo(0.5, 6);
+  });
+
   it("returns zero cost and fallback source for zero tokens with zero rates", () => {
     const result = computeCost(
       ZERO_USAGE,

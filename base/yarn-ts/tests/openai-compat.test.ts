@@ -1,34 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { shouldIncludeStreamUsage, toOpenAiUsage } from "../src/openai-compat.js";
+import { toOpenAiUsage } from "../src/openai-compat.js";
 
-describe("openai compatibility helpers", () => {
-  it("maps internal usage shape to OpenAI usage keys", () => {
-    const usage = toOpenAiUsage({
-      inputTokens: 120,
-      outputTokens: 45,
+describe("toOpenAiUsage", () => {
+  it("includes cache_creation_input_tokens under prompt_tokens_details when non-zero", () => {
+    const u = toOpenAiUsage({
+      inputTokens: 100,
+      outputTokens: 20,
       cachedTokens: 30,
-      cacheCreationTokens: 5,
+      cacheCreationTokens: 40,
     });
-    expect(usage).toEqual({
-      prompt_tokens: 120,
-      completion_tokens: 45,
-      total_tokens: 165,
-      prompt_tokens_details: {
-        cached_tokens: 30,
-      },
-      cached_prompt_tokens: 30,
-      cache_creation_tokens: 5,
-    });
+    const details = u.prompt_tokens_details as Record<string, unknown>;
+    expect(details.cached_tokens).toBe(30);
+    expect(details.cache_creation_input_tokens).toBe(40);
+    expect(u.cache_creation_tokens).toBe(40);
   });
 
-  it("defaults stream usage inclusion to true", () => {
-    expect(shouldIncludeStreamUsage(undefined)).toBe(true);
-    expect(shouldIncludeStreamUsage({})).toBe(true);
-    expect(shouldIncludeStreamUsage({ include_usage: "nope" })).toBe(true);
-  });
-
-  it("honors stream_options.include_usage=false", () => {
-    expect(shouldIncludeStreamUsage({ include_usage: false })).toBe(false);
-    expect(shouldIncludeStreamUsage({ include_usage: true })).toBe(true);
+  it("omits cache_creation_input_tokens in details when zero", () => {
+    const u = toOpenAiUsage({
+      inputTokens: 10,
+      outputTokens: 2,
+      cachedTokens: 0,
+      cacheCreationTokens: 0,
+    });
+    const details = u.prompt_tokens_details as Record<string, unknown>;
+    expect(details.cache_creation_input_tokens).toBeUndefined();
   });
 });

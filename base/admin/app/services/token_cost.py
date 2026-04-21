@@ -21,20 +21,29 @@ def estimate_llm_call_cost_usd(
     prompt_tokens: int,
     completion_tokens: int,
     cached_prompt_tokens: int,
+    cache_creation_tokens: int = 0,
     *,
     input_per_million: float,
     output_per_million: float,
     input_cached_per_million: float | None = None,
+    input_cache_write_per_million: float | None = None,
 ) -> float:
     pt = max(0, int(prompt_tokens or 0))
     cached = min(max(0, int(cached_prompt_tokens or 0)), pt)
     uncached = pt - cached
     ct = max(0, int(completion_tokens or 0))
+    cc = max(0, int(cache_creation_tokens or 0))
     ic_rate = effective_cached_input_rate(input_per_million, input_cached_per_million)
+    cw_rate = (
+        float(input_cache_write_per_million)
+        if input_cache_write_per_million is not None and input_cache_write_per_million >= 0
+        else float(input_per_million)
+    )
     return round(
         (uncached / 1_000_000) * float(input_per_million)
         + (cached / 1_000_000) * ic_rate
-        + (ct / 1_000_000) * float(output_per_million),
+        + (ct / 1_000_000) * float(output_per_million)
+        + (cc / 1_000_000) * cw_rate,
         6,
     )
 
@@ -59,13 +68,16 @@ def estimate_llm_call_cost_from_payload(
     input_per_million: float,
     output_per_million: float,
     input_cached_per_million: float | None = None,
+    input_cache_write_per_million: float | None = None,
 ) -> float:
     """Estimate call cost from trace call payload token fields."""
     return estimate_llm_call_cost_usd(
         int(call.get("prompt_tokens", 0) or 0),
         int(call.get("completion_tokens", 0) or 0),
         int(call.get("cached_prompt_tokens", 0) or 0),
+        int(call.get("cache_creation_tokens", 0) or 0),
         input_per_million=input_per_million,
         output_per_million=output_per_million,
         input_cached_per_million=input_cached_per_million,
+        input_cache_write_per_million=input_cache_write_per_million,
     )

@@ -109,7 +109,9 @@ export default function Usage() {
             Usage
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Chat and Coder usage for your account over the selected period.
+            Chat and Coder usage for your account over the selected period. Coder cached tokens are
+            provider-reported cache reads; reduction savings are estimated separately on the server
+            and are not summed into token totals here.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">

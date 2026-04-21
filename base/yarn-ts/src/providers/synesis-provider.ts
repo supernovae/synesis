@@ -4,6 +4,9 @@ import type { TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
 import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
+import { composeEndpointTransportFetch } from "./endpoint-capabilities/compose-fetch.js";
+import { getEndpointTransportAdapter } from "./endpoint-capabilities/registry.js";
+import { resolveEndpointCapabilityId } from "./endpoint-capabilities/resolve.js";
 
 // DashScope explicit cache removed (Alibaba does not provide true KV/prefix caching like vLLM.
 // It capped reported cached_tokens at fixed marker sizes and interfered with self-hosted
@@ -68,16 +71,19 @@ export class SynesisProviderRegistry {
     if (!selected) {
       throw new Error(`No tier config available for ${modelId} or fallback ${fallbackModelId}`);
     }
-    // Detect provider type for telemetry tagging (vLLM detection preserved for accurate KV metrics)
-    const providerTag = selected.baseUrl.toLowerCase().includes("openrouter") ? "openrouter"
-      : selected.baseUrl.toLowerCase().includes("localhost") || selected.baseUrl.toLowerCase().includes("vllm") ? "vllm"
-      : "generic";
+    const capabilityId = resolveEndpointCapabilityId(selected.baseUrl);
+    const transportAdapter = getEndpointTransportAdapter(capabilityId);
+    const transportFetch = composeEndpointTransportFetch(
+      globalThis.fetch,
+      transportAdapter,
+      () => this.currentSessionKey,
+    );
 
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
       apiKey: selected.apiKey,
-      fetch: createUsageTelemetryFetch(globalThis.fetch, {
-        provider: providerTag,
+      fetch: createUsageTelemetryFetch(transportFetch, {
+        provider: transportAdapter.telemetryProviderTag,
         tier: selected.id,
         model: selected.backendModel,
       }),
@@ -106,9 +112,21 @@ export class SynesisProviderRegistry {
     apiKey: string,
     adapterHint?: string | null,
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
+    const capabilityId = resolveEndpointCapabilityId(baseUrl);
+    const transportAdapter = getEndpointTransportAdapter(capabilityId);
+    const transportFetch = composeEndpointTransportFetch(
+      globalThis.fetch,
+      transportAdapter,
+      () => this.currentSessionKey,
+    );
     const upstream = createOpenAI({
       baseURL: baseUrl,
       apiKey,
+      fetch: createUsageTelemetryFetch(transportFetch, {
+        provider: transportAdapter.telemetryProviderTag,
+        tier: modelId,
+        model: backendModel,
+      }),
     });
     const provider = customProvider({
       languageModels: {

@@ -692,6 +692,7 @@ async def get_cost_estimates() -> list[dict]:
                     "served_name": a.get("served_name", ROLE_SERVED_NAMES.get(role, f"synesis-{role}")),
                     "input_per_million": db_row.input_per_million,
                     "input_cached_per_million": db_row.input_cached_per_million,
+                    "input_cache_write_per_million": db_row.input_cache_write_per_million,
                     "output_per_million": db_row.output_per_million,
                     "monthly_fixed_cost": db_row.monthly_fixed_cost,
                     "cost_formula": db_row.cost_formula,
@@ -709,6 +710,7 @@ async def get_cost_estimates() -> list[dict]:
                     "served_name": a.get("served_name", ROLE_SERVED_NAMES.get(role, f"synesis-{role}")),
                     "input_per_million": 0.0,
                     "input_cached_per_million": None,
+                    "input_cache_write_per_million": None,
                     "output_per_million": 0.0,
                     "monthly_fixed_cost": 0.0,
                     "cost_formula": "",
@@ -755,6 +757,9 @@ async def upsert_model_cost(data: dict) -> dict:
         if "input_cached_per_million" in data:
             ic = data["input_cached_per_million"]
             row.input_cached_per_million = ic if ic is not None else None
+        if "input_cache_write_per_million" in data:
+            icw = data["input_cache_write_per_million"]
+            row.input_cache_write_per_million = icw if icw is not None else None
         row.output_per_million = data.get("output_per_million", row.output_per_million)
         row.monthly_fixed_cost = data.get("monthly_fixed_cost", row.monthly_fixed_cost)
         row.cost_formula = data.get("cost_formula", row.cost_formula)
@@ -770,6 +775,7 @@ async def upsert_model_cost(data: dict) -> dict:
             "source": row.source,
             "input_per_million": row.input_per_million,
             "input_cached_per_million": row.input_cached_per_million,
+            "input_cache_write_per_million": row.input_cache_write_per_million,
             "output_per_million": row.output_per_million,
             "monthly_fixed_cost": row.monthly_fixed_cost,
             "cost_formula": row.cost_formula,
@@ -789,11 +795,12 @@ async def get_cost_by_model() -> list[dict]:
 
             model_agg: dict[str, dict] = {}
             costs = await get_cost_estimates()
-            pricing_by_role: dict[str, tuple[float, float, float | None]] = {
+            pricing_by_role: dict[str, tuple[float, float, float | None, float | None]] = {
                 c.get("role", ""): (
                     c["input_per_million"],
                     c["output_per_million"],
                     c.get("input_cached_per_million"),
+                    c.get("input_cache_write_per_million"),
                 )
                 for c in costs
             }
@@ -820,7 +827,7 @@ async def get_cost_by_model() -> list[dict]:
                         agg["total_tokens"] += call.get("total_tokens", 0)
                         agg["requests"] += 1
                         role = _infer_role_for_cost(node, call.get("model", ""))
-                        inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
+                        inp_r, out_r, ic_r, icw_r = pricing_by_role.get(role, (0.0, 0.0, None, None))
                         est = parse_recorded_estimated_cost(call)
                         agg["cost_usd"] += (
                             est
@@ -830,6 +837,7 @@ async def get_cost_by_model() -> list[dict]:
                                 input_per_million=inp_r,
                                 output_per_million=out_r,
                                 input_cached_per_million=ic_r,
+                                input_cache_write_per_million=icw_r,
                             )
                         )
 

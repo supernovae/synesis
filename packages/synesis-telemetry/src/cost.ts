@@ -21,6 +21,7 @@ export const FALLBACK_BASE_RATES: PricingRates = {
   input_per_million: 1.0,
   output_per_million: 5.0,
   cached_input_per_million: 0.1,
+  cache_write_input_per_million: null,
 };
 
 export function hasNonZeroRates(rates: PricingRates): boolean {
@@ -38,10 +39,14 @@ export function computeCost(
   const uncached = Math.max(0, usage.prompt_tokens - usage.cached_prompt_tokens);
   const cachedRate =
     effectiveRates.cached_input_per_million ?? effectiveRates.input_per_million * cachedMultiplier;
+  const cacheCreation = Math.max(0, usage.cache_creation_tokens ?? 0);
+  const cacheWriteRate =
+    effectiveRates.cache_write_input_per_million ?? effectiveRates.input_per_million;
   const estimated =
     (uncached / 1e6) * effectiveRates.input_per_million +
     (usage.cached_prompt_tokens / 1e6) * cachedRate +
-    (usage.completion_tokens / 1e6) * effectiveRates.output_per_million;
+    (usage.completion_tokens / 1e6) * effectiveRates.output_per_million +
+    (cacheCreation / 1e6) * cacheWriteRate;
   return { estimated_cost_usd: estimated, pricing_source: source };
 }
 

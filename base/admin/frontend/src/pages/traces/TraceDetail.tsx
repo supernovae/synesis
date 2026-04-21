@@ -42,6 +42,7 @@ import {
   Cell,
 } from "recharts";
 import type { SpanRecord, LLMCallRecord } from "../../types";
+import { getProviderTokenRollup } from "./providerTokenRollup";
 
 function fmtDate(ts: number) {
   if (!ts) return "";
@@ -190,6 +191,15 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
   const promptText = call.prompt_full || call.prompt_snippet || "";
   const completionText = call.completion_full || call.completion_snippet || "";
   const hasContent = !!promptText || !!completionText;
+  const pin = call.prompt_tokens ?? 0;
+  const cached = call.cached_prompt_tokens ?? 0;
+  const cw = call.cache_creation_tokens ?? 0;
+  const uncached = Math.max(0, pin - cached);
+  const hitPct = pin > 0 ? Math.round((cached / pin) * 1000) / 10 : null;
+  const tokSummary =
+    `${pin} prompt in · ${cached} cache-read` +
+    (hitPct != null ? ` (${hitPct}% of prompt)` : "") +
+    ` · ${uncached} billed input · ${cw} cache-write · ${call.completion_tokens ?? 0} completion out`;
 
   return (
     <div className="mb-1 rounded-md border border-gray-100 bg-gray-50/50 dark:border-gray-700 dark:bg-gray-800/50">
@@ -202,13 +212,8 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
           {call.model || "unknown"}
         </span>
         <span className="flex-1" />
-        <span className="text-xs text-gray-400">
-          {(call.cached_prompt_tokens ?? 0) > 0 || (call.cache_creation_tokens ?? 0) > 0
-            ? `${call.prompt_tokens} in` +
-              ((call.cached_prompt_tokens ?? 0) > 0 ? ` (${call.cached_prompt_tokens} cached)` : "") +
-              ((call.cache_creation_tokens ?? 0) > 0 ? ` (${call.cache_creation_tokens} cache-write)` : "") +
-              ` + ${call.completion_tokens} out`
-            : `${call.prompt_tokens}+${call.completion_tokens} tok`}
+        <span className="max-w-[min(28rem,55vw)] truncate text-xs text-gray-400" title={tokSummary}>
+          {tokSummary}
         </span>
         {typeof call.estimated_cost === "number" || typeof call.actual_cost === "number" ? (
           <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -384,15 +389,20 @@ function CriticScoresPanel({ scores }: { scores: Record<string, unknown> }) {
 }
 
 function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
-  const byModel: Record<string, { tokens: number; prompt: number; completion: number; cached: number; cost: number }> = {};
+  const byModel: Record<
+    string,
+    { tokens: number; prompt: number; completion: number; cached: number; cacheWrite: number; cost: number }
+  > = {};
   for (const span of spans || []) {
     for (const call of span.llm_calls || []) {
       const model = call.model || "unknown";
-      if (!byModel[model]) byModel[model] = { tokens: 0, prompt: 0, completion: 0, cached: 0, cost: 0 };
+      if (!byModel[model])
+        byModel[model] = { tokens: 0, prompt: 0, completion: 0, cached: 0, cacheWrite: 0, cost: 0 };
       byModel[model].tokens += call.total_tokens || 0;
       byModel[model].prompt += call.prompt_tokens || 0;
       byModel[model].completion += call.completion_tokens || 0;
       byModel[model].cached += call.cached_prompt_tokens ?? 0;
+      byModel[model].cacheWrite += call.cache_creation_tokens ?? 0;
       byModel[model].cost += (call.actual_cost ?? call.estimated_cost ?? 0);
     }
   }
@@ -410,8 +420,8 @@ function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
             <div className="text-right text-gray-500 dark:text-gray-400">
               <div>{v.tokens.toLocaleString()} tok</div>
               <div className="text-xs">
-                ({v.prompt.toLocaleString()} in
-                {v.cached > 0 ? `, ${v.cached.toLocaleString()} cached` : ""} / {v.completion.toLocaleString()} out)
+                ({v.prompt.toLocaleString()} in, {v.cached.toLocaleString()} cache-read,{" "}
+                {v.cacheWrite.toLocaleString()} cache-write / {v.completion.toLocaleString()} out)
               </div>
               <div className="text-xs">{fmtCost(v.cost)}</div>
             </div>
@@ -563,14 +573,18 @@ function OptimizationLedgerPanel({ ledger }: { ledger: OptLedger }) {
             </span>
           </div>
         )}
-        {(ledger.upstreamCachedTokens ?? 0) > 0 && (
-          <div className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
-            <span className="text-xs text-gray-500 dark:text-gray-400">Upstream KV-cached</span>
-            <span className="font-mono text-xs text-green-600 dark:text-green-400">
-              {fmtTokens(ledger.upstreamCachedTokens!)} tokens
-            </span>
-          </div>
-        )}
+        <div className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Upstream KV-cached (reported)</span>
+          <span
+            className={`font-mono text-xs ${
+              (ledger.upstreamCachedTokens ?? 0) > 0
+                ? "text-green-600 dark:text-green-400"
+                : "text-gray-600 dark:text-gray-300"
+            }`}
+          >
+            {(ledger.upstreamCachedTokens ?? 0).toLocaleString()} tokens
+          </span>
+        </div>
         {(ledger.prefixStableBytes ?? 0) > 0 && (
           <div className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
             <span className="text-xs text-gray-500 dark:text-gray-400">Prefix stable bytes</span>
@@ -824,6 +838,7 @@ export default function TraceDetail() {
   const traceStart = trace.spans?.length
     ? Math.min(...trace.spans.map((s) => s.start_time || trace.timestamp))
     : trace.timestamp;
+  const providerRollup = getProviderTokenRollup(trace);
 
   return (
     <div className="space-y-6">
@@ -936,16 +951,27 @@ export default function TraceDetail() {
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs text-gray-500">Tokens</p>
           <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
-            {trace.total_tokens.toLocaleString()}
+            {trace.total_tokens.toLocaleString()}{" "}
+            <span className="text-[11px] font-normal text-gray-400">rollup</span>
           </p>
-          {(trace.total_cached_prompt_tokens ?? 0) > 0 && (
-            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-              {trace.total_cached_prompt_tokens!.toLocaleString()} cached
-            </p>
-          )}
-          {(trace.total_cache_creation_tokens ?? 0) > 0 && (
-            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-              {trace.total_cache_creation_tokens!.toLocaleString()} cache-write
+          {providerRollup ? (
+            <>
+              <p
+                className="mt-1 text-[11px] text-gray-500 dark:text-gray-400"
+                title="From provider usage / trace.tokens — zeros mean no cache hit or no cache-write billing for this request."
+              >
+                Provider: {providerRollup.prompt.toLocaleString()} prompt in ·{" "}
+                {providerRollup.cached.toLocaleString()} cache-read
+                {providerRollup.hitPct != null ? ` (${providerRollup.hitPct}% of prompt)` : ""}
+              </p>
+              <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                {providerRollup.cacheWrite.toLocaleString()} cache-write ·{" "}
+                {providerRollup.completion.toLocaleString()} completion out
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+              No provider token breakdown on this trace (pipeline spans may still show per-call cache).
             </p>
           )}
         </div>

@@ -19,11 +19,17 @@
  *    system message parts. Not yet active since Yarn uses createOpenAI.
  */
 
+import { resolveEndpointCapabilityId } from "../providers/endpoint-capabilities/resolve.js";
+
 export type CacheStrategy = "anthropic_explicit" | "openrouter_auto" | "deepseek_auto" | "implicit_prefix" | "none";
 
 export function detectCacheStrategy(baseUrl: string, backendModel: string): CacheStrategy {
   const url = baseUrl.toLowerCase();
   const model = backendModel.toLowerCase();
+
+  if (resolveEndpointCapabilityId(baseUrl) === "fireworks") {
+    return "implicit_prefix";
+  }
 
   if (url.includes("openrouter.ai")) {
     // OpenRouter sticky routing supports implicit caching for these provider families

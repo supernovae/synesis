@@ -70,6 +70,7 @@ class ModelCost(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
     input_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     input_cached_per_million: Mapped[float | None] = mapped_column(Float, nullable=True)
+    input_cache_write_per_million: Mapped[float | None] = mapped_column(Float, nullable=True)
     output_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     monthly_fixed_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     cost_formula: Mapped[str] = mapped_column(Text, nullable=False, default="")

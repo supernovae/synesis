@@ -12,6 +12,8 @@ export interface PricingRates {
   input_per_million: number;
   output_per_million: number;
   cached_input_per_million: number | null;
+  /** When null, cache_creation tokens use input_per_million in estimates. */
+  cache_write_input_per_million?: number | null;
 }
 
 /**
