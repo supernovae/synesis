@@ -12,7 +12,7 @@ It is designed for fix-forward operations (no rollback choreography required).
 
 ## Prerequisites
 
-- OpenShift access with `oc` logged into the target cluster.
+- Kubernetes access with `kubectl` (or `oc` on OpenShift) logged into the target cluster.
 - Admin PAT with **`platform_admin`** role (stored on the PAT) for default global bootstrap packs (`lang-go.yaml` uses `visibility_scope: global`). **`org_admin` alone cannot enqueue global rows** — use a platform-admin account or change the corpus to org/tenant scope.
 - Optional Yarn probe token: `SYNESIS_TEST_PAT_TOKEN` or `SYNESIS_TEST_AUTH` (PAT; see `docs/development/CI_GITHUB_VALIDATION.md`).
 

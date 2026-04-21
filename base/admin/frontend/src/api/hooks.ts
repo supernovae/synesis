@@ -239,18 +239,6 @@ export function useDeactivateModel() {
   });
 }
 
-export function useSyncModelsFromYaml() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => client.post("/models/sync-from-yaml").then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["models"] });
-      qc.invalidateQueries({ queryKey: ["models", "roles"] });
-      qc.invalidateQueries({ queryKey: ["audit"] });
-    },
-  });
-}
-
 export interface ReconcileModelsResult {
   added: number;
   removed: number;

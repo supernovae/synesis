@@ -49,7 +49,7 @@ kustomize build overlays/openrouter | oc apply -f -
 
 ## Default Model Mapping (Budget Tier)
 
-The overlay ships with the **budget** tier from `models.yaml`. All models are OpenRouter-hosted — no local inference.
+The overlay ships with a **budget-oriented** default mapping. All models are OpenRouter-hosted — no local inference.
 
 | Synesis Role | OpenRouter Model | Input Cost | Output Cost | Context |
 |---|---|---|---|---|
@@ -62,7 +62,7 @@ The overlay ships with the **budget** tier from `models.yaml`. All models are Op
 
 ## Quality Tier
 
-For maximum quality at higher cost, swap the model paths in `overlays/openrouter/litellm-config-openrouter.yaml`. The quality tier mappings from `models.yaml`:
+For maximum quality at higher cost, swap the model paths in `overlays/openrouter/litellm-config-openrouter.yaml`. Example quality-oriented mappings:
 
 | Synesis Role | OpenRouter Model | Input Cost | Output Cost |
 |---|---|---|---|
@@ -161,7 +161,7 @@ The `overlays/openrouter` Kustomize overlay includes everything **except** `base
 |---|---|---|
 | GPU hardware | Required (L40S / A100 / H100) | None |
 | Model weight storage (EFS PVC) | Required | None |
-| RHOAI / KServe | Required for InferenceService | Not needed |
+| RHOAI / KServe | Optional self-hosted runtime path | Not needed |
 | Model URLs | Direct to vLLM pods (`synesis-router.synesis-models:8080`) | Through LiteLLM (`litellm-proxy.synesis-gateway:4000`) |
 | Guided JSON decoding | Enabled (vLLM native) | Disabled (not universally supported) |
 | UDS (Unix Domain Socket) co-location | Optional | Disabled |
@@ -239,5 +239,5 @@ The self-hosted overlays include `base/model-serving` and point model URLs back 
 | `overlays/openrouter/litellm-config-openrouter.yaml` | LiteLLM ConfigMap — maps synesis-* names to OpenRouter paths |
 | `overlays/openrouter/supervisor-config-patch.yaml` | Supervisor health checks — redirected through LiteLLM |
 | `overlays/openrouter/openwebui-direct-planner.yaml` | Pins Open WebUI `OPENAI_API_BASE_URL` to planner-ts (direct; not via LiteLLM) |
-| `models.yaml` (`openrouter_profiles`) | Budget and quality tier model recommendations |
+| Admin Model Registry + `litellm-config-openrouter.yaml` | Role-to-provider model recommendations |
 | `scripts/deploy.sh openrouter` | One-command deploy with interactive key setup |

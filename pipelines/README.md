@@ -8,21 +8,22 @@ Pipelines, PVC, and model deployments all use `synesis-models`. The scripts forc
 
 ## Model Roles
 
-All model definitions and subpaths come from [`models.yaml`](../models.yaml). All roles share a single EFS PVC (`synesis-models-efs`), each mounting its own `subPath`.
+Model downloads are now role-driven from CLI input and Registry assignments. All roles share a single EFS PVC (`synesis-models-efs`), each mounting its own `subPath`.
 
 | Role | Default Model | subPath |
 |------|--------------|---------|
-| **Router** | Qwen3-8B FP8 | `router-model` |
-| **General** | Qwen3-32B FP8 | `general-model` |
-| **Coder** | Qwen3-Coder-30B-A3B FP8 | `coder-model` |
-| **Critic** | R1-Distill-32B FP8 | `critic-model` |
-| **Summarizer** | Qwen2.5-0.5B | (none — KServe `hf://`) |
+| **Router** | Operator-selected in Registry | `router-model` |
+| **General** | Operator-selected in Registry | `general-model` |
+| **Coder** | Operator-selected in Registry | `coder-model` |
+| **Critic** | Operator-selected in Registry | `critic-model` |
+| **Summarizer** | Operator-selected in Registry | (optional local runtime) |
 
 Storage: `efs-sc` StorageClass (provisioned by Terraform). EFS is elastic — no pre-provisioned size, pay only for stored data.
 
 ## Prerequisites
 
-- OpenShift AI with Data Science Pipelines (DSPA)
+- Kubernetes with Kubeflow Pipelines API access
+- Optional: OpenShift AI Data Science Pipelines (DSPA) for integrated OpenShift workflows
 - `efs-sc` StorageClass on the cluster (Terraform)
 - `hf-hub-secret` in **synesis-models** (optional, for gated models)
 
@@ -48,7 +49,7 @@ Or via `bootstrap.sh`:
 
 ```bash
 oc login ...                      # ensure you have an active session
-./scripts/run-model-pipeline.sh --profile=small
+./scripts/run-model-pipeline.sh --role=router --model-repo=Qwen/Qwen2.5-14B-Instruct
 ```
 
 The script discovers `KFP_HOST` from the DSPA status in `synesis-models`, and gets the token via `oc whoami -t`.
@@ -77,13 +78,11 @@ export KFP_TOKEN=$(oc whoami -t)
 ## Download Models
 
 ```bash
-# All models for a profile
-./scripts/run-model-pipeline.sh --profile=small
-
-# Single role
-./scripts/run-model-pipeline.sh --role=router
-./scripts/run-model-pipeline.sh --role=coder
-./scripts/run-model-pipeline.sh --role=critic
+# Role-by-role downloads
+./scripts/run-model-pipeline.sh --role=router  --model-repo=Qwen/Qwen2.5-14B-Instruct
+./scripts/run-model-pipeline.sh --role=general --model-repo=Qwen/Qwen3-32B-FP8
+./scripts/run-model-pipeline.sh --role=coder   --model-repo=Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+./scripts/run-model-pipeline.sh --role=critic  --model-repo=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 ```
 
 The script ensures the EFS PVC exists, scales down any existing deployment, runs the download pipeline, then scales back up.
@@ -93,7 +92,7 @@ The script ensures the EFS PVC exists, scales down any existing deployment, runs
 To switch models (e.g., upgrade Qwen3-8B to a newer version), re-run the pipeline for that role. The pipeline's cleanup step removes the old data from the EFS subpath before downloading:
 
 ```bash
-./scripts/run-model-pipeline.sh --role=router
+./scripts/run-model-pipeline.sh --role=router --model-repo=Qwen/Qwen2.5-14B-Instruct
 ```
 
 ## Deploy

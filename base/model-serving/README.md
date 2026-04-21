@@ -1,34 +1,30 @@
 # Model Serving
 
-Synesis deploys GPU models via vLLM and loads weights from a shared EFS volume (`synesis-models-efs`). All model definitions, subpaths, and vLLM args are in [`models.yaml`](../../models.yaml).
+Synesis deploys GPU models via vLLM and loads weights from a shared EFS volume (`synesis-models-efs`). Model/provider routing is configured in Admin Model Registry; role endpoints are then reconciled to LiteLLM.
 
 ## Model Roles
 
 | Deployment | Role | GPU | EFS Subpath | Model |
 |-----------|------|-----|-------------|-------|
-| synesis-router | Router | 1 × L40S | router-model | Qwen3-8B FP8 |
-| synesis-general | General | 1 × L40S | general-model | Qwen3-32B FP8 |
-| synesis-critic | Critic | 1 × L40S | critic-model | R1-Distill-32B FP8 |
-| synesis-coder | Coder | 1 × L40S | coder-model | Qwen3-Coder-30B-A3B FP8 |
-| synesis-summarizer | Summarizer | CPU | (hf:// direct) | Qwen2.5-0.5B |
+| synesis-router | Router | Operator-defined | router-model | Operator-defined |
+| synesis-general | General | Operator-defined | general-model | Operator-defined |
+| synesis-critic | Critic | Operator-defined | critic-model | Operator-defined |
+| synesis-coder | Coder | Operator-defined | coder-model | Operator-defined |
+| synesis-summarizer | Summarizer | CPU or optional GPU | (runtime-specific) | Operator-defined |
 
 All models share a single PVC (`synesis-models-efs`) backed by AWS EFS via `efs-sc` StorageClass. Each deployment mounts a different `subPath`.
 
-The Router deployment serves routing, query generation, planner, and advisor roles from a single model instance with different inference params (temperature, prompt) per request. In small profile, it also serves the critic role via thinking mode.
+The Router deployment serves routing, query generation, planner, and advisor roles from a single model endpoint with role-specific inference params (temperature, prompt) per request.
 
-## Deployment Profiles
+## Capacity Planning
 
-See `models.yaml` for small/medium/large profiles:
-
-- **Small** (3 GPU): Router+Critic on GPU 0 (Service alias); General on GPU 1; Coder on GPU 2
-- **Medium** (4 GPU): All roles dedicated
-- **Large** (8 GPU): HPA auto-scaling for Coder
+Plan model serving by explicit resource requests, replicas, and GPU availability rather than named profiles. Typical operators start with role-by-role single replicas, then scale horizontally or split endpoints as throughput and latency targets evolve.
 
 ## Prerequisites
 
-- OpenShift/ROSA with Karpenter GPU node pool (`node-role.autonode/gpu: ""`)
+- Kubernetes cluster with GPU-capable nodes (OpenShift/ROSA supported)
 - EFS StorageClass (`efs-sc`) provisioned by Terraform
-- Models downloaded to EFS: `./scripts/run-model-pipeline.sh --profile=small`
+- Models downloaded to EFS role-by-role: `./scripts/run-model-pipeline.sh --role=<role> --model-repo=<hf-repo>`
 - Summarizer (optional, CPU): InferenceService with `connection-summarizer`
 
 ## Deploying
@@ -53,7 +49,7 @@ oc get deployments -n synesis-models
 | Service | URL | Role |
 |---------|-----|------|
 | synesis-router | `http://synesis-router.synesis-models.svc:8080/v1` | Router / Supervisor / Planner |
-| synesis-critic | `http://synesis-critic.synesis-models.svc:8080/v1` | Critic (routes to router in small, R1 in medium+) |
+| synesis-critic | `http://synesis-critic.synesis-models.svc:8080/v1` | Critic |
 | synesis-general | `http://synesis-general.synesis-models.svc:8080/v1` | General / Worker / Writer |
 | synesis-coder | `http://synesis-coder.synesis-models.svc:8080/v1` | Coder (IDE direct access) |
 

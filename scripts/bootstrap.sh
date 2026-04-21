@@ -696,7 +696,7 @@ main() {
     log ""
     log "Next steps:"
     if [[ "$MODE" == "local" ]]; then
-        log "  1. Download models:      ./scripts/run-model-pipeline.sh --profile=small"
+        log "  1. Download models:      ./scripts/run-model-pipeline.sh --role=router --model-repo=<hf-repo>"
         log "  2. Build images:         ./scripts/build-images.sh --push"
         log "  3. Deploy services:      ./scripts/deploy.sh dev"
         log "  4. Deploy indexer:       ./scripts/deploy-indexer.sh"

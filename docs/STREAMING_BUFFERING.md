@@ -6,7 +6,7 @@ Status updates from the LLM (e.g. "Analyzing request…", "Gathering evidence…
 
 ## Problem
 
-When Open WebUI or another client connects to the Planner (directly or via a reverse proxy such as HAProxy/OpenShift Route):
+When Open WebUI or another client connects to the Planner (directly or via a reverse proxy such as HAProxy, Ingress, or OpenShift Route):
 
 1. The Planner streams SSE or chunked HTTP to the client.
 2. Intermediate proxies may buffer responses until a threshold (e.g. 4KB) or until the request completes.
@@ -36,7 +36,7 @@ This trades token-by-token streaming for **single-document coherence** — the u
 
 ## Mitigations
 
-### 1. OpenShift Route annotations (Planner)
+### 1. OpenShift Route annotations (if using Routes)
 
 The Planner route (`base/planner/route.yaml`) includes:
 

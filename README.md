@@ -6,7 +6,7 @@
 
 **A self-hosted enterprise intelligence platform — RAG, MCP, and agentic coding on your infrastructure.**
 
-Synesis is a composable, multi-model AI platform built on [OpenShift AI](https://www.redhat.com/en/technologies/cloud-computing/openshift/openshift-ai). It combines a taxonomy-driven knowledge pipeline, hybrid RAG with HITL quality gates, an MCP-connected agentic coding runtime, and a full admin surface — all self-hosted, all open source.
+Synesis is a composable, multi-model AI platform for Kubernetes. It combines a taxonomy-driven knowledge pipeline, hybrid RAG with HITL quality gates, an MCP-connected agentic coding runtime, and a full admin surface — all self-hosted, all open source. OpenShift and OpenShift AI are supported deployment options with additional operational tooling.
 
 > *Synesis* — from Erik Hollnagel's work on joint cognitive systems: productivity, quality, safety, and reliability as emergent properties of the same adaptive processes. See [docs/SYSTEMS_THEORY.md](docs/SYSTEMS_THEORY.md) for the research foundations that guide our architecture.
 
@@ -27,7 +27,7 @@ Most enterprise AI platforms solve one problem well: a chatbot with RAG, or a co
 | **Taxonomy-Driven Behavior** | ~190 domain entries configure persona, depth, epistemic guidance, output style, and critic behavior via YAML — no prompt logic hardcoded in nodes |
 | **Trust & Safety** | 9-layer prompt injection defense, unified trust envelopes with attribution metadata, index-time scanning, admin review queues, deterministic policy matrix |
 | **Admin Surface** | Model registry, provider governance, security console, RAG pipeline management, quality benchmarks, observability traces — all in one UI |
-| **Composable Deployment** | 3 GPUs to production scale with YAML profiles; models via OpenShift AI; EFS-backed shared storage |
+| **Composable Deployment** | Role-based model serving on Kubernetes; provider-governed registry; shared storage for model weights |
 
 ### How Synesis Compares
 
@@ -39,7 +39,7 @@ Most enterprise AI platforms solve one problem well: a chatbot with RAG, or a co
 | **Multi-axis critic review** | 6-axis scoring, evidence-gated, anti-oscillation | None built in | None | None | None |
 | **Admin operations UI** | Model registry, security console, RAG review, traces | None | Basic UI | None | Dashboard |
 | **Trust & attribution** | TrustPacketV1 envelopes, HITL review, scan + freshness | None | None | None | Source links |
-| **Multi-model architecture** | Router, General, Coder, Critic, Summarizer — each sized for its role | Single model | Single model | Single model | Proprietary |
+| **Multi-model architecture** | Router, General, Coder, Critic, Summarizer — each provisioned for its role | Single model | Single model | Single model | Proprietary |
 
 ---
 
@@ -113,7 +113,7 @@ Canonical order: **entry → planner → plan gate → router → writer → (cr
 
 ## Model Roles
 
-[`models.yaml`](models.yaml) defines the build-time reference for model repos, vLLM args, PVC sizing, and deployment names. Live routing is managed through the admin Model Registry and synced to LiteLLM.
+Model/provider routing is managed through the admin Model Registry and synced to LiteLLM.
 
 | Role | Default Model | Purpose |
 |------|--------------|---------|
@@ -123,33 +123,31 @@ Canonical order: **entry → planner → plan gate → router → writer → (cr
 | **Critic** | DeepSeek R1-Distill-Qwen-32B FP8 | Score-based quality review with configurable thinking budget |
 | **Summarizer** | Qwen2.5-0.5B-Instruct | Conversation history compression (CPU) |
 
-Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML). See [`base/model-serving/README.md`](base/model-serving/README.md).
+Models are deployed on Kubernetes through vLLM/KServe runtimes and then assigned in Model Registry. See [`base/model-serving/README.md`](base/model-serving/README.md).
 
-## Composable Deployment Profiles
+## Capacity and Deployment Planning
 
-Synesis scales from a 3-GPU small deployment to a production cluster. Each profile defines model assignments, quantization, tensor parallelism, and GPU mapping.
+Synesis scales from single-GPU role deployments to multi-node production clusters. Plan capacity with explicit resources: per-role GPU allocation, tensor parallelism, replica counts, and queue/backpressure policy.
 
-| Profile | Hardware | Use Case | Models |
-|---------|----------|----------|--------|
-| **Small** | 3x L40S (3x g6e.2xlarge) | Multi-user small | Router + Critic on GPU 0; General on GPU 1; Coder on GPU 2 |
-| **Medium** | 4x L40S | Team use, all roles dedicated | General on GPU 0; Coder TP=2 on GPUs 1-2; Router + Critic on GPU 3 |
-| **Large** | 8x GPU | Production with HPA auto-scaling | All roles dedicated; Coder scales 2-4 replicas on queue depth |
+| Dimension | Example | Why it matters |
+|-----------|---------|----------------|
+| **GPU allocation** | 1 GPU each for router/general/coder/critic | Prevents cross-role contention |
+| **Tensor parallelism** | TP=2 for larger coder models | Enables larger checkpoints |
+| **Replica policy** | 1-2 replicas per latency-critical role | Improves availability and tail latency |
+| **Storage layout** | Shared PVC with role `subPath` mounts | Speeds restarts and model rollouts |
 
 ```bash
-# Deploy all models for a profile
-./scripts/run-model-pipeline.sh --profile=small
-
-# Deploy just one role
-./scripts/run-model-pipeline.sh --role=router
+# Download/refresh one role model
+./scripts/run-model-pipeline.sh --role=router --model-repo=Qwen/Qwen2.5-14B-Instruct
 ```
 
-See [`models.yaml`](models.yaml) for full profile definitions, vLLM args, and HPA configuration. See [docs/HARDWARE_SIZING.md](docs/HARDWARE_SIZING.md) for GPU memory and bandwidth guidance.
+See [docs/HARDWARE_SIZING.md](docs/HARDWARE_SIZING.md) for GPU memory and bandwidth guidance.
 
 ## Quick Start
 
 ### Prerequisites
 
-- **OpenShift AI 3.x** (fast or stable channel)
+- Kubernetes cluster (OpenShift supported)
 - NVIDIA GPU Operator
 - `oc`, `kubectl`, `kustomize` CLI tools
 
@@ -161,10 +159,10 @@ See [`models.yaml`](models.yaml) for full profile definitions, vLLM args, and HP
 
 ### 2. Deploy models
 
-Deploy via the OpenShift AI dashboard (Model Hub, `hf://`, or OCI) or use the pipeline scripts:
+Deploy models through your serving runtime (OpenShift AI dashboard, KServe, or vLLM) and/or use the pipeline script:
 
 ```bash
-./scripts/run-model-pipeline.sh --profile=small
+./scripts/run-model-pipeline.sh --role=router --model-repo=Qwen/Qwen2.5-14B-Instruct
 ```
 
 ### 3. Build and push images
@@ -244,7 +242,7 @@ See [docs/user/USERGUIDE.md](docs/user/USERGUIDE.md) for detailed configuration,
 | **Trust & Safety** | 9-layer prompt injection defense, TrustPacketV1 envelopes, attribution metadata, HITL review, shared guardrails core | [docs/SECURITY.md](docs/SECURITY.md) |
 | **Admin Operations** | Model registry, provider governance, security console, RAG review with trust/freshness pivots, traces | [base/admin/README.md](base/admin/README.md) |
 | **Conversation Memory** | L1 in-process turns + pending state; optional Redis L2 for pending checkpoints and pivot archives | [docs/chat/CONVERSATION_MEMORY.md](docs/chat/CONVERSATION_MEMORY.md) |
-| **Observability** | Perses dashboards (COO), Prometheus metrics, per-profile model panels, span-based pipeline tracing | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
+| **Observability** | Perses dashboards (COO), Prometheus metrics, model-role panels, span-based pipeline tracing | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
 | **Open WebUI** | Themed child image, direct connection to planner-ts, SSE phase streaming, background critic | [docs/chat/OPENWEBUI.md](docs/chat/OPENWEBUI.md) |
 | **Anti-Oscillation Framework** | Immutable frame, decision ledger, monotonic reducers, deterministic validators, oscillation detection | [docs/chat/WORKFLOW_PLANNER.MD](docs/chat/WORKFLOW_PLANNER.MD) |
 
@@ -252,7 +250,6 @@ See [docs/user/USERGUIDE.md](docs/user/USERGUIDE.md) for detailed configuration,
 
 ```
 synesis/
-├── models.yaml                 # Build-time reference for model roles, profiles, and codegen
 ├── docs/                       # Doc hub: platform + chat/ (planner-ts) + coder/ (yarn-ts) + user/ + development/
 ├── base/
 │   ├── planner-ts/             # Fastify + TypeScript pipeline (primary planner runtime)
@@ -282,7 +279,7 @@ synesis/
 │   ├── dev/                    # Debug logging, reduced resources
 │   ├── staging/                # Mirrors prod topology
 │   └── prod/                   # HA, NetworkPolicies, PDBs
-├── pipelines/                  # KFP model download pipelines (reads models.yaml)
+├── pipelines/                  # KFP model download pipelines (role-driven CLI parameters)
 ├── scripts/                    # Bootstrap, deploy, build, pipeline runners
 └── .github/workflows/          # CI: lint, test, build images, guardrails, security scan, quality pipeline
 ```
@@ -311,8 +308,8 @@ Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**c
 | [docs/coder/README.md](docs/coder/README.md) | **Coder** (yarn-ts): IDE/agent runtime, governance, RAG integration |
 | [docs/YARN_RUNTIME.md](docs/YARN_RUNTIME.md) | Short redirect to coder + `base/yarn-ts` (legacy filename) |
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Perses dashboards, metrics catalog, logging levels |
-| [docs/HARDWARE_SIZING.md](docs/HARDWARE_SIZING.md) | GPU memory, bandwidth, cluster sizing by profile |
-| [docs/COST_ESTIMATE.md](docs/COST_ESTIMATE.md) | Cloud cost estimates by profile |
+| [docs/HARDWARE_SIZING.md](docs/HARDWARE_SIZING.md) | GPU memory, bandwidth, and capacity planning |
+| [docs/COST_ESTIMATE.md](docs/COST_ESTIMATE.md) | Cloud cost estimates by explicit resource footprint |
 | [docs/VLLM_RECIPES.md](docs/VLLM_RECIPES.md) | Model-specific vLLM args and troubleshooting |
 | [docs/chat/OPENWEBUI.md](docs/chat/OPENWEBUI.md) | Open WebUI setup, troubleshooting, available models |
 | [docs/development/README.md](docs/development/README.md) | **Engineering hub:** CI/test inventory (**TESTING**), milestone M1–M11 archive, GitHub validation secrets, parity trackers |
@@ -327,14 +324,13 @@ Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**c
 
 1. Open the **admin Model Registry** and update role → model assignments
 2. Run **Reconcile** to sync changes to LiteLLM
-3. Deploy the model via OpenShift AI if it is not already running
+3. Deploy the model through your cluster serving runtime if it is not already running
 
-**To change the bootstrap reference** (new defaults for fresh deployments):
+**To deploy/refresh a local runtime model**:
 
-1. Edit [`models.yaml`](models.yaml) with the new HuggingFace repo, name, and vLLM args
-2. Run `./scripts/run-model-pipeline.sh --role=<role>` to download and deploy
+1. Run `./scripts/run-model-pipeline.sh --role=<role> --model-repo=<hf-repo>` to download model weights
+2. Confirm or update the serving deployment (vLLM/KServe) for that role
 3. Redeploy services if config changed: `./scripts/deploy.sh dev`
-4. Optionally use admin "Seed from YAML" to re-bootstrap `model_deployments` from the file
 
 ## Contributing
 

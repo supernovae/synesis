@@ -1,14 +1,13 @@
 # Synesis Unified Model Pipeline — download any model to the shared EFS volume.
 #
-# Single parameterized pipeline. All parameters come from models.yaml via the
-# run script. Each role gets its own subpath on the shared synesis-models-efs PVC.
+# Single parameterized pipeline. Parameters come from CLI/API inputs passed by
+# the run script. Each role gets its own subpath on the shared synesis-models-efs PVC.
 #
 # Parameters: model_repo, pvc_name, pvc_subpath
 # Steps: cleanup → download (same proven pattern as prior pipelines)
 #
 # Compile: python pipelines/model_pipeline.py
-# Invoke:  ./scripts/run-model-pipeline.sh --role=router
-#          ./scripts/run-model-pipeline.sh --profile=small
+# Invoke:  ./scripts/run-model-pipeline.sh --role=router --model-repo=<hf-repo>
 
 import os
 
@@ -93,7 +92,7 @@ def _patch_yaml_deps(path: str) -> None:
 @dsl.pipeline(
     name="synesis-model-download",
     description="Unified pipeline: clean PVC subpath, download model from HuggingFace. "
-    "Parameterized by role — reads models.yaml via run script.",
+    "Parameterized by role and model repo from CLI/API inputs.",
 )
 def model_download_pipeline(
     model_repo: str = "RedHatAI/Qwen3-8B-FP8-dynamic",

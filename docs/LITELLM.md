@@ -126,7 +126,7 @@ Use this as the password when prompted. The username field can be anything
 
 ### Admin UI via synesis-admin
 
-The Synesis admin service (`synesis-admin`) manages model routing through its **Model Registry**. Operators assign models to pipeline roles in the admin UI, and the **Reconcile** action syncs active assignments to LiteLLM. The "Seed from YAML" action re-bootstraps `model_deployments` from `models.yaml` for fresh deployments or resets.
+The Synesis admin service (`synesis-admin`) manages model routing through its **Model Registry**. Operators assign models to pipeline roles in the admin UI, and the **Reconcile** action syncs active assignments to LiteLLM.
 
 ## Model Routing
 
@@ -194,9 +194,9 @@ SYNESIS_RESET_LITELLM_DB=true ./scripts/deploy.sh api
 This drops and recreates the `litellm` database. Prisma migrations re-run
 on the next startup.
 
-## OpenShift Compatibility
+## Kubernetes Security Compatibility
 
-The deployment is fully compatible with OpenShift's `restricted-v2` SCC:
+The deployment is Kubernetes-compatible and validated against OpenShift `restricted-v2` SCC:
 
 | Requirement | How it is met |
 |-------------|---------------|

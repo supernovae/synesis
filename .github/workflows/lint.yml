@@ -47,7 +47,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
 
       - name: Run yamllint
-        run: uvx yamllint -c .yamllint.yml base/ overlays/ models.yaml
+        run: uvx yamllint -c .yamllint.yml base/ overlays/
 
   kustomize:
     name: Kustomize Build

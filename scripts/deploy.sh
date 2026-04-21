@@ -2140,22 +2140,13 @@ log "Syncing gateway secrets to Yarn namespace (synesis-yarn)..."
 ensure_yarn_secrets_from_gateway
 
 # -----------------------------------------------------------------------
-# Admin ConfigMaps: models.yaml and taxonomy config mounted into the pod.
-# Created from repo-root files so the admin service can read model registry
-# and taxonomy data without baking them into the Docker image.
+# Admin ConfigMap: taxonomy prompt config mounted into the pod.
+# Created from repo files so the admin service can read taxonomy data
+# without baking it into the Docker image.
 # -----------------------------------------------------------------------
 ensure_admin_configmaps() {
     local ns="synesis-admin"
     oc create namespace "$ns" 2>/dev/null || true
-
-    if [[ -f "$PROJECT_ROOT/models.yaml" ]]; then
-        oc create configmap synesis-models-config \
-            --from-file=models.yaml="$PROJECT_ROOT/models.yaml" \
-            -n "$ns" --dry-run=client -o yaml | oc apply -f -
-        log "  ConfigMap synesis-models-config updated from models.yaml"
-    else
-        log "WARNING: models.yaml not found at $PROJECT_ROOT/models.yaml"
-    fi
 
     local taxonomy_path="$PROJECT_ROOT/base/planner/taxonomy_prompt_config.yaml"
     if [[ -f "$taxonomy_path" ]]; then
@@ -2648,7 +2639,6 @@ if [[ "$APPLY_OK" == "true" ]]; then
 
     _patch_configmap_hash synesis-search   searxng        searxng-settings
     # litellm-proxy is now managed by Helm — chart handles config rollouts.
-    _patch_configmap_hash synesis-admin    synesis-admin  synesis-models-config
 fi
 
 log ""
@@ -2736,8 +2726,8 @@ else
             oc get pods -n synesis-models -l 'app in (synesis-router,synesis-critic,synesis-coder,synesis-general)' 2>/dev/null || true
             oc get inferenceservice -n synesis-models 2>/dev/null || true
             log ""
-            log "  Model topology (small profile): router (1 GPU) + critic (1 GPU) + coder (1 GPU) on L40S"
-            log "  See models.yaml for profile sizing. Wait for pods Ready."
+            log "  Model topology is role-based. Validate role assignments in Synesis Admin > Model Registry."
+            log "  Wait for model pods to become Ready before traffic cutover."
             pending=$(oc get pods -n synesis-models --no-headers 2>/dev/null \
                 | grep -E "synesis-router|synesis-critic|synesis-coder|synesis-general" | grep -E "Pending|ContainerCreating" || true)
             if [[ -n "$pending" ]]; then
@@ -2746,7 +2736,7 @@ else
                 log "    - No PVC: oc get pvc synesis-models-efs -n synesis-models"
                 log "    - PVC pending: check efs-sc StorageClass and EFS CSI driver"
                 log "    - No GPU nodes: oc get nodes -l node-role.autonode/gpu"
-                log "    - Models not downloaded: ./scripts/run-model-pipeline.sh --profile=small"
+                log "    - Models not downloaded: ./scripts/run-model-pipeline.sh --role=router --model-repo=<hf-repo>"
                 log "  Inspect: oc describe pod -n synesis-models -l app=synesis-router"
             fi
         else

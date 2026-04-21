@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Synesis uses the **Cluster Observability Operator (COO)** stack on OpenShift:
+Synesis uses a Prometheus-compatible observability stack. On OpenShift, the reference setup uses the **Cluster Observability Operator (COO)**:
 
 ```
 ServiceMonitors    -->  Prometheus (user workload monitoring)
@@ -18,8 +18,8 @@ ServiceMonitors    -->  Prometheus (user workload monitoring)
 
 ## Accessing Dashboards
 
-1. Log in to the OpenShift Console
-2. Navigate to **Observe > Dashboards**
+1. Open your dashboard UI (OpenShift Console, Perses, or Grafana)
+2. Navigate to your Synesis dashboards
 3. Select **Synesis - LLM Assistant Overview**
 
 The dashboard is deployed to the `synesis-admin` namespace as a `PersesDashboard` CR.
@@ -125,8 +125,7 @@ across planner, yarn, and MCP request paths.
 
 ### Model Serving (vLLM)
 
-These panels auto-discover models by `model_name` label. Small profile shows 2 models,
-medium shows 4, large shows more -- no dashboard changes needed when scaling.
+These panels auto-discover models by `model_name` label. As you add role endpoints and replicas, panels expand automatically — no dashboard rewiring required.
 
 | Panel | PromQL | Description |
 |-------|--------|-------------|
@@ -173,16 +172,15 @@ This triggers a rolling restart. To revert, redeploy the overlay.
 | synesis-gateway | synesis-gateway | LiteLLM proxy `/metrics` | 15s |
 | synesis-models | synesis-models | All vLLM model pods `/metrics` | 30s |
 
-## Profile Behavior (small / medium / large)
+## Capacity Behavior
 
-The `models.yaml` profiles control how many model pods are deployed. The dashboard
-adapts automatically because all vLLM queries group by `model_name` label:
+Dashboard coverage adapts automatically because vLLM queries group by `model_name` labels:
 
-- **small** (3x L40S): Router/Critic + General + Coder panels visible
-- **medium** (4x L40S): All roles dedicated; + separate Critic panel
-- **large** (8+ GPU): Same models, potentially multiple replicas per role
+- Shared router/critic layouts show consolidated role endpoints
+- Dedicated-role layouts surface distinct router/critic/general/coder panels
+- Multi-replica layouts aggregate throughput and latency by model endpoint
 
-No dashboard changes are needed when switching profiles.
+No dashboard changes are needed when you change resource footprints.
 
 ## Adding New Metrics
 

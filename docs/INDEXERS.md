@@ -262,7 +262,7 @@ base/rag/indexer/
 
 Queue mode is the default for the deployed CronJob. YAML mode remains available for local development.
 
-### Connectivity, auth, and NetworkPolicy (OpenShift)
+### Connectivity, auth, and NetworkPolicy (Kubernetes/OpenShift)
 
 Queue mode needs **three** things to work reliably:
 

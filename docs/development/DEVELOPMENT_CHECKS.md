@@ -22,8 +22,8 @@ Prerequisites for mock-tests: repo-root `npm ci` (see `Makefile` and `lint.yml` 
 
 ## Prerequisites
 
-- OpenShift cluster with Synesis deployed
-- `oc` logged in
+- Kubernetes cluster with Synesis deployed (OpenShift supported)
+- `kubectl` logged in (`oc` also works on OpenShift)
 - Release deployed (the version you intend to validate)
 
 ---

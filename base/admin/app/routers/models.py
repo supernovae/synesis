@@ -28,7 +28,6 @@ from ..services.model_registry import (
     get_model_deployments,
     get_role_assignments,
     get_role_history,
-    seed_model_deployments,
     set_deployment_active,
     update_deployment,
     upsert_model_cost,
@@ -552,28 +551,6 @@ async def deactivate_deployment(
         detail={"deployment_id": deployment_id, "deployment": result, "reconcile_ok": rec_ok, "error": rec_err},
     )
     return result
-
-
-@router.post("/sync-from-yaml")
-async def sync_from_yaml(_user: UserInfo = Depends(require_platform_admin)):
-    from ..services.model_registry import invalidate_yaml_cache
-
-    invalidate_yaml_cache()
-    count = await seed_model_deployments(force=True)
-    await record_admin_audit(
-        user=_user,
-        action="models.sync_from_yaml",
-        status="success",
-        summary=f"Re-seeded model_deployments from models.yaml ({count} rows)",
-        detail={"seeded": count},
-    )
-    return {
-        "seeded": count,
-        "warning": (
-            "Re-seeding from models.yaml clears and replaces model_deployments rows from the mounted file. "
-            "For ongoing changes, use Registry role assignments instead."
-        ),
-    }
 
 
 @router.post("/reconcile")

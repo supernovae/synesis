@@ -5,9 +5,9 @@
 # quality than the previous Qwen3-8B, with ~14GB FP8 weights fitting easily
 # on a single L40S (~29GB KV cache headroom).
 #
-# In small profile (3 GPUs), this eliminates the need for a separate R1 critic
-# deployment, keeping all 3 GPUs for router+critic, general, and coder.
-# Medium/large profiles deploy a dedicated R1 via synesis-critic deployment.
+# In compact 3-GPU layouts, this can eliminate the need for a separate R1 critic
+# deployment, keeping GPUs available for router+critic, general, and coder.
+# Larger footprints typically deploy a dedicated R1 via synesis-critic deployment.
 #
 # Critic reasoning is prompt-driven (detailed system prompt) — no native
 # thinking mode. This avoids the "people-pleaser" equivocation that smaller

@@ -1,4 +1,4 @@
-"""Model registry: bootstrap from models.yaml, role-first CRUD, cost estimates.
+"""Model registry: role-first CRUD and cost estimates.
 
 Role assignments (``ModelDeployment``) inherit provider identity from
 ``ProviderConfig`` + static ``provider_catalog`` via
@@ -12,16 +12,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, NamedTuple
 
-import yaml
-from sqlalchemy import delete, func, select
+from sqlalchemy import select
 
 from ..db.engine import async_session
 from ..db.models import ModelCost as ModelCostRow
 from ..db.models import ModelDeployment, ModelRoleHistory, ProviderConfig
-from ..deps import MODELS_YAML_PATH
 from .provider_catalog import (
     KNOWN_ROLES,
     PROVIDER_CATALOG,
@@ -32,8 +29,6 @@ from .provider_catalog import (
 from .token_cost import estimate_llm_call_cost_from_payload, parse_recorded_estimated_cost
 
 logger = logging.getLogger("synesis.admin.models")
-
-_yaml_cache: dict[str, Any] | None = None
 
 
 def _normalize_fallbacks(raw: Any, served_name: str = "") -> list[str] | None:
@@ -59,117 +54,6 @@ def _normalize_fallbacks(raw: Any, served_name: str = "") -> list[str] | None:
         out.append(v)
         seen.add(v)
     return out or None
-
-
-def _load_models_yaml() -> dict[str, Any]:
-    global _yaml_cache
-    if _yaml_cache is not None:
-        return _yaml_cache
-    p = Path(MODELS_YAML_PATH)
-    if not p.exists():
-        logger.info("models_yaml_not_found path=%s", p)
-        return {}
-    try:
-        with open(p) as f:
-            _yaml_cache = yaml.safe_load(f) or {}
-        return _yaml_cache
-    except Exception as exc:
-        logger.warning("models_yaml_error error=%s", str(exc)[:80])
-        return {}
-
-
-def invalidate_yaml_cache() -> None:
-    global _yaml_cache
-    _yaml_cache = None
-
-
-# ---------------------------------------------------------------------------
-# Seed model_deployments from models.yaml (bootstrap-only)
-# ---------------------------------------------------------------------------
-
-
-async def seed_model_deployments(*, force: bool = False) -> int:
-    """Seed one deployment per canonical role from models.yaml.
-
-    On first start (empty table), creates role assignments from the first
-    OpenRouter profile and activates them.  On subsequent starts, does nothing
-    unless force=True (which clears and re-seeds).
-    """
-    data = _load_models_yaml()
-    if not data:
-        logger.info("seed_models_skip reason=no_yaml")
-        return 0
-
-    async with async_session() as session:
-        count = (await session.execute(select(func.count(ModelDeployment.id)))).scalar() or 0
-        if not force and count > 0:
-            logger.info("seed_models_skip reason=table_not_empty count=%d", count)
-            return 0
-
-        is_first_seed = count == 0
-
-        if force and count > 0:
-            await session.execute(delete(ModelDeployment))
-            logger.info("seed_models_cleared existing=%d", count)
-
-        roles_cfg = data.get("roles", {})
-        inserted = 0
-
-        # Prefer first OpenRouter profile for day-0 (works out-of-the-box with an API key).
-        or_profiles = data.get("openrouter_profiles", {})
-        first_or_profile = next(iter(or_profiles.values()), None) if or_profiles else None
-
-        for role_name in KNOWN_ROLES:
-            role_def = roles_cfg.get(role_name, {})
-            served_name = role_def.get("served_model_name", ROLE_SERVED_NAMES.get(role_name, f"synesis-{role_name}"))
-            description = role_def.get("description", "")
-
-            # Try OpenRouter assignment first (lower friction day-0).
-            or_assignment = (first_or_profile or {}).get("assignments", {}).get(role_name)
-            if or_assignment:
-                or_model = or_assignment.get("openrouter_model", "")
-                notes_text = or_assignment.get("notes", "")
-                lp = build_litellm_params("openrouter", or_model)
-                row = ModelDeployment(
-                    role=role_name,
-                    model=or_model,
-                    endpoint="",
-                    served_name=served_name,
-                    status="activating" if is_first_seed else "configured",
-                    source="openrouter",
-                    provider="openrouter",
-                    api_key_env="OPENROUTER_API_KEY",
-                    litellm_params=lp,
-                    is_active=is_first_seed,
-                    description=description,
-                    notes=notes_text.strip() if notes_text else "",
-                )
-            else:
-                # Fallback: local vLLM from role defaults.
-                model = role_def.get("default_model", "")
-                service_name = role_def.get("service_name", role_name)
-                namespace = role_def.get("namespace", "synesis-models")
-                endpoint = f"http://{service_name}.{namespace}.svc.cluster.local:8080/v1"
-                lp = build_litellm_params("vllm", served_name, endpoint=endpoint, max_tokens=32768, temperature=0.3)
-                row = ModelDeployment(
-                    role=role_name,
-                    model=model,
-                    endpoint=endpoint,
-                    served_name=served_name,
-                    status="configured",
-                    source="vllm",
-                    provider="vllm",
-                    litellm_params=lp,
-                    is_active=False,
-                    description=description,
-                    notes="",
-                )
-            session.add(row)
-            inserted += 1
-
-        await session.commit()
-        logger.info("seed_models_done inserted=%d first_seed=%s", inserted, is_first_seed)
-        return inserted
 
 
 # ---------------------------------------------------------------------------
@@ -653,7 +537,7 @@ async def get_role_history(role: str, *, days: int = 90) -> list[dict]:
 
 
 async def get_model_topology() -> dict:
-    """Return all deployments as a flat list. Role names from models.yaml if DB empty."""
+    """Return all deployments as a flat list with canonical role names."""
     deployments = await get_model_deployments()
     flat = [
         {
@@ -672,8 +556,7 @@ async def get_model_topology() -> dict:
     ]
     if flat:
         return {"deployments": flat, "roles": list(KNOWN_ROLES)}
-    data = _load_models_yaml()
-    return {"deployments": [], "roles": list(data.get("roles", {}).keys()) or list(KNOWN_ROLES)}
+    return {"deployments": [], "roles": list(KNOWN_ROLES)}
 
 
 # ---------------------------------------------------------------------------

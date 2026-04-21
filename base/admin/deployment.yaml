@@ -55,8 +55,6 @@ spec:
               value: "/data/quality/corpus_audit_report.json"
             - name: SYNESIS_CURATOR_PROPOSALS_PATH
               value: "/data/quality/proposed_sources.yaml"
-            - name: SYNESIS_MODELS_YAML_PATH
-              value: "/etc/synesis/models.yaml"
             - name: SYNESIS_TAXONOMY_YAML_PATH
               value: "/etc/synesis/taxonomy_prompt_config.yaml"
             # Placeholder password — CloudNativePG stores the real password in secret
@@ -131,10 +129,6 @@ spec:
             - name: quality-data
               mountPath: /data/quality
               readOnly: true
-            - name: models-config
-              mountPath: /etc/synesis/models.yaml
-              subPath: models.yaml
-              readOnly: true
             - name: taxonomy-config
               mountPath: /etc/synesis/taxonomy_prompt_config.yaml
               subPath: taxonomy_prompt_config.yaml
@@ -175,10 +169,6 @@ spec:
         - name: quality-data
           configMap:
             name: quality-report
-            optional: true
-        - name: models-config
-          configMap:
-            name: synesis-models-config
             optional: true
         - name: taxonomy-config
           configMap:

@@ -1,22 +1,22 @@
 ---
-description: Enforces that model references stay in sync with models.yaml
+description: Enforces DB-first model registry alignment across runtime configs
 alwaysApply: true
 ---
 
 # Model Alignment Rule
 
-`models.yaml` is the **reference** for recommended HuggingFace repos, GPU sizing, and generated manifests. **Live** model routing (which provider/model each pipeline role uses) is configured in the **admin Registry** (Postgres) and synced to LiteLLM — not by editing `models.yaml` on a running cluster. Use admin “Seed from YAML” only to re-bootstrap deployments from the file.
+Model/provider routing is **DB-first**: pipeline role assignments live in the **admin Registry** (Postgres) and are synced to LiteLLM by reconcile flows. There is no `models.yaml` bootstrap path.
 
-Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML), not by Synesis manifests alone.
+Synesis is Kubernetes-native. OpenShift/OpenShift AI are supported options, not required dependencies.
 
 ## When modifying model references:
 
-1. **Update `models.yaml`** with recommended HuggingFace repos and metadata
-2. **Update config files** that point at deployed model endpoints:
+1. **Update registry-aligned configs** that point at deployed model endpoints:
    - `base/gateway/litellm-config.yaml` — `api_base` for synesis-router, synesis-general, synesis-critic, synesis-coder
    - `base/planner-ts/src/config.ts` — planner model defaults
    - `base/planner-ts/deployment.yaml` — planner-ts runtime env vars
-3. **Remind the user** to deploy models via OpenShift AI 3 and configure endpoints if deployment names differ from defaults (`synesis-router`, `synesis-general`, `synesis-critic`, `synesis-coder`)
+2. **Align Admin Registry expectations** with provider governance defaults and role assignments
+3. **Remind the user** to deploy model runtimes (KServe/vLLM/OpenShift AI) and configure endpoints if deployment names differ from defaults (`synesis-router`, `synesis-general`, `synesis-critic`, `synesis-coder`)
 
 ## Service URL pattern
 
@@ -28,4 +28,4 @@ When router/general/critic/coder fail to start or OOM: check [vLLM Recipes](http
 
 ## Yarn runtime (separate from vLLM roles)
 
-**Synesis Yarn** (`base/yarn-ts/`) is the OpenAI-compatible IDE/agent runtime; it is **not** a vLLM InferenceService. Model/provider for Yarn come from Yarn env (e.g. `SYNESIS_YARN_PROVIDER`, `SYNESIS_YARN_MODEL`), not from `models.yaml` pipeline roles. Deployed via `base/yarn-ts` + overlays (`overlays/api`, `overlays/model`), namespace **`synesis-yarn`**.
+**Synesis Yarn** (`base/yarn-ts/`) is the OpenAI-compatible IDE/agent runtime; it is **not** a vLLM InferenceService. Model/provider for Yarn come from Yarn env (e.g. `SYNESIS_YARN_PROVIDER`, `SYNESIS_YARN_MODEL`) and/or role-assignment APIs, not from file-based profile definitions. Deployed via `base/yarn-ts` + overlays (`overlays/api`, `overlays/model`), namespace **`synesis-yarn`**.

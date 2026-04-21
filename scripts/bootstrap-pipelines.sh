@@ -112,5 +112,5 @@ echo "  export KFP_TOKEN=\$(oc whoami -t)   # optional — script runs 'oc whoam
 echo "  export DS_PROJECT=$DS_PROJECT"
 [[ -n "$ECR_URI" ]] && echo "  export ECR_URI=$ECR_URI"
 echo ""
-echo "  ./scripts/run-model-pipeline.sh --profile=small     # all models for small profile"
-echo "  ./scripts/run-model-pipeline.sh --role=router        # just the router model"
+echo "  ./scripts/run-model-pipeline.sh --role=router --model-repo=<hf-repo>"
+echo "  ./scripts/run-model-pipeline.sh --role=general --model-repo=<hf-repo>"

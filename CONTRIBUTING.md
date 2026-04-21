@@ -78,7 +78,7 @@ ruff format base/
 YAML files are validated with [yamllint](https://yamllint.readthedocs.io/). Configuration lives in `.yamllint.yml`.
 
 ```bash
-yamllint -c .yamllint.yml base/ overlays/ models.yaml
+yamllint -c .yamllint.yml base/ overlays/
 ```
 
 Kustomize overlays must build cleanly:

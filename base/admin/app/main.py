@@ -34,7 +34,6 @@ async def lifespan(app: FastAPI):
     from app.routers.provider_governance import seed_provider_configs
     from app.services.infra_pricing import ensure_table as ensure_infra_table
     from app.services.model_reconciler import reconcile
-    from app.services.model_registry import seed_model_deployments
     from app.services.prompt_library import seed_default_prompt_profiles
 
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
@@ -51,13 +50,6 @@ async def lifespan(app: FastAPI):
             logger.info("provider_seed_complete count=%d", provider_count)
     except Exception:
         logger.warning("provider_seed_failed", exc_info=True)
-
-    try:
-        seeded = await seed_model_deployments()
-        if seeded:
-            logger.info("model_seed_complete count=%d", seeded)
-    except Exception:
-        logger.warning("model_seed_failed", exc_info=True)
 
     try:
         prompt_seeded = await seed_default_prompt_profiles()

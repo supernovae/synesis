@@ -5,7 +5,6 @@ import {
   useRoleAssignments,
   useAssignRole,
   useDeactivateRole,
-  useSyncModelsFromYaml,
   useReconcileModels,
   useProviderGovernance,
   buildCatalogFromGovernance,
@@ -25,7 +24,6 @@ import {
   Cloud,
   Server,
   Zap,
-  Download,
   Pencil,
   Link2,
   AlertTriangle,
@@ -124,7 +122,6 @@ export default function ModelRegistry() {
   const { data, isLoading } = useRoleAssignments();
   const assignMut = useAssignRole();
   const deactivateMut = useDeactivateRole();
-  const syncYaml = useSyncModelsFromYaml();
   const reconcileMut = useReconcileModels();
   const { data: costsData } = useActiveCosts();
   const costByRole = useMemo(() => {
@@ -228,24 +225,6 @@ export default function ModelRegistry() {
             <Zap className="h-3.5 w-3.5" />
             {reconcileMut.isPending ? "Syncing..." : "Force Sync"}
           </button>
-          <button
-            onClick={() => {
-              if (
-                !window.confirm(
-                  "Re-seed from models.yaml? This clears and replaces model_deployments from the mounted file. " +
-                    "Ongoing changes should be made in Registry (role assignments) instead.",
-                )
-              ) {
-                return;
-              }
-              syncYaml.mutate();
-            }}
-            disabled={syncYaml.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {syncYaml.isPending ? "Seeding..." : "Seed from YAML"}
-          </button>
         </div>
       </div>
 
@@ -254,7 +233,7 @@ export default function ModelRegistry() {
       ) : roles.length === 0 ? (
         <EmptyState
           title="No roles configured"
-          description="Bootstrap from models.yaml (one-time), then manage live assignments here or via PUT /api/v1/models/roles/{role}."
+          description="No active role assignments yet. Configure providers and assign roles here or via PUT /api/v1/models/roles/{role}."
         />
       ) : (
         <>

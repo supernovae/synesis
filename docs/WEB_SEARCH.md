@@ -34,7 +34,7 @@ The retrieval pipeline supports **multi-source federation**: instead of a single
 
 ## Search Source Catalog (`search_sources.yaml`)
 
-Search sources are defined in `search_sources.yaml` at the repo root — the same pattern as `models.yaml`. Each source declares:
+Search sources are defined in `search_sources.yaml` at the repo root using the same declarative config style as other Synesis catalogs. Each source declares:
 
 | Field | Description |
 |-------|-------------|

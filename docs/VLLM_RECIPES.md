@@ -8,12 +8,12 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 |-------|------|-------------|------|------------|
 | **Qwen2.5-14B-Instruct** | Router, Planner, Critic | FP8 (on-the-fly via `--quantization=fp8`) | ~14 GB | `deployment-vllm-router.yaml` |
 | **Qwen3-32B FP8-dynamic** | General, Writer | FP8 (dynamic quant) | ~32 GB | `deployment-vllm-general.yaml` |
-| **Qwen3-Coder-30B-A3B-FP8** | Coder (small) | FP8 (pre-quantized) | ~15 GB | `deployment-vllm-coder.yaml` |
-| **Qwen3-Coder-Next-FP8** | Coder (medium+) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
-| **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (medium+) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-critic.yaml` |
+| **Qwen3-Coder-30B-A3B-FP8** | Coder (single GPU) | FP8 (pre-quantized) | ~15 GB | `deployment-vllm-coder.yaml` |
+| **Qwen3-Coder-Next-FP8** | Coder (TP=2) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
+| **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (dedicated) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-critic.yaml` |
 | **Qwen2.5-0.5B-Instruct** | Summarizer | none (CPU) | 0 | KServe InferenceService |
 
-See [models.yaml](../models.yaml) for the build-time reference. Runtime model routing is managed through the admin Model Registry and synced to LiteLLM.
+Runtime model routing is managed through the admin Model Registry and synced to LiteLLM.
 
 ## General: Qwen3-32B FP8-dynamic
 
@@ -37,7 +37,7 @@ Key vLLM args (from `base/model-serving/deployment-vllm-general.yaml`):
 - **No thinking flags**: The general deployment does not enable `--enable-reasoning`. Executor explicitly disables Qwen3's default thinking mode via `chat_template_kwargs: {"enable_thinking": false}`.
 - **Speculative decoding (future)**: The 8B draft model won't fit alongside the 32B on one GPU. However, ngram-based speculation (`--speculative-model=[ngram] --num-speculative-tokens=5 --ngram-prompt-lookup-max=4`) requires zero extra VRAM and can improve throughput 1.3-1.8x for predictable content.
 
-### General VRAM budget (small profile, single L40S)
+### General VRAM budget (single L40S)
 
 | Component | Estimate |
 |-----------|----------|
@@ -49,9 +49,9 @@ Key vLLM args (from `base/model-serving/deployment-vllm-general.yaml`):
 
 Tight. If OOM occurs, reduce `--max-num-seqs` to 32 or `--max-model-len` to 8192.
 
-## Coder: Profile-Dependent Model
+## Coder: Capacity-Dependent Model
 
-### Small profile: Qwen3-Coder-30B-A3B-Instruct-FP8
+### Single-GPU layout: Qwen3-Coder-30B-A3B-Instruct-FP8
 
 Key vLLM args (from `base/model-serving/deployment-vllm-coder.yaml`):
 
@@ -67,9 +67,9 @@ Key vLLM args (from `base/model-serving/deployment-vllm-coder.yaml`):
 - **FP8 weights ~15GB** — fits easily on a single L40S with full 65K context and ~25GB headroom.
 - **Prefix caching**: Enabled — caches repeated system prompts from IDE clients.
 - **Separate endpoint**: IDEs (Cursor, Claude Code) connect directly — not routed through the planner.
-- **Upgrade path**: Medium/large profiles use Qwen3-Coder-Next-FP8 (80B, TP=2) for max quality.
+- **Upgrade path**: Move to Qwen3-Coder-Next-FP8 (80B, TP=2) when your cluster can dedicate two GPUs to coder.
 
-#### Coder VRAM budget (small profile, single L40S)
+#### Coder VRAM budget (single L40S)
 
 | Component | Estimate |
 |-----------|----------|
@@ -81,7 +81,7 @@ Key vLLM args (from `base/model-serving/deployment-vllm-coder.yaml`):
 
 Plenty of headroom. The 30B-A3B model is the right fit for single-GPU deployment.
 
-### Medium/Large profile: Qwen3-Coder-Next-FP8
+### Multi-GPU layout: Qwen3-Coder-Next-FP8
 
 ```
 --tensor-parallel-size=2
@@ -136,7 +136,7 @@ Key vLLM args (from `base/model-serving/deployment-vllm-critic.yaml`):
 - **Chunked prefill**: Improves TTFT by overlapping prefill with decode.
 - **Memory**: ~33GB weights + ~2.5GB FP8 KV cache (20K ctx) + ~3GB overhead = ~38.5GB of 44GB usable (0.92 util).
 
-## Router + Critic (small profile): Qwen2.5-14B-Instruct FP8
+## Router + Critic (shared endpoint): Qwen2.5-14B-Instruct FP8
 
 Key vLLM args (from `base/model-serving/deployment-vllm-router.yaml`):
 
@@ -153,10 +153,10 @@ Key vLLM args (from `base/model-serving/deployment-vllm-router.yaml`):
 - **On-the-fly FP8**: `--quantization=fp8` applies dynamic FP8 quantization at load time. No pre-quantized HuggingFace variant needed — uses the original `Qwen/Qwen2.5-14B-Instruct` weights. Native Ada Lovelace tensor core ops on L40S.
 - **Prefix caching**: Enabled. Caches KV states for repeated system prompts across router/planner/critic roles.
 - **Chunked prefill**: Improves TTFT by overlapping prefill with decode. Compatible with prefix caching on Qwen2.5.
-- **Dual model names**: Serves as both `synesis-router` and `synesis-critic`. In small profile, the `synesis-critic` Service selector is patched to target the router pod.
+- **Dual model names**: Serves as both `synesis-router` and `synesis-critic` when using a shared router/critic deployment.
 - **No thinking mode**: Qwen2.5 does not have Qwen3's native `<think>` tag system. The critic uses prompt-based chain-of-thought reasoning via its detailed system prompt. No `--reasoning-parser` flag needed.
 - **Why 14B over 8B**: Qwen2.5-14B-Instruct has nearly double the parameter count of Qwen3-8B, providing stronger instruction-following, more definitive evaluations (less "people-pleasing"), and better task decomposition. The extra capacity eliminates the need for model-native thinking mode — the 14B model can reason effectively in a single forward pass.
-- **Small profile GPU savings**: Eliminates the need for a separate R1 deployment. One 14B model on one GPU handles routing, planning, advising, and critiquing. Medium/large profiles deploy dedicated R1 for even stronger critic reasoning.
+- **Shared-endpoint GPU savings**: Eliminates the need for a separate R1 deployment. One 14B model on one GPU handles routing, planning, advising, and critiquing. Dedicated critic deployments can be added later for stronger reasoning at scale.
 
 ### VRAM budget (single L40S)
 
@@ -317,7 +317,6 @@ in the Model Registry for any coder role. Set `DASHSCOPE_API_KEY` env var.
 ### Migration checklist
 
 - [x] Update `base/model-serving/deployment-vllm-coder.yaml`: use `--tool-call-parser=qwen3_xml`
-- [x] Update `models.yaml` vllm_args: all coder entries use `qwen3_xml`
 - [x] Remove `--enable-prefix-caching` from coder deployments
 - [ ] Test with Claude Code: Write tool calls with code content containing
   quotes and newlines should now succeed without the Bash heredoc fallback
@@ -369,9 +368,9 @@ take precedence.
 
 GPU deployments use `strategy: Recreate` so the old pod terminates before the new one starts -- no extra GPU headroom needed during rollout.
 
-## OpenShift AI vLLM versions
+## OpenShift AI image notes
 
-RHOAI ships `registry.redhat.io/rhaiis/vllm-cuda-rhel9`. Both deployments pin the same image digest for consistency. If you need a newer vLLM, override the `image` field in the container spec.
+OpenShift AI (RHOAI) ships `registry.redhat.io/rhaiis/vllm-cuda-rhel9`. If you run on another Kubernetes distribution, use an equivalent vLLM image and keep runtime args aligned.
 
 ## GPU scheduling (node selectors)
 

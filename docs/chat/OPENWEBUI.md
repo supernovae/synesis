@@ -13,7 +13,7 @@ The deploy script automatically:
 1. Generates the LiteLLM API key (or reuses an existing one)
 2. Copies the key into the `synesis-webui` namespace as a Secret
 3. Deploys Open WebUI with the API URL and key pre-injected as environment variables
-4. Creates an OpenShift Route at `synesis.apps.openshiftdemo.dev`
+4. Exposes Open WebUI through your cluster edge (Ingress/Route/Gateway) with your configured hostname
 
 On first visit, create an admin account. The `synesis-agent` model is available immediately.
 
@@ -25,17 +25,17 @@ On first visit, create an admin account. The `synesis-agent` model is available 
 | **Staging** | `https://synesis-staging.apps.openshiftdemo.dev` | `https://synesis-api-staging.apps.openshiftdemo.dev` |
 | **Prod** | `https://synesis.apps.openshiftdemo.dev` | `https://synesis-api.apps.openshiftdemo.dev` |
 
-## Available Models by Profile
+## Available Models by Deployment Layout
 
-### Small Profile (dev)
+### Shared-footprint layout (dev)
 
 | Model Name | What It Does |
 |------------|-------------|
 | `synesis-agent` | Full pipeline: Entry → Planner → Router → Writer → Critic → Respond (via Qwen2.5-14B router + Qwen3-32B general) |
 
-In small profile, Qwen2.5-14B-Instruct handles routing, planning, and critic roles on GPU 0. Qwen3-32B handles general/writer on GPU 1. The Coder model runs on GPU 2 but is accessed directly by IDEs, not through Open WebUI.
+In a shared-footprint layout, Qwen2.5-14B-Instruct can handle routing, planning, and critic roles on one GPU. Qwen3-32B handles general/writer on another GPU. The Coder model typically stays on a dedicated endpoint for IDE access.
 
-### Medium/Large Profile (staging/prod)
+### Dedicated-role layout (staging/prod)
 
 | Model Name | What It Does |
 |------------|-------------|
@@ -123,11 +123,11 @@ The container runs **non-root**; the image’s bundled static directory is not w
 
 ### Auth page shows only “Sign in to Synesis” — no Keycloak button
 
-Open WebUI needs a public **WEBUI_URL** (same origin users use in the browser) so OIDC redirect URIs and the SSO button are built correctly. It is set in `base/webui/deployment.yaml` to match the OpenShift Route host. If you change the Route host, patch `WEBUI_URL` to the same value and restart Open WebUI.
+Open WebUI needs a public **WEBUI_URL** (same origin users use in the browser) so OIDC redirect URIs and the SSO button are built correctly. It is set in `base/webui/deployment.yaml` to match your public Ingress/Route host. If you change the host, patch `WEBUI_URL` to the same value and restart Open WebUI.
 
 **Still blank after fixing `WEBUI_URL`?** Open WebUI stores OAuth settings in its SQLite DB on first boot. Set **`ENABLE_OAUTH_PERSISTENT_CONFIG=false`** (in the same Deployment) so env vars always win, then restart the pod.
 
-**OIDC not registering (blank `/auth`, redirect churn):** Open WebUI only enables the OIDC client when **`OAUTH_CLIENT_SECRET` is set *or* `OAUTH_CODE_CHALLENGE_METHOD=S256`** (public Keycloak clients need PKCE). Also set **`OPENID_REDIRECT_URI`** to the public callback URL (e.g. `https://<webui-host>/oauth/oidc/callback`) so the redirect URI is not derived as `http://` from in-cluster request URLs behind the OpenShift route.
+**OIDC not registering (blank `/auth`, redirect churn):** Open WebUI only enables the OIDC client when **`OAUTH_CLIENT_SECRET` is set *or* `OAUTH_CODE_CHALLENGE_METHOD=S256`** (public Keycloak clients need PKCE). Also set **`OPENID_REDIRECT_URI`** to the public callback URL (e.g. `https://<webui-host>/oauth/oidc/callback`) so the redirect URI is not derived as `http://` from in-cluster request URLs behind edge proxies.
 
 **“Email or password is incorrect” during Keycloak SSO:** Open WebUI maps **`invalid_scope`** (and other OAuth errors) to that generic message. The usual cause is Keycloak missing **`openid` / `profile` / `email`** client scopes on the `synesis` realm. Run **`./scripts/ensure-keycloak-oidc-scopes.sh`** (or redeploy with `./scripts/deploy.sh`, which runs it after Keycloak is ready).
 

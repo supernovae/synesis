@@ -1,14 +1,11 @@
 # Synesis V3 Cost Estimates
 
-Cost estimates by deployment profile. All prices are approximate AWS on-demand
+Cost estimates by explicit resource footprint. All prices are approximate AWS on-demand
 rates as of March 2026. Spot pricing can reduce costs by 60-70%.
-
-See `models.yaml` for profile definitions and `scripts/generate-model-configs.sh`
-for config generation.
 
 ---
 
-## Small Profile (3x L40S)
+## 3x L40S Footprint
 
 **Use case**: Multi-user small team, evaluation.
 
@@ -37,7 +34,7 @@ for config generation.
 
 ---
 
-## Medium Profile (4x L40S)
+## 4x L40S Footprint
 
 **Use case**: Team of 5-15 developers, daily use, all roles dedicated.
 
@@ -69,7 +66,7 @@ On-demand: ~$7.00/hr combined. Advantages: independent scaling, fault isolation.
 
 ---
 
-## Large Profile (8x GPU)
+## 8x GPU Footprint
 
 **Use case**: Organization-wide deployment, 50+ developers, production SLAs.
 
@@ -103,7 +100,7 @@ On-demand: ~$7.00/hr combined. Advantages: independent scaling, fault isolation.
 
 ### Vertical Scaling (Bigger Models)
 
-Upgrade model sizes within a profile using `model_override` in `models.yaml`:
+Upgrade model sizes by adjusting runtime assignments and deployment specs:
 
 - General: Qwen3-32B -> Qwen3-235B-A22B (requires TP=2)
 - Critic: R1-Distill-32B -> R1-Distill-70B (requires TP=2)
@@ -119,9 +116,9 @@ Scale replicas for throughput without changing models:
 
 ### Recommendation
 
-1. **Start with Small** for evaluation and development
-2. **Move to Medium** when team exceeds 3-5 developers or latency matters
-3. **Use Large Option B** (multi-node L40S) over Option A (H100) for cost efficiency
+1. **Start with 3x L40S** for evaluation and development
+2. **Move to 4x L40S** when team size and latency requirements increase
+3. **Use multi-node L40S footprints** over H100 for cost efficiency unless you need top-end throughput
 4. **Scale horizontally first** (more replicas) before vertically (bigger models)
 5. **Use spot instances** for non-production workloads (60-70% savings)
 
@@ -137,11 +134,6 @@ Scale replicas for throughput without changing models:
 | EFS (shared model storage) | ~$0.30/GB/mo (pay for actual usage) |
 | Data transfer (inter-AZ) | ~$0.01/GB |
 | Load balancer | ~$0.025/hr ($18/mo) |
-
----
-
-*Generated from models.yaml profiles. Update profiles and re-run
-`scripts/generate-model-configs.sh --profile=<name>` to regenerate.*
 
 ---
 
@@ -192,8 +184,8 @@ with the number and size of nodes.
 
 ### Purchasing Red Hat OpenShift AI
 
-Red Hat OpenShift AI (RHOAI) provides the model serving infrastructure
-(KServe, vLLM runtimes, model registry) that Synesis relies on.
+Red Hat OpenShift AI (RHOAI) can provide integrated model serving infrastructure
+(KServe, vLLM runtimes, model registry) for Synesis deployments on OpenShift.
 
 - **AWS Marketplace** (recommended for ROSA): Search for "Red Hat OpenShift AI"
   in the AWS Marketplace console. Pay-as-you-go billing appears on your

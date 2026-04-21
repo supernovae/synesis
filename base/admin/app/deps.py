@@ -48,10 +48,6 @@ DATABASE_URL = os.getenv(
 )
 QUALITY_REPORT_PATH = os.getenv("SYNESIS_QUALITY_REPORT_PATH", "")
 CURATOR_PROPOSALS_PATH = os.getenv("SYNESIS_CURATOR_PROPOSALS_PATH", "")
-MODELS_YAML_PATH = os.getenv(
-    "SYNESIS_MODELS_YAML_PATH",
-    "/etc/synesis/models.yaml",
-)
 TAXONOMY_YAML_PATH = os.getenv(
     "SYNESIS_TAXONOMY_YAML_PATH",
     "/etc/synesis/taxonomy_prompt_config.yaml",

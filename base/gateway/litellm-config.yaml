@@ -9,7 +9,7 @@ metadata:
 data:
   config.yaml: |
     # Synesis V3 Model Endpoints
-    # See models.yaml for profile-specific model assignments and GPU sizing.
+    # Runtime role assignments are managed in Synesis Admin Model Registry.
     #
     # Synesis / Synesis Thinking: Open WebUI — same planner; Thinking enables writer thinking param
     # synesis-coder: IDE direct vLLM — bypasses planner

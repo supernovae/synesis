@@ -1,8 +1,8 @@
 # Model mode — self-hosted GPU inference via vLLM.
 #
 # Deploys model-serving pods (router, critic, coder, general) alongside
-# all core services. Defaults to the "small profile" where the critic
-# role is served by the router pod (single GPU). Scale up critic and
+# all core services. Defaults to a compact shared-router layout where the critic
+# role is served by the router pod. Scale up critic and
 # fix the Service selector when dedicated critic GPUs are available.
 #
 # Usage:
@@ -21,7 +21,7 @@ resources:
   - ../../base/vision-worker
 
 patches:
-  # Small profile default: no dedicated critic pod — the router pod
+  # Compact default: no dedicated critic pod — the router pod
   # serves the critic role via --served-model-name alias.
   # To enable a dedicated critic: oc scale deployment/synesis-critic --replicas=1
   # and patch the Service selector back to app: synesis-critic.

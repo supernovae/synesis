@@ -6,7 +6,7 @@
 #
 # FP8 weights ~32GB + FP8 KV cache on 48GB L40S at 0.92 utilization.
 #
-# In small profile, this deployment is scaled to 0 (Qwen2.5-14B-Instruct handles
+# In compact shared-router deployments, this deployment is scaled to 0 (Qwen2.5-14B-Instruct handles
 # critic on the router pod via prompt-based CoT). The synesis-critic Service
 # selector is patched to target the router pod in the dev overlay.
 #

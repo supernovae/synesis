@@ -2,7 +2,7 @@
 
 > **Living document.** Updated as we exercise the system with benchmark prompts and track external critic scores.
 
-**Related:** [LORA_TRAINING_GUIDE.md](LORA_TRAINING_GUIDE.md), [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD), [models.yaml](../models.yaml), [VLLM_RECIPES.md](VLLM_RECIPES.md)
+**Related:** [LORA_TRAINING_GUIDE.md](LORA_TRAINING_GUIDE.md), [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD), [VLLM_RECIPES.md](VLLM_RECIPES.md)
 
 ---
 
