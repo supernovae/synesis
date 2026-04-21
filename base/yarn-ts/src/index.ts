@@ -1371,6 +1371,15 @@ const WRITE_ONLY_FAILURE_REASONS = new Set([
   "write_permission_denied",
   "write_tool_error",
 ]);
+const QWEN_FORCED_PHASE_POLICY_RULES = new Set([
+  "edit_before_retest",
+  "verification_churn_no_edit",
+  "verification_fail_repeat_block",
+  "verification_same_failure_signature_replay",
+  "verification_stall_no_edit",
+  "source_file_stale_reread",
+  "edit_failure_replay",
+]);
 
 function collectToolExecutionFailureObservations(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
@@ -1577,6 +1586,7 @@ function applyEditContextMissReadGate(
     return { tools, removed: [] };
   }
   const removed: string[] = [];
+  const readOnly: unknown[] = [];
   const filtered = tools.filter((tool) => {
     if (!tool || typeof tool !== "object") return true;
     const row = tool as Record<string, unknown>;
@@ -1586,15 +1596,21 @@ function applyEditContextMissReadGate(
     const name = rawName.trim();
     if (!name) return true;
     const lowered = name.toLowerCase();
+    if (isReadToolName(lowered)) {
+      readOnly.push(tool);
+      return true;
+    }
     if (isWriteCapableToolName(lowered)) {
       removed.push(name);
       return false;
     }
-    return true;
+    // During edit-context recovery, prevent test/search churn by allowing only Read.
+    removed.push(name);
+    return false;
   });
-  const forcedReadToolName = findPreferredReadToolName(filtered);
+  const forcedReadToolName = findPreferredReadToolName(readOnly.length > 0 ? readOnly : filtered);
   return {
-    tools: filtered,
+    tools: readOnly.length > 0 ? readOnly : filtered,
     removed,
     forcedReadToolName,
   };
@@ -1606,6 +1622,8 @@ function buildEditContextMissGuardPrompt(filePath: string, missCount: number): s
     "Before any Edit/Write/Patch tool call, issue exactly one Read tool call for this same file path to refresh anchors.",
     "Use that fresh content to prepare a new exact anchor, then apply one focused edit.",
     "Do not repeat the same old_string/anchor without a fresh read.",
+    "If the editor reports multiple matches (for example replace_all=false with many matches), choose a smaller unique anchor first instead of retrying the same broad replacement.",
+    "Never use a whole-file old_string anchor for retries.",
   ];
   if (missCount >= 2) {
     lines.push(
@@ -7209,8 +7227,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     });
   }
+  const oaiForcePhasePolicy =
+    !config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED
+    && adapter.family === "qwen3-coder"
+    && (
+      session.editMissForceReadPending
+      || oaiEditMissGuard?.active === true
+      || oaiExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
+    );
   const oaiPhasePolicy = derivePhaseExecutionPolicy({
-    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED,
+    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED || oaiForcePhasePolicy,
     adapterFamily: adapter.family,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: oaiGovernorPhase,
@@ -7218,6 +7244,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
     stream: !!normalizedRequest.stream,
     editContextMissActive: oaiEditMissGuard?.active === true || session.editMissForceReadPending,
   });
+  if (oaiForcePhasePolicy && oaiPhasePolicy.active) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "phase_execution_policy_forced",
+      "execution-governor",
+      `Forced phase policy for qwen recovery phase=${oaiGovernorPhase} rules=${oaiExecutionGovernor.matchedRules.join(",") || "none"}`,
+      reqId,
+      {
+        phase: oaiGovernorPhase,
+        matched_rules: oaiExecutionGovernor.matchedRules,
+      },
+    );
+  }
   const oaiPhaseFiltered = filterToolsByPhasePolicy(effectiveTools as unknown[], oaiPhasePolicy);
   effectiveTools = oaiPhaseFiltered.tools;
   let effectiveToolChoice = resolvePhaseToolChoice(clientToolChoice as PhaseAwareToolChoice | undefined, oaiPhasePolicy);
@@ -7230,8 +7271,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
     // forces write-only tools AND the model has stale anchors), we added Read back to the
     // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
-    // policy), strip write tools entirely and force Read. In both modes, force tool_choice=Read
-    // to break the loop.
+    // policy), keep only Read-capable tools and force Read so verification/search churn cannot
+    // continue while anchors are stale. In both modes, force tool_choice=Read to break the loop.
     const guardMode = oaiForceReadRecovery
       ? "forced_read_recovery"
       : (oaiPhasePolicy.active ? "alongside_phase_policy" : "standalone");
@@ -7288,7 +7329,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         identity.orgId,
         "edit_context_miss_guard_enforced",
         "execution-governor",
-        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
+        `mode=${guardMode} removed_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
         reqId,
         {
           filePath: guardFilePath || null,
@@ -10190,8 +10231,16 @@ app.post("/v1/messages", async (req, reply) => {
   const providerOptions = body.thinking
     ? { openai: { thinking: body.thinking, ...(adapterClaudeProviderOptions?.openai ?? {}) }, ...(adapterClaudeProviderOptions ? Object.fromEntries(Object.entries(adapterClaudeProviderOptions).filter(([k]) => k !== "openai")) : {}) }
     : adapterClaudeProviderOptions;
+  const claudeForcePhasePolicy =
+    !config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED
+    && claudeAdapter.family === "qwen3-coder"
+    && (
+      session.editMissForceReadPending
+      || claudeEditMissGuard?.active === true
+      || claudeExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
+    );
   const claudePhasePolicy = derivePhaseExecutionPolicy({
-    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED,
+    enabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED || claudeForcePhasePolicy,
     adapterFamily: claudeAdapter.family,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: claudeGovernorPhase,
@@ -10199,6 +10248,21 @@ app.post("/v1/messages", async (req, reply) => {
     stream: !!body.stream,
     editContextMissActive: claudeEditMissGuard?.active === true || session.editMissForceReadPending,
   });
+  if (claudeForcePhasePolicy && claudePhasePolicy.active) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "phase_execution_policy_forced",
+      "execution-governor",
+      `Forced phase policy for qwen recovery phase=${claudeGovernorPhase} rules=${claudeExecutionGovernor.matchedRules.join(",") || "none"}`,
+      traceReqId,
+      {
+        phase: claudeGovernorPhase,
+        matched_rules: claudeExecutionGovernor.matchedRules,
+      },
+    );
+  }
   const claudePhaseFiltered = filterToolsByPhasePolicy(effectiveClaudeTools as unknown[], claudePhasePolicy);
   effectiveClaudeTools = claudePhaseFiltered.tools;
   let effectiveClaudeToolChoice = resolvePhaseToolChoice(
@@ -10211,8 +10275,8 @@ app.post("/v1/messages", async (req, reply) => {
     // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
     // forces write-only tools AND the model has stale anchors), we added Read back to the
     // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
-    // policy), strip write tools entirely and force Read. In both modes, force tool_choice=Read
-    // to break the loop.
+    // policy), keep only Read-capable tools and force Read so verification/search churn cannot
+    // continue while anchors are stale. In both modes, force tool_choice=Read to break the loop.
     const guardMode = claudeForceReadRecovery
       ? "forced_read_recovery"
       : (claudePhasePolicy.active ? "alongside_phase_policy" : "standalone");
@@ -10269,7 +10333,7 @@ app.post("/v1/messages", async (req, reply) => {
         claudeIdentity.orgId,
         "edit_context_miss_guard_enforced",
         "execution-governor",
-        `mode=${guardMode} removed_write_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
+        `mode=${guardMode} removed_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
         traceReqId,
         {
           filePath: guardFilePath || null,
