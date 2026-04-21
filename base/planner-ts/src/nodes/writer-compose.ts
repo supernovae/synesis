@@ -97,14 +97,14 @@ function renderEvidenceContext(state: GraphState): string {
       const sourceType = source.type === "web" ? "web" : "rag";
       const mark = authorityDatamark(authority, sourceType);
       const docName = String(source.metadata.document_name ?? source.uri);
-      lines.push(`${mark} [Source: ${docName} - ${source.uri}]`);
+      lines.push(`${mark} [Source: ${docName} - [${source.uri}]]`);
     }
     const snippets = packet.snippets ?? [];
     for (const snippet of snippets.slice(0, WRITER_EVIDENCE_SNIPPET_CAP)) {
       const excerpt = String(snippet.text ?? "").slice(0, WRITER_EVIDENCE_SNIPPET_MAX_CHARS).trim();
       if (!excerpt) continue;
       const uri = String(snippet.source_uri ?? "").trim() || "(unknown source)";
-      lines.push(`Excerpt [${uri}]: ${excerpt}`);
+      lines.push(`Excerpt: [${uri}] ${excerpt}`);
     }
   }
   return lines.join("\n");
@@ -197,7 +197,7 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     "Return only the final user-facing answer; do not expose internal planning scaffolds.",
     "Never emit headings like 'Plan:', 'Evidence:', 'Answer:', 'Draft Response', or similar meta-sections unless the user explicitly asks for that format.",
     "If the prompt is a follow-up request (e.g., 'more detail', 'expand', 'clarify'), extend the answer with new detail instead of repeating prior wording verbatim.",
-    "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - url].",
+    "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - [url]].",
     MERMAID_RULES,
     "",
     TRUST_POLICY,

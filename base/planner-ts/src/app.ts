@@ -1244,10 +1244,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
     }
     if (validUris.size === 0) return 0;
-    const citedPattern = /\[Source:\s*[^\]]*?-\s*(https?:\/\/[^\]\s]+)/g;
     const cited = new Set<string>();
+    const citedBalancedUrl = /\[Source:\s*[\s\S]*?-\s*\[(https?:\/\/[^\]]+)\]\]/g;
+    const citedLegacy = /\[Source:\s*[^\]]*?-\s*(https?:\/\/[^\]\s]+)/g;
     let m: RegExpExecArray | null;
-    while ((m = citedPattern.exec(draft)) !== null) {
+    while ((m = citedBalancedUrl.exec(draft)) !== null) {
+      cited.add(m[1].toLowerCase());
+    }
+    while ((m = citedLegacy.exec(draft)) !== null) {
       cited.add(m[1].toLowerCase());
     }
     if (cited.size === 0) return 0;
