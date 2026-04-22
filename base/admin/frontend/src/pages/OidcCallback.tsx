@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/auth/useAuth";
 import axios from "axios";
-import { resolveAccessTokenExpiresAtMs } from "../utils/jwtExpiry";
+import { USER_KEY, persistTokens } from "../utils/oidcSession";
 
 const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
 const OIDC_STATE_KEY = "synesis_oidc_state";
@@ -82,26 +82,13 @@ export default function OidcCallback() {
         sessionStorage.removeItem(SUPPRESS_AUTO_KEY);
 
         // Persist tokens.
-        localStorage.setItem("synesis_token", accessToken);
-        if (data.id_token) {
-          localStorage.setItem("synesis_id_token", data.id_token);
-        }
-        if (data.refresh_token) {
-          localStorage.setItem("synesis_refresh_token", data.refresh_token);
-        }
-        const expiresAt = resolveAccessTokenExpiresAtMs(
-          accessToken,
-          data.expires_in,
-        );
-        if (expiresAt) {
-          localStorage.setItem("synesis_token_expires_at", String(expiresAt));
-        }
+        persistTokens(accessToken, data.refresh_token, data.expires_in, data.id_token);
 
         const { data: userInfo } = await axios.get("/api/v1/auth/me", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        localStorage.setItem("synesis_user", JSON.stringify(userInfo));
+        localStorage.setItem(USER_KEY, JSON.stringify(userInfo));
 
         const returnTo = sessionStorage.getItem("synesis_return_to") || "/";
         sessionStorage.removeItem("synesis_return_to");

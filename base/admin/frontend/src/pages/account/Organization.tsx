@@ -1,22 +1,16 @@
 import { useAuth } from "../../components/auth/useAuth";
 import { Building2, Users, Mail, ExternalLink } from "lucide-react";
-
-function keycloakAccountUrl(issuer?: string): string {
-  const normalizedIssuer = (issuer || "").replace(/\/$/, "");
-  if (normalizedIssuer && normalizedIssuer.includes("/realms/")) {
-    return `${normalizedIssuer}/account`;
-  }
-
-  const authHost = window.location.hostname
-    .replace(/^admin\./, "auth.")
-    .replace(/^synesis-admin\./, "synesis-auth.")
-    .replace("synesis-admin", "synesis-auth");
-  return `${window.location.protocol}//${authHost}/realms/synesis/account`;
-}
+import {
+  buildKeycloakAccountUrl,
+  buildKeycloakPasswordUrl,
+  getKeycloakRealmName,
+} from "../../utils/keycloakUrls";
 
 export default function Organization() {
   const { user, oidcConfig } = useAuth();
-  const accountUrl = keycloakAccountUrl(oidcConfig?.issuer);
+  const accountUrl = buildKeycloakAccountUrl(oidcConfig?.issuer);
+  const passwordUrl = buildKeycloakPasswordUrl(oidcConfig?.issuer);
+  const keycloakRealm = getKeycloakRealmName(oidcConfig?.issuer);
 
   if (!user) return null;
 
@@ -117,15 +111,32 @@ export default function Organization() {
           </dl>
 
           <div className="mt-6 border-t border-gray-100 pt-4 dark:border-gray-800">
-            <a
-              href={accountUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
-            >
-              Manage account in Keycloak
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+              <span className="uppercase tracking-wide">Realm</span>
+              <code className="rounded bg-white/80 px-1.5 py-0.5 text-[11px] dark:bg-indigo-950/40">
+                {keycloakRealm}
+              </code>
+            </div>
+            <div className="flex flex-col items-start gap-2">
+              <a
+                href={accountUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+              >
+                Manage account in Keycloak
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <a
+                href={passwordUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+              >
+                Change/reset password in Keycloak
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
           </div>
         </div>
       </div>

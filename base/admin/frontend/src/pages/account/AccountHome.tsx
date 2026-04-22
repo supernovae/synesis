@@ -2,6 +2,11 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../components/auth/useAuth";
 import {
+  buildKeycloakAccountUrl,
+  buildKeycloakPasswordUrl,
+  getKeycloakRealmName,
+} from "../../utils/keycloakUrls";
+import {
   Building2,
   Check,
   Coins,
@@ -13,20 +18,6 @@ import {
   Shield,
   User,
 } from "lucide-react";
-
-/** Keycloak Account Console — password, email, 2FA (realm synesis). */
-function keycloakAccountUrl(issuer?: string): string {
-  const normalizedIssuer = (issuer || "").replace(/\/$/, "");
-  if (normalizedIssuer && normalizedIssuer.includes("/realms/")) {
-    return `${normalizedIssuer}/account`;
-  }
-
-  const authHost = window.location.hostname
-    .replace(/^admin\./, "auth.")
-    .replace(/^synesis-admin\./, "synesis-auth.")
-    .replace("synesis-admin", "synesis-auth");
-  return `${window.location.protocol}//${authHost}/realms/synesis/account`;
-}
 
 function hostUrl(host: string): string {
   return `${window.location.protocol}//${host}`;
@@ -49,7 +40,9 @@ export default function AccountHome() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   if (!user) return null;
 
-  const kcUrl = keycloakAccountUrl(oidcConfig?.issuer);
+  const kcUrl = buildKeycloakAccountUrl(oidcConfig?.issuer);
+  const kcPasswordUrl = buildKeycloakPasswordUrl(oidcConfig?.issuer);
+  const keycloakRealm = getKeycloakRealmName(oidcConfig?.issuer);
   const webUiUrl = openWebUiUrl();
   const openAiBase = openAiApiUrl();
   const openAiUrl = `${openAiBase}/v1`;
@@ -126,18 +119,35 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
           </dl>
           <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
             Password, email, and security settings are not stored in Synesis.
-            Use Keycloak&apos;s account console to change your password or update
-            your profile.
+            Use the Synesis realm account console in Keycloak to change your
+            password or update your profile.
           </p>
-          <a
-            href={kcUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
-          >
-            Open Keycloak account
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+            <span className="uppercase tracking-wide">Realm</span>
+            <code className="rounded bg-white/80 px-1.5 py-0.5 text-[11px] dark:bg-indigo-950/40">
+              {keycloakRealm}
+            </code>
+          </div>
+          <div className="mt-4 flex flex-col items-start gap-2">
+            <a
+              href={kcUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+            >
+              Open Keycloak account
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+            <a
+              href={kcPasswordUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+            >
+              Change/reset password in Keycloak
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">

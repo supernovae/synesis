@@ -57,7 +57,7 @@ export default function Login() {
         <div className="w-full max-w-sm rounded-lg bg-white p-8 text-center shadow-xl">
           <Shield className="mx-auto h-10 w-10 text-blue-600" />
           <h1 className="mt-4 text-lg font-semibold text-slate-900">
-            Sign in with Keycloak
+            Sign in with Keycloak (synesis realm)
           </h1>
           <p className="mt-2 text-sm text-slate-600">
             You are signed out of Synesis Admin. Continue to Keycloak to sign in
@@ -73,7 +73,7 @@ export default function Login() {
               loginWithOidc();
             }}
           >
-            Continue to Keycloak
+            Continue to Keycloak sign-in
           </button>
         </div>
       </div>
@@ -85,7 +85,7 @@ export default function Login() {
       <div className="flex min-h-screen items-center justify-center bg-slate-900">
         <div className="flex flex-col items-center gap-4">
           <Hexagon className="h-12 w-12 animate-pulse text-blue-500" />
-          <div className="text-slate-400">Redirecting to Keycloak...</div>
+          <div className="text-slate-400">Redirecting to Keycloak (synesis realm)...</div>
         </div>
       </div>
     );

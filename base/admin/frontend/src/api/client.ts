@@ -1,5 +1,5 @@
 import axios from "axios";
-import { resolveAccessTokenExpiresAtMs } from "../utils/jwtExpiry";
+import { TOKEN_KEY, clearPersistedAuth, refreshAccessToken } from "../utils/oidcSession";
 
 const client = axios.create({
   baseURL: "/api/v1",
@@ -21,32 +21,11 @@ function processQueue(token: string | null, error: unknown = null) {
 }
 
 async function attemptRefresh(): Promise<string | null> {
-  const refresh = localStorage.getItem("synesis_refresh_token");
-  if (!refresh) return null;
-  try {
-    const { data } = await axios.post("/api/v1/auth/oauth/refresh", {
-      refresh_token: refresh,
-    });
-    const newAccess = data.access_token as string;
-    localStorage.setItem("synesis_token", newAccess);
-    if (data.refresh_token) {
-      localStorage.setItem("synesis_refresh_token", data.refresh_token);
-    }
-    const expiresAt = resolveAccessTokenExpiresAtMs(
-      newAccess,
-      data.expires_in as number | undefined,
-    );
-    if (expiresAt) {
-      localStorage.setItem("synesis_token_expires_at", String(expiresAt));
-    }
-    return newAccess;
-  } catch {
-    return null;
-  }
+  return refreshAccessToken({ retries: 2, retryDelayMs: 1_500 });
 }
 
 client.interceptors.request.use((config) => {
-  const token = localStorage.getItem("synesis_token");
+  const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -86,16 +65,13 @@ client.interceptors.response.use(
     }
 
     processQueue(null, error);
-    localStorage.removeItem("synesis_token");
-    localStorage.removeItem("synesis_refresh_token");
-    localStorage.removeItem("synesis_token_expires_at");
-    localStorage.removeItem("synesis_user");
+    clearPersistedAuth();
     // Preserve the current path so the user returns here after re-auth
     const current = window.location.pathname + window.location.search;
     if (current && current !== "/login" && current !== "/callback") {
       sessionStorage.setItem("synesis_return_to", current);
     }
-    window.location.href = "/login";
+    window.location.replace("/login");
     return Promise.reject(error);
   },
 );
