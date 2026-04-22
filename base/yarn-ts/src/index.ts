@@ -4905,6 +4905,10 @@ function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
   const text = typeof userPrompt === "string" ? userPrompt.toLowerCase() : "";
   if (!text) return false;
   if (!text.includes("plan")) return false;
+  const resumeRecoveryIntent =
+    /\b(continue|resume|pick up|pick-up|where we left off|continue with plan|last stuck session)\b/.test(text)
+    && /\b(crash|crashed|stuck|unknown|not sure|unsure|left off|prior run|previous run)\b/.test(text);
+  if (resumeRecoveryIntent) return false;
   return /\b(continue|resume|update|mark|check off|complete|remaining|next|phase|load)\b/.test(text);
 }
 

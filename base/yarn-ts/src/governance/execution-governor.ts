@@ -1332,6 +1332,14 @@ function isReadOnlyInvestigationIntent(userText: string): boolean {
   return investigationDominant;
 }
 
+function isPlanRecoveryDiscoveryIntent(userText: string): boolean {
+  const text = userText.toLowerCase();
+  if (!/\bplan\b/.test(text)) return false;
+  const resumeCue = /\b(continue|resume|pick up|pick-up|pick it up|where we left off|last stuck session|prior run|previous run|continue with plan)\b/.test(text);
+  const uncertaintyCue = /\b(crash|crashed|stuck|stalled|unknown|not sure|unsure|lost state|left off|what remains|what's left)\b/.test(text);
+  return resumeCue && uncertaintyCue;
+}
+
 export type GovernanceUserTextSource = "user_message" | "askuser_tool_result" | "empty";
 
 /**
@@ -1927,8 +1935,12 @@ export function evaluateExecutionGovernor(
   // — it must act (make an edit) to resolve the failure. Downgrade investigation-only
   // so that source_file_stale_reread, verbal_intent, and churn rules can fire.
   const isInvestigationOnly = isReadOnlyInvestigationIntent(latestUserText) && !hasFailures;
+  const planRecoveryDiscoveryGraceActive =
+    isPlanRecoveryDiscoveryIntent(latestUserText)
+    && changedFiles.length === 0
+    && events.length <= 30;
 
-  if (broadTestRepeat) pushRule("broad_to_narrow_verification");
+  if (!planRecoveryDiscoveryGraceActive && broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
   if (isDependencyInstallReplay(events)) pushRule("dependency_install_replay");
   const hasCompileLikeVerificationFailure = events.some((e) =>
@@ -1936,15 +1948,15 @@ export function evaluateExecutionGovernor(
   );
   const hasFailureDrivenVerificationLoop =
     hasFailures || repeatedFailingVerification > 0 || repeatedCompileLikeFailureVerification > 0 || hasCompileLikeVerificationFailure;
-  if (repeatedTestCommands >= thresholds.repeatedTestPauseThreshold && hasFailureDrivenVerificationLoop) {
+  if (!planRecoveryDiscoveryGraceActive && repeatedTestCommands >= thresholds.repeatedTestPauseThreshold && hasFailureDrivenVerificationLoop) {
     pushRule("edit_before_retest");
   }
-  if (broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence && hasFailureDrivenVerificationLoop) {
+  if (!planRecoveryDiscoveryGraceActive && broadTestRepeat && repeatedTestCommands >= 1 && noEditEvidence && hasFailureDrivenVerificationLoop) {
     pushRule("no_repeat_without_change");
   }
-  const effectiveNoEditEvidence = noEditEvidence && !isInvestigationOnly;
+  const effectiveNoEditEvidence = noEditEvidence && !isInvestigationOnly && !planRecoveryDiscoveryGraceActive;
   const verificationChurnThreshold = Math.max(4, thresholds.verificationStallThreshold - 2);
-  if (hasFailureDrivenVerificationLoop && trailingVerificationRunLength >= verificationChurnThreshold) {
+  if (!planRecoveryDiscoveryGraceActive && hasFailureDrivenVerificationLoop && trailingVerificationRunLength >= verificationChurnThreshold) {
     pushRule("verification_churn_no_edit");
   }
   if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_same_failure_signature_replay");

@@ -2769,6 +2769,34 @@ describe("phase-aware rule gating", () => {
     expect(out.matchedRules).toContain("verification_churn_no_edit");
   });
 
+  it("grants bounded discovery grace for resume-after-crash plan prompts", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "can we continue the plan after the prior run crashed? I'm not sure where we left off" },
+    ];
+    for (let i = 0; i < 5; i += 1) {
+      messages.push(assistantCall(`t${i}`, "bash", { command: "go test ./cmd/synesis/... -v 2>&1 | tail -40" }));
+      messages.push(toolResult(`t${i}`, "FAIL\tcmd/synesis\t0.12s\npanic: expected status code"));
+      messages.push(assistantCall(`d${i}`, "bash", { command: "git -C /Users/bymiller/src/synesis-shell diff --stat" }));
+      messages.push(toolResult(`d${i}`, " cmd/synesis/ask.go | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).toEqual(["allow"]);
+  });
+
+  it("expires resume-after-crash discovery grace after bounded event budget", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "resume the plan from the last stuck run; I'm unsure what remains" },
+    ];
+    for (let i = 0; i < 34; i += 1) {
+      messages.push(assistantCall(`t${i}`, "bash", { command: "go test ./... 2>&1 | tail -60" }));
+      messages.push(toolResult(`t${i}`, "FAIL pkg/session 0.10s\nError: mismatch"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("verification_churn_no_edit");
+  });
+
   it("treats Update alias as an edit-capable action for phase transitions", () => {
     const events: CommandEvent[] = [
       { command: "update:src/main.ts", toolName: "update", resultSignature: "ok" },
