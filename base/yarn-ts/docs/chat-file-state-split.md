@@ -232,6 +232,17 @@ When global thresholds shift materially, Yarn emits
 - **Cardinality control:** scope key space grows with org+model combinations; enforce TTL + bucket caps
   to prevent unbounded memory growth.
 
+## 14) Admin visibility surfaces
+
+Admin now exposes transition-quality + calibration telemetry in Coder views:
+
+- **Coder Overview:** label mix, score trend proxy, threshold band averages, scope coverage,
+  calibration event counts, top quality reasons, and actionable risk notes.
+- **Session Event drilldown:** transition-risk preset + quality-specific chips on
+  `request_trajectory_v1` events.
+- **Calibration events:** `state_transition_quality_calibration_v1` and
+  `state_transition_quality_global_calibration_v1` are first-class operational signals.
+
 ## Weird UX/client affordance handling improvements
 
 This split improves resilience in exactly the failure cases we observed:

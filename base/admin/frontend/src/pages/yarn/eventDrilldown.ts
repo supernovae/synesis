@@ -6,7 +6,11 @@ export interface TrajectoryHighlight {
   tone?: "good" | "warn" | "neutral";
 }
 
-export type EventDiagnosticPreset = "vercel_sdk_errors" | "missing_tool_results" | "edit_context_miss";
+export type EventDiagnosticPreset =
+  | "vercel_sdk_errors"
+  | "missing_tool_results"
+  | "edit_context_miss"
+  | "transition_quality_risk";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -79,6 +83,26 @@ function hasEditContextMissFlag(ev: YarnSessionEventRow): boolean {
   return false;
 }
 
+function hasTransitionQualityRiskFlag(ev: YarnSessionEventRow): boolean {
+  const eventKind = ev.event_kind || "";
+  if (eventKind === "state_transition_quality_calibration_v1" || eventKind === "state_transition_quality_global_calibration_v1") {
+    return true;
+  }
+  if (!isRecord(ev.metadata_json)) return false;
+
+  if (eventKind === "state_transition_v1") {
+    const quality = isRecord(ev.metadata_json.quality) ? ev.metadata_json.quality : null;
+    const label = readString(quality, "label");
+    const score = readNumber(quality, "score");
+    return label === "regressed" || label === "reground_required" || (score !== null && score < 0);
+  }
+
+  const trainingSignals = isRecord(ev.metadata_json.training_signals) ? ev.metadata_json.training_signals : null;
+  const qualityLabel = readString(trainingSignals, "state_transition_quality_label");
+  const qualityScore = readNumber(trainingSignals, "state_transition_quality_score");
+  return qualityLabel === "regressed" || qualityLabel === "reground_required" || (qualityScore !== null && qualityScore < 0);
+}
+
 export function filterEventsByDiagnosticPreset(
   events: YarnSessionEventRow[],
   preset: EventDiagnosticPreset | null,
@@ -86,6 +110,7 @@ export function filterEventsByDiagnosticPreset(
   if (!preset) return events;
   if (preset === "vercel_sdk_errors") return events.filter((ev) => hasVercelSdkErrorFlag(ev));
   if (preset === "missing_tool_results") return events.filter((ev) => hasMissingToolResultsFlag(ev));
+  if (preset === "transition_quality_risk") return events.filter((ev) => hasTransitionQualityRiskFlag(ev));
   return events.filter((ev) => hasEditContextMissFlag(ev));
 }
 
@@ -100,6 +125,7 @@ export function trajectoryHighlights(ev: YarnSessionEventRow): TrajectoryHighlig
   if (taskBucket) out.push({ label: "Bucket", value: taskBucket, tone: "neutral" });
   const verification = isRecord(ev.metadata_json.verification) ? ev.metadata_json.verification : null;
   const tools = isRecord(ev.metadata_json.tools) ? ev.metadata_json.tools : null;
+  const trainingSignals = isRecord(ev.metadata_json.training_signals) ? ev.metadata_json.training_signals : null;
   const completionBlocked = readBoolean(verification, "completion_gate_blocked");
   if (completionBlocked !== null) {
     out.push({
@@ -146,6 +172,38 @@ export function trajectoryHighlights(ev: YarnSessionEventRow): TrajectoryHighlig
       label: "Blind retries",
       value: String(blindRetryCount),
       tone: blindRetryCount > 0 ? "warn" : "good",
+    });
+  }
+  const qualityLabel = readString(trainingSignals, "state_transition_quality_label");
+  if (qualityLabel) {
+    out.push({
+      label: "Transition",
+      value: qualityLabel,
+      tone: qualityLabel === "forward_progress" ? "good" : (qualityLabel === "stalled" ? "neutral" : "warn"),
+    });
+  }
+  const qualityScore = readNumber(trainingSignals, "state_transition_quality_score");
+  if (qualityScore !== null) {
+    out.push({
+      label: "Quality score",
+      value: qualityScore.toFixed(3),
+      tone: qualityScore >= 0.2 ? "good" : (qualityScore < 0 ? "warn" : "neutral"),
+    });
+  }
+  const globalScope = readString(trainingSignals, "state_transition_quality_global_scope");
+  if (globalScope) {
+    out.push({
+      label: "Global scope",
+      value: globalScope,
+      tone: globalScope === "none" ? "warn" : "neutral",
+    });
+  }
+  const calibrationSamples = readNumber(trainingSignals, "state_transition_quality_calibration_samples");
+  if (calibrationSamples !== null) {
+    out.push({
+      label: "Calibration samples",
+      value: String(calibrationSamples),
+      tone: calibrationSamples >= 12 ? "good" : "warn",
     });
   }
   return out;

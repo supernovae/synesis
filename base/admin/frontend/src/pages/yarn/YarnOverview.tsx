@@ -42,6 +42,10 @@ const PERIOD_OPTIONS = [
   { label: "30d", hours: 720 },
 ];
 
+function pct(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 function fmtBucketLabel(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -108,6 +112,30 @@ export default function YarnOverview() {
   const cumulativeTaskDropped = reducerHistory?.cumulative?.task_pruned_lines_dropped_total ?? 0;
   const cumulativeTaskTotal = cumulativeTaskKept + cumulativeTaskDropped;
   const cumulativeTaskKeepRatio = cumulativeTaskTotal > 0 ? (cumulativeTaskKept / cumulativeTaskTotal) * 100 : null;
+  const transitionQuality = intelligence?.state_transition_quality;
+  const transitionQualityActions = (() => {
+    if (!transitionQuality) return [];
+    const actions: string[] = [];
+    if (transitionQuality.risk_flags.includes("high_regressed_rate")) {
+      actions.push("Regressed transitions are elevated. Inspect recent regressed trajectories and recovery prompts.");
+    }
+    if (transitionQuality.risk_flags.includes("high_reground_required_rate")) {
+      actions.push("Frequent re-ground requirements suggest stale/partial file memory pressure.");
+    }
+    if (transitionQuality.risk_flags.includes("low_global_scope_coverage")) {
+      actions.push("Global-scope coverage is low. Verify org/model scope keys are stable and calibration samples are accumulating.");
+    }
+    if (transitionQuality.risk_flags.includes("missing_global_calibration_events")) {
+      actions.push("No global calibration events observed in this window. Check Redis-backed calibration persistence.");
+    }
+    if (transitionQuality.risk_flags.includes("negative_quality_score")) {
+      actions.push("Average quality score is negative. Prioritize reducing regressed transitions before tuning thresholds.");
+    }
+    if (actions.length === 0 && transitionQuality.trajectory_events > 0) {
+      actions.push("Quality profile is stable. Continue monitoring drift and top quality reasons.");
+    }
+    return actions.slice(0, 4);
+  })();
 
   return (
     <div className="space-y-8">
@@ -395,6 +423,143 @@ export default function YarnOverview() {
                     ))
                   )}
                 </div>
+              </ChartCard>
+
+              <ChartCard
+                title="State Transition Quality"
+                subtitle="Calibration health, label mix, and operator actions"
+              >
+                {!transitionQuality ? (
+                  <p className="text-sm text-gray-500">No transition quality telemetry yet.</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Avg quality score</p>
+                        <p className={clsx(
+                          "mt-1 text-sm font-semibold",
+                          transitionQuality.score_avg >= 0.2
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : transitionQuality.score_avg < 0
+                              ? "text-amber-700 dark:text-amber-300"
+                              : "text-gray-800 dark:text-gray-100",
+                        )}>
+                          {transitionQuality.score_avg.toFixed(3)}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Global scope coverage</p>
+                        <p className={clsx(
+                          "mt-1 text-sm font-semibold",
+                          transitionQuality.global_scope_coverage >= 0.65
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : "text-amber-700 dark:text-amber-300",
+                        )}>
+                          {pct(transitionQuality.global_scope_coverage)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 text-sm text-gray-700 dark:text-gray-300">
+                      <div className="flex items-center justify-between">
+                        <span>Forward progress</span>
+                        <span className="font-medium">{pct(transitionQuality.label_rates.forward_progress)} ({transitionQuality.label_counts.forward_progress})</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Stalled</span>
+                        <span className="font-medium">{pct(transitionQuality.label_rates.stalled)} ({transitionQuality.label_counts.stalled})</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Regressed</span>
+                        <span className={clsx(
+                          "font-medium",
+                          transitionQuality.label_rates.regressed >= 0.15
+                            ? "text-amber-700 dark:text-amber-300"
+                            : undefined,
+                        )}>
+                          {pct(transitionQuality.label_rates.regressed)} ({transitionQuality.label_counts.regressed})
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Re-ground required</span>
+                        <span className={clsx(
+                          "font-medium",
+                          transitionQuality.label_rates.reground_required >= 0.08
+                            ? "text-amber-700 dark:text-amber-300"
+                            : undefined,
+                        )}>
+                          {pct(transitionQuality.label_rates.reground_required)} ({transitionQuality.label_counts.reground_required})
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 text-sm text-gray-700 dark:text-gray-300">
+                      <div className="flex items-center justify-between">
+                        <span>Threshold band (avg)</span>
+                        <span className="font-medium">
+                          {transitionQuality.threshold_band_avg.regressed_max.toFixed(3)} → {transitionQuality.threshold_band_avg.forward_progress_min.toFixed(3)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Calibration events (local / global)</span>
+                        <span className="font-medium">
+                          {transitionQuality.calibration_events.local} / {transitionQuality.calibration_events.global}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Latest global calibration</span>
+                        <span className="font-medium">
+                          {transitionQuality.calibration_events.latest_global_at
+                            ? new Date(transitionQuality.calibration_events.latest_global_at).toLocaleString()
+                            : "none"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Top quality reasons
+                      </p>
+                      {transitionQuality.top_reasons.length === 0 ? (
+                        <p className="mt-1 text-sm text-gray-500">No reason breakdown in this window.</p>
+                      ) : (
+                        <div className="mt-2 space-y-1.5">
+                          {transitionQuality.top_reasons.slice(0, 4).map((reasonRow) => (
+                            <div key={reasonRow.reason} className="flex items-center justify-between text-sm">
+                              <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{reasonRow.reason}</span>
+                              <span className="text-gray-500 dark:text-gray-400">{reasonRow.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800/40">
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Actionable insight
+                      </p>
+                      <ul className="mt-1 space-y-1 text-sm text-gray-700 dark:text-gray-300">
+                        {transitionQualityActions.map((item) => (
+                          <li key={item} className="leading-5">- {item}</li>
+                        ))}
+                      </ul>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Link
+                          to="/yarn/events"
+                          className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+                        >
+                          Inspect events
+                        </Link>
+                        <Link
+                          to="/yarn/sessions"
+                          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          Drill into sessions
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </ChartCard>
             </div>
           ) : null}

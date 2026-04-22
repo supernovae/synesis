@@ -28,6 +28,12 @@ const events: YarnSessionEventRow[] = [
       tools: {
         blind_retry_count: 1,
       },
+      training_signals: {
+        state_transition_quality_label: "regressed",
+        state_transition_quality_score: -0.12,
+        state_transition_quality_global_scope: "model",
+        state_transition_quality_calibration_samples: 18,
+      },
     },
     created_at: "2026-04-01T10:00:00Z",
   },
@@ -58,14 +64,29 @@ const events: YarnSessionEventRow[] = [
     metadata_json: { reason: "edit_context_miss", toolName: "Edit", filePath: "cmd/synesis/ask.go" },
     created_at: "2026-04-01T10:00:02Z",
   },
+  {
+    id: 5,
+    event_kind: "state_transition_quality_global_calibration_v1",
+    component: "state-ledger",
+    detail: "global quality calibration scope=model samples=24",
+    request_id: "rq-3",
+    metadata_json: { resolution: { selected_scope: "model" } },
+    created_at: "2026-04-01T10:00:03Z",
+  },
 ];
 
 describe("event drilldown helpers", () => {
   it("lists and filters event kinds", () => {
-    expect(eventKinds(events)).toEqual(["client_tool_error_observed", "request_trajectory_v1", "runtime_error", "stream_error"]);
+    expect(eventKinds(events)).toEqual([
+      "client_tool_error_observed",
+      "request_trajectory_v1",
+      "runtime_error",
+      "state_transition_quality_global_calibration_v1",
+      "stream_error",
+    ]);
     expect(eventKindCount(events, "runtime_error")).toBe(1);
     expect(filterEventsByKinds(events, ["runtime_error"]).map((ev) => ev.id)).toEqual([2]);
-    expect(filterEventsByKinds(events, []).map((ev) => ev.id)).toEqual([1, 2, 3, 4]);
+    expect(filterEventsByKinds(events, []).map((ev) => ev.id)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("extracts trajectory highlights for metadata rendering", () => {
@@ -77,6 +98,10 @@ describe("event drilldown helpers", () => {
         { label: "Critic", value: "pass", tone: "good" },
         { label: "Parser coverage", value: "62.0%", tone: "good" },
         { label: "Blind retries", value: "1", tone: "warn" },
+        { label: "Transition", value: "regressed", tone: "warn" },
+        { label: "Quality score", value: "-0.120", tone: "warn" },
+        { label: "Global scope", value: "model", tone: "neutral" },
+        { label: "Calibration samples", value: "18", tone: "good" },
       ]),
     );
   });
@@ -85,8 +110,10 @@ describe("event drilldown helpers", () => {
     expect(filterEventsByDiagnosticPreset(events, "vercel_sdk_errors").map((ev) => ev.id)).toEqual([2, 3]);
     expect(filterEventsByDiagnosticPreset(events, "missing_tool_results").map((ev) => ev.id)).toEqual([3]);
     expect(filterEventsByDiagnosticPreset(events, "edit_context_miss").map((ev) => ev.id)).toEqual([4]);
+    expect(filterEventsByDiagnosticPreset(events, "transition_quality_risk").map((ev) => ev.id)).toEqual([1, 5]);
     expect(diagnosticPresetCount(events, "vercel_sdk_errors")).toBe(2);
     expect(diagnosticPresetCount(events, "missing_tool_results")).toBe(1);
     expect(diagnosticPresetCount(events, "edit_context_miss")).toBe(1);
+    expect(diagnosticPresetCount(events, "transition_quality_risk")).toBe(2);
   });
 });

@@ -2183,6 +2183,36 @@ export interface YarnIntelligence {
   completion_gate_blocked_rate: number;
   critic_block_rate: number;
   trajectory_bucket_counts: Record<string, number>;
+  state_transition_quality: {
+    trajectory_events: number;
+    score_avg: number;
+    label_rates: {
+      forward_progress: number;
+      stalled: number;
+      regressed: number;
+      reground_required: number;
+    };
+    label_counts: {
+      forward_progress: number;
+      stalled: number;
+      regressed: number;
+      reground_required: number;
+    };
+    threshold_band_avg: {
+      forward_progress_min: number;
+      regressed_max: number;
+    };
+    global_scope_counts: Record<string, number>;
+    global_scope_coverage: number;
+    calibration_events: {
+      local: number;
+      global: number;
+      latest_local_at: string | null;
+      latest_global_at: string | null;
+    };
+    top_reasons: Array<{ reason: string; count: number }>;
+    risk_flags: string[];
+  };
   top_models: Array<{ model: string; requests: number; estimated_cost_usd: number; actual_cost_usd: number }>;
   finish_reason_counts: Record<string, number>;
   edit_context_miss: {

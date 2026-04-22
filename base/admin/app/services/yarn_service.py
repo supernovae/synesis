@@ -713,6 +713,243 @@ async def get_yarn_intelligence(
         )
         trajectory_bucket_counts = {str(r["bucket"]): int(r["count"]) for r in bucket_rows}
 
+        transition_quality_sql = text(
+            """
+            SELECT
+              COUNT(*)::int AS trajectory_events,
+              COALESCE(
+                AVG(
+                  NULLIF(
+                    COALESCE(metadata_json->'training_signals'->>'state_transition_quality_score', ''),
+                    ''
+                  )::float
+                ),
+                0
+              )::float AS quality_score_avg,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'forward_progress'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS forward_progress_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'stalled'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS stalled_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'regressed'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS regressed_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'reground_required'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS reground_required_rate,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'forward_progress'
+                    THEN 1 ELSE 0
+                  END
+                ),
+                0
+              )::int AS forward_progress_count,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'stalled'
+                    THEN 1 ELSE 0
+                  END
+                ),
+                0
+              )::int AS stalled_count,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'regressed'
+                    THEN 1 ELSE 0
+                  END
+                ),
+                0
+              )::int AS regressed_count,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'reground_required'
+                    THEN 1 ELSE 0
+                  END
+                ),
+                0
+              )::int AS reground_required_count,
+              COALESCE(
+                AVG(
+                  NULLIF(
+                    COALESCE(metadata_json->'training_signals'->>'state_transition_quality_forward_min', ''),
+                    ''
+                  )::float
+                ),
+                0
+              )::float AS quality_forward_min_avg,
+              COALESCE(
+                AVG(
+                  NULLIF(
+                    COALESCE(metadata_json->'training_signals'->>'state_transition_quality_regressed_max', ''),
+                    ''
+                  )::float
+                ),
+                0
+              )::float AS quality_regressed_max_avg
+            FROM yarn_session_events
+            WHERE event_kind = 'request_trajectory_v1'
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+            """
+        )
+        transition_quality_row = (
+            (
+                await session.execute(
+                    transition_quality_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+        scope_counts_sql = text(
+            """
+            SELECT
+              COALESCE(
+                NULLIF(metadata_json->'training_signals'->>'state_transition_quality_global_scope', ''),
+                'none'
+              ) AS scope,
+              COUNT(*)::int AS count
+            FROM yarn_session_events
+            WHERE event_kind = 'request_trajectory_v1'
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+            GROUP BY scope
+            ORDER BY count DESC
+            """
+        )
+        scope_counts_rows = (
+            (
+                await session.execute(
+                    scope_counts_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+        quality_global_scope_counts = {str(r["scope"]): int(r["count"]) for r in scope_counts_rows}
+
+        quality_reasons_sql = text(
+            """
+            WITH scoped AS (
+              SELECT
+                CASE
+                  WHEN jsonb_typeof(metadata_json->'training_signals'->'state_transition_quality_reasons') = 'array'
+                  THEN metadata_json->'training_signals'->'state_transition_quality_reasons'
+                  ELSE '[]'::jsonb
+                END AS reasons
+              FROM yarn_session_events
+              WHERE event_kind = 'request_trajectory_v1'
+                AND created_at >= :cutoff
+                AND (:uid = '' OR user_id = :uid)
+                AND (:oid = '' OR org_id = :oid)
+            )
+            SELECT reason, COUNT(*)::int AS count
+            FROM (
+              SELECT jsonb_array_elements_text(reasons) AS reason
+              FROM scoped
+            ) expanded
+            WHERE NULLIF(BTRIM(reason), '') IS NOT NULL
+            GROUP BY reason
+            ORDER BY count DESC, reason ASC
+            LIMIT 8
+            """
+        )
+        quality_reason_rows = (
+            (
+                await session.execute(
+                    quality_reasons_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        quality_calibration_sql = text(
+            """
+            SELECT
+              COALESCE(
+                SUM(CASE WHEN event_kind = 'state_transition_quality_calibration_v1' THEN 1 ELSE 0 END),
+                0
+              )::int AS local_calibration_events,
+              COALESCE(
+                SUM(CASE WHEN event_kind = 'state_transition_quality_global_calibration_v1' THEN 1 ELSE 0 END),
+                0
+              )::int AS global_calibration_events,
+              MAX(CASE WHEN event_kind = 'state_transition_quality_calibration_v1' THEN created_at END) AS latest_local_calibration_at,
+              MAX(CASE WHEN event_kind = 'state_transition_quality_global_calibration_v1' THEN created_at END) AS latest_global_calibration_at
+            FROM yarn_session_events
+            WHERE event_kind IN (
+              'state_transition_quality_calibration_v1',
+              'state_transition_quality_global_calibration_v1'
+            )
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+            """
+        )
+        quality_calibration_row = (
+            (
+                await session.execute(
+                    quality_calibration_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .one()
+        )
+
     requests = int(row.requests or 0)
     total_tokens = int(row.total_tokens or 0)
     cached_tokens = int(row.cached_tokens or 0)
@@ -739,6 +976,39 @@ async def get_yarn_intelligence(
     patch_ops = int(trajectory_row["patch_ops"] or 0)
     whole_write_ops = int(trajectory_row["whole_write_ops"] or 0)
     patch_ratio = (patch_ops / (patch_ops + whole_write_ops)) if (patch_ops + whole_write_ops) > 0 else 0.0
+    quality_trajectory_events = int(transition_quality_row["trajectory_events"] or 0)
+    quality_score_avg = float(transition_quality_row["quality_score_avg"] or 0.0)
+    forward_progress_rate = float(transition_quality_row["forward_progress_rate"] or 0.0)
+    stalled_rate = float(transition_quality_row["stalled_rate"] or 0.0)
+    regressed_rate = float(transition_quality_row["regressed_rate"] or 0.0)
+    reground_required_rate = float(transition_quality_row["reground_required_rate"] or 0.0)
+    quality_forward_min_avg = float(transition_quality_row["quality_forward_min_avg"] or 0.0)
+    quality_regressed_max_avg = float(transition_quality_row["quality_regressed_max_avg"] or 0.0)
+    quality_local_calibration_events = int(quality_calibration_row["local_calibration_events"] or 0)
+    quality_global_calibration_events = int(quality_calibration_row["global_calibration_events"] or 0)
+    quality_latest_local_calibration_at = quality_calibration_row["latest_local_calibration_at"]
+    quality_latest_global_calibration_at = quality_calibration_row["latest_global_calibration_at"]
+    quality_scope_none_count = int(quality_global_scope_counts.get("none", 0))
+    quality_global_scope_coverage = (
+        1.0 - (quality_scope_none_count / quality_trajectory_events)
+        if quality_trajectory_events
+        else 0.0
+    )
+    quality_risk_flags: list[str] = []
+    if regressed_rate >= 0.15:
+        quality_risk_flags.append("high_regressed_rate")
+    if reground_required_rate >= 0.08:
+        quality_risk_flags.append("high_reground_required_rate")
+    if quality_trajectory_events >= 20 and forward_progress_rate < 0.45:
+        quality_risk_flags.append("low_forward_progress_rate")
+    if quality_trajectory_events >= 20 and quality_global_scope_coverage < 0.5:
+        quality_risk_flags.append("low_global_scope_coverage")
+    if quality_trajectory_events >= 30 and quality_global_calibration_events == 0:
+        quality_risk_flags.append("missing_global_calibration_events")
+    if quality_trajectory_events >= 30 and quality_local_calibration_events == 0:
+        quality_risk_flags.append("missing_local_calibration_events")
+    if quality_trajectory_events >= 20 and quality_score_avg < 0:
+        quality_risk_flags.append("negative_quality_score")
 
     return {
         "since_hours": since_hours,
@@ -756,6 +1026,43 @@ async def get_yarn_intelligence(
         "completion_gate_blocked_rate": round(float(trajectory_row["completion_gate_blocked_rate"] or 0), 4),
         "critic_block_rate": round(float(trajectory_row["critic_block_rate"] or 0), 4),
         "trajectory_bucket_counts": trajectory_bucket_counts,
+        "state_transition_quality": {
+            "trajectory_events": quality_trajectory_events,
+            "score_avg": round(quality_score_avg, 4),
+            "label_rates": {
+                "forward_progress": round(forward_progress_rate, 4),
+                "stalled": round(stalled_rate, 4),
+                "regressed": round(regressed_rate, 4),
+                "reground_required": round(reground_required_rate, 4),
+            },
+            "label_counts": {
+                "forward_progress": int(transition_quality_row["forward_progress_count"] or 0),
+                "stalled": int(transition_quality_row["stalled_count"] or 0),
+                "regressed": int(transition_quality_row["regressed_count"] or 0),
+                "reground_required": int(transition_quality_row["reground_required_count"] or 0),
+            },
+            "threshold_band_avg": {
+                "forward_progress_min": round(quality_forward_min_avg, 4),
+                "regressed_max": round(quality_regressed_max_avg, 4),
+            },
+            "global_scope_counts": quality_global_scope_counts,
+            "global_scope_coverage": round(quality_global_scope_coverage, 4),
+            "calibration_events": {
+                "local": quality_local_calibration_events,
+                "global": quality_global_calibration_events,
+                "latest_local_at": quality_latest_local_calibration_at.isoformat()
+                if quality_latest_local_calibration_at
+                else None,
+                "latest_global_at": quality_latest_global_calibration_at.isoformat()
+                if quality_latest_global_calibration_at
+                else None,
+            },
+            "top_reasons": [
+                {"reason": str(r["reason"]), "count": int(r["count"] or 0)}
+                for r in quality_reason_rows
+            ],
+            "risk_flags": quality_risk_flags,
+        },
         "top_models": top_models,
         "finish_reason_counts": finish_reason_counts,
         "edit_context_miss": {

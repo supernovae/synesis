@@ -204,6 +204,33 @@ def test_yarn_intelligence_includes_staff_kpis(client, monkeypatch):
         "completion_gate_blocked_rate": 0.15,
         "critic_block_rate": 0.05,
         "trajectory_bucket_counts": {"micro": 4, "repo": 3, "feature": 1},
+        "state_transition_quality": {
+            "trajectory_events": 8,
+            "score_avg": 0.21,
+            "label_rates": {
+                "forward_progress": 0.5,
+                "stalled": 0.25,
+                "regressed": 0.2,
+                "reground_required": 0.05,
+            },
+            "label_counts": {
+                "forward_progress": 4,
+                "stalled": 2,
+                "regressed": 1,
+                "reground_required": 1,
+            },
+            "threshold_band_avg": {"forward_progress_min": 0.23, "regressed_max": -0.39},
+            "global_scope_counts": {"org_model": 5, "model": 2, "none": 1},
+            "global_scope_coverage": 0.875,
+            "calibration_events": {
+                "local": 2,
+                "global": 1,
+                "latest_local_at": "2026-04-22T12:00:00+00:00",
+                "latest_global_at": "2026-04-22T11:58:00+00:00",
+            },
+            "top_reasons": [{"reason": "stale_files_increased", "count": 3}],
+            "risk_flags": ["high_regressed_rate"],
+        },
         "top_models": [],
         "finish_reason_counts": {"stop": 7, "tool_use": 3},
     }
@@ -223,12 +250,14 @@ def test_yarn_intelligence_includes_staff_kpis(client, monkeypatch):
         "completion_gate_blocked_rate",
         "critic_block_rate",
         "trajectory_bucket_counts",
+        "state_transition_quality",
     ):
         assert key in data
 
     assert data["completion_gate_blocked_rate"] == 0.15
     assert data["critic_block_rate"] == 0.05
     assert data["trajectory_bucket_counts"]["micro"] == 4
+    assert data["state_transition_quality"]["label_counts"]["forward_progress"] == 4
 
     mock_intel.assert_awaited_once()
 
