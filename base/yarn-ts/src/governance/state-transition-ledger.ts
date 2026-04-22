@@ -39,19 +39,55 @@ export interface StateTransitionDelta {
   confidence_improved: boolean;
 }
 
+export interface StateTransitionEvent {
+  tool_sequence: string[];
+  governor_rules: string[];
+  governor_pause: boolean;
+  evidence_delta: EvidenceDeltaSummary;
+  outcome_state: string;
+}
+
+export type StateTransitionQualityLabel =
+  | "forward_progress"
+  | "stalled"
+  | "regressed"
+  | "reground_required";
+
+export interface StateTransitionQualityAssessment {
+  label: StateTransitionQualityLabel;
+  score: number;
+  reasons: string[];
+  recommended_action: "continue" | "recover" | "reground";
+}
+
+export interface StateTransitionTrainingRow {
+  schema_version: "state_transition_training_v1";
+  request_id: string;
+  quality_label: StateTransitionQualityLabel;
+  quality_score: number;
+  quality_reasons: string[];
+  recommended_action: "continue" | "recover" | "reground";
+  outcome_state: string;
+  evidence_delta: EvidenceDeltaSummary;
+  governor_pause: boolean;
+  objective_epoch_advanced: boolean;
+  objective_changed: boolean;
+  confidence_delta: number | null;
+  stale_files_delta: number;
+  partial_files_delta: number;
+  evicted_files_delta: number;
+  unresolved_corrections_delta: number;
+  resolved_corrections_delta: number;
+}
+
 export interface StateTransitionRecord {
   schema_version: "state_transition_v1";
   request_id: string;
   from_state: StateTransitionSnapshot | null;
   to_state: StateTransitionSnapshot;
-  event: {
-    tool_sequence: string[];
-    governor_rules: string[];
-    governor_pause: boolean;
-    evidence_delta: EvidenceDeltaSummary;
-    outcome_state: string;
-  };
+  event: StateTransitionEvent;
   delta: StateTransitionDelta;
+  quality: StateTransitionQualityAssessment;
 }
 
 export interface BuildStateTransitionRecordOptions {
@@ -94,6 +130,15 @@ function asBoolean(value: unknown): boolean {
 
 function cleanCount(value: unknown): number {
   return Math.max(0, Math.trunc(asNumber(value, 0)));
+}
+
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number(Math.max(-1, Math.min(1, value)).toFixed(3));
+}
+
+function unique(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 function normalizeStatusCounts(value: unknown): StateTransitionSnapshot["fileStatusCounts"] {
@@ -225,6 +270,144 @@ function computeChangedFields(
   return changed;
 }
 
+export function assessStateTransitionQuality(input: {
+  delta: StateTransitionDelta;
+  toState: StateTransitionSnapshot;
+  event: StateTransitionEvent;
+}): StateTransitionQualityAssessment {
+  const { delta, toState, event } = input;
+  const reasons: string[] = [];
+  let score = 0;
+
+  if (event.evidence_delta === "improved") {
+    score += 0.35;
+    reasons.push("evidence_improved");
+  } else if (event.evidence_delta === "regressed") {
+    score -= 0.45;
+    reasons.push("evidence_regressed");
+  } else if (event.evidence_delta === "stalled") {
+    score -= 0.2;
+    reasons.push("evidence_stalled");
+  } else if (event.evidence_delta === "changed") {
+    score += 0.05;
+    reasons.push("evidence_changed");
+  }
+
+  if (delta.confidence_delta !== null) {
+    score += delta.confidence_delta * 0.6;
+    if (delta.confidence_delta > 0.02) reasons.push("confidence_rising");
+    if (delta.confidence_delta < -0.02) reasons.push("confidence_falling");
+  }
+  if (delta.confidence_improved) {
+    reasons.push("confidence_improved");
+  }
+
+  if (delta.stale_files_delta < 0) {
+    score += 0.2;
+    reasons.push("stale_files_reduced");
+  } else if (delta.stale_files_delta > 0) {
+    score -= 0.25;
+    reasons.push("stale_files_increased");
+  }
+
+  if (delta.partial_files_delta < 0) {
+    score += 0.1;
+    reasons.push("partial_files_reduced");
+  } else if (delta.partial_files_delta > 0) {
+    score -= 0.12;
+    reasons.push("partial_files_increased");
+  }
+
+  if (delta.evicted_files_delta < 0) {
+    score += 0.08;
+    reasons.push("evicted_files_reduced");
+  } else if (delta.evicted_files_delta > 0) {
+    score -= 0.12;
+    reasons.push("evicted_files_increased");
+  }
+
+  if (delta.unresolved_corrections_delta < 0) {
+    score += 0.15;
+    reasons.push("unresolved_corrections_reduced");
+  } else if (delta.unresolved_corrections_delta > 0) {
+    score -= 0.15;
+    reasons.push("unresolved_corrections_increased");
+  }
+
+  if (delta.resolved_corrections_delta > 0) {
+    score += 0.12;
+    reasons.push("resolved_corrections_increased");
+  }
+
+  if (event.governor_pause) {
+    score -= 0.25;
+    reasons.push("governor_intervened");
+  }
+
+  if (event.outcome_state === "verified" || event.outcome_state === "completed") {
+    score += 0.25;
+    reasons.push("verified_outcome");
+  } else if (event.outcome_state === "stalled") {
+    score -= 0.25;
+    reasons.push("stalled_outcome");
+  }
+
+  if (delta.changed_fields.length === 0) {
+    score -= 0.1;
+    reasons.push("no_state_change");
+  }
+
+  if (toState.confidenceNeedsReground) {
+    score -= 0.3;
+    reasons.push("reground_required");
+  }
+
+  const qualityScore = clampScore(score);
+  const label: StateTransitionQualityLabel = toState.confidenceNeedsReground
+    ? "reground_required"
+    : (event.evidence_delta === "regressed" || qualityScore <= -0.35)
+      ? "regressed"
+      : qualityScore >= 0.2
+        ? "forward_progress"
+        : "stalled";
+  const recommendedAction: StateTransitionQualityAssessment["recommended_action"] = label === "reground_required"
+    ? "reground"
+    : label === "regressed"
+      ? "recover"
+      : "continue";
+
+  return {
+    label,
+    score: qualityScore,
+    reasons: unique(reasons),
+    recommended_action: recommendedAction,
+  };
+}
+
+export function materializeStateTransitionTrainingRow(
+  record: StateTransitionRecord,
+): StateTransitionTrainingRow {
+  return {
+    schema_version: "state_transition_training_v1",
+    request_id: record.request_id,
+    quality_label: record.quality.label,
+    quality_score: record.quality.score,
+    quality_reasons: record.quality.reasons,
+    recommended_action: record.quality.recommended_action,
+    outcome_state: record.event.outcome_state,
+    evidence_delta: record.event.evidence_delta,
+    governor_pause: record.event.governor_pause,
+    objective_epoch_advanced: record.delta.objective_epoch_advanced,
+    objective_changed: record.delta.objective_changed,
+    confidence_delta: record.delta.confidence_delta,
+    stale_files_delta: record.delta.stale_files_delta,
+    partial_files_delta: record.delta.partial_files_delta,
+    evicted_files_delta: record.delta.evicted_files_delta,
+    unresolved_corrections_delta: record.delta.unresolved_corrections_delta,
+    resolved_corrections_delta: record.delta.resolved_corrections_delta,
+  };
+}
+
 export function buildStateTransitionRecord(
   options: BuildStateTransitionRecordOptions,
 ): StateTransitionRecord {
@@ -264,20 +447,27 @@ export function buildStateTransitionRecord(
     confidence_delta: confidenceDelta,
     confidence_improved: confidenceDelta !== null && confidenceDelta > 0.02,
   };
+  const event: StateTransitionEvent = {
+    tool_sequence: options.toolSequence,
+    governor_rules: options.governorRules,
+    governor_pause: options.governorPause,
+    evidence_delta: options.evidenceDelta,
+    outcome_state: options.outcomeState,
+  };
+  const quality = assessStateTransitionQuality({
+    delta,
+    toState: currentSnapshot,
+    event,
+  });
 
   return {
     schema_version: "state_transition_v1",
     request_id: options.requestId,
     from_state: previousSnapshot,
     to_state: currentSnapshot,
-    event: {
-      tool_sequence: options.toolSequence,
-      governor_rules: options.governorRules,
-      governor_pause: options.governorPause,
-      evidence_delta: options.evidenceDelta,
-      outcome_state: options.outcomeState,
-    },
+    event,
     delta,
+    quality,
   };
 }
 
@@ -290,6 +480,7 @@ export function summarizeStateTransition(record: StateTransitionRecord): string 
   return [
     `epoch=${fromEpoch}->${toEpoch}`,
     `confidence=${fromConfidence ?? "n/a"}->${toConfidence ?? "n/a"}`,
+    `quality=${record.quality.label}:${record.quality.score}`,
     `stale_delta=${record.delta.stale_files_delta}`,
     `changed=${changed}`,
   ].join(" ");

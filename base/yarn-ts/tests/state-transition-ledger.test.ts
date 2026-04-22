@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assessStateTransitionQuality,
   buildStateTransitionRecord,
   buildStateTransitionSnapshotFromMetadata,
   decodeStateTransitionSnapshot,
   encodeStateTransitionSnapshot,
+  materializeStateTransitionTrainingRow,
   summarizeStateTransition,
   type StateTransitionSnapshot,
 } from "../src/governance/state-transition-ledger.js";
@@ -146,5 +148,84 @@ describe("state transition ledger", () => {
     expect(record.delta.confidence_improved).toBe(true);
     expect(record.delta.changed_fields).toContain("file_status_counts");
     expect(summarizeStateTransition(record)).toContain("epoch=2->3");
+    expect(record.quality.label).toBe("forward_progress");
+    expect(record.quality.score).toBeGreaterThan(0);
+  });
+
+  it("labels reground-required transitions deterministically", () => {
+    const quality = assessStateTransitionQuality({
+      delta: {
+        changed_fields: ["reground_gate"],
+        objective_epoch_advanced: false,
+        objective_changed: false,
+        completion_status_changed: false,
+        verification_outcome_changed: false,
+        unresolved_corrections_delta: 0,
+        resolved_corrections_delta: 0,
+        stale_files_delta: 0,
+        partial_files_delta: 0,
+        evicted_files_delta: 0,
+        confidence_delta: -0.12,
+        confidence_improved: false,
+      },
+      toState: makeSnapshot({
+        confidenceNeedsReground: true,
+        confidenceOverall: 0.28,
+      }),
+      event: {
+        tool_sequence: ["Read"],
+        governor_rules: [],
+        governor_pause: false,
+        evidence_delta: "stalled",
+        outcome_state: "partial",
+      },
+    });
+
+    expect(quality.label).toBe("reground_required");
+    expect(quality.recommended_action).toBe("reground");
+    expect(quality.reasons).toContain("reground_required");
+  });
+
+  it("materializes compact training rows with quality labels", () => {
+    const record = buildStateTransitionRecord({
+      requestId: "req-training-row",
+      previousSnapshot: makeSnapshot({
+        confidenceOverall: 0.44,
+        confidenceNeedsReground: true,
+        fileStatusCounts: {
+          available: 1,
+          partial: 1,
+          unchanged: 0,
+          stale: 2,
+          evicted: 1,
+          missing: 0,
+        },
+      }),
+      currentSnapshot: makeSnapshot({
+        confidenceOverall: 0.72,
+        confidenceNeedsReground: false,
+        unresolvedCorrectionCount: 0,
+        resolvedCorrectionCount: 2,
+        fileStatusCounts: {
+          available: 3,
+          partial: 0,
+          unchanged: 0,
+          stale: 0,
+          evicted: 0,
+          missing: 0,
+        },
+      }),
+      toolSequence: ["Read", "Edit", "Bash"],
+      governorRules: [],
+      governorPause: false,
+      evidenceDelta: "improved",
+      outcomeState: "verified",
+    });
+
+    const row = materializeStateTransitionTrainingRow(record);
+    expect(row.schema_version).toBe("state_transition_training_v1");
+    expect(row.quality_label).toBe("forward_progress");
+    expect(row.quality_score).toBeGreaterThan(0);
+    expect(row.stale_files_delta).toBeLessThan(0);
   });
 });

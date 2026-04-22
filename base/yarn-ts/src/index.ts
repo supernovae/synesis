@@ -250,6 +250,7 @@ import {
   buildStateTransitionSnapshotFromMetadata,
   decodeStateTransitionSnapshot,
   encodeStateTransitionSnapshot,
+  materializeStateTransitionTrainingRow,
   summarizeStateTransition,
 } from "./governance/state-transition-ledger.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
@@ -4371,6 +4372,7 @@ function persistSessionAndUsage(
     evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
     outcomeState,
   });
+  const stateTransitionTrainingRow = materializeStateTransitionTrainingRow(stateTransitionRecord);
   const stateTransitionSummary = {
     changed_fields: stateTransitionRecord.delta.changed_fields,
     objective_epoch_advanced: stateTransitionRecord.delta.objective_epoch_advanced,
@@ -4379,6 +4381,10 @@ function persistSessionAndUsage(
     stale_files_delta: stateTransitionRecord.delta.stale_files_delta,
     partial_files_delta: stateTransitionRecord.delta.partial_files_delta,
     evicted_files_delta: stateTransitionRecord.delta.evicted_files_delta,
+    quality_label: stateTransitionRecord.quality.label,
+    quality_score: stateTransitionRecord.quality.score,
+    quality_reasons: stateTransitionRecord.quality.reasons,
+    recommended_action: stateTransitionRecord.quality.recommended_action,
   };
 
   usageWriter.enqueueSessionEvent({
@@ -4486,6 +4492,9 @@ function persistSessionAndUsage(
         objective_epoch_advanced: stateTransitionRecord.delta.objective_epoch_advanced || undefined,
         confidence_improved: stateTransitionRecord.delta.confidence_improved || undefined,
         stale_files_delta: stateTransitionRecord.delta.stale_files_delta,
+        state_transition_quality_label: stateTransitionRecord.quality.label,
+        state_transition_quality_score: stateTransitionRecord.quality.score,
+        state_transition_quality_reasons: stateTransitionRecord.quality.reasons,
       },
     },
   });
@@ -4497,7 +4506,10 @@ function persistSessionAndUsage(
     eventKind: "state_transition_v1",
     component: "state-ledger",
     detail: summarizeStateTransition(stateTransitionRecord),
-    metadataJson: stateTransitionRecord as unknown as Record<string, unknown>,
+    metadataJson: {
+      ...stateTransitionRecord,
+      training_row: stateTransitionTrainingRow,
+    } as unknown as Record<string, unknown>,
   });
 
   const telemetryUsage: TelemetryLlmUsage = {

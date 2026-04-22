@@ -166,6 +166,20 @@ This is emitted as `state_transition_v1` session telemetry and also summarized i
 request trajectory + trace context. The result is explicit supervision data for
 "state moved in the right direction" rather than inferring transitions from raw transcript text.
 
+## 10) Transition quality labeler + materializer
+
+Each `state_transition_v1` record now carries a deterministic quality assessment:
+
+- `quality.label`: `forward_progress` | `stalled` | `regressed` | `reground_required`
+- `quality.score`: bounded `[-1, 1]` scalar for reward/ranking pipelines
+- `quality.reasons`: explicit reason codes (confidence trend, stale-file deltas, evidence delta, governor pauses)
+- `quality.recommended_action`: `continue` | `recover` | `reground`
+
+A compact `state_transition_training_v1` row is materialized from every transition record and
+attached to the transition event metadata. `request_trajectory_v1.training_signals` also includes
+`state_transition_quality_*` fields so supervised and reward datasets can consume labels directly
+without replaying raw transcripts.
+
 ## Weird UX/client affordance handling improvements
 
 This split improves resilience in exactly the failure cases we observed:

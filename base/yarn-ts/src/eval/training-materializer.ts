@@ -192,12 +192,69 @@ export function toJsonl(examples: TrainingExample[]): string {
   return examples.map(e => JSON.stringify(e)).join("\n") + "\n";
 }
 
+function summarizeScenarioTransitionQuality(result: ScenarioResult): {
+  label: "forward_progress" | "stalled" | "regressed";
+  score: number;
+  reasons: string[];
+} {
+  let score = result.passed ? 0.45 : -0.45;
+  const reasons: string[] = [];
+
+  if (result.passed) {
+    reasons.push("scenario_passed");
+  } else {
+    reasons.push("scenario_failed");
+  }
+
+  if (result.totalAnomalies > 0) {
+    score -= Math.min(0.4, result.totalAnomalies * 0.08);
+    reasons.push("anomalies_present");
+  } else {
+    score += 0.08;
+    reasons.push("no_anomalies");
+  }
+
+  if (result.governorInterventions > 0) {
+    score -= Math.min(0.35, result.governorInterventions * 0.12);
+    reasons.push("governor_interventions");
+  } else {
+    score += 0.12;
+    reasons.push("no_governor_interventions");
+  }
+
+  if (result.totalToolRounds <= Math.max(1, result.totalTurns)) {
+    score += 0.08;
+    reasons.push("tool_rounds_controlled");
+  } else if (result.totalToolRounds > result.totalTurns * 2) {
+    score -= 0.12;
+    reasons.push("tool_rounds_high");
+  }
+
+  if (!result.passed && result.failureReasons.some((reason) => /regress|stall|loop/i.test(reason))) {
+    score -= 0.1;
+    reasons.push("regression_or_stall_reason");
+  }
+
+  const boundedScore = Number(Math.max(-1, Math.min(1, score)).toFixed(3));
+  const label = boundedScore >= 0.25
+    ? "forward_progress"
+    : boundedScore <= -0.35
+      ? "regressed"
+      : "stalled";
+  return {
+    label,
+    score: boundedScore,
+    reasons: Array.from(new Set(reasons)),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Scenario result → trajectory row (canonical format from
 // qwen-stability-feedback-loop.md)
 // ---------------------------------------------------------------------------
 
 export function scenarioResultToTrajectoryRow(result: ScenarioResult): Record<string, unknown> {
+  const transitionQuality = summarizeScenarioTransitionQuality(result);
   const toolSequence: string[] = [];
   for (const turn of result.turnResults) {
     for (const m of turn.messages) {
@@ -250,6 +307,9 @@ export function scenarioResultToTrajectoryRow(result: ScenarioResult): Record<st
         t.anomalies.some(a => a.kind === "waffling_marker"),
       ),
       evidence_delta: result.passed ? "positive" : "stalled",
+      state_transition_quality_label: transitionQuality.label,
+      state_transition_quality_score: transitionQuality.score,
+      state_transition_quality_reasons: transitionQuality.reasons,
     },
     gold_next_step: "",
   };

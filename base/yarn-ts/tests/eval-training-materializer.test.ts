@@ -198,12 +198,34 @@ describe("scenarioResultToTrajectoryRow", () => {
     expect(row.training_signals).toBeDefined();
     const signals = row.training_signals as Record<string, unknown>;
     expect(signals.governor_intervened).toBe(false);
+    expect(signals.state_transition_quality_label).toBe("forward_progress");
+    expect(Number(signals.state_transition_quality_score)).toBeGreaterThan(0);
   });
 
   it("marks stalled outcome for failed scenarios", () => {
     const result = makeScenarioResult({ passed: false });
     const row = scenarioResultToTrajectoryRow(result);
     expect(row.outcome).toBe("stalled");
+    const signals = row.training_signals as Record<string, unknown>;
+    expect(signals.state_transition_quality_label).toBe("stalled");
+  });
+
+  it("marks regressed quality for failed high-anomaly scenarios", () => {
+    const result = makeScenarioResult({
+      passed: false,
+      governorInterventions: 2,
+      totalAnomalies: 4,
+      failureReasons: ["regression replay detected"],
+      turnResults: [makeTurnResult({
+        anomalies: [
+          { kind: "repeated_content", detail: "repeat", severity: "error" },
+          { kind: "waffling_marker", detail: "waffle", severity: "warning" },
+        ],
+      })],
+    });
+    const row = scenarioResultToTrajectoryRow(result);
+    const signals = row.training_signals as Record<string, unknown>;
+    expect(signals.state_transition_quality_label).toBe("regressed");
   });
 
   it("includes tool sequence in trajectory steps", () => {
