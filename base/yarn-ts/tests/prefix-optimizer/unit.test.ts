@@ -285,6 +285,57 @@ describe("request parser", () => {
     expect(frame!.content).toContain("objective=Fix login flow");
   });
 
+  it("anchors core extraction to Synesis-marked system message", () => {
+    const msgs: ChatMessage[] = [
+      { role: "system", content: "Custom per-turn scaffold\ncwd: /tmp/demo" },
+      {
+        role: "system",
+        content: [
+          "You are an AI coding assistant provided by Synesis.",
+          "<CLIENT_ADAPTER>",
+          "client=unknown",
+          "</CLIENT_ADAPTER>",
+        ].join("\n"),
+      },
+      { role: "user", content: "Proceed." },
+    ];
+    const segments = parseRequest(msgs);
+    const core = segments.find((s) => s.category === "core_instructions");
+    const live = segments.find((s) => s.category === "live_context");
+    expect(core).toBeDefined();
+    expect(core!.content).toContain("provided by Synesis");
+    expect(core!.content).not.toContain("Custom per-turn scaffold");
+    expect(live).toBeDefined();
+    expect(live!.content).toContain("Custom per-turn scaffold");
+  });
+
+  it("keeps core hash stable when system message order changes", () => {
+    const synesisCore = [
+      "You are an AI coding assistant provided by Synesis.",
+      "<SYNESIS_CODER_WORKFLOW>",
+      "phase_order=explore|implement|verify",
+      "</SYNESIS_CODER_WORKFLOW>",
+    ].join("\n");
+    const custom = "Temporary per-turn note\nToday's date: Tuesday Apr 8, 2026";
+
+    const a: ChatMessage[] = [
+      { role: "system", content: custom },
+      { role: "system", content: synesisCore },
+      { role: "user", content: "Do work." },
+    ];
+    const b: ChatMessage[] = [
+      { role: "system", content: synesisCore },
+      { role: "system", content: custom },
+      { role: "user", content: "Do work." },
+    ];
+
+    const aCore = parseRequest(a).find((s) => s.category === "core_instructions");
+    const bCore = parseRequest(b).find((s) => s.category === "core_instructions");
+    expect(aCore).toBeDefined();
+    expect(bCore).toBeDefined();
+    expect(aCore!.hash).toBe(bCore!.hash);
+  });
+
   it("extracts latest_user_turn segment", () => {
     const segments = parseRequest(messages);
     const user = segments.find((s) => s.category === "latest_user_turn");

@@ -70,6 +70,14 @@ const LIVE_CONTEXT_PATTERNS = [
   /linter errors/i,
 ];
 
+const STABLE_CORE_MARKERS = [
+  /You are an AI coding assistant provided by Synesis\./i,
+  /You are Synesis,\s*a software engineering agent/i,
+  /<CLIENT_ADAPTER>/,
+  /<SYNESIS_CODER_WORKFLOW>/,
+  /<SYNESIS_MODEL_SHIMS>/,
+];
+
 type SectionType = "core" | "project_guidance" | "task_frame" | "live_context";
 
 interface SectionBoundary {
@@ -162,6 +170,27 @@ function categoryFromSectionType(type: SectionType): SegmentCategory {
   }
 }
 
+function hasStableCoreMarker(text: string): boolean {
+  return STABLE_CORE_MARKERS.some((pat) => pat.test(text));
+}
+
+/**
+ * Pick the canonical "core carrier" system message index.
+ * We prefer messages that include explicit Synesis stable-core markers.
+ * If none are present, fall back to the first system message.
+ */
+function resolveCoreCarrierSystemIndex(messages: ChatMessage[]): number {
+  let fallbackFirstSystem = -1;
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== "system") continue;
+    if (fallbackFirstSystem < 0) fallbackFirstSystem = i;
+    const text = messageText(msg);
+    if (hasStableCoreMarker(text)) return i;
+  }
+  return fallbackFirstSystem;
+}
+
 /**
  * Parse an OpenAI messages array into semantic segments for prefix optimization.
  *
@@ -186,24 +215,23 @@ export function parseRequest(
   const liveIndices: number[] = [];
 
   const lastUserIdx = findLastUserIndex(messages);
-  let systemMsgCount = 0;
+  const coreCarrierSystemIndex = resolveCoreCarrierSystemIndex(messages);
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
 
     if (msg.role === "system") {
       const text = messageText(msg);
-      const isFirstSystem = systemMsgCount === 0;
-      systemMsgCount++;
 
       const sections = splitSystemMessage(text);
 
       for (const section of sections) {
-        // For the first system message (Synesis prefix), "core" sections stay core.
-        // For subsequent system messages (IDE client), "core" sections are
-        // reclassified as live_context because they likely contain per-turn
-        // dynamic content that doesn't match our known patterns.
-        const effectiveType = (!isFirstSystem && section.type === "core")
+        // Keep "core" only for the canonical Synesis core-carrying system
+        // message. Core-looking sections from other system messages are
+        // treated as live context to avoid accidental cache-busting churn.
+        const isCoreSection = section.type === "core";
+        const isCoreCarrier = i === coreCarrierSystemIndex;
+        const effectiveType = (isCoreSection && !isCoreCarrier)
           ? "live_context" as SectionType
           : section.type;
 
