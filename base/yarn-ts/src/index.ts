@@ -259,7 +259,9 @@ import {
   encodeStateTransitionSnapshot,
   materializeStateTransitionTrainingRow,
   summarizeStateTransition,
+  type StateTransitionQualityThresholds,
 } from "./governance/state-transition-ledger.js";
+import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
   buildImplementationSoftStallNudgeMessage,
@@ -986,6 +988,34 @@ function getMetadataObject(meta: Record<string, unknown>, key: string): Record<s
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function normalizeStateTransitionQualityThresholds(
+  thresholds: StateTransitionQualityThresholds,
+): StateTransitionQualityThresholds {
+  return decodeStateTransitionQualityThresholds(encodeStateTransitionQualityThresholds(thresholds))
+    ?? DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS;
+}
+
+function blendStateTransitionQualityThresholds(
+  localThresholds: StateTransitionQualityThresholds,
+  globalThresholds: StateTransitionQualityThresholds,
+  globalWeight: number,
+): StateTransitionQualityThresholds {
+  const normalizedLocal = normalizeStateTransitionQualityThresholds(localThresholds);
+  const normalizedGlobal = normalizeStateTransitionQualityThresholds(globalThresholds);
+  const weight = Math.max(0, Math.min(1, Number.isFinite(globalWeight) ? globalWeight : 0));
+  return normalizeStateTransitionQualityThresholds({
+    forward_progress_min: Number(
+      (normalizedLocal.forward_progress_min * (1 - weight) + normalizedGlobal.forward_progress_min * weight).toFixed(3),
+    ),
+    regressed_max: Number(
+      (normalizedLocal.regressed_max * (1 - weight) + normalizedGlobal.regressed_max * weight).toFixed(3),
+    ),
+    minimum_gap: Number(
+      (normalizedLocal.minimum_gap * (1 - weight) + normalizedGlobal.minimum_gap * weight).toFixed(3),
+    ),
+  });
 }
 
 function trimSnippet(text: string, max = 2000): string {
@@ -3145,6 +3175,15 @@ const userRateLimiter = new UserRateLimiter({
   maxRequests: config.SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS,
 });
 const distributedCounters = new DistributedCounterService(config);
+const stateTransitionGlobalCalibrator = new StateTransitionGlobalCalibrator({
+  maxBuckets: 512,
+  maxSamplesPerBucket: 128,
+  minSamples: 16,
+  minPositive: 4,
+  minNegative: 4,
+  smoothing: 0.4,
+  activationSampleCount: 16,
+});
 const streamAdmission = new StreamAdmissionController({
   maxConcurrentStreams: config.SYNESIS_YARN_MAX_CONCURRENT_STREAMS,
   maxQueueDepth: config.SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH,
@@ -4374,6 +4413,23 @@ function persistSessionAndUsage(
       getMetadataObject(state.record.metadata, "state_transition_quality_thresholds"),
     )
     ?? DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS;
+  const globalThresholdResolutionBefore = stateTransitionGlobalCalibrator.resolveThresholds({
+    orgId: state.record.orgId,
+    modelId: resolvedModelId,
+    fallbackThresholds: persistedQualityThresholds,
+  });
+  const globalSampleCountBefore = Math.max(
+    globalThresholdResolutionBefore.org_model_sample_count,
+    globalThresholdResolutionBefore.model_sample_count,
+  );
+  const globalWeightBefore = globalThresholdResolutionBefore.selected_scope === "none"
+    ? 0
+    : Math.min(0.55, Math.max(0.2, globalSampleCountBefore / 80));
+  const seededQualityThresholds = blendStateTransitionQualityThresholds(
+    persistedQualityThresholds,
+    globalThresholdResolutionBefore.selected_thresholds,
+    globalWeightBefore,
+  );
   const stateTransitionRecord = buildStateTransitionRecord({
     requestId,
     previousSnapshot: previousTransitionSnapshot,
@@ -4383,15 +4439,16 @@ function persistSessionAndUsage(
     governorPause: snapshot?.governor?.pause ?? false,
     evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
     outcomeState,
-    qualityThresholds: persistedQualityThresholds,
+    qualityThresholds: seededQualityThresholds,
   });
+  const stateTransitionSample = buildStateTransitionCalibrationSample(stateTransitionRecord);
   const storedCalibrationSamples = decodeStateTransitionCalibrationSamples(
     state.record.metadata.state_transition_quality_samples,
     64,
   );
   const nextCalibrationSamples = [
     ...storedCalibrationSamples,
-    buildStateTransitionCalibrationSample(stateTransitionRecord),
+    stateTransitionSample,
   ].slice(-64);
   state.record.metadata.state_transition_quality_samples = encodeStateTransitionCalibrationSamples(
     nextCalibrationSamples,
@@ -4399,16 +4456,37 @@ function persistSessionAndUsage(
   );
   const stateTransitionCalibration = calibrateStateTransitionQualityThresholds({
     samples: nextCalibrationSamples,
-    baseThresholds: persistedQualityThresholds,
+    baseThresholds: seededQualityThresholds,
     minSamples: 12,
     minPositive: 3,
     minNegative: 3,
     smoothing: 0.45,
   });
-  const activeQualityThresholds = stateTransitionCalibration.calibrated_thresholds;
+  const sessionCalibratedThresholds = stateTransitionCalibration.calibrated_thresholds;
+  const globalCalibrationObservation = stateTransitionGlobalCalibrator.observeAndCalibrate({
+    orgId: state.record.orgId,
+    modelId: resolvedModelId,
+    sample: stateTransitionSample,
+    fallbackThresholds: sessionCalibratedThresholds,
+  });
+  const globalThresholdResolutionAfter = globalCalibrationObservation.resolution;
+  const globalSampleCountAfter = Math.max(
+    globalThresholdResolutionAfter.org_model_sample_count,
+    globalThresholdResolutionAfter.model_sample_count,
+  );
+  const globalWeightAfter = globalThresholdResolutionAfter.selected_scope === "none"
+    ? 0
+    : Math.min(0.65, Math.max(0.25, globalSampleCountAfter / 96));
+  const activeQualityThresholds = blendStateTransitionQualityThresholds(
+    sessionCalibratedThresholds,
+    globalThresholdResolutionAfter.selected_thresholds,
+    globalWeightAfter,
+  );
   state.record.metadata.state_transition_quality_thresholds = encodeStateTransitionQualityThresholds(
     activeQualityThresholds,
   );
+  state.record.metadata.state_transition_quality_global_scope = globalThresholdResolutionAfter.selected_scope;
+  state.record.metadata.state_transition_quality_global_sample_count = globalSampleCountAfter;
   if (stateTransitionCalibration.applied) {
     state.record.metadata.state_transition_quality_calibrated_at = Date.now();
   }
@@ -4417,6 +4495,13 @@ function persistSessionAndUsage(
     activeQualityThresholds.forward_progress_min - persistedQualityThresholds.forward_progress_min,
   ) + Math.abs(
     activeQualityThresholds.regressed_max - persistedQualityThresholds.regressed_max,
+  );
+  const globalThresholdShift = Math.abs(
+    globalThresholdResolutionAfter.selected_thresholds.forward_progress_min
+      - globalThresholdResolutionBefore.selected_thresholds.forward_progress_min,
+  ) + Math.abs(
+    globalThresholdResolutionAfter.selected_thresholds.regressed_max
+      - globalThresholdResolutionBefore.selected_thresholds.regressed_max,
   );
   const stateTransitionSummary = {
     changed_fields: stateTransitionRecord.delta.changed_fields,
@@ -4433,6 +4518,9 @@ function persistSessionAndUsage(
     quality_thresholds: activeQualityThresholds,
     quality_calibration_applied: stateTransitionCalibration.applied,
     quality_calibration_sample_count: stateTransitionCalibration.sample_count,
+    quality_global_scope: globalThresholdResolutionAfter.selected_scope,
+    quality_global_sample_count: globalSampleCountAfter,
+    quality_global_weight: Number(globalWeightAfter.toFixed(3)),
   };
 
   usageWriter.enqueueSessionEvent({
@@ -4547,6 +4635,10 @@ function persistSessionAndUsage(
         state_transition_quality_regressed_max: activeQualityThresholds.regressed_max,
         state_transition_quality_calibrated: stateTransitionCalibration.applied || undefined,
         state_transition_quality_calibration_samples: stateTransitionCalibration.sample_count,
+        state_transition_quality_global_scope: globalThresholdResolutionAfter.selected_scope !== "none"
+          ? globalThresholdResolutionAfter.selected_scope
+          : undefined,
+        state_transition_quality_global_samples: globalSampleCountAfter || undefined,
       },
     },
   });
@@ -4563,6 +4655,11 @@ function persistSessionAndUsage(
       training_row: stateTransitionTrainingRow,
       quality_thresholds: activeQualityThresholds,
       quality_calibration: stateTransitionCalibration,
+      quality_global_resolution: globalThresholdResolutionAfter,
+      quality_global_calibration: {
+        org_model: globalCalibrationObservation.org_model_calibration,
+        model: globalCalibrationObservation.model_calibration,
+      },
     } as unknown as Record<string, unknown>,
   });
   if (stateTransitionCalibration.applied && thresholdShift > 0.01) {
@@ -4575,6 +4672,25 @@ function persistSessionAndUsage(
       component: "state-ledger",
       detail: stateTransitionCalibration.summary,
       metadataJson: stateTransitionCalibration as unknown as Record<string, unknown>,
+    });
+  }
+  if (
+    (globalCalibrationObservation.org_model_calibration.applied || globalCalibrationObservation.model_calibration.applied)
+    && globalThresholdShift > 0.01
+  ) {
+    usageWriter.enqueueSessionEvent({
+      sessionKey: state.record.sessionKey,
+      requestId,
+      userId: state.record.userId,
+      orgId: state.record.orgId,
+      eventKind: "state_transition_quality_global_calibration_v1",
+      component: "state-ledger",
+      detail: `global quality calibration scope=${globalThresholdResolutionAfter.selected_scope} samples=${globalSampleCountAfter}`,
+      metadataJson: {
+        resolution: globalThresholdResolutionAfter,
+        org_model: globalCalibrationObservation.org_model_calibration,
+        model: globalCalibrationObservation.model_calibration,
+      } as unknown as Record<string, unknown>,
     });
   }
 

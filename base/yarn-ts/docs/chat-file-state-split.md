@@ -194,6 +194,22 @@ Quality thresholds are now calibrated from recent observed transitions instead o
 
 This keeps the quality labeling policy adaptive while remaining deterministic and replay-safe.
 
+## 12) Cross-session global calibrator
+
+In addition to per-session calibration, Yarn now maintains an in-process global
+calibration registry with two scopes:
+
+- `org_model` (organization + model)
+- `model` (model-wide fallback across organizations)
+
+Each request contributes a calibration sample to both scopes. Global thresholds are
+resolved and blended with session thresholds before quality labeling, then refreshed
+after observation. This lets new sessions start from previously learned quality
+boundaries rather than cold defaults, while preserving deterministic scoring rules.
+
+When global thresholds shift materially, Yarn emits
+`state_transition_quality_global_calibration_v1` for auditability.
+
 ## Weird UX/client affordance handling improvements
 
 This split improves resilience in exactly the failure cases we observed:
