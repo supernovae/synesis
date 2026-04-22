@@ -886,4 +886,62 @@ describe("TranscriptPruningService", () => {
       expect(pruned40).toBeLessThan(unpruned40 * 0.6);
     });
   });
+
+  describe("emergencyPrune", () => {
+    it("does nothing when under target budget", () => {
+      const svc = new TranscriptPruningService(defaultConfig);
+      const messages = [
+        msg("user", "Hello"),
+        msg("assistant", "Hi"),
+      ];
+      const result = svc.emergencyPrune(messages as never, 100_000);
+      expect(result.pruned).toBe(false);
+      expect(result.messages).toEqual(messages);
+    });
+
+    it("aggressively evicts old tool results to fit under budget", () => {
+      const svc = new TranscriptPruningService({
+        ...defaultConfig,
+        budgetChars: 200_000,
+        stubMaxChars: 100,
+      });
+      const messages: Record<string, unknown>[] = [
+        msg("user", "Build the project"),
+      ];
+      for (let i = 0; i < 20; i++) {
+        messages.push(msg("assistant", `Working on task ${i}`));
+        messages.push(msg("tool", "output line ".repeat(200), "run_command", { tool_call_id: `tc_${i}` }));
+      }
+      const totalChars = messages.reduce(
+        (s, m) => s + (typeof m.content === "string" ? (m.content as string).length : 0),
+        0,
+      );
+      expect(totalChars).toBeGreaterThan(10_000);
+
+      const result = svc.emergencyPrune(messages as never, 5_000);
+      expect(result.pruned).toBe(true);
+      expect(result.charsAfter).toBeLessThan(result.charsBefore);
+      expect(result.charsAfter).toBeLessThan(10_000);
+    });
+
+    it("keeps the most recent tool results intact", () => {
+      const svc = new TranscriptPruningService({
+        ...defaultConfig,
+        budgetChars: 200_000,
+        stubMaxChars: 100,
+      });
+      const messages: Record<string, unknown>[] = [
+        msg("user", "Build the project"),
+      ];
+      for (let i = 0; i < 10; i++) {
+        messages.push(msg("assistant", `Step ${i}`));
+        messages.push(msg("tool", `unique_output_${i}_${"x".repeat(500)}`, "run_command", { tool_call_id: `tc_${i}` }));
+      }
+
+      const result = svc.emergencyPrune(messages as never, 3_000);
+      expect(result.pruned).toBe(true);
+      const lastToolContent = (result.messages[result.messages.length - 1] as { content: string }).content;
+      expect(lastToolContent).toContain("unique_output_9");
+    });
+  });
 });

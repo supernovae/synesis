@@ -556,6 +556,58 @@ export class TranscriptPruningService {
     });
   }
 
+  /**
+   * Emergency pruning for context admission warnings.
+   *
+   * Unlike normal `prune()` which respects a generous keep window, this method
+   * uses a minimal keep window (last 4 tool results) and applies all strategies
+   * aggressively to get the total context chars under `targetCharBudget`.
+   *
+   * If the first pass isn't enough, a second pass with an even smaller window
+   * (2 tool results) strips more content.
+   */
+  emergencyPrune(
+    messages: MessageLike[],
+    targetCharBudget: number,
+    backendModelHint?: string,
+  ): { messages: MessageLike[]; pruned: boolean; charsBefore: number; charsAfter: number } {
+    const charsBefore = messages.reduce((sum, m) => sum + contentLength(m.content), 0);
+    if (charsBefore <= targetCharBudget) {
+      return { messages, pruned: false, charsBefore, charsAfter: charsBefore };
+    }
+
+    const protectedFailIdx = protectedFailingVerificationToolIndices(messages);
+    const protectedReadIdx = protectedCurrentTurnReadToolIndices(messages);
+    const evictProtectedIdx = new Set<number>([...protectedFailIdx, ...protectedReadIdx]);
+
+    const emergencyKeep = this.computeEmergencyKeepFromIndex(messages, 4);
+    let out = this.deduplicateCommands(messages, emergencyKeep);
+    out = this.deduplicateFileReads(out, emergencyKeep, protectedReadIdx);
+    out = this.evictStaleToolResults(out, emergencyKeep, evictProtectedIdx);
+    out = this.condenseOldAssistant(out, emergencyKeep);
+    out = this.collapseNearDuplicateOutputs(out, emergencyKeep, protectedReadIdx);
+
+    let charsAfter = out.reduce((sum, m) => sum + contentLength(m.content), 0);
+    if (charsAfter > targetCharBudget) {
+      const tinyKeep = this.computeEmergencyKeepFromIndex(out, 2);
+      out = this.evictStaleToolResults(out, tinyKeep, evictProtectedIdx);
+      out = this.condenseOldAssistant(out, tinyKeep);
+      charsAfter = out.reduce((sum, m) => sum + contentLength(m.content), 0);
+    }
+
+    this.stats.totalCharsSaved += Math.max(0, charsBefore - charsAfter);
+    return { messages: out, pruned: charsBefore !== charsAfter, charsBefore, charsAfter };
+  }
+
+  private computeEmergencyKeepFromIndex(messages: MessageLike[], keepCount: number): number {
+    const toolIndices: number[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === "tool") toolIndices.push(i);
+    }
+    if (toolIndices.length <= keepCount) return 0;
+    return toolIndices[toolIndices.length - keepCount];
+  }
+
   getStats(): TranscriptPruningStats {
     return { ...this.stats };
   }

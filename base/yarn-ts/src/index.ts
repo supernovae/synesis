@@ -8473,6 +8473,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
       "context_admission_warn_openai",
     );
+    const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
+    const emergencyResult = transcriptPruning.emergencyPrune(
+      modelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      hardCharBudget,
+      oaiCompactionOpts.backendModelHint,
+    );
+    if (emergencyResult.pruned) {
+      modelMessages = emergencyResult.messages as typeof modelMessages;
+      app.log.info(
+        {
+          requestId: reqId,
+          charsBefore: emergencyResult.charsBefore,
+          charsAfter: emergencyResult.charsAfter,
+          charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
+        },
+        "context_admission_emergency_prune_openai",
+      );
+      recordSessionEvent(
+        sessionKey, identity.userId, identity.orgId,
+        "emergency_context_prune", "context-admission",
+        `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit`,
+        reqId,
+      );
+    }
+    void forceCheckpoint(session);
   }
   if (oaiContextAdmission.decision === "reject") {
     contextAdmissionStats.rejected += 1;
@@ -11712,18 +11737,31 @@ app.post("/v1/messages", async (req, reply) => {
       },
       "context_admission_warn_claude",
     );
-    const compacted = await forceCheckpoint(session);
-    if (compacted) {
+    const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
+    const emergencyResult = transcriptPruning.emergencyPrune(
+      claudeModelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+      hardCharBudget,
+      claudeCompactionOpts.backendModelHint,
+    );
+    if (emergencyResult.pruned) {
+      claudeModelMessages = emergencyResult.messages as typeof claudeModelMessages;
+      app.log.info(
+        {
+          requestId: req.id,
+          charsBefore: emergencyResult.charsBefore,
+          charsAfter: emergencyResult.charsAfter,
+          charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
+        },
+        "context_admission_emergency_prune_claude",
+      );
       recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "auto_compaction",
-        "context-admission",
-        `Auto compacting after warn (${claudeContextAdmission.reason ?? "warn"})`,
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "emergency_context_prune", "context-admission",
+        `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit`,
         traceReqId,
       );
     }
+    void forceCheckpoint(session);
   }
   if (claudeContextAdmission.decision === "reject") {
     contextAdmissionStats.rejected += 1;
