@@ -490,6 +490,14 @@ describe("diagnostics", () => {
     expect(diag.cacheMissReason).toBe("core_instructions_changed");
   });
 
+  it("treats missing core hash as core change (diagnostic alignment)", () => {
+    const prev = buildDiagnostics(segments, [0, 1], "dashscope", null);
+    const withoutCore = segments.filter((s) => s.category !== "core_instructions");
+    const diag = buildDiagnostics(withoutCore, [0, 1], "dashscope", prev);
+    expect(diag.coreHash).toBe("");
+    expect(diag.cacheMissReason).toBe("core_instructions_changed");
+  });
+
   it("generates meaningful miss report", () => {
     const prev = buildDiagnostics(segments, [0, 1], "dashscope", null);
     const report = generateMissReport(prev, null);

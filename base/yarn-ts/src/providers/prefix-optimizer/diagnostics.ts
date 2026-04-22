@@ -21,6 +21,7 @@ export function buildDiagnostics(
   markerIndices: number[],
   markerBackend: MarkerBackend,
   previousDiagnostics: PrefixDiagnostics | null,
+  prefixStableBytes = 0,
 ): PrefixDiagnostics {
   const segmentSizes: Partial<Record<SegmentCategory, number>> = {};
   let totalTokenEstimate = 0;
@@ -42,6 +43,7 @@ export function buildDiagnostics(
     frameHash: hashByCategory.task_frame ?? "",
     volatileHash: hashByCategory.live_context ?? "",
     userTurnHash: hashByCategory.latest_user_turn ?? "",
+    prefixStableBytes: Math.max(0, Number(prefixStableBytes) || 0),
     markerBackend,
     markerCount: markerIndices.length,
     markerIndices,
@@ -63,16 +65,20 @@ function diagnoseMissReason(
 ): string | null {
   if (!previous) return "first_request";
 
-  if (currentHashes.core_instructions && currentHashes.core_instructions !== previous.coreHash) {
+  const currentCore = currentHashes.core_instructions ?? "";
+  if (currentCore !== previous.coreHash) {
     return "core_instructions_changed";
   }
-  if (currentHashes.project_guidance && currentHashes.project_guidance !== previous.projectHash) {
+  const currentProject = currentHashes.project_guidance ?? "";
+  if (currentProject !== previous.projectHash) {
     return "project_guidance_changed";
   }
-  if (currentHashes.tool_definitions && currentHashes.tool_definitions !== previous.toolsetHash) {
+  const currentTools = currentHashes.tool_definitions ?? "";
+  if (currentTools !== previous.toolsetHash) {
     return "tools_changed";
   }
-  if (currentHashes.task_frame && currentHashes.task_frame !== previous.frameHash) {
+  const currentFrame = currentHashes.task_frame ?? "";
+  if (currentFrame !== previous.frameHash) {
     return "frame_changed";
   }
 
@@ -97,6 +103,7 @@ export function logPrefixDiagnostics(
     frameHash: current.frameHash,
     volatileHash: current.volatileHash,
     userTurnHash: current.userTurnHash,
+    prefixStableBytes: current.prefixStableBytes,
     markerCount: current.markerCount,
     markerIndices: current.markerIndices,
     segmentSizes: current.segmentSizes,

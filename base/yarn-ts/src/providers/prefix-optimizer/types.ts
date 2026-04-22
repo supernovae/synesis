@@ -96,6 +96,8 @@ export interface PrefixDiagnostics {
   frameHash: string;
   volatileHash: string;
   userTurnHash: string;
+  /** UTF-8 bytes shared with previous request payload from byte 0 onward. */
+  prefixStableBytes: number;
   markerBackend: MarkerBackend;
   markerCount: number;
   markerIndices: number[];

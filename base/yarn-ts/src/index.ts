@@ -7509,6 +7509,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         normalizedRequest.tools as never,
         sessionKey,
       );
+      oaiOptLedger.setPrefixStableBytes(optimized.diagnostics.prefixStableBytes ?? 0);
       normalizedRequest.messages = optimized.messages as never;
       if (optimized.tools) {
         normalizedRequest.tools = optimized.tools as never;

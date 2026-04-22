@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PrefixOptimizer } from "../../src/providers/prefix-optimizer/index.js";
 import type { ChatMessage, ToolDefinition } from "../../src/providers/prefix-optimizer/types.js";
+import { canonicalStringify } from "../../src/providers/prefix-optimizer/serializer.js";
 
 const fixtureFile = resolve(
   import.meta.dirname,
@@ -160,5 +161,31 @@ describe("PrefixOptimizer integration", () => {
 
     expect(r1.diagnostics.coreHash).toBe(r2.diagnostics.coreHash);
     expect(r1.diagnostics.volatileHash).not.toBe(r2.diagnostics.volatileHash);
+  });
+
+  it("append-only consecutive requests keep full prior payload as stable prefix", () => {
+    const optimizer = new PrefixOptimizer({ markerBackend: "none", maxMarkers: 0, enableReduction: true, enableDiagnosticLogging: false });
+    const session = "append-only-stability";
+
+    const firstMessages: ChatMessage[] = [
+      { role: "system", content: "You are an AI coding assistant.\nFollow repository rules." },
+      { role: "user", content: "Implement a tiny helper function." },
+    ];
+    const r1 = optimizer.optimize(firstMessages, undefined, session);
+    expect(r1.diagnostics.prefixStableBytes).toBe(0);
+
+    const secondMessages: ChatMessage[] = [
+      { role: "system", content: "You are an AI coding assistant.\nFollow repository rules." },
+      { role: "user", content: "Implement a tiny helper function." },
+      { role: "assistant", content: "I will implement it now." },
+      { role: "user", content: "Proceed." },
+    ];
+    const r2 = optimizer.optimize(secondMessages, undefined, session);
+
+    const comparable = `tools=${canonicalStringify(r1.tools ?? [])}\nmessages=${r1.messages
+      .map((m) => canonicalStringify(m))
+      .join("\n<MSG_BOUNDARY>\n")}`;
+    const r1Bytes = Buffer.byteLength(comparable, "utf8");
+    expect(r2.diagnostics.prefixStableBytes).toBe(r1Bytes);
   });
 });

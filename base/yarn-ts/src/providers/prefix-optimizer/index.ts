@@ -29,6 +29,7 @@ import { rebuildRequest } from "./request-rebuilder.js";
 import { computeMarkerPlacements } from "./marker-policy.js";
 import { buildDiagnostics, logPrefixDiagnostics } from "./diagnostics.js";
 import { extractMetadataFromMessages } from "./metadata-extractor.js";
+import { canonicalStringify } from "./serializer.js";
 
 export interface PrefixOptimizerOpts {
   markerBackend: MarkerBackend;
@@ -44,10 +45,32 @@ const DEFAULT_OPTS: PrefixOptimizerOpts = {
   enableDiagnosticLogging: true,
 };
 
+function computeSharedPrefixBytes(previousPayload: string | null, currentPayload: string): number {
+  if (!previousPayload || !currentPayload) return 0;
+  const prev = Buffer.from(previousPayload, "utf8");
+  const curr = Buffer.from(currentPayload, "utf8");
+  const max = Math.min(prev.length, curr.length);
+  let idx = 0;
+  while (idx < max && prev[idx] === curr[idx]) idx += 1;
+  return idx;
+}
+
+function buildComparablePromptPayload(
+  messages: ChatMessage[],
+  tools: ToolDefinition[] | undefined,
+): string {
+  const toolsSlice = canonicalStringify(tools ?? []);
+  const messageSlice = messages
+    .map((m) => canonicalStringify(m))
+    .join("\n<MSG_BOUNDARY>\n");
+  return `tools=${toolsSlice}\nmessages=${messageSlice}`;
+}
+
 export class PrefixOptimizer {
   private readonly opts: PrefixOptimizerOpts;
   private sessionDiagnostics = new Map<string, PrefixDiagnostics>();
   private sessionMarkerIndices = new Map<string, number[]>();
+  private sessionPromptPayloads = new Map<string, string>();
 
   constructor(opts?: Partial<PrefixOptimizerOpts>) {
     this.opts = { ...DEFAULT_OPTS, ...opts };
@@ -99,11 +122,18 @@ export class PrefixOptimizer {
       this.opts.maxMarkers,
     );
 
+    const resolvedTools = canonicalTools.length > 0 ? canonicalTools : tools;
+    const comparablePayload = buildComparablePromptPayload(rebuilt, resolvedTools);
+    const previousPayload = this.sessionPromptPayloads.get(sessionKey) ?? null;
+    const prefixStableBytes = computeSharedPrefixBytes(previousPayload, comparablePayload);
+    this.sessionPromptPayloads.set(sessionKey, comparablePayload);
+
     const diagnostics = buildDiagnostics(
       segments,
       markerIndices,
       this.opts.markerBackend,
       previousDiag,
+      prefixStableBytes,
     );
 
     this.sessionDiagnostics.set(sessionKey, diagnostics);
@@ -115,7 +145,7 @@ export class PrefixOptimizer {
 
     return {
       messages: rebuilt,
-      tools: canonicalTools.length > 0 ? canonicalTools : tools,
+      tools: resolvedTools,
       markerIndices,
       diagnostics,
       clientMetadata,
@@ -143,6 +173,7 @@ export class PrefixOptimizer {
   evictSession(sessionKey: string): void {
     this.sessionDiagnostics.delete(sessionKey);
     this.sessionMarkerIndices.delete(sessionKey);
+    this.sessionPromptPayloads.delete(sessionKey);
   }
 
   /**

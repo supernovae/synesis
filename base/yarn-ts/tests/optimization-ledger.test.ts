@@ -40,6 +40,13 @@ describe("OptimizationLedger", () => {
     expect(snap.blockStoreMisses).toBe(1);
   });
 
+  it("records prefixStableBytes when explicitly set", () => {
+    const ledger = new OptimizationLedger();
+    ledger.setPrefixStableBytes(1234);
+    const snap = ledger.finalize();
+    expect(snap.prefixStableBytes).toBe(1234);
+  });
+
   it("records pipeline latency", () => {
     const ledger = new OptimizationLedger();
     const snap = ledger.finalize();
