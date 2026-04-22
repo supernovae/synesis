@@ -6413,6 +6413,7 @@ app.get("/health/telemetry", async (req, reply) => {
       knowledgeSearch: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
       evidencePrefetch: config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED,
       governance: config.SYNESIS_YARN_GOVERNANCE_ENABLED,
+      governanceBypass: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
       sessionContinuity: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
       conversationMemory: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
       crossConversationRecall: config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED,

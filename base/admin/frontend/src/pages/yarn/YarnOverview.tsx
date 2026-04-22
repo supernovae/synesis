@@ -131,6 +131,9 @@ export default function YarnOverview() {
     if (transitionQuality.risk_flags.includes("low_global_scope_coverage")) {
       actions.push("Global-scope coverage is low. Verify org/model scope keys are stable and calibration samples are accumulating.");
     }
+    if (transitionQuality.risk_flags.includes("low_quality_score_coverage")) {
+      actions.push("Quality score coverage is low. Verify request_trajectory training signals include state_transition_quality_score.");
+    }
     if (transitionQuality.risk_flags.includes("missing_global_calibration_events")) {
       actions.push("No global calibration events observed in this window. Check Redis-backed calibration persistence.");
     }

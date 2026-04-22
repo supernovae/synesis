@@ -1263,6 +1263,8 @@ patch_yarn_debug_and_streams() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS" "${SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS:-50000000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SESSION_BUDGET_MODE" "${SYNESIS_YARN_SESSION_BUDGET_MODE:-audit}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONTEXT_ADMISSION_MODE" "${SYNESIS_YARN_CONTEXT_ADMISSION_MODE:-hybrid}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS" "${SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS:-80000}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS" "${SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS:-100000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT:-15}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT" "${SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT:-9}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT" "${SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT:-4}" "$container"
@@ -1466,7 +1468,7 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED "false"
 
     # ── Phase 14: Governance ──
-    _flag SYNESIS_YARN_GOVERNANCE_ENABLED              "false"
+    _flag SYNESIS_YARN_GOVERNANCE_ENABLED              "true"
 
     # ── Phase 15: Conversation Memory ──
     _flag SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED     "false"
@@ -1515,7 +1517,7 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED        "true"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS:-5}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS:-25}" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS:-120000}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS:-80000}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS:-400}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS" "${SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS:-2000}" "$container"
 

@@ -7,6 +7,7 @@ import {
   useRoleAssignments,
   useUpdateCapabilityMatrixGlobal,
   useUpdateCapabilityMatrixOverride,
+  useYarnRuntimeTelemetry,
 } from "../../api/hooks";
 import type {
   CapabilityMatrixEffective,
@@ -15,6 +16,7 @@ import type {
   ModelDeployment,
 } from "../../types";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import StatusBadge from "../../components/common/StatusBadge";
 
 const SELECTOR_TYPES: CapabilitySelectorType[] = ["family_prefix", "model_path_prefix", "exact_model"];
 
@@ -378,6 +380,11 @@ export default function CapabilityMatrixPage() {
   const { data, isLoading, error } = useCapabilityMatrix();
   const { data: roleAssignments } = useRoleAssignments();
   const { data: providerGovernance } = useProviderGovernance();
+  const {
+    data: runtimeTelemetry,
+    isLoading: runtimeTelemetryLoading,
+    error: runtimeTelemetryError,
+  } = useYarnRuntimeTelemetry();
   const updateGlobal = useUpdateCapabilityMatrixGlobal();
   const createOverride = useCreateCapabilityMatrixOverride();
   const updateOverride = useUpdateCapabilityMatrixOverride();
@@ -447,6 +454,87 @@ export default function CapabilityMatrixPage() {
     }
     return map;
   }, [providerGovernance?.providers]);
+  const runtimeGovernanceStatus = useMemo<{
+    status: "ok" | "warning" | "error" | "pending";
+    label: string;
+    detail: string;
+    metrics: Array<{ label: string; value: string }>;
+  }>(() => {
+    if (runtimeTelemetryLoading) {
+      return {
+        status: "pending",
+        label: "Checking runtime",
+        detail: "Querying live Yarn telemetry to confirm capability-matrix enforcement is active.",
+        metrics: [{ label: "Telemetry", value: "Loading..." }],
+      };
+    }
+    if (runtimeTelemetryError) {
+      return {
+        status: "warning",
+        label: "Telemetry unavailable",
+        detail: "Could not verify runtime enforcement. Capability matrix may be configured but not currently active in Yarn.",
+        metrics: [{ label: "Telemetry", value: "Unavailable" }],
+      };
+    }
+    const governanceFlag = runtimeTelemetry?.featureFlags?.governance === true;
+    const governanceBypass = runtimeTelemetry?.featureFlags?.governanceBypass === true;
+    const governanceStats = runtimeTelemetry?.governance;
+    const lastFetchedAt =
+      governanceStats?.lastFetchedAt && governanceStats.lastFetchedAt > 0
+        ? new Date(governanceStats.lastFetchedAt).toLocaleString()
+        : "—";
+    const baseMetrics = [
+      { label: "Feature flag", value: governanceFlag ? "ON" : "OFF" },
+      { label: "Bypass flag", value: governanceBypass ? "ON" : "OFF" },
+      { label: "Poll updates", value: String(governanceStats?.updates ?? 0) },
+      { label: "Rules loaded", value: String(governanceStats?.rulesLoaded ?? 0) },
+      { label: "Poll errors", value: String(governanceStats?.errors ?? 0) },
+      { label: "Last fetch", value: lastFetchedAt },
+    ];
+    if (!governanceFlag) {
+      return {
+        status: "error",
+        label: "Disabled in Yarn runtime",
+        detail:
+          "SYNESIS_YARN_GOVERNANCE_ENABLED is OFF on the running Yarn pod. Capability overrides will not be enforced.",
+        metrics: baseMetrics,
+      };
+    }
+    if (governanceBypass) {
+      return {
+        status: "error",
+        label: "Governance bypass active",
+        detail:
+          "SYNESIS_YARN_GOVERNANCE_DISABLED is ON. Runtime policy wiring is bypassed, so capability-matrix gating is effectively disabled.",
+        metrics: baseMetrics,
+      };
+    }
+    if (!governanceStats?.enabled) {
+      return {
+        status: "error",
+        label: "Governance client inactive",
+        detail:
+          "Yarn runtime did not start governance polling. Capability matrix entries are present but not currently consumed by the runtime.",
+        metrics: baseMetrics,
+      };
+    }
+    if ((governanceStats.errors ?? 0) > 0 && (governanceStats.updates ?? 0) === 0) {
+      return {
+        status: "warning",
+        label: "Governance polling degraded",
+        detail:
+          "Governance client is enabled but has poll errors without successful updates. Verify admin endpoint reachability and auth token wiring.",
+        metrics: baseMetrics,
+      };
+    }
+    return {
+      status: "ok",
+      label: "Active in Yarn runtime",
+      detail:
+        "Capability matrix governance is enabled and polling in the active Yarn runtime. Overrides shown on this page are now enforceable.",
+      metrics: baseMetrics,
+    };
+  }, [runtimeTelemetry, runtimeTelemetryLoading, runtimeTelemetryError]);
 
   const draftPreviewOverride = useMemo<CapabilityMatrixOverride | null>(() => {
     if (!data) return null;
@@ -893,7 +981,7 @@ export default function CapabilityMatrixPage() {
           Global OFF posture with explicit model/family/path capability overrides.
         </p>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Toggle labels map directly to runtime behavior; no code/env lookup needed for normal operation.
+          Capability toggles are enforced only when Yarn runtime governance is enabled and actively polling this matrix.
         </p>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Selector picklists come from Model Registry assignments; legacy override cleanup is handled below.
@@ -915,6 +1003,36 @@ export default function CapabilityMatrixPage() {
         <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : (
         <>
+          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Runtime enforcement status</h2>
+              <StatusBadge status={runtimeGovernanceStatus.status} label={runtimeGovernanceStatus.label} />
+            </div>
+            <p className={`mt-2 text-xs ${
+              runtimeGovernanceStatus.status === "ok"
+                ? "text-green-700 dark:text-green-300"
+                : runtimeGovernanceStatus.status === "warning"
+                  ? "text-amber-700 dark:text-amber-300"
+                  : runtimeGovernanceStatus.status === "pending"
+                    ? "text-gray-600 dark:text-gray-400"
+                    : "text-red-700 dark:text-red-300"
+            }`}>
+              {runtimeGovernanceStatus.detail}
+            </p>
+            <dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {runtimeGovernanceStatus.metrics.map((metric) => (
+                <div key={metric.label} className="rounded border border-gray-200 px-3 py-2 dark:border-gray-700">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-0.5 text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {metric.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
           <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Global posture</h2>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">

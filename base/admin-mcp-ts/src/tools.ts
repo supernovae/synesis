@@ -625,6 +625,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       if (riskFlags.includes("low_global_scope_coverage")) {
         findings.push("Global scope coverage is low; check calibrator scope key stability.");
       }
+      if (riskFlags.includes("low_quality_score_coverage")) {
+        findings.push("Quality score coverage is low; verify state_transition_quality_score training signals are emitted.");
+      }
       if (riskFlags.includes("missing_global_calibration_events")) {
         findings.push("No global calibration events observed in the active analysis window.");
       }

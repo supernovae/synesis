@@ -28,6 +28,41 @@ function finishReasonIsError(reason: string | null | undefined): boolean {
   return r === "error" || r === "tool_loop_limit_exceeded";
 }
 
+function asNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+type ForensicsSnapshot = {
+  eventId: number;
+  requestId: string;
+  createdAt: string | null;
+  tokensIn: number;
+  tokensCached: number;
+  cacheHitRatio: number;
+  lcpRatio: number;
+  firstChangedSection: string;
+  firstChangedIndex: number | null;
+  toolChars: number;
+  systemChars: number;
+  toolSchemaChars: number;
+};
+
+type CapabilityResolutionSummary = {
+  createdAt: string | null;
+  mode: string;
+  globalOptimizationsEnabled: boolean;
+  matchedOverrideCount: number;
+  reducersEnabled: boolean;
+  transcriptPruneEnabled: boolean;
+  jsonCompactionEnabled: boolean;
+  contentDedupeEnabled: boolean;
+};
+
 export default function YarnSessionDetail() {
   const { sessionKey } = useParams<{ sessionKey: string }>();
   const navigate = useNavigate();
@@ -46,6 +81,86 @@ export default function YarnSessionDetail() {
     const src = data?.events ?? [];
     return filterEventsByDiagnosticPreset(filterEventsByKinds(src, selectedKinds), selectedPreset);
   }, [data?.events, selectedKinds, selectedPreset]);
+  const forensicsSnapshots = useMemo<ForensicsSnapshot[]>(() => {
+    const rows: ForensicsSnapshot[] = [];
+    for (const ev of data?.events ?? []) {
+      if (ev.event_kind !== "request_forensics_v1") continue;
+      if (!isRecord(ev.metadata_json)) continue;
+      const usage = isRecord(ev.metadata_json.usage) ? ev.metadata_json.usage : null;
+      const breakdown = isRecord(ev.metadata_json.breakdown) ? ev.metadata_json.breakdown : null;
+      rows.push({
+        eventId: ev.id,
+        requestId: ev.request_id ?? "",
+        createdAt: ev.created_at,
+        tokensIn: asNumber(usage?.tokensIn),
+        tokensCached: asNumber(usage?.tokensCached),
+        cacheHitRatio: asNumber(usage?.cacheHitRatio),
+        lcpRatio: asNumber(ev.metadata_json.lcpRatio),
+        firstChangedSection: String(ev.metadata_json.firstChangedSection ?? ""),
+        firstChangedIndex: Number.isFinite(asNumber(ev.metadata_json.firstChangedIndex, Number.NaN))
+          ? asNumber(ev.metadata_json.firstChangedIndex, Number.NaN)
+          : null,
+        toolChars: asNumber(breakdown?.toolChars),
+        systemChars: asNumber(breakdown?.systemChars),
+        toolSchemaChars: asNumber(breakdown?.toolSchemaChars),
+      });
+    }
+    return rows.sort((a, b) => {
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
+      return bTime - aTime;
+    });
+  }, [data?.events]);
+  const forensicsSummary = useMemo(() => {
+    if (forensicsSnapshots.length === 0) return null;
+    const windowRows = forensicsSnapshots.slice(0, 12);
+    const latest = windowRows[0];
+    const avgLcpRatio = windowRows.reduce((sum, row) => sum + row.lcpRatio, 0) / windowRows.length;
+    const avgToolChars = windowRows.reduce((sum, row) => sum + row.toolChars, 0) / windowRows.length;
+    const minCached = Math.min(...windowRows.map((row) => row.tokensCached));
+    const maxCached = Math.max(...windowRows.map((row) => row.tokensCached));
+    const minPrompt = Math.min(...windowRows.map((row) => row.tokensIn));
+    const maxPrompt = Math.max(...windowRows.map((row) => row.tokensIn));
+    const cachedPlateauDetected = (maxCached - minCached) <= 512 && (maxPrompt - minPrompt) >= 20_000;
+    return {
+      latest,
+      avgLcpRatio,
+      avgToolChars,
+      minCached,
+      maxCached,
+      minPrompt,
+      maxPrompt,
+      cachedPlateauDetected,
+    };
+  }, [forensicsSnapshots]);
+  const latestCapabilityResolution = useMemo<CapabilityResolutionSummary | null>(() => {
+    for (const ev of data?.events ?? []) {
+      if (ev.event_kind !== "capability_matrix_resolution_v1") continue;
+      if (!isRecord(ev.metadata_json)) continue;
+      const resolvedCaps = isRecord(ev.metadata_json.resolved_capabilities)
+        ? ev.metadata_json.resolved_capabilities
+        : null;
+      return {
+        createdAt: ev.created_at,
+        mode: String(ev.metadata_json.mode ?? "enforced"),
+        globalOptimizationsEnabled: ev.metadata_json.global_optimizations_enabled === true,
+        matchedOverrideCount: Array.isArray(ev.metadata_json.matched_override_ids)
+          ? ev.metadata_json.matched_override_ids.length
+          : 0,
+        reducersEnabled: resolvedCaps?.["yarn.reducers_enabled"] === true,
+        transcriptPruneEnabled: resolvedCaps?.["yarn.transcript_prune_enabled"] === true,
+        jsonCompactionEnabled: resolvedCaps?.["yarn.json_compaction_enabled"] === true,
+        contentDedupeEnabled: resolvedCaps?.["yarn.content_dedupe_enabled"] === true,
+      };
+    }
+    return null;
+  }, [data?.events]);
+  const sessionPromptTokens = data?.session.total_tokens_in ?? 0;
+  const sessionCachedPromptTokens = data?.session.total_tokens_cached ?? 0;
+  const sessionEffectivePromptTokens = Math.max(sessionPromptTokens - sessionCachedPromptTokens, 0);
+  const sessionPromptCacheHitPct = sessionPromptTokens > 0
+    ? (sessionCachedPromptTokens / sessionPromptTokens) * 100
+    : 0;
 
   const toggleKind = (kind: string) => {
     setSelectedKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
@@ -146,7 +261,7 @@ export default function YarnSessionDetail() {
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  Tokens (in / out / cached)
+                  Tokens (prompt / completion / prefix-cached)
                 </dt>
                 <dd className="mt-1 text-sm tabular-nums text-gray-900 dark:text-gray-100">
                   {fmtTokens(data.session.total_tokens_in)} /{" "}
@@ -156,7 +271,23 @@ export default function YarnSessionDetail() {
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  Tokens saved (reduction)
+                  Prompt billed upstream (in - cached)
+                </dt>
+                <dd className="mt-1 text-sm tabular-nums text-gray-900 dark:text-gray-100">
+                  {fmtTokens(sessionEffectivePromptTokens)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Prompt cache saved upstream
+                </dt>
+                <dd className="mt-1 text-sm tabular-nums text-indigo-700 dark:text-indigo-300">
+                  {fmtTokens(sessionCachedPromptTokens)} ({sessionPromptCacheHitPct.toFixed(1)}%)
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Tokens saved before upstream (reduction)
                 </dt>
                 <dd className="mt-1 text-sm tabular-nums text-green-600 dark:text-green-400">
                   {fmtTokens(data.session.total_tokens_saved ?? 0)}
@@ -181,6 +312,136 @@ export default function YarnSessionDetail() {
             </dl>
           </div>
 
+          {forensicsSummary && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-5 dark:border-indigo-800 dark:bg-indigo-950/20">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                    Cache diagnostics
+                  </h2>
+                  <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                    Derived from recent <code>request_forensics_v1</code> events for this session.
+                  </p>
+                </div>
+                <span className="rounded-full border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200">
+                  {forensicsSnapshots.length} samples
+                </span>
+              </div>
+              <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-md border border-indigo-200 bg-white px-3 py-2 dark:border-indigo-800 dark:bg-indigo-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Latest cache hit
+                  </dt>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums text-indigo-700 dark:text-indigo-200">
+                    {(forensicsSummary.latest.cacheHitRatio * 100).toFixed(1)}%
+                  </dd>
+                </div>
+                <div className="rounded-md border border-indigo-200 bg-white px-3 py-2 dark:border-indigo-800 dark:bg-indigo-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Latest prompt / cached
+                  </dt>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {fmtTokens(forensicsSummary.latest.tokensIn)} / {fmtTokens(forensicsSummary.latest.tokensCached)}
+                  </dd>
+                </div>
+                <div className="rounded-md border border-indigo-200 bg-white px-3 py-2 dark:border-indigo-800 dark:bg-indigo-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Avg LCP reuse
+                  </dt>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {(forensicsSummary.avgLcpRatio * 100).toFixed(1)}%
+                  </dd>
+                </div>
+                <div className="rounded-md border border-indigo-200 bg-white px-3 py-2 dark:border-indigo-800 dark:bg-indigo-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Avg tool payload chars
+                  </dt>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {Math.round(forensicsSummary.avgToolChars).toLocaleString()}
+                  </dd>
+                </div>
+              </dl>
+              {forensicsSummary.cachedPlateauDetected && (
+                <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+                  Cached prompt tokens are flat ({fmtTokens(forensicsSummary.minCached)}-{fmtTokens(forensicsSummary.maxCached)})
+                  while prompt volume keeps growing ({fmtTokens(forensicsSummary.minPrompt)}-{fmtTokens(forensicsSummary.maxPrompt)}).
+                  This usually means only a small stable prefix is reusable.
+                </p>
+              )}
+              {latestCapabilityResolution && (
+                <p className={`mt-3 rounded-md border px-3 py-2 text-xs ${
+                  latestCapabilityResolution.reducersEnabled
+                  && latestCapabilityResolution.transcriptPruneEnabled
+                  && latestCapabilityResolution.jsonCompactionEnabled
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
+                    : "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200"
+                }`}>
+                  Capability matrix: mode={latestCapabilityResolution.mode}, global={latestCapabilityResolution.globalOptimizationsEnabled ? "on" : "off"}, matched overrides={latestCapabilityResolution.matchedOverrideCount}.{" "}
+                  Reducers={latestCapabilityResolution.reducersEnabled ? "on" : "off"}, prune={latestCapabilityResolution.transcriptPruneEnabled ? "on" : "off"}, json-compaction={latestCapabilityResolution.jsonCompactionEnabled ? "on" : "off"}, dedupe={latestCapabilityResolution.contentDedupeEnabled ? "on" : "off"}.
+                </p>
+              )}
+              <div className="mt-4 overflow-hidden rounded-md border border-indigo-200 dark:border-indigo-800">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-indigo-100 text-xs dark:divide-indigo-900">
+                    <thead className="bg-indigo-50 dark:bg-indigo-900/40">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          Time
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          Prompt
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          Cached
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          Hit %
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          LCP %
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          First change
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          Tool chars
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-indigo-100 bg-white dark:divide-indigo-900 dark:bg-gray-950">
+                      {forensicsSnapshots.slice(0, 8).map((row) => (
+                        <tr key={row.eventId}>
+                          <td className="whitespace-nowrap px-3 py-2 text-gray-700 dark:text-gray-300">
+                            {row.createdAt ? new Date(row.createdAt).toLocaleTimeString() : "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">
+                            {fmtTokens(row.tokensIn)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-indigo-700 dark:text-indigo-300">
+                            {fmtTokens(row.tokensCached)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">
+                            {(row.cacheHitRatio * 100).toFixed(1)}%
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">
+                            {(row.lcpRatio * 100).toFixed(1)}%
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-gray-700 dark:text-gray-300">
+                            {row.firstChangedSection || "—"}
+                            {row.firstChangedIndex !== null ? ` @${row.firstChangedIndex}` : ""}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">
+                            {row.toolChars.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div>
             <h2 className="mb-3 text-lg font-medium text-gray-900 dark:text-white">
               Requests
@@ -197,16 +458,19 @@ export default function YarnSessionDetail() {
                           Request ID
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                          In
+                          Prompt
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           Out
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                          Cached
+                          Prefix-cached
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                          Saved
+                          Effective Prompt
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Saved (reduction)
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           Latency
@@ -242,6 +506,9 @@ export default function YarnSessionDetail() {
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                             {fmtTokens(rq.tokens_cached)}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
+                            {fmtTokens(Math.max(rq.tokens_in - rq.tokens_cached, 0))}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-green-600 dark:text-green-400">
                             {rq.tokens_saved_by_reduction ? fmtTokens(rq.tokens_saved_by_reduction) : "—"}

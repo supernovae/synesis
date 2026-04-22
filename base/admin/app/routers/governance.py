@@ -22,6 +22,7 @@ from ..db.models import (
     GovernancePolicyDef,
     ModelDeployment,
 )
+from ..internal_auth import ServicePrincipal, require_service_or_authenticated_user
 
 logger = logging.getLogger("synesis.admin.governance")
 
@@ -1034,7 +1035,7 @@ async def delete_policy(policy_id: str, user: UserInfo = Depends(get_current_use
 async def get_effective_governance(
     request: Request,
     response: Response,
-    user: UserInfo = Depends(get_current_user),
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_authenticated_user),
     org_id: str | None = Query(None),
     scope: str | None = Query(None),
     category: str | None = Query(None),
@@ -1183,7 +1184,7 @@ class CapabilityMatrixOverrideUpsert(BaseModel):
 async def get_effective_capability_matrix(
     request: Request,
     response: Response,
-    user: UserInfo = Depends(get_current_user),
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_authenticated_user),
     org_id: str | None = Query(None),
 ):
     async with async_session() as session:

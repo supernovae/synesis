@@ -727,6 +727,18 @@ async def get_yarn_intelligence(
                 0
               )::float AS quality_score_avg,
               COALESCE(
+                SUM(
+                  CASE
+                    WHEN NULLIF(
+                      COALESCE(metadata_json->'training_signals'->>'state_transition_quality_score', ''),
+                      ''
+                    ) IS NOT NULL
+                    THEN 1 ELSE 0
+                  END
+                ),
+                0
+              )::int AS quality_score_observed_events,
+              COALESCE(
                 AVG(
                   CASE
                     WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'forward_progress'
@@ -978,6 +990,12 @@ async def get_yarn_intelligence(
     patch_ratio = (patch_ops / (patch_ops + whole_write_ops)) if (patch_ops + whole_write_ops) > 0 else 0.0
     quality_trajectory_events = int(transition_quality_row["trajectory_events"] or 0)
     quality_score_avg = float(transition_quality_row["quality_score_avg"] or 0.0)
+    quality_score_observed_events = int(transition_quality_row["quality_score_observed_events"] or 0)
+    quality_score_coverage = (
+        quality_score_observed_events / quality_trajectory_events
+        if quality_trajectory_events
+        else 0.0
+    )
     forward_progress_rate = float(transition_quality_row["forward_progress_rate"] or 0.0)
     stalled_rate = float(transition_quality_row["stalled_rate"] or 0.0)
     regressed_rate = float(transition_quality_row["regressed_rate"] or 0.0)
@@ -994,6 +1012,7 @@ async def get_yarn_intelligence(
         if quality_trajectory_events
         else 0.0
     )
+    quality_score_coverage_warn_threshold = 0.6
     quality_risk_flags: list[str] = []
     if regressed_rate >= 0.15:
         quality_risk_flags.append("high_regressed_rate")
@@ -1003,6 +1022,8 @@ async def get_yarn_intelligence(
         quality_risk_flags.append("low_forward_progress_rate")
     if quality_trajectory_events >= 20 and quality_global_scope_coverage < 0.5:
         quality_risk_flags.append("low_global_scope_coverage")
+    if quality_trajectory_events >= 20 and quality_score_coverage < quality_score_coverage_warn_threshold:
+        quality_risk_flags.append("low_quality_score_coverage")
     if quality_trajectory_events >= 30 and quality_global_calibration_events == 0:
         quality_risk_flags.append("missing_global_calibration_events")
     if quality_trajectory_events >= 30 and quality_local_calibration_events == 0:
@@ -1029,6 +1050,8 @@ async def get_yarn_intelligence(
         "state_transition_quality": {
             "trajectory_events": quality_trajectory_events,
             "score_avg": round(quality_score_avg, 4),
+            "score_observed_events": quality_score_observed_events,
+            "score_coverage": round(quality_score_coverage, 4),
             "label_rates": {
                 "forward_progress": round(forward_progress_rate, 4),
                 "stalled": round(stalled_rate, 4),
@@ -1114,6 +1137,7 @@ async def get_yarn_transition_quality_series(
     reground_warn_threshold = 0.08
     global_scope_warn_threshold = 0.5
     quality_score_warn_threshold = 0.0
+    quality_score_coverage_warn_threshold = 0.6
 
     async with async_session() as session:
         trajectory_sql = text(
@@ -1132,6 +1156,18 @@ async def get_yarn_transition_quality_series(
                 ),
                 0
               )::float AS quality_score_avg,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN NULLIF(
+                      COALESCE(metadata_json->'training_signals'->>'state_transition_quality_score', ''),
+                      ''
+                    ) IS NOT NULL
+                    THEN 1 ELSE 0
+                  END
+                ),
+                0
+              )::int AS quality_score_observed_events,
               COALESCE(
                 AVG(
                   CASE
@@ -1322,6 +1358,7 @@ async def get_yarn_transition_quality_series(
     weighted_forward_min_sum = 0.0
     weighted_regressed_max_sum = 0.0
     trajectory_events_total = 0
+    quality_score_observed_events_total = 0
     local_calibration_events_total = 0
     global_calibration_events_total = 0
 
@@ -1329,6 +1366,12 @@ async def get_yarn_transition_quality_series(
         bucket = row["bucket"]
         trajectory_events = int(row["trajectory_events"] or 0)
         quality_score_avg = float(row["quality_score_avg"] or 0.0)
+        quality_score_observed_events = int(row["quality_score_observed_events"] or 0)
+        quality_score_coverage = (
+            quality_score_observed_events / trajectory_events
+            if trajectory_events
+            else 0.0
+        )
         forward_progress_rate = float(row["forward_progress_rate"] or 0.0)
         stalled_rate = float(row["stalled_rate"] or 0.0)
         regressed_rate = float(row["regressed_rate"] or 0.0)
@@ -1350,6 +1393,8 @@ async def get_yarn_transition_quality_series(
             risk_flags.append("high_reground_required_rate")
         if global_scope_coverage < global_scope_warn_threshold and trajectory_events >= 5:
             risk_flags.append("low_global_scope_coverage")
+        if quality_score_coverage < quality_score_coverage_warn_threshold and trajectory_events >= 5:
+            risk_flags.append("low_quality_score_coverage")
         if quality_score_avg < quality_score_warn_threshold and trajectory_events >= 5:
             risk_flags.append("negative_quality_score")
         if (local_calibration_events + global_calibration_events) == 0 and trajectory_events >= 10:
@@ -1360,6 +1405,8 @@ async def get_yarn_transition_quality_series(
                 "bucket": bucket.isoformat() if bucket else None,
                 "trajectory_events": trajectory_events,
                 "quality_score_avg": round(quality_score_avg, 4),
+                "quality_score_observed_events": quality_score_observed_events,
+                "quality_score_coverage": round(quality_score_coverage, 4),
                 "forward_progress_rate": round(forward_progress_rate, 4),
                 "stalled_rate": round(stalled_rate, 4),
                 "regressed_rate": round(regressed_rate, 4),
@@ -1374,6 +1421,7 @@ async def get_yarn_transition_quality_series(
         )
 
         trajectory_events_total += trajectory_events
+        quality_score_observed_events_total += quality_score_observed_events
         local_calibration_events_total += local_calibration_events
         global_calibration_events_total += global_calibration_events
         weighted_quality_sum += quality_score_avg * trajectory_events
@@ -1397,6 +1445,11 @@ async def get_yarn_transition_quality_series(
     global_scope_coverage_avg_window = (
         weighted_scope_coverage_sum / trajectory_events_total if trajectory_events_total else 0.0
     )
+    quality_score_coverage_avg_window = (
+        quality_score_observed_events_total / trajectory_events_total
+        if trajectory_events_total
+        else 0.0
+    )
     quality_forward_min_avg_window = (
         weighted_forward_min_sum / trajectory_events_total if trajectory_events_total else 0.0
     )
@@ -1411,6 +1464,8 @@ async def get_yarn_transition_quality_series(
         risk_flags_window.append("high_reground_required_rate")
     if trajectory_events_total >= 20 and global_scope_coverage_avg_window < global_scope_warn_threshold:
         risk_flags_window.append("low_global_scope_coverage")
+    if trajectory_events_total >= 20 and quality_score_coverage_avg_window < quality_score_coverage_warn_threshold:
+        risk_flags_window.append("low_quality_score_coverage")
     if trajectory_events_total >= 20 and quality_score_avg_window < quality_score_warn_threshold:
         risk_flags_window.append("negative_quality_score")
     if trajectory_events_total >= 20 and global_calibration_events_total == 0:
@@ -1423,6 +1478,8 @@ async def get_yarn_transition_quality_series(
         actions.append("Investigate stale/partial file state pressure and tune re-ground policies.")
     if "low_global_scope_coverage" in risk_flags_window:
         actions.append("Check org/model scope key stability and verify global calibrator persistence is healthy.")
+    if "low_quality_score_coverage" in risk_flags_window:
+        actions.append("Check request_trajectory_v1 training_signals emission and recover state_transition_quality_score coverage.")
     if "missing_global_calibration_events" in risk_flags_window:
         actions.append("Verify state_transition_quality_global_calibration_v1 events and shared store writes.")
     if "negative_quality_score" in risk_flags_window:
@@ -1437,6 +1494,8 @@ async def get_yarn_transition_quality_series(
             "bucket_count": len(buckets),
             "trajectory_events_total": trajectory_events_total,
             "quality_score_avg": round(quality_score_avg_window, 4),
+            "quality_score_observed_events_total": quality_score_observed_events_total,
+            "quality_score_coverage_avg": round(quality_score_coverage_avg_window, 4),
             "regressed_rate_avg": round(regressed_rate_avg_window, 4),
             "reground_required_rate_avg": round(reground_rate_avg_window, 4),
             "global_scope_coverage_avg": round(global_scope_coverage_avg_window, 4),
@@ -1451,6 +1510,7 @@ async def get_yarn_transition_quality_series(
             "reground_required_rate_warn": reground_warn_threshold,
             "global_scope_coverage_warn": global_scope_warn_threshold,
             "quality_score_warn": quality_score_warn_threshold,
+            "quality_score_coverage_warn": quality_score_coverage_warn_threshold,
         },
         "top_quality_reasons": [
             {"reason": str(r["reason"]), "count": int(r["count"] or 0)}

@@ -2186,6 +2186,8 @@ export interface YarnIntelligence {
   state_transition_quality: {
     trajectory_events: number;
     score_avg: number;
+    score_observed_events: number;
+    score_coverage: number;
     label_rates: {
       forward_progress: number;
       stalled: number;
@@ -2247,6 +2249,8 @@ export interface YarnTransitionQualityBucket {
   bucket: string | null;
   trajectory_events: number;
   quality_score_avg: number;
+  quality_score_observed_events: number;
+  quality_score_coverage: number;
   forward_progress_rate: number;
   stalled_rate: number;
   regressed_rate: number;
@@ -2263,6 +2267,8 @@ export interface YarnTransitionQualitySummary {
   bucket_count: number;
   trajectory_events_total: number;
   quality_score_avg: number;
+  quality_score_observed_events_total: number;
+  quality_score_coverage_avg: number;
   regressed_rate_avg: number;
   reground_required_rate_avg: number;
   global_scope_coverage_avg: number;
@@ -2282,6 +2288,7 @@ export interface YarnTransitionQualityTelemetry {
     reground_required_rate_warn: number;
     global_scope_coverage_warn: number;
     quality_score_warn: number;
+    quality_score_coverage_warn: number;
   };
   top_quality_reasons: Array<{ reason: string; count: number }>;
   alert_buckets: YarnTransitionQualityBucket[];
@@ -2291,6 +2298,20 @@ export interface YarnTransitionQualityTelemetry {
 
 export interface YarnRuntimeTelemetry {
   timestamp: number;
+  governance?: {
+    enabled: boolean;
+    polls?: number;
+    updates?: number;
+    errors?: number;
+    rulesLoaded?: number;
+    lastEtag?: string;
+    lastFetchedAt?: number;
+  };
+  featureFlags?: {
+    governance?: boolean;
+    governanceBypass?: boolean;
+    [key: string]: boolean | string | number | undefined | null;
+  };
   validationNormalization?: {
     rawCharsTotal: number;
     normalizedCharsTotal: number;

@@ -73,3 +73,22 @@ async def require_service_or_platform_admin(
         raise HTTPException(status_code=403, detail="Requires platform_admin or internal service token")
 
     raise HTTPException(status_code=401, detail="Missing internal service token")
+
+
+async def require_service_or_authenticated_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> ServicePrincipal | UserInfo:
+    """Allow either a configured service token or any authenticated user token."""
+    bearer = (credentials.credentials if credentials else "").strip()
+    header = (request.headers.get("x-synesis-service-token") or "").strip()
+
+    if _matches_service_token(header) or _matches_service_token(bearer):
+        return ServicePrincipal(service=_service_name_from_request(request))
+
+    try:
+        return await get_current_user(request=request, credentials=credentials)
+    except HTTPException as exc:
+        if exc.status_code in {401, 403}:
+            raise HTTPException(status_code=401, detail="Not authenticated") from exc
+        raise

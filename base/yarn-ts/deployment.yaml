@@ -64,6 +64,12 @@ spec:
               value: "50000000"
             - name: SYNESIS_YARN_SESSION_BUDGET_MODE
               value: "audit"
+            - name: SYNESIS_YARN_CONTEXT_ADMISSION_MODE
+              value: "hybrid"
+            - name: SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS
+              value: "80000"
+            - name: SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS
+              value: "100000"
             - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED
               value: "true"
             - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS
@@ -99,6 +105,10 @@ spec:
             - name: SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED
               value: "false"
             - name: SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
+              value: "false"
+            - name: SYNESIS_YARN_GOVERNANCE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_GOVERNANCE_DISABLED
               value: "false"
             # ── Rate limiting ──
             - name: SYNESIS_YARN_RATE_LIMIT_WINDOW_MS
@@ -171,6 +181,14 @@ spec:
               value: "false"
             - name: SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED
               value: "true"
+            - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS
+              value: "5"
+            - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS
+              value: "25"
+            - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS
+              value: "80000"
             - name: SYNESIS_YARN_REQUEST_FORENSICS_MODE
               value: "lightweight"
             # ── Eval Gym: scenario runner, session observer, training data ──

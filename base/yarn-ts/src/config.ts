@@ -110,9 +110,9 @@ const EnvSchema = z.object({
     .enum(["advisory", "hybrid", "enforced"])
     .default("hybrid"),
   /** Advisory threshold for estimated outbound input tokens (0 disables warning threshold). */
-  SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS: z.coerce.number().default(120_000),
+  SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS: z.coerce.number().default(80_000),
   /** Hard safety threshold for estimated outbound input tokens (0 disables hard admission reject). */
-  SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS: z.coerce.number().default(180_000),
+  SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS: z.coerce.number().default(100_000),
   /** When > 0, cap `maxOutputTokens` sent to the provider (runaway output safety). 0 = disabled. */
   SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(0),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(25),
@@ -274,7 +274,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_GOVERNANCE_ENABLED: z
     .string()
     .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+    .transform((v) => (v ?? "true").toLowerCase() === "true"),
   SYNESIS_YARN_GOVERNANCE_POLL_INTERVAL_S: z.coerce.number().default(60),
   SYNESIS_YARN_SESSION_CONTINUITY_ENABLED: z
     .string()
