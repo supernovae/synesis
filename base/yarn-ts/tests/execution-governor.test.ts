@@ -901,6 +901,29 @@ describe("execution governor", () => {
     expect(out.telemetry.trailingVerificationRunLength).toBe(2);
   });
 
+  it("does not fire verification_stall_no_edit when many post-edit verifications follow a successful edit (re-read / green test loops)", () => {
+    const messages = [
+      { role: "user", content: "fix /exit" },
+      assistantCall("0", "str_replace", { filePath: "pkg/repl/repl.go", oldString: "if err != nil {", newString: "if err == io.EOF { return nil } if err != nil {" }),
+      toolResult("0", "ok"),
+      assistantCall("1", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("1", ""),
+      assistantCall("2", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("2", "ok  synesis.sh/synesis/pkg/repl  (cached)"),
+      assistantCall("3", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("3", ""),
+      assistantCall("4", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("4", "ok  synesis.sh/synesis/pkg/repl  (cached)"),
+      assistantCall("5", "bash", { command: "go build -o synesis.test ./cmd/synesis 2>&1" }),
+      toolResult("5", ""),
+      assistantCall("6", "bash", { command: "go test ./... 2>&1 | tail -15" }),
+      toolResult("6", "ok  synesis.sh/synesis/pkg/repl  (cached)"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("verification_stall_no_edit");
+    expect(out.telemetry.noEditEvidence).toBe(false);
+  });
+
   it("does not fire verification_stall_no_edit when there are failures", () => {
     const messages = [
       { role: "user", content: "implement bundle files" },
@@ -2334,7 +2357,7 @@ describe("phase-aware rule gating", () => {
     expect(out.telemetry.phase).toBe("edit");
   });
 
-  it("verify phase fires verification_stall_no_edit on repeated verification", () => {
+  it("verify phase does not use verification_stall_no_edit on repeated verification after a successful edit", () => {
     const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
       { role: "user", content: "fix the bug and verify" },
       assistantCall("e1", "str_replace", { filePath: "src/main.ts", oldString: "old", newString: "new" }),
@@ -2346,7 +2369,8 @@ describe("phase-aware rule gating", () => {
     }
     const out = evaluateExecutionGovernor(messages);
     expect(out.telemetry.phase).toBe("verify");
-    expect(out.matchedRules).toContain("verification_stall_no_edit");
+    // Stall rule is for "no code edit" tails; a fix + long green verify is not that pattern.
+    expect(out.matchedRules).not.toContain("verification_stall_no_edit");
   });
 
   it("finalize phase fires verification_after_completion_claim", () => {

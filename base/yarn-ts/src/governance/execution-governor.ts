@@ -1928,7 +1928,10 @@ export function evaluateExecutionGovernor(
   // problem that needs a test file to be created, not suppressed by investigation mode.
   if (repeatedNoTestFilesVerification >= 1 && noEditEvidence) pushRule("no_test_files_repeat");
   if (!broadTestRepeat && !hasFailures && repeatedNoSignalVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_no_signal_repeat");
-  if (!isInvestigationOnly && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
+  // Require noEditEvidence: after a successful Write/StrReplace, the trail is
+  // "verify the fix" (Read/bash), not a stall with zero edits. Otherwise we
+  // false-positive for every post-edit re-read + green build loop.
+  if (!isInvestigationOnly && noEditEvidence && trailingVerificationRunLength >= thresholds.verificationStallThreshold && !hasFailures && trailingVerificationHasRepeats) {
     pushRule("verification_stall_no_edit");
   }
   const effectiveExplorationThreshold = hasPlanInContext
