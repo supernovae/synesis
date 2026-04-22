@@ -181,13 +181,23 @@ function hasStableCoreMarker(text: string): boolean {
  */
 function resolveCoreCarrierSystemIndex(messages: ChatMessage[]): number {
   let fallbackFirstSystem = -1;
+  let bestCoreLikeIdx = -1;
+  let bestCoreLikeScore = -1;
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (msg.role !== "system") continue;
     if (fallbackFirstSystem < 0) fallbackFirstSystem = i;
     const text = messageText(msg);
     if (hasStableCoreMarker(text)) return i;
+    const coreLikeScore = splitSystemMessage(text)
+      .filter((section) => section.type === "core" || section.type === "project_guidance")
+      .reduce((sum, section) => sum + section.text.length, 0);
+    if (coreLikeScore > bestCoreLikeScore) {
+      bestCoreLikeScore = coreLikeScore;
+      bestCoreLikeIdx = i;
+    }
   }
+  if (bestCoreLikeIdx >= 0) return bestCoreLikeIdx;
   return fallbackFirstSystem;
 }
 

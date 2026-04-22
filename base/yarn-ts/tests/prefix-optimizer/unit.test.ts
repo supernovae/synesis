@@ -336,6 +336,32 @@ describe("request parser", () => {
     expect(aCore!.hash).toBe(bCore!.hash);
   });
 
+  it("prefers largest core-like system section when markers are absent", () => {
+    const shortDynamic = [
+      "Helper note",
+      "<user_info>",
+      "Today's date: Tuesday Apr 8, 2026",
+      "</user_info>",
+    ].join("\n");
+    const longStable = [
+      "General coding instructions.",
+      "Follow repository standards.",
+      "Use focused edits and run validation.",
+      "Never claim success without evidence.",
+      "Prefer deterministic behavior and stable prompts.",
+    ].join("\n");
+    const msgs: ChatMessage[] = [
+      { role: "system", content: shortDynamic },
+      { role: "system", content: longStable },
+      { role: "user", content: "Proceed." },
+    ];
+    const segments = parseRequest(msgs);
+    const core = segments.find((s) => s.category === "core_instructions");
+    expect(core).toBeDefined();
+    expect(core!.content).toContain("General coding instructions.");
+    expect(core!.content).not.toContain("Helper note");
+  });
+
   it("extracts latest_user_turn segment", () => {
     const segments = parseRequest(messages);
     const user = segments.find((s) => s.category === "latest_user_turn");
