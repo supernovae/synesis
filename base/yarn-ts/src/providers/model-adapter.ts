@@ -172,6 +172,28 @@ export function fingerprintToolCall(call: RecentToolCall): string {
   return parts.join("|");
 }
 
+/**
+ * Shared across adapters that use Claude Code–style file tools (Qwen, MiniMax, etc.).
+ * Keep in sync for any edit-strategy change (Read→Write vs Edit/Update).
+ */
+export const SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE = [
+  "",
+  "## Workflow discipline (Plan → Do → Act)",
+  "- **Plan-first mode**: Begin with explicit research, clarification, and a detailed plan (file paths, steps, success criteria, 'Done when'). Get implicit approval via tool use before heavy implementation. Use <plan> or TaskUpdate for tracking.",
+  "- **Focused actions per turn**: Prefer one focused action per turn. Avoid combining unrelated actions (e.g., plan update + code edit). Batching related tool calls (e.g., multiple file reads for context) is acceptable.",
+  "- **Task tracking discipline**: Create task items once per user request. After that, only update existing task items; never create duplicate tasks with the same intent/title. Mark complete before claiming done.",
+  "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command. Do not re-read the same file unless a previous Edit/Update failed.",
+  "- **Prefer Read once, then Write (full file)**: For changing an existing file, prefer **one Read** to load current contents, then **Write** the complete updated file. Search-and-replace (Edit/Update) often fails on exact `old_string` match; use it only for **small, surgical** edits where you can quote a **minimal unique** hunk from the file you just read.",
+  "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have. Use explicit phase transitions (explore → edit → verify → report).",
+  "- **Progressive narrowing + self-verification**: Each tool call must produce NEW information or make a change. After edits, immediately run relevant tests/verification. Include 'Done when: tests pass, behavior matches spec' criteria.",
+  "- **File offset awareness**: When reading large files, use offset/limit parameters to read specific sections. Do not re-read from line 1 if you already have the beginning.",
+  "- **Parallel Tool Limits**: Do NOT emit multiple Edit/Update/Write tool calls for the same file in a single turn. The first edit will change the file and cause the subsequent edits to fail. Make one edit, wait for the result, then make the next.",
+  "- **Blind Writes**: Do NOT use the Write tool on a file without reading it first to verify its current state.",
+  "- **Edit failures**: If an Edit/Update call fails, do NOT retry with identical arguments. Re-read the file, then **Write the full file** (preferred) or use a new exact `old_string` from the fresh read.",
+  "- **Git commit followthrough**: When staging files with git add, follow through with git commit in the same sequence. Do not loop on git status/diff between add and commit.",
+  "- **Full verification output**: When running test/build commands, do not pipe output through head/tail. Capture full output so failures are visible.",
+].join("\n");
+
 export class Qwen3CoderAdapter implements ModelAdapter {
   readonly family = "qwen3-coder";
   readonly supportsThinking = false;
@@ -195,22 +217,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   toolSystemPrompt(toolCount: number): string | undefined {
     if (toolCount === 0) return undefined;
 
-    const workflowDiscipline = [
-      "",
-      "## Workflow discipline (Plan → Do → Act)",
-      "- **Plan-first mode**: Begin with explicit research, clarification, and a detailed plan (file paths, steps, success criteria, 'Done when'). Get implicit approval via tool use before heavy implementation. Use <plan> or TaskUpdate for tracking.",
-      "- **Focused actions per turn**: Prefer one focused action per turn. Avoid combining unrelated actions (e.g., plan update + code edit). Batching related tool calls (e.g., multiple file reads for context) is acceptable.",
-      "- **Task tracking discipline**: Create task items once per user request. After that, only update existing task items; never create duplicate tasks with the same intent/title. Mark complete before claiming done.",
-      "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command. Do not re-read the same file unless a previous Edit/Update failed.",
-      "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have. Use explicit phase transitions (explore → edit → verify → report).",
-      "- **Progressive narrowing + self-verification**: Each tool call must produce NEW information or make a change. After edits, immediately run relevant tests/verification. Include 'Done when: tests pass, behavior matches spec' criteria.",
-      "- **File offset awareness**: When reading large files, use offset/limit parameters to read specific sections. Do not re-read from line 1 if you already have the beginning.",
-      "- **Parallel Tool Limits**: Do NOT emit multiple Edit/Update/Write tool calls for the same file in a single turn. The first edit will change the file and cause the subsequent edits to fail. Make one edit, wait for the result, then make the next.",
-      "- **Blind Writes**: Do NOT use the Write tool on a file without reading it first to verify its current state.",
-      "- **Edit failures**: If an Edit/Update call fails, do NOT retry with identical arguments. Re-read the file to get current content, then adjust your old_string to match exactly.",
-      "- **Git commit followthrough**: When staging files with git add, follow through with git commit in the same sequence. Do not loop on git status/diff between add and commit.",
-      "- **Full verification output**: When running test/build commands, do not pipe output through head/tail. Capture full output so failures are visible.",
-    ].join("\n");
+    const workflowDiscipline = SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE;
 
     // Backend with native XML parser handles tool calls correctly — minimal guidance only
     if (this.nativeToolParser) {
@@ -376,10 +383,10 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
   enrichToolDescription(toolName: string, description: string): string {
     const hints: Record<string, string> = {
-      Read: " [Qwen hint: Read a file ONCE. After reading, make your edit. Do not re-read unless a previous Edit failed.]",
-      Edit: " [Qwen hint: PREFERRED for code changes. If the edit fails, re-read the file to get current content before retrying with corrected old_string.]",
-      Update: " [Qwen hint: PREFERRED for code changes. If the update fails, re-read the file to get current content before retrying with corrected old_string.]",
-      Write: " [Qwen hint: Use Write for new files or full replacements. For existing files, prefer Edit/Update.]",
+      Read: " [Qwen hint: Read a file ONCE, then Write the full updated file (preferred) or a tiny Edit. Do not re-read unless a previous Edit/Update failed.]",
+      Edit: " [Qwen hint: Use only for small hunks with exact old_string from your last Read. If it fails, re-read and prefer full-file Write.]",
+      Update: " [Qwen hint: Use only for small hunks with exact old_string from your last Read. If it fails, re-read and prefer full-file Write.]",
+      Write: " [Qwen hint: PREFERRED for new files and for changing existing files after one Read (full `content` replacement).]",
       Bash: " [Qwen hint: Use for running tests, builds, and creating files via heredoc. Do not use cat to read files — use the Read tool instead.]",
       Grep: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
       Glob: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
@@ -639,19 +646,20 @@ export class MiniMaxAdapter implements ModelAdapter {
       "",
       "## Discovery",
       "- First pass: list_dir or Read `README.md` / `go.mod` / `package.json` at the repository root to learn layout, then narrow (same as global discovery policy).",
+      SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
     ].join("\n");
   }
 
   enrichToolDescription(toolName: string, description: string): string {
     const hints: Record<string, string> = {
       Read:
-        " [MiniMax: Use repo-relative paths from project_root (e.g. cmd/pkg/file.go). Do not pass only a basename unless you have confirmed cwd.]",
+        " [MiniMax: Use repo-relative paths from project_root (e.g. cmd/pkg/file.go). Do not pass only a basename unless you have confirmed cwd. Read a file once, then **Write** the full updated file to change it; use Edit/Update only for tiny exact hunks.]",
       Write:
-        " [MiniMax: Repo-relative path under project_root; avoid bare filenames when multiple packages exist.]",
+        " [MiniMax: PREFERRED for new files and for updates after one Read (full `content`). Repo-relative path under project_root; avoid bare filenames when multiple packages exist.]",
       Edit:
-        " [MiniMax: Same file_path rules as Read — full path from repo root.]",
+        " [MiniMax: Same file_path rules as Read — full path from repo root. Use only for small hunks with exact `old_string` from your last Read; on failure, re-read and prefer full-file Write.]",
       Update:
-        " [MiniMax: Same file_path rules as Read — full path from repo root.]",
+        " [MiniMax: Same file_path rules as Read — full path from repo root. Use only for small hunks with exact `old_string` from your last Read; on failure, re-read and prefer full-file Write.]",
       Bash:
         " [MiniMax: Shell cwd may differ from repo root. For file commands, cd to repo root or use rooted relative paths. Prefer Read to inspect files instead of sed/cat on uncertain paths.]",
       Grep:

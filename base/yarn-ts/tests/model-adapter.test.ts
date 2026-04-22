@@ -304,6 +304,7 @@ describe("MiniMaxAdapter", () => {
     expect(prompt).toContain("project_root");
     expect(prompt).toMatch(/prefer Read/i);
     expect(prompt).toContain("pwd");
+    expect(prompt).toContain("Prefer Read once, then Write");
   });
 
   it("returns undefined when no tools", () => {
@@ -313,6 +314,7 @@ describe("MiniMaxAdapter", () => {
   it("enrichToolDescription adds cwd/path hints for Bash and Read", () => {
     expect(adapter.enrichToolDescription!("Bash", "Run")).toContain("MiniMax");
     expect(adapter.enrichToolDescription!("Read", "Read")).toContain("project_root");
+    expect(adapter.enrichToolDescription!("Write", "Write")).toContain("PREFERRED");
     expect(adapter.enrichToolDescription!("Unknown", "x")).toBe("x");
   });
 });
@@ -588,6 +590,7 @@ describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
     expect(prompt).toContain("Focused actions per turn");
     expect(prompt).toContain("Task tracking discipline");
     expect(prompt).toContain("Read-then-act");
+    expect(prompt).toContain("Prefer Read once, then Write");
     expect(prompt).toContain("Plan commitment");
     expect(prompt).toContain("Progressive narrowing");
     expect(prompt).toContain("File offset awareness");
@@ -600,6 +603,7 @@ describe("Qwen3CoderAdapter.toolSystemPrompt workflow discipline", () => {
     expect(prompt).toContain("## Workflow discipline");
     expect(prompt).toContain("Focused actions per turn");
     expect(prompt).toContain("Read-then-act");
+    expect(prompt).toContain("Prefer Read once, then Write");
   });
 
   it("workflow discipline is deterministic (cache-safe)", () => {
@@ -893,11 +897,17 @@ describe("Qwen3CoderAdapter.enrichToolDescription", () => {
   it("enriches Edit tool description", () => {
     const result = adapter.enrichToolDescription!("Edit", "Edit a file.");
     expect(result).toContain("[Qwen hint:");
-    expect(result).toContain("PREFERRED");
+    expect(result).toContain("small hunks");
   });
 
   it("enriches Update tool description", () => {
     const result = adapter.enrichToolDescription!("Update", "Update a file.");
+    expect(result).toContain("[Qwen hint:");
+    expect(result).toContain("small hunks");
+  });
+
+  it("enriches Write tool description", () => {
+    const result = adapter.enrichToolDescription!("Write", "Write a file.");
     expect(result).toContain("[Qwen hint:");
     expect(result).toContain("PREFERRED");
   });
