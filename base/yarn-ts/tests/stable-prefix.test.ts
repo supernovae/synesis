@@ -111,4 +111,56 @@ describe("StablePrefixService", () => {
     expect(result.profileId).toBe(9);
     expect(result.profileHash).toBe("h9");
   });
+
+  it("applies model_family=kimi overlay when promptContext.modelFamily is kimi (Admin Prompt Library)", () => {
+    const svc = new StablePrefixService();
+    const snapshot = {
+      profiles: [
+        { id: 1, content: "BASE", content_hash: "h1" },
+        { id: 2, content: "KIMI_TEMPLATE_MARKER", content_hash: "h2" },
+      ],
+      assignments: [
+        { target_type: "default", target_value: "*", profile_id: 1 },
+        { target_type: "model_family", target_value: "kimi", profile_id: 2 },
+      ],
+    };
+    const r = svc.partition("sess-kimi", "adapter", snapshot, { modelFamily: "kimi" });
+    expect(r.stablePrefix).toContain("KIMI_TEMPLATE_MARKER");
+    expect(r.promptProfileIds).toEqual([1, 2]);
+  });
+
+  it("does not apply kimi overlay when modelFamily is generic", () => {
+    const svc = new StablePrefixService();
+    const snapshot = {
+      profiles: [
+        { id: 1, content: "BASE", content_hash: "h1" },
+        { id: 2, content: "KIMI_TEMPLATE_MARKER", content_hash: "h2" },
+      ],
+      assignments: [
+        { target_type: "default", target_value: "*", profile_id: 1 },
+        { target_type: "model_family", target_value: "kimi", profile_id: 2 },
+      ],
+    };
+    const r = svc.partition("sess-gen", "adapter", snapshot, { modelFamily: "generic" });
+    expect(r.stablePrefix).not.toContain("KIMI_TEMPLATE_MARKER");
+    expect(r.promptProfileIds).toEqual([1]);
+  });
+
+  it("applies model_family=minimax overlay when promptContext.modelFamily is minimax", () => {
+    const svc = new StablePrefixService();
+    const snapshot = {
+      profiles: [
+        { id: 1, content: "BASE", content_hash: "h1" },
+        { id: 3, content: "MINIMAX_TEMPLATE_MARKER", content_hash: "h3" },
+      ],
+      assignments: [
+        { target_type: "default", target_value: "*", profile_id: 1 },
+        { target_type: "model_family", target_value: "minimax", profile_id: 3 },
+      ],
+    };
+    const r = svc.partition("sess-mm", "adapter", snapshot, { modelFamily: "minimax" });
+    expect(r.stablePrefix).toContain("MINIMAX_TEMPLATE_MARKER");
+    expect(r.promptProfileIds).toEqual([1, 3]);
+  });
 });
+

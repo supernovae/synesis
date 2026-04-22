@@ -144,6 +144,7 @@ import {
   resolveWorkspaceRootForCollapse,
 } from "./adapters/client-adapter-packs.js";
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
+import { inferModelFamily } from "./prompt/infer-model-family.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
 import { detectCacheStrategy, computePrefixFingerprint, type CacheStrategy } from "./context/provider-cache-hints.js"; // annotateCacheBreakpoints was dead import; vLLM now uses implicit_prefix for KV reporting
 import { AttentionPositioningService } from "./context/attention-positioning.js";
@@ -2809,15 +2810,6 @@ interface EnrichResult {
   promptProfileHashes?: string[];
   prefixHash?: string;
   prefixChangeReasons?: string[];
-}
-
-function inferModelFamily(backendModel: string): string {
-  const m = (backendModel || "").toLowerCase();
-  if (/qwen3.*coder/.test(m)) return "qwen3-coder";
-  if (/deepseek/.test(m)) return "deepseek";
-  if (/kimi|moonshot/.test(m)) return "kimi";
-  if (/minimax|abab/.test(m)) return "minimax";
-  return "generic";
 }
 
 function isMatrixCapabilityEnabled(

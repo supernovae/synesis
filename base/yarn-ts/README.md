@@ -70,6 +70,13 @@ Yarn forwards **extended thinking** from the model to each client in the shape t
 
 **ACP:** The stdio bridge `synesis-yarn-acp` calls OpenAI with **`stream: false`**. It optionally sends **`enable_thinking`** via env, parses **`reasoning_content`** from the JSON response, and can prefix the ACP transcript — see `docs/clients/ACP_SYNESIS.md`.
 
+## Admin Prompt Library: `model_family` (Kimi, MiniMax, etc.)
+
+1. In Admin, use **`model_family` → slug** (e.g. `kimi`, `minimax`) on the picklist; see `base/admin/frontend/src/constants/promptModelFamilies.ts`.
+2. Coder matches **`model_family`** to the **backend model id** on the role’s tier (from Model Registry) via `inferModelFamily()` in `src/prompt/infer-model-family.ts` — e.g. a model string containing `kimi` or `moonshot` → `kimi`, `minimax` or `abab` → `minimax`.
+3. **Validation:** `npm run test -- tests/infer-model-family.test.ts tests/stable-prefix.test.ts` — unit tests assert slug inference and that `StablePrefixService` includes Kimi/MiniMax overlays when `promptContext.modelFamily` matches. Telemetry and diagnostics can include `promptProfileIds` / `promptProfileHashes` on each completion path when you need to confirm at runtime.
+4. **Long sessions — re-injecting the system block:** Yarn keeps **default + tier + `model_family` + role** overlays in the **stable prefix** (session-scoped, cache-friendly) on each request, not only on turn 1. You do not need a separate “refresh system prompt” timer: the same logical instructions are re-attached for each upstream call. Per-request duplication of a *huge* custom profile still costs tokens; prefer **sawtooth compaction** and transcript pruning for context growth instead of appending the full system text again in the *middle* of the message list (which would be an anti-pattern for prefix-cache alignment and is not how Yarn is structured). If a product requirement needs *periodic* behavioral nudges in long threads, a short **governor- or user-turn reminder** in conversation is more typical than re-sending the entire base system block mid-history.
+
 ## Current Scope
 
 This is the first implementation pass focused on:

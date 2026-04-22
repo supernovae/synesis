@@ -1,8 +1,8 @@
 /**
  * Canonical `target_value` when Prompt Library assignment `target_type` is `model_family`.
  * Must stay in sync with:
- * - `inferModelFamily()` in `base/yarn-ts/src/index.ts`
- * - `inferModelFamily()` in `base/planner-ts/src/prompt-composer.ts`
+ * - `inferModelFamily()` in `base/yarn-ts/src/prompt/infer-model-family.ts` (Coder)
+ * - `inferModelFamily()` in `base/planner-ts/src/prompt-composer.ts` (Chat — duplicate, update both)
  * - `ALLOWED_MODEL_FAMILY_VALUES` in `base/admin/app/services/prompt_library.py`
  *
  * Stored value is always the lowercase slug (e.g. `kimi`), not display names like "Kimi / Moonshot".
