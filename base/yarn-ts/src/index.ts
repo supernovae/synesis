@@ -246,9 +246,16 @@ import {
   type StateConfidenceAssessment,
 } from "./governance/state-confidence.js";
 import {
+  buildStateTransitionCalibrationSample,
+  calibrateStateTransitionQualityThresholds,
   buildStateTransitionRecord,
   buildStateTransitionSnapshotFromMetadata,
+  decodeStateTransitionCalibrationSamples,
+  decodeStateTransitionQualityThresholds,
   decodeStateTransitionSnapshot,
+  DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
+  encodeStateTransitionCalibrationSamples,
+  encodeStateTransitionQualityThresholds,
   encodeStateTransitionSnapshot,
   materializeStateTransitionTrainingRow,
   summarizeStateTransition,
@@ -4362,6 +4369,11 @@ function persistSessionAndUsage(
         reasons: stateConfidenceReasons.length > 0 ? stateConfidenceReasons : undefined,
       }
     : undefined;
+  const persistedQualityThresholds =
+    decodeStateTransitionQualityThresholds(
+      getMetadataObject(state.record.metadata, "state_transition_quality_thresholds"),
+    )
+    ?? DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS;
   const stateTransitionRecord = buildStateTransitionRecord({
     requestId,
     previousSnapshot: previousTransitionSnapshot,
@@ -4371,8 +4383,41 @@ function persistSessionAndUsage(
     governorPause: snapshot?.governor?.pause ?? false,
     evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
     outcomeState,
+    qualityThresholds: persistedQualityThresholds,
   });
+  const storedCalibrationSamples = decodeStateTransitionCalibrationSamples(
+    state.record.metadata.state_transition_quality_samples,
+    64,
+  );
+  const nextCalibrationSamples = [
+    ...storedCalibrationSamples,
+    buildStateTransitionCalibrationSample(stateTransitionRecord),
+  ].slice(-64);
+  state.record.metadata.state_transition_quality_samples = encodeStateTransitionCalibrationSamples(
+    nextCalibrationSamples,
+    64,
+  );
+  const stateTransitionCalibration = calibrateStateTransitionQualityThresholds({
+    samples: nextCalibrationSamples,
+    baseThresholds: persistedQualityThresholds,
+    minSamples: 12,
+    minPositive: 3,
+    minNegative: 3,
+    smoothing: 0.45,
+  });
+  const activeQualityThresholds = stateTransitionCalibration.calibrated_thresholds;
+  state.record.metadata.state_transition_quality_thresholds = encodeStateTransitionQualityThresholds(
+    activeQualityThresholds,
+  );
+  if (stateTransitionCalibration.applied) {
+    state.record.metadata.state_transition_quality_calibrated_at = Date.now();
+  }
   const stateTransitionTrainingRow = materializeStateTransitionTrainingRow(stateTransitionRecord);
+  const thresholdShift = Math.abs(
+    activeQualityThresholds.forward_progress_min - persistedQualityThresholds.forward_progress_min,
+  ) + Math.abs(
+    activeQualityThresholds.regressed_max - persistedQualityThresholds.regressed_max,
+  );
   const stateTransitionSummary = {
     changed_fields: stateTransitionRecord.delta.changed_fields,
     objective_epoch_advanced: stateTransitionRecord.delta.objective_epoch_advanced,
@@ -4385,6 +4430,9 @@ function persistSessionAndUsage(
     quality_score: stateTransitionRecord.quality.score,
     quality_reasons: stateTransitionRecord.quality.reasons,
     recommended_action: stateTransitionRecord.quality.recommended_action,
+    quality_thresholds: activeQualityThresholds,
+    quality_calibration_applied: stateTransitionCalibration.applied,
+    quality_calibration_sample_count: stateTransitionCalibration.sample_count,
   };
 
   usageWriter.enqueueSessionEvent({
@@ -4495,6 +4543,10 @@ function persistSessionAndUsage(
         state_transition_quality_label: stateTransitionRecord.quality.label,
         state_transition_quality_score: stateTransitionRecord.quality.score,
         state_transition_quality_reasons: stateTransitionRecord.quality.reasons,
+        state_transition_quality_forward_min: activeQualityThresholds.forward_progress_min,
+        state_transition_quality_regressed_max: activeQualityThresholds.regressed_max,
+        state_transition_quality_calibrated: stateTransitionCalibration.applied || undefined,
+        state_transition_quality_calibration_samples: stateTransitionCalibration.sample_count,
       },
     },
   });
@@ -4509,8 +4561,22 @@ function persistSessionAndUsage(
     metadataJson: {
       ...stateTransitionRecord,
       training_row: stateTransitionTrainingRow,
+      quality_thresholds: activeQualityThresholds,
+      quality_calibration: stateTransitionCalibration,
     } as unknown as Record<string, unknown>,
   });
+  if (stateTransitionCalibration.applied && thresholdShift > 0.01) {
+    usageWriter.enqueueSessionEvent({
+      sessionKey: state.record.sessionKey,
+      requestId,
+      userId: state.record.userId,
+      orgId: state.record.orgId,
+      eventKind: "state_transition_quality_calibration_v1",
+      component: "state-ledger",
+      detail: stateTransitionCalibration.summary,
+      metadataJson: stateTransitionCalibration as unknown as Record<string, unknown>,
+    });
+  }
 
   const telemetryUsage: TelemetryLlmUsage = {
     prompt_tokens: usage.inputTokens,

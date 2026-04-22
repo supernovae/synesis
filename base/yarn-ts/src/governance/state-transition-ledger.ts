@@ -60,6 +60,32 @@ export interface StateTransitionQualityAssessment {
   recommended_action: "continue" | "recover" | "reground";
 }
 
+export interface StateTransitionQualityThresholds {
+  forward_progress_min: number;
+  regressed_max: number;
+  minimum_gap: number;
+}
+
+export interface StateTransitionCalibrationSample {
+  quality_score: number;
+  outcome_state: string;
+  evidence_delta: EvidenceDeltaSummary;
+  governor_pause: boolean;
+  needs_reground: boolean;
+}
+
+export interface StateTransitionQualityCalibrationReport {
+  schema_version: "state_transition_quality_calibration_v1";
+  sample_count: number;
+  positive_count: number;
+  negative_count: number;
+  neutral_count: number;
+  applied: boolean;
+  previous_thresholds: StateTransitionQualityThresholds;
+  calibrated_thresholds: StateTransitionQualityThresholds;
+  summary: string;
+}
+
 export interface StateTransitionTrainingRow {
   schema_version: "state_transition_training_v1";
   request_id: string;
@@ -99,7 +125,14 @@ export interface BuildStateTransitionRecordOptions {
   governorPause: boolean;
   evidenceDelta: EvidenceDeltaSummary;
   outcomeState: string;
+  qualityThresholds?: StateTransitionQualityThresholds;
 }
+
+export const DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS: StateTransitionQualityThresholds = {
+  forward_progress_min: 0.2,
+  regressed_max: -0.35,
+  minimum_gap: 0.08,
+};
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -139,6 +172,62 @@ function clampScore(value: number): number {
 
 function unique(values: readonly string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function clampThreshold(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Number(Math.max(-0.95, Math.min(0.95, value)).toFixed(3));
+}
+
+function normalizeThresholds(
+  input?: Partial<StateTransitionQualityThresholds> | null,
+  fallback: StateTransitionQualityThresholds = DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
+): StateTransitionQualityThresholds {
+  const minimumGap = clampThreshold(Number(input?.minimum_gap ?? fallback.minimum_gap), fallback.minimum_gap);
+  let forwardProgressMin = clampThreshold(
+    Number(input?.forward_progress_min ?? fallback.forward_progress_min),
+    fallback.forward_progress_min,
+  );
+  let regressedMax = clampThreshold(
+    Number(input?.regressed_max ?? fallback.regressed_max),
+    fallback.regressed_max,
+  );
+  if (forwardProgressMin < regressedMax + minimumGap) {
+    const midpoint = (forwardProgressMin + regressedMax) / 2;
+    forwardProgressMin = clampThreshold(midpoint + minimumGap / 2, fallback.forward_progress_min);
+    regressedMax = clampThreshold(midpoint - minimumGap / 2, fallback.regressed_max);
+  }
+  return {
+    forward_progress_min: forwardProgressMin,
+    regressed_max: regressedMax,
+    minimum_gap: minimumGap,
+  };
+}
+
+function percentile(values: readonly number[], q: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const clampedQ = Math.max(0, Math.min(1, q));
+  const position = (sorted.length - 1) * clampedQ;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower];
+  const ratio = position - lower;
+  return Number((sorted[lower] + (sorted[upper] - sorted[lower]) * ratio).toFixed(3));
+}
+
+function asCalibrationSample(value: unknown): StateTransitionCalibrationSample | null {
+  const row = asRecord(value);
+  if (!row) return null;
+  const score = Number(row.quality_score);
+  if (!Number.isFinite(score)) return null;
+  return {
+    quality_score: clampScore(score),
+    outcome_state: asString(row.outcome_state, "unknown"),
+    evidence_delta: asString(row.evidence_delta, "unknown") as EvidenceDeltaSummary,
+    governor_pause: asBoolean(row.governor_pause),
+    needs_reground: asBoolean(row.needs_reground),
+  };
 }
 
 function normalizeStatusCounts(value: unknown): StateTransitionSnapshot["fileStatusCounts"] {
@@ -225,6 +314,60 @@ export function encodeStateTransitionSnapshot(
   };
 }
 
+export function decodeStateTransitionQualityThresholds(value: unknown): StateTransitionQualityThresholds | null {
+  const row = asRecord(value);
+  if (!row) return null;
+  return normalizeThresholds({
+    forward_progress_min: asNumber(row.forward_progress_min, DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS.forward_progress_min),
+    regressed_max: asNumber(row.regressed_max, DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS.regressed_max),
+    minimum_gap: asNumber(row.minimum_gap, DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS.minimum_gap),
+  });
+}
+
+export function encodeStateTransitionQualityThresholds(
+  thresholds: StateTransitionQualityThresholds,
+): Record<string, unknown> {
+  const normalized = normalizeThresholds(thresholds);
+  return {
+    forward_progress_min: normalized.forward_progress_min,
+    regressed_max: normalized.regressed_max,
+    minimum_gap: normalized.minimum_gap,
+  };
+}
+
+export function decodeStateTransitionCalibrationSamples(
+  value: unknown,
+  maxSamples = 128,
+): StateTransitionCalibrationSample[] {
+  if (!Array.isArray(value)) return [];
+  const samples: StateTransitionCalibrationSample[] = [];
+  for (const row of value) {
+    const sample = asCalibrationSample(row);
+    if (!sample) continue;
+    samples.push(sample);
+    if (samples.length >= maxSamples) break;
+  }
+  return samples;
+}
+
+export function encodeStateTransitionCalibrationSamples(
+  samples: readonly StateTransitionCalibrationSample[],
+  maxSamples = 128,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  const sliced = samples.slice(Math.max(0, samples.length - maxSamples));
+  for (const sample of sliced) {
+    out.push({
+      quality_score: clampScore(sample.quality_score),
+      outcome_state: sample.outcome_state,
+      evidence_delta: sample.evidence_delta,
+      governor_pause: sample.governor_pause,
+      needs_reground: sample.needs_reground,
+    });
+  }
+  return out;
+}
+
 function computeChangedFields(
   previousSnapshot: StateTransitionSnapshot | null,
   currentSnapshot: StateTransitionSnapshot,
@@ -270,12 +413,107 @@ function computeChangedFields(
   return changed;
 }
 
+function calibrationBucket(sample: StateTransitionCalibrationSample): "positive" | "negative" | "neutral" {
+  if (sample.needs_reground) return "negative";
+  if (sample.evidence_delta === "regressed" || sample.outcome_state === "stalled" || sample.governor_pause) {
+    return "negative";
+  }
+  if (
+    (sample.outcome_state === "verified" || sample.outcome_state === "completed")
+    && sample.evidence_delta !== "stalled"
+    && !sample.governor_pause
+  ) {
+    return "positive";
+  }
+  return "neutral";
+}
+
+function blend(base: number, candidate: number | null, alpha: number): number {
+  if (candidate === null || !Number.isFinite(candidate)) return base;
+  const clampedAlpha = Math.max(0, Math.min(1, alpha));
+  return base * (1 - clampedAlpha) + candidate * clampedAlpha;
+}
+
+export function calibrateStateTransitionQualityThresholds(input: {
+  samples: readonly StateTransitionCalibrationSample[];
+  baseThresholds?: StateTransitionQualityThresholds;
+  minSamples?: number;
+  minPositive?: number;
+  minNegative?: number;
+  smoothing?: number;
+}): StateTransitionQualityCalibrationReport {
+  const baseThresholds = normalizeThresholds(input.baseThresholds);
+  const minSamples = Math.max(4, Math.trunc(input.minSamples ?? 12));
+  const minPositive = Math.max(2, Math.trunc(input.minPositive ?? 3));
+  const minNegative = Math.max(2, Math.trunc(input.minNegative ?? 3));
+  const smoothing = Number.isFinite(Number(input.smoothing)) ? Number(input.smoothing) : 0.5;
+
+  const positiveScores: number[] = [];
+  const negativeScores: number[] = [];
+  const neutralScores: number[] = [];
+  for (const sample of input.samples) {
+    if (!Number.isFinite(sample.quality_score)) continue;
+    const clamped = clampScore(sample.quality_score);
+    const bucket = calibrationBucket(sample);
+    if (bucket === "positive") positiveScores.push(clamped);
+    else if (bucket === "negative") negativeScores.push(clamped);
+    else neutralScores.push(clamped);
+  }
+
+  const sampleCount = positiveScores.length + negativeScores.length + neutralScores.length;
+  let calibratedThresholds = baseThresholds;
+  let applied = false;
+  if (sampleCount >= minSamples && positiveScores.length >= minPositive && negativeScores.length >= minNegative) {
+    const positiveP25 = percentile(positiveScores, 0.25);
+    const negativeP75 = percentile(negativeScores, 0.75);
+    calibratedThresholds = normalizeThresholds({
+      forward_progress_min: blend(baseThresholds.forward_progress_min, positiveP25, smoothing),
+      regressed_max: blend(baseThresholds.regressed_max, negativeP75, smoothing),
+      minimum_gap: baseThresholds.minimum_gap,
+    }, baseThresholds);
+    applied = true;
+  }
+
+  return {
+    schema_version: "state_transition_quality_calibration_v1",
+    sample_count: sampleCount,
+    positive_count: positiveScores.length,
+    negative_count: negativeScores.length,
+    neutral_count: neutralScores.length,
+    applied,
+    previous_thresholds: baseThresholds,
+    calibrated_thresholds: calibratedThresholds,
+    summary: [
+      `samples=${sampleCount}`,
+      `positive=${positiveScores.length}`,
+      `negative=${negativeScores.length}`,
+      `forward_min=${calibratedThresholds.forward_progress_min}`,
+      `regressed_max=${calibratedThresholds.regressed_max}`,
+      `applied=${applied}`,
+    ].join(" "),
+  };
+}
+
+export function buildStateTransitionCalibrationSample(
+  record: StateTransitionRecord,
+): StateTransitionCalibrationSample {
+  return {
+    quality_score: record.quality.score,
+    outcome_state: record.event.outcome_state,
+    evidence_delta: record.event.evidence_delta,
+    governor_pause: record.event.governor_pause,
+    needs_reground: record.to_state.confidenceNeedsReground,
+  };
+}
+
 export function assessStateTransitionQuality(input: {
   delta: StateTransitionDelta;
   toState: StateTransitionSnapshot;
   event: StateTransitionEvent;
+  thresholds?: StateTransitionQualityThresholds;
 }): StateTransitionQualityAssessment {
   const { delta, toState, event } = input;
+  const thresholds = normalizeThresholds(input.thresholds);
   const reasons: string[] = [];
   let score = 0;
 
@@ -365,9 +603,9 @@ export function assessStateTransitionQuality(input: {
   const qualityScore = clampScore(score);
   const label: StateTransitionQualityLabel = toState.confidenceNeedsReground
     ? "reground_required"
-    : (event.evidence_delta === "regressed" || qualityScore <= -0.35)
+    : (event.evidence_delta === "regressed" || qualityScore <= thresholds.regressed_max)
       ? "regressed"
-      : qualityScore >= 0.2
+      : qualityScore >= thresholds.forward_progress_min
         ? "forward_progress"
         : "stalled";
   const recommendedAction: StateTransitionQualityAssessment["recommended_action"] = label === "reground_required"
@@ -458,6 +696,7 @@ export function buildStateTransitionRecord(
     delta,
     toState: currentSnapshot,
     event,
+    thresholds: options.qualityThresholds,
   });
 
   return {

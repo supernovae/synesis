@@ -180,6 +180,20 @@ attached to the transition event metadata. `request_trajectory_v1.training_signa
 `state_transition_quality_*` fields so supervised and reward datasets can consume labels directly
 without replaying raw transcripts.
 
+## 11) Online quality calibration pass
+
+Quality thresholds are now calibrated from recent observed transitions instead of staying fixed:
+
+- Session metadata stores a rolling sample window (`state_transition_quality_samples`)
+- A deterministic calibrator computes updated `forward_progress_min` and `regressed_max`
+  from positive/negative score distributions (with smoothing + minimum sample guards)
+- Calibrated thresholds are persisted in metadata (`state_transition_quality_thresholds`)
+  and reused for subsequent transition labeling
+- When thresholds move meaningfully, Yarn emits `state_transition_quality_calibration_v1`
+  so threshold drift is traceable and auditable
+
+This keeps the quality labeling policy adaptive while remaining deterministic and replay-safe.
+
 ## Weird UX/client affordance handling improvements
 
 This split improves resilience in exactly the failure cases we observed:

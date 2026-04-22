@@ -2,9 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   assessStateTransitionQuality,
+  buildStateTransitionCalibrationSample,
   buildStateTransitionRecord,
   buildStateTransitionSnapshotFromMetadata,
+  calibrateStateTransitionQualityThresholds,
+  decodeStateTransitionCalibrationSamples,
+  decodeStateTransitionQualityThresholds,
+  encodeStateTransitionCalibrationSamples,
+  encodeStateTransitionQualityThresholds,
   decodeStateTransitionSnapshot,
+  DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
   encodeStateTransitionSnapshot,
   materializeStateTransitionTrainingRow,
   summarizeStateTransition,
@@ -227,5 +234,97 @@ describe("state transition ledger", () => {
     expect(row.quality_label).toBe("forward_progress");
     expect(row.quality_score).toBeGreaterThan(0);
     expect(row.stale_files_delta).toBeLessThan(0);
+  });
+
+  it("supports calibrated threshold overrides when scoring labels", () => {
+    const quality = assessStateTransitionQuality({
+      delta: {
+        changed_fields: ["confidence"],
+        objective_epoch_advanced: false,
+        objective_changed: false,
+        completion_status_changed: false,
+        verification_outcome_changed: false,
+        unresolved_corrections_delta: 0,
+        resolved_corrections_delta: 0,
+        stale_files_delta: 0,
+        partial_files_delta: 0,
+        evicted_files_delta: 0,
+        confidence_delta: 0.02,
+        confidence_improved: false,
+      },
+      toState: makeSnapshot({
+        confidenceNeedsReground: false,
+      }),
+      event: {
+        tool_sequence: ["Read"],
+        governor_rules: [],
+        governor_pause: false,
+        evidence_delta: "changed",
+        outcome_state: "partial",
+      },
+      thresholds: {
+        forward_progress_min: 0.01,
+        regressed_max: -0.25,
+        minimum_gap: 0.08,
+      },
+    });
+
+    expect(quality.label).toBe("forward_progress");
+  });
+
+  it("calibrates thresholds from observed positive/negative samples", () => {
+    const report = calibrateStateTransitionQualityThresholds({
+      baseThresholds: DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
+      minSamples: 8,
+      minPositive: 3,
+      minNegative: 3,
+      smoothing: 0.6,
+      samples: [
+        { quality_score: 0.72, outcome_state: "verified", evidence_delta: "improved", governor_pause: false, needs_reground: false },
+        { quality_score: 0.61, outcome_state: "verified", evidence_delta: "improved", governor_pause: false, needs_reground: false },
+        { quality_score: 0.55, outcome_state: "completed", evidence_delta: "changed", governor_pause: false, needs_reground: false },
+        { quality_score: -0.62, outcome_state: "stalled", evidence_delta: "regressed", governor_pause: true, needs_reground: false },
+        { quality_score: -0.51, outcome_state: "stalled", evidence_delta: "stalled", governor_pause: true, needs_reground: false },
+        { quality_score: -0.42, outcome_state: "partial", evidence_delta: "regressed", governor_pause: false, needs_reground: false },
+        { quality_score: 0.12, outcome_state: "partial", evidence_delta: "changed", governor_pause: false, needs_reground: false },
+        { quality_score: -0.05, outcome_state: "partial", evidence_delta: "unknown", governor_pause: false, needs_reground: false },
+      ],
+    });
+
+    expect(report.applied).toBe(true);
+    expect(report.sample_count).toBe(8);
+    expect(report.calibrated_thresholds.forward_progress_min).toBeGreaterThan(
+      DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS.forward_progress_min,
+    );
+    expect(report.calibrated_thresholds.regressed_max).toBeLessThan(
+      DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS.regressed_max,
+    );
+  });
+
+  it("round-trips encoded threshold and sample metadata", () => {
+    const thresholds = decodeStateTransitionQualityThresholds(encodeStateTransitionQualityThresholds({
+      forward_progress_min: 0.24,
+      regressed_max: -0.4,
+      minimum_gap: 0.09,
+    }));
+    expect(thresholds?.forward_progress_min).toBe(0.24);
+    expect(thresholds?.regressed_max).toBe(-0.4);
+
+    const row = buildStateTransitionRecord({
+      requestId: "req-sample-roundtrip",
+      previousSnapshot: makeSnapshot({ confidenceNeedsReground: false, confidenceOverall: 0.5 }),
+      currentSnapshot: makeSnapshot({ confidenceNeedsReground: false, confidenceOverall: 0.6 }),
+      toolSequence: ["Read"],
+      governorRules: [],
+      governorPause: false,
+      evidenceDelta: "changed",
+      outcomeState: "partial",
+    });
+    const sample = buildStateTransitionCalibrationSample(row);
+    const encoded = encodeStateTransitionCalibrationSamples([sample], 8);
+    const decoded = decodeStateTransitionCalibrationSamples(encoded, 8);
+    expect(decoded).toHaveLength(1);
+    expect(decoded[0].quality_score).toBe(sample.quality_score);
+    expect(decoded[0].outcome_state).toBe(sample.outcome_state);
   });
 });
