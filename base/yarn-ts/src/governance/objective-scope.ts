@@ -352,6 +352,73 @@ export function resolveObjectiveEpoch(options: ResolveObjectiveEpochOptions): Ob
   };
 }
 
+/**
+ * Walk the boundary backward so that every assistant tool_call in the retained
+ * window has its matching tool result included.  Without this, slicing at the
+ * boundary can orphan tool calls whose results landed just before it, causing
+ * AI_MissingToolResultsError downstream.
+ */
+function adjustBoundaryForToolPairIntegrity(
+  messages: ObjectiveScopeMessage[],
+  boundary: number,
+): number {
+  let adjusted = Math.max(0, boundary);
+  const retained = messages.slice(adjusted);
+
+  const neededToolCallIds = new Set<string>();
+  for (const msg of retained) {
+    if (msg.role !== "assistant") continue;
+    const toolCalls = (msg as unknown as Record<string, unknown>).tool_calls as
+      | Array<{ id?: string }>
+      | undefined;
+    if (toolCalls) {
+      for (const tc of toolCalls) {
+        if (tc.id) neededToolCallIds.add(tc.id);
+      }
+    }
+    const content = msg.content;
+    if (Array.isArray(content)) {
+      for (const block of content as Array<{ type?: string; id?: string }>) {
+        if (block?.type === "tool_use" && block.id) neededToolCallIds.add(block.id);
+      }
+    }
+  }
+  if (neededToolCallIds.size === 0) return adjusted;
+
+  for (const msg of retained) {
+    if (msg.role === "tool" && msg.tool_call_id) {
+      neededToolCallIds.delete(msg.tool_call_id);
+    }
+    if (msg.role === "user" && Array.isArray(msg.content)) {
+      for (const block of msg.content as Array<{ type?: string; tool_use_id?: string }>) {
+        if (block?.type === "tool_result" && block.tool_use_id) {
+          neededToolCallIds.delete(block.tool_use_id);
+        }
+      }
+    }
+  }
+  if (neededToolCallIds.size === 0) return adjusted;
+
+  for (let i = adjusted - 1; i >= 0 && neededToolCallIds.size > 0; i--) {
+    const msg = messages[i];
+    let pulls = false;
+    if (msg.role === "tool" && msg.tool_call_id && neededToolCallIds.has(msg.tool_call_id)) {
+      neededToolCallIds.delete(msg.tool_call_id);
+      pulls = true;
+    }
+    if (msg.role === "user" && Array.isArray(msg.content)) {
+      for (const block of msg.content as Array<{ type?: string; tool_use_id?: string }>) {
+        if (block?.type === "tool_result" && block.tool_use_id && neededToolCallIds.has(block.tool_use_id)) {
+          neededToolCallIds.delete(block.tool_use_id);
+          pulls = true;
+        }
+      }
+    }
+    if (pulls) adjusted = i;
+  }
+  return adjusted;
+}
+
 export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
   options: ApplyObjectiveScopeOptions<TMessage>,
 ): ObjectiveScopeResult<TMessage> {
@@ -374,9 +441,11 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
 
   const anchorUserIndex = findAnchorUserIndex(allMessages, options.epoch.anchorUserHash);
   const lastUserIndex = findLastGenuineUserIndex(allMessages);
-  const boundaryIndex = anchorUserIndex >= 0
+  let boundaryIndex = anchorUserIndex >= 0
     ? anchorUserIndex
     : (lastUserIndex >= 0 ? lastUserIndex : 0);
+
+  boundaryIndex = adjustBoundaryForToolPairIntegrity(allMessages, boundaryIndex);
 
   const scopedMessages = allMessages.slice(Math.max(0, boundaryIndex));
   const preStart = Math.max(0, boundaryIndex - preBoundaryWindow);
