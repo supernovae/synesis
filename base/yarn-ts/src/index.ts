@@ -240,6 +240,11 @@ import {
   applyObjectiveScope,
   resolveObjectiveEpoch,
 } from "./governance/objective-scope.js";
+import {
+  assessStateConfidence,
+  formatStateConfidenceBlock,
+  type StateConfidenceAssessment,
+} from "./governance/state-confidence.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
   buildImplementationSoftStallNudgeMessage,
@@ -1187,6 +1192,18 @@ function applyObjectiveScopeAndPersist<TMessage extends {
   };
 }
 
+function persistStateConfidence(
+  metadata: Record<string, unknown>,
+  assessment: StateConfidenceAssessment,
+): void {
+  metadata.state_confidence_chat = assessment.chatConfidence;
+  metadata.state_confidence_file = assessment.fileConfidence;
+  metadata.state_confidence_overall = assessment.overallConfidence;
+  metadata.state_confidence_needs_reground = assessment.needsReground;
+  metadata.state_confidence_recommended_path = assessment.recommendedReadPath ?? "";
+  metadata.state_confidence_reasons = assessment.reasons;
+}
+
 function updateTracePromptMetadata(state: SessionState, latestUserText: string): void {
   const latest = trimSnippet(latestUserText);
   if (!latest) return;
@@ -2080,6 +2097,20 @@ function buildEditContextMissForcedReadPrompt(filePath?: string): string {
     `Your next action MUST be exactly one Read tool call ${target}.`,
     "Do not run Edit/Write/Test/Search tools in this turn.",
     "After that single Read result, perform one anchored edit in the next turn.",
+  ].join("\n");
+}
+
+function buildStateRegroundReadPrompt(path: string, reasons: string[]): string {
+  const safePath = path.trim() || "<unknown>";
+  const reasonLine = reasons.length > 0
+    ? `State confidence was low due to: ${reasons.slice(0, 5).join(", ")}.`
+    : "State confidence was low and requires one deterministic refresh step.";
+  return [
+    "STATE REGROUND REQUIRED:",
+    reasonLine,
+    `Your next action MUST be exactly one Read tool call for \`${safePath}\`.`,
+    "Do not run Edit/Write/Test/Search tools in this turn.",
+    "After this single Read result, continue with one focused implementation action in the next turn.",
   ].join("\n");
 }
 
@@ -4290,12 +4321,32 @@ function persistSessionAndUsage(
   const objectiveScopeBoundaryIndex = Number(state.record.metadata.objective_scope_boundary_index ?? -1);
   const objectiveScopeRetainedEvidence = Number(state.record.metadata.objective_scope_retained_evidence ?? 0);
   const objectiveScopeDroppedPreBoundary = Number(state.record.metadata.objective_scope_dropped_pre_boundary ?? 0);
+  const stateConfidenceChat = Number(state.record.metadata.state_confidence_chat ?? NaN);
+  const stateConfidenceFile = Number(state.record.metadata.state_confidence_file ?? NaN);
+  const stateConfidenceOverall = Number(state.record.metadata.state_confidence_overall ?? NaN);
+  const stateConfidenceNeedsReground = state.record.metadata.state_confidence_needs_reground === true;
+  const stateConfidenceRecommendedPath = typeof state.record.metadata.state_confidence_recommended_path === "string"
+    ? state.record.metadata.state_confidence_recommended_path
+    : "";
+  const stateConfidenceReasons = Array.isArray(state.record.metadata.state_confidence_reasons)
+    ? state.record.metadata.state_confidence_reasons.map((value) => String(value))
+    : [];
   const objectiveScopeSummary = objectiveEpochId > 0
     ? {
         epoch_id: objectiveEpochId,
         boundary_index: objectiveScopeBoundaryIndex,
         retained_evidence: objectiveScopeRetainedEvidence,
         dropped_pre_boundary: objectiveScopeDroppedPreBoundary,
+      }
+    : undefined;
+  const stateConfidenceSummary = Number.isFinite(stateConfidenceOverall)
+    ? {
+        chat: Number.isFinite(stateConfidenceChat) ? stateConfidenceChat : undefined,
+        file: Number.isFinite(stateConfidenceFile) ? stateConfidenceFile : undefined,
+        overall: stateConfidenceOverall,
+        needs_reground: stateConfidenceNeedsReground,
+        recommended_path: stateConfidenceRecommendedPath || undefined,
+        reasons: stateConfidenceReasons.length > 0 ? stateConfidenceReasons : undefined,
       }
     : undefined;
 
@@ -4372,11 +4423,12 @@ function persistSessionAndUsage(
         matched_rules: snapshot.governor.matchedRules,
         telemetry: snapshot.governor.telemetry,
       } : undefined,
-      state_channels: (chatStateSummaryForTelemetry || fileStateSummaryForTelemetry || objectiveScopeSummary)
+      state_channels: (chatStateSummaryForTelemetry || fileStateSummaryForTelemetry || objectiveScopeSummary || stateConfidenceSummary)
         ? {
             chat_state: chatStateSummaryForTelemetry,
             file_state: fileStateSummaryForTelemetry,
             objective_scope: objectiveScopeSummary,
+            state_confidence: stateConfidenceSummary,
           }
         : undefined,
       training_signals: {
@@ -4395,6 +4447,9 @@ function persistSessionAndUsage(
         objective_scope_boundary_index: objectiveScopeBoundaryIndex >= 0 ? objectiveScopeBoundaryIndex : undefined,
         objective_scope_retained_evidence: objectiveScopeRetainedEvidence > 0 ? objectiveScopeRetainedEvidence : undefined,
         objective_scope_dropped_pre_boundary: objectiveScopeDroppedPreBoundary > 0 ? objectiveScopeDroppedPreBoundary : undefined,
+        state_confidence_overall: Number.isFinite(stateConfidenceOverall) ? stateConfidenceOverall : undefined,
+        state_confidence_needs_reground: stateConfidenceNeedsReground || undefined,
+        state_confidence_reasons: stateConfidenceReasons.length > 0 ? stateConfidenceReasons : undefined,
       },
     },
   });
@@ -4448,6 +4503,7 @@ function persistSessionAndUsage(
       chat_state: chatStateSummaryForTelemetry,
       file_state: fileStateSummaryForTelemetry,
       objective_scope: objectiveScopeSummary,
+      state_confidence: stateConfidenceSummary,
     },
     ...(optimizationLedger ? { optimization_ledger: optimizationLedger } : {}),
     has_error: finishReason === "error" || undefined,
@@ -7232,6 +7288,35 @@ app.post("/v1/chat/completions", async (req, reply) => {
     latestUserPromptText: latestUserText ? extractTextFromUnknownContent(latestUserText.content) : "",
   });
   const oaiScopedMessages = oaiObjectiveScope.scopedMessages;
+  const oaiStateConfidence = assessStateConfidence({
+    chatState: oaiChatState,
+    fileState: oaiFileState,
+    recentReadSatisfied: oaiLatestReadRefresh.hasRecentReadSuccess,
+  });
+  persistStateConfidence(session.record.metadata, oaiStateConfidence);
+  const oaiStateConfidenceBlock = formatStateConfidenceBlock(oaiStateConfidence);
+  const oaiNeedsStateReground =
+    oaiStateConfidence.needsReground
+    && !oaiEditMissGuard?.active
+    && !session.editMissForceReadPending;
+  if (oaiNeedsStateReground) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "state_confidence_reground_required",
+      "state-confidence",
+      `overall=${oaiStateConfidence.overallConfidence.toFixed(3)} path=${oaiStateConfidence.recommendedReadPath ?? "<none>"}`,
+      oaiTraceReqId,
+      {
+        chat_confidence: oaiStateConfidence.chatConfidence,
+        file_confidence: oaiStateConfidence.fileConfidence,
+        overall_confidence: oaiStateConfidence.overallConfidence,
+        recommended_read_path: oaiStateConfidence.recommendedReadPath,
+        reasons: oaiStateConfidence.reasons,
+      },
+    );
+  }
   const oaiFileStateSnapshot = toFileStateSnapshot(oaiFileState, { maxPaths: 8 });
   const oaiChatStateSnapshot = toChatStateSnapshot(oaiChatState);
   const oaiPauseChatSummary = summarizeChatStateForGovernor(oaiChatState);
@@ -7347,6 +7432,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
       objective_scope_boundary_index: oaiObjectiveScope.boundaryIndex,
       objective_scope_retained_evidence: oaiObjectiveScope.retainedEvidenceCount,
       objective_scope_dropped_pre_boundary: oaiObjectiveScope.droppedPreBoundaryCount,
+      state_confidence_chat: oaiStateConfidence.chatConfidence,
+      state_confidence_file: oaiStateConfidence.fileConfidence,
+      state_confidence_overall: oaiStateConfidence.overallConfidence,
+      state_confidence_needs_reground: oaiNeedsStateReground,
+      state_confidence_recommended_path: oaiStateConfidence.recommendedReadPath,
       evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
       artifact_context: oaiArtifactContext,
       chat_state_summary: oaiPauseChatSummary,
@@ -7875,6 +7965,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiPlanGraph ? [formatPlanProgressBlock(oaiPlanGraph)] : []),
       ...oaiMemBlocks,
       ...(oaiObjectiveScope.relevantEvidenceBlock ? [oaiObjectiveScope.relevantEvidenceBlock] : []),
+      ...(oaiStateConfidenceBlock ? [oaiStateConfidenceBlock] : []),
     ],
     oaiSeedDirs,
     session,
@@ -8081,27 +8172,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
       || oaiEditMissGuard?.active === true
       || oaiExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
     );
+  const oaiForceStateRegroundPolicy = oaiNeedsStateReground;
   const oaiPhasePolicy = derivePhaseExecutionPolicy({
-    enabled: oaiBasePhasePolicyEnabled || oaiForcePhasePolicy,
+    enabled: oaiBasePhasePolicyEnabled || oaiForcePhasePolicy || oaiForceStateRegroundPolicy,
     adapterFamily: adapter.family,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: oaiGovernorPhase,
     matchedRules: oaiExecutionGovernor.matchedRules,
     stream: !!normalizedRequest.stream,
     editContextMissActive: oaiEditMissGuard?.active === true || session.editMissForceReadPending,
+    stateRegroundRequired: oaiNeedsStateReground,
+    stateRegroundReadPath: oaiStateConfidence.recommendedReadPath,
   });
-  if (oaiForcePhasePolicy && oaiPhasePolicy.active) {
+  if ((oaiForcePhasePolicy || oaiForceStateRegroundPolicy) && oaiPhasePolicy.active) {
     recordSessionEvent(
       sessionKey,
       identity.userId,
       identity.orgId,
       "phase_execution_policy_forced",
       "execution-governor",
-      `Forced phase policy for qwen recovery phase=${oaiGovernorPhase} rules=${oaiExecutionGovernor.matchedRules.join(",") || "none"}`,
+      `Forced phase policy phase=${oaiGovernorPhase} rules=${oaiExecutionGovernor.matchedRules.join(",") || "none"} reground=${oaiNeedsStateReground}`,
       reqId,
       {
         phase: oaiGovernorPhase,
         matched_rules: oaiExecutionGovernor.matchedRules,
+        state_confidence_reground: oaiNeedsStateReground,
       },
     );
   }
@@ -8213,6 +8308,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       {
         matched_rules: oaiExecutionGovernor.matchedRules,
         removed_tools: oaiPhaseFiltered.removed,
+        state_confidence_reground: oaiNeedsStateReground,
+        state_confidence_recommended_path: oaiStateConfidence.recommendedReadPath,
       },
     );
   }
@@ -8238,6 +8335,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
       editRecoveryPrompt,
     ) as typeof modelMessages;
   }
+  if (oaiNeedsStateReground && oaiStateConfidence.recommendedReadPath) {
+    const regroundPrompt = buildStateRegroundReadPrompt(
+      oaiStateConfidence.recommendedReadPath,
+      oaiStateConfidence.reasons,
+    );
+    modelMessages = appendSystemMessageAndNormalize(
+      modelMessages as Array<{ role: string; content?: unknown }>,
+      regroundPrompt,
+    ) as typeof modelMessages;
+  }
 
   // Adapter-specific early pivot and same-tool dampening (fires after generic governance).
   // Skip when policy pivot, edit-miss recovery, forced read, or governor soft-fail already applied (H4).
@@ -8245,6 +8352,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     policyPrecheck.pivotPrompt
     || oaiEditMissGuard?.active
     || oaiForceReadRecovery
+    || oaiNeedsStateReground
     || (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
   );
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapter.family === "qwen3-coder" && oaiGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
@@ -8254,6 +8362,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         policy_pivot: Boolean(policyPrecheck.pivotPrompt),
         edit_miss_guard: Boolean(oaiEditMissGuard?.active),
         force_read_recovery: oaiForceReadRecovery,
+        state_confidence_reground: oaiNeedsStateReground,
         governor_soft_fail_pause: Boolean(oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
       },
       "yarn_harness_adapter_pivot_skipped",
@@ -10514,6 +10623,35 @@ app.post("/v1/messages", async (req, reply) => {
     latestUserPromptText: latestClaudeUser ? extractTextFromUnknownContent(latestClaudeUser.content) : "",
   });
   const claudeScopedMessages = claudeObjectiveScope.scopedMessages;
+  const claudeStateConfidence = assessStateConfidence({
+    chatState: claudeChatState,
+    fileState: claudeFileState,
+    recentReadSatisfied: claudeLatestReadRefresh.hasRecentReadSuccess,
+  });
+  persistStateConfidence(session.record.metadata, claudeStateConfidence);
+  const claudeStateConfidenceBlock = formatStateConfidenceBlock(claudeStateConfidence);
+  const claudeNeedsStateReground =
+    claudeStateConfidence.needsReground
+    && !claudeEditMissGuard?.active
+    && !session.editMissForceReadPending;
+  if (claudeNeedsStateReground) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "state_confidence_reground_required",
+      "state-confidence",
+      `overall=${claudeStateConfidence.overallConfidence.toFixed(3)} path=${claudeStateConfidence.recommendedReadPath ?? "<none>"}`,
+      traceReqId,
+      {
+        chat_confidence: claudeStateConfidence.chatConfidence,
+        file_confidence: claudeStateConfidence.fileConfidence,
+        overall_confidence: claudeStateConfidence.overallConfidence,
+        recommended_read_path: claudeStateConfidence.recommendedReadPath,
+        reasons: claudeStateConfidence.reasons,
+      },
+    );
+  }
   const claudeFileStateSnapshot = toFileStateSnapshot(claudeFileState, { maxPaths: 8 });
   const claudeChatStateSnapshot = toChatStateSnapshot(claudeChatState);
   const claudePauseChatSummary = summarizeChatStateForGovernor(claudeChatState);
@@ -10629,6 +10767,11 @@ app.post("/v1/messages", async (req, reply) => {
       objective_scope_boundary_index: claudeObjectiveScope.boundaryIndex,
       objective_scope_retained_evidence: claudeObjectiveScope.retainedEvidenceCount,
       objective_scope_dropped_pre_boundary: claudeObjectiveScope.droppedPreBoundaryCount,
+      state_confidence_chat: claudeStateConfidence.chatConfidence,
+      state_confidence_file: claudeStateConfidence.fileConfidence,
+      state_confidence_overall: claudeStateConfidence.overallConfidence,
+      state_confidence_needs_reground: claudeNeedsStateReground,
+      state_confidence_recommended_path: claudeStateConfidence.recommendedReadPath,
       evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
       artifact_context: claudeArtifactContext,
       chat_state_summary: claudePauseChatSummary,
@@ -11158,6 +11301,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudePlanGraph ? [formatPlanProgressBlock(claudePlanGraph)] : []),
       ...claudeMemBlocks,
       ...(claudeObjectiveScope.relevantEvidenceBlock ? [claudeObjectiveScope.relevantEvidenceBlock] : []),
+      ...(claudeStateConfidenceBlock ? [claudeStateConfidenceBlock] : []),
     ],
     claudeSeedDirs,
     session,
@@ -11378,12 +11522,23 @@ app.post("/v1/messages", async (req, reply) => {
       editRecoveryPrompt,
     ) as typeof claudeModelMessages;
   }
+  if (claudeNeedsStateReground && claudeStateConfidence.recommendedReadPath) {
+    const regroundPrompt = buildStateRegroundReadPrompt(
+      claudeStateConfidence.recommendedReadPath,
+      claudeStateConfidence.reasons,
+    );
+    claudeModelMessages = appendSystemMessageAndNormalize(
+      claudeModelMessages as Array<{ role: string; content?: unknown }>,
+      regroundPrompt,
+    ) as typeof claudeModelMessages;
+  }
 
   // Adapter-specific early pivot and same-tool dampening (Claude path). Same H4 as OpenAI path.
   const claudeGovernanceRecoveryActive = Boolean(
     claudePolicyPrecheck.pivotPrompt
     || claudeEditMissGuard?.active
     || claudeForceReadRecovery
+    || claudeNeedsStateReground
     || (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
   );
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && claudeAdapter.family === "qwen3-coder" && claudeGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
@@ -11393,6 +11548,7 @@ app.post("/v1/messages", async (req, reply) => {
         policy_pivot: Boolean(claudePolicyPrecheck.pivotPrompt),
         edit_miss_guard: Boolean(claudeEditMissGuard?.active),
         force_read_recovery: claudeForceReadRecovery,
+        state_confidence_reground: claudeNeedsStateReground,
         governor_soft_fail_pause: Boolean(claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
       },
       "yarn_harness_adapter_pivot_skipped",
@@ -11524,27 +11680,31 @@ app.post("/v1/messages", async (req, reply) => {
       || claudeEditMissGuard?.active === true
       || claudeExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
     );
+  const claudeForceStateRegroundPolicy = claudeNeedsStateReground;
   const claudePhasePolicy = derivePhaseExecutionPolicy({
-    enabled: claudeBasePhasePolicyEnabled || claudeForcePhasePolicy,
+    enabled: claudeBasePhasePolicyEnabled || claudeForcePhasePolicy || claudeForceStateRegroundPolicy,
     adapterFamily: claudeAdapter.family,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: claudeGovernorPhase,
     matchedRules: claudeExecutionGovernor.matchedRules,
     stream: !!body.stream,
     editContextMissActive: claudeEditMissGuard?.active === true || session.editMissForceReadPending,
+    stateRegroundRequired: claudeNeedsStateReground,
+    stateRegroundReadPath: claudeStateConfidence.recommendedReadPath,
   });
-  if (claudeForcePhasePolicy && claudePhasePolicy.active) {
+  if ((claudeForcePhasePolicy || claudeForceStateRegroundPolicy) && claudePhasePolicy.active) {
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
       claudeIdentity.orgId,
       "phase_execution_policy_forced",
       "execution-governor",
-      `Forced phase policy for qwen recovery phase=${claudeGovernorPhase} rules=${claudeExecutionGovernor.matchedRules.join(",") || "none"}`,
+      `Forced phase policy phase=${claudeGovernorPhase} rules=${claudeExecutionGovernor.matchedRules.join(",") || "none"} reground=${claudeNeedsStateReground}`,
       traceReqId,
       {
         phase: claudeGovernorPhase,
         matched_rules: claudeExecutionGovernor.matchedRules,
+        state_confidence_reground: claudeNeedsStateReground,
       },
     );
   }
@@ -11656,6 +11816,8 @@ app.post("/v1/messages", async (req, reply) => {
       {
         matched_rules: claudeExecutionGovernor.matchedRules,
         removed_tools: claudePhaseFiltered.removed,
+        state_confidence_reground: claudeNeedsStateReground,
+        state_confidence_recommended_path: claudeStateConfidence.recommendedReadPath,
       },
     );
   }

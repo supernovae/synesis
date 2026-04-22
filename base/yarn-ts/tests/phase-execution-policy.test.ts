@@ -38,6 +38,24 @@ describe("phase execution policy", () => {
     expect(policy.reason).toBe("verify_phase_non_stream_kickoff");
   });
 
+  it("forces deterministic Read-only mode when state re-grounding is required", () => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: "generic-model",
+      enabledFamilies: ["qwen3-coder"],
+      phase: "edit",
+      matchedRules: [],
+      stream: false,
+      stateRegroundRequired: true,
+      stateRegroundReadPath: "src/parser.ts",
+    });
+    expect(policy.active).toBe(true);
+    expect(policy.toolChoice).toBe("required");
+    expect(policy.allowedCanonicalTools).toEqual(["Read"]);
+    expect(policy.requiredReadPath).toBe("src/parser.ts");
+    expect(policy.reason).toBe("state_reground_required_action");
+  });
+
   it("forces edit/write tools when verify is churning without edits", () => {
     const policy = derivePhaseExecutionPolicy({
       enabled: true,
@@ -181,6 +199,30 @@ describe("phase execution policy", () => {
     expect(wrongTool.reasons.some((r) => r.startsWith("disallowed_tool:"))).toBe(true);
 
     const ok = validateRequiredToolCalls([{ toolName: "Bash", input: { command: "npm test" } }], policy);
+    expect(ok.valid).toBe(true);
+  });
+
+  it("validates expected read path during state re-grounding", () => {
+    const policy = derivePhaseExecutionPolicy({
+      enabled: true,
+      adapterFamily: "generic",
+      enabledFamilies: ["qwen3-coder"],
+      phase: "edit",
+      matchedRules: [],
+      stream: false,
+      stateRegroundRequired: true,
+      stateRegroundReadPath: "src/parser.ts",
+    });
+
+    const missingPath = validateRequiredToolCalls([{ toolName: "Read", input: {} }], policy);
+    expect(missingPath.valid).toBe(false);
+    expect(missingPath.reasons).toContain("missing_read_path");
+
+    const wrongPath = validateRequiredToolCalls([{ toolName: "Read", input: { path: "src/other.ts" } }], policy);
+    expect(wrongPath.valid).toBe(false);
+    expect(wrongPath.reasons).toContain("unexpected_read_path");
+
+    const ok = validateRequiredToolCalls([{ toolName: "Read", input: { path: "./src/parser.ts" } }], policy);
     expect(ok.valid).toBe(true);
   });
 

@@ -13,6 +13,9 @@ export interface PhaseExecutionPolicyInput {
   /** When true, the model has recently failed repeated edits due to stale anchors.
    *  This overrides the source_file_stale_reread restriction to allow Read alongside writes. */
   editContextMissActive?: boolean;
+  /** Deterministic re-grounding gate when state confidence is low. */
+  stateRegroundRequired?: boolean;
+  stateRegroundReadPath?: string | null;
 }
 
 export interface PhaseExecutionPolicyDecision {
@@ -23,6 +26,7 @@ export interface PhaseExecutionPolicyDecision {
   enforceNonStreaming?: boolean;
   maxToolCalls?: number;
   downgradedForStreaming?: boolean;
+  requiredReadPath?: string;
 }
 
 export interface PhaseToolFilterResult {
@@ -43,6 +47,19 @@ export interface SDKToolCallLike {
 
 export function derivePhaseExecutionPolicy(input: PhaseExecutionPolicyInput): PhaseExecutionPolicyDecision {
   if (!input.enabled) return { active: false };
+  if (input.stateRegroundRequired) {
+    return {
+      active: true,
+      reason: input.stream ? "state_reground_non_stream_kickoff" : "state_reground_required_action",
+      toolChoice: "required",
+      allowedCanonicalTools: ["Read"],
+      enforceNonStreaming: input.stream,
+      maxToolCalls: 1,
+      requiredReadPath: typeof input.stateRegroundReadPath === "string" && input.stateRegroundReadPath.trim()
+        ? input.stateRegroundReadPath.trim()
+        : undefined,
+    };
+  }
   const families = new Set((input.enabledFamilies ?? []).map((f) => String(f).trim().toLowerCase()).filter(Boolean));
   if (families.size > 0 && !families.has(input.adapterFamily.toLowerCase())) {
     return { active: false };
@@ -132,12 +149,21 @@ export function validateRequiredToolCalls(
   if (decision.maxToolCalls && calls.length > decision.maxToolCalls) reasons.push("too_many_tool_calls");
   const allowed = decision.allowedCanonicalTools?.length ? new Set(decision.allowedCanonicalTools) : null;
   for (const call of calls) {
+    const canonical = canonicalValidationToolName(String(call.toolName ?? ""));
     if (allowed) {
-      const canonical = canonicalValidationToolName(String(call.toolName ?? ""));
       if (!allowed.has(canonical)) reasons.push(`disallowed_tool:${call.toolName}`);
     }
     if (!call.input || typeof call.input !== "object" || Array.isArray(call.input)) {
       reasons.push(`invalid_arguments:${call.toolName}`);
+      continue;
+    }
+    if (decision.requiredReadPath && canonical === "Read") {
+      const path = extractPathFromToolInput(call.input);
+      if (!path) {
+        reasons.push("missing_read_path");
+      } else if (!isPathCompatible(decision.requiredReadPath, path)) {
+        reasons.push("unexpected_read_path");
+      }
     }
   }
   return { valid: reasons.length === 0, reasons };
@@ -161,4 +187,35 @@ function getToolName(tool: unknown): string | null {
   const raw = (typeof row.name === "string" ? row.name : "")
     || (nested && typeof nested.name === "string" ? nested.name : "");
   return raw.trim() || null;
+}
+
+function extractPathFromToolInput(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const row = input as Record<string, unknown>;
+  for (const key of ["path", "file_path", "filePath", "target_path", "targetPath"]) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function normalizePath(value: string): string {
+  return value.trim().replace(/\\/g, "/");
+}
+
+function basename(value: string): string {
+  const normalized = normalizePath(value);
+  const parts = normalized.split("/");
+  return parts[parts.length - 1] ?? normalized;
+}
+
+function isPathCompatible(expectedPath: string, actualPath: string): boolean {
+  const expected = normalizePath(expectedPath);
+  const actual = normalizePath(actualPath);
+  if (!expected || !actual) return false;
+  if (expected === actual) return true;
+  if (actual.endsWith(expected) || expected.endsWith(actual)) return true;
+  const expectedBase = basename(expected);
+  const actualBase = basename(actual);
+  return expectedBase.length > 0 && expectedBase === actualBase;
 }

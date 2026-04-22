@@ -133,6 +133,25 @@ applies an objective-scoped context pass:
 This keeps context forward-looking and state-led while preserving deterministic,
 cache-safe behavior.
 
+## 8) State confidence + deterministic re-grounding
+
+The runtime now computes per-turn state confidence from both channels:
+
+- `chat_confidence` (objective/directive/focus clarity)
+- `file_confidence` (snapshot quality: available vs stale/partial/evicted)
+- `overall_confidence` (weighted aggregate)
+
+When confidence is low in action phases (`edit`/`verify`/`recover`/`finalize`), Yarn
+triggers a deterministic re-grounding contract:
+
+- policy narrows to exactly one `Read` tool call
+- expected read path is pinned from focus/stale file state
+- a `SYNESIS_STATE_CONFIDENCE` guidance block is injected
+- telemetry records `state_confidence_reground_required`
+
+This prevents low-confidence autonomous continuation from drifting on stale context
+and keeps the next step "refresh first, then continue."
+
 ## Weird UX/client affordance handling improvements
 
 This split improves resilience in exactly the failure cases we observed:
