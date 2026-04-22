@@ -3,10 +3,17 @@ import {
   useCapabilityMatrix,
   useCreateCapabilityMatrixOverride,
   useDeleteCapabilityMatrixOverride,
+  useProviderGovernance,
+  useRoleAssignments,
   useUpdateCapabilityMatrixGlobal,
   useUpdateCapabilityMatrixOverride,
 } from "../../api/hooks";
-import type { CapabilityMatrixEffective, CapabilityMatrixOverride, CapabilitySelectorType } from "../../types";
+import type {
+  CapabilityMatrixEffective,
+  CapabilityMatrixOverride,
+  CapabilitySelectorType,
+  ModelDeployment,
+} from "../../types";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 
 const SELECTOR_TYPES: CapabilitySelectorType[] = ["family_prefix", "model_path_prefix", "exact_model"];
@@ -29,6 +36,170 @@ const CAPABILITY_LABELS: Record<string, string> = {
   "webui.builtin_tools_enabled": "WebUI builtin tools",
   "webui.file_context_enabled": "WebUI file context",
 };
+
+interface SelectorChoice {
+  value: string;
+  label: string;
+  source: "registry" | "existing_override";
+}
+
+type SelectorChoiceCatalog = Record<CapabilitySelectorType, SelectorChoice[]>;
+
+interface RegistryCapabilityRow {
+  role: string;
+  provider: string;
+  modelId: string;
+  modelPath: string;
+  family: string;
+  matchedLabels: string[];
+  resolved: Record<string, boolean>;
+  providerEnabled: boolean | null;
+  providerNeedsKey: boolean;
+  providerKeyConfigured: boolean | null;
+}
+
+interface LegacySelectorFixCandidate {
+  row: CapabilityMatrixOverride;
+  suggestions: SelectorChoice[];
+  suggestedSelector: string | null;
+  reason: string;
+}
+
+function inferCapabilityFamily(modelRef: string): string {
+  const normalized = modelRef.toLowerCase();
+  if (/qwen3.*coder/.test(normalized)) return "qwen3-coder";
+  if (/deepseek/.test(normalized)) return "deepseek";
+  if (/kimi|moonshot/.test(normalized)) return "kimi";
+  if (/minimax|abab/.test(normalized)) return "minimax";
+  return "generic";
+}
+
+function addSelectorChoice(
+  target: Map<string, { contexts: Set<string>; source: SelectorChoice["source"] }>,
+  rawValue: string,
+  context: string,
+  source: SelectorChoice["source"],
+): void {
+  const value = rawValue.trim();
+  if (!value) return;
+  const existing = target.get(value);
+  if (existing) {
+    existing.contexts.add(context);
+    if (source === "registry") existing.source = "registry";
+    return;
+  }
+  target.set(value, {
+    contexts: new Set([context]),
+    source,
+  });
+}
+
+function contextSummary(contexts: Set<string>): string {
+  const values = [...contexts].sort((a, b) => a.localeCompare(b));
+  if (values.length <= 2) return values.join(", ");
+  return `${values.slice(0, 2).join(", ")} +${values.length - 2} more`;
+}
+
+function toSelectorChoices(
+  source: Map<string, { contexts: Set<string>; source: SelectorChoice["source"] }>,
+): SelectorChoice[] {
+  return [...source.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([value, metadata]) => ({
+      value,
+      source: metadata.source,
+      label:
+        metadata.source === "existing_override"
+          ? `${value} (existing override)`
+          : `${value} (${contextSummary(metadata.contexts)})`,
+    }));
+}
+
+function buildSelectorCatalog(
+  deployments: ModelDeployment[],
+  overrides: CapabilityMatrixOverride[],
+): SelectorChoiceCatalog {
+  const exactModel = new Map<string, { contexts: Set<string>; source: SelectorChoice["source"] }>();
+  const modelPath = new Map<string, { contexts: Set<string>; source: SelectorChoice["source"] }>();
+  const familyPrefix = new Map<string, { contexts: Set<string>; source: SelectorChoice["source"] }>();
+
+  for (const deployment of deployments) {
+    const roleLabel = `${deployment.role}/${deployment.provider || "unknown-provider"}`;
+    const served = deployment.served_name.trim();
+    const backendModel = deployment.model.trim();
+    const modelRef = backendModel || served;
+
+    if (served) {
+      addSelectorChoice(exactModel, served, `${roleLabel} served-name`, "registry");
+    }
+    if (backendModel) {
+      addSelectorChoice(exactModel, backendModel, `${roleLabel} backend-model`, "registry");
+      addSelectorChoice(modelPath, backendModel, `${roleLabel} backend-model`, "registry");
+    }
+    if (modelRef) {
+      addSelectorChoice(
+        familyPrefix,
+        inferCapabilityFamily(modelRef),
+        `${roleLabel} inferred-family`,
+        "registry",
+      );
+    }
+  }
+
+  for (const row of overrides) {
+    if (row.selector_type === "exact_model") {
+      addSelectorChoice(exactModel, row.selector, "existing override", "existing_override");
+      continue;
+    }
+    if (row.selector_type === "model_path_prefix") {
+      addSelectorChoice(modelPath, row.selector, "existing override", "existing_override");
+      continue;
+    }
+    addSelectorChoice(familyPrefix, row.selector, "existing override", "existing_override");
+  }
+
+  return {
+    exact_model: toSelectorChoices(exactModel),
+    model_path_prefix: toSelectorChoices(modelPath),
+    family_prefix: toSelectorChoices(familyPrefix),
+  };
+}
+
+function isCanonicalSelector(
+  catalog: SelectorChoiceCatalog,
+  selectorType: CapabilitySelectorType,
+  selector: string,
+): boolean {
+  const target = selector.trim();
+  if (!target) return false;
+  return catalog[selectorType].some((choice) => choice.value === target);
+}
+
+function chooseCanonicalSelectorValue(
+  choices: SelectorChoice[],
+  selectorType: CapabilitySelectorType,
+  selector: string,
+): string | null {
+  if (choices.length === 0) return null;
+  const raw = selector.trim();
+  if (!raw) return choices[0].value;
+  const exact = choices.find((choice) => choice.value === raw);
+  if (exact) return exact.value;
+
+  const normalizedRaw = normalizeSelector(raw);
+  const normalizedMatch = choices.find((choice) => normalizeSelector(choice.value) === normalizedRaw);
+  if (normalizedMatch) return normalizedMatch.value;
+
+  if (selectorType !== "exact_model") {
+    const prefixMatches = choices.filter((choice) => {
+      const normalizedChoice = normalizeSelector(choice.value);
+      return normalizedChoice.startsWith(normalizedRaw) || normalizedRaw.startsWith(normalizedChoice);
+    });
+    if (prefixMatches.length === 1) return prefixMatches[0].value;
+  }
+
+  return choices[0].value;
+}
 
 interface CapabilityPreset {
   id: string;
@@ -205,14 +376,16 @@ function selectorFromPreview(
 
 export default function CapabilityMatrixPage() {
   const { data, isLoading, error } = useCapabilityMatrix();
+  const { data: roleAssignments } = useRoleAssignments();
+  const { data: providerGovernance } = useProviderGovernance();
   const updateGlobal = useUpdateCapabilityMatrixGlobal();
   const createOverride = useCreateCapabilityMatrixOverride();
   const updateOverride = useUpdateCapabilityMatrixOverride();
   const deleteOverride = useDeleteCapabilityMatrixOverride();
 
-  const [previewModelId, setPreviewModelId] = useState("qwen3.6-35b-a3b");
-  const [previewFamily, setPreviewFamily] = useState("qwen3");
-  const [previewPath, setPreviewPath] = useState("qwen3/qwen3.6-35b-a3b");
+  const [previewModelId, setPreviewModelId] = useState("");
+  const [previewFamily, setPreviewFamily] = useState("");
+  const [previewPath, setPreviewPath] = useState("");
   const [formSelectorType, setFormSelectorType] = useState<CapabilitySelectorType>("exact_model");
   const [formSelector, setFormSelector] = useState("");
   const [formPriority, setFormPriority] = useState(0);
@@ -223,12 +396,57 @@ export default function CapabilityMatrixPage() {
   const [globalMode, setGlobalMode] = useState<CapabilityMatrixEffective["mode"]>("enforced");
   const [globalEnabled, setGlobalEnabled] = useState(false);
   const [presetSelectorType, setPresetSelectorType] = useState<CapabilitySelectorType>("exact_model");
-  const [presetSelector, setPresetSelector] = useState("qwen3.6-35b-a3b");
+  const [presetSelector, setPresetSelector] = useState("");
   const [presetApplyGlobalOff, setPresetApplyGlobalOff] = useState(true);
   const [presetError, setPresetError] = useState("");
   const [presetStatus, setPresetStatus] = useState("");
+  const [legacyFixSelections, setLegacyFixSelections] = useState<Record<string, string>>({});
+  const [legacyFixError, setLegacyFixError] = useState("");
+  const [legacyFixStatus, setLegacyFixStatus] = useState("");
 
   const supportedCapabilities = data?.supported_capabilities ?? [];
+  const assignedDeployments = useMemo(
+    () => (roleAssignments?.roles ?? []).filter((row) => row.assigned),
+    [roleAssignments?.roles],
+  );
+  const registrySelectorCatalog = useMemo(
+    () => buildSelectorCatalog(assignedDeployments, []),
+    [assignedDeployments],
+  );
+  const selectorCatalog = useMemo(
+    () => buildSelectorCatalog(assignedDeployments, data?.overrides ?? []),
+    [assignedDeployments, data?.overrides],
+  );
+  const formSelectorChoices = registrySelectorCatalog[formSelectorType];
+  const presetSelectorChoices = registrySelectorCatalog[presetSelectorType];
+  const previewModelChoices = selectorCatalog.exact_model;
+  const previewFamilyChoices = selectorCatalog.family_prefix;
+  const previewPathChoices = selectorCatalog.model_path_prefix;
+  const formSelectorIsCanonical = isCanonicalSelector(
+    registrySelectorCatalog,
+    formSelectorType,
+    formSelector,
+  );
+  const presetSelectorIsCanonical = isCanonicalSelector(
+    registrySelectorCatalog,
+    presetSelectorType,
+    presetSelector,
+  );
+  const providerStatusByKey = useMemo(() => {
+    const map = new Map<
+      string,
+      { enabled: boolean; apiKeyConfigured: boolean | null; apiKeyEnv: string; isLocal: boolean }
+    >();
+    for (const provider of providerGovernance?.providers ?? []) {
+      map.set(provider.key, {
+        enabled: provider.enabled,
+        apiKeyConfigured: provider.api_key_configured ?? null,
+        apiKeyEnv: provider.api_key_env ?? "",
+        isLocal: provider.is_local,
+      });
+    }
+    return map;
+  }, [providerGovernance?.providers]);
 
   const draftPreviewOverride = useMemo<CapabilityMatrixOverride | null>(() => {
     if (!data) return null;
@@ -271,6 +489,90 @@ export default function CapabilityMatrixPage() {
     });
   }, [data, previewModelId, previewFamily, previewPath, draftPreviewOverride, editingPolicyId]);
 
+  const registryCapabilityRows = useMemo<RegistryCapabilityRow[]>(() => {
+    if (!data) return [];
+    return assignedDeployments
+      .map((row) => {
+        const modelPath = row.model.trim();
+        const modelId = row.served_name.trim() || modelPath;
+        const family = inferCapabilityFamily(modelPath || modelId);
+        const previewResult = resolvePreview(data, {
+          modelId,
+          family,
+          modelPath,
+        });
+        const providerState = providerStatusByKey.get(row.provider);
+        const providerNeedsKey = Boolean(providerState?.apiKeyEnv) && !Boolean(providerState?.isLocal);
+        return {
+          role: row.role,
+          provider: row.provider,
+          modelId,
+          modelPath,
+          family,
+          matchedLabels: previewResult.matchedLabels,
+          resolved: previewResult.resolved,
+          providerEnabled: providerState?.enabled ?? null,
+          providerNeedsKey,
+          providerKeyConfigured: providerNeedsKey ? (providerState?.apiKeyConfigured ?? null) : null,
+        };
+      })
+      .filter((row) => row.modelId || row.modelPath)
+      .sort((a, b) => a.role.localeCompare(b.role));
+  }, [assignedDeployments, data, providerStatusByKey]);
+
+  const legacySelectorCandidates = useMemo<LegacySelectorFixCandidate[]>(() => {
+    if (!data) return [];
+    return data.overrides
+      .map((row) => {
+        const registryChoices = registrySelectorCatalog[row.selector_type];
+        if (registryChoices.length === 0) return null;
+        const selector = row.selector.trim();
+        if (!selector) return null;
+        if (registryChoices.some((choice) => choice.value === selector)) return null;
+
+        const normalizedSelector = normalizeSelector(selector);
+        const normalizedMatches = registryChoices.filter(
+          (choice) => normalizeSelector(choice.value) === normalizedSelector,
+        );
+        if (normalizedMatches.length === 1) {
+          return {
+            row,
+            suggestions: registryChoices,
+            suggestedSelector: normalizedMatches[0].value,
+            reason: "Case/format mismatch with a known registry selector.",
+          } satisfies LegacySelectorFixCandidate;
+        }
+
+        if (row.selector_type !== "exact_model") {
+          const prefixMatches = registryChoices.filter((choice) => {
+            const normalizedChoice = normalizeSelector(choice.value);
+            return normalizedChoice.startsWith(normalizedSelector) || normalizedSelector.startsWith(normalizedChoice);
+          });
+          if (prefixMatches.length === 1) {
+            return {
+              row,
+              suggestions: registryChoices,
+              suggestedSelector: prefixMatches[0].value,
+              reason: "Prefix mismatch; one canonical registry selector is likely intended.",
+            } satisfies LegacySelectorFixCandidate;
+          }
+        }
+
+        return {
+          row,
+          suggestions: registryChoices,
+          suggestedSelector: null,
+          reason: "No deterministic match found. Pick a canonical selector manually.",
+        } satisfies LegacySelectorFixCandidate;
+      })
+      .filter((candidate): candidate is LegacySelectorFixCandidate => candidate !== null)
+      .sort((a, b) => {
+        const rank = selectorRank(a.row.selector_type) - selectorRank(b.row.selector_type);
+        if (rank !== 0) return rank;
+        return a.row.id.localeCompare(b.row.id);
+      });
+  }, [data, registrySelectorCatalog]);
+
   const presetSelectorFromPreview = useMemo(
     () =>
       selectorFromPreview(presetSelectorType, {
@@ -295,10 +597,66 @@ export default function CapabilityMatrixPage() {
     setFormCapabilities(initial);
   }, [data, formCapabilities]);
 
+  useEffect(() => {
+    if (formSelectorChoices.length === 0) {
+      if (formSelector !== "") setFormSelector("");
+      return;
+    }
+    if (!formSelectorChoices.some((choice) => choice.value === formSelector.trim())) {
+      setFormSelector(formSelectorChoices[0].value);
+    }
+  }, [formSelectorChoices, formSelector]);
+
+  useEffect(() => {
+    if (presetSelectorChoices.length === 0) {
+      if (presetSelector !== "") setPresetSelector("");
+      return;
+    }
+    if (!presetSelectorChoices.some((choice) => choice.value === presetSelector.trim())) {
+      setPresetSelector(presetSelectorChoices[0].value);
+    }
+  }, [presetSelectorChoices, presetSelector]);
+
+  useEffect(() => {
+    if (previewModelChoices.length === 0) {
+      if (previewModelId !== "") setPreviewModelId("");
+    } else if (!previewModelChoices.some((choice) => choice.value === previewModelId.trim())) {
+      setPreviewModelId(previewModelChoices[0].value);
+    }
+  }, [previewModelChoices, previewModelId]);
+
+  useEffect(() => {
+    if (previewFamilyChoices.length === 0) {
+      if (previewFamily !== "") setPreviewFamily("");
+    } else if (!previewFamilyChoices.some((choice) => choice.value === previewFamily.trim())) {
+      setPreviewFamily(previewFamilyChoices[0].value);
+    }
+  }, [previewFamilyChoices, previewFamily]);
+
+  useEffect(() => {
+    if (previewPathChoices.length === 0) {
+      if (previewPath !== "") setPreviewPath("");
+    } else if (!previewPathChoices.some((choice) => choice.value === previewPath.trim())) {
+      setPreviewPath(previewPathChoices[0].value);
+    }
+  }, [previewPathChoices, previewPath]);
+
+  useEffect(() => {
+    if (legacySelectorCandidates.length === 0) {
+      if (Object.keys(legacyFixSelections).length > 0) setLegacyFixSelections({});
+      return;
+    }
+    const next: Record<string, string> = {};
+    for (const candidate of legacySelectorCandidates) {
+      next[candidate.row.id] = candidate.suggestedSelector ?? "";
+    }
+    setLegacyFixSelections(next);
+  }, [legacySelectorCandidates]);
+
   function resetForm(keys: string[]) {
     setEditingPolicyId(null);
     setFormSelectorType("exact_model");
-    setFormSelector("");
+    setFormSelector(registrySelectorCatalog.exact_model[0]?.value ?? "");
     setFormPriority(0);
     setFormEnabled(true);
     setFormError("");
@@ -311,6 +669,10 @@ export default function CapabilityMatrixPage() {
     if (!data) return;
     if (!formSelector.trim()) {
       setFormError("Selector is required.");
+      return;
+    }
+    if (!formSelectorIsCanonical) {
+      setFormError(`Selector must match a canonical ${SELECTOR_LABELS[formSelectorType]} value from Model Registry.`);
       return;
     }
     setFormError("");
@@ -340,7 +702,12 @@ export default function CapabilityMatrixPage() {
   function handleStartEdit(row: CapabilityMatrixOverride) {
     setEditingPolicyId(row.id);
     setFormSelectorType(row.selector_type);
-    setFormSelector(row.selector);
+    const canonical = chooseCanonicalSelectorValue(
+      registrySelectorCatalog[row.selector_type],
+      row.selector_type,
+      row.selector,
+    );
+    setFormSelector(canonical ?? row.selector);
     setFormPriority(row.priority);
     setFormEnabled(row.enabled);
     const next: Record<string, boolean> = {};
@@ -377,6 +744,10 @@ export default function CapabilityMatrixPage() {
     const selector = presetSelector.trim();
     if (!selector) {
       setPresetError("Preset selector is required.");
+      return;
+    }
+    if (!presetSelectorIsCanonical) {
+      setPresetError(`Selector must match a canonical ${SELECTOR_LABELS[presetSelectorType]} value from Model Registry.`);
       return;
     }
     setPresetError("");
@@ -454,6 +825,66 @@ export default function CapabilityMatrixPage() {
     setPreviewPath(selector);
   }
 
+  async function handleApplyLegacyFix(row: CapabilityMatrixOverride) {
+    const nextSelector = (legacyFixSelections[row.id] ?? "").trim();
+    if (!nextSelector) {
+      setLegacyFixError(`Select a canonical ${SELECTOR_LABELS[row.selector_type]} value first.`);
+      return;
+    }
+    setLegacyFixError("");
+    setLegacyFixStatus("");
+    await updateOverride.mutateAsync({
+      policyId: row.id,
+      name: row.name,
+      scope: row.scope,
+      scope_value: row.scope_value,
+      org_id: row.org_id,
+      enabled: row.enabled,
+      selector_type: row.selector_type,
+      selector: nextSelector,
+      priority: row.priority,
+      capabilities: row.capabilities,
+    });
+    setLegacyFixStatus(`Updated ${SELECTOR_LABELS[row.selector_type]} override to "${nextSelector}".`);
+  }
+
+  async function handleAutoFixLegacySelectors() {
+    const deterministic = legacySelectorCandidates
+      .map((candidate) => ({
+        candidate,
+        selector: (legacyFixSelections[candidate.row.id] ?? "").trim(),
+      }))
+      .filter(({ candidate, selector }) =>
+        Boolean(candidate.suggestedSelector)
+        && selector.length > 0
+        && selector !== candidate.row.selector.trim(),
+      );
+
+    if (deterministic.length === 0) {
+      setLegacyFixError("");
+      setLegacyFixStatus("No deterministic legacy selector fixes found.");
+      return;
+    }
+
+    setLegacyFixError("");
+    setLegacyFixStatus("");
+    for (const { candidate, selector } of deterministic) {
+      await updateOverride.mutateAsync({
+        policyId: candidate.row.id,
+        name: candidate.row.name,
+        scope: candidate.row.scope,
+        scope_value: candidate.row.scope_value,
+        org_id: candidate.row.org_id,
+        enabled: candidate.row.enabled,
+        selector_type: candidate.row.selector_type,
+        selector,
+        priority: candidate.row.priority,
+        capabilities: candidate.row.capabilities,
+      });
+    }
+    setLegacyFixStatus(`Updated ${deterministic.length} legacy selector${deterministic.length === 1 ? "" : "s"}.`);
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -463,6 +894,12 @@ export default function CapabilityMatrixPage() {
         </p>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Toggle labels map directly to runtime behavior; no code/env lookup needed for normal operation.
+        </p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Selector picklists come from Model Registry assignments; legacy override cleanup is handled below.
+        </p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Strict mode: creating or saving overrides is blocked unless selector values are canonical registry values.
         </p>
         <a
           href="/settings/audit"
@@ -541,12 +978,22 @@ export default function CapabilityMatrixPage() {
               </label>
               <label className="text-sm text-gray-600 dark:text-gray-300 md:col-span-2">
                 Selector
-                <input
+                <select
                   className="mt-1 block w-full rounded border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   value={presetSelector}
                   onChange={(event) => setPresetSelector(event.target.value)}
-                  placeholder="qwen3.6-35b-a3b"
-                />
+                  disabled={presetSelectorChoices.length === 0}
+                >
+                  {presetSelectorChoices.length === 0 ? (
+                    <option value="">No selectors available — assign models in Model Registry first</option>
+                  ) : (
+                    presetSelectorChoices.map((choice) => (
+                      <option key={`${choice.source}:${choice.value}`} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))
+                  )}
+                </select>
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     type="button"
@@ -562,6 +1009,9 @@ export default function CapabilityMatrixPage() {
                       : "No value available from preview"}
                   </span>
                 </div>
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                  Strict mode: canonical registry values only.
+                </p>
               </label>
               <label className="flex items-end gap-2 text-sm text-gray-600 dark:text-gray-300">
                 <input
@@ -585,7 +1035,12 @@ export default function CapabilityMatrixPage() {
                   <button
                     className="mt-3 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                     onClick={() => handleApplyPreset(preset)}
-                    disabled={createOverride.isPending || updateOverride.isPending || updateGlobal.isPending}
+                    disabled={
+                      createOverride.isPending
+                      || updateOverride.isPending
+                      || updateGlobal.isPending
+                      || !presetSelectorIsCanonical
+                    }
                   >
                     Apply preset
                   </button>
@@ -615,12 +1070,22 @@ export default function CapabilityMatrixPage() {
               </label>
               <label className="text-sm text-gray-600 dark:text-gray-300">
                 Selector
-                <input
+                <select
                   className="mt-1 block w-full rounded border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   value={formSelector}
                   onChange={(event) => setFormSelector(event.target.value)}
-                  placeholder="qwen3.6-35b-a3b"
-                />
+                  disabled={formSelectorChoices.length === 0}
+                >
+                  {formSelectorChoices.length === 0 ? (
+                    <option value="">No selectors available — assign models in Model Registry first</option>
+                  ) : (
+                    formSelectorChoices.map((choice) => (
+                      <option key={`${choice.source}:${choice.value}`} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))
+                  )}
+                </select>
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     type="button"
@@ -636,6 +1101,9 @@ export default function CapabilityMatrixPage() {
                       : "Enter a selector to update preview context"}
                   </span>
                 </div>
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                  Strict mode: canonical registry values only.
+                </p>
               </label>
               <label className="text-sm text-gray-600 dark:text-gray-300">
                 Priority
@@ -676,7 +1144,12 @@ export default function CapabilityMatrixPage() {
             <div className="mt-3 flex gap-2">
               <button
                 className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                disabled={createOverride.isPending || updateOverride.isPending}
+                disabled={
+                  createOverride.isPending
+                  || updateOverride.isPending
+                  || !formSelector.trim()
+                  || !formSelectorIsCanonical
+                }
                 onClick={handleSubmitOverride}
               >
                 {editingPolicyId
@@ -750,31 +1223,244 @@ export default function CapabilityMatrixPage() {
           </section>
 
           <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Legacy selector remediation</h2>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Existing overrides that do not exactly match current Model Registry selector values.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded border px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                disabled={updateOverride.isPending || legacySelectorCandidates.length === 0}
+                onClick={handleAutoFixLegacySelectors}
+              >
+                Auto-fix deterministic matches
+              </button>
+            </div>
+            {legacyFixError && <p className="mt-2 text-sm text-red-600">{legacyFixError}</p>}
+            {legacyFixStatus && <p className="mt-2 text-sm text-green-600">{legacyFixStatus}</p>}
+            {legacySelectorCandidates.length === 0 ? (
+              <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                All override selectors already match registry-backed canonical values.
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-left text-xs uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                      <th className="px-2 py-2">Selector type</th>
+                      <th className="px-2 py-2">Current selector</th>
+                      <th className="px-2 py-2">Canonical selector</th>
+                      <th className="px-2 py-2">Reason</th>
+                      <th className="px-2 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {legacySelectorCandidates.map((candidate) => {
+                      const selected = legacyFixSelections[candidate.row.id] ?? "";
+                      const canApply = selected.trim().length > 0
+                        && selected.trim() !== candidate.row.selector.trim();
+                      return (
+                        <tr key={candidate.row.id} className="border-b border-gray-50 dark:border-gray-800">
+                          <td className="px-2 py-2 text-gray-700 dark:text-gray-200">
+                            {SELECTOR_LABELS[candidate.row.selector_type]}
+                          </td>
+                          <td className="px-2 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
+                            {candidate.row.selector}
+                          </td>
+                          <td className="px-2 py-2">
+                            <select
+                              className="block w-full rounded border px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                              value={selected}
+                              onChange={(event) =>
+                                setLegacyFixSelections((prev) => ({
+                                  ...prev,
+                                  [candidate.row.id]: event.target.value,
+                                }))}
+                            >
+                              <option value="">Select canonical value…</option>
+                              {candidate.suggestions.map((choice) => (
+                                <option key={`${candidate.row.id}:${choice.value}`} value={choice.value}>
+                                  {choice.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{candidate.reason}</td>
+                          <td className="px-2 py-2 text-right">
+                            <button
+                              type="button"
+                              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                              disabled={updateOverride.isPending || !canApply}
+                              onClick={() => handleApplyLegacyFix(candidate.row)}
+                            >
+                              Apply fix
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Registry capability coverage</h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Visualization of assigned registry models, selector identity, provider readiness, and resolved ON/OFF capability state.
+            </p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-left text-xs uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                    <th className="px-2 py-2">Role</th>
+                    <th className="px-2 py-2">Provider</th>
+                    <th className="px-2 py-2">Selectors</th>
+                    <th className="px-2 py-2">Matched overrides</th>
+                    {supportedCapabilities.map((capability) => (
+                      <th key={capability} className="px-2 py-2">
+                        {CAPABILITY_LABELS[capability] ?? capability}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {registryCapabilityRows.map((row) => (
+                    <tr key={`${row.role}:${row.modelPath || row.modelId}`} className="border-b border-gray-50 dark:border-gray-800">
+                      <td className="px-2 py-2 align-top text-gray-700 dark:text-gray-200">
+                        <div className="font-medium">{row.role}</div>
+                        <div className="font-mono text-xs text-gray-500">{row.modelId || "(missing)"}</div>
+                      </td>
+                      <td className="px-2 py-2 align-top text-xs text-gray-600 dark:text-gray-300">
+                        <div className="font-medium">{row.provider || "unknown"}</div>
+                        <div>
+                          provider:{" "}
+                          <span className={
+                            row.providerEnabled == null
+                              ? "text-gray-500"
+                              : row.providerEnabled
+                                ? "text-green-600"
+                                : "text-red-600"
+                          }>
+                            {row.providerEnabled == null ? "unknown" : row.providerEnabled ? "enabled" : "disabled"}
+                          </span>
+                        </div>
+                        <div>
+                          key:{" "}
+                          {row.providerEnabled == null ? (
+                            <span className="text-gray-500">unknown</span>
+                          ) : !row.providerNeedsKey ? (
+                            <span className="text-gray-500">not required</span>
+                          ) : row.providerKeyConfigured === true ? (
+                            <span className="text-green-600">configured</span>
+                          ) : (
+                            <span className="text-amber-600">missing</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 align-top text-xs text-gray-600 dark:text-gray-300">
+                        <div>
+                          exact: <span className="font-mono">{row.modelId || "(empty)"}</span>
+                        </div>
+                        <div>
+                          path: <span className="font-mono">{row.modelPath || "(empty)"}</span>
+                        </div>
+                        <div>
+                          family: <span className="font-mono">{row.family || "(empty)"}</span>
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 align-top text-xs text-gray-600 dark:text-gray-300">
+                        {row.matchedLabels.length > 0 ? row.matchedLabels.join(", ") : "none"}
+                      </td>
+                      {supportedCapabilities.map((capability) => {
+                        const enabled = row.resolved[capability] ?? false;
+                        return (
+                          <td key={`${row.role}:${capability}`} className="px-2 py-2 align-top text-center">
+                            <span className={`inline-flex rounded px-2 py-0.5 text-[10px] font-medium ${
+                              enabled
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                            }`}>
+                              {enabled ? "ON" : "OFF"}
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {registryCapabilityRows.length === 0 && (
+                <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  No assigned models found in Model Registry.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Effective preview</h2>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
               <label className="text-sm text-gray-600 dark:text-gray-300">
                 Model ID
-                <input
+                <select
                   className="mt-1 block w-full rounded border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   value={previewModelId}
                   onChange={(event) => setPreviewModelId(event.target.value)}
-                />
+                  disabled={previewModelChoices.length === 0}
+                >
+                  {previewModelChoices.length === 0 ? (
+                    <option value="">No model IDs available</option>
+                  ) : (
+                    previewModelChoices.map((choice) => (
+                      <option key={`${choice.source}:${choice.value}`} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))
+                  )}
+                </select>
               </label>
               <label className="text-sm text-gray-600 dark:text-gray-300">
                 Family
-                <input
+                <select
                   className="mt-1 block w-full rounded border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   value={previewFamily}
                   onChange={(event) => setPreviewFamily(event.target.value)}
-                />
+                  disabled={previewFamilyChoices.length === 0}
+                >
+                  {previewFamilyChoices.length === 0 ? (
+                    <option value="">No families available</option>
+                  ) : (
+                    previewFamilyChoices.map((choice) => (
+                      <option key={`${choice.source}:${choice.value}`} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))
+                  )}
+                </select>
               </label>
               <label className="text-sm text-gray-600 dark:text-gray-300">
                 Model path
-                <input
+                <select
                   className="mt-1 block w-full rounded border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   value={previewPath}
                   onChange={(event) => setPreviewPath(event.target.value)}
-                />
+                  disabled={previewPathChoices.length === 0}
+                >
+                  {previewPathChoices.length === 0 ? (
+                    <option value="">No model paths available</option>
+                  ) : (
+                    previewPathChoices.map((choice) => (
+                      <option key={`${choice.source}:${choice.value}`} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))
+                  )}
+                </select>
               </label>
             </div>
             <div className="mt-4 rounded border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950">

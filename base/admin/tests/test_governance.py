@@ -91,6 +91,25 @@ def reader_client():
     app.dependency_overrides.pop(get_current_user, None)
 
 
+@pytest.fixture()
+def platform_admin_client():
+    from app.auth import UserInfo, get_current_user
+    from app.main import app
+
+    _auth_ctx["user"] = UserInfo(
+        username="platform-admin",
+        role="platform_admin",
+        user_id="u-platform",
+        org_id="org-1",
+        org_name="TestOrg",
+        tenant_ids=["t-1"],
+        acl_groups=[],
+    )
+    app.dependency_overrides[get_current_user] = _make_user_override()
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.pop(get_current_user, None)
+
+
 # ── Mock DB session ──────────────────────────────────────────────────────────
 
 
@@ -568,3 +587,103 @@ class TestEffectiveGovernance:
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_policies"] == 0
+
+
+class TestCapabilityMatrixCanonicalSelectors:
+    def test_create_override_rejects_non_canonical_selector(self, platform_admin_client, _mock_db):
+        deployment = FakeRow(
+            id=1,
+            role="coder",
+            model="qwen3/qwen3.6-35b-a3b",
+            served_name="synesis-coder",
+            is_active=True,
+        )
+        _mock_db._execute_results = [
+            FakeResult(items=[deployment]),  # canonical selector snapshot from active deployments
+        ]
+        resp = platform_admin_client.post(
+            "/api/v1/governance/capability-matrix/overrides",
+            json={
+                "selector_type": "exact_model",
+                "selector": "synesis-codre",
+                "scope": "platform",
+                "enabled": True,
+                "capabilities": {"yarn.reducers_enabled": True},
+            },
+        )
+        assert resp.status_code == 400
+        assert "Non-canonical selector" in resp.json()["detail"]
+
+    def test_create_override_accepts_canonical_selector(self, platform_admin_client, _mock_db):
+        deployment = FakeRow(
+            id=2,
+            role="coder",
+            model="qwen3/qwen3.6-35b-a3b",
+            served_name="synesis-coder",
+            is_active=True,
+        )
+        _mock_db._execute_results = [
+            FakeResult(items=[deployment]),  # canonical selector snapshot
+            FakeResult(items=[]),  # no selector conflict
+        ]
+        resp = platform_admin_client.post(
+            "/api/v1/governance/capability-matrix/overrides",
+            json={
+                "selector_type": "exact_model",
+                "selector": "synesis-coder",
+                "scope": "platform",
+                "enabled": True,
+                "capabilities": {"yarn.reducers_enabled": True},
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["selector"] == "synesis-coder"
+
+    def test_update_override_rejects_non_canonical_selector(self, platform_admin_client, _mock_db):
+        existing = FakeRow(
+            id=10,
+            policy_id="cm-override-1",
+            name="Legacy selector",
+            scope="platform",
+            scope_value="",
+            org_id="",
+            category="tooling",
+            constraint_kind="hard",
+            rule_type="feature_toggle",
+            rule_config={
+                "kind": "capability_matrix_v1",
+                "row_type": "override",
+                "version": 1,
+                "selector_type": "exact_model",
+                "selector": "synesis-coder",
+                "priority": 10,
+                "capabilities": {"yarn.reducers_enabled": True},
+            },
+            enabled=True,
+            priority=10,
+            updated_at=datetime.now(UTC),
+        )
+        deployment = FakeRow(
+            id=3,
+            role="coder",
+            model="qwen3/qwen3.6-35b-a3b",
+            served_name="synesis-coder",
+            is_active=True,
+        )
+        _mock_db._execute_results = [
+            FakeResult(items=[existing]),  # existing policy
+            FakeResult(items=[deployment]),  # canonical selector snapshot
+        ]
+        resp = platform_admin_client.put(
+            "/api/v1/governance/capability-matrix/overrides/cm-override-1",
+            json={
+                "selector_type": "exact_model",
+                "selector": "synesis-coder-typo",
+                "scope": "platform",
+                "enabled": True,
+                "priority": 10,
+                "capabilities": {"yarn.reducers_enabled": True},
+            },
+        )
+        assert resp.status_code == 400
+        assert "Non-canonical selector" in resp.json()["detail"]

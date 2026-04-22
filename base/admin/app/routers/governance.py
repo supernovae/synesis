@@ -20,6 +20,7 @@ from ..db.models import (
     GovernanceClause,
     GovernanceConstitution,
     GovernancePolicyDef,
+    ModelDeployment,
 )
 
 logger = logging.getLogger("synesis.admin.governance")
@@ -185,6 +186,85 @@ async def _fetch_capability_matrix_rows(session, org_id: str | None = None) -> t
 def _compute_capability_matrix_etag(payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def _infer_capability_family(model_ref: str) -> str:
+    normalized = model_ref.lower()
+    if "qwen3" in normalized and "coder" in normalized:
+        return "qwen3-coder"
+    if "deepseek" in normalized:
+        return "deepseek"
+    if "kimi" in normalized or "moonshot" in normalized:
+        return "kimi"
+    if "minimax" in normalized or "abab" in normalized:
+        return "minimax"
+    return "generic"
+
+
+def _selector_preview(values: set[str], limit: int = 8) -> str:
+    if not values:
+        return "none"
+    ordered = sorted(values)
+    if len(ordered) <= limit:
+        return ", ".join(ordered)
+    return ", ".join(ordered[:limit]) + f" (+{len(ordered) - limit} more)"
+
+
+async def _canonical_capability_selectors(session) -> dict[str, set[str]]:
+    selectors: dict[str, set[str]] = {
+        "exact_model": set(),
+        "model_path_prefix": set(),
+        "family_prefix": set(),
+    }
+    rows = (
+        await session.execute(
+            select(ModelDeployment).where(ModelDeployment.is_active == True),
+        )
+    ).scalars().all()
+    for row in rows:
+        served_name = str(getattr(row, "served_name", "") or "").strip()
+        backend_model = str(getattr(row, "model", "") or "").strip()
+        model_ref = backend_model or served_name
+        if served_name:
+            selectors["exact_model"].add(served_name)
+        if backend_model:
+            selectors["exact_model"].add(backend_model)
+            selectors["model_path_prefix"].add(backend_model)
+        if model_ref:
+            selectors["family_prefix"].add(_infer_capability_family(model_ref))
+    return selectors
+
+
+async def _ensure_selector_is_canonical(session, selector_type: str, selector: str) -> None:
+    selector_value = selector.strip()
+    selector_sets = await _canonical_capability_selectors(session)
+    valid_values = selector_sets.get(selector_type, set())
+    if not valid_values:
+        raise HTTPException(
+            409,
+            "No canonical selectors are available yet. Assign at least one model in Model Registry first.",
+        )
+    if selector_value in valid_values:
+        return
+
+    normalized = selector_value.lower()
+    suggested = next((candidate for candidate in sorted(valid_values) if candidate.lower() == normalized), None)
+    if suggested is not None:
+        raise HTTPException(
+            400,
+            (
+                f"Non-canonical selector for {selector_type}: '{selector_value}'. "
+                f"Use canonical value '{suggested}'."
+            ),
+        )
+
+    raise HTTPException(
+        400,
+        (
+            f"Non-canonical selector for {selector_type}: '{selector_value}'. "
+            f"Valid canonical values include: {_selector_preview(valid_values)}."
+        ),
+    )
 
 
 async def _ensure_no_selector_conflict(
@@ -1206,6 +1286,11 @@ async def create_capability_matrix_override(
     policy_id = str(uuid.uuid4())
     policy_name = (body.name or f"Capability Override: {selector_type}:{body.selector.strip()}").strip()[:256]
     async with async_session() as session:
+        await _ensure_selector_is_canonical(
+            session,
+            selector_type=selector_type,
+            selector=body.selector.strip(),
+        )
         await _ensure_no_selector_conflict(
             session,
             selector_type=selector_type,
@@ -1279,6 +1364,11 @@ async def upsert_capability_matrix_override(
             raise HTTPException(404, "Capability matrix override not found")
         if not _is_capability_matrix_row(existing):
             raise HTTPException(409, "Policy exists but is not a capability matrix row")
+        await _ensure_selector_is_canonical(
+            session,
+            selector_type=selector_type,
+            selector=body.selector.strip(),
+        )
         await _ensure_no_selector_conflict(
             session,
             selector_type=selector_type,
