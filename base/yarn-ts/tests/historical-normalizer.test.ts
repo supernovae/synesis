@@ -143,4 +143,57 @@ describe("stabilizeToolCallIds", () => {
     expect(result.messages[3].tool_call_id).toBe("tc_1_1");
     expect(result.rewriteCount).toBe(4);
   });
+
+  it("rewrites Claude-format tool_use blocks in assistant content arrays", () => {
+    const messages = [
+      { role: "user", content: "fix it" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I'll fix it." },
+          { type: "tool_use", id: "toolu_01AAA", name: "bash", input: { command: "ls" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_01AAA", content: "file1.go\nfile2.go" },
+        ],
+      },
+      { role: "user", content: "thanks" },
+    ];
+
+    const result = stabilizeToolCallIds(messages, 3);
+    const assistantContent = result.messages[1].content as Array<Record<string, unknown>>;
+    expect(assistantContent[1].id).toBe("tc_1_0");
+    const userContent = result.messages[2].content as Array<Record<string, unknown>>;
+    expect(userContent[0].tool_use_id).toBe("tc_1_0");
+    expect(result.rewriteCount).toBe(2);
+  });
+
+  it("rewrites Claude tool_result references even past keepFromIndex", () => {
+    const messages = [
+      { role: "user", content: "fix it" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "toolu_01BBB", name: "read", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_01BBB", content: "file content" },
+        ],
+      },
+    ];
+
+    // keepFromIndex=2 means the tool_result at index 2 is in the keep window
+    // but the assistant at index 1 is before it — both need consistent IDs
+    const result = stabilizeToolCallIds(messages, 2);
+    const assistantContent = result.messages[1].content as Array<Record<string, unknown>>;
+    expect(assistantContent[0].id).toBe("tc_1_0");
+    const userContent = result.messages[2].content as Array<Record<string, unknown>>;
+    expect(userContent[0].tool_use_id).toBe("tc_1_0");
+  });
 });

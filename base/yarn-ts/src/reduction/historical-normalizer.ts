@@ -144,17 +144,33 @@ export function stabilizeToolCallIds(
   keepFromIndex: number,
 ): { messages: MessageLike[]; rewriteCount: number } {
   // First pass: build the ID rewrite map from old assistant messages.
+  // Handles both OpenAI format (tool_calls[].id) and Claude native format
+  // (content[].id where type === "tool_use").
   const idMap = new Map<string, string>();
   let turnIndex = 0;
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (m.role === "user") turnIndex += 1;
     if (i >= keepFromIndex) break;
-    if (m.role === "assistant" && m.tool_calls) {
-      for (let j = 0; j < m.tool_calls.length; j++) {
-        const tc = m.tool_calls[j];
-        if (tc.id && !idMap.has(tc.id)) {
-          idMap.set(tc.id, `tc_${turnIndex}_${j}`);
+    if (m.role === "assistant") {
+      let toolIdx = 0;
+      if (m.tool_calls) {
+        for (const tc of m.tool_calls) {
+          if (tc.id && !idMap.has(tc.id)) {
+            idMap.set(tc.id, `tc_${turnIndex}_${toolIdx}`);
+          }
+          toolIdx += 1;
+        }
+      }
+      // Claude native: tool_use blocks in content array
+      if (Array.isArray(m.content)) {
+        for (const block of m.content as Array<Record<string, unknown>>) {
+          if (block && typeof block === "object" && block.type === "tool_use" && typeof block.id === "string") {
+            if (!idMap.has(block.id)) {
+              idMap.set(block.id, `tc_${turnIndex}_${toolIdx}`);
+            }
+            toolIdx += 1;
+          }
         }
       }
     }
@@ -197,8 +213,45 @@ export function stabilizeToolCallIds(
       }
     }
 
+    // Claude-format content arrays: rewrite tool_use.id in assistant blocks
+    // and tool_result.tool_use_id in user blocks.
+    let newContent = m.content;
+    if (Array.isArray(m.content)) {
+      const blocks = m.content as Array<Record<string, unknown>>;
+      let contentChanged = false;
+      const rewrittenBlocks = blocks.map((block) => {
+        if (!block || typeof block !== "object") return block;
+
+        // Assistant tool_use blocks (Claude native): {type: "tool_use", id: "toolu_xxx"}
+        if (i < keepFromIndex && block.type === "tool_use" && typeof block.id === "string") {
+          const newId = idMap.get(block.id);
+          if (newId && newId !== block.id) {
+            contentChanged = true;
+            rewriteCount += 1;
+            return { ...block, id: newId };
+          }
+        }
+
+        // User tool_result blocks (Claude native): {type: "tool_result", tool_use_id: "toolu_xxx"}
+        if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
+          const newId = idMap.get(block.tool_use_id);
+          if (newId && newId !== block.tool_use_id) {
+            contentChanged = true;
+            rewriteCount += 1;
+            return { ...block, tool_use_id: newId };
+          }
+        }
+
+        return block;
+      });
+      if (contentChanged) {
+        newContent = rewrittenBlocks;
+        changed = true;
+      }
+    }
+
     if (changed) {
-      result.push({ ...m, tool_calls: newToolCalls, tool_call_id: newToolCallId });
+      result.push({ ...m, tool_calls: newToolCalls, tool_call_id: newToolCallId, content: newContent });
     } else {
       result.push(m);
     }
