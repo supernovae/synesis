@@ -79,6 +79,7 @@ Client messages
 │ 8. System Enrichment                │  Build prompt from PromptFrame:
 │    (enrichWithFrameAndManifest)     │  stable prefix (instructions + admin
 │    + BlockStore normalization       │  profiles + adapter), project context,
+│                                     │  ChatState + FileState semantic channels,
 │                                     │  structural index, verification plan,
 │                                     │  response style, governance blocks.
 │                                     │  Each block stored in BlockStore by

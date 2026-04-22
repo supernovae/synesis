@@ -221,6 +221,20 @@ import { deriveGovernorLoopObservability } from "./governance/governor-observabi
 import { buildArtifactShadows, summarizeArtifactContext } from "./governance/artifact-shadow.js";
 import { computeEvidenceDelta, summarizeEvidenceDelta, evidenceDeltaStreakAdjustment } from "./governance/evidence-delta.js";
 import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
+import {
+  deriveChatState,
+  formatChatStateBlock,
+  toChatStateSnapshot,
+  type ChatPhase,
+  type ChatState,
+  type ChatStateSnapshot,
+} from "./governance/chat-state.js";
+import {
+  deriveFileState,
+  formatFileStateBlock,
+  toFileStateSnapshot,
+  type FileStateSnapshot,
+} from "./governance/file-state.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
   buildImplementationSoftStallNudgeMessage,
@@ -942,8 +956,142 @@ function getMetadataString(meta: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function getMetadataObject(meta: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = meta[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
 function trimSnippet(text: string, max = 2000): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function readPersistedChatStateSnapshot(meta: Record<string, unknown>): Partial<ChatStateSnapshot> | null {
+  const raw = getMetadataObject(meta, "chat_state_snapshot");
+  if (!raw) return null;
+
+  const phase = typeof raw.phase === "string" ? raw.phase.trim().toLowerCase() : "";
+  const completionStatus = typeof raw.completionStatus === "string" ? raw.completionStatus.trim().toLowerCase() : "";
+  const verificationOutcome = typeof raw.lastVerificationOutcome === "string"
+    ? raw.lastVerificationOutcome.trim().toLowerCase()
+    : "";
+  const updatedAt = Number(raw.updatedAt ?? 0);
+
+  const snapshot: Partial<ChatStateSnapshot> = {};
+  if (typeof raw.activeObjective === "string") snapshot.activeObjective = raw.activeObjective;
+  if (typeof raw.pendingUserDirective === "string") snapshot.pendingUserDirective = raw.pendingUserDirective;
+  if (phase === "interpret" || phase === "inspect" || phase === "edit" || phase === "verify" || phase === "recover" || phase === "finalize") {
+    snapshot.phase = phase as ChatStateSnapshot["phase"];
+  }
+  if (completionStatus === "in_progress" || completionStatus === "blocked" || completionStatus === "ready_to_finalize" || completionStatus === "complete_claimed") {
+    snapshot.completionStatus = completionStatus as ChatStateSnapshot["completionStatus"];
+  }
+  if (verificationOutcome === "pass" || verificationOutcome === "fail" || verificationOutcome === "unknown") {
+    snapshot.lastVerificationOutcome = verificationOutcome as ChatStateSnapshot["lastVerificationOutcome"];
+  }
+  if (typeof raw.transcriptSummary === "string") snapshot.transcriptSummary = raw.transcriptSummary;
+  if (Number.isFinite(Number(raw.unresolvedCorrectionCount))) {
+    snapshot.unresolvedCorrectionCount = Number(raw.unresolvedCorrectionCount);
+  }
+  if (Number.isFinite(Number(raw.resolvedCorrectionCount))) {
+    snapshot.resolvedCorrectionCount = Number(raw.resolvedCorrectionCount);
+  }
+  if (Number.isFinite(updatedAt) && updatedAt > 0) snapshot.updatedAt = updatedAt;
+  return Object.keys(snapshot).length > 0 ? snapshot : null;
+}
+
+function readPersistedFileStateSnapshot(meta: Record<string, unknown>): FileStateSnapshot | null {
+  const raw = getMetadataObject(meta, "file_state_snapshot");
+  if (!raw) return null;
+  const fileCount = Number(raw.fileCount ?? 0);
+  const statusCountsRaw = getMetadataObject(raw, "statusCounts") ?? {};
+  const staleFiles = Array.isArray(raw.staleFiles) ? raw.staleFiles.map((value) => String(value)).slice(0, 8) : [];
+  const partialFiles = Array.isArray(raw.partialFiles) ? raw.partialFiles.map((value) => String(value)).slice(0, 8) : [];
+  const evictedFiles = Array.isArray(raw.evictedFiles) ? raw.evictedFiles.map((value) => String(value)).slice(0, 8) : [];
+  const updatedAt = Number(raw.updatedAt ?? Date.now());
+  const statusCounts = {
+    available: Number(statusCountsRaw.available ?? 0),
+    partial: Number(statusCountsRaw.partial ?? 0),
+    unchanged: Number(statusCountsRaw.unchanged ?? 0),
+    stale: Number(statusCountsRaw.stale ?? 0),
+    evicted: Number(statusCountsRaw.evicted ?? 0),
+    missing: Number(statusCountsRaw.missing ?? 0),
+  };
+  return {
+    fileCount: Number.isFinite(fileCount) ? fileCount : 0,
+    statusCounts,
+    staleFiles,
+    partialFiles,
+    evictedFiles,
+    updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+  };
+}
+
+function summarizeChatStateForGovernor(chatState: ChatState): {
+  active_objective: string | null;
+  pending_user_directive: string | null;
+  completion_status: ChatState["completionStatus"];
+  last_verification_outcome: ChatState["lastVerificationOutcome"];
+  narration_residue_present: boolean;
+} {
+  return {
+    active_objective: chatState.activeObjective ? trimSnippet(chatState.activeObjective, 220) : null,
+    pending_user_directive: chatState.pendingUserDirective ? trimSnippet(chatState.pendingUserDirective, 220) : null,
+    completion_status: chatState.completionStatus,
+    last_verification_outcome: chatState.lastVerificationOutcome,
+    narration_residue_present: Boolean(chatState.narrationResidueSummary),
+  };
+}
+
+function summarizeChatSnapshotForGovernor(snapshot: Partial<ChatStateSnapshot> | null): {
+  active_objective: string | null;
+  pending_user_directive: string | null;
+  completion_status: ChatState["completionStatus"];
+  last_verification_outcome: ChatState["lastVerificationOutcome"];
+  narration_residue_present: boolean;
+} | undefined {
+  if (!snapshot) return undefined;
+  const completionStatus = snapshot.completionStatus;
+  const verificationOutcome = snapshot.lastVerificationOutcome;
+  if (
+    completionStatus !== "in_progress"
+    && completionStatus !== "blocked"
+    && completionStatus !== "ready_to_finalize"
+    && completionStatus !== "complete_claimed"
+  ) {
+    return undefined;
+  }
+  if (
+    verificationOutcome !== "pass"
+    && verificationOutcome !== "fail"
+    && verificationOutcome !== "unknown"
+  ) {
+    return undefined;
+  }
+  return {
+    active_objective: typeof snapshot.activeObjective === "string" ? trimSnippet(snapshot.activeObjective, 220) : null,
+    pending_user_directive: typeof snapshot.pendingUserDirective === "string" ? trimSnippet(snapshot.pendingUserDirective, 220) : null,
+    completion_status: completionStatus,
+    last_verification_outcome: verificationOutcome,
+    narration_residue_present: false,
+  };
+}
+
+function summarizeFileStateForGovernor(snapshot: FileStateSnapshot): {
+  files_total: number;
+  status_counts: Record<string, number>;
+  stale_files: string[];
+  partial_files: string[];
+  evicted_files: string[];
+} {
+  return {
+    files_total: snapshot.fileCount,
+    status_counts: snapshot.statusCounts,
+    stale_files: snapshot.staleFiles,
+    partial_files: snapshot.partialFiles,
+    evicted_files: snapshot.evictedFiles,
+  };
 }
 
 function updateTracePromptMetadata(state: SessionState, latestUserText: string): void {
@@ -2907,6 +3055,7 @@ function enrichWithFrameAndManifest(
   governanceBlocks?: string[],
   topLevelDirs?: string[],
   sessionState?: SessionState | null,
+  stateChannels?: { chatStateBlock?: string | null; fileStateBlock?: string | null },
 ): EnrichResult {
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
@@ -3086,6 +3235,8 @@ function enrichWithFrameAndManifest(
     stablePrefix,
     projectContext,
     volatileAdapter: volatileAdapterBlock ?? null,
+    chatState: stateChannels?.chatStateBlock ?? null,
+    fileState: stateChannels?.fileStateBlock ?? null,
     workingFrame: workingFrameBlock,
     structuralCritic: structuralCriticBlock,
     projectManifest: projectManifestBlock ? blockStore.intern(projectManifestBlock) : null,
@@ -3142,6 +3293,14 @@ function phaseFromFrame(currentPhase: "explore" | "planning" | "implementation" 
   if (currentPhase === "planning") return "planning";
   if (currentPhase === "validation") return "validation";
   return "implementation";
+}
+
+function chatPhaseFromWorkflowPhase(phase?: WorkflowPhase): ChatPhase | undefined {
+  if (!phase) return undefined;
+  if (phase === "explore") return "inspect";
+  if (phase === "planning") return "interpret";
+  if (phase === "validation") return "verify";
+  return "edit";
 }
 
 function splitAdapterBlockForStability(adapterBlock?: string): { stable?: string; volatile?: string } {
@@ -4028,6 +4187,12 @@ function persistSessionAndUsage(
     ?? (finishReason === "error" ? "stalled" : snapshot?.verificationStalled ? "stalled" : (completionGateBlocked || criticBlocked) ? "partial" : "verified");
   const failureStage = trajectory?.failureStage
     ?? (finishReason === "error" ? "verification" : snapshot?.verificationStalled ? "verification" : completionGateBlocked ? "verification" : criticBlocked ? "policy" : null);
+  const persistedChatSnapshot = readPersistedChatStateSnapshot(state.record.metadata);
+  const persistedFileSnapshot = readPersistedFileStateSnapshot(state.record.metadata);
+  const chatStateSummaryForTelemetry = summarizeChatSnapshotForGovernor(persistedChatSnapshot);
+  const fileStateSummaryForTelemetry = persistedFileSnapshot
+    ? summarizeFileStateForGovernor(persistedFileSnapshot)
+    : undefined;
 
   usageWriter.enqueueSessionEvent({
     sessionKey: state.record.sessionKey,
@@ -4102,6 +4267,12 @@ function persistSessionAndUsage(
         matched_rules: snapshot.governor.matchedRules,
         telemetry: snapshot.governor.telemetry,
       } : undefined,
+      state_channels: (chatStateSummaryForTelemetry || fileStateSummaryForTelemetry)
+        ? {
+            chat_state: chatStateSummaryForTelemetry,
+            file_state: fileStateSummaryForTelemetry,
+          }
+        : undefined,
       training_signals: {
         governor_intervened: snapshot?.governor?.pause ?? false,
         governor_rules: snapshot?.governor?.matchedRules ?? [],
@@ -4109,6 +4280,11 @@ function persistSessionAndUsage(
         trailing_verification_stall: (snapshot?.governor?.telemetry?.trailingVerificationRunLength ?? 0) >= 3,
         false_green_detected: snapshot?.governor?.telemetry?.activeGuards?.includes("false_green_suspected") ?? false,
         evidence_delta: summarizeEvidenceDelta(state.lastEvidenceDelta),
+        chat_phase: persistedChatSnapshot?.phase,
+        chat_completion_status: chatStateSummaryForTelemetry?.completion_status,
+        file_state_stale_count: persistedFileSnapshot?.statusCounts.stale ?? 0,
+        file_state_partial_count: persistedFileSnapshot?.statusCounts.partial ?? 0,
+        file_state_evicted_count: persistedFileSnapshot?.statusCounts.evicted ?? 0,
       },
     },
   });
@@ -4159,6 +4335,8 @@ function persistSessionAndUsage(
       latest_user_prompt: latestPromptSnippet || undefined,
       parent_trace_id: parentTraceId,
       root_trace_id: rootTraceId,
+      chat_state: chatStateSummaryForTelemetry,
+      file_state: fileStateSummaryForTelemetry,
     },
     ...(optimizationLedger ? { optimization_ledger: optimizationLedger } : {}),
     has_error: finishReason === "error" || undefined,
@@ -6911,6 +7089,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
     getFileSnapshotRegistry(sessionKey),
     session.artifactEditTurns,
   );
+  const oaiArtifactContext = summarizeArtifactContext(oaiArtifactShadows);
+  const oaiFileState = deriveFileState({
+    registry: getFileSnapshotRegistry(sessionKey),
+    artifactShadows: oaiArtifactShadows,
+    messages: normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string }>,
+  });
+  const oaiPersistedChatState = readPersistedChatStateSnapshot(session.record.metadata);
+  const oaiChatState = deriveChatState(
+    normalizedOpenAI.messages as Array<GovernorInputMessage>,
+    {
+      phaseHint: chatPhaseFromWorkflowPhase(oaiWorkingPhase),
+      previousSnapshot: oaiPersistedChatState,
+    },
+  );
+  const oaiFileStateSnapshot = toFileStateSnapshot(oaiFileState, { maxPaths: 8 });
+  const oaiChatStateSnapshot = toChatStateSnapshot(oaiChatState);
+  const oaiPauseChatSummary = summarizeChatStateForGovernor(oaiChatState);
+  const oaiPauseFileSummary = summarizeFileStateForGovernor(oaiFileStateSnapshot);
+  session.record.metadata.chat_state_snapshot = oaiChatStateSnapshot as unknown as Record<string, unknown>;
+  session.record.metadata.file_state_snapshot = oaiFileStateSnapshot as unknown as Record<string, unknown>;
+  const oaiChatStateBlock = formatChatStateBlock(oaiChatState);
+  const oaiFileStateBlock = formatFileStateBlock(oaiFileState);
   let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
@@ -6924,6 +7124,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
             || session.editMissForceReadPending
             || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
           artifactShadows: oaiArtifactShadows,
+          chatState: oaiChatState,
+          fileState: oaiFileState,
           orchestratorWorkflowPhase: oaiWorkingPhase,
         },
       );
@@ -7012,6 +7214,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       has_run_test: oaiLoopObs.hasRunTest,
       last_assistant_tool_calls: oaiLoopObs.lastAssistantToolCalls,
       assistant_tool_calls_since_latest_user: oaiLoopObs.assistantToolCallsSinceLatestUser,
+      evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+      artifact_context: oaiArtifactContext,
+      chat_state_summary: oaiPauseChatSummary,
+      file_state_summary: oaiPauseFileSummary,
       telemetry: oaiExecutionGovernor.telemetry,
     },
   );
@@ -7323,6 +7529,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
         matchedRules: oaiExecutionGovernor.matchedRules,
         consecutiveRecoveryFires: session.consecutiveRecoveryFires,
         hardStopThreshold: HARD_STOP_THRESHOLD,
+        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+        activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
+        artifactContext: oaiArtifactContext,
+        chatStateSummary: oaiPauseChatSummary,
+        fileStateSummary: oaiPauseFileSummary,
       });
       const hardStopContent = [
         buildExecutionGovernorHardStopUserMessage({
@@ -7347,6 +7558,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
           last_assistant_tool_calls: oaiLoopObs.lastAssistantToolCalls,
           assistant_tool_calls_since_latest_user: oaiLoopObs.assistantToolCallsSinceLatestUser,
           blocked_before_first_tool_call: oaiLoopObs.assistantToolCallsSinceLatestUser === 0,
+          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+          artifact_context: oaiArtifactContext,
+          chat_state_summary: oaiPauseChatSummary,
+          file_state_summary: oaiPauseFileSummary,
         },
       );
       maybeCheckpoint(session);
@@ -7360,6 +7575,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
         matchedRules: oaiExecutionGovernor.matchedRules,
         consecutiveRecoveryFires: session.consecutiveRecoveryFires,
         hardStopThreshold: ESCALATED_HARD_STOP_THRESHOLD,
+        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+        activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
+        artifactContext: oaiArtifactContext,
+        chatStateSummary: oaiPauseChatSummary,
+        fileStateSummary: oaiPauseFileSummary,
       });
       const hardStopContent = [
         buildExecutionGovernorHardStopUserMessage({
@@ -7380,6 +7600,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
           phase: oaiGovernorPhase,
           matched_rules: oaiExecutionGovernor.matchedRules,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
+          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+          artifact_context: oaiArtifactContext,
+          chat_state_summary: oaiPauseChatSummary,
+          file_state_summary: oaiPauseFileSummary,
         },
       );
       maybeCheckpoint(session);
@@ -7520,6 +7744,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ],
     oaiSeedDirs,
     session,
+    { chatStateBlock: oaiChatStateBlock, fileStateBlock: oaiFileStateBlock },
   );
   let oaiEnrichedMsgs = config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? oaiEnriched.messages as Array<{ role: string; content: unknown }>
@@ -8342,7 +8567,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     let finalAssistantText = finalResult.text;
     let externalToolCalls = toolCalls
       .filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME)
-      .map((tc) => {
+      .map((tc, toolCallIndex) => {
         const rawInput =
           typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
             ? (tc.input as Record<string, unknown>)
@@ -8383,6 +8608,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
           blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
           blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
           planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+          artifactShadows: oaiArtifactShadows,
+          currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + toolCallIndex + 1,
+          onEditTurn: (canonicalPath, turnIndex) => {
+            session.artifactEditTurns.set(canonicalPath, turnIndex);
+          },
         });
         trackGovernedHardening(governed);
         if (governed.planWriteAudit) {
@@ -8627,6 +8857,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       sensemakingTriggered: oaiSensemakingResult?.triggered,
       sensemakingReason: oaiSensemakingResult?.reason,
       governorDecision: oaiExecutionGovernor,
+      governorChatStateSummary: oaiPauseChatSummary,
+      governorFileStateSummary: oaiPauseFileSummary,
     });
     oaiOptLedger.setUpstreamCachedTokens(usage.cachedTokens ?? 0);
     oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
@@ -8913,6 +9145,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
             planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+            artifactShadows: oaiArtifactShadows,
+            currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + pendingToolCalls.length + 1,
+            onEditTurn: (canonicalPath, turnIndex) => {
+              session.artifactEditTurns.set(canonicalPath, turnIndex);
+            },
           });
           trackGovernedHardening(governed);
           if (governed.planWriteAudit) {
@@ -9234,6 +9471,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sensemakingTriggered: oaiSensemakingResult?.triggered,
     sensemakingReason: oaiSensemakingResult?.reason,
     governorDecision: oaiExecutionGovernor,
+    governorChatStateSummary: oaiPauseChatSummary,
+    governorFileStateSummary: oaiPauseFileSummary,
   });
   oaiOptLedger.setUpstreamCachedTokens(oaiStreamUsage.cachedTokens ?? 0);
   oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
@@ -10109,6 +10348,28 @@ app.post("/v1/messages", async (req, reply) => {
     getFileSnapshotRegistry(claudeSessionKey),
     session.artifactEditTurns,
   );
+  const claudeArtifactContext = summarizeArtifactContext(claudeArtifactShadows);
+  const claudeFileState = deriveFileState({
+    registry: getFileSnapshotRegistry(claudeSessionKey),
+    artifactShadows: claudeArtifactShadows,
+    messages: normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string }>,
+  });
+  const claudePersistedChatState = readPersistedChatStateSnapshot(session.record.metadata);
+  const claudeChatState = deriveChatState(
+    normalizedFromClaude.messages as Array<GovernorInputMessage>,
+    {
+      phaseHint: chatPhaseFromWorkflowPhase(claudeWorkingPhase),
+      previousSnapshot: claudePersistedChatState,
+    },
+  );
+  const claudeFileStateSnapshot = toFileStateSnapshot(claudeFileState, { maxPaths: 8 });
+  const claudeChatStateSnapshot = toChatStateSnapshot(claudeChatState);
+  const claudePauseChatSummary = summarizeChatStateForGovernor(claudeChatState);
+  const claudePauseFileSummary = summarizeFileStateForGovernor(claudeFileStateSnapshot);
+  session.record.metadata.chat_state_snapshot = claudeChatStateSnapshot as unknown as Record<string, unknown>;
+  session.record.metadata.file_state_snapshot = claudeFileStateSnapshot as unknown as Record<string, unknown>;
+  const claudeChatStateBlock = formatChatStateBlock(claudeChatState);
+  const claudeFileStateBlock = formatFileStateBlock(claudeFileState);
   let claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
@@ -10122,6 +10383,8 @@ app.post("/v1/messages", async (req, reply) => {
             || session.editMissForceReadPending
             || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
           artifactShadows: claudeArtifactShadows,
+          chatState: claudeChatState,
+          fileState: claudeFileState,
           orchestratorWorkflowPhase: claudeWorkingPhase,
         },
       );
@@ -10210,6 +10473,10 @@ app.post("/v1/messages", async (req, reply) => {
       has_run_test: claudeLoopObs.hasRunTest,
       last_assistant_tool_calls: claudeLoopObs.lastAssistantToolCalls,
       assistant_tool_calls_since_latest_user: claudeLoopObs.assistantToolCallsSinceLatestUser,
+      evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+      artifact_context: claudeArtifactContext,
+      chat_state_summary: claudePauseChatSummary,
+      file_state_summary: claudePauseFileSummary,
       telemetry: claudeExecutionGovernor.telemetry,
     },
   );
@@ -10521,6 +10788,11 @@ app.post("/v1/messages", async (req, reply) => {
         matchedRules: claudeExecutionGovernor.matchedRules,
         consecutiveRecoveryFires: session.consecutiveRecoveryFires,
         hardStopThreshold: HARD_STOP_THRESHOLD,
+        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+        activeGuards: claudeExecutionGovernor.telemetry.activeGuards,
+        artifactContext: claudeArtifactContext,
+        chatStateSummary: claudePauseChatSummary,
+        fileStateSummary: claudePauseFileSummary,
       });
       const hardStopContent = [
         buildExecutionGovernorHardStopUserMessage({
@@ -10545,6 +10817,10 @@ app.post("/v1/messages", async (req, reply) => {
           last_assistant_tool_calls: claudeLoopObs.lastAssistantToolCalls,
           assistant_tool_calls_since_latest_user: claudeLoopObs.assistantToolCallsSinceLatestUser,
           blocked_before_first_tool_call: claudeLoopObs.assistantToolCallsSinceLatestUser === 0,
+          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+          artifact_context: claudeArtifactContext,
+          chat_state_summary: claudePauseChatSummary,
+          file_state_summary: claudePauseFileSummary,
         },
       );
       maybeCheckpoint(session);
@@ -10558,6 +10834,11 @@ app.post("/v1/messages", async (req, reply) => {
         matchedRules: claudeExecutionGovernor.matchedRules,
         consecutiveRecoveryFires: session.consecutiveRecoveryFires,
         hardStopThreshold: ESCALATED_HARD_STOP_THRESHOLD,
+        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+        activeGuards: claudeExecutionGovernor.telemetry.activeGuards,
+        artifactContext: claudeArtifactContext,
+        chatStateSummary: claudePauseChatSummary,
+        fileStateSummary: claudePauseFileSummary,
       });
       const hardStopContent = [
         buildExecutionGovernorHardStopUserMessage({
@@ -10578,6 +10859,10 @@ app.post("/v1/messages", async (req, reply) => {
           phase: claudeGovernorPhase,
           matched_rules: claudeExecutionGovernor.matchedRules,
           consecutive_recovery_fires: session.consecutiveRecoveryFires,
+          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+          artifact_context: claudeArtifactContext,
+          chat_state_summary: claudePauseChatSummary,
+          file_state_summary: claudePauseFileSummary,
         },
       );
       maybeCheckpoint(session);
@@ -10719,6 +11004,7 @@ app.post("/v1/messages", async (req, reply) => {
     ],
     claudeSeedDirs,
     session,
+    { chatStateBlock: claudeChatStateBlock, fileStateBlock: claudeFileStateBlock },
   );
   let enrichedClaudeMsgs = config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? claudeEnriched.messages as Array<{ role: string; content: unknown }>
@@ -11539,6 +11825,8 @@ app.post("/v1/messages", async (req, reply) => {
         sensemakingTriggered: claudeSensemakingResult?.triggered,
         sensemakingReason: claudeSensemakingResult?.reason,
         governorDecision: claudeExecutionGovernor,
+        governorChatStateSummary: claudePauseChatSummary,
+        governorFileStateSummary: claudePauseFileSummary,
       });
       persistAndEmitDecisionTelemetry({
         state: session,
@@ -11821,6 +12109,11 @@ app.post("/v1/messages", async (req, reply) => {
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
             planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+            artifactShadows: claudeArtifactShadows,
+            currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + claudeToolBuffer.size + 1,
+            onEditTurn: (canonicalPath, turnIndex) => {
+              session.artifactEditTurns.set(canonicalPath, turnIndex);
+            },
           });
           emitToolName = governed.toolName;
           finalInput = governed.input;
@@ -12183,6 +12476,8 @@ app.post("/v1/messages", async (req, reply) => {
       sensemakingTriggered: claudeSensemakingResult?.triggered,
       sensemakingReason: claudeSensemakingResult?.reason,
       governorDecision: claudeExecutionGovernor,
+      governorChatStateSummary: claudePauseChatSummary,
+      governorFileStateSummary: claudePauseFileSummary,
     });
     persistAndEmitDecisionTelemetry({
       state: session,
@@ -12487,7 +12782,7 @@ app.post("/v1/messages", async (req, reply) => {
   claudeNonStreamSpan.end();
   let allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
 
-  let externalClaudeToolCalls = allToolCalls.map((tc) => {
+  let externalClaudeToolCalls = allToolCalls.map((tc, toolCallIndex) => {
       const rawInput =
         typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
           ? (tc.input as Record<string, unknown>)
@@ -12528,6 +12823,11 @@ app.post("/v1/messages", async (req, reply) => {
         blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
         blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
         planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+        artifactShadows: claudeArtifactShadows,
+        currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + toolCallIndex + 1,
+        onEditTurn: (canonicalPath, turnIndex) => {
+          session.artifactEditTurns.set(canonicalPath, turnIndex);
+        },
       });
       trackGovernedHardening(governed);
       if (governed.planWriteAudit) {
@@ -12747,6 +13047,8 @@ app.post("/v1/messages", async (req, reply) => {
     sensemakingTriggered: claudeSensemakingResult?.triggered,
     sensemakingReason: claudeSensemakingResult?.reason,
     governorDecision: claudeExecutionGovernor,
+    governorChatStateSummary: claudePauseChatSummary,
+    governorFileStateSummary: claudePauseFileSummary,
   });
   persistAndEmitDecisionTelemetry({
     state: session,

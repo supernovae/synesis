@@ -38,6 +38,20 @@ Plain text hard-stop guidance is useful for humans, but clients need machine-rea
     "stale_files": ["src/handler.go"],
     "partial_files": []
   },
+  "chat_state_summary": {
+    "active_objective": "Implement auth session fix",
+    "pending_user_directive": "Implement auth session fix",
+    "completion_status": "in_progress",
+    "last_verification_outcome": "fail",
+    "narration_residue_present": true
+  },
+  "file_state_summary": {
+    "files_total": 4,
+    "status_counts": { "available": 2, "stale": 1, "partial": 1 },
+    "stale_files": ["src/handler.go"],
+    "partial_files": ["src/parser.ts"],
+    "evicted_files": []
+  },
   "next_actions": [
     {
       "id": "run_targeted_test",
@@ -77,6 +91,15 @@ Plain text hard-stop guidance is useful for humans, but clients need machine-rea
 | `artifact_context` | `{ stale_files: string[], partial_files: string[] }` | Files with stale or incomplete reads at pause time |
 
 These fields are populated from `TurnEvidenceDelta`, `TransitionGuard`, and `ArtifactReadShadow` respectively.
+
+### New fields (v3)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `chat_state_summary` | `{ active_objective, pending_user_directive, completion_status, last_verification_outcome, narration_residue_present }` | Compact semantic task state at pause time |
+| `file_state_summary` | `{ files_total, status_counts, stale_files, partial_files, evicted_files }` | Compact file-memory state snapshot for debugging and eval labeling |
+
+These fields are derived from the first-class `ChatState` and `FileState` adapters, not raw transcript text.
 
 ## Transport placement
 

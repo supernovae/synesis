@@ -58,6 +58,64 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("no_repeat_without_change");
   });
 
+  it("prefers explicit chat-state objective over stale transcript residue", () => {
+    const messages = [
+      { role: "user", content: "Scan and audit the entire codebase for issues and summarize findings." },
+    ];
+
+    const baseline = evaluateExecutionGovernor(messages);
+    expect(baseline.telemetry.phase).toBe("explore");
+
+    const stateLed = evaluateExecutionGovernor(messages, {
+      chatState: {
+        activeObjective: "Implement auth session fix in src/auth.ts",
+        pendingUserDirective: "Implement auth session fix in src/auth.ts",
+      },
+    });
+    expect(stateLed.telemetry.phase).toBe("edit");
+  });
+
+  it("uses chat-state completion claims for task update enforcement", () => {
+    const messages = [
+      { role: "user", content: "continue implementing the fix" },
+      assistantCall("1", "bash", { command: "go test ./pkg/auth -run TestSession" }),
+      toolResult("1", "ok\tpkg/auth\t0.124s"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages, {
+      activePlanStage: "implementation",
+      chatState: {
+        activeObjective: "Finalize auth session fix",
+        pendingUserDirective: "Finalize auth session fix",
+        completionStatus: "complete_claimed",
+        narrationResidueSummary: null,
+        lastVerificationOutcome: "pass",
+      },
+    });
+
+    expect(out.matchedRules).toContain("completion_claim_requires_task_update");
+  });
+
+  it("uses narration residue summary as a structured repeated-intent signal", () => {
+    const messages = [
+      { role: "user", content: "implement parser fix in src/parser.ts" },
+      assistantCall("1", "read_file", { path: "src/parser.ts" }),
+      toolResult("1", "export function parse() {}"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages, {
+      chatState: {
+        activeObjective: "Implement parser fix in src/parser.ts",
+        pendingUserDirective: "Implement parser fix in src/parser.ts",
+        completionStatus: "in_progress",
+        narrationResidueSummary: "Repeated assistant intent narration (3x)",
+        lastVerificationOutcome: "unknown",
+      },
+    });
+
+    expect(out.matchedRules).toContain("repeated_assistant_intro");
+  });
+
   it("does not pause repeated broad tests when verification is already green", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test ./..." }),
@@ -1390,6 +1448,26 @@ describe("execution governor", () => {
       matchedRules: ["verification_intent_without_action", "no_progress_loop"],
       consecutiveRecoveryFires: 5,
       hardStopThreshold: 5,
+      evidenceDelta: "stalled",
+      activeGuards: ["false_green_suspected"],
+      artifactContext: {
+        staleFiles: ["src/handler.go"],
+        partialFiles: ["src/parser.ts"],
+      },
+      chatStateSummary: {
+        active_objective: "Implement parser fix",
+        pending_user_directive: "Implement parser fix",
+        completion_status: "in_progress",
+        last_verification_outcome: "fail",
+        narration_residue_present: true,
+      },
+      fileStateSummary: {
+        files_total: 2,
+        status_counts: { stale: 1, partial: 1 },
+        stale_files: ["src/handler.go"],
+        partial_files: ["src/parser.ts"],
+        evicted_files: [],
+      },
     });
     expect(envelope.status).toBe("paused");
     expect(envelope.required_user_action).toBe(true);
@@ -1400,6 +1478,11 @@ describe("execution governor", () => {
     expect(envelope.default_recommended_action).toBe("apply_one_edit");
     expect(envelope.user_facing_explanation).toContain("said it would run tests");
     expect(envelope.concrete_nudge).toMatch(/one narrow command|one `go test`/i);
+    expect(envelope.evidence_delta).toBe("stalled");
+    expect(envelope.active_guards).toContain("false_green_suspected");
+    expect(envelope.artifact_context?.stale_files).toContain("src/handler.go");
+    expect(envelope.chat_state_summary?.active_objective).toContain("Implement parser fix");
+    expect(envelope.file_state_summary?.files_total).toBe(2);
   });
 
   it("builds transport-agnostic pause envelope for general loops", () => {

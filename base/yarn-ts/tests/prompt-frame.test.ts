@@ -6,6 +6,8 @@ function makeFrame(overrides: Partial<PromptFrame> = {}): PromptFrame {
     stablePrefix: "You are an AI assistant.",
     projectContext: null,
     volatileAdapter: null,
+    chatState: null,
+    fileState: null,
     workingFrame: null,
     structuralCritic: null,
     projectManifest: null,
@@ -47,15 +49,31 @@ describe("buildPromptMessages", () => {
   it("joins volatile blocks with separator", () => {
     const frame = makeFrame({
       volatileAdapter: "adapter content",
+      chatState: "<SYNESIS_CHAT_STATE>chat</SYNESIS_CHAT_STATE>",
+      fileState: "<SYNESIS_FILE_STATE>file</SYNESIS_FILE_STATE>",
       workingFrame: "<WORKING_FRAME>frame</WORKING_FRAME>",
       responseStyle: "<RESPONSE_STYLE>style</RESPONSE_STYLE>",
     });
     const result = buildPromptMessages(frame, []);
     const volatile = result[1].content as string;
     expect(volatile).toContain("adapter content");
+    expect(volatile).toContain("SYNESIS_CHAT_STATE");
+    expect(volatile).toContain("SYNESIS_FILE_STATE");
     expect(volatile).toContain("WORKING_FRAME");
     expect(volatile).toContain("RESPONSE_STYLE");
     expect(volatile).toContain("---");
+  });
+
+  it("places chat/file semantic channels before working frame", () => {
+    const frame = makeFrame({
+      chatState: "<SYNESIS_CHAT_STATE>chat-state</SYNESIS_CHAT_STATE>",
+      fileState: "<SYNESIS_FILE_STATE>file-state</SYNESIS_FILE_STATE>",
+      workingFrame: "<WORKING_FRAME>frame</WORKING_FRAME>",
+    });
+    const result = buildPromptMessages(frame, []);
+    const volatile = result[1].content as string;
+    expect(volatile.indexOf("SYNESIS_CHAT_STATE")).toBeLessThan(volatile.indexOf("WORKING_FRAME"));
+    expect(volatile.indexOf("SYNESIS_FILE_STATE")).toBeLessThan(volatile.indexOf("WORKING_FRAME"));
   });
 
   it("includes governance blocks in volatile content", () => {
@@ -103,8 +121,8 @@ describe("computeVolatileFingerprint", () => {
   });
 
   it("changes when a volatile block changes", () => {
-    const frame1 = makeFrame({ workingFrame: "version 1" });
-    const frame2 = makeFrame({ workingFrame: "version 2" });
+    const frame1 = makeFrame({ chatState: "version 1" });
+    const frame2 = makeFrame({ chatState: "version 2" });
     expect(computeVolatileFingerprint(frame1)).not.toBe(computeVolatileFingerprint(frame2));
   });
 

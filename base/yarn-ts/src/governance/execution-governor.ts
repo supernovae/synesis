@@ -1,5 +1,7 @@
 import { suggestScopedVerificationCommand } from "../verification/test-scope-selector.js";
 import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
+import type { ChatState } from "./chat-state.js";
+import type { FileState } from "./file-state.js";
 
 export interface GovernorInputMessage {
   role: string;
@@ -58,6 +60,19 @@ export type TransitionGuard =
   | "completion_blocked";
 
 type ArtifactShadowView = ReadonlyMap<string, { stale: boolean; completeness: "full" | "partial"; readReturnedContent: boolean }>;
+
+function artifactViewFromFileState(fileState: FileState | undefined): ArtifactShadowView | undefined {
+  if (!fileState || !fileState.filesByPath) return undefined;
+  const out = new Map<string, { stale: boolean; completeness: "full" | "partial"; readReturnedContent: boolean }>();
+  for (const [path, entry] of Object.entries(fileState.filesByPath)) {
+    out.set(path, {
+      stale: entry.staleSinceEdit || entry.status === "stale",
+      completeness: entry.status === "partial" ? "partial" : "full",
+      readReturnedContent: entry.readReturnedContent,
+    });
+  }
+  return out;
+}
 
 /**
  * Compute active transition guards from artifact shadows and verification scope.
@@ -1419,6 +1434,10 @@ export interface ExecutionGovernorOptions {
   editContextMissActive?: boolean;
   /** Per-file artifact shadows from FileSnapshotRegistry for stale/partial detection. */
   artifactShadows?: ReadonlyMap<string, { stale: boolean; completeness: "full" | "partial"; readReturnedContent: boolean }>;
+  /** Optional derived ChatState cues (state-led overrides over transcript residue). */
+  chatState?: Partial<Pick<ChatState, "activeObjective" | "pendingUserDirective" | "completionStatus" | "narrationResidueSummary" | "lastVerificationOutcome">>;
+  /** Optional derived FileState adapter for guard computation fallback. */
+  fileState?: FileState;
   /** Model family for dynamic threshold adjustment (e.g. "qwen", "claude", "gpt"). */
   modelFamily?: string;
   /**
@@ -1439,14 +1458,21 @@ export function evaluateExecutionGovernor(
   const activePlanStage = opts.activePlanStage ?? null;
   const editContextMissActive = opts.editContextMissActive === true;
   const thresholds = thresholdsForProfile(profile);
+  const stateObjectiveCue = normalizeString(
+    opts.chatState?.pendingUserDirective
+      ?? opts.chatState?.activeObjective
+      ?? "",
+  );
+  const artifactView = opts.artifactShadows ?? artifactViewFromFileState(opts.fileState);
   // Evaluate from the latest real user prompt (ignoring user-role tool_result wrappers).
   const lastUserPromptIdx = findLastGenuineUserPromptIndex(messages);
   const turnMessages = lastUserPromptIdx >= 0 ? messages.slice(lastUserPromptIdx + 1) : messages;
   const events = extractCommandEvents(turnMessages);
   const changedFiles = extractEditedFileHints(events);
-  const userText = extractUserText(messages);
-  const latestUserText = extractLatestUserText(messages);
-  const hasFailures = hasFailureSignals(turnMessages);
+  const userText = stateObjectiveCue || extractUserText(messages);
+  const latestUserText = stateObjectiveCue || extractLatestUserText(messages);
+  const stateVerificationOutcome = opts.chatState?.lastVerificationOutcome ?? "unknown";
+  const hasFailures = stateVerificationOutcome === "fail" || hasFailureSignals(turnMessages);
   const testRuntime = inferTestRuntime(events, userText);
   const lastEvent = events.length > 0 ? events[events.length - 1] : null;
   const lastEventIsVerification = lastEvent
@@ -1470,9 +1496,14 @@ export function evaluateExecutionGovernor(
   let completionClaimNeedsTaskUpdate = false;
   const noEditEvidence = changedFiles.length === 0;
   // Active claim: only claims after the latest user redirect (ignores stale claims)
-  const hasCompletionClaim = hasActiveCompletionClaim(messages);
+  const hasCompletionClaim = (
+    opts.chatState?.completionStatus === "complete_claimed"
+    || opts.chatState?.completionStatus === "ready_to_finalize"
+    || hasActiveCompletionClaim(messages)
+  );
   // Full-turn claim: any completion text in the entire turn (for phase-independent rules)
-  const hasTurnCompletionClaim = hasCompletionClaimInAssistantText(turnMessages);
+  const hasTurnCompletionClaim = hasCompletionClaim
+    || hasCompletionClaimInAssistantText(turnMessages);
   let sessionPhase = detectSessionPhase(
     events,
     latestUserText,
@@ -1486,7 +1517,7 @@ export function evaluateExecutionGovernor(
   const activeGuards = computeTransitionGuards(
     changedFiles, verificationEvents,
     sawAnyVerificationSuccess, sawAnyVerificationFailure,
-    opts.artifactShadows,
+    artifactView,
   );
   if (sessionPhase === "finalize" && activeGuards.includes("false_green_suspected")) {
     sessionPhase = "verify";
@@ -1881,7 +1912,12 @@ export function evaluateExecutionGovernor(
   const recentEventsForIntent = events.slice(-INTENT_RECENCY_EVENTS);
   const verbalIntentStreak = countVerbalIntentStreak(recentMessagesForIntent, recentEventsForIntent);
   const verificationIntentStreak = countVerificationIntentWithoutAction(recentMessagesForIntent, recentEventsForIntent);
-  const repeatedAssistantIntroEdges = countRepeatedAssistantIntroEdges(recentMessagesForIntent);
+  let repeatedAssistantIntroEdges = countRepeatedAssistantIntroEdges(recentMessagesForIntent);
+  if (opts.chatState?.narrationResidueSummary) {
+    // State-derived residue indicates repeated intent narration happened even if
+    // the current transcript window has been compacted.
+    repeatedAssistantIntroEdges = Math.max(repeatedAssistantIntroEdges, 2);
+  }
   const hasCommitFinalizeAction = events.some((e) => /\bgit\s+(commit|push)\b/.test(normalizeString(e.command).toLowerCase()));
   const hasFinalizeAction = hasTaskDoneStatusUpdate(events) || hasCommitFinalizeAction;
 
@@ -3007,6 +3043,22 @@ export interface GovernorPauseAction {
   expected_arguments?: string[];
 }
 
+export interface GovernorPauseChatStateSummary {
+  active_objective: string | null;
+  pending_user_directive: string | null;
+  completion_status: ChatState["completionStatus"];
+  last_verification_outcome: ChatState["lastVerificationOutcome"];
+  narration_residue_present: boolean;
+}
+
+export interface GovernorPauseFileStateSummary {
+  files_total: number;
+  status_counts: Record<string, number>;
+  stale_files: string[];
+  partial_files: string[];
+  evicted_files: string[];
+}
+
 export interface GovernorPauseEnvelope {
   status: "paused";
   pause_reason: string;
@@ -3022,6 +3074,14 @@ export interface GovernorPauseEnvelope {
   user_facing_explanation: string;
   /** One concrete “do this next” (maps to the primary matched rule). */
   concrete_nudge: string;
+  evidence_delta?: "improved" | "changed" | "stalled" | "regressed" | "unknown";
+  active_guards?: TransitionGuard[];
+  artifact_context?: {
+    stale_files: string[];
+    partial_files: string[];
+  };
+  chat_state_summary?: GovernorPauseChatStateSummary;
+  file_state_summary?: GovernorPauseFileStateSummary;
   resume_hint: string;
 }
 
@@ -3029,8 +3089,22 @@ export function buildExecutionGovernorPauseEnvelope(params: {
   matchedRules: string[];
   consecutiveRecoveryFires: number;
   hardStopThreshold: number;
+  evidenceDelta?: "improved" | "changed" | "stalled" | "regressed" | "unknown";
+  activeGuards?: TransitionGuard[];
+  artifactContext?: { staleFiles: string[]; partialFiles: string[] };
+  chatStateSummary?: GovernorPauseChatStateSummary;
+  fileStateSummary?: GovernorPauseFileStateSummary;
 }): GovernorPauseEnvelope {
-  const { matchedRules, consecutiveRecoveryFires, hardStopThreshold } = params;
+  const {
+    matchedRules,
+    consecutiveRecoveryFires,
+    hardStopThreshold,
+    evidenceDelta,
+    activeGuards,
+    artifactContext,
+    chatStateSummary,
+    fileStateSummary,
+  } = params;
   const pauseReason = matchedRules[0] ?? "unknown";
   const plain = hardStopPlainCopy(matchedRules);
   const isIntentLoop = matchedRules.some((r) =>
@@ -3105,6 +3179,16 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     default_recommended_action: defaultAction,
     user_facing_explanation: plain.what,
     concrete_nudge: plain.nudge,
+    evidence_delta: evidenceDelta,
+    active_guards: activeGuards && activeGuards.length > 0 ? activeGuards : undefined,
+    artifact_context: artifactContext
+      ? {
+          stale_files: artifactContext.staleFiles,
+          partial_files: artifactContext.partialFiles,
+        }
+      : undefined,
+    chat_state_summary: chatStateSummary,
+    file_state_summary: fileStateSummary,
     resume_hint: [
       plain.nudge,
       "",

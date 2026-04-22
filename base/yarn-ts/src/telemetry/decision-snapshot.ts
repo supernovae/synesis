@@ -14,6 +14,8 @@ export interface GovernorTelemetrySnapshot {
   reason: string | null;
   matchedRules: string[];
   telemetry: ExecutionGovernorDecision["telemetry"];
+  chatStateSummary?: Record<string, unknown>;
+  fileStateSummary?: Record<string, unknown>;
 }
 
 export interface DecisionSnapshot {
@@ -57,6 +59,8 @@ export interface SnapshotInputs {
   sensemakingTriggered?: boolean;
   sensemakingReason?: string;
   governorDecision?: ExecutionGovernorDecision | null;
+  governorChatStateSummary?: Record<string, unknown>;
+  governorFileStateSummary?: Record<string, unknown>;
 }
 
 export function buildDecisionSnapshot(inputs: SnapshotInputs): DecisionSnapshot {
@@ -89,6 +93,8 @@ export function buildDecisionSnapshot(inputs: SnapshotInputs): DecisionSnapshot 
       reason: inputs.governorDecision.reason || null,
       matchedRules: inputs.governorDecision.matchedRules,
       telemetry: inputs.governorDecision.telemetry,
+      chatStateSummary: inputs.governorChatStateSummary,
+      fileStateSummary: inputs.governorFileStateSummary,
     } : undefined,
   };
 }
@@ -128,6 +134,12 @@ export function snapshotToTraceFields(snapshot: DecisionSnapshot): {
       governorPause: snapshot.governor?.pause,
       governorRules: snapshot.governor?.matchedRules,
       governorReason: snapshot.governor?.reason,
+      ...(snapshot.governor?.chatStateSummary
+        ? { governorChatState: snapshot.governor.chatStateSummary }
+        : {}),
+      ...(snapshot.governor?.fileStateSummary
+        ? { governorFileState: snapshot.governor.fileStateSummary }
+        : {}),
     }],
     trace_context: {
       phase: snapshot.phase,
@@ -135,6 +147,12 @@ export function snapshotToTraceFields(snapshot: DecisionSnapshot): {
       tokensSavedByReduction: snapshot.tokensSavedByReduction,
       languages: snapshot.languages,
       governorTelemetry: snapshot.governor?.telemetry,
+      ...(snapshot.governor?.chatStateSummary
+        ? { governorChatState: snapshot.governor.chatStateSummary }
+        : {}),
+      ...(snapshot.governor?.fileStateSummary
+        ? { governorFileState: snapshot.governor.fileStateSummary }
+        : {}),
     },
     streaming: {
       mode: snapshot.isStreaming ? "streaming" : "non-streaming",

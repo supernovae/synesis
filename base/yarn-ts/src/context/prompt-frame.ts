@@ -8,7 +8,9 @@
  * Assembly order:
  *   1. stablePrefix (instructions + admin profiles + stable adapter)
  *   2. projectContext (PROJECT_ROOT tag)
- *   3. Single volatile system message (all volatile blocks joined)
+ *   3. Single volatile system message:
+ *      - chat/file semantic state channels
+ *      - working frame / manifest / governance context
  *   4. Original conversation messages
  */
 
@@ -17,6 +19,10 @@ export interface PromptFrame {
   projectContext: string | null;
 
   volatileAdapter: string | null;
+  /** Semantic task-state channel derived from normalized transcript + session signals. */
+  chatState: string | null;
+  /** Model-facing file-memory channel derived from snapshot/shadow state. */
+  fileState: string | null;
   workingFrame: string | null;
   structuralCritic: string | null;
   projectManifest: string | null;
@@ -50,6 +56,8 @@ export function buildPromptMessages(
 
   const volatileParts: string[] = [];
   if (frame.volatileAdapter) volatileParts.push(frame.volatileAdapter);
+  if (frame.chatState) volatileParts.push(frame.chatState);
+  if (frame.fileState) volatileParts.push(frame.fileState);
   if (frame.workingFrame) volatileParts.push(frame.workingFrame);
   if (frame.structuralCritic) volatileParts.push(frame.structuralCritic);
   if (frame.projectManifest) volatileParts.push(frame.projectManifest);
@@ -82,6 +90,8 @@ export function buildPromptMessages(
 export function computeVolatileFingerprint(frame: PromptFrame): string {
   const parts: string[] = [];
   if (frame.volatileAdapter) parts.push(frame.volatileAdapter);
+  if (frame.chatState) parts.push(frame.chatState);
+  if (frame.fileState) parts.push(frame.fileState);
   if (frame.workingFrame) parts.push(frame.workingFrame);
   if (frame.structuralCritic) parts.push(frame.structuralCritic);
   if (frame.projectManifest) parts.push(frame.projectManifest);

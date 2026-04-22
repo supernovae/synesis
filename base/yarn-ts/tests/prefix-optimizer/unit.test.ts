@@ -56,6 +56,11 @@ describe("volatility classifier", () => {
     expect(classifyVolatility("<WORKING_FRAME>\ngoal=Fix auth bug\n</WORKING_FRAME>")).toBe("semi_stable");
   });
 
+  it("classifies ChatState/FileState blocks as semi-stable", () => {
+    expect(classifyVolatility("<SYNESIS_CHAT_STATE>\nactive_objective=Fix auth\n</SYNESIS_CHAT_STATE>")).toBe("semi_stable");
+    expect(classifyVolatility("<SYNESIS_FILE_STATE>\nfiles_total=3\n</SYNESIS_FILE_STATE>")).toBe("semi_stable");
+  });
+
   it("classifies by category hint when provided", () => {
     expect(classifyVolatility("any text", "core_instructions")).toBe("stable");
     expect(classifyVolatility("any text", "project_guidance")).toBe("stable");
@@ -283,6 +288,29 @@ describe("request parser", () => {
     expect(frame).toBeDefined();
     expect(frame!.content).toContain("<TASK_FRAME>");
     expect(frame!.content).toContain("objective=Fix login flow");
+  });
+
+  it("extracts ChatState/FileState blocks into task_frame segment", () => {
+    const withStateBlocks: ChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          "You are an AI coding assistant.",
+          "<SYNESIS_CHAT_STATE>",
+          "active_objective=Fix login flow",
+          "</SYNESIS_CHAT_STATE>",
+          "<SYNESIS_FILE_STATE>",
+          "files_total=2",
+          "</SYNESIS_FILE_STATE>",
+        ].join("\n"),
+      },
+      { role: "user", content: "Proceed." },
+    ];
+    const segments = parseRequest(withStateBlocks);
+    const frame = segments.find((s) => s.category === "task_frame");
+    expect(frame).toBeDefined();
+    expect(frame!.content).toContain("<SYNESIS_CHAT_STATE>");
+    expect(frame!.content).toContain("<SYNESIS_FILE_STATE>");
   });
 
   it("anchors core extraction to Synesis-marked system message", () => {
