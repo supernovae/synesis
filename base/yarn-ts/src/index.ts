@@ -1402,6 +1402,7 @@ function collectToolExecutionFailureObservations(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
 ): ToolExecutionFailureObservation[] {
   const toolMetaById = new Map<string, { toolName: string; filePath?: string }>();
+  const latestWritePathByToolName = new Map<string, string>();
   for (const message of messages) {
     if (message.role !== "assistant") continue;
     const row = message as Record<string, unknown>;
@@ -1414,6 +1415,9 @@ function collectToolExecutionFailureObservations(
       const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
       const filePath = readFilePathFromToolCallArgs(typeof fn?.arguments === "string" ? fn.arguments : "");
       if (id && name) toolMetaById.set(id, { toolName: name, filePath });
+      if (name && filePath && isWriteCapableToolName(name)) {
+        latestWritePathByToolName.set(name.toLowerCase(), filePath);
+      }
     }
     const parts = Array.isArray(row.content) ? row.content : [];
     for (const part of parts) {
@@ -1424,6 +1428,9 @@ function collectToolExecutionFailureObservations(
       const name = typeof p.name === "string" ? p.name.trim() : "";
       const filePath = readFilePathFromUnknownInput(p.input);
       if (id && name) toolMetaById.set(id, { toolName: name, filePath });
+      if (name && filePath && isWriteCapableToolName(name)) {
+        latestWritePathByToolName.set(name.toLowerCase(), filePath);
+      }
     }
   }
 
@@ -1441,6 +1448,8 @@ function collectToolExecutionFailureObservations(
     const mappedMeta = toolCallId ? (toolMetaById.get(toolCallId) ?? null) : null;
     const mappedName = mappedMeta?.toolName ?? "";
     const toolName = (typeof message.name === "string" ? message.name : mappedName).trim() || "unknown_tool";
+    const fallbackFilePath = latestWritePathByToolName.get(toolName.toLowerCase());
+    const observedFilePath = mappedMeta?.filePath ?? fallbackFilePath;
     const writeCapableTool = isWriteCapableToolName(toolName);
     const lower = rawText.toLowerCase();
     let reason = "";
@@ -1463,7 +1472,7 @@ function collectToolExecutionFailureObservations(
     const key = `${toolName}|${toolCallId}|${reason}|${snippet}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    observations.push({ toolName, toolCallId, filePath: mappedMeta?.filePath, reason, snippet });
+    observations.push({ toolName, toolCallId, filePath: observedFilePath, reason, snippet });
     if (observations.length >= 3) break;
   }
   return observations;
@@ -1574,6 +1583,7 @@ function deriveEditContextMissGuardState(
   const turnBoundaryIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
   const turnMessages = turnBoundaryIdx >= 0 ? messages.slice(turnBoundaryIdx + 1) : messages;
   const toolMetaById = buildToolCallMetaById(turnMessages);
+  const latestWritePathByToolName = buildLatestWritePathByToolName(turnMessages);
   const states = new Map<string, {
     filePath: string;
     misses: number;
@@ -1590,7 +1600,8 @@ function deriveEditContextMissGuardState(
     const meta = toolCallId ? toolMetaById.get(toolCallId) : undefined;
     const explicitToolName = typeof message.name === "string" ? message.name.trim() : "";
     const toolName = (explicitToolName || meta?.toolName || "").toLowerCase();
-    const filePath = canonicalizeToolPath(meta?.filePath ?? "");
+    const fallbackFilePath = latestWritePathByToolName.get(toolName);
+    const filePath = canonicalizeToolPath(meta?.filePath ?? fallbackFilePath ?? "");
     if (!toolName || !filePath) continue;
 
     const chunks = collectToolResultTextChunks(message.content);
@@ -1778,6 +1789,39 @@ function buildToolCallMetaById(
       const name = typeof p.name === "string" ? p.name.trim() : "";
       const filePath = readFilePathFromUnknownInput(p.input);
       if (id && name) out.set(id, { toolName: name, filePath });
+    }
+  }
+  return out;
+}
+
+function buildLatestWritePathByToolName(
+  messages: Array<{ role: string; content: unknown; tool_calls?: unknown }>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const row = message as Record<string, unknown>;
+    const toolCalls = Array.isArray(row.tool_calls) ? row.tool_calls : [];
+    for (const tc of toolCalls) {
+      if (!tc || typeof tc !== "object") continue;
+      const call = tc as Record<string, unknown>;
+      const fn = call.function && typeof call.function === "object" ? call.function as Record<string, unknown> : null;
+      const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
+      const filePath = readFilePathFromToolCallArgs(typeof fn?.arguments === "string" ? fn.arguments : "");
+      if (name && filePath && isWriteCapableToolName(name)) {
+        out.set(name.toLowerCase(), filePath);
+      }
+    }
+    const parts = Array.isArray(row.content) ? row.content : [];
+    for (const part of parts) {
+      if (!part || typeof part !== "object") continue;
+      const p = part as Record<string, unknown>;
+      if (p.type !== "tool_use") continue;
+      const name = typeof p.name === "string" ? p.name.trim() : "";
+      const filePath = readFilePathFromUnknownInput(p.input);
+      if (name && filePath && isWriteCapableToolName(name)) {
+        out.set(name.toLowerCase(), filePath);
+      }
     }
   }
   return out;
@@ -6495,7 +6539,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const oaiShouldArmForceReadRecovery =
     oaiLatestToolProgress.hasRecentEditContextMiss
-    && (oaiEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2);
+    && (oaiEditMissFailureCount >= 1 || session.consecutiveEditContextMisses >= 1);
   if (oaiShouldArmForceReadRecovery) {
     if (!session.editMissForceReadPending) {
       recordSessionEvent(
@@ -7199,6 +7243,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       && !oaiExecutionGovernor.matchedRules.includes("no_progress_loop");
     const oaiPreserveReadForReplay =
       oaiEditMissGuard?.active === true
+      || oaiEditMissFailureCount > 0
+      || session.consecutiveEditContextMisses > 0
       || oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
       || oaiExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
     const restricted = applyExecutionGovernorToolRestrictions(
@@ -7208,7 +7254,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         pureExploration: oaiPureExploration,
         preserveReadTools: oaiPreserveReadForReplay,
         escalatedExploration: oaiExplorationEscalated,
-        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 2,
+        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 1,
       },
     );
     request.tools = restricted.tools as never;
@@ -9586,7 +9632,7 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeShouldArmForceReadRecovery =
     claudeLatestToolProgress.hasRecentEditContextMiss
-    && (claudeEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2);
+    && (claudeEditMissFailureCount >= 1 || session.consecutiveEditContextMisses >= 1);
   if (claudeShouldArmForceReadRecovery) {
     if (!session.editMissForceReadPending) {
       recordSessionEvent(
@@ -10285,6 +10331,8 @@ app.post("/v1/messages", async (req, reply) => {
       && !claudeExecutionGovernor.matchedRules.includes("no_progress_loop");
     const claudePreserveReadForReplay =
       claudeEditMissGuard?.active === true
+      || claudeEditMissFailureCount > 0
+      || session.consecutiveEditContextMisses > 0
       || claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
       || claudeExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
     const restricted = applyExecutionGovernorToolRestrictions(
@@ -10294,7 +10342,7 @@ app.post("/v1/messages", async (req, reply) => {
         pureExploration: claudePureExploration,
         preserveReadTools: claudePreserveReadForReplay,
         escalatedExploration: claudeExplorationEscalated,
-        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 2,
+        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 1,
       },
     );
     body.tools = restricted.tools as never;
