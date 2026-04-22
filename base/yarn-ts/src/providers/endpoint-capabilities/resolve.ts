@@ -7,6 +7,7 @@ export function resolveEndpointCapabilityId(baseUrl: string): EndpointCapability
   const u = baseUrl.toLowerCase();
   if (u.includes("fireworks.ai")) return "fireworks";
   if (u.includes("openrouter.ai")) return "openrouter";
+  if (u.includes("kimi.com") && u.includes("/coding")) return "kimi_coding";
   if (
     u.includes("vllm")
     || u.includes("localhost")

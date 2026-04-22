@@ -18,6 +18,9 @@ describe("resolveEndpointCapabilityId", () => {
   it("defaults to generic", () => {
     expect(resolveEndpointCapabilityId("https://api.openai.com/v1")).toBe("generic");
   });
+  it("classifies Kimi Code (coding) API", () => {
+    expect(resolveEndpointCapabilityId("https://api.kimi.com/coding/v1")).toBe("kimi_coding");
+  });
 });
 
 describe("detectCacheStrategy + Fireworks", () => {
@@ -61,5 +64,21 @@ describe("composeEndpointTransportFetch", () => {
       body: JSON.stringify({}),
     });
     expect(seenHeaders?.get("x-session-affinity")).toBeNull();
+  });
+
+  it("sets User-Agent for Kimi Coding adapter (subscription / coding-agent gate)", async () => {
+    const adapter = getEndpointTransportAdapter("kimi_coding");
+    let seenHeaders: Headers | undefined;
+    const nativeFetch: typeof fetch = async (_input, init) => {
+      seenHeaders = new Headers(init?.headers);
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const wrapped = composeEndpointTransportFetch(nativeFetch, adapter, () => null);
+    await wrapped("https://api.kimi.com/coding/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer sk-test" },
+      body: JSON.stringify({ model: "kimi-for-coding", messages: [] }),
+    });
+    expect(seenHeaders?.get("user-agent")).toBe("claude-code/0.1.0");
   });
 });
