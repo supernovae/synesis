@@ -256,6 +256,35 @@ describe("request parser", () => {
     expect(live!.content).toContain("Workspace Path");
   });
 
+  it("extracts TASK_FRAME as task_frame segment", () => {
+    const withTaskFrame: ChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          "You are an AI coding assistant.",
+          "<TASK_FRAME>",
+          "objective=Fix login flow",
+          "phase=implementation",
+          "files=src/auth.ts",
+          "constraints=none",
+          "pending_checks=none",
+          "open_issues=none",
+          "next_action=Edit src/auth.ts",
+          "</TASK_FRAME>",
+          "<user_info>",
+          "Today's date: Tuesday Apr 8, 2026",
+          "</user_info>",
+        ].join("\n"),
+      },
+      { role: "user", content: "Proceed." },
+    ];
+    const segments = parseRequest(withTaskFrame);
+    const frame = segments.find((s) => s.category === "task_frame");
+    expect(frame).toBeDefined();
+    expect(frame!.content).toContain("<TASK_FRAME>");
+    expect(frame!.content).toContain("objective=Fix login flow");
+  });
+
   it("extracts latest_user_turn segment", () => {
     const segments = parseRequest(messages);
     const user = segments.find((s) => s.category === "latest_user_turn");
@@ -392,7 +421,8 @@ describe("request rebuilder", () => {
       "system",
     ]);
     expect(rebuilt[3].content).toContain("u2");
-    expect(rebuilt[4].content).toContain("<TASK_FRAME>");
+    expect(rebuilt[4].content).toContain("<user_info>");
+    expect(rebuilt[5].content).toContain("<TASK_FRAME>");
   });
 });
 
@@ -409,7 +439,7 @@ describe("marker policy", () => {
 
   // Simulates the rebuilt message array with the new layout:
   // [stable system: core] [stable system: project_guidance] [conversation interleaved]
-  // [latest user turn] [task_frame system] [live_context system]
+  // [latest user turn] [live_context system] [task_frame system]
   const messages: ChatMessage[] = [
     { role: "system", content: "x".repeat(4000) },     // 0: core_instructions
     { role: "system", content: "y".repeat(4000) },     // 1: project_guidance
@@ -420,8 +450,8 @@ describe("marker policy", () => {
     { role: "tool", content: "result 1", tool_call_id: "c1" }, // 6: tool results
     { role: "assistant", content: "final response" },   // 7: conv/tool
     { role: "user", content: "hello" },                 // 8: latest user turn
-    { role: "system", content: "task frame stuff" },    // 9: task_frame (volatile)
-    { role: "system", content: "volatile stuff" },      // 10: live_context
+    { role: "system", content: "volatile stuff" },      // 9: live_context
+    { role: "system", content: "task frame stuff" },    // 10: task_frame (volatile)
   ];
 
   it("returns empty array for none backend", () => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PrefixOptimizer } from "../../src/providers/prefix-optimizer/index.js";
+import { parseRequest } from "../../src/providers/prefix-optimizer/request-parser.js";
 import type { ChatMessage, ToolDefinition } from "../../src/providers/prefix-optimizer/types.js";
 import { canonicalStringify } from "../../src/providers/prefix-optimizer/serializer.js";
 
@@ -187,5 +188,37 @@ describe("PrefixOptimizer integration", () => {
       .join("\n<MSG_BOUNDARY>\n")}`;
     const r1Bytes = Buffer.byteLength(comparable, "utf8");
     expect(r2.diagnostics.prefixStableBytes).toBe(r1Bytes);
+  });
+
+  it("keeps frame hash aligned to existing TASK_FRAME content", () => {
+    const optimizer = new PrefixOptimizer({ markerBackend: "none", maxMarkers: 0, enableReduction: true, enableDiagnosticLogging: false });
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          "You are an AI coding assistant.",
+          "<TASK_FRAME>",
+          "objective=Fix login flow",
+          "phase=implementation",
+          "files=src/auth.ts",
+          "constraints=none",
+          "pending_checks=none",
+          "open_issues=none",
+          "next_action=Edit src/auth.ts",
+          "</TASK_FRAME>",
+          "<user_info>",
+          "Today's date: Tuesday Apr 8, 2026",
+          "</user_info>",
+        ].join("\n"),
+      },
+      { role: "user", content: "Proceed." },
+    ];
+
+    const parsed = parseRequest(messages);
+    const frameSeg = parsed.find((s) => s.category === "task_frame");
+    expect(frameSeg).toBeDefined();
+
+    const optimized = optimizer.optimize(messages, undefined, "frame-hash-alignment");
+    expect(optimized.diagnostics.frameHash).toBe(frameSeg!.hash);
   });
 });

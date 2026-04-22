@@ -14,8 +14,9 @@
  *
  *   Fix: place markers at FIXED positions that NEVER change across turns.
  *   The rebuilt message layout is:
- *     [system: core_instructions] [system: project_guidance] [system: task_frame]
- *     [prior-turn messages...] [system: live_context] [user: latest turn]
+ *     [system: core_instructions] [system: project_guidance]
+ *     [prior-turn messages...] [user: latest turn]
+ *     [system: live_context] [system: task_frame]
  *
  *   Marker 1 (fixed): end of stable system messages (last system msg
  *     before conversation history). This caches the system prompt prefix
@@ -53,7 +54,7 @@ function messageText(msg: ChatMessage): string {
  * prefix before conversation history begins.
  *
  * In the rebuilt layout:
- *   [system: core] [system: project] [system: frame] [conversation...] [system: live] [user]
+ *   [system: core] [system: project] [conversation...] [user] [system: live] [system: frame]
  *
  * We want the index of the LAST leading system message (before the first
  * non-system message). This position never changes across turns because

@@ -106,10 +106,13 @@ export class PrefixOptimizer {
 
     const frameSeg = segments.find((s) => s.category === "task_frame");
     if (frameSeg) {
-      if (frameText && !frameSeg.content.includes("<TASK_FRAME>")) {
+      const hasTaskFrameBlock = frameSeg.content.includes("<TASK_FRAME>");
+      if (frameText && !hasTaskFrameBlock) {
         frameSeg.content = frameText;
+        frameSeg.hash = frameHash;
       }
-      frameSeg.hash = frameHash;
+      // If the payload already contains a TASK_FRAME block, keep the hash tied
+      // to that exact segment content to avoid diagnostic drift.
     }
 
     const rebuilt = rebuildRequest(segments, messages);

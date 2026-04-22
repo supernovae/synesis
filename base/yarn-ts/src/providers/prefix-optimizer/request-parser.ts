@@ -46,6 +46,7 @@ const PROJECT_GUIDANCE_PATTERNS = [
 ];
 
 const TASK_FRAME_PATTERNS = [
+  /<TASK_FRAME>/,
   /<WORKING_FRAME>/,
   /<ARCHITECTURAL_STATE>/,
   /<system_reminder>/,

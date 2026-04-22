@@ -6,8 +6,8 @@
  *   2. system — project_guidance (stable)
  *   3. prior-turn messages in ORIGINAL order (conversation_history + tool_results interleaved)
  *   4. user — latest user turn (volatile)
- *   5. system — task_frame (semi-stable, changes per turn due to compactor)
- *   6. system — live_context (volatile)
+ *   5. system — live_context (volatile)
+ *   6. system — task_frame (semi-stable, often highest-churn)
  *
  * CRITICAL: task_frame is NOT in the stable prefix. The frame compactor
  * derives objective/nextAction/filesInPlay from conversation content which
@@ -21,7 +21,7 @@
  *
  * conversation_history and tool_results are kept in their original
  * interleaved order (append-only across turns). The latest user turn
- * is intentionally placed before task_frame/live_context so a turn's
+ * is intentionally placed before live_context/task_frame so a turn's
  * user request remains in the reusable prefix on the next append.
  */
 
@@ -38,7 +38,7 @@ const STABLE_SYSTEM_CATEGORIES: SegmentCategory[] = [
  * and the original messages.
  *
  * Stable system content leads. Conversation history preserves
- * original order. Volatile system content (task_frame + live_context)
+ * original order. Volatile system content (live_context + task_frame)
  * trails the latest user turn.
  */
 export function rebuildRequest(
@@ -84,18 +84,18 @@ export function rebuildRequest(
     appendOriginalMessages(rebuilt, userTurnSeg.sourceIndices, originalMessages);
   }
 
-  // 4. task_frame AFTER conversation and latest user — it changes every turn due to
-  //    the frame compactor (objective, nextAction, filesInPlay derive
-  //    from conversation content), so it must NOT be in the stable prefix.
-  const frameSeg = segmentMap.get("task_frame");
-  if (frameSeg && frameSeg.content.trim()) {
-    rebuilt.push(canonicalizeMessage({ role: "system", content: frameSeg.content }));
-  }
-
-  // 5. live_context AFTER task_frame — it changes every turn
+  // 4. live_context after latest user turn. It is volatile, but often less
+  //    churn-heavy than the compacted task frame.
   const liveSeg = segmentMap.get("live_context");
   if (liveSeg && liveSeg.content.trim()) {
     rebuilt.push(canonicalizeMessage({ role: "system", content: liveSeg.content }));
+  }
+
+  // 5. task_frame LAST — it tends to change every turn (objective/nextAction),
+  //    so placing it last maximizes reusable prefix bytes.
+  const frameSeg = segmentMap.get("task_frame");
+  if (frameSeg && frameSeg.content.trim()) {
+    rebuilt.push(canonicalizeMessage({ role: "system", content: frameSeg.content }));
   }
 
   return rebuilt;

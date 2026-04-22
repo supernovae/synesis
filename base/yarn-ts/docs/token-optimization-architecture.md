@@ -297,9 +297,9 @@ The final reordering pass, optimized for upstream KV-cache behavior:
    - `core_instructions` (system)
    - `project_guidance` (system)
    - Prior conversation messages (original index order)
-   - `task_frame` (system, semi-stable)
-   - `live_context` (system)
    - Latest user message
+   - `live_context` (system)
+   - `task_frame` (system, semi-stable, highest churn)
 3. **Cache marker placement** — for Anthropic/DashScope, place a single cache
    marker at the boundary between leading stable system messages and conversation.
    Minimum 1024 estimated tokens for the stable block.
