@@ -1,13 +1,13 @@
-"""Admin MCP — tool catalog and execution for the Synesis Admin MCP server (TypeScript).
+"""Legacy Python Admin MCP compatibility + support-assistant tool execution.
 
-Tool **handlers** run here (Python). The **MCP protocol** (Streamable HTTP) is served by
-``synesis-admin-mcp-ts``, which authenticates the caller and invokes:
+``synesis-admin-mcp-ts`` is now the source of truth for admin MCP catalog + invocation.
+This module remains for:
 
-- ``GET /api/v1/internal/mcp/tools`` — tools visible to the caller's role
-- ``POST /api/v1/internal/mcp/invoke`` — execute a tool (JWT/PAT + RBAC + audit)
+- support-assistant tool execution via ``invoke_mcp_tool_for_chat``
+- compatibility endpoints under ``/api/v1/internal/mcp`` for older callers
 
-Tools mirror public Admin API behavior (traces, usage time series, unified usage, Yarn ops,
-ingestion, health, etc.). Each invocation is logged to ``admin_audit_events``.
+Transition-calibration MCP tooling is TS-owned and intentionally excluded from this
+legacy Python catalog to prevent split-brain tool drift.
 """
 
 from __future__ import annotations
@@ -232,95 +232,8 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {"since_hours": {"type": "integer", "default": 24}},
         },
     },
-    {
-        "name": "yarn_transition_quality",
-        "description": (
-            "Transition quality calibration trends and alerts "
-            "(GET /api/v1/yarn/transition-quality)."
-        ),
-        "min_role": Role.org_admin,
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "since_hours": {"type": "integer", "default": 168, "description": "Lookback hours (1-720)"},
-                "bucket_minutes": {"type": "integer", "default": 60, "description": "Bucket size 5-60"},
-            },
-        },
-    },
-    {
-        "name": "yarn_transition_events_tail",
-        "description": (
-            "Tail transition-related Yarn session events with risk extraction "
-            "(request_trajectory/state_transition/calibration events)."
-        ),
-        "min_role": Role.org_admin,
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "since_minutes": {"type": "integer", "default": 60, "description": "Lookback minutes (1-1440)"},
-                "limit": {"type": "integer", "default": 100, "description": "Max events (1-500)"},
-                "after_id": {"type": "integer", "default": 0, "description": "Return only events with id > after_id"},
-                "risk_only": {"type": "boolean", "default": True, "description": "Include only risk-bearing events"},
-                "include_metadata": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "Include full metadata_json for each event",
-                },
-                "event_kinds": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional event-kind allowlist",
-                },
-            },
-        },
-    },
-    {
-        "name": "yarn_transition_watch",
-        "description": (
-            "Watch transition quality over a short live window by polling trend "
-            "and event-tail snapshots (pseudo-stream for incident triage)."
-        ),
-        "min_role": Role.org_admin,
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "since_hours": {"type": "integer", "default": 24, "description": "Trend lookback hours"},
-                "bucket_minutes": {"type": "integer", "default": 15, "description": "Trend bucket size 5-60"},
-                "events_since_minutes": {
-                    "type": "integer",
-                    "default": 30,
-                    "description": "Event tail lookback minutes per poll",
-                },
-                "event_limit": {"type": "integer", "default": 120, "description": "Max events fetched per poll"},
-                "after_id": {"type": "integer", "default": 0, "description": "Cursor for incremental event tails"},
-                "risk_only": {"type": "boolean", "default": True},
-                "include_metadata": {"type": "boolean", "default": False},
-                "polls": {"type": "integer", "default": 4, "description": "Number of polling iterations (1-12)"},
-                "interval_seconds": {
-                    "type": "number",
-                    "default": 5,
-                    "description": "Pause between polls (1-30 sec)",
-                },
-            },
-        },
-    },
-    {
-        "name": "yarn_transition_incident_brief",
-        "description": (
-            "Generate an operator-ready transition-quality incident brief by combining "
-            "calibration trends with recent risk events and recommended actions."
-        ),
-        "min_role": Role.org_admin,
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "since_hours": {"type": "integer", "default": 24},
-                "bucket_minutes": {"type": "integer", "default": 15},
-                "events_since_minutes": {"type": "integer", "default": 180},
-                "event_limit": {"type": "integer", "default": 150},
-            },
-        },
-    },
+    # NOTE: Transition-quality MCP tooling moved to synesis-admin-mcp-ts.
+    # Keep Python MCP focused on support-compatible surfaces.
     {
         "name": "service_health",
         "description": "Check health of all Synesis services.",
@@ -1454,10 +1367,6 @@ _HANDLERS: dict[str, Any] = {
     "yarn_performance": _yarn_performance,
     "yarn_events": _yarn_events,
     "yarn_safety_summary": _yarn_safety_summary,
-    "yarn_transition_quality": _yarn_transition_quality,
-    "yarn_transition_events_tail": _yarn_transition_events_tail,
-    "yarn_transition_watch": _yarn_transition_watch,
-    "yarn_transition_incident_brief": _yarn_transition_incident_brief,
     "service_health": _service_health,
     "list_models": _list_models,
     "cache_metrics": _cache_metrics,

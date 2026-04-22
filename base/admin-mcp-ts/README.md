@@ -17,6 +17,7 @@ TypeScript-owned MCP transport and tool orchestration layer for Synesis Admin.
 - Validates session via `GET /api/v1/auth/me`.
 - Enforces **admin-only** access (`org_admin` / `platform_admin`) for all Admin MCP tools.
 - Per-tool role checks still apply (`platform_admin` for privileged operations like reconcile/purge/ingestion edits).
+- Legacy Python compatibility endpoints (`/api/v1/internal/mcp/*`) are retained for older callers but are no longer the primary source of truth.
 
 ## Transition Calibration Tooling
 

@@ -87,9 +87,9 @@ export default function McpTools() {
         </div>
         <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
           MCP Streamable HTTP for operators and IDE clients. Probe URL: <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_ADMIN_MCP_URL</code> (port <strong>8102</strong>). Authenticate with the same Bearer token as the Admin API. The server validates the session against{" "}
-          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/v1/auth/me</code>, loads role-filtered tools from{" "}
-          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/v1/internal/mcp/tools</code>, and executes via{" "}
-          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">POST /api/v1/internal/mcp/invoke</code> (audited in admin).
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/v1/auth/me</code>, serves its TS-owned catalog at{" "}
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /v1/admin-tools</code>, and executes via{" "}
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">POST /v1/admin-tools/invoke</code> (audited in admin).
         </p>
         {!adminMcpHealth?.reachable && adminMcpHealth?.error && (
           <p className="mb-4 rounded bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">

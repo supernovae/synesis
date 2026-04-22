@@ -71,7 +71,10 @@ async def mcp_admin_tool_catalog(request: Request, user: UserInfo = Depends(get_
     return {
         "tools": admin_mcp.visible_tools_for_role(role),
         "scope": "fallback-python-visible",
-        "note": "Use synesis-admin-mcp-ts Streamable HTTP (SYNESIS_ADMIN_MCP_URL) with the same Bearer token.",
+        "note": (
+            "Fallback catalog from legacy Python MCP helpers. "
+            "Use synesis-admin-mcp-ts Streamable HTTP (SYNESIS_ADMIN_MCP_URL) for the full TS-owned admin toolset."
+        ),
     }
 
 
