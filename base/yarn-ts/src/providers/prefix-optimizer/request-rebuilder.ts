@@ -5,9 +5,9 @@
  *   1. system — core_instructions (stable)
  *   2. system — project_guidance (stable)
  *   3. prior-turn messages in ORIGINAL order (conversation_history + tool_results interleaved)
- *   4. system — task_frame (semi-stable, changes per turn due to compactor)
- *   5. system — live_context (volatile)
- *   6. user — latest user turn (volatile)
+ *   4. user — latest user turn (volatile)
+ *   5. system — task_frame (semi-stable, changes per turn due to compactor)
+ *   6. system — live_context (volatile)
  *
  * CRITICAL: task_frame is NOT in the stable prefix. The frame compactor
  * derives objective/nextAction/filesInPlay from conversation content which
@@ -20,7 +20,9 @@
  * placed at the end of this prefix for reliable cache hits.
  *
  * conversation_history and tool_results are kept in their original
- * interleaved order (append-only across turns).
+ * interleaved order (append-only across turns). The latest user turn
+ * is intentionally placed before task_frame/live_context so a turn's
+ * user request remains in the reusable prefix on the next append.
  */
 
 import type { ChatMessage, ParsedSegment, SegmentCategory } from "./types.js";
@@ -36,7 +38,8 @@ const STABLE_SYSTEM_CATEGORIES: SegmentCategory[] = [
  * and the original messages.
  *
  * Stable system content leads. Conversation history preserves
- * original order. Volatile content (live_context + user turn) is last.
+ * original order. Volatile system content (task_frame + live_context)
+ * trails the latest user turn.
  */
 export function rebuildRequest(
   segments: ParsedSegment[],
@@ -73,7 +76,15 @@ export function rebuildRequest(
   const sortedPriorIndices = [...priorTurnIndices].sort((a, b) => a - b);
   appendOriginalMessages(rebuilt, sortedPriorIndices, originalMessages);
 
-  // 3. task_frame AFTER conversation — it changes every turn due to
+  // 3. Latest user turn before frame/live_context. This keeps the
+  //    prior turn's user request in the reusable prefix when the next
+  //    assistant+user pair is appended.
+  const userTurnSeg = segmentMap.get("latest_user_turn");
+  if (userTurnSeg && userTurnSeg.sourceIndices.length > 0) {
+    appendOriginalMessages(rebuilt, userTurnSeg.sourceIndices, originalMessages);
+  }
+
+  // 4. task_frame AFTER conversation and latest user — it changes every turn due to
   //    the frame compactor (objective, nextAction, filesInPlay derive
   //    from conversation content), so it must NOT be in the stable prefix.
   const frameSeg = segmentMap.get("task_frame");
@@ -81,16 +92,10 @@ export function rebuildRequest(
     rebuilt.push(canonicalizeMessage({ role: "system", content: frameSeg.content }));
   }
 
-  // 4. live_context AFTER task_frame — it changes every turn
+  // 5. live_context AFTER task_frame — it changes every turn
   const liveSeg = segmentMap.get("live_context");
   if (liveSeg && liveSeg.content.trim()) {
     rebuilt.push(canonicalizeMessage({ role: "system", content: liveSeg.content }));
-  }
-
-  // 5. Latest user turn last
-  const userTurnSeg = segmentMap.get("latest_user_turn");
-  if (userTurnSeg && userTurnSeg.sourceIndices.length > 0) {
-    appendOriginalMessages(rebuilt, userTurnSeg.sourceIndices, originalMessages);
   }
 
   return rebuilt;

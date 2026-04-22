@@ -23,9 +23,9 @@ describe("PrefixOptimizer integration", () => {
     expect(firstSystem.role).toBe("system");
     expect(firstSystem.content as string).toContain("AI coding assistant");
 
-    const lastMsg = result.messages[result.messages.length - 1];
-    expect(lastMsg.role).toBe("user");
-    expect(lastMsg.content as string).toContain("Fix the bug in auth.ts");
+    const lastUser = [...result.messages].reverse().find((m) => m.role === "user");
+    expect(lastUser).toBeDefined();
+    expect(lastUser?.content as string).toContain("Fix the bug in auth.ts");
 
     const systemMessages = result.messages.filter((m) => m.role === "system");
     const lastSystemContent = (systemMessages[systemMessages.length - 1].content as string);

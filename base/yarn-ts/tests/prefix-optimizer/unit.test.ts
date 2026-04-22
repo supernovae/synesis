@@ -328,7 +328,7 @@ describe("frame compactor", () => {
 /* ── Request Rebuilder ──────────────────────────────────────── */
 
 describe("request rebuilder", () => {
-  it("places stable content before conversation, live_context after conversation", () => {
+  it("places latest user turn before trailing volatile system context", () => {
     const segments: ParsedSegment[] = [
       { category: "core_instructions", stability: "stable", content: "You are an AI assistant.", hash: "a1", sourceIndices: [0], tokenEstimate: 10 },
       { category: "project_guidance", stability: "stable", content: "# Conventions\nUse strict mode.", hash: "b1", sourceIndices: [0], tokenEstimate: 10 },
@@ -348,14 +348,13 @@ describe("request rebuilder", () => {
     expect(rebuilt[1].role).toBe("system");
     expect((rebuilt[1].content as string)).toContain("Conventions");
 
-    // live_context is second-to-last (after any conversation, before user turn)
-    expect(rebuilt[rebuilt.length - 2].role).toBe("system");
-    expect((rebuilt[rebuilt.length - 2].content as string)).toContain("Today's date");
+    // user turn is placed before trailing volatile system context
+    expect(rebuilt[rebuilt.length - 2].role).toBe("user");
+    expect(rebuilt[rebuilt.length - 2].content).toContain("Fix the bug");
 
-    // user turn is last
     const lastMsg = rebuilt[rebuilt.length - 1];
-    expect(lastMsg.role).toBe("user");
-    expect(lastMsg.content).toContain("Fix the bug");
+    expect(lastMsg.role).toBe("system");
+    expect(lastMsg.content).toContain("Today's date");
   });
 
   it("counts system prefix correctly", () => {
@@ -366,6 +365,34 @@ describe("request rebuilder", () => {
       { role: "user", content: "d" },
     ];
     expect(countSystemPrefix(msgs)).toBe(3);
+  });
+
+  it("keeps append-only conversation before task_frame/live_context", () => {
+    const segments: ParsedSegment[] = [
+      { category: "core_instructions", stability: "stable", content: "core", hash: "c1", sourceIndices: [0], tokenEstimate: 10 },
+      { category: "conversation_history", stability: "volatile", content: "u1\na1", hash: "h1", sourceIndices: [1, 2], tokenEstimate: 12 },
+      { category: "latest_user_turn", stability: "volatile", content: "u2", hash: "u2", sourceIndices: [3], tokenEstimate: 4 },
+      { category: "task_frame", stability: "semi_stable", content: "<TASK_FRAME>\nobjective=do work\n</TASK_FRAME>", hash: "f1", sourceIndices: [0], tokenEstimate: 8 },
+      { category: "live_context", stability: "volatile", content: "<user_info>\nToday's date: Apr 8\n</user_info>", hash: "l1", sourceIndices: [0], tokenEstimate: 8 },
+    ];
+    const original: ChatMessage[] = [
+      { role: "system", content: "mixed content" },
+      { role: "user", content: "u1" },
+      { role: "assistant", content: "a1" },
+      { role: "user", content: "u2" },
+    ];
+
+    const rebuilt = rebuildRequest(segments, original);
+    expect(rebuilt.map((m) => m.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "system",
+      "system",
+    ]);
+    expect(rebuilt[3].content).toContain("u2");
+    expect(rebuilt[4].content).toContain("<TASK_FRAME>");
   });
 });
 
@@ -382,7 +409,7 @@ describe("marker policy", () => {
 
   // Simulates the rebuilt message array with the new layout:
   // [stable system: core] [stable system: project_guidance] [conversation interleaved]
-  // [task_frame system] [live_context system] [user turn]
+  // [latest user turn] [task_frame system] [live_context system]
   const messages: ChatMessage[] = [
     { role: "system", content: "x".repeat(4000) },     // 0: core_instructions
     { role: "system", content: "y".repeat(4000) },     // 1: project_guidance
@@ -392,9 +419,9 @@ describe("marker policy", () => {
     { role: "assistant", content: "response 2" },       // 5: conv history
     { role: "tool", content: "result 1", tool_call_id: "c1" }, // 6: tool results
     { role: "assistant", content: "final response" },   // 7: conv/tool
-    { role: "system", content: "task frame stuff" },    // 8: task_frame (volatile)
-    { role: "system", content: "volatile stuff" },      // 9: live_context
-    { role: "user", content: "hello" },                 // 10: latest user turn
+    { role: "user", content: "hello" },                 // 8: latest user turn
+    { role: "system", content: "task frame stuff" },    // 9: task_frame (volatile)
+    { role: "system", content: "volatile stuff" },      // 10: live_context
   ];
 
   it("returns empty array for none backend", () => {
