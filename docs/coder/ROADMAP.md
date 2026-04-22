@@ -29,7 +29,7 @@ This roadmap outlines future features and capabilities required to compete again
 - [x] Add shared TypeScript orchestration runtime abstraction (`OrchestrationRuntime` + `RequestResponseRuntime`).
 - [x] Add Zod contracts for `ExecutionPlan`, `WorkerTaskPacket`, `WorkerResult`, `DecisionRecord`, and `FinalReview`.
 - [x] Implement Cynefin-inspired intake (`clear|complicated|complex|chaotic`) and action routing (`answer_directly|ask_for_clarification|plan_and_execute|offer_paths`).
-- [x] Add bounded parallel worker execution (max 3) and reviewer remand policy (max 1 repair pass).
+- [x] Add bounded parallel worker execution (max 5) and reviewer remand policy (max 1 repair pass).
 - [x] Implement policy-driven merge/conflict handling with overlap escalation.
 - [x] Add compact context + instruction normalization (`AGENTS.md` / `CLAUDE.md` / internal rules) with artifact-ID referencing.
 - [x] Add trace model linkage (`trace_id`, `artifact_id`) across planning/execution/review.

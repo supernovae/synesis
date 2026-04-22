@@ -36,7 +36,7 @@ This document describes the request/response multi-agent orchestration runtime u
 ## Safety Constraints
 
 - No recursive spawn.
-- Max parallel workers: 3.
+- Max parallel workers: 5.
 - Max planner rounds: 2.
 - Max repair rounds: 1.
 - Architectural challenge flow is bounded (1 challenge + 1 adjudication policy target).

@@ -1,5 +1,5 @@
 export const ORCHESTRATION_LIMITS = {
-  maxParallelWorkers: 3,
+  maxParallelWorkers: 5,
   maxPlannerRounds: 2,
   maxRepairRounds: 1,
   maxArchitecturalChallengeRounds: 1,
