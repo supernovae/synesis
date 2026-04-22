@@ -1342,6 +1342,8 @@ describe("execution governor", () => {
       consecutiveRecoveryFires: 5,
       matchedRules: ["verification_intent_without_action", "no_progress_loop"],
     });
+    expect(message).toContain("The assistant said it would run tests or check results");
+    expect(message).toContain("Suggested next move:");
     expect(message).toContain("GOVERNOR PAUSE");
     expect(message).toContain("agent will not continue automatically");
     expect(message).toContain("Choose the next action");
@@ -1354,6 +1356,7 @@ describe("execution governor", () => {
       consecutiveRecoveryFires: 5,
       matchedRules: ["verification_churn_no_edit"],
     });
+    expect(message).toContain("Many verification or build steps in a row");
     expect(message).toContain("Reason: verification_churn_no_edit");
     expect(message).toContain("Continue with one focused fix");
     expect(message).toContain("targeted verification command");
@@ -1372,6 +1375,8 @@ describe("execution governor", () => {
     expect(envelope.next_actions.map((a) => a.id)).toContain("run_targeted_test");
     expect(envelope.next_actions.map((a) => a.id)).toContain("apply_one_edit");
     expect(envelope.default_recommended_action).toBe("apply_one_edit");
+    expect(envelope.user_facing_explanation).toContain("said it would run tests");
+    expect(envelope.concrete_nudge).toMatch(/one narrow command|one `go test`/i);
   });
 
   it("builds transport-agnostic pause envelope for general loops", () => {
@@ -1381,6 +1386,8 @@ describe("execution governor", () => {
       hardStopThreshold: 5,
     });
     expect(envelope.pause_reason).toBe("verification_churn_no_edit");
+    expect(envelope.user_facing_explanation).toContain("Many verification or build steps");
+    expect(envelope.concrete_nudge).toBeTruthy();
     expect(envelope.next_actions.map((a) => a.id)).toContain("continue_with_fix");
     expect(envelope.next_actions.map((a) => a.id)).toContain("continue_with_verification");
     expect(envelope.default_recommended_action).toBe("continue_with_fix");

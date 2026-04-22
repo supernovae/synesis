@@ -2851,19 +2851,100 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
   ].join("\n");
 }
 
+/**
+ * Plain-language + concrete nudge for hard stops. Keys are `matchedRules` ids; unknown rules
+ * fall back so we never return an opaque "figure it out" to humans or the model.
+ */
+const HARD_STOP_PLAIN: Record<string, { what: string; nudge: string }> = {
+  verification_intent_without_action: {
+    what: "The assistant said it would run tests or check results several times, but there was no matching test or build command in the recent tool history.",
+    nudge: "Run exactly one narrow command (for example one `go test` for the package you changed), or make a single code edit first—then continue from the real output.",
+  },
+  verbal_intent_without_action: {
+    what: "The assistant kept opening with 'I'll' / 'let me' style phrases without the next real tool call actually happening, so the run was not making forward progress.",
+    nudge: "Next turn: do exactly one of—one Bash test/build, one file edit, or one task/plan update—then stop and read the result before anything else.",
+  },
+  no_progress_loop: {
+    what: "The assistant ran a long series of tool calls without a successful code change where one was needed, or without closing the loop with a clear summary or edit.",
+    nudge: "Either make one small, targeted code change, or end with a short written summary of what is done and what is still missing—avoid more discovery in the same turn.",
+  },
+  repeated_assistant_intro: {
+    what: "The assistant repeated the same opening or plan text across multiple messages instead of new actions or a real test/build result.",
+    nudge: "Read the file you need once, make one exact anchored edit, or run one `git diff` / one targeted test—skip re-stating the plan.",
+  },
+  broad_to_narrow_verification: {
+    what: "The same kind of very broad test or build command was re-run; scoped checks usually finish faster and make failures easier to fix.",
+    nudge: "Re-run a single package or file-scoped test for the code you just touched, not the whole tree again.",
+  },
+  edit_before_retest: {
+    what: "Tests or builds were re-run with an ongoing failure, but the assistant did not land a new code change between those runs.",
+    nudge: "Change one file to address the failure, then one narrow re-test; avoid repeating the same command without a diff in between.",
+  },
+  no_repeat_without_change: {
+    what: "The same or equally broad test command was repeated without a new code change, which only burns time when something is still red.",
+    nudge: "Edit one file toward the error message, or narrow the test to the smallest failing package, then re-run once.",
+  },
+  verification_churn_no_edit: {
+    what: "Many verification or build steps in a row did not add new signal and no edit was written to break the loop.",
+    nudge: "Pick one failure line, one file, one small fix, then a single re-check—or stop and report what is blocked in two sentences.",
+  },
+  verification_stall_no_edit: {
+    what: "Verification and exploration were repeated without a successful edit or a clear written conclusion.",
+    nudge: "One concrete fix or a clear written summary: what passed, what failed, and the single next step.",
+  },
+  source_file_stale_reread: {
+    what: "The same file was read over and over after an edit or anchor failure, without applying a new change using the content already in context.",
+    nudge: "Use the file text already in the transcript, or read once, then one Write/StrReplace with an anchor that exists on disk right now.",
+  },
+  edit_failure_replay: {
+    what: "Edits or patches failed and were re-tried in a way that did not move the anchor or approach toward success.",
+    nudge: "Re-read the target file once, copy an exact `old_string` from current content, or apply a smaller patch; then re-run one small check if needed.",
+  },
+  plan_reread_loop: {
+    what: "The project plan or task file was re-read or re-summarized many times without executing the next task or updating status.",
+    nudge: "Update the plan's next line or make one direct code change for the next open item—no more plan re-hashing.",
+  },
+  broad_discovery_repeat: {
+    what: "Very broad file search or list patterns were used repeatedly (for example `Glob` of the whole tree) without converging on a file to change.",
+    nudge: "Name 1–3 likely file paths, read one of them, then one edit, or one targeted search in the smallest directory that matters.",
+  },
+  verification_after_completion_claim: {
+    what: "The model already said the work was done but kept running more builds or tests or scans.",
+    nudge: "Mark tasks complete, commit if requested, and write a one-paragraph handoff—do not re-verify the same green build.",
+  },
+  finalize_action_required: {
+    what: "Tests or builds are already in a good state, but the turn did not finish with a clear user-facing wrap-up or task closure.",
+    nudge: "Write a short 'done' summary, update tasks to completed, or run the exact git add/commit the user asked for—one completion action only.",
+  },
+};
+
+const HARD_STOP_PLAIN_DEFAULT: { what: string; nudge: string } = {
+  what: "The session tripped a loop guard: similar actions repeated without real progress (tests without edits, repeated narration, or the same command again).",
+  nudge: "Take one of: a single focused test, a single file edit, or a short clear summary of status—then re-evaluate before doing more.",
+};
+
+function hardStopPlainCopy(matchedRules: string[]): { what: string; nudge: string; primary: string } {
+  const primary = (matchedRules[0] ?? "unknown").trim() || "unknown";
+  const row = HARD_STOP_PLAIN[primary] ?? HARD_STOP_PLAIN_DEFAULT;
+  return { what: row.what, nudge: row.nudge, primary };
+}
+
 export function buildExecutionGovernorHardStopUserMessage(params: {
   consecutiveRecoveryFires: number;
   matchedRules: string[];
 }): string {
   const { consecutiveRecoveryFires, matchedRules } = params;
-  const primaryRule = matchedRules[0] ?? "unknown";
+  const { what, nudge, primary: primaryRule } = hardStopPlainCopy(matchedRules);
   const needsDirectionChoice = matchedRules.some((r) =>
     r === "verification_intent_without_action"
     || r === "verbal_intent_without_action"
     || r === "no_progress_loop",
   );
 
+  const lead = [what, "", `Suggested next move: ${nudge}`, ""];
+
   const header = [
+    ...lead,
     "GOVERNOR PAUSE: Agent progress is blocked by repeated loops.",
     `Recovery fired ${consecutiveRecoveryFires} consecutive times and was ignored.`,
     "The agent will not continue automatically from this response.",
@@ -2907,6 +2988,7 @@ export interface GovernorPauseAction {
 export interface GovernorPauseEnvelope {
   status: "paused";
   pause_reason: string;
+  /** Rule id; see `user_facing_explanation` for plain language. */
   matched_rules: string[];
   required_user_action: true;
   recovery_attempts_used: number;
@@ -2914,6 +2996,10 @@ export interface GovernorPauseEnvelope {
   next_automatic_step_allowed: false;
   next_actions: GovernorPauseAction[];
   default_recommended_action: string;
+  /** Why the guard tripped, in full sentences (for UI + model nudge, not only opaque ids). */
+  user_facing_explanation: string;
+  /** One concrete “do this next” (maps to the primary matched rule). */
+  concrete_nudge: string;
   resume_hint: string;
 }
 
@@ -2924,6 +3010,7 @@ export function buildExecutionGovernorPauseEnvelope(params: {
 }): GovernorPauseEnvelope {
   const { matchedRules, consecutiveRecoveryFires, hardStopThreshold } = params;
   const pauseReason = matchedRules[0] ?? "unknown";
+  const plain = hardStopPlainCopy(matchedRules);
   const isIntentLoop = matchedRules.some((r) =>
     r === "verification_intent_without_action"
     || r === "verbal_intent_without_action"
@@ -2994,6 +3081,12 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     next_automatic_step_allowed: false,
     next_actions: nextActions,
     default_recommended_action: defaultAction,
-    resume_hint: "Reply with action id and optional arguments, for example: run_targeted_test command=\"go test ./cmd/synesis -run TestRunCompletion -v\"",
+    user_facing_explanation: plain.what,
+    concrete_nudge: plain.nudge,
+    resume_hint: [
+      plain.nudge,
+      "",
+      "Or reply with an action id and arguments, e.g. run_targeted_test command=\"go test ./cmd/synesis -run TestRunCompletion -v\"",
+    ].join("\n"),
   };
 }
