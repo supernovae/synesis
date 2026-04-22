@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import type { Redis } from "ioredis";
+
+export const ARTIFACT_REDIS_REPLICA_PREFIX = "yarn-ts:artrep:";
 
 export interface ArtifactRecord {
   id: string;
@@ -21,13 +24,23 @@ export class ArtifactStore {
   private readonly maxCount: number;
   private readonly ttlMs: number;
   private readonly maxPayloadBytes: number;
+  private readonly replicaRedis: Redis | null;
+  private readonly replicaEnabled: boolean;
   private evictionCount = 0;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(opts?: { maxCount?: number; ttlMs?: number; maxPayloadBytes?: number }) {
+  constructor(opts?: {
+    maxCount?: number;
+    ttlMs?: number;
+    maxPayloadBytes?: number;
+    replicaRedis?: Redis | null;
+    replicaEnabled?: boolean;
+  }) {
     this.maxCount = opts?.maxCount ?? 500;
     this.ttlMs = opts?.ttlMs ?? 3_600_000;
     this.maxPayloadBytes = opts?.maxPayloadBytes ?? 1_048_576;
+    this.replicaRedis = opts?.replicaRedis ?? null;
+    this.replicaEnabled = opts?.replicaEnabled ?? false;
     this.sweepTimer = setInterval(() => this.sweep(), 60_000);
   }
 
@@ -58,6 +71,13 @@ export class ArtifactStore {
       payloadBytes: Buffer.byteLength(storedPayload, "utf8"),
     };
     this.artifacts.set(id, record);
+    if (this.replicaEnabled && this.replicaRedis) {
+      const ttlS = Math.max(60, Math.floor(this.ttlMs / 1000));
+      const payload = JSON.stringify(record);
+      void this.replicaRedis
+        .set(`${ARTIFACT_REDIS_REPLICA_PREFIX}${id}`, payload, "EX", ttlS)
+        .catch(() => { /* best-effort replica */ });
+    }
     return record;
   }
 

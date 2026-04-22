@@ -605,6 +605,7 @@ describe("context injector", () => {
     ], "go");
     const result = generateExtendedMemoryContext(makeConfig(), {
       structuralIndex: index,
+      structuralMapFromIncremental: false,
       goDocOutput: null,
       evalPlan: null,
       recentFiles: [],
@@ -618,6 +619,7 @@ describe("context injector", () => {
   it("falls back to go doc when no structural index", () => {
     const result = generateExtendedMemoryContext(makeConfig(), {
       structuralIndex: null,
+      structuralMapFromIncremental: false,
       goDocOutput: "package main // import \"example\"\nfunc Main()",
       evalPlan: null,
       recentFiles: [],
@@ -632,6 +634,7 @@ describe("context injector", () => {
     const signals = { ...createEmptyMemorySignals(), findingsStoreSize: 5 };
     const result = generateExtendedMemoryContext(makeConfig(), {
       structuralIndex: null,
+      structuralMapFromIncremental: false,
       goDocOutput: null,
       evalPlan: null,
       recentFiles: [],
@@ -639,6 +642,22 @@ describe("context injector", () => {
       memorySignals: signals,
     });
     expect(result.blocks.some((b) => b.includes("MEMORY_HINT"))).toBe(true);
+  });
+
+  it("skips batch structural and go-doc when incremental map already in frame", () => {
+    const index = buildStructuralIndex("/project", [
+      { path: "main.go", content: "package main\nfunc Main() {}" },
+    ], "go");
+    const result = generateExtendedMemoryContext(makeConfig(), {
+      structuralIndex: index,
+      structuralMapFromIncremental: true,
+      goDocOutput: "package main\nfunc X() {}",
+      evalPlan: null,
+      recentFiles: [],
+      projectLanguage: "go",
+      memorySignals: createEmptyMemorySignals(),
+    });
+    expect(result.blocks.length).toBe(0);
   });
 });
 

@@ -14,26 +14,26 @@ describe("ArtifactRetrievalService", () => {
     expect(svc.hasArtifacts()).toBe(false);
   });
 
-  it("retrieves a stored artifact by handle", () => {
+  it("retrieves a stored artifact by handle", async () => {
     const { store, svc } = setup();
     const rec = store.putToolResult("line one\nline two\nline three");
-    const result = svc.retrieve(rec.id);
+    const result = await svc.retrieve(rec.id);
     expect(result.found).toBe(true);
     expect(result.content).toBe("line one\nline two\nline three");
     expect(result.totalChars).toBe("line one\nline two\nline three".length);
   });
 
-  it("returns not-found for missing handles", () => {
+  it("returns not-found for missing handles", async () => {
     const { svc } = setup();
-    const result = svc.retrieve("art_nonexistent");
+    const result = await svc.retrieve("art_nonexistent");
     expect(result.found).toBe(false);
     expect(result.content).toContain("not found");
   });
 
-  it("filters by query keyword", () => {
+  it("filters by query keyword", async () => {
     const { store, svc } = setup();
     const rec = store.putToolResult("ERROR: connection refused\nINFO: started\nERROR: timeout");
-    const result = svc.retrieve(rec.id, "ERROR");
+    const result = await svc.retrieve(rec.id, "ERROR");
     expect(result.found).toBe(true);
     expect(result.matchedLines).toBe(2);
     expect(result.content).toContain("connection refused");
@@ -41,10 +41,10 @@ describe("ArtifactRetrievalService", () => {
     expect(result.content).not.toContain("INFO");
   });
 
-  it("returns empty match message when query finds nothing", () => {
+  it("returns empty match message when query finds nothing", async () => {
     const { store, svc } = setup();
     const rec = store.putToolResult("just some text");
-    const result = svc.retrieve(rec.id, "NONEXISTENT");
+    const result = await svc.retrieve(rec.id, "NONEXISTENT");
     expect(result.found).toBe(true);
     expect(result.matchedLines).toBe(0);
     expect(result.content).toContain("No lines matched");
@@ -80,12 +80,12 @@ describe("ArtifactRetrievalService", () => {
     expect(result).toHaveLength(1);
   });
 
-  it("tracks stats correctly", () => {
+  it("tracks stats correctly", async () => {
     const { store, svc } = setup();
     const rec = store.putToolResult("hello\nworld");
-    svc.retrieve(rec.id);
-    svc.retrieve(rec.id, "hello");
-    svc.retrieve("art_missing");
+    await svc.retrieve(rec.id);
+    await svc.retrieve(rec.id, "hello");
+    await svc.retrieve("art_missing");
     const stats = svc.getStats();
     expect(stats.retrievalCount).toBe(2);
     expect(stats.missCount).toBe(1);

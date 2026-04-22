@@ -1,4 +1,5 @@
-import type { ArtifactStore, ArtifactRecord } from "./artifact-store.js";
+import type { Redis } from "ioredis";
+import { ARTIFACT_REDIS_REPLICA_PREFIX, type ArtifactStore, type ArtifactRecord } from "./artifact-store.js";
 
 export const ARTIFACT_TOOL_NAME = "synesis_artifact_retrieve";
 
@@ -52,14 +53,27 @@ export class ArtifactRetrievalService {
   private missCount = 0;
   private queryFilterCount = 0;
 
-  constructor(private readonly store: ArtifactStore) {}
+  constructor(
+    private readonly store: ArtifactStore,
+    private readonly replica?: { redis: Redis | null; enabled: boolean },
+  ) {}
 
   hasArtifacts(): boolean {
     return this.store.size() > 0;
   }
 
-  retrieve(artifactHandle: string, query?: string): ArtifactRetrievalResult {
-    const record = this.store.get(artifactHandle);
+  async retrieve(artifactHandle: string, query?: string): Promise<ArtifactRetrievalResult> {
+    let record = this.store.get(artifactHandle);
+    if (!record && this.replica?.enabled && this.replica.redis) {
+      const raw = await this.replica.redis.get(`${ARTIFACT_REDIS_REPLICA_PREFIX}${artifactHandle}`);
+      if (raw) {
+        try {
+          record = JSON.parse(raw) as ArtifactRecord;
+        } catch {
+          record = undefined;
+        }
+      }
+    }
     if (!record) {
       this.missCount++;
       return {

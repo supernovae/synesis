@@ -447,7 +447,7 @@ describe("Artifact retrieval parity", () => {
     const record = store.putToolResult("The quick brown fox jumps over the lazy dog");
     const service = new ArtifactRetrievalService(store);
 
-    const result = service.retrieve(record.id);
+    const result = await service.retrieve(record.id);
     expect(result.found).toBe(true);
     expect(result.content).toContain("quick brown fox");
   });
@@ -460,7 +460,7 @@ describe("Artifact retrieval parity", () => {
     const record = store.putToolResult("line1 apple\nline2 banana\nline3 apple pie");
     const service = new ArtifactRetrievalService(store);
 
-    const result = service.retrieve(record.id, "apple");
+    const result = await service.retrieve(record.id, "apple");
     expect(result.found).toBe(true);
     expect(result.matchedLines).toBe(2);
   });

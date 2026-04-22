@@ -1,5 +1,8 @@
 /**
- * Provider Cache Hints
+ * Provider cache hints and explicit-cache plumbing.
+ *
+ * **Documentation:** [docs/CACHING.md](../docs/CACHING.md) — pluggable “tiered” cache,
+ * observability, and why some vendor integrations show no real hit rate.
  *
  * Strategies for prefix cache reuse across providers:
  *

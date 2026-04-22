@@ -96,3 +96,8 @@ state_review.md
 
 # Docs: track all documentation except experimental WIP under docs/wip/
 docs/wip/
+
+# base/yarn-ts: local eval/regression JSON dumps (CI emits artifacts; do not commit)
+base/yarn-ts/eval-governor-regression-phase*.json
+base/yarn-ts/eval-results*.json
+base/yarn-ts/eval-results-post-*.json

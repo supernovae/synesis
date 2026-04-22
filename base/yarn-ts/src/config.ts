@@ -156,6 +156,18 @@ const EnvSchema = z.object({
   SYNESIS_YARN_ARTIFACT_MAX_COUNT: z.coerce.number().default(500),
   SYNESIS_YARN_ARTIFACT_TTL_MS: z.coerce.number().default(3_600_000),
   SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES: z.coerce.number().default(5_242_880),
+  /** Also persist artifact payload bytes to Redis (same id) for cross-pod `synesis_artifact_retrieve` without sticky sessions. */
+  SYNESIS_YARN_ARTIFACT_REDIS_REPLICA_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  /** Generic tool-blob tier (e.g. large payloads) — uses session Redis. */
+  SYNESIS_YARN_TOOL_BLOB_REDIS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_TOOL_BLOB_REDIS_MAX_BYTES: z.coerce.number().default(5_242_880),
+  SYNESIS_YARN_TOOL_BLOB_REDIS_TTL_S: z.coerce.number().default(3600),
 
   // Policy engine repeat-map bounds (memory safety)
   SYNESIS_YARN_POLICY_REPEAT_MAP_MAX: z.coerce.number().default(5000),
@@ -490,6 +502,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  // Safe default: run classification/stats without mutating prompt blocks.
+  SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY: z
     .string()
     .optional()
@@ -652,7 +669,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED: z
     .string()
     .optional()
-    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
 
   /** Terminal interception: ANSI/\\r/repeat shaping for MCP runners and sandbox (default on). */
   SYNESIS_YARN_TERMINAL_SHAPING_ENABLED: z

@@ -150,10 +150,14 @@ export class HierarchicalSummaryStore {
     cacheMisses: 0,
   };
 
+  /**
+   * @param keyScope - Session-scoped prefix (e.g. session key) so different conversations do not share Redis keys.
+   */
   constructor(
     private readonly redis: Redis | null,
     private readonly maxTokens = 100,
     private readonly ttlSeconds = DEFAULT_TTL_S,
+    private readonly keyScope: string = "",
   ) {}
 
   /**
@@ -356,6 +360,20 @@ export class HierarchicalSummaryStore {
   }
 
   private key(path: string, projectRoot: string): string {
-    return `${REDIS_PREFIX}${projectRoot}:${path}`;
+    const scope = this.keyScope ? `${this.keyScope}:` : "";
+    const safeRoot = projectRoot.replace(/:/g, "_");
+    const safePath = path.replace(/:/g, "_");
+    return `${REDIS_PREFIX}${scope}${safeRoot}:${safePath}`;
   }
+}
+
+/** Create a store scoped to a single session (avoids key collisions across users/conversations). */
+export function createHierarchicalSummaryStore(
+  redis: Redis | null,
+  maxTokens: number,
+  ttlSeconds: number,
+  sessionKey: string,
+): HierarchicalSummaryStore {
+  const scope = sessionKey.replace(/[^a-zA-Z0-9:._-]/g, "_").slice(0, 200);
+  return new HierarchicalSummaryStore(redis, maxTokens, ttlSeconds, scope);
 }

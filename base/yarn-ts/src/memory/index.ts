@@ -31,6 +31,7 @@ export { MemoryStore } from "./memory-store.js";
 
 export {
   HierarchicalSummaryStore,
+  createHierarchicalSummaryStore,
   generateFileSummary,
   generateDirectorySummary,
 } from "./summary-store.js";

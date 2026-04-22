@@ -23,6 +23,8 @@ export interface PromptFrame {
   structuralIndex: string | null;
   fileSummary: string | null;
   verificationPlan: string | null;
+  /** Go-doc fallback, MEMORY_HINT, chunked eval — from `generateExtendedMemoryContext`. */
+  extendedMemoryBlocks: string[];
   responseStyle: string | null;
   governanceBlocks: string[];
   intentGate: string | null;
@@ -54,6 +56,9 @@ export function buildPromptMessages(
   if (frame.structuralIndex) volatileParts.push(frame.structuralIndex);
   if (frame.fileSummary) volatileParts.push(frame.fileSummary);
   if (frame.verificationPlan) volatileParts.push(frame.verificationPlan);
+  for (const em of frame.extendedMemoryBlocks) {
+    if (em.trim()) volatileParts.push(em);
+  }
   if (frame.responseStyle) volatileParts.push(frame.responseStyle);
   for (const g of frame.governanceBlocks) {
     if (g.trim()) volatileParts.push(g);
@@ -83,6 +88,9 @@ export function computeVolatileFingerprint(frame: PromptFrame): string {
   if (frame.structuralIndex) parts.push(frame.structuralIndex);
   if (frame.fileSummary) parts.push(frame.fileSummary);
   if (frame.verificationPlan) parts.push(frame.verificationPlan);
+  for (const em of frame.extendedMemoryBlocks) {
+    if (em.trim()) parts.push(em);
+  }
   if (frame.responseStyle) parts.push(frame.responseStyle);
   for (const g of frame.governanceBlocks) {
     if (g.trim()) parts.push(g);

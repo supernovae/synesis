@@ -15,7 +15,13 @@ import { renderGoDocMap } from "./go-doc-index.js";
 import { formatEvalProgress } from "./chunked-eval.js";
 
 export interface ContextInjectorInput {
+  /** Batch / full-repo structural index (optional; incremental path uses frame.structuralIndex instead). */
   structuralIndex: StructuralIndex | null;
+  /**
+   * When true, `enrichWithFrameAndManifest` already injected an incremental structural map;
+   * skip batch `renderStructuralMap` and primary go-doc here (go-doc only when no incremental map).
+   */
+  structuralMapFromIncremental: boolean;
   goDocOutput: string | null;
   evalPlan: ChunkedEvalPlan | null;
   recentFiles: string[];
@@ -41,25 +47,27 @@ export function generateExtendedMemoryContext(
   const blocks: string[] = [];
   let totalChars = 0;
 
-  if (config.SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED && input.structuralIndex) {
-    const opts: RenderOptions = {
-      tokenBudget: config.SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET,
-      recentFiles: input.recentFiles,
-    };
-    const map = renderStructuralMap(input.structuralIndex, opts);
-    blocks.push(map);
-    totalChars += map.length;
-  } else if (
-    config.SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED
-    && input.goDocOutput
-    && input.projectLanguage === "go"
-  ) {
-    const map = renderGoDocMap(
-      input.goDocOutput,
-      config.SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET,
-    );
-    blocks.push(map);
-    totalChars += map.length;
+  if (!input.structuralMapFromIncremental) {
+    if (config.SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED && input.structuralIndex) {
+      const opts: RenderOptions = {
+        tokenBudget: config.SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET,
+        recentFiles: input.recentFiles,
+      };
+      const map = renderStructuralMap(input.structuralIndex, opts);
+      blocks.push(map);
+      totalChars += map.length;
+    } else if (
+      config.SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED
+      && input.goDocOutput
+      && input.projectLanguage === "go"
+    ) {
+      const map = renderGoDocMap(
+        input.goDocOutput,
+        config.SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET,
+      );
+      blocks.push(map);
+      totalChars += map.length;
+    }
   }
 
   if (config.SYNESIS_YARN_CHUNKED_EVAL_ENABLED && input.evalPlan) {

@@ -10,6 +10,10 @@ Node 22 TypeScript orchestration service prototype for replacing Python Yarn.
 - Stable prefix, sawtooth compaction, artifact/server-side tools, transcript pruning for coherent long-context "edit/read/write/complete".
 - Zod-validated contracts, Redis session store, MCP HTTP bridge.
 
+**Prefix cache, provider shims, Redis artifact/tool tiers:** [docs/CACHING.md](docs/CACHING.md) (maintained in lockstep with [provider-cache-hints.ts](src/context/provider-cache-hints.ts) and related code).
+
+Sensemaking safety: `SYNESIS_YARN_SENSEMAKING_ENABLED` runs classification/telemetry, while `SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED` separately controls prompt mutation (`<EXPLORATION_PLAN>` injection).
+
 ## Regression checks (policy + image parity)
 
 - **Unit tests:** from repo root after `npm ci`: `npm test --workspace=base/yarn-ts` — includes `tests/deterministic-policy-engine.test.ts` (repeat-loop **sessionKey** scoping), `tests/containerfile-build-parity.test.ts` (Containerfile must build every `@synesis/*` dependency), and the rest of the suite.

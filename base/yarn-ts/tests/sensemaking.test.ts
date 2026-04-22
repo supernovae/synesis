@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { loadConfig } from "../src/config.js";
 import { analyzeGaps, shouldTriggerSensemaking } from "../src/sensemaking/gap-analyzer.js";
 import { buildExplorationPlan } from "../src/sensemaking/exploration-planner.js";
 import { formatExplorationPlanBlock } from "../src/sensemaking/formatter.js";
+import { runSensemaking, applySensemakingStats } from "../src/sensemaking/run-sensemaking.js";
 import { createEmptySensemakingStats } from "../src/sensemaking/types.js";
 import type { GapAnalysisContext, SensemakingResult } from "../src/sensemaking/types.js";
 import type { OrchestratorDecision } from "../src/orchestration/phase-model-orchestrator.js";
@@ -579,5 +581,58 @@ describe("Sensemaking — end-to-end scenarios", () => {
     expect(trigger.trigger).toBe(false);
     expect(gaps.unknown.length).toBe(0);
     expect(gaps.knowBetter.length).toBe(0);
+  });
+});
+
+describe("runSensemaking (server pipeline)", () => {
+  it("is not evaluated when SENSEMAKING is disabled", () => {
+    const config = loadConfig({ SYNESIS_YARN_SENSEMAKING_ENABLED: "false" } as never);
+    const { result, block, evaluated } = runSensemaking({
+      config,
+      messages: [],
+      getLanguages: () => [],
+      orchestration: makeDecision(),
+      recallDecision: null,
+      verificationState: emptyVerifState(),
+      evidencePrefetched: false,
+      evidenceConfidence: 0,
+      evidenceAuthoritative: false,
+      userText: "hi",
+      workingFrameGoal: undefined,
+      consecutiveFailedVerifications: 0,
+    });
+    expect(evaluated).toBe(false);
+    expect(block).toBe("");
+    expect(result.triggered).toBe(false);
+  });
+
+  it("produces a plan block in explore when enabled", () => {
+    const config = loadConfig({
+      SYNESIS_YARN_SENSEMAKING_ENABLED: "true",
+      SYNESIS_YARN_SENSEMAKING_GAP_THRESHOLD: "0.5",
+      SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY: "false",
+    } as never);
+    const ctx = baseContext({ phase: "explore" });
+    const { result, block, evaluated } = runSensemaking({
+      config,
+      messages: [],
+      getLanguages: () => ["typescript"],
+      orchestration: makeDecision({ phase: "explore" }),
+      recallDecision: ctx.recallDecision,
+      verificationState: ctx.verificationState,
+      evidencePrefetched: Boolean(ctx.evidencePrefetched),
+      evidenceConfidence: ctx.evidenceConfidence ?? 0,
+      evidenceAuthoritative: ctx.evidenceAuthoritative,
+      userText: ctx.userText,
+      workingFrameGoal: ctx.workingFrameGoal,
+      consecutiveFailedVerifications: ctx.consecutiveFailedVerifications,
+    });
+    expect(evaluated).toBe(true);
+    expect(result.triggered).toBe(true);
+    expect(block).toContain("<EXPLORATION_PLAN>");
+    const stats = createEmptySensemakingStats();
+    applySensemakingStats(stats, result, evaluated);
+    expect(stats.triggeredCount).toBe(1);
+    expect(stats.plansGenerated).toBe(1);
   });
 });

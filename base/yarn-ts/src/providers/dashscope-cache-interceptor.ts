@@ -1,16 +1,12 @@
 /**
- * DashScope Explicit Cache Marker Injector
+ * DashScope-style explicit cache marker injector (optional provider shim).
  *
- * Thin fetch wrapper that injects `cache_control: { type: "ephemeral" }`
- * markers at message indices determined by the PrefixOptimizer.
- *
- * The optimizer (application layer) decides WHERE markers go based on
- * semantic content stability. This interceptor (transport layer) only
- * applies the markers to the serialized request body and captures
- * response usage for diagnostics.
- *
- * Also supports a legacy fallback mode (selectBreakpoints) when the
- * optimizer is not active.
+ * **Not** required for core Yarn: kept for tests and re-wiring a DashScope or
+ * similar HTTP layer without changing the `resolve()` call shape in
+ * `SynesisProviderRegistry`. When enabled, the wrapper injects
+ * `cache_control: { type: "ephemeral" }` at indices from the prefix optimizer
+ * and records usage. See `docs/CACHING.md` for when explicit cache does or
+ * does not help versus implicit prefix stability.
  */
 
 interface ContentBlock {

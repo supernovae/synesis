@@ -12,6 +12,7 @@ function makeFrame(overrides: Partial<PromptFrame> = {}): PromptFrame {
     structuralIndex: null,
     fileSummary: null,
     verificationPlan: null,
+    extendedMemoryBlocks: [],
     responseStyle: null,
     governanceBlocks: [],
     intentGate: null,

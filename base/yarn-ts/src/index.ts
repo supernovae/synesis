@@ -70,6 +70,7 @@ import {
 import { parseOrchestratorPhaseHeader } from "./validation/orchestrator-phase.js";
 import { ArtifactStore } from "./state/artifact-store.js";
 import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
+import { createToolBlobTier } from "./state/tool-blob-tier.js";
 import {
   KnowledgeSearchService,
   KNOWLEDGE_TOOL_NAME,
@@ -94,6 +95,8 @@ import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/hi
 import { BlockStore } from "./store/block-store.js";
 import { OptimizationLedger, type OptimizationLedgerSnapshot } from "./telemetry/optimization-ledger.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
+import { generateExtendedMemoryContext } from "./memory/context-injector.js";
+import { runGoDoc } from "./memory/go-doc-index.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
 import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
 import { clearSessionMemory, getSessionMemoryCount, initMemoryToolStore } from "./mcp/handlers/memory-tools.js";
@@ -184,7 +187,9 @@ import {
   type RequestForensicsRecord,
 } from "./telemetry/request-forensics.js";
 import {
+  applySensemakingStats,
   createEmptySensemakingStats,
+  runSensemaking,
   type SensemakingResult,
   type SensemakingStats,
 } from "./sensemaking/index.js";
@@ -2608,8 +2613,14 @@ const artifactStore = new ArtifactStore({
   maxCount: config.SYNESIS_YARN_ARTIFACT_MAX_COUNT,
   ttlMs: config.SYNESIS_YARN_ARTIFACT_TTL_MS,
   maxPayloadBytes: config.SYNESIS_YARN_ARTIFACT_MAX_PAYLOAD_BYTES,
+  replicaRedis: memoryStoreRedis,
+  replicaEnabled: config.SYNESIS_YARN_ARTIFACT_REDIS_REPLICA_ENABLED,
 });
-const artifactRetrieval = new ArtifactRetrievalService(artifactStore);
+const toolBlobTier = createToolBlobTier(config, memoryStoreRedis);
+const artifactRetrieval = new ArtifactRetrievalService(artifactStore, {
+  redis: memoryStoreRedis,
+  enabled: config.SYNESIS_YARN_ARTIFACT_REDIS_REPLICA_ENABLED,
+});
 const knowledgeSearch = new KnowledgeSearchService({
   plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
   criticUrl: config.SYNESIS_YARN_CRITIC_URL,
@@ -3033,6 +3044,30 @@ function enrichWithFrameAndManifest(
     }
   }
 
+  const sessionIdxForExtMem = getStructuralIndex(sessionKey);
+  const structuralMapFromIncremental = Boolean(structuralIndexBlock);
+  const detectedLangsForExt = detectLanguagesFromMessages(out);
+  const projectLanguageForExt = sessionIdxForExtMem?.getIndex().language ?? detectedLangsForExt[0] ?? "unknown";
+  const recentFilesForExt = sessionIdxForExtMem ? sessionIdxForExtMem.getIndex().files.map((f) => f.path) : [];
+  let goDocOutputForExt: string | null = null;
+  if (
+    config.SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED
+    && !structuralMapFromIncremental
+    && pathHints?.projectRoot
+    && projectLanguageForExt === "go"
+  ) {
+    goDocOutputForExt = runGoDoc(pathHints.projectRoot);
+  }
+  const extendedMemoryInjected = generateExtendedMemoryContext(config, {
+    structuralIndex: null,
+    structuralMapFromIncremental,
+    goDocOutput: goDocOutputForExt,
+    evalPlan: null,
+    recentFiles: recentFilesForExt,
+    projectLanguage: projectLanguageForExt,
+    memorySignals: getMemoryGovernor(sessionKey).getSignals(),
+  });
+
   const responseStyleOverride = stablePrefixService.resolveNodePromptBlock(
     promptSnapshotRegistry,
     "response_style",
@@ -3057,6 +3092,7 @@ function enrichWithFrameAndManifest(
     structuralIndex: structuralIndexBlock ? blockStore.intern(structuralIndexBlock) : null,
     fileSummary: fileSummaryBlock,
     verificationPlan: verificationPlanBlock ? blockStore.intern(verificationPlanBlock) : null,
+    extendedMemoryBlocks: extendedMemoryInjected.blocks,
     responseStyle: responseStyleBlock ? blockStore.intern(responseStyleBlock) : null,
     governanceBlocks: (governanceBlocks ?? []).filter((b) => b && b.trim()),
     intentGate: intentGateBlock,
@@ -3624,7 +3660,8 @@ type ResolveResult =
 const dashScopeCacheOpts: DashScopeCacheOpts = {
   enabled: false,
   maxMarkers: 0,
-}; // No-op after DashScope removal; resolve() ignores it. Enables clean vLLM KV cache reporting.
+};
+/** Intentional no-op: keeps `resolve()` call-site shape for optional DashScope-style shims. Default path uses implicit prefix / OpenAI-shaped bodies — see `docs/CACHING.md`. */
 
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   try {
@@ -5774,6 +5811,9 @@ app.get("/health/telemetry", async (req, reply) => {
     diagnosticRingMax: DIAGNOSTIC_RING_MAX,
     diagnosticRingCurrent: diagnosticRing.length,
     featureFlags: {
+      toolBlobRedis: Boolean(toolBlobTier),
+      artifactRedisReplica: config.SYNESIS_YARN_ARTIFACT_REDIS_REPLICA_ENABLED,
+      sensemakingPromptBlocks: config.SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED,
       stablePrefix: config.SYNESIS_YARN_STABLE_PREFIX_ENABLED,
       jsonCompaction: config.SYNESIS_YARN_JSON_COMPACTION_ENABLED,
       attentionPositioning: config.SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED,
@@ -6815,6 +6855,34 @@ app.post("/v1/chat/completions", async (req, reply) => {
   session.record.lastTier = orchestration.tier;
   pinchCompactionBackendModelMetadata(session, orchestration.tier, request.model);
 
+  const oaiEvidencePrefetched = Boolean(
+    oaiPrefetchResult?.matched
+    || oaiPatternResult?.matched,
+  );
+  let oaiSensemakingResult: SensemakingResult | undefined;
+  let oaiSensemakingBlock: string | null = null;
+  if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
+    const oaiSm = runSensemaking({
+      config,
+      messages: normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+      getLanguages: detectLanguagesFromMessages,
+      orchestration,
+      recallDecision: oaiRecallDecision,
+      verificationState: oaiVerifState,
+      evidencePrefetched: oaiEvidencePrefetched,
+      evidenceConfidence: combinedEvidenceConfidence,
+      evidenceAuthoritative: oaiPrefetchResult?.authoritative,
+      userText: String(latestUserText?.content ?? ""),
+      workingFrameGoal: oaiWorkingFrameGoal,
+      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
+    });
+    oaiSensemakingResult = oaiSm.result;
+    oaiSensemakingBlock = config.SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED
+      ? (oaiSm.block || null)
+      : null;
+    applySensemakingStats(sensemakingStats, oaiSm.result, oaiSm.evaluated);
+  }
+
   const oaiLastToolId = [...(request.messages as Array<{ role: string; tool_call_id?: string }>)]
     .reverse().find((m) => m.role === "tool")?.tool_call_id ?? "";
   const latestOpenAIUserHash = hashTextSignal(latestUserText?.content ?? "");
@@ -7460,10 +7528,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
         oaiRequirementChecklist,
       );
 
-  // Sensemaking is intentionally disabled for regular coding sessions to avoid
-  // adding volatile system blocks that degrade prefix cacheability.
-  let oaiSensemakingResult: SensemakingResult | undefined;
-
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const { stableMessages, jitterBlock } = splitJitter(oaiEnrichedMsgs);
     oaiEnrichedMsgs = applyJitter(stableMessages, jitterBlock) as typeof oaiEnrichedMsgs;
@@ -7523,6 +7587,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (oaiPatternResult) {
       const patternBlock = formatPatternBlock(oaiPatternResult);
       if (patternBlock) blocks.push(patternBlock);
+    }
+    if (oaiSensemakingBlock) {
+      blocks.push(oaiSensemakingBlock);
     }
     if (blocks.length > 0) {
       const combined = blocks.join("\n\n");
@@ -8140,7 +8207,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         for (const ac of serverCalls) {
           if (ac.toolName === ARTIFACT_TOOL_NAME) {
             const inp = ac.input as { artifact_handle?: string; query?: string };
-            const result = artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
+            const result = await artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
             toolResults.push({
               type: "tool-result",
               toolCallId: ac.toolCallId,
@@ -9984,6 +10051,34 @@ app.post("/v1/messages", async (req, reply) => {
   session.record.lastTier = claudeOrchestration.tier;
   pinchCompactionBackendModelMetadata(session, claudeOrchestration.tier, body.model);
 
+  const claudeEvidencePrefetched = Boolean(
+    claudePrefetchResult?.matched
+    || claudePatternResult?.matched,
+  );
+  let claudeSensemakingResult: SensemakingResult | undefined;
+  let claudeSensemakingBlock: string | null = null;
+  if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
+    const claudeSm = runSensemaking({
+      config,
+      messages: normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+      getLanguages: detectLanguagesFromMessages,
+      orchestration: claudeOrchestration,
+      recallDecision: claudeRecallDecision,
+      verificationState: claudeVerifState,
+      evidencePrefetched: claudeEvidencePrefetched,
+      evidenceConfidence: claudeCombinedConfidence,
+      evidenceAuthoritative: claudePrefetchResult?.authoritative,
+      userText: String(latestClaudeUser?.content ?? ""),
+      workingFrameGoal: claudeWorkingFrameGoal,
+      consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
+    });
+    claudeSensemakingResult = claudeSm.result;
+    claudeSensemakingBlock = config.SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED
+      ? (claudeSm.block || null)
+      : null;
+    applySensemakingStats(sensemakingStats, claudeSm.result, claudeSm.evaluated);
+  }
+
   const claudeLastToolUseId = lastToolUseIdFromClaudeMessages(
     body.messages as Array<{ role: string; content: unknown }>,
   );
@@ -10632,10 +10727,6 @@ app.post("/v1/messages", async (req, reply) => {
         claudeRequirementChecklist,
       );
 
-  // Sensemaking is intentionally disabled for regular coding sessions to avoid
-  // adding volatile system blocks that degrade prefix cacheability.
-  let claudeSensemakingResult: SensemakingResult | undefined;
-
   if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const { stableMessages, jitterBlock } = splitJitter(enrichedClaudeMsgs);
     enrichedClaudeMsgs = applyJitter(stableMessages, jitterBlock) as typeof enrichedClaudeMsgs;
@@ -10687,6 +10778,9 @@ app.post("/v1/messages", async (req, reply) => {
     if (claudePatternResult) {
       const claudePtBlock = formatPatternBlock(claudePatternResult);
       if (claudePtBlock) claudeBlocks.push(claudePtBlock);
+    }
+    if (claudeSensemakingBlock) {
+      claudeBlocks.push(claudeSensemakingBlock);
     }
     if (claudeBlocks.length > 0) {
       const combined = claudeBlocks.join("\n\n");

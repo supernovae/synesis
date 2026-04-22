@@ -15,7 +15,8 @@ This map traces the production path from inbound chat request to outbound provid
    - `src/index.ts` `enrichWithFrameAndManifest`  
    - `src/context/stable-prefix.ts` `partition`  
    - `src/context/attention-positioning.ts` `position`  
-   - `src/index.ts` `injectSessionContext`
+   - `src/index.ts` `injectSessionContext`  
+   - **Optional (off by default):** `src/sensemaking/run-sensemaking.ts` — `SYNESIS_YARN_SENSEMAKING_ENABLED` evaluates gaps/triggers; `SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED` separately controls appending a late `<EXPLORATION_PLAN>` system block (same turn as evidence/pattern prefetch). Keep block injection off until cache impact is validated.
 4. Tool/schema assembly  
    - `src/compat/sorted-tools.ts` `sortToolSchemas`  
    - `src/compat/tool-schema-pruning.ts` `pruneToolSchemas`  
@@ -41,8 +42,8 @@ This map traces the production path from inbound chat request to outbound provid
 
 - **Can increase token spend**: enrichment blocks, tool schema expansion, replay loops, server-side tool loops.
 - **Can reduce token spend**: tool-result reduction, validation normalization, transcript pruning, schema pruning.
-- **Can break prefix stability**: volatile system blocks merged early, tool ordering drift, synthetic IDs, nondeterministic JSON serialization, provider options churn. (Golden Trajectories placeholder and excess sensemaking telemetry removed; Qwen3-coder-next prompt now includes explicit Plan→Do→Act discipline to reduce interventions.)
-- **Current coding-session policy**: sensemaking block injection remains disabled (Phase 10); execution governor + enhanced Qwen adapter (with Roo/Cursor-inspired modes, self-verification) handles pivots. Stacking risk reduced via improved prompt.
+- **Can break prefix stability**: volatile system blocks merged early, tool ordering drift, synthetic IDs, nondeterministic JSON serialization, provider options churn. Qwen3-coder-next prompt includes explicit Plan→Do→Act discipline to reduce interventions.
+- **Sensemaking (opt-in)**: default off; enabling classification does not require prompt mutation. Exploration-plan block injection is separately gated and should be enabled only after cache validation.
 
 ## Replay Loops
 
@@ -55,5 +56,5 @@ This map traces the production path from inbound chat request to outbound provid
 - `request_forensics_v1`: LCP ratio should trend upward on coding sessions.
 - `request_forensics_v1`: `firstChangedSection=system` frequency should trend downward.
 - Session metrics: cache ratio should increase and `tokens_in` growth slope should flatten.
-- Session events: `sensemaking_triggered` should remain absent for regular coding loops.
+- Session events: with sensemaking off (default), `sensemaking_triggered` is absent. When you enable the flag, expect occasional `sensemaking_triggered` in explore / abstain / high know-better-ratio conditions.
 
