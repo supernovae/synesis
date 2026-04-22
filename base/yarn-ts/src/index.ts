@@ -7414,6 +7414,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         cwd: preMeta.shellCwd ?? undefined,
         shell: preMeta.shell ?? undefined,
         os: preMeta.platform ?? undefined,
+        arch: preMeta.osVersion ?? undefined,
       });
       app.log.info(
         {
@@ -7564,6 +7565,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             cwd: cm.shellCwd ?? undefined,
             shell: cm.shell ?? undefined,
             os: cm.platform ?? undefined,
+            arch: cm.osVersion ?? undefined,
           });
           app.log.info(
             { sessionKey, projectRoot: cm.projectRoot, shellCwd: cm.shellCwd, shell: cm.shell, platform: cm.platform },
@@ -10584,6 +10586,7 @@ app.post("/v1/messages", async (req, reply) => {
         cwd: preMeta.shellCwd ?? undefined,
         shell: preMeta.shell ?? undefined,
         os: preMeta.platform ?? undefined,
+        arch: preMeta.osVersion ?? undefined,
       });
       app.log.info(
         {
@@ -10727,6 +10730,7 @@ app.post("/v1/messages", async (req, reply) => {
             cwd: cm.shellCwd ?? undefined,
             shell: cm.shell ?? undefined,
             os: cm.platform ?? undefined,
+            arch: cm.osVersion ?? undefined,
           });
           app.log.info(
             { sessionKey: claudeSessionKey, projectRoot: cm.projectRoot, shellCwd: cm.shellCwd, shell: cm.shell, platform: cm.platform },
