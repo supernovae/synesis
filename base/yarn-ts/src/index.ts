@@ -1709,6 +1709,7 @@ function buildEditContextMissGuardPrompt(filePath: string, missCount: number): s
     "Use that fresh content to prepare a new exact anchor, then apply one focused edit.",
     "Do not repeat the same old_string/anchor without a fresh read.",
     "If the editor reports multiple matches (for example replace_all=false with many matches), choose a smaller unique anchor first instead of retrying the same broad replacement.",
+    "If the error says 'Found 2 matches' (or a small fixed number) and BOTH occurrences need the same change, set replace_all to true, OR expand old_string with enough surrounding lines to match exactly once, OR use Write/ApplyPatch for a whole contiguous block.",
     "Never use a whole-file old_string anchor for retries.",
   ];
   if (missCount >= 2) {
