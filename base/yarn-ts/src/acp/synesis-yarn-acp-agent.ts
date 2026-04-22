@@ -54,6 +54,8 @@ type FetchChatCompletionResult =
       ok: true;
       message: {
         content?: string | null;
+        /** OpenAI-style extension: model chain-of-thought / thinking separate from `content` */
+        reasoning_content?: string;
         tool_calls?: Array<{
           id: string;
           type?: string;
@@ -89,6 +91,18 @@ function acpBashTimeoutMs(): number {
   const raw = Number(process.env.SYNESIS_YARN_ACP_BASH_TIMEOUT_MS ?? 600_000);
   if (!Number.isFinite(raw) || raw < 1000) return 600_000;
   return Math.min(raw, 3_600_000);
+}
+
+/** When the coder tier supports it, set `enable_thinking` on the OpenAI chat request (Qwen/DeepSeek-class). */
+function acpRequestEnableThinking(): boolean {
+  const v = (process.env.SYNESIS_YARN_ACP_ENABLE_THINKING ?? process.env.SYNESIS_YARN_ENABLE_THINKING ?? "").trim();
+  if (!v) return false;
+  return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
+}
+
+/** If the API returns `reasoning_content`, show it in the ACP transcript (set to `false` to show answer only). */
+function acpIncludeReasoningInTranscript(): boolean {
+  return (process.env.SYNESIS_YARN_ACP_INCLUDE_REASONING ?? "true").toLowerCase() !== "false";
 }
 
 function blocksToUserText(blocks: ContentBlock[]): string {
@@ -374,7 +388,15 @@ export class SynesisYarnAcpAgent implements Agent {
 
         const text = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : "";
         const toolCalls = msg.tool_calls ?? [];
+        const reasoning =
+          typeof msg.reasoning_content === "string" && msg.reasoning_content.trim() ? msg.reasoning_content : "";
 
+        if (reasoning && acpIncludeReasoningInTranscript()) {
+          await this.emitTextChunks(
+            params.sessionId,
+            `### Model reasoning\n\n${reasoning}\n\n---\n\n`,
+          );
+        }
         if (text) {
           await this.emitTextChunks(params.sessionId, text);
         }
@@ -404,8 +426,8 @@ export class SynesisYarnAcpAgent implements Agent {
         }
 
       if (toolCalls.length === 0) {
-        if (text) {
-          session.messages.push({ role: "assistant", content: text });
+        if (text || reasoning) {
+          session.messages.push({ role: "assistant", content: text || null });
         } else {
           await this.emitUserVisibleError(
             params.sessionId,
@@ -490,6 +512,7 @@ export class SynesisYarnAcpAgent implements Agent {
       stream: false,
       conversation_id: session.conversationId,
       metadata: { ...session.requestMetadata },
+      ...(acpRequestEnableThinking() ? { enable_thinking: true } : {}),
     };
 
     let res: Response;
@@ -533,6 +556,7 @@ export class SynesisYarnAcpAgent implements Agent {
         message?: {
           role?: string;
           content?: string | null;
+          reasoning_content?: string;
           tool_calls?: Array<{
             id: string;
             type?: string;

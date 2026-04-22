@@ -11,6 +11,9 @@ from ..db.models import PromptAssignment, PromptProfile
 ALLOWED_SERVICES = ("yarn", "planner")
 ALLOWED_TARGET_TYPES = ("default", "tier", "role", "model_family", "node")
 
+# Must match inferModelFamily() in yarn-ts and planner-ts (lowercase slugs for Prompt Library).
+ALLOWED_MODEL_FAMILY_VALUES = frozenset({"generic", "qwen3-coder", "deepseek", "kimi", "minimax"})
+
 YARN_BASE_PROFILE_NAME = "yarn-default-base"
 YARN_QWEN_PROFILE_NAME = "yarn-qwen3-coder-ops"
 PLANNER_BASE_PROFILE_NAME = "planner-default-base"
@@ -74,6 +77,22 @@ def _validate_target_type(target_type: str) -> str:
     if t not in ALLOWED_TARGET_TYPES:
         raise ValueError(f"invalid target_type: {target_type}")
     return t
+
+
+def _normalize_assignment_target_value(target_type: str, target_value: str) -> str:
+    t = (target_type or "").strip().lower()
+    v = (target_value or "").strip()
+    if t == "default":
+        return v or "*"
+    if t == "model_family":
+        v_lower = v.lower()
+        if v_lower not in ALLOWED_MODEL_FAMILY_VALUES:
+            allowed = ", ".join(sorted(ALLOWED_MODEL_FAMILY_VALUES))
+            raise ValueError(
+                f"model_family target_value must be one of: {allowed} (use lowercase slugs, e.g. kimi not 'Kimi'); got {target_value!r}"
+            )
+        return v_lower
+    return v
 
 
 def _profile_to_dict(row: PromptProfile) -> dict:
@@ -194,7 +213,10 @@ async def list_prompt_assignments(*, service: str | None = None) -> list[dict]:
 async def upsert_prompt_assignment(data: dict, *, actor: str = "") -> dict:
     service = _validate_service(str(data.get("service", "yarn")))
     target_type = _validate_target_type(str(data.get("target_type", "default")))
-    target_value = str(data.get("target_value", "*")).strip() or "*"
+    raw_target = str(data.get("target_value", "*"))
+    target_value = _normalize_assignment_target_value(target_type, raw_target)
+    if target_type != "default" and not target_value:
+        raise ValueError("target_value is required for this target_type")
     profile_id = int(data.get("profile_id", 0))
     if profile_id <= 0:
         raise ValueError("profile_id is required")

@@ -10,6 +10,8 @@ Typical HTTPS-first tools include **Claude Code**, **Cursor**, **VS Code** exten
 - **Auth**: Synesis PAT with **`coder`** scope (`x-api-key` or provider-specific token field).
 - **Model**: Tier names such as `synesis-pulse`, `synesis-core`, `synesis-horizon` where supported.
 
+**Reasoning / thinking:** OpenAI-style clients that support it should set **`enable_thinking`** (and rely on Admin tier defaults where configured). On **`POST /v1/chat/completions`**, streaming responses can include **`delta.reasoning_content`** alongside **`delta.content`**; non-stream responses can include **`message.reasoning_content`**. The Anthropic route **`POST /v1/messages`** uses native **`thinking` / `thinking_delta`** SSE blocks instead (see [CLAUDECODE.md](CLAUDECODE.md)). For the ACP stdio bridge (non-stream OpenAI only), see [ACP_SYNESIS.md](ACP_SYNESIS.md).
+
 ## When to use ACP instead
 
 Use [ACP_SYNESIS.md](ACP_SYNESIS.md) and the per-editor ACP pages (**Zed**, **JetBrains**, **OpenCode**, **Neovim**) when the tool only speaks **Agent Client Protocol** over stdio, not raw HTTPS.

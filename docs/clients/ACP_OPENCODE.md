@@ -26,6 +26,8 @@ Register the Synesis bridge as an ACP provider. The exact file format follows Op
 SYNESIS_YARN_URL=https://coder.example.com
 SYNESIS_YARN_TOKEN=<your-pat>
 SYNESIS_YARN_MODEL=synesis-core   # optional
+# optional — extended thinking: SYNESIS_YARN_ACP_ENABLE_THINKING=true
+# optional — hide reasoning block in transcript: SYNESIS_YARN_ACP_INCLUDE_REASONING=false
 ```
 
 Replace the URL with your real coder HTTPS origin (no `/v1` suffix).

@@ -2142,7 +2142,9 @@ function enrichToolSchemasForAdapter(
   tools: unknown[],
   adapter: ModelAdapter,
 ): unknown[] {
-  if (!adapter.enrichToolDescription || adapter.family !== "qwen3-coder") return tools;
+  if (!adapter.enrichToolDescription || (adapter.family !== "qwen3-coder" && adapter.family !== "minimax")) {
+    return tools;
+  }
   return tools.map((tool) => {
     if (!tool || typeof tool !== "object") return tool;
     const t = tool as Record<string, unknown>;
@@ -2814,6 +2816,7 @@ function inferModelFamily(backendModel: string): string {
   if (/qwen3.*coder/.test(m)) return "qwen3-coder";
   if (/deepseek/.test(m)) return "deepseek";
   if (/kimi|moonshot/.test(m)) return "kimi";
+  if (/minimax|abab/.test(m)) return "minimax";
   return "generic";
 }
 
@@ -8508,6 +8511,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
 
     const message: Record<string, unknown> = { role: "assistant", content: finalAssistantText };
+    const oaiNonStreamReasoning = (finalResult as unknown as { reasoning?: string }).reasoning;
+    if (typeof oaiNonStreamReasoning === "string" && oaiNonStreamReasoning.length > 0) {
+      message.reasoning_content = oaiNonStreamReasoning;
+    }
     if (externalToolCalls.length > 0) {
       message.tool_calls = sdkToolCallsToOpenAI(externalToolCalls);
     }
@@ -8625,6 +8632,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     })}\n\n`);
   };
 
+  /** OpenAI-compatible extension (DeepSeek, OpenRouter, many proxies): stream model reasoning separate from `content`. */
+  const flushOpenAIReasoningDelta = (text: string): void => {
+    if (!text) return;
+    safeWrite(reply.raw, `data: ${JSON.stringify({
+      id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
+      choices: [{ index: 0, delta: { reasoning_content: text }, finish_reason: null }],
+    })}\n\n`);
+  };
+
   try {
     for await (const part of streamed.fullStream) {
       const ts = Math.floor(Date.now() / 1000);
@@ -8632,6 +8648,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
         const td = (part as unknown as { text: string }).text ?? "";
         pendingTextDeltas.push(td);
         flushOpenAIText(td);
+      } else if (part.type === "reasoning-start") {
+        const rsText = (part as unknown as { text?: string }).text ?? "";
+        if (rsText) {
+          flushOpenAIReasoningDelta(rsText);
+        }
+      } else if (part.type === "reasoning-delta") {
+        const rd = part as unknown as { textDelta?: string; text?: string };
+        const rText = rd.textDelta ?? rd.text ?? "";
+        if (rText) {
+          flushOpenAIReasoningDelta(rText);
+        }
+      } else if (part.type === "reasoning-end") {
+        /* boundary only; OpenAI format has no per-block stop for reasoning */
       } else if (part.type === "tool-call" || part.type === "tool-input-start") {
         const tc = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
         if (pendingTextDeltas.length > 0) {

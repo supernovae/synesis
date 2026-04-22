@@ -30,6 +30,8 @@ Use these terms in user docs and product-facing setup instructions.
 - OpenAI-compatible: `POST /v1/chat/completions`
 - Also available: `GET /v1/models`, `GET /health`, `GET /metrics`
 
+**Model reasoning (thinking):** For tiers that support it, clients can send **`enable_thinking`** (and Anthropic `thinking` on `/v1/messages`). Yarn streams reasoning separately from the final answer: on **`/v1/messages`**, as SSE `thinking` / `thinking_delta` blocks; on **`/v1/chat/completions`**, as OpenAI-style **`reasoning_content`** on stream chunks and optional **`message.reasoning_content`** on non-stream completions. The ACP stdio bridge (`synesis-yarn-acp`) uses non-stream OpenAI only; it surfaces returned **`reasoning_content`** in the transcript when enabled — see [ACP_SYNESIS.md](ACP_SYNESIS.md).
+
 ### Chat frontend (planner)
 
 - OpenAI-compatible: `POST /v1/chat/completions`

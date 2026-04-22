@@ -612,6 +612,58 @@ export class GenericOpenAIAdapter implements ModelAdapter {
   }
 }
 
+/**
+ * MiniMax models often lose track of shell CWD vs repository layout, leading to
+ * `sed`/`cat` on bare filenames or wrong-relative paths. Strong path + Read-first rails.
+ */
+export class MiniMaxAdapter implements ModelAdapter {
+  readonly family = "minimax";
+  readonly supportsThinking = false;
+
+  toolSystemPrompt(toolCount: number): string | undefined {
+    if (toolCount === 0) return undefined;
+    return [
+      "# Tool discipline (MiniMax — paths and shell)",
+      "The Bash tool runs in a **session working directory** that may or may not be the git/repository root.",
+      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`. File tools (Read/Write/Edit) resolve paths **relative to `project_root`** when it is set — not relative to whatever directory Bash happens to be in.",
+      "",
+      "## Read before raw shell file ops",
+      "- To view part of a file, **prefer Read** with `file_path` set to the **repo-relative** path (e.g. `cmd/foo/ask_test.go`), not `sed`/`head`/`cat` on a bare filename.",
+      "- If you use Bash to read files, every path must be correct for the **current shell cwd**: either `cd` to the repo root or the file's directory first, or use a **single path relative to repo root** (e.g. `sed -n '1,20p' cmd/foo/ask_test.go` from repo root).",
+      "- A **bare** `ask_test.go` or `foo.go` only works if the shell cwd is already that file's directory; if a command fails with “No such file”, your cwd or path was wrong — fix the path or `cd`, do not guess repeatedly.",
+      "",
+      "## Stabilize location",
+      "- When unsure, one short `pwd` (or list the target path) before destructive or line-based commands.",
+      "- Do not assert a “repo root” path in prose without confirming it matches `project_root` / `pwd` in this session.",
+      "- Keep **one** consistent story: either work from repo root with rooted relative paths, or `cd` once and use paths under that directory.",
+      "",
+      "## Discovery",
+      "- First pass: list_dir or Read `README.md` / `go.mod` / `package.json` at the repository root to learn layout, then narrow (same as global discovery policy).",
+    ].join("\n");
+  }
+
+  enrichToolDescription(toolName: string, description: string): string {
+    const hints: Record<string, string> = {
+      Read:
+        " [MiniMax: Use repo-relative paths from project_root (e.g. cmd/pkg/file.go). Do not pass only a basename unless you have confirmed cwd.]",
+      Write:
+        " [MiniMax: Repo-relative path under project_root; avoid bare filenames when multiple packages exist.]",
+      Edit:
+        " [MiniMax: Same file_path rules as Read — full path from repo root.]",
+      Update:
+        " [MiniMax: Same file_path rules as Read — full path from repo root.]",
+      Bash:
+        " [MiniMax: Shell cwd may differ from repo root. For file commands, cd to repo root or use rooted relative paths. Prefer Read to inspect files instead of sed/cat on uncertain paths.]",
+      Grep:
+        " [MiniMax: Set target_directory or scope to a subtree; avoid searching from an unknown cwd.]",
+      Glob:
+        " [MiniMax: Use a scoped pattern (e.g. cmd/**/*.go), not a bare filename in the wrong directory.]",
+    };
+    const hint = hints[toolName];
+    return hint ? description + hint : description;
+  }
+}
+
 export class DeepSeekAdapter implements ModelAdapter {
   readonly family = "deepseek";
   readonly supportsThinking = true;
@@ -920,7 +972,7 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
   if (/qwen3.*coder(-next)?/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
   if (/kimi|moonshot/i.test(m)) return new GenericOpenAIAdapter("kimi");
-  if (/minimax|abab/i.test(m)) return new GenericOpenAIAdapter("minimax");
+  if (/minimax|abab/i.test(m)) return new MiniMaxAdapter();
   return new GenericOpenAIAdapter("generic");
 }
 
@@ -931,7 +983,7 @@ function resolveByFamily(family: AdapterFamily, baseUrl?: string): ModelAdapter 
       return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
     case "deepseek": return new DeepSeekAdapter();
     case "kimi": return new GenericOpenAIAdapter("kimi");
-    case "minimax": return new GenericOpenAIAdapter("minimax");
+    case "minimax": return new MiniMaxAdapter();
     case "generic": return new GenericOpenAIAdapter("generic");
   }
 }

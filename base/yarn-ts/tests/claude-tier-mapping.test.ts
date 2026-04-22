@@ -51,6 +51,12 @@ describe("resolveExplicitTierFromRequestedModel", () => {
       tier: "synesis-horizon",
       reason: "synesis_exact",
     });
+    expect(resolveExplicitTierFromRequestedModel("coder-horizon")).toEqual({
+      tier: "synesis-horizon",
+      reason: "synesis_exact",
+    });
+    expect(resolveExplicitTierFromRequestedModel("coder-core")?.tier).toBe("synesis-core");
+    expect(resolveExplicitTierFromRequestedModel("coder-pulse")?.tier).toBe("synesis-pulse");
     expect(resolveExplicitTierFromRequestedModel("Core")).toEqual({
       tier: "synesis-core",
       reason: "synesis_exact",

@@ -4,6 +4,7 @@ import {
   Qwen3CoderAdapter,
   GenericOpenAIAdapter,
   DeepSeekAdapter,
+  MiniMaxAdapter,
   KNOWN_ADAPTER_FAMILIES,
   constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
@@ -35,9 +36,9 @@ describe("resolveAdapter", () => {
     expect(adapter.family).toBe("kimi");
   });
 
-  it("resolves MiniMax model names to GenericOpenAIAdapter(minimax)", () => {
+  it("resolves MiniMax model names to MiniMaxAdapter", () => {
     const adapter = resolveAdapter("abab6.5s-chat");
-    expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
+    expect(adapter).toBeInstanceOf(MiniMaxAdapter);
     expect(adapter.family).toBe("minimax");
   });
 
@@ -115,7 +116,7 @@ describe("resolveAdapter with adapterHint", () => {
 
   it("overrides auto-detect when hint is minimax", () => {
     const adapter = resolveAdapter("my-model", undefined, "minimax");
-    expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
+    expect(adapter).toBeInstanceOf(MiniMaxAdapter);
     expect(adapter.family).toBe("minimax");
   });
 
@@ -290,6 +291,29 @@ describe("GenericOpenAIAdapter", () => {
     const adapter = new GenericOpenAIAdapter();
     expect(adapter.toolSystemPrompt).toBeUndefined();
     expect(adapter.normalizeToolCallArgs).toBeUndefined();
+  });
+});
+
+describe("MiniMaxAdapter", () => {
+  const adapter = new MiniMaxAdapter();
+
+  it("has path-discipline toolSystemPrompt when tools are present", () => {
+    const prompt = adapter.toolSystemPrompt!(3);
+    expect(prompt).toBeDefined();
+    expect(prompt).toContain("MiniMax");
+    expect(prompt).toContain("project_root");
+    expect(prompt).toMatch(/prefer Read/i);
+    expect(prompt).toContain("pwd");
+  });
+
+  it("returns undefined when no tools", () => {
+    expect(adapter.toolSystemPrompt!(0)).toBeUndefined();
+  });
+
+  it("enrichToolDescription adds cwd/path hints for Bash and Read", () => {
+    expect(adapter.enrichToolDescription!("Bash", "Run")).toContain("MiniMax");
+    expect(adapter.enrichToolDescription!("Read", "Read")).toContain("project_root");
+    expect(adapter.enrichToolDescription!("Unknown", "x")).toBe("x");
   });
 });
 

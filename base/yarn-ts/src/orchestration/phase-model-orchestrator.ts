@@ -91,6 +91,10 @@ const SHORT_TIER_ALIASES: Record<string, EffortTier> = {
   pulse: "synesis-pulse",
   core: "synesis-core",
   horizon: "synesis-horizon",
+  /** Matches Admin role ids (`coder-pulse` / `coder-core` / `coder-horizon`) for `/model` in Claude Code and other clients. */
+  "coder-pulse": "synesis-pulse",
+  "coder-core": "synesis-core",
+  "coder-horizon": "synesis-horizon",
   compaction: "synesis-compaction" as EffortTier,
 };
 
@@ -100,7 +104,7 @@ const SHORT_TIER_ALIASES: Record<string, EffortTier> = {
  *
  * Precedence:
  * 1. Exact `synesis-pulse` | `synesis-core` | `synesis-horizon`
- * 1b. Short aliases: `pulse` | `core` | `horizon` | `compaction`
+ * 1b. Short aliases: `pulse` | `core` | `horizon` | `coder-pulse` | `coder-core` | `coder-horizon` | `compaction`
  * 2. Substring keys from `extraMap` (SYNESIS_YARN_CLAUDE_TIER_MAP), longest key first
  * 3. Built-in Claude family substrings: opus → horizon, sonnet → core, haiku → pulse
  * 4. Word-boundary aliases: tiny/small → pulse, medium/balanced → core, large → horizon

@@ -30,6 +30,10 @@ SYNESIS_YARN_URL=https://coder.example.com
 SYNESIS_YARN_TOKEN=<your-pat>
 # optional:
 SYNESIS_YARN_MODEL=synesis-core
+# optional — ask the coder for extended thinking (tier must support it):
+# SYNESIS_YARN_ACP_ENABLE_THINKING=true
+# optional — hide reasoning in the ACP transcript (default shows it when returned):
+# SYNESIS_YARN_ACP_INCLUDE_REASONING=false
 ```
 
 Use your real **HTTPS** coder hostname (same as [CLAUDECODE.md](CLAUDECODE.md)); do not append `/v1`.

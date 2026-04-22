@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import { PROMPT_MODEL_FAMILY_OPTIONS, PROMPT_MODEL_FAMILY_VALUE_SET } from "../../constants/promptModelFamilies";
 import {
   useCreatePromptProfile,
   useDeletePromptAssignment,
@@ -63,6 +64,13 @@ export default function PromptLibrary() {
     setAssignProfileId(0);
   };
 
+  useEffect(() => {
+    if (assignTargetType !== "model_family") return;
+    if (!PROMPT_MODEL_FAMILY_VALUE_SET.has(assignTargetValue)) {
+      setAssignTargetValue("generic");
+    }
+  }, [assignTargetType, assignTargetValue]);
+
   const isEditorDirty = useCallback(() => {
     if (editId) {
       const p = profiles.find((row) => row.id === editId);
@@ -106,7 +114,10 @@ export default function PromptLibrary() {
 
   const saveAssignment = () => {
     if (!assignProfileId) return;
-    const targetValue = (assignTargetValue || "").trim() || (assignTargetType === "default" ? "*" : "");
+    const targetValue =
+      assignTargetType === "model_family"
+        ? (PROMPT_MODEL_FAMILY_VALUE_SET.has(assignTargetValue) ? assignTargetValue : "generic")
+        : (assignTargetValue || "").trim() || (assignTargetType === "default" ? "*" : "");
     if (!targetValue) return;
     upsertAssignment.mutate({
       service,
@@ -135,6 +146,14 @@ export default function PromptLibrary() {
         </p>
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
           Switching Coder / Chat clears the profile editor and assignment form; unsaved profile edits prompt before discard.
+        </p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          <span className="font-medium text-gray-700 dark:text-gray-300">Model family assignments:</span> use the{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">kimi</code> slug (lowercase) for Kimi
+          / Moonshot — the runtime matches the same value produced by the model router (not the display name{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">Kimi</code> or free text). Choosing{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] dark:bg-gray-800">model_family</code> below uses a
+          picklist of those slugs.
         </p>
         {service === "planner" && (
           <p className="mt-2 text-sm text-amber-900 dark:text-amber-100/90">
@@ -223,8 +242,17 @@ export default function PromptLibrary() {
               value={assignTargetType}
               onChange={(e) => {
                 const next = e.target.value as TargetType;
+                const prev = assignTargetType;
                 setAssignTargetType(next);
-                if (next === "default") setAssignTargetValue("*");
+                if (next === "default") {
+                  setAssignTargetValue("*");
+                } else if (next === "model_family") {
+                  setAssignTargetValue("generic");
+                } else if (prev === "model_family") {
+                  if (next === "tier") setAssignTargetValue("synesis-core");
+                  else if (next === "role") setAssignTargetValue("coder-core");
+                  else if (next === "node") setAssignTargetValue("");
+                }
               }}
               className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             >
@@ -232,12 +260,27 @@ export default function PromptLibrary() {
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
-            <input
-              value={assignTargetValue}
-              onChange={(e) => setAssignTargetValue(e.target.value)}
-              placeholder={assignTargetType === "default" ? "*" : "target value"}
-              className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            />
+            {assignTargetType === "model_family" ? (
+              <select
+                value={PROMPT_MODEL_FAMILY_VALUE_SET.has(assignTargetValue) ? assignTargetValue : "generic"}
+                onChange={(e) => setAssignTargetValue(e.target.value)}
+                className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                title="Must match yarn-ts / planner-ts inferModelFamily() slugs"
+              >
+                {PROMPT_MODEL_FAMILY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={assignTargetValue}
+                onChange={(e) => setAssignTargetValue(e.target.value)}
+                placeholder={assignTargetType === "default" ? "*" : "target value"}
+                className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              />
+            )}
             <select
               value={assignProfileId || ""}
               onChange={(e) => setAssignProfileId(Number(e.target.value))}

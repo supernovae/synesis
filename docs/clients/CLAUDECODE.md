@@ -40,6 +40,16 @@ Claude Code speaks Anthropic Messages format and should target:
 `yarn-ts` also exposes OpenAI-compatible endpoints (`/v1/chat/completions`) for
 other coder clients, but Claude Code should stay on `/v1/messages`.
 
+## Extended thinking / reasoning (streaming)
+
+When the upstream model emits separate reasoning (Vercel AI SDK **reasoning** stream parts), Yarn maps that to the Anthropic **Messages** SSE shape your client expects:
+
+- **`thinking` blocks** — `content_block_start` / `content_block_delta` with `type: "thinking"` and `thinking_delta` updates, then `content_block_stop`.
+
+The request may include Anthropic fields Yarn forwards to the provider, such as **`thinking`** and **`enable_thinking`**, and tier **sampling defaults** (Admin model registry) can set `enable_thinking` for thinking-capable tiers.
+
+For the **OpenAI** surface (other tools), the same engine exposes **`reasoning_content`** on streaming and non-stream responses instead of the Anthropic block types. See [CLIENTS.md](CLIENTS.md) and `base/yarn-ts/README.md`.
+
 ## Model tier mapping
 
 Yarn exposes three client-facing coder tiers:
@@ -51,9 +61,10 @@ Yarn exposes three client-facing coder tiers:
 **How a request picks a tier** (in order):
 
 1. **Explicit Synesis tier** — if `model` is exactly `synesis-pulse`, `synesis-core`, or `synesis-horizon`, that tier is used (subject to high-risk rules that block choosing Pulse alone).
-2. **Claude-style model id** — if `model` contains family substrings, Yarn maps it to a tier the same way: `haiku` → Pulse, `sonnet` → Core, `opus` → Horizon. Optional word aliases: `tiny` / `small` → Pulse, `medium` / `balanced` → Core, `large` → Horizon.
-3. **Server map override** — set `SYNESIS_YARN_CLAUDE_TIER_MAP` on Yarn to a JSON object of substring needles → tier (e.g. `{"my-beta":"synesis-pulse"}`). Longer keys win before built-in family rules.
-4. Otherwise **phase and evidence routing** applies (implementation vs planning vs validation, risk, recall, etc.).
+2. **Short names (including Claude Code `/model`)** — exact match, case-insensitive: `pulse`, `core`, `horizon` (maps to the three Synesis tiers), or the **Admin role-style** ids `coder-pulse`, `coder-core`, `coder-horizon` (same mapping). For example, `/model horizon` → `synesis-horizon`, `/model coder-horizon` → `synesis-horizon`.
+3. **Claude-style model id** — if `model` contains family substrings, Yarn maps it to a tier the same way: `haiku` → Pulse, `sonnet` → Core, `opus` → Horizon. Optional word aliases: `tiny` / `small` → Pulse, `medium` / `balanced` → Core, `large` → Horizon.
+4. **Server map override** — set `SYNESIS_YARN_CLAUDE_TIER_MAP` on Yarn to a JSON object of substring needles → tier (e.g. `{"my-beta":"synesis-pulse"}`). Longer keys win before built-in family rules.
+5. Otherwise **phase and evidence routing** applies (implementation vs planning vs validation, risk, recall, etc.).
 
 For a **fixed** tier name in the Claude Code picker regardless of Anthropic labels, use `ANTHROPIC_CUSTOM_MODEL_OPTION=synesis-core` (or `synesis-pulse` / `synesis-horizon`) as in the quick start.
 

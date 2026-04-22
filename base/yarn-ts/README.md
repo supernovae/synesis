@@ -57,6 +57,19 @@ See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/LIVE_
 - `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID` (default `true`) — whether style guidance should encourage mermaid diagrams when appropriate.
 - Token accounting: Shared `@synesis/telemetry/extractUsage` (strengthened for vLLM `cache_hit_tokens`, `prefix_cache_hit_tokens`, etc.). Admin UI no longer double-counts cached tokens in "Tokens" column. DashScope explicit cache + fixed markers removed (was causing consistent 8.2k/16.3k cached; vLLM now reports variable/high KV cache hits on long runs with prefix caching enabled). See `usage-extract.ts`, `synesis-provider.ts`, `provider-cache-hints.ts`.
 
+## OpenAI and Claude: model reasoning (thinking)
+
+Yarn forwards **extended thinking** from the model to each client in the shape that protocol expects:
+
+| Route | Client examples | How reasoning is exposed |
+|-------|------------------|-------------------------|
+| `POST /v1/messages` | Claude Code, Anthropic API clients | Streaming SSE: `thinking` / `thinking_delta` content blocks (see `docs/clients/CLAUDECODE.md`). Non-stream: `thinking` in assembled message content when present. |
+| `POST /v1/chat/completions` | Cursor, OpenAI-style agents, `curl` | **Stream:** `choices[].delta.reasoning_content` (OpenAI-compatible extension; separate from `content`). **Non-stream:** `choices[0].message.reasoning_content` when the Vercel AI result includes `reasoning`. |
+
+**Request side:** Bodies may include **`enable_thinking`** (OpenAI schema); Anthropic requests may include **`thinking`** and **`enable_thinking`**. Admin tier **sampling defaults** can set `enable_thinking` for thinking-capable backends (for example Qwen3 or DeepSeek-class models). **`DeepSeekAdapter`** adds `reasoningParser: "deepseek_r1"` so R1-style tags parse into stream parts.
+
+**ACP:** The stdio bridge `synesis-yarn-acp` calls OpenAI with **`stream: false`**. It optionally sends **`enable_thinking`** via env, parses **`reasoning_content`** from the JSON response, and can prefix the ACP transcript — see `docs/clients/ACP_SYNESIS.md`.
+
 ## Current Scope
 
 This is the first implementation pass focused on:

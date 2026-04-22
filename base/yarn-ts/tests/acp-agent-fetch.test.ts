@@ -235,4 +235,33 @@ describe("SynesisYarnAcpAgent fetch + user-visible errors", () => {
     );
     expect(agentMessageText(sessionUpdate)).toContain("Hello from coder");
   });
+
+  it("prefixes Model reasoning when API returns reasoning_content (OpenAI extension)", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                reasoning_content: "Step A then B",
+                content: "Done.",
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const { conn, sessionUpdate } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    const sessionId = await setupSession(agent);
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    const t = agentMessageText(sessionUpdate);
+    expect(t).toContain("### Model reasoning");
+    expect(t).toContain("Step A then B");
+    expect(t).toContain("Done.");
+  });
 });
