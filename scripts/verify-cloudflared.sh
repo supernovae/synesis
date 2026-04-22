@@ -116,6 +116,7 @@ if $CHECK_HOSTS; then
     ADMIN_ROUTE="$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || true)"
     CHAT_ROUTE="$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || true)"
     AUTH_ROUTE="$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+    AUTH_ADMIN_ROUTE="$(oc get route synesis-auth-admin -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || true)"
     CODER_ROUTE="$(oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}' 2>/dev/null || true)"
 
     check_host() {
@@ -132,6 +133,7 @@ if $CHECK_HOSTS; then
     check_host "Admin" "$ADMIN_ROUTE"
     check_host "Chat" "$CHAT_ROUTE"
     check_host "Auth" "$AUTH_ROUTE"
+    check_host "Auth admin" "$AUTH_ADMIN_ROUTE"
     check_host "Coder" "$CODER_ROUTE"
 fi
 

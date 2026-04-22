@@ -96,6 +96,12 @@ set -euo pipefail
 #     SYNESIS_PLANNER_EMBEDDER_URL, SYNESIS_PLANNER_MILVUS_HOST, SYNESIS_PLANNER_MILVUS_PORT,
 #     SYNESIS_PLANNER_SEARXNG_URL, SYNESIS_PLANNER_WEB_SEARCH_ENABLED (default true when retrieval on).
 #
+# Keycloak public vs admin host defaults:
+#   - SYNESIS_KEYCLOAK_PUBLIC_HOST (default: auth.kybern.dev)
+#   - SYNESIS_KEYCLOAK_ADMIN_HOST  (default: auth-admin.kybern.dev)
+#   Public issuer remains /realms/synesis on SYNESIS_KEYCLOAK_PUBLIC_HOST.
+#   Use a less-obvious SYNESIS_KEYCLOAK_ADMIN_HOST to keep admin-console bookmarks separate.
+#
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
 #   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
@@ -456,17 +462,19 @@ ensure_cloudflared_tunnel() {
         return 1
     fi
 
-    local api_host admin_host chat_host auth_host coder_host
+    local api_host admin_host chat_host auth_host auth_admin_host coder_host
     api_host="${SYNESIS_CF_API_HOST:-$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
     admin_host="${SYNESIS_CF_ADMIN_HOST:-$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
     chat_host="${SYNESIS_CF_CHAT_HOST:-$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
     auth_host="${SYNESIS_CF_AUTH_HOST:-$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
+    auth_admin_host="${SYNESIS_CF_AUTH_ADMIN_HOST:-$(oc get route synesis-auth-admin -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
     coder_host="${SYNESIS_CF_CODER_HOST:-$(oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
 
     api_host="${api_host:-synesis-api.apps.openshiftdemo.dev}"
     admin_host="${admin_host:-synesis-admin.apps.openshiftdemo.dev}"
     chat_host="${chat_host:-synesis.apps.openshiftdemo.dev}"
     auth_host="${auth_host:-synesis-auth.apps.openshiftdemo.dev}"
+    auth_admin_host="${auth_admin_host:-synesis-auth-admin.apps.openshiftdemo.dev}"
     coder_host="${coder_host:-synesis-yarn.apps.openshiftdemo.dev}"
 
     local cfg_tmp
@@ -486,6 +494,8 @@ ingress:
   - hostname: ${chat_host}
     service: http://open-webui.synesis-webui.svc.cluster.local:8080
   - hostname: ${auth_host}
+    service: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080
+  - hostname: ${auth_admin_host}
     service: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080
   - hostname: ${coder_host}
     service: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000
@@ -515,6 +525,7 @@ EOF
     log "  Admin: $admin_host"
     log "  Chat:  $chat_host"
     log "  Auth:  $auth_host"
+    log "  Auth admin: $auth_admin_host"
     log "  Coder: $coder_host"
     if [[ "$use_token" == "true" ]]; then
         log "  Auth mode: token (SYNESIS_CF_TUNNEL_TOKEN)"
@@ -1715,6 +1726,7 @@ ensure_keycloak_db() {
 # -----------------------------------------------------------------------
 ensure_keycloak() {
     local ns="synesis-auth"
+    local kc_public_host kc_admin_host
 
     if ! oc get crd keycloaks.k8s.keycloak.org &>/dev/null; then
         log "WARNING: RHBK operator not found — skipping Keycloak deployment."
@@ -1744,6 +1756,28 @@ ensure_keycloak() {
 
     log "  Applying Keycloak manifests..."
     kustomize build "$PROJECT_ROOT/base/keycloak" | oc apply -f -
+
+    # Reconcile separate public vs admin Keycloak hosts so end-users land on
+    # the synesis realm issuer and admin console bookmarks can stay isolated.
+    kc_public_host="${SYNESIS_KEYCLOAK_PUBLIC_HOST:-${SYNESIS_CF_AUTH_HOST:-}}"
+    if [[ -z "$kc_public_host" ]]; then
+        kc_public_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    fi
+    kc_public_host="${kc_public_host:-auth.kybern.dev}"
+
+    kc_admin_host="${SYNESIS_KEYCLOAK_ADMIN_HOST:-${SYNESIS_CF_AUTH_ADMIN_HOST:-}}"
+    if [[ -z "$kc_admin_host" ]]; then
+        kc_admin_host=$(oc get route synesis-auth-admin -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    fi
+    kc_admin_host="${kc_admin_host:-auth-admin.kybern.dev}"
+
+    oc patch route synesis-auth -n "$ns" --type=merge \
+        -p "{\"spec\":{\"host\":\"$kc_public_host\"}}" >/dev/null 2>&1 || true
+    oc patch route synesis-auth-admin -n "$ns" --type=merge \
+        -p "{\"spec\":{\"host\":\"$kc_admin_host\"}}" >/dev/null 2>&1 || true
+    oc patch keycloak synesis-keycloak -n "$ns" --type=merge \
+        -p "{\"spec\":{\"hostname\":{\"hostname\":\"$kc_public_host\",\"admin\":\"$kc_admin_host\"}}}" >/dev/null 2>&1 || true
+    log "  Keycloak hosts reconciled: public=$kc_public_host admin=$kc_admin_host"
 
     log "  Waiting for Keycloak pod to be ready..."
     local ready="false"
@@ -1780,15 +1814,8 @@ ensure_keycloak() {
         KEYCLOAK_ADMIN_PASS="$kc_pass"
     fi
 
-    # Patch admin + yarn with canonical Keycloak issuer URL.
-    # Prefer explicit public host envs for Cloudflare cutovers.
-    local kc_host
-    kc_host="${SYNESIS_KEYCLOAK_PUBLIC_HOST:-${SYNESIS_CF_AUTH_HOST:-}}"
-    if [[ -z "$kc_host" ]]; then
-        kc_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    fi
-    kc_host="${kc_host:-auth.kybern.dev}"
-    local issuer_url="https://${kc_host}/realms/synesis"
+    # Patch admin + yarn with canonical Keycloak issuer URL (synesis realm only).
+    local issuer_url="https://${kc_public_host}/realms/synesis"
     _patch_deployment_env "synesis-admin" "synesis-admin" "SYNESIS_KEYCLOAK_ISSUER_URL" "$issuer_url" "admin"
     _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_KEYCLOAK_ISSUER_URL" "$issuer_url" "yarn"
 }
@@ -2754,6 +2781,7 @@ ROUTE_HOST=$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.hos
 WEBUI_HOST=$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 ADMIN_HOST=$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 KC_HOST=$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
+KC_ADMIN_HOST=$(oc get route synesis-auth-admin -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 YARN_HOST=$(oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 
 log ""
@@ -2763,12 +2791,14 @@ log "  API key:       $LITELLM_KEY"
 log "  Web UI:        https://$WEBUI_HOST"
 log "  Admin UI:      https://$ADMIN_HOST"
 log "  Yarn (IDE):    https://$YARN_HOST"
-log "  Keycloak:      https://$KC_HOST"
+log "  Keycloak:      https://$KC_HOST (public realm host)"
+log "  Realm bookmark:https://$KC_HOST/realms/synesis/account"
+log "  Keycloak admin:https://$KC_ADMIN_HOST"
 log "============================================================"
 log ""
 if [[ -n "${KEYCLOAK_ADMIN_USER:-}" ]]; then
     log "Keycloak initial admin:"
-    log "  URL:      https://$KC_HOST/admin"
+    log "  URL:      https://$KC_ADMIN_HOST/admin"
     log "  Username: $KEYCLOAK_ADMIN_USER"
     log "  Password: $KEYCLOAK_ADMIN_PASS"
     log ""

@@ -10,6 +10,7 @@ resources:
   - realm-configmap.yaml
   - realm-import.yaml
   - route.yaml
+  - route-admin.yaml
   - operator-rbac.yaml
 
 commonLabels:

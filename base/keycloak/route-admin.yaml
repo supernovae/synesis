@@ -1,10 +1,9 @@
-# Public HTTPS route for realm/OIDC traffic.
-# Admin console is intentionally split to route-admin.yaml.
-# Override spec.host via overlay to match your cluster ingress domain.
+# Separate admin-console route for Keycloak.
+# Keep this hostname less discoverable than the public auth route when possible.
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: synesis-auth
+  name: synesis-auth-admin
   namespace: synesis-auth
   labels:
     app.kubernetes.io/name: synesis-keycloak
@@ -12,7 +11,7 @@ metadata:
   annotations:
     haproxy.router.openshift.io/timeout: 60s
 spec:
-  host: auth.kybern.dev
+  host: auth-admin.kybern.dev
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
