@@ -99,6 +99,7 @@ set -euo pipefail
 # Keycloak public vs admin host defaults:
 #   - SYNESIS_KEYCLOAK_PUBLIC_HOST (default: auth.kybern.dev)
 #   - SYNESIS_KEYCLOAK_ADMIN_HOST  (default: auth-admin.kybern.dev)
+#   Values may be provided as bare hosts or full URLs.
 #   Public issuer remains /realms/synesis on SYNESIS_KEYCLOAK_PUBLIC_HOST.
 #   Use a less-obvious SYNESIS_KEYCLOAK_ADMIN_HOST to keep admin-console bookmarks separate.
 #
@@ -150,6 +151,27 @@ is_true() {
     local v
     v="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
     [[ "$v" =~ ^(1|true|yes|on)$ ]]
+}
+
+normalize_hostname_host() {
+    local value="${1:-}"
+    value="${value#http://}"
+    value="${value#https://}"
+    value="${value%%/*}"
+    printf '%s' "$value"
+}
+
+normalize_https_url() {
+    local value="${1:-}"
+    if [[ -z "$value" ]]; then
+        printf ''
+        return
+    fi
+    if [[ "$value" == http://* ]] || [[ "$value" == https://* ]]; then
+        printf '%s' "${value%/}"
+    else
+        printf 'https://%s' "${value%/}"
+    fi
 }
 
 LITELLM_STATIC_FALLBACK=false
@@ -1726,7 +1748,7 @@ ensure_keycloak_db() {
 # -----------------------------------------------------------------------
 ensure_keycloak() {
     local ns="synesis-auth"
-    local kc_public_host kc_admin_host
+    local kc_public_host kc_admin_host kc_public_url kc_admin_url
 
     if ! oc get crd keycloaks.k8s.keycloak.org &>/dev/null; then
         log "WARNING: RHBK operator not found — skipping Keycloak deployment."
@@ -1764,20 +1786,25 @@ ensure_keycloak() {
         kc_public_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || true)
     fi
     kc_public_host="${kc_public_host:-auth.kybern.dev}"
+    kc_public_host="$(normalize_hostname_host "$kc_public_host")"
+    kc_public_url="$(normalize_https_url "$kc_public_host")"
 
     kc_admin_host="${SYNESIS_KEYCLOAK_ADMIN_HOST:-${SYNESIS_CF_AUTH_ADMIN_HOST:-}}"
     if [[ -z "$kc_admin_host" ]]; then
         kc_admin_host=$(oc get route synesis-auth-admin -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || true)
     fi
     kc_admin_host="${kc_admin_host:-auth-admin.kybern.dev}"
+    kc_admin_host="$(normalize_hostname_host "$kc_admin_host")"
+    kc_admin_url="$(normalize_https_url "$kc_admin_host")"
 
     oc patch route synesis-auth -n "$ns" --type=merge \
         -p "{\"spec\":{\"host\":\"$kc_public_host\"}}" >/dev/null 2>&1 || true
     oc patch route synesis-auth-admin -n "$ns" --type=merge \
         -p "{\"spec\":{\"host\":\"$kc_admin_host\"}}" >/dev/null 2>&1 || true
     oc patch keycloak synesis-keycloak -n "$ns" --type=merge \
-        -p "{\"spec\":{\"hostname\":{\"hostname\":\"$kc_public_host\",\"admin\":\"$kc_admin_host\"}}}" >/dev/null 2>&1 || true
+        -p "{\"spec\":{\"hostname\":{\"hostname\":\"$kc_public_url\",\"admin\":\"$kc_admin_url\"}}}" >/dev/null 2>&1 || true
     log "  Keycloak hosts reconciled: public=$kc_public_host admin=$kc_admin_host"
+    log "  Keycloak hostname URLs: public=$kc_public_url admin=$kc_admin_url"
 
     log "  Waiting for Keycloak pod to be ready..."
     local ready="false"

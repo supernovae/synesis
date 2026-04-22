@@ -34,8 +34,8 @@ spec:
       key: password
 
   hostname:
-    hostname: auth.kybern.dev
-    admin: auth-admin.kybern.dev
+    hostname: https://auth.kybern.dev
+    admin: https://auth-admin.kybern.dev
 
   http:
     httpEnabled: true
