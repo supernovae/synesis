@@ -15,6 +15,15 @@ In **Coder → Overview**, the **State Transition Quality** panel now shows:
 - top quality reasons from request trajectory training signals
 - risk flags translated into actionable guidance
 
+In **Coder → Transition Calibration**, operators get a dedicated trend dashboard with:
+
+- quality score vs threshold-band line chart per time bucket
+- transition label-rate trend chart (`forward_progress`, `stalled`, `regressed`, `reground_required`)
+- local/global calibration cadence over time
+- threshold panel with active risk flags and current warning cutoffs
+- recent alert buckets with risk tags and quick triage metrics
+- operator action recommendations derived from aggregate risk state
+
 In **Coder session detail → Events**, operators can:
 
 - filter events by **Transition quality risks**
@@ -41,14 +50,21 @@ In **Coder session detail → Events**, operators can:
 - `state_transition_quality_calibration_v1`: session-local threshold recalibration.
 - `state_transition_quality_global_calibration_v1`: cross-session/global threshold recalibration.
 
+## Transition Calibration API
+
+- `GET /api/v1/yarn/transition-quality?since_hours=<h>&bucket_minutes=<m>`
+  - returns bucketed transition-quality trends
+  - includes summary rollups, alert thresholds, top reasons, and alert buckets
+  - powers the dedicated **Coder → Transition Calibration** page
+
 ## Operator Playbook
 
-1. Open **Coder → Overview** and check `regressed` and `reground_required` rates.
-2. If elevated, jump to **Events** and filter by **Transition quality risks**.
-3. Inspect top quality reasons and sample affected sessions.
-4. Confirm calibration events are flowing (local + global).
-5. If global events are missing, validate Redis availability and scope-key stability.
-6. Track whether risk flags clear over the next 24h/7d windows.
+1. Open **Coder → Transition Calibration** and scan score trend + threshold crossings.
+2. Check whether `regressed` or `reground_required` rates exceed warning thresholds.
+3. Validate local/global calibration cadence is non-zero in active traffic windows.
+4. Review top quality reasons and latest alert buckets.
+5. Jump to **Coder → Events** (preset: Transition quality risks) for raw event diagnostics.
+6. Sample affected sessions and confirm risk flags clear in the next 24h/7d windows.
 
 ## Watch-Outs
 

@@ -1100,6 +1100,368 @@ async def get_yarn_intelligence(
     }
 
 
+# ── Transition quality telemetry ──────────────────────────────────────────────
+
+
+async def get_yarn_transition_quality_series(
+    since_hours: int = 168,
+    bucket_minutes: int = 60,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> dict:
+    cutoff = _cutoff(since_hours)
+    regressed_warn_threshold = 0.15
+    reground_warn_threshold = 0.08
+    global_scope_warn_threshold = 0.5
+    quality_score_warn_threshold = 0.0
+
+    async with async_session() as session:
+        trajectory_sql = text(
+            """
+            SELECT
+              date_trunc('hour', created_at) +
+                (EXTRACT(minute FROM created_at)::int / :bucket * :bucket) * interval '1 minute'
+                AS bucket,
+              COUNT(*)::int AS trajectory_events,
+              COALESCE(
+                AVG(
+                  NULLIF(
+                    COALESCE(metadata_json->'training_signals'->>'state_transition_quality_score', ''),
+                    ''
+                  )::float
+                ),
+                0
+              )::float AS quality_score_avg,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'forward_progress'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS forward_progress_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'stalled'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS stalled_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'regressed'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS regressed_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(metadata_json->'training_signals'->>'state_transition_quality_label', '') = 'reground_required'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS reground_required_rate,
+              COALESCE(
+                AVG(
+                  CASE
+                    WHEN COALESCE(
+                      NULLIF(metadata_json->'training_signals'->>'state_transition_quality_global_scope', ''),
+                      'none'
+                    ) <> 'none'
+                    THEN 1.0 ELSE 0.0
+                  END
+                ),
+                0
+              )::float AS global_scope_coverage,
+              COALESCE(
+                AVG(
+                  NULLIF(
+                    COALESCE(metadata_json->'training_signals'->>'state_transition_quality_forward_min', ''),
+                    ''
+                  )::float
+                ),
+                0
+              )::float AS quality_forward_min_avg,
+              COALESCE(
+                AVG(
+                  NULLIF(
+                    COALESCE(metadata_json->'training_signals'->>'state_transition_quality_regressed_max', ''),
+                    ''
+                  )::float
+                ),
+                0
+              )::float AS quality_regressed_max_avg
+            FROM yarn_session_events
+            WHERE event_kind = 'request_trajectory_v1'
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+            GROUP BY bucket
+            ORDER BY bucket
+            """
+        )
+        trajectory_rows = (
+            (
+                await session.execute(
+                    trajectory_sql,
+                    {
+                        "bucket": bucket_minutes,
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        calibration_sql = text(
+            """
+            SELECT
+              date_trunc('hour', created_at) +
+                (EXTRACT(minute FROM created_at)::int / :bucket * :bucket) * interval '1 minute'
+                AS bucket,
+              COALESCE(
+                SUM(CASE WHEN event_kind = 'state_transition_quality_calibration_v1' THEN 1 ELSE 0 END),
+                0
+              )::int AS local_calibration_events,
+              COALESCE(
+                SUM(CASE WHEN event_kind = 'state_transition_quality_global_calibration_v1' THEN 1 ELSE 0 END),
+                0
+              )::int AS global_calibration_events
+            FROM yarn_session_events
+            WHERE event_kind IN (
+              'state_transition_quality_calibration_v1',
+              'state_transition_quality_global_calibration_v1'
+            )
+              AND created_at >= :cutoff
+              AND (:uid = '' OR user_id = :uid)
+              AND (:oid = '' OR org_id = :oid)
+            GROUP BY bucket
+            ORDER BY bucket
+            """
+        )
+        calibration_rows = (
+            (
+                await session.execute(
+                    calibration_sql,
+                    {
+                        "bucket": bucket_minutes,
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        reason_sql = text(
+            """
+            WITH scoped AS (
+              SELECT
+                CASE
+                  WHEN jsonb_typeof(metadata_json->'training_signals'->'state_transition_quality_reasons') = 'array'
+                  THEN metadata_json->'training_signals'->'state_transition_quality_reasons'
+                  ELSE '[]'::jsonb
+                END AS reasons
+              FROM yarn_session_events
+              WHERE event_kind = 'request_trajectory_v1'
+                AND created_at >= :cutoff
+                AND (:uid = '' OR user_id = :uid)
+                AND (:oid = '' OR org_id = :oid)
+            )
+            SELECT reason, COUNT(*)::int AS count
+            FROM (
+              SELECT jsonb_array_elements_text(reasons) AS reason
+              FROM scoped
+            ) expanded
+            WHERE NULLIF(BTRIM(reason), '') IS NOT NULL
+            GROUP BY reason
+            ORDER BY count DESC, reason ASC
+            LIMIT 10
+            """
+        )
+        reason_rows = (
+            (
+                await session.execute(
+                    reason_sql,
+                    {
+                        "cutoff": cutoff,
+                        "uid": scope_user_id or "",
+                        "oid": scope_org_id or "",
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    calibration_by_bucket = {
+        r["bucket"]: {
+            "local_calibration_events": int(r["local_calibration_events"] or 0),
+            "global_calibration_events": int(r["global_calibration_events"] or 0),
+        }
+        for r in calibration_rows
+    }
+
+    buckets: list[dict] = []
+    weighted_quality_sum = 0.0
+    weighted_regressed_sum = 0.0
+    weighted_reground_sum = 0.0
+    weighted_scope_coverage_sum = 0.0
+    weighted_forward_min_sum = 0.0
+    weighted_regressed_max_sum = 0.0
+    trajectory_events_total = 0
+    local_calibration_events_total = 0
+    global_calibration_events_total = 0
+
+    for row in trajectory_rows:
+        bucket = row["bucket"]
+        trajectory_events = int(row["trajectory_events"] or 0)
+        quality_score_avg = float(row["quality_score_avg"] or 0.0)
+        forward_progress_rate = float(row["forward_progress_rate"] or 0.0)
+        stalled_rate = float(row["stalled_rate"] or 0.0)
+        regressed_rate = float(row["regressed_rate"] or 0.0)
+        reground_required_rate = float(row["reground_required_rate"] or 0.0)
+        global_scope_coverage = float(row["global_scope_coverage"] or 0.0)
+        quality_forward_min_avg = float(row["quality_forward_min_avg"] or 0.0)
+        quality_regressed_max_avg = float(row["quality_regressed_max_avg"] or 0.0)
+        calibration = calibration_by_bucket.get(bucket, {
+            "local_calibration_events": 0,
+            "global_calibration_events": 0,
+        })
+        local_calibration_events = int(calibration["local_calibration_events"])
+        global_calibration_events = int(calibration["global_calibration_events"])
+
+        risk_flags: list[str] = []
+        if regressed_rate >= regressed_warn_threshold:
+            risk_flags.append("high_regressed_rate")
+        if reground_required_rate >= reground_warn_threshold:
+            risk_flags.append("high_reground_required_rate")
+        if global_scope_coverage < global_scope_warn_threshold and trajectory_events >= 5:
+            risk_flags.append("low_global_scope_coverage")
+        if quality_score_avg < quality_score_warn_threshold and trajectory_events >= 5:
+            risk_flags.append("negative_quality_score")
+        if (local_calibration_events + global_calibration_events) == 0 and trajectory_events >= 10:
+            risk_flags.append("no_calibration_events")
+
+        buckets.append(
+            {
+                "bucket": bucket.isoformat() if bucket else None,
+                "trajectory_events": trajectory_events,
+                "quality_score_avg": round(quality_score_avg, 4),
+                "forward_progress_rate": round(forward_progress_rate, 4),
+                "stalled_rate": round(stalled_rate, 4),
+                "regressed_rate": round(regressed_rate, 4),
+                "reground_required_rate": round(reground_required_rate, 4),
+                "global_scope_coverage": round(global_scope_coverage, 4),
+                "quality_forward_min_avg": round(quality_forward_min_avg, 4),
+                "quality_regressed_max_avg": round(quality_regressed_max_avg, 4),
+                "local_calibration_events": local_calibration_events,
+                "global_calibration_events": global_calibration_events,
+                "risk_flags": risk_flags,
+            }
+        )
+
+        trajectory_events_total += trajectory_events
+        local_calibration_events_total += local_calibration_events
+        global_calibration_events_total += global_calibration_events
+        weighted_quality_sum += quality_score_avg * trajectory_events
+        weighted_regressed_sum += regressed_rate * trajectory_events
+        weighted_reground_sum += reground_required_rate * trajectory_events
+        weighted_scope_coverage_sum += global_scope_coverage * trajectory_events
+        weighted_forward_min_sum += quality_forward_min_avg * trajectory_events
+        weighted_regressed_max_sum += quality_regressed_max_avg * trajectory_events
+
+    alert_buckets = [bucket for bucket in buckets if bucket["risk_flags"]]
+
+    quality_score_avg_window = (
+        weighted_quality_sum / trajectory_events_total if trajectory_events_total else 0.0
+    )
+    regressed_rate_avg_window = (
+        weighted_regressed_sum / trajectory_events_total if trajectory_events_total else 0.0
+    )
+    reground_rate_avg_window = (
+        weighted_reground_sum / trajectory_events_total if trajectory_events_total else 0.0
+    )
+    global_scope_coverage_avg_window = (
+        weighted_scope_coverage_sum / trajectory_events_total if trajectory_events_total else 0.0
+    )
+    quality_forward_min_avg_window = (
+        weighted_forward_min_sum / trajectory_events_total if trajectory_events_total else 0.0
+    )
+    quality_regressed_max_avg_window = (
+        weighted_regressed_max_sum / trajectory_events_total if trajectory_events_total else 0.0
+    )
+
+    risk_flags_window: list[str] = []
+    if regressed_rate_avg_window >= regressed_warn_threshold:
+        risk_flags_window.append("high_regressed_rate")
+    if reground_rate_avg_window >= reground_warn_threshold:
+        risk_flags_window.append("high_reground_required_rate")
+    if trajectory_events_total >= 20 and global_scope_coverage_avg_window < global_scope_warn_threshold:
+        risk_flags_window.append("low_global_scope_coverage")
+    if trajectory_events_total >= 20 and quality_score_avg_window < quality_score_warn_threshold:
+        risk_flags_window.append("negative_quality_score")
+    if trajectory_events_total >= 20 and global_calibration_events_total == 0:
+        risk_flags_window.append("missing_global_calibration_events")
+
+    actions: list[str] = []
+    if "high_regressed_rate" in risk_flags_window:
+        actions.append("Prioritize regressed trajectories in event drilldown and validate recovery prompt quality.")
+    if "high_reground_required_rate" in risk_flags_window:
+        actions.append("Investigate stale/partial file state pressure and tune re-ground policies.")
+    if "low_global_scope_coverage" in risk_flags_window:
+        actions.append("Check org/model scope key stability and verify global calibrator persistence is healthy.")
+    if "missing_global_calibration_events" in risk_flags_window:
+        actions.append("Verify state_transition_quality_global_calibration_v1 events and shared store writes.")
+    if "negative_quality_score" in risk_flags_window:
+        actions.append("Hold threshold tightening until average quality score returns above zero.")
+    if not actions:
+        actions.append("Transition quality telemetry is stable. Continue monitoring drift and top quality reasons.")
+
+    return {
+        "since_hours": since_hours,
+        "bucket_minutes": bucket_minutes,
+        "summary": {
+            "bucket_count": len(buckets),
+            "trajectory_events_total": trajectory_events_total,
+            "quality_score_avg": round(quality_score_avg_window, 4),
+            "regressed_rate_avg": round(regressed_rate_avg_window, 4),
+            "reground_required_rate_avg": round(reground_rate_avg_window, 4),
+            "global_scope_coverage_avg": round(global_scope_coverage_avg_window, 4),
+            "quality_forward_min_avg": round(quality_forward_min_avg_window, 4),
+            "quality_regressed_max_avg": round(quality_regressed_max_avg_window, 4),
+            "local_calibration_events_total": local_calibration_events_total,
+            "global_calibration_events_total": global_calibration_events_total,
+            "risk_flags": risk_flags_window,
+        },
+        "alert_thresholds": {
+            "regressed_rate_warn": regressed_warn_threshold,
+            "reground_required_rate_warn": reground_warn_threshold,
+            "global_scope_coverage_warn": global_scope_warn_threshold,
+            "quality_score_warn": quality_score_warn_threshold,
+        },
+        "top_quality_reasons": [
+            {"reason": str(r["reason"]), "count": int(r["count"] or 0)}
+            for r in reason_rows
+        ],
+        "alert_buckets": alert_buckets[:24],
+        "actions": actions,
+        "buckets": buckets,
+    }
+
+
 # ── Safety events ─────────────────────────────────────────────────────────────
 
 

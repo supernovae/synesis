@@ -238,6 +238,8 @@ Admin now exposes transition-quality + calibration telemetry in Coder views:
 
 - **Coder Overview:** label mix, score trend proxy, threshold band averages, scope coverage,
   calibration event counts, top quality reasons, and actionable risk notes.
+- **Transition Calibration page:** bucketed trend charts for quality score, threshold bands,
+  label-rate movement, calibration cadence, and recent alert buckets with operator actions.
 - **Session Event drilldown:** transition-risk preset + quality-specific chips on
   `request_trajectory_v1` events.
 - **Calibration events:** `state_transition_quality_calibration_v1` and

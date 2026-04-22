@@ -2243,6 +2243,52 @@ export interface YarnIntelligence {
   };
 }
 
+export interface YarnTransitionQualityBucket {
+  bucket: string | null;
+  trajectory_events: number;
+  quality_score_avg: number;
+  forward_progress_rate: number;
+  stalled_rate: number;
+  regressed_rate: number;
+  reground_required_rate: number;
+  global_scope_coverage: number;
+  quality_forward_min_avg: number;
+  quality_regressed_max_avg: number;
+  local_calibration_events: number;
+  global_calibration_events: number;
+  risk_flags: string[];
+}
+
+export interface YarnTransitionQualitySummary {
+  bucket_count: number;
+  trajectory_events_total: number;
+  quality_score_avg: number;
+  regressed_rate_avg: number;
+  reground_required_rate_avg: number;
+  global_scope_coverage_avg: number;
+  quality_forward_min_avg: number;
+  quality_regressed_max_avg: number;
+  local_calibration_events_total: number;
+  global_calibration_events_total: number;
+  risk_flags: string[];
+}
+
+export interface YarnTransitionQualityTelemetry {
+  since_hours: number;
+  bucket_minutes: number;
+  summary: YarnTransitionQualitySummary;
+  alert_thresholds: {
+    regressed_rate_warn: number;
+    reground_required_rate_warn: number;
+    global_scope_coverage_warn: number;
+    quality_score_warn: number;
+  };
+  top_quality_reasons: Array<{ reason: string; count: number }>;
+  alert_buckets: YarnTransitionQualityBucket[];
+  actions: string[];
+  buckets: YarnTransitionQualityBucket[];
+}
+
 export interface YarnRuntimeTelemetry {
   timestamp: number;
   validationNormalization?: {
@@ -2415,6 +2461,19 @@ export function useYarnIntelligence(sinceHours: number) {
     queryKey: ["yarn", "intelligence", sinceHours],
     queryFn: () =>
       client.get("/yarn/intelligence", { params: { since_hours: sinceHours } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useYarnTransitionQualityTelemetry(sinceHours: number, bucketMinutes = 60) {
+  return useQuery<YarnTransitionQualityTelemetry>({
+    queryKey: ["yarn", "transition-quality", sinceHours, bucketMinutes],
+    queryFn: () =>
+      client
+        .get("/yarn/transition-quality", {
+          params: { since_hours: sinceHours, bucket_minutes: bucketMinutes },
+        })
+        .then((r) => r.data),
     refetchInterval: 60_000,
   });
 }

@@ -350,6 +350,49 @@ def test_yarn_performance_returns_buckets(client, monkeypatch):
     assert data[0]["requests"] == 10
 
 
+def test_yarn_transition_quality_returns_telemetry(client, monkeypatch):
+    payload = {
+        "since_hours": 168,
+        "bucket_minutes": 60,
+        "summary": {
+            "bucket_count": 2,
+            "trajectory_events_total": 20,
+            "quality_score_avg": 0.12,
+            "regressed_rate_avg": 0.1,
+            "reground_required_rate_avg": 0.05,
+            "global_scope_coverage_avg": 0.8,
+            "quality_forward_min_avg": 0.25,
+            "quality_regressed_max_avg": -0.35,
+            "local_calibration_events_total": 3,
+            "global_calibration_events_total": 1,
+            "risk_flags": ["high_regressed_rate"],
+        },
+        "alert_thresholds": {
+            "regressed_rate_warn": 0.15,
+            "reground_required_rate_warn": 0.08,
+            "global_scope_coverage_warn": 0.5,
+            "quality_score_warn": 0.0,
+        },
+        "top_quality_reasons": [{"reason": "stale_files_increased", "count": 2}],
+        "alert_buckets": [],
+        "actions": ["Prioritize regressed trajectories in event drilldown and validate recovery prompt quality."],
+        "buckets": [],
+    }
+    mock_transition = AsyncMock(return_value=payload)
+    monkeypatch.setattr(
+        "app.services.yarn_service.get_yarn_transition_quality_series",
+        mock_transition,
+    )
+    resp = client.get("/api/v1/yarn/transition-quality?since_hours=168&bucket_minutes=60")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == payload
+    mock_transition.assert_awaited_once()
+    kwargs = mock_transition.await_args.kwargs
+    assert kwargs["since_hours"] == 168
+    assert kwargs["bucket_minutes"] == 60
+
+
 def test_yarn_health_uses_probe_service(client, monkeypatch):
     probe_result = {
         "name": "synesis-yarn",

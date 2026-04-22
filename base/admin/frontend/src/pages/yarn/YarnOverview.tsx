@@ -86,6 +86,12 @@ const QUICK_LINKS = [
     description: "Health probe and smoke checks against the Coder runtime",
     icon: AlertTriangle,
   },
+  {
+    to: "/yarn/transition-calibration",
+    title: "Transition Calibration",
+    description: "Trend transition quality thresholds and alert buckets",
+    icon: Activity,
+  },
 ];
 
 export default function YarnOverview() {
@@ -544,6 +550,12 @@ export default function YarnOverview() {
                         ))}
                       </ul>
                       <div className="mt-2 flex flex-wrap gap-2">
+                        <Link
+                          to="/yarn/transition-calibration"
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+                        >
+                          Open trend dashboard
+                        </Link>
                         <Link
                           to="/yarn/events"
                           className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/50"

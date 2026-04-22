@@ -151,6 +151,21 @@ async def yarn_performance(
     )
 
 
+@router.get("/transition-quality")
+async def yarn_transition_quality(
+    since_hours: int = Query(168, ge=1, le=720),
+    bucket_minutes: int = Query(60, ge=5, le=60),
+    user: UserInfo = Depends(require_org_admin),
+):
+    scope_user_id, scope_org_id, _tenant_id = _scope(user)
+    return await yarn_service.get_yarn_transition_quality_series(
+        since_hours=since_hours,
+        bucket_minutes=bucket_minutes,
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
+    )
+
+
 # ── Diagnostics passthrough ──────────────────────────────────────────────────
 
 
