@@ -5,6 +5,8 @@ import {
   evaluateSensemakingGovernor,
   compareSensemakingWithLegacy,
   getSignalDefinition,
+  buildSensemakingPauseMessage,
+  buildSensemakingGuidanceInjection,
   type FrictionInput,
 } from "../src/governance/sensemaking-governor.js";
 import type { CommandEvent, ExecutionGovernorDecision, SessionPhase } from "../src/governance/execution-governor.js";
@@ -448,5 +450,109 @@ describe("real-world scenarios", () => {
     const sm = evaluateSensemakingGovernor(legacy, events, 4, 1, false);
     expect(sm.responseLevel).toBe("allow");
     expect(sm.productiveMomentum).toBeGreaterThan(0.5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Primary decision-maker features
+// ---------------------------------------------------------------------------
+
+describe("primary decision-maker features", () => {
+  it("shouldPause is true only for intervene responses", () => {
+    // chaotic -> intervene -> shouldPause
+    const chaotic = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["consecutive_edit_failures", "edit_failure_replay", "verification_fail_repeat_block"],
+    });
+    const smChaotic = evaluateSensemakingGovernor(chaotic, [], 1, 0, false);
+    expect(smChaotic.shouldPause).toBe(true);
+
+    // advisory -> allow -> no pause
+    const advisory = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["verbal_intent_without_action"],
+    });
+    const smAdvisory = evaluateSensemakingGovernor(advisory, [], 1, 0, false);
+    expect(smAdvisory.shouldPause).toBe(false);
+  });
+
+  it("shouldRestrictDiscovery is false during plan recovery grace", () => {
+    const legacy = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["no_progress_loop", "verification_churn_no_edit", "verification_stall_no_edit"],
+    });
+    // guide-level friction, but with plan recovery grace
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, true);
+    expect(sm.shouldRestrictDiscovery).toBe(false);
+  });
+
+  it("shouldRestrictDiscovery is true for guide without plan grace", () => {
+    const legacy = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["no_progress_loop", "verification_churn_no_edit", "verification_stall_no_edit", "edit_before_retest", "no_repeat_without_change"],
+    });
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, false);
+    if (sm.responseLevel === "guide" || sm.responseLevel === "intervene") {
+      expect(sm.shouldRestrictDiscovery).toBe(true);
+    }
+  });
+
+  it("matchedRules excludes the allow sentinel", () => {
+    const legacy = makeLegacyDecision({
+      pause: false,
+      matchedRules: ["allow", "exploration_stall_no_edit"],
+    });
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, false);
+    expect(sm.matchedRules).not.toContain("allow");
+    expect(sm.matchedRules).toContain("exploration_stall_no_edit");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pause and guidance message builders
+// ---------------------------------------------------------------------------
+
+describe("message builders", () => {
+  it("buildSensemakingPauseMessage includes domain and friction", () => {
+    const legacy = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["consecutive_edit_failures", "edit_failure_replay", "verification_fail_repeat_block"],
+    });
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, false);
+    const msg = buildSensemakingPauseMessage(sm);
+    expect(msg).toContain("Governor pause");
+    expect(msg).toContain("chaotic");
+  });
+
+  it("buildSensemakingGuidanceInjection returns null for allow", () => {
+    const legacy = makeLegacyDecision({ matchedRules: ["allow"] });
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, false);
+    expect(buildSensemakingGuidanceInjection(sm)).toBeNull();
+  });
+
+  it("buildSensemakingGuidanceInjection returns hint for nudge", () => {
+    const legacy = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["no_progress_loop", "verification_churn_no_edit"],
+    });
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, false);
+    if (sm.responseLevel === "nudge") {
+      const msg = buildSensemakingGuidanceInjection(sm);
+      expect(msg).not.toBeNull();
+      expect(msg!).toContain("[Hint]");
+    }
+  });
+
+  it("buildSensemakingGuidanceInjection returns guidance for guide", () => {
+    const legacy = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["no_progress_loop", "verification_churn_no_edit", "verification_stall_no_edit", "edit_before_retest", "no_repeat_without_change"],
+    });
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, false);
+    if (sm.responseLevel === "guide") {
+      const msg = buildSensemakingGuidanceInjection(sm);
+      expect(msg).not.toBeNull();
+      expect(msg!).toContain("[Guidance]");
+    }
   });
 });

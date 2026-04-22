@@ -1,16 +1,15 @@
 /**
  * Sensemaking Governor — Cynefin-aware execution governance.
  *
- * Replaces the binary rule-matching governor with a continuous signal
- * accumulation system that classifies situations into Cynefin domains
- * and produces graduated responses.
+ * Primary decision-maker for execution governance. Uses continuous signal
+ * accumulation mapped to Cynefin domains with graduated responses.
  *
  * Design principles:
  * - Signals accumulate friction; no single signal can trigger hard intervention
  * - Productive momentum is a first-class counterweight, not a patch
  * - Domain boundaries determine response intensity, not individual rules
  * - Chaotic intervention reserved for genuine runaway loops
- * - Shadow mode: runs alongside the existing governor for comparison
+ * - Legacy rule detection is reused as the signal source
  */
 
 import type {
@@ -85,6 +84,20 @@ export interface SensemakingDecision {
   productiveMomentum: number;
   /** Detected session phase (from legacy governor). */
   phase: SessionPhase;
+  /**
+   * Whether the caller should hard-pause the session (return soft-fail to client).
+   * Only true for `intervene` responses. Replaces the legacy governor's binary `pause`.
+   */
+  shouldPause: boolean;
+  /**
+   * Whether discovery tools should be restricted (plan-execution-scope).
+   * false for allow/nudge, true only for guide+intervene when NOT in plan recovery.
+   */
+  shouldRestrictDiscovery: boolean;
+  /** Top rule names for telemetry (from legacy detection, reused as signal names). */
+  matchedRules: string[];
+  /** Suggested next step text (for soft-fail message body). */
+  suggestedNextStep?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,10 +152,10 @@ const SIGNAL_CATALOG: ReadonlyMap<string, SignalDefinition> = new Map<string, Si
   }],
   ["plan_reread_loop", {
     name: "plan_reread_loop",
-    weight: 0.10,
+    weight: 0.08,
     domain: "advisory",
-    decayRate: 0.8,
-    productiveCounterweight: 0.6,
+    decayRate: 0.6,
+    productiveCounterweight: 0.8,
   }],
   ["source_file_stale_reread", {
     name: "source_file_stale_reread",
@@ -186,17 +199,17 @@ const SIGNAL_CATALOG: ReadonlyMap<string, SignalDefinition> = new Map<string, Si
   // productive counterweight more.
   ["verification_churn_no_edit", {
     name: "verification_churn_no_edit",
-    weight: 0.18,
+    weight: 0.15,
     domain: "complicated",
-    decayRate: 0.85,
-    productiveCounterweight: 0.4,
+    decayRate: 0.8,
+    productiveCounterweight: 0.45,
   }],
   ["verification_stall_no_edit", {
     name: "verification_stall_no_edit",
-    weight: 0.16,
+    weight: 0.14,
     domain: "complicated",
-    decayRate: 0.85,
-    productiveCounterweight: 0.4,
+    decayRate: 0.8,
+    productiveCounterweight: 0.45,
   }],
   ["no_progress_loop", {
     name: "no_progress_loop",
@@ -214,10 +227,10 @@ const SIGNAL_CATALOG: ReadonlyMap<string, SignalDefinition> = new Map<string, Si
   }],
   ["completion_claim_requires_task_update", {
     name: "completion_claim_requires_task_update",
-    weight: 0.14,
+    weight: 0.10,
     domain: "complicated",
-    decayRate: 0.8,
-    productiveCounterweight: 0.4,
+    decayRate: 0.75,
+    productiveCounterweight: 0.5,
   }],
   ["verification_intent_without_action", {
     name: "verification_intent_without_action",
@@ -361,7 +374,7 @@ export function getSignalDefinition(name: string): SignalDefinition | undefined 
 // ---------------------------------------------------------------------------
 
 const DOMAIN_THRESHOLDS = {
-  complex_max: 0.25,
+  complex_max: 0.30,
   complicated_low_max: 0.55,
   complicated_high_max: 0.80,
 } as const;
@@ -590,14 +603,14 @@ function generateIntervention(signals: FiredSignal[], _phase: SessionPhase): str
 }
 
 // ---------------------------------------------------------------------------
-// Main evaluation — shadow mode
+// Main evaluation — primary decision-maker
 // ---------------------------------------------------------------------------
 
 /**
- * Evaluate the sensemaking governor alongside the legacy governor.
+ * Evaluate the sensemaking governor as the primary decision-maker.
  *
- * In shadow mode, this produces a SensemakingDecision for telemetry
- * comparison without affecting the actual response to the client.
+ * Uses legacy rule detection as signal source, but the sensemaking
+ * friction/domain system makes the actual pause/allow/guide decision.
  */
 export function evaluateSensemakingGovernor(
   legacyDecision: ExecutionGovernorDecision,
@@ -606,8 +619,10 @@ export function evaluateSensemakingGovernor(
   changedFileCount: number,
   planRecoveryGraceActive: boolean,
 ): SensemakingDecision {
+  const matchedRules = legacyDecision.matchedRules.filter((r) => r !== "allow");
+
   const friction = computeFriction({
-    matchedRules: legacyDecision.matchedRules.filter((r) => r !== "allow"),
+    matchedRules,
     events,
     phase: legacyDecision.telemetry.phase,
     turnsSinceUserPrompt,
@@ -616,6 +631,20 @@ export function evaluateSensemakingGovernor(
   });
 
   const guidance = generateGuidance(friction, legacyDecision.telemetry.phase);
+
+  const shouldPause = friction.responseLevel === "intervene";
+
+  // Only restrict discovery for guide/intervene AND not during plan recovery
+  const shouldRestrictDiscovery =
+    (friction.responseLevel === "guide" || friction.responseLevel === "intervene")
+    && !planRecoveryGraceActive;
+
+  const suggestedNextStep = shouldPause
+    ? generateIntervention(
+      friction.firedSignals.slice(0, 3),
+      legacyDecision.telemetry.phase,
+    )
+    : undefined;
 
   return {
     domain: friction.domain,
@@ -629,7 +658,34 @@ export function evaluateSensemakingGovernor(
     legacyWouldPause: legacyDecision.pause,
     productiveMomentum: friction.productiveMomentum,
     phase: legacyDecision.telemetry.phase,
+    shouldPause,
+    shouldRestrictDiscovery,
+    matchedRules,
+    suggestedNextStep,
   };
+}
+
+/**
+ * Build a concise soft-fail message when sensemaking decides to intervene.
+ * Replaces the legacy governor's verbose hard-stop/escalation messages.
+ */
+export function buildSensemakingPauseMessage(decision: SensemakingDecision): string {
+  const top = decision.firedSignals.slice(0, 3).map((s) => s.name);
+  const header = `[Governor pause] Friction ${(decision.frictionScore * 100).toFixed(0)}% — domain: ${decision.domain}`;
+  const signals = top.length > 0 ? `\nTop signals: ${top.join(", ")}` : "";
+  const step = decision.suggestedNextStep ? `\n\n${decision.suggestedNextStep}` : "";
+  return `${header}${signals}${step}`;
+}
+
+/**
+ * Build a system-message guidance injection for nudge/guide responses.
+ * Returns null for allow/intervene (no injection needed).
+ */
+export function buildSensemakingGuidanceInjection(decision: SensemakingDecision): string | null {
+  if (decision.responseLevel === "allow" || decision.responseLevel === "intervene") return null;
+  if (!decision.guidance) return null;
+  const prefix = decision.responseLevel === "nudge" ? "[Hint]" : "[Guidance]";
+  return `${prefix} ${decision.guidance}`;
 }
 
 /**

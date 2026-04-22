@@ -1,13 +1,14 @@
 ---
-description: Sensemaking governor — Cynefin-aware execution governance architecture
-globs: base/yarn-ts/src/governance/sensemaking-governor.ts,base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/tests/sensemaking-governor.test.ts
+description: Sensemaking governor — Cynefin-aware execution governance architecture (primary)
+globs: base/yarn-ts/src/governance/sensemaking-governor.ts,base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/tests/sensemaking-governor.test.ts,base/yarn-ts/src/index.ts
 alwaysApply: false
 ---
 
 # Sensemaking Governor Architecture
 
-The sensemaking governor replaces binary rule-matching with continuous signal
-accumulation mapped to Cynefin domains.
+The sensemaking governor is the **primary decision-maker** for execution governance.
+It replaces the legacy binary pause/allow system with continuous signal accumulation
+mapped to Cynefin domains, producing graduated responses.
 
 ## Design Principles
 
@@ -18,40 +19,60 @@ accumulation mapped to Cynefin domains.
 3. **Domain boundaries determine response intensity**, not individual rule names.
 4. **Graduated responses**: allow → nudge → guide → intervene. Binary pause/allow
    only exists at the extremes.
+5. **Plan recovery grace** is built into the friction computation, not scattered
+   across multiple code paths.
+
+## Architecture
+
+```
+Legacy Rule Detection (signal source)
+  └──> evaluateExecutionGovernor() → matchedRules[]
+        └──> evaluateSensemakingGovernor() → SensemakingDecision
+              ├── shouldPause: boolean (only true for chaotic/intervene)
+              ├── shouldRestrictDiscovery: boolean (guide+intervene, not during plan grace)
+              ├── guidance?: string (nudge/guide hint injection)
+              └── domain/frictionScore/responseLevel (telemetry)
+```
+
+The legacy governor's `evaluateExecutionGovernor()` is kept solely as the signal
+detector — its ~35 rules map to weighted signals. The sensemaking governor
+aggregates these into a friction score and makes the actual decision.
 
 ## Cynefin Domain Mapping
 
 | Domain | Friction | Response | Behavior |
 |--------|----------|----------|----------|
-| Complex (< 0.25) | Low | `allow` | Probe-sense-respond. Let the model act, observe. |
-| Complicated-low (0.25–0.55) | Moderate | `nudge` | Inject short system hint. No tool removal. |
-| Complicated-high (0.55–0.80) | High | `guide` | Stronger guidance. May suggest actions. |
-| Chaotic (≥ 0.80) | Critical | `intervene` | Hard pause. Strip tools. Force reground. |
+| Complex (< 0.30) | Low | `allow` | Probe-sense-respond. Let the model act, observe. |
+| Complicated-low (0.30–0.55) | Moderate | `nudge` | Inject short system hint. No tool removal. |
+| Complicated-high (0.55–0.80) | High | `guide` | Stronger guidance. May restrict discovery tools. |
+| Chaotic (≥ 0.80) | Critical | `intervene` | Hard pause. Return soft-fail to client. |
 
 ## Signal Tiers
 
 - **Advisory** (weight 0.04–0.10): Observations that might indicate drift. High
-  productive counterweight (0.6–1.0). Fast decay.
+  productive counterweight (0.6–1.0). Fast decay. Examples: plan_reread_loop,
+  verbal_intent_without_action, exploration_stall_no_edit.
 - **Complicated** (weight 0.10–0.20): Clear waste patterns. Moderate counterweight
-  (0.3–0.5). Slower decay.
+  (0.3–0.5). Slower decay. Examples: verification_churn_no_edit, no_progress_loop.
 - **Chaotic** (weight 0.20–0.30): Genuine danger. Near-immune to productive
-  counterweight (0.1–0.2). Very slow decay.
+  counterweight (0.1–0.2). Very slow decay. Examples: consecutive_edit_failures,
+  verification_fail_repeat_block.
 
-## Shadow Mode
+## What Was Removed
 
-Currently runs alongside the legacy governor for comparison. The
-`sensemaking_governor_shadow` session event contains:
-- `agreement`: whether both governors reached the same pause/allow decision
-- `sensemakingMorePermissive`: true when sensemaking would have allowed but
-  legacy paused — the key metric for validating the Cynefin approach
-- `frictionScore`, `domain`, `productiveMomentum`: diagnostic signals
+The following legacy mechanisms were replaced by sensemaking's graduated response:
 
-## Migration Path
+- **Pre-pause recovery attempts** (consumeGovernorPrePauseRecoveryAttempt)
+- **Hard stop thresholds** (HARD_STOP_THRESHOLD, ESCALATED_HARD_STOP_THRESHOLD)
+- **Tool restriction engine** (applyExecutionGovernorToolRestrictions)
+- **Implementation soft stall nudge** (applyImplementationSoftStallNudge)
+- **Recovery rewrite blocks** (executionGovernorRecoveryRewriteBlock)
+- **GOVERNOR_PRE_PAUSE_RECOVERY_RULES** and associated state
 
-1. **Phase 1 (current)**: Shadow mode. Collect telemetry comparing decisions.
-2. **Phase 2**: Use sensemaking for `nudge`/`guide` responses when legacy allows.
-3. **Phase 3**: Use sensemaking domain classification to gate legacy pause.
-4. **Phase 4**: Retire legacy rule-specific handlers; sensemaking becomes primary.
+The sensemaking governor handles all of these through:
+- `shouldPause` (replaces hard stops)
+- `buildSensemakingGuidanceInjection()` (replaces recovery rewrites)
+- `shouldRestrictDiscovery` (replaces PlanExecutionScope logic)
 
 ## When Modifying
 
@@ -62,3 +83,5 @@ Currently runs alongside the legacy governor for comparison. The
   numbers that determine when intervention happens.
 - Never add rule-specific if/else blocks to the sensemaking governor.
   Graduated response templates should remain generic by domain level.
+- The `shouldRestrictDiscoveryForPlanWork` function in index.ts is kept as
+  a fallback but sensemaking's `shouldRestrictDiscovery` takes precedence.

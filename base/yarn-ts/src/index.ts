@@ -199,8 +199,6 @@ import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 import {
   evaluateExecutionGovernor,
-  executionGovernorRecoveryRewriteBlock,
-  buildExecutionGovernorHardStopUserMessage,
   buildExecutionGovernorPauseEnvelope,
   inferGovernorPhaseFromMessages,
   governorPhaseToWorkflowPhase,
@@ -211,10 +209,14 @@ import {
   type GovernorPauseEnvelope,
   type GovernorInputMessage,
   type SessionPhase,
+  isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
 import {
   evaluateSensemakingGovernor,
   compareSensemakingWithLegacy,
+  buildSensemakingPauseMessage,
+  buildSensemakingGuidanceInjection,
+  type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
 import {
   buildRequiredRepairPrompt,
@@ -270,10 +272,7 @@ import {
 } from "./governance/state-transition-ledger.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
-import {
-  buildImplementationSoftStallNudgeMessage,
-  isOnlyImplementationSoftStallRules,
-} from "./governance/implementation-soft-stall-nudge.js";
+
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
 type SessionState = {
@@ -445,121 +444,6 @@ function applyDiscoveryToolGuardrail(
     })),
     redirectedDetails: guarded.redirected,
   };
-}
-
-function applyExecutionGovernorToolRestrictions(
-  tools: unknown[] | undefined,
-  matchedRules?: string[],
-  options?: {
-    pureExploration?: boolean;
-    preserveReadTools?: boolean;
-    escalatedExploration?: boolean;
-    allowWriteFallbackForReplay?: boolean;
-  },
-): { tools: unknown[] | undefined; removed: string[] } {
-  if (!Array.isArray(tools) || tools.length === 0) return { tools, removed: [] };
-  const explorationDominant = matchedRules?.some((r) =>
-    r === "bounded_exploration_budget" || r === "broad_discovery_repeat"
-  ) ?? false;
-  const explorationStall = matchedRules?.some((r) =>
-    r === "exploration_stall_no_edit"
-    || r === "no_progress_loop"
-    || r === "source_file_stale_reread"
-    || r === "verbal_intent_without_action"
-    || r === "repeated_assistant_intro"
-    || r === "verification_intent_without_action"
-    || r === "finalize_action_required"
-  ) ?? false;
-  const failureFixContext = matchedRules?.some((r) =>
-    r === "verification_same_failure_signature_replay"
-    || r === "verification_fail_repeat_block"
-    || r === "verification_churn_no_edit"
-  ) ?? false;
-  const editReplayContext = matchedRules?.some((r) =>
-    r === "edit_failure_replay" || r === "consecutive_edit_failures"
-  ) ?? false;
-  const repeatUserPromptLoop = matchedRules?.some((r) => r === "repeat_user_prompt_loop") ?? false;
-  const verificationIntentHardGate = matchedRules?.some((r) => r === "verification_intent_without_action") ?? false;
-  const finalizeGreenLock = matchedRules?.some((r) =>
-    r === "verification_done_report" || r === "finalize_action_required"
-  ) && matchedRules?.some((r) =>
-    r === "completion_claim_requires_task_update" || r === "verification_done_report"
-  );
-
-  const deny = new Set<string>();
-  if (explorationDominant) {
-    deny.add("explore").add("agent");
-  } else {
-    deny.add("explore").add("agent");
-  }
-  if (explorationStall) {
-    // Keep read tools available during stall recovery so the model can anchor edits.
-    // Only block search/list discovery tools to stop broad exploration loops.
-    for (const t of ["search", "grep", "find", "list_dir", "list_files"]) {
-      deny.add(t);
-    }
-  }
-  if (options?.escalatedExploration) {
-    // Only strip bash/shell on escalation; always keep read tools so the model can
-    // still anchor its edits against file content.
-    for (const t of ["bash", "shell", "execute", "terminal", "search", "grep", "find", "list_dir", "list_files"]) {
-      deny.add(t);
-    }
-  }
-  if (repeatUserPromptLoop) {
-    for (const t of ["askuserquestion", "ask_user_question", "askuser", "askquestion", "user_question"]) {
-      deny.add(t);
-    }
-  }
-  if (finalizeGreenLock) {
-    for (const t of ["bash", "shell", "run_test", "run_build", "run_lint", "execute", "terminal"]) {
-      deny.add(t);
-    }
-  }
-  if (editReplayContext) {
-    // Default to anchored edits. If replay keeps failing, allow one controlled write fallback.
-    if (!options?.allowWriteFallbackForReplay) {
-      for (const t of ["write", "write_file", "writefile", "file_write", "filewrite"]) {
-        deny.add(t);
-      }
-    }
-  }
-
-  const removed: string[] = [];
-  const verificationIntentAllowlist = new Set<string>([
-    "bash",
-    "shell",
-    "run_test",
-    "run_build",
-    "run_lint",
-    "edit",
-    "write",
-    "applypatch",
-    "str_replace",
-    "strreplace",
-    "filewrite",
-    "read",
-    "read_file",
-    "readfile",
-    "file_read",
-  ]);
-  const filtered = tools.filter((tool) => {
-    if (!tool || typeof tool !== "object") return true;
-    const row = tool as Record<string, unknown>;
-    const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
-    const rawName = (typeof row.name === "string" ? row.name : "")
-      || (nested && typeof nested.name === "string" ? nested.name : "");
-    const name = rawName.trim().toLowerCase();
-    if (verificationIntentHardGate && !verificationIntentAllowlist.has(name)) {
-      removed.push(rawName || name);
-      return false;
-    }
-    if (options?.preserveReadTools && isReadToolName(name)) return true;
-    if (!deny.has(name)) return true;
-    removed.push(rawName || name);
-    return false;
-  });
-  return { tools: filtered, removed };
 }
 
 const FILE_UNCHANGED_RE = /<FILE_UNCHANGED\s[^>]*path="([^"]+)"/i;
@@ -1729,13 +1613,6 @@ const QWEN_FORCED_PHASE_POLICY_RULES = new Set([
   "source_file_stale_reread",
   "edit_failure_replay",
 ]);
-const GOVERNOR_PRE_PAUSE_RECOVERY_RULES = new Set([
-  "source_file_stale_reread",
-  "verification_churn_no_edit",
-  "edit_failure_replay",
-  "consecutive_edit_failures",
-]);
-const GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS = 2;
 const GOVERNOR_COOLDOWN_MS = 3_000;
 
 function collectToolExecutionFailureObservations(
@@ -1853,93 +1730,6 @@ function injectGovernorRecoveryMessage(
   const lastUserPromptIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
   const tailIdx = lastUserPromptIdx >= 0 ? lastUserPromptIdx + 1 : messages.length;
   messages.splice(tailIdx, 0, { role: "system", content: recovery });
-}
-
-function buildGovernorPrePauseRecovery(decision: ExecutionGovernorDecision): string {
-  const editReplayRecovery =
-    decision.matchedRules.includes("edit_failure_replay")
-    || decision.matchedRules.includes("consecutive_edit_failures");
-  if (editReplayRecovery) {
-    return [
-      executionGovernorRecoveryRewriteBlock(decision),
-      "PRE-PAUSE GUIDED RECOVERY: Edit replay loop detected. This is a one-shot recovery attempt before full pause.",
-      "Do exactly three steps: (1) Read the target file once (full relevant block, not a tiny 1-3 line slice), (2) make one anchored Edit/StrReplace using a unique old_string copied from that read, then (3) if that anchor fails again, do one controlled Write/ApplyPatch for that same file using the refreshed content.",
-      "Do not append guessed context to old_string. Do not re-enter discovery loops. After the single write fallback (or successful edit), run one narrow verification command.",
-    ].join("\n\n");
-  }
-  return [
-    executionGovernorRecoveryRewriteBlock(decision),
-    "PRE-PAUSE GUIDED RECOVERY: This is a one-shot guided attempt before full governor pause escalation.",
-    "Take exactly one focused action now: Read the failing file once if needed, make one concrete edit, then run one narrow verification command.",
-  ].join("\n\n");
-}
-
-function applyImplementationSoftStallNudge(
-  session: SessionState,
-  workingPhase: WorkflowPhase | undefined,
-  decision: ExecutionGovernorDecision,
-  messages: Array<{ role: string; content: unknown }>,
-  record: { sessionKey: string; userId: string; orgId: string; reqId: string },
-  hasRecentWriteSuccess: boolean,
-  hasActiveEditMissFailure: boolean,
-): ExecutionGovernorDecision {
-  if (!config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) return decision;
-  if (hasRecentWriteSuccess && !hasActiveEditMissFailure) {
-    session.implementationSoftStallNudgeStrikes = 0;
-  }
-  if (workingPhase !== "implementation") {
-    session.implementationSoftStallNudgeStrikes = 0;
-    return decision;
-  }
-  if (!decision.pause) return decision;
-  if (!isOnlyImplementationSoftStallRules(decision.matchedRules)) {
-    session.implementationSoftStallNudgeStrikes = 0;
-    return decision;
-  }
-  if (session.implementationSoftStallNudgeStrikes === 0) {
-    injectGovernorRecoveryMessage(messages, buildImplementationSoftStallNudgeMessage(decision));
-    session.implementationSoftStallNudgeStrikes = 1;
-    recordSessionEvent(
-      record.sessionKey,
-      record.userId,
-      record.orgId,
-      "execution_governor_implementation_soft_stall_nudge",
-      "execution-governor",
-      "Nudge (non-pause) before full soft-fail for exploration/no-progress only",
-      record.reqId,
-      { matched_rules: decision.matchedRules, reason: decision.reason },
-    );
-    return { ...decision, pause: false, reason: "implementation_soft_stall_nudge" };
-  }
-  session.implementationSoftStallNudgeStrikes = 0;
-  recordSessionEvent(
-    record.sessionKey,
-    record.userId,
-    record.orgId,
-    "execution_governor_implementation_soft_stall_full_pause",
-    "execution-governor",
-    "Full soft-fail pause after nudge: exploration/no-progress in implementation mode",
-    record.reqId,
-    { matched_rules: decision.matchedRules, reason: decision.reason },
-  );
-  return decision;
-}
-
-function consumeGovernorPrePauseRecoveryAttempt(
-  session: SessionState,
-  phase: string,
-  matchedRules: string[],
-): { applied: boolean; rule?: string; attempt?: number } {
-  const rule = matchedRules.find((candidate) => GOVERNOR_PRE_PAUSE_RECOVERY_RULES.has(candidate));
-  if (!rule) return { applied: false };
-  const key = `${phase}:${rule}`;
-  const attempts = session.governorPrePauseAttemptsByRule.get(key) ?? 0;
-  if (attempts >= GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS) {
-    return { applied: false, rule, attempt: attempts };
-  }
-  const nextAttempt = attempts + 1;
-  session.governorPrePauseAttemptsByRule.set(key, nextAttempt);
-  return { applied: true, rule, attempt: nextAttempt };
 }
 
 function isToolResultOnlyUserContent(content: unknown): boolean {
@@ -7806,35 +7596,40 @@ app.post("/v1/chat/completions", async (req, reply) => {
     },
   );
 
-  // Shadow sensemaking governor evaluation for telemetry comparison
+  // Sensemaking governor — primary decision-maker
+  let oaiSensemakingDecision: SensemakingDecision | null = null;
   if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    try {
-      const oaiGovEvents = extractCommandEvents(
-        (oaiScopedMessages as GovernorInputMessage[]).slice(
-          Math.max(0, (oaiScopedMessages as GovernorInputMessage[]).length - 50),
-        ),
-      );
-      const oaiGovChangedFiles = extractEditedFileHints(oaiGovEvents);
-      const smDecision = evaluateSensemakingGovernor(
-        oaiExecutionGovernor,
-        oaiGovEvents,
-        oaiGovEvents.length,
-        oaiGovChangedFiles.length,
-        false,
-      );
-      const smComparison = compareSensemakingWithLegacy(oaiExecutionGovernor, smDecision);
-      recordSessionEvent(
-        sessionKey, identity.userId, identity.orgId,
-        "sensemaking_governor_shadow",
-        "sensemaking-governor",
-        `domain=${smDecision.domain} response=${smDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} agreement=${smComparison.agreement}`,
-        oaiTraceReqId,
-        {
-          ...smComparison,
-          guidance: smDecision.guidance?.slice(0, 200),
-        },
-      );
-    } catch { /* shadow mode — never break the main path */ }
+    const oaiGovEvents = extractCommandEvents(
+      (oaiScopedMessages as GovernorInputMessage[]).slice(
+        Math.max(0, (oaiScopedMessages as GovernorInputMessage[]).length - 50),
+      ),
+    );
+    const oaiGovChangedFiles = extractEditedFileHints(oaiGovEvents);
+    const oaiPlanRecoveryGrace = isPlanRecoveryDiscoveryIntent(
+      typeof oaiTaskCue === "string" ? oaiTaskCue : "",
+    ) && oaiGovChangedFiles.length === 0 && oaiGovEvents.length <= 30;
+    oaiSensemakingDecision = evaluateSensemakingGovernor(
+      oaiExecutionGovernor,
+      oaiGovEvents,
+      oaiGovEvents.length,
+      oaiGovChangedFiles.length,
+      oaiPlanRecoveryGrace,
+    );
+    const smComparison = compareSensemakingWithLegacy(oaiExecutionGovernor, oaiSensemakingDecision);
+    recordSessionEvent(
+      sessionKey, identity.userId, identity.orgId,
+      "sensemaking_governor_evaluated",
+      "sensemaking-governor",
+      `domain=${oaiSensemakingDecision.domain} response=${oaiSensemakingDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} legacy_agreement=${smComparison.agreement}`,
+      oaiTraceReqId,
+      {
+        ...smComparison,
+        guidance: oaiSensemakingDecision.guidance?.slice(0, 200),
+        shouldPause: oaiSensemakingDecision.shouldPause,
+        shouldRestrictDiscovery: oaiSensemakingDecision.shouldRestrictDiscovery,
+        planRecoveryGrace: oaiPlanRecoveryGrace,
+      },
+    );
   }
 
   const oaiAggressiveRepeatGuard =
@@ -7983,315 +7778,71 @@ app.post("/v1/chat/completions", async (req, reply) => {
       `${session.lastGovernorPhase} → ${oaiGovernorPhase}`, oaiTraceReqId);
   }
   session.lastGovernorPhase = oaiGovernorPhase;
-  if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const oaiPrePauseAttempt = consumeGovernorPrePauseRecoveryAttempt(
-      session,
-      oaiGovernorPhase,
-      oaiExecutionGovernor.matchedRules,
-    );
-    if (oaiPrePauseAttempt.applied) {
-      const oaiRecovery = buildGovernorPrePauseRecovery(oaiExecutionGovernor);
-      const oaiDedup = getContentDedup(sessionKey);
-      const oaiFilesSummary = oaiDedup.generateFilesSummaryBlock();
+
+  // Sensemaking-driven response: graduated allow/nudge/guide/intervene
+  if (oaiSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    if (oaiSensemakingDecision.shouldPause) {
+      // Chaotic domain — hard pause
+      session.consecutiveRecoveryFires += 1;
+      const pauseContent = buildSensemakingPauseMessage(oaiSensemakingDecision);
+      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
+        matchedRules: oaiSensemakingDecision.matchedRules,
+        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+        hardStopThreshold: 7,
+        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+        activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
+        artifactContext: oaiArtifactContext,
+        chatStateSummary: oaiPauseChatSummary,
+        fileStateSummary: oaiPauseFileSummary,
+      });
+      recordSessionEvent(
+        sessionKey, identity.userId, identity.orgId,
+        "sensemaking_governor_pause",
+        "sensemaking-governor",
+        `Pause: domain=${oaiSensemakingDecision.domain} friction=${(oaiSensemakingDecision.frictionScore * 100).toFixed(0)}% signals=${oaiSensemakingDecision.matchedRules.slice(0, 3).join(",")}`,
+        oaiTraceReqId,
+        {
+          domain: oaiSensemakingDecision.domain,
+          frictionScore: oaiSensemakingDecision.frictionScore,
+          matchedRules: oaiSensemakingDecision.matchedRules,
+          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+        },
+      );
+      maybeCheckpoint(session);
+      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, pauseContent, !!request.stream, pauseEnvelope);
+    }
+
+    const guidanceInjection = buildSensemakingGuidanceInjection(oaiSensemakingDecision);
+    if (guidanceInjection) {
       injectGovernorRecoveryMessage(
         normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-        oaiFilesSummary ? `${oaiRecovery}\n${oaiFilesSummary}` : oaiRecovery,
+        guidanceInjection,
       );
-      oaiExecutionGovernor = {
-        ...oaiExecutionGovernor,
-        pause: false,
-        reason: `pre_pause_guided_recovery_${oaiPrePauseAttempt.rule ?? "unknown"}`,
-      };
       recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_pre_pause_recovery",
-        "execution-governor",
-        `Applied guided pre-pause recovery for ${oaiPrePauseAttempt.rule ?? "unknown"} (attempt ${oaiPrePauseAttempt.attempt ?? 0}/${GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS})`,
+        sessionKey, identity.userId, identity.orgId,
+        "sensemaking_governor_guidance",
+        "sensemaking-governor",
+        `${oaiSensemakingDecision.responseLevel}: domain=${oaiSensemakingDecision.domain} friction=${(oaiSensemakingDecision.frictionScore * 100).toFixed(0)}%`,
         oaiTraceReqId,
         {
-          phase: oaiGovernorPhase,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          rule: oaiPrePauseAttempt.rule ?? null,
-          attempt: oaiPrePauseAttempt.attempt ?? null,
+          responseLevel: oaiSensemakingDecision.responseLevel,
+          domain: oaiSensemakingDecision.domain,
+          frictionScore: oaiSensemakingDecision.frictionScore,
+          guidance: guidanceInjection.slice(0, 200),
         },
       );
     }
-  }
-  oaiExecutionGovernor = applyImplementationSoftStallNudge(
-    session,
-    oaiWorkingPhase,
-    oaiExecutionGovernor,
-    normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-    { sessionKey, userId: identity.userId, orgId: identity.orgId, reqId: oaiTraceReqId },
-    oaiLatestToolProgress.hasRecentWriteSuccess,
-    oaiHasActiveEditMissFailure,
-  );
-  if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const oaiTerminalRules = new Set([
-      "finalize_action_required",
-      "verification_after_completion_claim",
-      "completion_claim_requires_task_update",
-      "repeat_user_prompt_loop",
-      "edit_failure_replay",
-      "consecutive_edit_failures",
-    ]);
-    const oaiSuppressCompletionClaimTerminal =
-      oaiHasActiveEditMissFailure;
-    const oaiTerminalMatchedRules = oaiExecutionGovernor.matchedRules.filter((rule) =>
-      !(oaiSuppressCompletionClaimTerminal && rule === "completion_claim_requires_task_update"),
-    );
-    const oaiHasTerminalRule = oaiTerminalMatchedRules.some((rule) => oaiTerminalRules.has(rule));
-    const oaiHasBlockingToolFailure = oaiToolFailures.some((failure) => failure.reason !== "edit_already_applied");
-    const oaiForcedReadRecoverySatisfied =
-      oaiHadForceReadPending && oaiLatestReadRefresh.hasRecentReadSuccess;
-    const oaiHasConcreteProgress =
-      (oaiLatestToolProgress.hasRecentWriteSuccess
-        && !oaiHasActiveEditMissFailure
-        && !oaiHasBlockingToolFailure
-        && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay"))
-      || oaiForcedReadRecoverySatisfied
-      || (
-        oaiToolProgress.state === "progress"
-        && !oaiLatestToolProgress.hasRecentFailure
-        && !oaiHasBlockingToolFailure
-        && !oaiHasActiveEditMissFailure
-        && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
-        && !(oaiSuppressCompletionClaimTerminal && oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread"))
-      );
-    const oaiShouldHoldRecoveryFire =
-      oaiLatestToolProgress.hasRecentEditContextMiss
-      && oaiExecutionGovernor.matchedRules.length === 1
-      && oaiExecutionGovernor.matchedRules[0] === "source_file_stale_reread"
-      && (oaiEditMissGuard?.missCount ?? 0) <= 1;
-    if (oaiShouldHoldRecoveryFire) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_recovery_hold",
-        "execution-governor",
-        "Holding recovery streak increment due to edit context miss; allow focused retry",
-        oaiTraceReqId,
-        {
-          reason: "edit_context_miss",
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          toolName: oaiLatestToolProgress.toolName || null,
-          toolCallId: oaiLatestToolProgress.toolCallId || null,
-        },
-      );
-    } else if (oaiHasConcreteProgress) {
-      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_recovery_reset",
-        "execution-governor",
-        "Decremented recovery streak due to concrete progress evidence",
-        oaiTraceReqId,
-        {
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          progress_state: oaiToolProgress.state,
-          has_recent_write_success: oaiLatestToolProgress.hasRecentWriteSuccess,
-          has_recent_failure: oaiLatestToolProgress.hasRecentFailure,
-          has_blocking_tool_failure: oaiHasBlockingToolFailure,
-          has_active_edit_miss_failure: oaiHasActiveEditMissFailure,
-          forced_read_recovery_satisfied: oaiForcedReadRecoverySatisfied,
-          edit_miss_guard_active: oaiEditMissGuard?.active === true,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-        },
-      );
-    } else {
-      const oaiStreakAdj = evidenceDeltaStreakAdjustment(session.lastEvidenceDelta);
-      session.consecutiveRecoveryFires += Math.min(2, Math.max(1, 1 + Math.max(0, oaiStreakAdj)));
+
+    // Reset recovery counters on non-pause outcomes
+    session.consecutiveRecoveryFires = 0;
+    session.governorPrePauseAttemptsByRule.clear();
+    if (!oaiHasActiveEditMissFailure) {
+      session.editReplayHardStopGraceUsed = false;
+      session.editMissForceReadPending = false;
     }
-    const HARD_STOP_THRESHOLD = 7;
-    const oaiEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
-    const oaiMatchedTerminalRules = oaiTerminalMatchedRules.filter((rule) => oaiTerminalRules.has(rule));
-    const oaiOnlyEditReplayTerminal =
-      oaiMatchedTerminalRules.length > 0
-      && oaiMatchedTerminalRules.every((rule) => oaiEditReplayTerminalRules.has(rule));
-    let oaiGrantedHardStopGrace = false;
-    if (
-      session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD
-      && oaiHasTerminalRule
-      && oaiOnlyEditReplayTerminal
-      && !session.editReplayHardStopGraceUsed
-    ) {
-      session.editReplayHardStopGraceUsed = true;
-      session.consecutiveRecoveryFires = HARD_STOP_THRESHOLD - 1;
-      oaiGrantedHardStopGrace = true;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_hard_stop_grace",
-        "execution-governor",
-        `Granted one hard-stop grace for edit replay recovery at ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}`,
-        oaiTraceReqId,
-        {
-          phase: oaiGovernorPhase,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-        },
-      );
-    }
-    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && oaiHasTerminalRule) {
-      const oaiHardStopDedup = getContentDedup(sessionKey);
-      const oaiHardStopFilesList = oaiHardStopDedup.generateFilesSummaryBlock() ?? "";
-      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
-        matchedRules: oaiExecutionGovernor.matchedRules,
-        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-        hardStopThreshold: HARD_STOP_THRESHOLD,
-        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-        activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
-        artifactContext: oaiArtifactContext,
-        chatStateSummary: oaiPauseChatSummary,
-        fileStateSummary: oaiPauseFileSummary,
-      });
-      const hardStopContent = [
-        buildExecutionGovernorHardStopUserMessage({
-          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-          matchedRules: oaiExecutionGovernor.matchedRules,
-        }),
-        ...(oaiHardStopFilesList ? ["", oaiHardStopFilesList] : []),
-      ].join("\n");
-      session.consecutiveRecoveryFires = 0;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_hard_stop",
-        "execution-governor",
-        `Hard stop phase=${oaiGovernorPhase} after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${oaiExecutionGovernor.matchedRules.join(",")})`,
-        oaiTraceReqId,
-        {
-          phase: oaiGovernorPhase,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          has_run_test: oaiLoopObs.hasRunTest,
-          last_assistant_tool_calls: oaiLoopObs.lastAssistantToolCalls,
-          assistant_tool_calls_since_latest_user: oaiLoopObs.assistantToolCallsSinceLatestUser,
-          blocked_before_first_tool_call: oaiLoopObs.assistantToolCallsSinceLatestUser === 0,
-          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-          artifact_context: oaiArtifactContext,
-          chat_state_summary: oaiPauseChatSummary,
-          file_state_summary: oaiPauseFileSummary,
-        },
-      );
-      maybeCheckpoint(session);
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream, pauseEnvelope);
-    }
-    const ESCALATED_HARD_STOP_THRESHOLD = HARD_STOP_THRESHOLD + 2;
-    if (session.consecutiveRecoveryFires >= ESCALATED_HARD_STOP_THRESHOLD && !oaiHasTerminalRule) {
-      const oaiHardStopDedup = getContentDedup(sessionKey);
-      const oaiHardStopFilesList = oaiHardStopDedup.generateFilesSummaryBlock() ?? "";
-      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
-        matchedRules: oaiExecutionGovernor.matchedRules,
-        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-        hardStopThreshold: ESCALATED_HARD_STOP_THRESHOLD,
-        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-        activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
-        artifactContext: oaiArtifactContext,
-        chatStateSummary: oaiPauseChatSummary,
-        fileStateSummary: oaiPauseFileSummary,
-      });
-      const hardStopContent = [
-        buildExecutionGovernorHardStopUserMessage({
-          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-          matchedRules: oaiExecutionGovernor.matchedRules,
-        }),
-        ...(oaiHardStopFilesList ? ["", oaiHardStopFilesList] : []),
-      ].join("\n");
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_hard_stop",
-        "execution-governor",
-        `Hard stop (escalated) phase=${oaiGovernorPhase} after ${ESCALATED_HARD_STOP_THRESHOLD} consecutive recovery fires on advisory rules (${oaiExecutionGovernor.matchedRules.join(",")})`,
-        oaiTraceReqId,
-        {
-          phase: oaiGovernorPhase,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-          artifact_context: oaiArtifactContext,
-          chat_state_summary: oaiPauseChatSummary,
-          file_state_summary: oaiPauseFileSummary,
-        },
-      );
-      maybeCheckpoint(session);
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, hardStopContent, !!request.stream, pauseEnvelope);
-    }
-    const oaiExplorationEscalated = session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && !oaiHasTerminalRule;
-    if (oaiExplorationEscalated) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_exploration_escalated",
-        "execution-governor",
-        `Escalated exploration recovery: blocking discovery tools (${oaiExecutionGovernor.matchedRules.join(",")}) fire ${session.consecutiveRecoveryFires}/${ESCALATED_HARD_STOP_THRESHOLD}`,
-        oaiTraceReqId,
-        {
-          phase: oaiGovernorPhase,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-        },
-      );
-    }
-    let recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
-    if (oaiExplorationEscalated) {
-      recovery += "\n\nESCALATED: Stop exploring. Make one concrete edit now or ask the user for guidance.";
-    }
-    if (oaiGrantedHardStopGrace) {
-      recovery += "\nFINAL RECOVERY: Read target file once, make one anchored edit, then verify.";
-    }
-    const oaiDedup = getContentDedup(sessionKey);
-    const filesSummary = oaiDedup.generateFilesSummaryBlock();
-    if (filesSummary) recovery += "\n" + filesSummary;
-    injectGovernorRecoveryMessage(
-      normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-      recovery,
-    );
-    const oaiPureExploration = oaiGovernorPhase === "edit"
-      && !oaiExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
-      && !oaiExecutionGovernor.matchedRules.includes("source_file_stale_reread")
-      && !oaiExecutionGovernor.matchedRules.includes("no_progress_loop");
-    const oaiPreserveReadForReplay =
-      oaiEditMissGuard?.active === true
-      || oaiEditMissFailureCount > 0
-      || oaiAnyWriteToolEditFailure
-      || session.consecutiveEditContextMisses > 0
-      || oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
-      || oaiExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
-    const restricted = applyExecutionGovernorToolRestrictions(
-      request.tools as unknown[] | undefined,
-      oaiExecutionGovernor.matchedRules,
-      {
-        pureExploration: oaiPureExploration,
-        preserveReadTools: oaiPreserveReadForReplay,
-        escalatedExploration: oaiExplorationEscalated,
-        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 1,
-      },
-    );
-    request.tools = restricted.tools as never;
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "execution_governor_recovery_rewrite",
-      "execution-governor",
-      `Rewrote loop path (${oaiExecutionGovernor.matchedRules.join(",")}); phase=${oaiGovernorPhase}; removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${ESCALATED_HARD_STOP_THRESHOLD}); files_seen=${oaiDedup.getTrackedFileCount()}`,
-      oaiTraceReqId,
-    );
   } else if (!oaiExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
-    if (!oaiExecutionGovernor.reason.startsWith("pre_pause_guided_recovery_")) {
-      session.governorPrePauseAttemptsByRule.clear();
-    }
+    session.governorPrePauseAttemptsByRule.clear();
     if (!oaiHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;
@@ -8745,7 +8296,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     || oaiEditMissGuard?.active
     || oaiForceReadRecovery
     || oaiNeedsStateReground
-    || (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+    || (oaiSensemakingDecision && oaiSensemakingDecision.responseLevel !== "allow"),
   );
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapter.family === "qwen3-coder" && oaiGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
     app.log.info(
@@ -8755,7 +8306,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         edit_miss_guard: Boolean(oaiEditMissGuard?.active),
         force_read_recovery: oaiForceReadRecovery,
         state_confidence_reground: oaiNeedsStateReground,
-        governor_soft_fail_pause: Boolean(oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+        governor_soft_fail_pause: Boolean(oaiSensemakingDecision?.shouldPause),
       },
       "yarn_harness_adapter_pivot_skipped",
     );
@@ -9264,7 +8815,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           blockWriteCapableTools: openClawStrictGovernance,
           clientKind: oaiClientKind,
           sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-          restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
+          restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
           blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
           blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
           planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
@@ -9824,7 +9375,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             blockWriteCapableTools: openClawStrictGovernance,
             clientKind: oaiClientKind,
             sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-            restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
+            restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
             planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
@@ -11269,35 +10820,40 @@ app.post("/v1/messages", async (req, reply) => {
     },
   );
 
-  // Shadow sensemaking governor evaluation for telemetry comparison
+  // Sensemaking governor — primary decision-maker
+  let claudeSensemakingDecision: SensemakingDecision | null = null;
   if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    try {
-      const claudeGovEvents = extractCommandEvents(
-        (claudeScopedMessages as GovernorInputMessage[]).slice(
-          Math.max(0, (claudeScopedMessages as GovernorInputMessage[]).length - 50),
-        ),
-      );
-      const claudeGovChangedFiles = extractEditedFileHints(claudeGovEvents);
-      const smDecision = evaluateSensemakingGovernor(
-        claudeExecutionGovernor,
-        claudeGovEvents,
-        claudeGovEvents.length,
-        claudeGovChangedFiles.length,
-        false,
-      );
-      const smComparison = compareSensemakingWithLegacy(claudeExecutionGovernor, smDecision);
-      recordSessionEvent(
-        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-        "sensemaking_governor_shadow",
-        "sensemaking-governor",
-        `domain=${smDecision.domain} response=${smDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} agreement=${smComparison.agreement}`,
-        traceReqId,
-        {
-          ...smComparison,
-          guidance: smDecision.guidance?.slice(0, 200),
-        },
-      );
-    } catch { /* shadow mode — never break the main path */ }
+    const claudeGovEvents = extractCommandEvents(
+      (claudeScopedMessages as GovernorInputMessage[]).slice(
+        Math.max(0, (claudeScopedMessages as GovernorInputMessage[]).length - 50),
+      ),
+    );
+    const claudeGovChangedFiles = extractEditedFileHints(claudeGovEvents);
+    const claudePlanRecoveryGrace = isPlanRecoveryDiscoveryIntent(
+      typeof claudeTaskCue === "string" ? claudeTaskCue : "",
+    ) && claudeGovChangedFiles.length === 0 && claudeGovEvents.length <= 30;
+    claudeSensemakingDecision = evaluateSensemakingGovernor(
+      claudeExecutionGovernor,
+      claudeGovEvents,
+      claudeGovEvents.length,
+      claudeGovChangedFiles.length,
+      claudePlanRecoveryGrace,
+    );
+    const smComparison = compareSensemakingWithLegacy(claudeExecutionGovernor, claudeSensemakingDecision);
+    recordSessionEvent(
+      claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+      "sensemaking_governor_evaluated",
+      "sensemaking-governor",
+      `domain=${claudeSensemakingDecision.domain} response=${claudeSensemakingDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} legacy_agreement=${smComparison.agreement}`,
+      traceReqId,
+      {
+        ...smComparison,
+        guidance: claudeSensemakingDecision.guidance?.slice(0, 200),
+        shouldPause: claudeSensemakingDecision.shouldPause,
+        shouldRestrictDiscovery: claudeSensemakingDecision.shouldRestrictDiscovery,
+        planRecoveryGrace: claudePlanRecoveryGrace,
+      },
+    );
   }
 
   const claudeAggressiveRepeatGuard =
@@ -11446,315 +11002,69 @@ app.post("/v1/messages", async (req, reply) => {
       `${session.lastGovernorPhase} → ${claudeGovernorPhase}`, traceReqId);
   }
   session.lastGovernorPhase = claudeGovernorPhase;
-  if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const claudePrePauseAttempt = consumeGovernorPrePauseRecoveryAttempt(
-      session,
-      claudeGovernorPhase,
-      claudeExecutionGovernor.matchedRules,
-    );
-    if (claudePrePauseAttempt.applied) {
-      const claudeRecovery = buildGovernorPrePauseRecovery(claudeExecutionGovernor);
-      const claudeDedup = getContentDedup(claudeSessionKey);
-      const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
+
+  // Sensemaking-driven response: graduated allow/nudge/guide/intervene
+  if (claudeSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+    if (claudeSensemakingDecision.shouldPause) {
+      session.consecutiveRecoveryFires += 1;
+      const pauseContent = buildSensemakingPauseMessage(claudeSensemakingDecision);
+      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
+        matchedRules: claudeSensemakingDecision.matchedRules,
+        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+        hardStopThreshold: 7,
+        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+        activeGuards: claudeExecutionGovernor.telemetry.activeGuards,
+        artifactContext: claudeArtifactContext,
+        chatStateSummary: claudePauseChatSummary,
+        fileStateSummary: claudePauseFileSummary,
+      });
+      recordSessionEvent(
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "sensemaking_governor_pause",
+        "sensemaking-governor",
+        `Pause: domain=${claudeSensemakingDecision.domain} friction=${(claudeSensemakingDecision.frictionScore * 100).toFixed(0)}% signals=${claudeSensemakingDecision.matchedRules.slice(0, 3).join(",")}`,
+        traceReqId,
+        {
+          domain: claudeSensemakingDecision.domain,
+          frictionScore: claudeSensemakingDecision.frictionScore,
+          matchedRules: claudeSensemakingDecision.matchedRules,
+          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+        },
+      );
+      maybeCheckpoint(session);
+      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, pauseContent, !!body.stream, pauseEnvelope);
+    }
+
+    const guidanceInjection = buildSensemakingGuidanceInjection(claudeSensemakingDecision);
+    if (guidanceInjection) {
       injectGovernorRecoveryMessage(
         normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-        claudeFilesSummary ? `${claudeRecovery}\n${claudeFilesSummary}` : claudeRecovery,
+        guidanceInjection,
       );
-      claudeExecutionGovernor = {
-        ...claudeExecutionGovernor,
-        pause: false,
-        reason: `pre_pause_guided_recovery_${claudePrePauseAttempt.rule ?? "unknown"}`,
-      };
       recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_pre_pause_recovery",
-        "execution-governor",
-        `Applied guided pre-pause recovery for ${claudePrePauseAttempt.rule ?? "unknown"} (attempt ${claudePrePauseAttempt.attempt ?? 0}/${GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS})`,
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "sensemaking_governor_guidance",
+        "sensemaking-governor",
+        `${claudeSensemakingDecision.responseLevel}: domain=${claudeSensemakingDecision.domain} friction=${(claudeSensemakingDecision.frictionScore * 100).toFixed(0)}%`,
         traceReqId,
         {
-          phase: claudeGovernorPhase,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          rule: claudePrePauseAttempt.rule ?? null,
-          attempt: claudePrePauseAttempt.attempt ?? null,
+          responseLevel: claudeSensemakingDecision.responseLevel,
+          domain: claudeSensemakingDecision.domain,
+          frictionScore: claudeSensemakingDecision.frictionScore,
+          guidance: guidanceInjection.slice(0, 200),
         },
       );
     }
-  }
-  claudeExecutionGovernor = applyImplementationSoftStallNudge(
-    session,
-    claudeWorkingPhase,
-    claudeExecutionGovernor,
-    normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-    { sessionKey: claudeSessionKey, userId: claudeIdentity.userId, orgId: claudeIdentity.orgId, reqId: traceReqId },
-    claudeLatestToolProgress.hasRecentWriteSuccess,
-    claudeHasActiveEditMissFailure,
-  );
-  if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-    const claudeTerminalRules = new Set([
-      "finalize_action_required",
-      "verification_after_completion_claim",
-      "completion_claim_requires_task_update",
-      "repeat_user_prompt_loop",
-      "edit_failure_replay",
-      "consecutive_edit_failures",
-    ]);
-    const claudeSuppressCompletionClaimTerminal =
-      claudeHasActiveEditMissFailure;
-    const claudeTerminalMatchedRules = claudeExecutionGovernor.matchedRules.filter((rule) =>
-      !(claudeSuppressCompletionClaimTerminal && rule === "completion_claim_requires_task_update"),
-    );
-    const claudeHasTerminalRule = claudeTerminalMatchedRules.some((rule) => claudeTerminalRules.has(rule));
-    const claudeHasBlockingToolFailure = claudeToolFailures.some((failure) => failure.reason !== "edit_already_applied");
-    const claudeForcedReadRecoverySatisfied =
-      claudeHadForceReadPending && claudeLatestReadRefresh.hasRecentReadSuccess;
-    const claudeHasConcreteProgress =
-      (claudeLatestToolProgress.hasRecentWriteSuccess
-        && !claudeHasActiveEditMissFailure
-        && !claudeHasBlockingToolFailure
-        && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay"))
-      || claudeForcedReadRecoverySatisfied
-      || (
-        claudeToolProgress.state === "progress"
-        && !claudeLatestToolProgress.hasRecentFailure
-        && !claudeHasBlockingToolFailure
-        && !claudeHasActiveEditMissFailure
-        && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
-        && !(claudeSuppressCompletionClaimTerminal && claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread"))
-      );
-    const claudeShouldHoldRecoveryFire =
-      claudeLatestToolProgress.hasRecentEditContextMiss
-      && claudeExecutionGovernor.matchedRules.length === 1
-      && claudeExecutionGovernor.matchedRules[0] === "source_file_stale_reread"
-      && (claudeEditMissGuard?.missCount ?? 0) <= 1;
-    if (claudeShouldHoldRecoveryFire) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_recovery_hold",
-        "execution-governor",
-        "Holding recovery streak increment due to edit context miss; allow focused retry",
-        traceReqId,
-        {
-          reason: "edit_context_miss",
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          toolName: claudeLatestToolProgress.toolName || null,
-          toolCallId: claudeLatestToolProgress.toolCallId || null,
-        },
-      );
-    } else if (claudeHasConcreteProgress) {
-      session.consecutiveRecoveryFires = Math.max(0, session.consecutiveRecoveryFires - 1);
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_recovery_reset",
-        "execution-governor",
-        "Decremented recovery streak due to concrete progress evidence",
-        traceReqId,
-        {
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          progress_state: claudeToolProgress.state,
-          has_recent_write_success: claudeLatestToolProgress.hasRecentWriteSuccess,
-          has_recent_failure: claudeLatestToolProgress.hasRecentFailure,
-          has_blocking_tool_failure: claudeHasBlockingToolFailure,
-          has_active_edit_miss_failure: claudeHasActiveEditMissFailure,
-          forced_read_recovery_satisfied: claudeForcedReadRecoverySatisfied,
-          edit_miss_guard_active: claudeEditMissGuard?.active === true,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-        },
-      );
-    } else {
-      const claudeStreakAdj = evidenceDeltaStreakAdjustment(session.lastEvidenceDelta);
-      session.consecutiveRecoveryFires += Math.min(2, Math.max(1, 1 + Math.max(0, claudeStreakAdj)));
+
+    session.consecutiveRecoveryFires = 0;
+    session.governorPrePauseAttemptsByRule.clear();
+    if (!claudeHasActiveEditMissFailure) {
+      session.editReplayHardStopGraceUsed = false;
+      session.editMissForceReadPending = false;
     }
-    const HARD_STOP_THRESHOLD = 7;
-    const claudeEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
-    const claudeMatchedTerminalRules = claudeTerminalMatchedRules.filter((rule) => claudeTerminalRules.has(rule));
-    const claudeOnlyEditReplayTerminal =
-      claudeMatchedTerminalRules.length > 0
-      && claudeMatchedTerminalRules.every((rule) => claudeEditReplayTerminalRules.has(rule));
-    let claudeGrantedHardStopGrace = false;
-    if (
-      session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD
-      && claudeHasTerminalRule
-      && claudeOnlyEditReplayTerminal
-      && !session.editReplayHardStopGraceUsed
-    ) {
-      session.editReplayHardStopGraceUsed = true;
-      session.consecutiveRecoveryFires = HARD_STOP_THRESHOLD - 1;
-      claudeGrantedHardStopGrace = true;
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_hard_stop_grace",
-        "execution-governor",
-        `Granted one hard-stop grace for edit replay recovery at ${session.consecutiveRecoveryFires}/${HARD_STOP_THRESHOLD}`,
-        traceReqId,
-        {
-          phase: claudeGovernorPhase,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-        },
-      );
-    }
-    if (session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && claudeHasTerminalRule) {
-      const claudeHardStopDedup = getContentDedup(claudeSessionKey);
-      const claudeHardStopFilesList = claudeHardStopDedup.generateFilesSummaryBlock() ?? "";
-      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
-        matchedRules: claudeExecutionGovernor.matchedRules,
-        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-        hardStopThreshold: HARD_STOP_THRESHOLD,
-        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-        activeGuards: claudeExecutionGovernor.telemetry.activeGuards,
-        artifactContext: claudeArtifactContext,
-        chatStateSummary: claudePauseChatSummary,
-        fileStateSummary: claudePauseFileSummary,
-      });
-      const hardStopContent = [
-        buildExecutionGovernorHardStopUserMessage({
-          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-          matchedRules: claudeExecutionGovernor.matchedRules,
-        }),
-        ...(claudeHardStopFilesList ? ["", claudeHardStopFilesList] : []),
-      ].join("\n");
-      session.consecutiveRecoveryFires = 0;
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_hard_stop",
-        "execution-governor",
-        `Hard stop phase=${claudeGovernorPhase} after ${HARD_STOP_THRESHOLD} consecutive recovery fires (${claudeExecutionGovernor.matchedRules.join(",")})`,
-        traceReqId,
-        {
-          phase: claudeGovernorPhase,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          has_run_test: claudeLoopObs.hasRunTest,
-          last_assistant_tool_calls: claudeLoopObs.lastAssistantToolCalls,
-          assistant_tool_calls_since_latest_user: claudeLoopObs.assistantToolCallsSinceLatestUser,
-          blocked_before_first_tool_call: claudeLoopObs.assistantToolCallsSinceLatestUser === 0,
-          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-          artifact_context: claudeArtifactContext,
-          chat_state_summary: claudePauseChatSummary,
-          file_state_summary: claudePauseFileSummary,
-        },
-      );
-      maybeCheckpoint(session);
-      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream, pauseEnvelope);
-    }
-    const ESCALATED_HARD_STOP_THRESHOLD = HARD_STOP_THRESHOLD + 2;
-    if (session.consecutiveRecoveryFires >= ESCALATED_HARD_STOP_THRESHOLD && !claudeHasTerminalRule) {
-      const claudeHardStopDedup = getContentDedup(claudeSessionKey);
-      const claudeHardStopFilesList = claudeHardStopDedup.generateFilesSummaryBlock() ?? "";
-      const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
-        matchedRules: claudeExecutionGovernor.matchedRules,
-        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-        hardStopThreshold: ESCALATED_HARD_STOP_THRESHOLD,
-        evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-        activeGuards: claudeExecutionGovernor.telemetry.activeGuards,
-        artifactContext: claudeArtifactContext,
-        chatStateSummary: claudePauseChatSummary,
-        fileStateSummary: claudePauseFileSummary,
-      });
-      const hardStopContent = [
-        buildExecutionGovernorHardStopUserMessage({
-          consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-          matchedRules: claudeExecutionGovernor.matchedRules,
-        }),
-        ...(claudeHardStopFilesList ? ["", claudeHardStopFilesList] : []),
-      ].join("\n");
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_hard_stop",
-        "execution-governor",
-        `Hard stop (escalated) phase=${claudeGovernorPhase} after ${ESCALATED_HARD_STOP_THRESHOLD} consecutive recovery fires on advisory rules (${claudeExecutionGovernor.matchedRules.join(",")})`,
-        traceReqId,
-        {
-          phase: claudeGovernorPhase,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-          evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-          artifact_context: claudeArtifactContext,
-          chat_state_summary: claudePauseChatSummary,
-          file_state_summary: claudePauseFileSummary,
-        },
-      );
-      maybeCheckpoint(session);
-      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, hardStopContent, !!body.stream, pauseEnvelope);
-    }
-    const claudeExplorationEscalated = session.consecutiveRecoveryFires >= HARD_STOP_THRESHOLD && !claudeHasTerminalRule;
-    if (claudeExplorationEscalated) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_exploration_escalated",
-        "execution-governor",
-        `Escalated exploration recovery: blocking discovery tools (${claudeExecutionGovernor.matchedRules.join(",")}) fire ${session.consecutiveRecoveryFires}/${ESCALATED_HARD_STOP_THRESHOLD}`,
-        traceReqId,
-        {
-          phase: claudeGovernorPhase,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          consecutive_recovery_fires: session.consecutiveRecoveryFires,
-        },
-      );
-    }
-    let recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
-    if (claudeExplorationEscalated) {
-      recovery += "\n\nESCALATED: Stop exploring. Make one concrete edit now or ask the user for guidance.";
-    }
-    if (claudeGrantedHardStopGrace) {
-      recovery += "\nFINAL RECOVERY: Read target file once, make one anchored edit, then verify.";
-    }
-    const claudeDedup = getContentDedup(claudeSessionKey);
-    const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
-    if (claudeFilesSummary) recovery += "\n" + claudeFilesSummary;
-    injectGovernorRecoveryMessage(
-      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-      recovery,
-    );
-    const claudePureExploration = claudeGovernorPhase === "edit"
-      && !claudeExecutionGovernor.matchedRules.includes("completion_claim_requires_task_update")
-      && !claudeExecutionGovernor.matchedRules.includes("source_file_stale_reread")
-      && !claudeExecutionGovernor.matchedRules.includes("no_progress_loop");
-    const claudePreserveReadForReplay =
-      claudeEditMissGuard?.active === true
-      || claudeEditMissFailureCount > 0
-      || claudeAnyWriteToolEditFailure
-      || session.consecutiveEditContextMisses > 0
-      || claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
-      || claudeExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
-    const restricted = applyExecutionGovernorToolRestrictions(
-      body.tools as unknown[] | undefined,
-      claudeExecutionGovernor.matchedRules,
-      {
-        pureExploration: claudePureExploration,
-        preserveReadTools: claudePreserveReadForReplay,
-        escalatedExploration: claudeExplorationEscalated,
-        allowWriteFallbackForReplay: session.consecutiveEditContextMisses >= 1,
-      },
-    );
-    body.tools = restricted.tools as never;
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "execution_governor_recovery_rewrite",
-      "execution-governor",
-      `Rewrote loop path (${claudeExecutionGovernor.matchedRules.join(",")}); phase=${claudeGovernorPhase}; removed_tools=${restricted.removed.join(",") || "none"} (fire ${session.consecutiveRecoveryFires}/${ESCALATED_HARD_STOP_THRESHOLD}); files_seen=${claudeDedup.getTrackedFileCount()}`,
-      traceReqId,
-    );
   } else if (!claudeExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
-    if (!claudeExecutionGovernor.reason.startsWith("pre_pause_guided_recovery_")) {
-      session.governorPrePauseAttemptsByRule.clear();
-    }
+    session.governorPrePauseAttemptsByRule.clear();
     if (!claudeHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;
@@ -12060,7 +11370,7 @@ app.post("/v1/messages", async (req, reply) => {
     || claudeEditMissGuard?.active
     || claudeForceReadRecovery
     || claudeNeedsStateReground
-    || (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+    || (claudeSensemakingDecision && claudeSensemakingDecision.responseLevel !== "allow"),
   );
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && claudeAdapter.family === "qwen3-coder" && claudeGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
     app.log.info(
@@ -12070,7 +11380,7 @@ app.post("/v1/messages", async (req, reply) => {
         edit_miss_guard: Boolean(claudeEditMissGuard?.active),
         force_read_recovery: claudeForceReadRecovery,
         state_confidence_reground: claudeNeedsStateReground,
-        governor_soft_fail_pause: Boolean(claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED),
+        governor_soft_fail_pause: Boolean(claudeSensemakingDecision?.shouldPause),
       },
       "yarn_harness_adapter_pivot_skipped",
     );
@@ -12985,7 +12295,7 @@ app.post("/v1/messages", async (req, reply) => {
             blockWriteCapableTools: claudeOpenClawStrictGovernance,
             clientKind: claudeClientKind,
             sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-            restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
+            restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
             planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
@@ -13721,7 +13031,7 @@ app.post("/v1/messages", async (req, reply) => {
         blockWriteCapableTools: claudeOpenClawStrictGovernance,
         clientKind: claudeClientKind,
         sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-        restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
+        restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
         blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
         blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
         planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),

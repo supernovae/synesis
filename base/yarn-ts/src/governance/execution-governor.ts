@@ -40,6 +40,8 @@ export interface ExecutionGovernorDecision {
     activeGuards?: TransitionGuard[];
     /** Consecutive assistant messages whose opening paragraph matched the previous (duplicate narration). */
     repeatedAssistantIntroEdges?: number;
+    /** Whether plan recovery discovery grace is active for this evaluation. */
+    planRecoveryDiscoveryGraceActive?: boolean;
   };
 }
 
@@ -1332,7 +1334,7 @@ function isReadOnlyInvestigationIntent(userText: string): boolean {
   return investigationDominant;
 }
 
-function isPlanRecoveryDiscoveryIntent(userText: string): boolean {
+export function isPlanRecoveryDiscoveryIntent(userText: string): boolean {
   const text = userText.toLowerCase();
   if (!/\bplan\b/.test(text)) return false;
   const resumeCue = /\b(continue|resume|pick up|pick-up|pick it up|where we left off|last stuck session|prior run|previous run|continue with plan|continue with completing|please continue)\b/.test(text);
