@@ -832,7 +832,7 @@ function normalizeResultSignature(content: unknown): string {
     .slice(0, 400);
 }
 
-function extractCommandEvents(messages: GovernorInputMessage[]): CommandEvent[] {
+export function extractCommandEvents(messages: GovernorInputMessage[]): CommandEvent[] {
   const callById = new Map<string, { command: string; toolName: string; argsObject?: Record<string, unknown> | null }>();
   const out: CommandEvent[] = [];
   for (const msg of messages) {
@@ -903,7 +903,7 @@ function isBroadDiscoveryCommand(toolName: string, command: string): boolean {
   return false;
 }
 
-function extractEditedFileHints(events: CommandEvent[]): string[] {
+export function extractEditedFileHints(events: CommandEvent[]): string[] {
   const hints = new Set<string>();
   for (const e of events) {
     const c = normalizeString(e.command);

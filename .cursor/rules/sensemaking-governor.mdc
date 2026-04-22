@@ -1,0 +1,64 @@
+---
+description: Sensemaking governor — Cynefin-aware execution governance architecture
+globs: base/yarn-ts/src/governance/sensemaking-governor.ts,base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/tests/sensemaking-governor.test.ts
+alwaysApply: false
+---
+
+# Sensemaking Governor Architecture
+
+The sensemaking governor replaces binary rule-matching with continuous signal
+accumulation mapped to Cynefin domains.
+
+## Design Principles
+
+1. **No single signal triggers hard intervention.** Friction accumulates; only
+   sustained, compounding signals reach the chaotic threshold.
+2. **Productive momentum is first-class.** Successful builds/tests/edits/commits
+   reduce friction in real-time, not as an afterthought bypass.
+3. **Domain boundaries determine response intensity**, not individual rule names.
+4. **Graduated responses**: allow → nudge → guide → intervene. Binary pause/allow
+   only exists at the extremes.
+
+## Cynefin Domain Mapping
+
+| Domain | Friction | Response | Behavior |
+|--------|----------|----------|----------|
+| Complex (< 0.25) | Low | `allow` | Probe-sense-respond. Let the model act, observe. |
+| Complicated-low (0.25–0.55) | Moderate | `nudge` | Inject short system hint. No tool removal. |
+| Complicated-high (0.55–0.80) | High | `guide` | Stronger guidance. May suggest actions. |
+| Chaotic (≥ 0.80) | Critical | `intervene` | Hard pause. Strip tools. Force reground. |
+
+## Signal Tiers
+
+- **Advisory** (weight 0.04–0.10): Observations that might indicate drift. High
+  productive counterweight (0.6–1.0). Fast decay.
+- **Complicated** (weight 0.10–0.20): Clear waste patterns. Moderate counterweight
+  (0.3–0.5). Slower decay.
+- **Chaotic** (weight 0.20–0.30): Genuine danger. Near-immune to productive
+  counterweight (0.1–0.2). Very slow decay.
+
+## Shadow Mode
+
+Currently runs alongside the legacy governor for comparison. The
+`sensemaking_governor_shadow` session event contains:
+- `agreement`: whether both governors reached the same pause/allow decision
+- `sensemakingMorePermissive`: true when sensemaking would have allowed but
+  legacy paused — the key metric for validating the Cynefin approach
+- `frictionScore`, `domain`, `productiveMomentum`: diagnostic signals
+
+## Migration Path
+
+1. **Phase 1 (current)**: Shadow mode. Collect telemetry comparing decisions.
+2. **Phase 2**: Use sensemaking for `nudge`/`guide` responses when legacy allows.
+3. **Phase 3**: Use sensemaking domain classification to gate legacy pause.
+4. **Phase 4**: Retire legacy rule-specific handlers; sensemaking becomes primary.
+
+## When Modifying
+
+- Adding a new signal: add to `SIGNAL_CATALOG`, choose domain/weight/decay
+  based on severity. Advisory signals should be your default — only escalate
+  to complicated/chaotic for patterns that genuinely indicate runaway behavior.
+- Adjusting thresholds: modify `DOMAIN_THRESHOLDS`. These are the critical
+  numbers that determine when intervention happens.
+- Never add rule-specific if/else blocks to the sensemaking governor.
+  Graduated response templates should remain generic by domain level.

@@ -205,11 +205,17 @@ import {
   inferGovernorPhaseFromMessages,
   governorPhaseToWorkflowPhase,
   resolveGovernanceUserCue,
+  extractCommandEvents,
+  extractEditedFileHints,
   type ExecutionGovernorDecision,
   type GovernorPauseEnvelope,
   type GovernorInputMessage,
   type SessionPhase,
 } from "./governance/execution-governor.js";
+import {
+  evaluateSensemakingGovernor,
+  compareSensemakingWithLegacy,
+} from "./governance/sensemaking-governor.js";
 import {
   buildRequiredRepairPrompt,
   derivePhaseExecutionPolicy,
@@ -7795,6 +7801,38 @@ app.post("/v1/chat/completions", async (req, reply) => {
       telemetry: oaiExecutionGovernor.telemetry,
     },
   );
+
+  // Shadow sensemaking governor evaluation for telemetry comparison
+  if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    try {
+      const oaiGovEvents = extractCommandEvents(
+        (oaiScopedMessages as GovernorInputMessage[]).slice(
+          Math.max(0, (oaiScopedMessages as GovernorInputMessage[]).length - 50),
+        ),
+      );
+      const oaiGovChangedFiles = extractEditedFileHints(oaiGovEvents);
+      const smDecision = evaluateSensemakingGovernor(
+        oaiExecutionGovernor,
+        oaiGovEvents,
+        oaiGovEvents.length,
+        oaiGovChangedFiles.length,
+        false,
+      );
+      const smComparison = compareSensemakingWithLegacy(oaiExecutionGovernor, smDecision);
+      recordSessionEvent(
+        sessionKey, identity.userId, identity.orgId,
+        "sensemaking_governor_shadow",
+        "sensemaking-governor",
+        `domain=${smDecision.domain} response=${smDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} agreement=${smComparison.agreement}`,
+        oaiTraceReqId,
+        {
+          ...smComparison,
+          guidance: smDecision.guidance?.slice(0, 200),
+        },
+      );
+    } catch { /* shadow mode — never break the main path */ }
+  }
+
   const oaiAggressiveRepeatGuard =
     (oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash))
     || oaiCommandLoop.broadDiscoveryRepeatCount >= 4;
@@ -11226,6 +11264,38 @@ app.post("/v1/messages", async (req, reply) => {
       telemetry: claudeExecutionGovernor.telemetry,
     },
   );
+
+  // Shadow sensemaking governor evaluation for telemetry comparison
+  if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    try {
+      const claudeGovEvents = extractCommandEvents(
+        (claudeScopedMessages as GovernorInputMessage[]).slice(
+          Math.max(0, (claudeScopedMessages as GovernorInputMessage[]).length - 50),
+        ),
+      );
+      const claudeGovChangedFiles = extractEditedFileHints(claudeGovEvents);
+      const smDecision = evaluateSensemakingGovernor(
+        claudeExecutionGovernor,
+        claudeGovEvents,
+        claudeGovEvents.length,
+        claudeGovChangedFiles.length,
+        false,
+      );
+      const smComparison = compareSensemakingWithLegacy(claudeExecutionGovernor, smDecision);
+      recordSessionEvent(
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "sensemaking_governor_shadow",
+        "sensemaking-governor",
+        `domain=${smDecision.domain} response=${smDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} agreement=${smComparison.agreement}`,
+        traceReqId,
+        {
+          ...smComparison,
+          guidance: smDecision.guidance?.slice(0, 200),
+        },
+      );
+    } catch { /* shadow mode — never break the main path */ }
+  }
+
   const claudeAggressiveRepeatGuard =
     (claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash))
     || claudeCommandLoop.broadDiscoveryRepeatCount >= 4;
