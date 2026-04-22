@@ -152,6 +152,20 @@ triggers a deterministic re-grounding contract:
 This prevents low-confidence autonomous continuation from drifting on stale context
 and keeps the next step "refresh first, then continue."
 
+## 9) State transition ledger (training-grade)
+
+Yarn now emits a structured transition ledger per request:
+
+- `from_state` (previous compact state snapshot)
+- `to_state` (current compact state snapshot)
+- `event` (tool sequence, governor rules/pause, evidence delta, outcome)
+- `delta` (objective epoch movement, confidence changes, stale/partial/evicted file deltas,
+  changed fields)
+
+This is emitted as `state_transition_v1` session telemetry and also summarized in
+request trajectory + trace context. The result is explicit supervision data for
+"state moved in the right direction" rather than inferring transitions from raw transcript text.
+
 ## Weird UX/client affordance handling improvements
 
 This split improves resilience in exactly the failure cases we observed:

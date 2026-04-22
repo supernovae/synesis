@@ -245,6 +245,13 @@ import {
   formatStateConfidenceBlock,
   type StateConfidenceAssessment,
 } from "./governance/state-confidence.js";
+import {
+  buildStateTransitionRecord,
+  buildStateTransitionSnapshotFromMetadata,
+  decodeStateTransitionSnapshot,
+  encodeStateTransitionSnapshot,
+  summarizeStateTransition,
+} from "./governance/state-transition-ledger.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
   buildImplementationSoftStallNudgeMessage,
@@ -4191,6 +4198,11 @@ function persistSessionAndUsage(
     const prevPauseCount = Number(state.record.metadata.governor_pause_count ?? 0);
     state.record.metadata.governor_pause_count = prevPauseCount + (snapshot.governor.pause ? 1 : 0);
   }
+  const previousTransitionSnapshot = decodeStateTransitionSnapshot(
+    getMetadataObject(state.record.metadata, "state_transition_prev_snapshot"),
+  );
+  const currentTransitionSnapshot = buildStateTransitionSnapshotFromMetadata(state.record.metadata);
+  state.record.metadata.state_transition_prev_snapshot = encodeStateTransitionSnapshot(currentTransitionSnapshot);
 
   void distributedCounters.setConsecutiveToolCalls(
     state.record.sessionKey,
@@ -4349,6 +4361,25 @@ function persistSessionAndUsage(
         reasons: stateConfidenceReasons.length > 0 ? stateConfidenceReasons : undefined,
       }
     : undefined;
+  const stateTransitionRecord = buildStateTransitionRecord({
+    requestId,
+    previousSnapshot: previousTransitionSnapshot,
+    currentSnapshot: currentTransitionSnapshot,
+    toolSequence,
+    governorRules: snapshot?.governor?.matchedRules ?? [],
+    governorPause: snapshot?.governor?.pause ?? false,
+    evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
+    outcomeState,
+  });
+  const stateTransitionSummary = {
+    changed_fields: stateTransitionRecord.delta.changed_fields,
+    objective_epoch_advanced: stateTransitionRecord.delta.objective_epoch_advanced,
+    objective_changed: stateTransitionRecord.delta.objective_changed,
+    confidence_improved: stateTransitionRecord.delta.confidence_improved,
+    stale_files_delta: stateTransitionRecord.delta.stale_files_delta,
+    partial_files_delta: stateTransitionRecord.delta.partial_files_delta,
+    evicted_files_delta: stateTransitionRecord.delta.evicted_files_delta,
+  };
 
   usageWriter.enqueueSessionEvent({
     sessionKey: state.record.sessionKey,
@@ -4423,12 +4454,13 @@ function persistSessionAndUsage(
         matched_rules: snapshot.governor.matchedRules,
         telemetry: snapshot.governor.telemetry,
       } : undefined,
-      state_channels: (chatStateSummaryForTelemetry || fileStateSummaryForTelemetry || objectiveScopeSummary || stateConfidenceSummary)
+      state_channels: (chatStateSummaryForTelemetry || fileStateSummaryForTelemetry || objectiveScopeSummary || stateConfidenceSummary || stateTransitionSummary)
         ? {
             chat_state: chatStateSummaryForTelemetry,
             file_state: fileStateSummaryForTelemetry,
             objective_scope: objectiveScopeSummary,
             state_confidence: stateConfidenceSummary,
+            state_transition: stateTransitionSummary,
           }
         : undefined,
       training_signals: {
@@ -4450,8 +4482,22 @@ function persistSessionAndUsage(
         state_confidence_overall: Number.isFinite(stateConfidenceOverall) ? stateConfidenceOverall : undefined,
         state_confidence_needs_reground: stateConfidenceNeedsReground || undefined,
         state_confidence_reasons: stateConfidenceReasons.length > 0 ? stateConfidenceReasons : undefined,
+        objective_transition_changed: stateTransitionRecord.delta.objective_changed || undefined,
+        objective_epoch_advanced: stateTransitionRecord.delta.objective_epoch_advanced || undefined,
+        confidence_improved: stateTransitionRecord.delta.confidence_improved || undefined,
+        stale_files_delta: stateTransitionRecord.delta.stale_files_delta,
       },
     },
+  });
+  usageWriter.enqueueSessionEvent({
+    sessionKey: state.record.sessionKey,
+    requestId,
+    userId: state.record.userId,
+    orgId: state.record.orgId,
+    eventKind: "state_transition_v1",
+    component: "state-ledger",
+    detail: summarizeStateTransition(stateTransitionRecord),
+    metadataJson: stateTransitionRecord as unknown as Record<string, unknown>,
   });
 
   const telemetryUsage: TelemetryLlmUsage = {
@@ -4504,6 +4550,7 @@ function persistSessionAndUsage(
       file_state: fileStateSummaryForTelemetry,
       objective_scope: objectiveScopeSummary,
       state_confidence: stateConfidenceSummary,
+      state_transition: stateTransitionSummary,
     },
     ...(optimizationLedger ? { optimization_ledger: optimizationLedger } : {}),
     has_error: finishReason === "error" || undefined,
