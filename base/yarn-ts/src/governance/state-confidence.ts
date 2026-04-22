@@ -182,7 +182,7 @@ export function assessStateConfidence(options: AssessStateConfidenceOptions): St
   const overallConfidence = clamp01((chatConfidence * 0.55) + (fileConfidence * 0.45));
   const threshold = Number.isFinite(options.lowConfidenceThreshold ?? NaN)
     ? clamp01(Number(options.lowConfidenceThreshold))
-    : 0.58;
+    : 0.55;
   const inActionPhase = chatState.phase === "edit"
     || chatState.phase === "verify"
     || chatState.phase === "recover"
@@ -192,11 +192,7 @@ export function assessStateConfidence(options: AssessStateConfidenceOptions): St
     inActionPhase
     && !options.recentReadSatisfied
     && recPath
-    && (
-      overallConfidence < threshold
-      || chatConfidence < 0.48
-      || fileConfidence < 0.48
-    ),
+    && overallConfidence < threshold,
   );
 
   return {

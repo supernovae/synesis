@@ -574,14 +574,14 @@ interface GovernorThresholds {
 }
 
 const BALANCED_THRESHOLDS: GovernorThresholds = {
-  repeatedTestPauseThreshold: 2,
+  repeatedTestPauseThreshold: 3,
   repeatedReadSearchPauseThreshold: 5,
-  totalBroadDiscoveryPauseThreshold: 4,
-  repeatedBroadDiscoveryPauseThreshold: 2,
-  broadVerificationNoticeThreshold: 3,
-  broadVerificationBlockThreshold: 4,
+  totalBroadDiscoveryPauseThreshold: 6,
+  repeatedBroadDiscoveryPauseThreshold: 3,
+  broadVerificationNoticeThreshold: 4,
+  broadVerificationBlockThreshold: 6,
   verificationStallThreshold: 6,
-  explorationStallThreshold: 6,
+  explorationStallThreshold: 8,
 };
 
 function thresholdsForProfile(profile: GovernanceProfileName): GovernorThresholds {
@@ -1446,8 +1446,6 @@ export interface ExecutionGovernorOptions {
   chatState?: Partial<Pick<ChatState, "activeObjective" | "pendingUserDirective" | "completionStatus" | "narrationResidueSummary" | "lastVerificationOutcome">>;
   /** Optional derived FileState adapter for guard computation fallback. */
   fileState?: FileState;
-  /** Model family for dynamic threshold adjustment (e.g. "qwen", "claude", "gpt"). */
-  modelFamily?: string;
   /**
    * Client / working-frame workflow phase. When `implementation`, session phase is not forced to `explore`
    * from investigation-only user wording, so governor workflow telemetry matches "coding" expectations.
@@ -2066,6 +2064,29 @@ export function evaluateExecutionGovernor(
   const prioritized = focusRulesForEditReplay(prioritizeMatchedRules(matchedRules));
   matchedRules.length = 0;
   matchedRules.push(...prioritized);
+
+  // Productive momentum: when 2+ of the last 3 events are productive (successful
+  // build/test/commit), suppress advisory-only rules that would interrupt the flow.
+  // Skip the bypass when green verification loops are active (those need their own path).
+  const ADVISORY_MOMENTUM_RULES = new Set([
+    "exploration_stall_no_edit",
+    "broad_to_narrow_verification",
+    "verbal_intent_without_action",
+    "broad_discovery_repeat",
+    "bounded_exploration_budget",
+  ]);
+  const recentEventWindow = events.slice(-3);
+  const recentProductiveCount = recentEventWindow.filter(
+    (e) => isProductiveCommand(e.command, e.resultSignature),
+  ).length;
+  const greenVerificationPending = broadTestRepeat && repeatedTestCommands >= 1 && !hasFailures;
+  if (
+    recentProductiveCount >= 2
+    && matchedRules.every((r) => ADVISORY_MOMENTUM_RULES.has(r))
+    && !greenVerificationPending
+  ) {
+    matchedRules.length = 0;
+  }
 
   if (activeGuards.includes("false_green_suspected")) {
     pushRule("false_green_suspected");
@@ -2912,7 +2933,6 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
     "<SYNESIS_EXECUTION_RECOVERY status=\"rewrite\" version=\"2\">",
     `matched_rules=${decision.matchedRules.join(",")}`,
     `reason=${reason}`,
-    "objective=convert broad exploration into bounded hypothesis-driven workflow",
     `step1=${step1}`,
     `step2=${step2}`,
     `step3=${step3}`,

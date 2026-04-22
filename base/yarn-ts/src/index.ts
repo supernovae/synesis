@@ -307,6 +307,12 @@ type SessionState = {
    * 1: next identical stall is a full soft-fail pause, then reset to 0.
    */
   implementationSoftStallNudgeStrikes: 0 | 1;
+  /** Turns remaining in the post-reground cooldown (skip reground for N turns after satisfaction). */
+  regroundCooldownRemaining: number;
+  /** Timestamp (ms) of the last governor evaluation that returned pause=false. */
+  lastGovernorNoPauseAt: number;
+  /** Cached governor result from the last evaluation that returned pause=false. */
+  lastGovernorCachedResult: ExecutionGovernorDecision | null;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -474,31 +480,19 @@ function applyExecutionGovernorToolRestrictions(
   if (explorationDominant) {
     deny.add("explore").add("agent");
   } else {
-    deny.add("glob").add("explore").add("agent");
+    deny.add("explore").add("agent");
   }
   if (explorationStall) {
-    // During pure exploration (no edits or verification yet), keep read tools available
-    // so the model can finish its initial discovery. But once no_progress_loop fires
-    // (model cycling through same commands), pureExploration is disabled at the call
-    // site and reads are blocked too — the model already has its information.
-    // Never strip Read during edit-replay/anchor-miss recovery (verbal_intent_without_action
-    // can co-fire and would otherwise block read+grep together).
-    const allowReadsDuringStall = failureFixContext
-      || options?.pureExploration
-      || editReplayContext
-      || options?.preserveReadTools;
-    const blockedDiscoveryTools = allowReadsDuringStall
-      ? ["search", "grep", "find", "list_dir", "list_files"]
-      : ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"];
-    for (const t of blockedDiscoveryTools) {
+    // Keep read tools available during stall recovery so the model can anchor edits.
+    // Only block search/list discovery tools to stop broad exploration loops.
+    for (const t of ["search", "grep", "find", "list_dir", "list_files"]) {
       deny.add(t);
     }
   }
   if (options?.escalatedExploration) {
-    const blockReads = !options?.preserveReadTools && !editReplayContext;
-    for (const t of (blockReads
-      ? (["bash", "shell", "execute", "terminal", "read_file", "read", "readfile", "file_read", "search", "grep", "find", "glob", "list_dir", "list_files"] as const)
-      : (["bash", "shell", "execute", "terminal", "search", "grep", "find", "glob", "list_dir", "list_files"] as const))) {
+    // Only strip bash/shell on escalation; always keep read tools so the model can
+    // still anchor its edits against file content.
+    for (const t of ["bash", "shell", "execute", "terminal", "search", "grep", "find", "list_dir", "list_files"]) {
       deny.add(t);
     }
   }
@@ -534,6 +528,10 @@ function applyExecutionGovernorToolRestrictions(
     "str_replace",
     "strreplace",
     "filewrite",
+    "read",
+    "read_file",
+    "readfile",
+    "file_read",
   ]);
   const filtered = tools.filter((tool) => {
     if (!tool || typeof tool !== "object") return true;
@@ -1727,7 +1725,8 @@ const GOVERNOR_PRE_PAUSE_RECOVERY_RULES = new Set([
   "edit_failure_replay",
   "consecutive_edit_failures",
 ]);
-const GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS = 1;
+const GOVERNOR_PRE_PAUSE_RECOVERY_MAX_ATTEMPTS = 2;
+const GOVERNOR_COOLDOWN_MS = 3_000;
 
 function collectToolExecutionFailureObservations(
   messages: Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
@@ -1832,6 +1831,15 @@ function injectGovernorRecoveryMessage(
   messages: Array<{ role: string; content: unknown }>,
   recovery: string,
 ): void {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (
+      messages[i].role === "system"
+      && typeof messages[i].content === "string"
+      && (messages[i].content as string).includes("<SYNESIS_EXECUTION_RECOVERY")
+    ) {
+      messages.splice(i, 1);
+    }
+  }
   const lastUserPromptIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
   const tailIdx = lastUserPromptIdx >= 0 ? lastUserPromptIdx + 1 : messages.length;
   messages.splice(tailIdx, 0, { role: "system", content: recovery });
@@ -3784,6 +3792,9 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     lastIncomingMessageCount: 0,
     governorPrePauseAttemptsByRule: new Map(),
     implementationSoftStallNudgeStrikes: 0,
+    regroundCooldownRemaining: 0,
+    lastGovernorNoPauseAt: 0,
+    lastGovernorCachedResult: null,
   };
   sessions.set(key, state);
   return state;
@@ -7063,6 +7074,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
     session.editMissForceReadPending = false;
+    session.lastGovernorCachedResult = null;
+    session.lastGovernorNoPauseAt = 0;
     // Also clear verification-block flags so a prior turn's failed/green verification
     // loop does not gate the new task attempt before it even starts.
     session.blockBroadVerificationUntilEdit = false;
@@ -7601,11 +7614,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
   });
   persistStateConfidence(session.record.metadata, oaiStateConfidence);
   const oaiStateConfidenceBlock = formatStateConfidenceBlock(oaiStateConfidence);
+  if (session.regroundCooldownRemaining > 0) {
+    session.regroundCooldownRemaining -= 1;
+  }
   const oaiNeedsStateReground =
     oaiStateConfidence.needsReground
     && !oaiEditMissGuard?.active
-    && !session.editMissForceReadPending;
+    && !session.editMissForceReadPending
+    && session.regroundCooldownRemaining <= 0;
   if (oaiNeedsStateReground) {
+    session.regroundCooldownRemaining = 2;
     recordSessionEvent(
       sessionKey,
       identity.userId,
@@ -7631,33 +7649,45 @@ app.post("/v1/chat/completions", async (req, reply) => {
   session.record.metadata.file_state_snapshot = oaiFileStateSnapshot as unknown as Record<string, unknown>;
   const oaiChatStateBlock = formatChatStateBlock(oaiChatState);
   const oaiFileStateBlock = formatFileStateBlock(oaiFileState);
+  const oaiGovernorCooldownActive =
+    session.lastGovernorCachedResult
+    && !session.lastGovernorCachedResult.pause
+    && (Date.now() - session.lastGovernorNoPauseAt) < GOVERNOR_COOLDOWN_MS;
   let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
-      const decision = evaluateExecutionGovernor(
-        oaiScopedMessages as Array<GovernorInputMessage>,
-        {
-          profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
-          activePlanStage: oaiPlanGraph?.activeStage ?? null,
-          editContextMissActive:
-            oaiEditMissGuard?.active === true
-            || oaiLatestToolProgress.hasRecentEditContextMiss
-            || session.editMissForceReadPending
-            || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
-          artifactShadows: oaiArtifactShadows,
-          chatState: oaiChatState,
-          fileState: oaiFileState,
-          orchestratorWorkflowPhase: oaiWorkingPhase,
-        },
-      );
-      if (oaiWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", oaiWorkingPhase);
-      govSpan.setAttribute("governor.pause", decision.pause);
-      govSpan.setAttribute("governor.reason", decision.reason ?? "");
-      govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
-      govSpan.setAttribute("governor.phase", decision.telemetry.phase);
-      govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
-      govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
-      return decision;
-    })
+    ? (oaiGovernorCooldownActive
+      ? session.lastGovernorCachedResult!
+      : withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
+        const decision = evaluateExecutionGovernor(
+          oaiScopedMessages as Array<GovernorInputMessage>,
+          {
+            profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+            activePlanStage: oaiPlanGraph?.activeStage ?? null,
+            editContextMissActive:
+              oaiEditMissGuard?.active === true
+              || oaiLatestToolProgress.hasRecentEditContextMiss
+              || session.editMissForceReadPending
+              || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
+            artifactShadows: oaiArtifactShadows,
+            chatState: oaiChatState,
+            fileState: oaiFileState,
+            orchestratorWorkflowPhase: oaiWorkingPhase,
+          },
+        );
+        if (!decision.pause) {
+          session.lastGovernorNoPauseAt = Date.now();
+          session.lastGovernorCachedResult = decision;
+        } else {
+          session.lastGovernorCachedResult = null;
+        }
+        if (oaiWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", oaiWorkingPhase);
+        govSpan.setAttribute("governor.pause", decision.pause);
+        govSpan.setAttribute("governor.reason", decision.reason ?? "");
+        govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
+        govSpan.setAttribute("governor.phase", decision.telemetry.phase);
+        govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
+        govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
+        return decision;
+      }))
     : {
         pause: false,
         reason: "disabled",
@@ -7680,9 +7710,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.blockBroadVerificationUntilEdit = true;
   }
   if (
-    oaiExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
-    || oaiExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
-    || oaiExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
+    session.consecutiveRecoveryFires >= 2
+    && (
+      oaiExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
+      || oaiExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
+      || oaiExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
+    )
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
@@ -8018,7 +8051,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
     } else {
       const oaiStreakAdj = evidenceDeltaStreakAdjustment(session.lastEvidenceDelta);
-      session.consecutiveRecoveryFires += Math.max(1, 1 + Math.max(0, oaiStreakAdj));
+      session.consecutiveRecoveryFires += Math.min(2, Math.max(1, 1 + Math.max(0, oaiStreakAdj)));
     }
     const HARD_STOP_THRESHOLD = 7;
     const oaiEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
@@ -8157,10 +8190,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     let recovery = executionGovernorRecoveryRewriteBlock(oaiExecutionGovernor);
     if (oaiExplorationEscalated) {
-      recovery += "\n\nESCALATED: You have already gathered sufficient information. Your repeated exploration is not producing new knowledge. You MUST now proceed to editing. Do not run any more git, grep, find, read, or bash discovery commands. Use the information you already have to make your edit. If you are unsure what to edit, stop and ask the user.";
+      recovery += "\n\nESCALATED: Stop exploring. Make one concrete edit now or ask the user for guidance.";
     }
     if (oaiGrantedHardStopGrace) {
-      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. If that anchor fails once more, immediately do one controlled Write/ApplyPatch for that same file (no extra discovery), then run targeted verification.";
+      recovery += "\nFINAL RECOVERY: Read target file once, make one anchored edit, then verify.";
     }
     const oaiDedup = getContentDedup(sessionKey);
     const filesSummary = oaiDedup.generateFilesSummaryBlock();
@@ -8600,7 +8633,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
     phase: oaiGovernorPhase,
     effectiveToolChoice: typeof effectiveToolChoice === "string" ? effectiveToolChoice : effectiveToolChoice ? "tool" : undefined,
     filteredToolCount: oaiPhaseFiltered.removed.length,
-    downgradedForStreaming: !!oaiPhasePolicy.downgradedForStreaming,
   };
   if (oaiPhasePolicy.active && (oaiPhaseFiltered.filtered || clientToolChoice === undefined)) {
     recordSessionEvent(
@@ -10466,6 +10498,8 @@ app.post("/v1/messages", async (req, reply) => {
     session.consecutiveEditContextMisses = 0;
     session.editReplayHardStopGraceUsed = false;
     session.editMissForceReadPending = false;
+    session.lastGovernorCachedResult = null;
+    session.lastGovernorNoPauseAt = 0;
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
     session.governorPrePauseAttemptsByRule.clear();
@@ -10991,11 +11025,16 @@ app.post("/v1/messages", async (req, reply) => {
   });
   persistStateConfidence(session.record.metadata, claudeStateConfidence);
   const claudeStateConfidenceBlock = formatStateConfidenceBlock(claudeStateConfidence);
+  if (session.regroundCooldownRemaining > 0) {
+    session.regroundCooldownRemaining -= 1;
+  }
   const claudeNeedsStateReground =
     claudeStateConfidence.needsReground
     && !claudeEditMissGuard?.active
-    && !session.editMissForceReadPending;
+    && !session.editMissForceReadPending
+    && session.regroundCooldownRemaining <= 0;
   if (claudeNeedsStateReground) {
+    session.regroundCooldownRemaining = 2;
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
@@ -11021,33 +11060,45 @@ app.post("/v1/messages", async (req, reply) => {
   session.record.metadata.file_state_snapshot = claudeFileStateSnapshot as unknown as Record<string, unknown>;
   const claudeChatStateBlock = formatChatStateBlock(claudeChatState);
   const claudeFileStateBlock = formatFileStateBlock(claudeFileState);
+  const claudeGovernorCooldownActive =
+    session.lastGovernorCachedResult
+    && !session.lastGovernorCachedResult.pause
+    && (Date.now() - session.lastGovernorNoPauseAt) < GOVERNOR_COOLDOWN_MS;
   let claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
-      const decision = evaluateExecutionGovernor(
-        claudeScopedMessages as Array<GovernorInputMessage>,
-        {
-          profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
-          activePlanStage: claudePlanGraph?.activeStage ?? null,
-          editContextMissActive:
-            claudeEditMissGuard?.active === true
-            || claudeLatestToolProgress.hasRecentEditContextMiss
-            || session.editMissForceReadPending
-            || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
-          artifactShadows: claudeArtifactShadows,
-          chatState: claudeChatState,
-          fileState: claudeFileState,
-          orchestratorWorkflowPhase: claudeWorkingPhase,
-        },
-      );
-      if (claudeWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", claudeWorkingPhase);
-      govSpan.setAttribute("governor.pause", decision.pause);
-      govSpan.setAttribute("governor.reason", decision.reason ?? "");
-      govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
-      govSpan.setAttribute("governor.phase", decision.telemetry.phase);
-      govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
-      govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
-      return decision;
-    })
+    ? (claudeGovernorCooldownActive
+      ? session.lastGovernorCachedResult!
+      : withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
+        const decision = evaluateExecutionGovernor(
+          claudeScopedMessages as Array<GovernorInputMessage>,
+          {
+            profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+            activePlanStage: claudePlanGraph?.activeStage ?? null,
+            editContextMissActive:
+              claudeEditMissGuard?.active === true
+              || claudeLatestToolProgress.hasRecentEditContextMiss
+              || session.editMissForceReadPending
+              || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
+            artifactShadows: claudeArtifactShadows,
+            chatState: claudeChatState,
+            fileState: claudeFileState,
+            orchestratorWorkflowPhase: claudeWorkingPhase,
+          },
+        );
+        if (!decision.pause) {
+          session.lastGovernorNoPauseAt = Date.now();
+          session.lastGovernorCachedResult = decision;
+        } else {
+          session.lastGovernorCachedResult = null;
+        }
+        if (claudeWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", claudeWorkingPhase);
+        govSpan.setAttribute("governor.pause", decision.pause);
+        govSpan.setAttribute("governor.reason", decision.reason ?? "");
+        govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
+        govSpan.setAttribute("governor.phase", decision.telemetry.phase);
+        govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
+        govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
+        return decision;
+      }))
     : {
         pause: false,
         reason: "disabled",
@@ -11070,9 +11121,12 @@ app.post("/v1/messages", async (req, reply) => {
     session.blockBroadVerificationUntilEdit = true;
   }
   if (
-    claudeExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
-    || claudeExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
-    || claudeExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
+    session.consecutiveRecoveryFires >= 2
+    && (
+      claudeExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
+      || claudeExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
+      || claudeExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
+    )
   ) {
     session.blockFailingVerificationUntilEdit = true;
   }
@@ -11408,7 +11462,7 @@ app.post("/v1/messages", async (req, reply) => {
       );
     } else {
       const claudeStreakAdj = evidenceDeltaStreakAdjustment(session.lastEvidenceDelta);
-      session.consecutiveRecoveryFires += Math.max(1, 1 + Math.max(0, claudeStreakAdj));
+      session.consecutiveRecoveryFires += Math.min(2, Math.max(1, 1 + Math.max(0, claudeStreakAdj)));
     }
     const HARD_STOP_THRESHOLD = 7;
     const claudeEditReplayTerminalRules = new Set(["edit_failure_replay", "consecutive_edit_failures"]);
@@ -11547,10 +11601,10 @@ app.post("/v1/messages", async (req, reply) => {
     }
     let recovery = executionGovernorRecoveryRewriteBlock(claudeExecutionGovernor);
     if (claudeExplorationEscalated) {
-      recovery += "\n\nESCALATED: You have already gathered sufficient information. Your repeated exploration is not producing new knowledge. You MUST now proceed to editing. Do not run any more git, grep, find, read, or bash discovery commands. Use the information you already have to make your edit. If you are unsure what to edit, stop and ask the user.";
+      recovery += "\n\nESCALATED: Stop exploring. Make one concrete edit now or ask the user for guidance.";
     }
     if (claudeGrantedHardStopGrace) {
-      recovery += "\nFINAL RECOVERY ATTEMPT: Use one Read on the target file, then one anchored Edit/str_replace with exact current context. If that anchor fails once more, immediately do one controlled Write/ApplyPatch for that same file (no extra discovery), then run targeted verification.";
+      recovery += "\nFINAL RECOVERY: Read target file once, make one anchored edit, then verify.";
     }
     const claudeDedup = getContentDedup(claudeSessionKey);
     const claudeFilesSummary = claudeDedup.generateFilesSummaryBlock();
@@ -12184,7 +12238,6 @@ app.post("/v1/messages", async (req, reply) => {
     phase: claudeGovernorPhase,
     effectiveToolChoice: typeof effectiveClaudeToolChoice === "string" ? effectiveClaudeToolChoice : effectiveClaudeToolChoice ? "tool" : undefined,
     filteredToolCount: claudePhaseFiltered.removed.length,
-    downgradedForStreaming: !!claudePhasePolicy.downgradedForStreaming,
   };
   if (claudePhasePolicy.active && (claudePhaseFiltered.filtered || clientClaudeToolChoice === undefined)) {
     recordSessionEvent(

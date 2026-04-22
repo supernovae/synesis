@@ -165,6 +165,10 @@ describe("execution governor", () => {
       toolResult("3", "Build successful"),
       assistantCall("4", "bash", { command: "go test ./... && echo done" }),
       toolResult("4", "ok pkg/a (cached)"),
+      assistantCall("5", "bash", { command: "go build ./... 2>&1" }),
+      toolResult("5", "Build successful"),
+      assistantCall("6", "bash", { command: "go test ./..." }),
+      toolResult("6", "ok pkg/a (cached)"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
@@ -750,7 +754,7 @@ describe("execution governor", () => {
     expect(out.telemetry.totalBroadDiscoveryCalls).toBe(0);
   });
 
-  it("fires broad_discovery_repeat on 4 total non-consecutive broad calls (sliding window)", () => {
+  it("fires broad_discovery_repeat on 6 total non-consecutive broad calls (sliding window)", () => {
     const messages = [
       assistantCall("1", "Glob", { glob_pattern: "*" }),
       toolResult("1", "200 files"),
@@ -762,11 +766,15 @@ describe("execution governor", () => {
       toolResult("4", "200 files"),
       assistantCall("5", "Glob", { glob_pattern: "*" }),
       toolResult("5", "200 files"),
+      assistantCall("6", "Glob", { glob_pattern: "*" }),
+      toolResult("6", "200 files"),
+      assistantCall("7", "Glob", { glob_pattern: "*" }),
+      toolResult("7", "200 files"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("broad_discovery_repeat");
-    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(4);
+    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(6);
   });
 
   it("fires broad_discovery_repeat for empty glob patterns", () => {
@@ -781,6 +789,10 @@ describe("execution governor", () => {
       toolResult("4", "blocked"),
       assistantCall("5", "Glob", { glob_pattern: "" }),
       toolResult("5", "blocked"),
+      assistantCall("6", "Glob", { glob_pattern: "" }),
+      toolResult("6", "blocked"),
+      assistantCall("7", "Glob", { glob_pattern: "" }),
+      toolResult("7", "blocked"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
@@ -1564,6 +1576,10 @@ describe("execution governor", () => {
       toolResult("4", "package bundle"),
       assistantCall("5", "search", { pattern: "clipboard" }),
       toolResult("5", "pkg/clipboard/clipboard.go"),
+      assistantCall("6", "search", { pattern: "clipboard" }),
+      toolResult("6", "pkg/clipboard/clipboard.go"),
+      assistantCall("7", "read_file", { path: "pkg/clipboard/clipboard.go" }),
+      toolResult("7", "package clipboard"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);

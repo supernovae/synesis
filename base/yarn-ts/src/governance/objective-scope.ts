@@ -270,8 +270,12 @@ function scoreRelevancyCandidates(
       matchedSemantic = true;
     }
 
-    if (/\b(fail|failed|failure|error|panic|traceback|stale|evicted|blocked|denied)\b/.test(lower)) {
+    const isFailureSignal = /\b(fail|failed|failure|error|panic|traceback|stale|evicted|blocked|denied)\b/.test(lower);
+    if (isFailureSignal) {
       score += 1;
+      if (message.role === "tool" || message.role === "tool_result") {
+        matchedSemantic = true;
+      }
     }
     if (i >= messages.length - 10) {
       score += 1;
@@ -365,8 +369,8 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
   }
 
   const preBoundaryWindow = Math.max(10, options.preBoundaryWindow ?? 80);
-  const minimumScore = Math.max(1, options.minimumScore ?? 3);
-  const maxRelevantEvidence = Math.max(1, options.maxRelevantEvidence ?? 6);
+  const minimumScore = Math.max(1, options.minimumScore ?? 2);
+  const maxRelevantEvidence = Math.max(1, options.maxRelevantEvidence ?? 10);
 
   const anchorUserIndex = findAnchorUserIndex(allMessages, options.epoch.anchorUserHash);
   const lastUserIndex = findLastGenuineUserIndex(allMessages);

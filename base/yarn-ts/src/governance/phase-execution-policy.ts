@@ -25,7 +25,6 @@ export interface PhaseExecutionPolicyDecision {
   allowedCanonicalTools?: string[];
   enforceNonStreaming?: boolean;
   maxToolCalls?: number;
-  downgradedForStreaming?: boolean;
   requiredReadPath?: string;
 }
 
