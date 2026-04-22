@@ -66,6 +66,8 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 
 Keep your existing **`ANTHROPIC_AUTH_TOKEN`** (Synesis PAT). The proxy listens on **127.0.0.1** only by default.
 
+**502 / Cloudflare HTML errors:** If the edge (Cloudflare) returns an **HTML** “bad gateway” page, Claude Code’s terminal may show that entire page. This proxy **replaces** HTML error bodies with a short **`application/json`** `bad_gateway` error (Anthropic-style) so the failure is readable. The underlying problem is still **origin/edge health** (Yarn, ingress, or model upstream) — see [CLAUDECODE.md — Troubleshooting](../../docs/clients/CLAUDECODE.md#troubleshooting).
+
 Environment:
 
 | Variable | Default |

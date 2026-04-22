@@ -94,7 +94,45 @@ function forwardRequest(req, res, bodyBuf) {
   }
 
   const preq = lib.request(opts, (pres) => {
-    res.writeHead(pres.statusCode || 502, pres.headers);
+    const code = pres.statusCode || 502;
+    const ct = String(pres.headers["content-type"] || "").toLowerCase();
+    const isErr = code >= 400;
+    const looksHtml = ct.includes("text/html") || ct.includes("application/xhtml");
+    if (isErr && looksHtml) {
+      const max = 2 * 1024 * 1024;
+      const chunks = [];
+      let total = 0;
+      pres.on("data", (c) => {
+        total += c.length;
+        if (total <= max) chunks.push(c);
+      });
+      pres.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        const msg =
+          "Upstream error (edge or origin) returned an HTML error page. " +
+          "This is usually a Cloudflare 502/504 to Yarn or a misconfigured load balancer, not a bad `synesis-*` model id. " +
+          "Check SYNESIS_UPSTREAM, synesis-yarn health, and Admin tier endpoints. " +
+          (body.includes("cf-error-details") || body.includes("cloudflare")
+            ? "Body indicated Cloudflare; see docs/clients/CLAUDECODE.md (502 troubleshooting)."
+            : "See docs/clients/CLAUDECODE.md (502 troubleshooting).");
+        const out = { type: "error", error: { type: "bad_gateway", message: msg } };
+        if (!res.headersSent) {
+          res.writeHead(code, { "content-type": "application/json" });
+        }
+        res.end(JSON.stringify(out));
+      });
+      pres.on("error", (err) => {
+        if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            type: "error",
+            error: { type: "bad_gateway", message: `Proxy read failed: ${String(err)}` },
+          }),
+        );
+      });
+      return;
+    }
+    res.writeHead(code, pres.headers);
     pres.pipe(res);
   });
   preq.on("error", (err) => {

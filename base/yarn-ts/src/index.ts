@@ -5876,11 +5876,21 @@ app.get("/v1/claude/model-resolution", async (req, reply) => {
     return reply.code(400).send({ error: { type: "invalid_request_error", message: parsedQuery.error.message } });
   }
   const query: ClaudeModelResolutionQuery = parsedQuery.data;
-  return {
-    object: "claude_model_resolution",
-    resolution: resolveClaudeModelSelection(query.model, config.SYNESIS_YARN_CLAUDE_TIER_MAP),
-    available_models: tierRegistry.getAvailableModels().map((m) => m.id),
-  };
+  try {
+    return {
+      object: "claude_model_resolution",
+      resolution: resolveClaudeModelSelection(query.model, config.SYNESIS_YARN_CLAUDE_TIER_MAP),
+      available_models: tierRegistry.getAvailableModels().map((m) => m.id),
+    };
+  } catch (err) {
+    app.log.error({ err, path: "/v1/claude/model-resolution" }, "claude model-resolution handler failed");
+    return reply.code(500).send({
+      error: {
+        type: "internal_error",
+        message: err instanceof Error ? err.message : "Model resolution failed",
+      },
+    });
+  }
 });
 
 app.post("/v1/claude/commands/execute", async (req, reply) => {
@@ -5922,34 +5932,44 @@ app.post("/v1/claude/commands/execute", async (req, reply) => {
   };
   const sessionKey = await getSessionKey(identity);
 
-  if (body.command.trim().toLowerCase() === "compact") {
-    const state = await getSessionState(sessionKey, identity);
-    const compacted = await forceCheckpoint(state);
-    await casSessionSave(state);
-    recordSessionEvent(
-      state.record.sessionKey,
-      state.record.userId,
-      state.record.orgId,
-      "compat_command_compact",
-      "claude-command-api",
-      compacted
-        ? "Manual compaction requested via /v1/claude/commands/execute (compacting)"
-        : "Manual compaction requested via /v1/claude/commands/execute (no-op)",
-    );
-  }
+  try {
+    if (body.command.trim().toLowerCase() === "compact") {
+      const state = await getSessionState(sessionKey, identity);
+      const compacted = await forceCheckpoint(state);
+      await casSessionSave(state);
+      recordSessionEvent(
+        state.record.sessionKey,
+        state.record.userId,
+        state.record.orgId,
+        "compat_command_compact",
+        "claude-command-api",
+        compacted
+          ? "Manual compaction requested via /v1/claude/commands/execute (compacting)"
+          : "Manual compaction requested via /v1/claude/commands/execute (no-op)",
+      );
+    }
 
-  const result = executeClaudeCompatCommand({
-    tierMap: config.SYNESIS_YARN_CLAUDE_TIER_MAP,
-    availableModels: tierRegistry.getAvailableModels().map((m) => m.id),
-    command: body.command,
-    model: body.model,
-    conversationId,
-    sessionKey,
-  });
-  return {
-    object: "claude_command_result",
-    ...result,
-  };
+    const result = executeClaudeCompatCommand({
+      tierMap: config.SYNESIS_YARN_CLAUDE_TIER_MAP,
+      availableModels: tierRegistry.getAvailableModels().map((m) => m.id),
+      command: body.command,
+      model: body.model,
+      conversationId,
+      sessionKey,
+    });
+    return {
+      object: "claude_command_result",
+      ...result,
+    };
+  } catch (err) {
+    app.log.error({ err, path: "/v1/claude/commands/execute" }, "claude command execute failed");
+    return reply.code(500).send({
+      error: {
+        type: "internal_error",
+        message: err instanceof Error ? err.message : "Claude command failed",
+      },
+    });
+  }
 });
 
 app.get("/v1/adapter-packs", async () => ({
