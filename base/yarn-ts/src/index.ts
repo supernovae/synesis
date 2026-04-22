@@ -40,7 +40,7 @@ import {
   type RoleAssignmentConfig,
 } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
-import { PrefixOptimizer, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
+import { PrefixOptimizer, extractMetadataFromMessages, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import {
   effectiveSawtoothCheckpointToolCalls,
@@ -7395,6 +7395,36 @@ app.post("/v1/chat/completions", async (req, reply) => {
     role: oaiRole,
     modelFamily: inferModelFamily(oaiBackendModel),
   };
+  if (!effectiveOaiPathCtx.projectRoot || !effectiveOaiPathCtx.shellCwd) {
+    const preMeta = extractMetadataFromMessages(normalizedOpenAI.messages as never);
+    if (preMeta.projectRoot || preMeta.shellCwd) {
+      effectiveOaiPathCtx = {
+        ...effectiveOaiPathCtx,
+        projectRoot: effectiveOaiPathCtx.projectRoot ?? preMeta.projectRoot,
+        shellCwd: effectiveOaiPathCtx.shellCwd ?? preMeta.shellCwd,
+        shell: effectiveOaiPathCtx.shell ?? preMeta.shell ?? undefined,
+        platform: effectiveOaiPathCtx.platform ?? preMeta.platform ?? undefined,
+        osVersion: effectiveOaiPathCtx.osVersion ?? preMeta.osVersion ?? undefined,
+      };
+      setSessionWorkspaceContext(session, "ready", oaiTraceReqId, {
+        reason: "Extracted from client system message (pre-enrich)",
+        projectRoot: preMeta.projectRoot ?? undefined,
+        cwd: preMeta.shellCwd ?? undefined,
+        shell: preMeta.shell ?? undefined,
+        os: preMeta.platform ?? undefined,
+      });
+      app.log.info(
+        {
+          sessionKey,
+          projectRoot: preMeta.projectRoot,
+          shellCwd: preMeta.shellCwd,
+          shell: preMeta.shell,
+          platform: preMeta.platform,
+        },
+        "prefix_optimizer_metadata_prebackfill",
+      );
+    }
+  }
   const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
   const oaiMemoryTracker = getMemoryGovernor(sessionKey);
   const oaiStructIdx = getStructuralIndex(sessionKey);
@@ -10533,6 +10563,36 @@ app.post("/v1/messages", async (req, reply) => {
     role: claudeRole,
     modelFamily: inferModelFamily(claudeBackendModel),
   };
+  if (!effectiveClaudePathCtx.projectRoot || !effectiveClaudePathCtx.shellCwd) {
+    const preMeta = extractMetadataFromMessages(normalizedFromClaude.messages as never);
+    if (preMeta.projectRoot || preMeta.shellCwd) {
+      effectiveClaudePathCtx = {
+        ...effectiveClaudePathCtx,
+        projectRoot: effectiveClaudePathCtx.projectRoot ?? preMeta.projectRoot,
+        shellCwd: effectiveClaudePathCtx.shellCwd ?? preMeta.shellCwd,
+        shell: effectiveClaudePathCtx.shell ?? preMeta.shell ?? undefined,
+        platform: effectiveClaudePathCtx.platform ?? preMeta.platform ?? undefined,
+        osVersion: effectiveClaudePathCtx.osVersion ?? preMeta.osVersion ?? undefined,
+      };
+      setSessionWorkspaceContext(session, "ready", traceReqId, {
+        reason: "Extracted from client system message (pre-enrich)",
+        projectRoot: preMeta.projectRoot ?? undefined,
+        cwd: preMeta.shellCwd ?? undefined,
+        shell: preMeta.shell ?? undefined,
+        os: preMeta.platform ?? undefined,
+      });
+      app.log.info(
+        {
+          sessionKey: claudeSessionKey,
+          projectRoot: preMeta.projectRoot,
+          shellCwd: preMeta.shellCwd,
+          shell: preMeta.shell,
+          platform: preMeta.platform,
+        },
+        "prefix_optimizer_metadata_prebackfill",
+      );
+    }
+  }
   const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
   const claudeMemoryTracker = getMemoryGovernor(claudeSessionKey);
   const claudeStructIdx = getStructuralIndex(claudeSessionKey);
