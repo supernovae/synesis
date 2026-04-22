@@ -3226,6 +3226,35 @@ function isMatrixCapabilityEnabled(
   return resolvedCapabilities[key] === true;
 }
 
+function suppressThinkingWhenRequiredToolChoice(
+  providerOptions: Record<string, Record<string, unknown>> | undefined,
+  toolChoice: PhaseAwareToolChoice | undefined,
+): { providerOptions: Record<string, Record<string, unknown>> | undefined; suppressed: boolean } {
+  if (toolChoice !== "required") {
+    return { providerOptions, suppressed: false };
+  }
+  const openaiOptions = (providerOptions?.openai ?? {}) as Record<string, unknown>;
+  const hasThinkingEnabled =
+    Object.prototype.hasOwnProperty.call(openaiOptions, "thinking")
+    || (Object.prototype.hasOwnProperty.call(openaiOptions, "enable_thinking")
+      && openaiOptions.enable_thinking !== false);
+  if (!hasThinkingEnabled) {
+    return { providerOptions, suppressed: false };
+  }
+  const nextOpenaiOptions: Record<string, unknown> = {
+    ...openaiOptions,
+    enable_thinking: false,
+  };
+  delete nextOpenaiOptions.thinking;
+  return {
+    providerOptions: {
+      ...(providerOptions ?? {}),
+      openai: nextOpenaiOptions,
+    },
+    suppressed: true,
+  };
+}
+
 function isQwenModelName(modelName: string | undefined): boolean {
   return /qwen/i.test((modelName ?? "").toLowerCase());
 }
@@ -8728,7 +8757,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ...(oaiEffectiveRepetitionPenalty !== undefined ? { repetition_penalty: oaiEffectiveRepetitionPenalty } : {}),
     ...(oaiEffectiveEnableThinking !== undefined ? { enable_thinking: oaiEffectiveEnableThinking } : {}),
   };
-  const oaiProviderOptions = Object.keys(oaiProviderOpenAiOverrides).length
+  let oaiProviderOptions = Object.keys(oaiProviderOpenAiOverrides).length
     ? {
         ...(adapterProviderOptions ?? {}),
         openai: {
@@ -8737,6 +8766,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
         },
       }
     : adapterProviderOptions;
+  const oaiThinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
+    oaiProviderOptions,
+    effectiveToolChoice as PhaseAwareToolChoice | undefined,
+  );
+  oaiProviderOptions = oaiThinkingToolChoiceGuard.providerOptions;
+  if (oaiThinkingToolChoiceGuard.suppressed) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "phase_required_tool_choice_thinking_guard",
+      "execution-governor",
+      "Suppressed thinking because tool_choice=required is incompatible with provider thinking mode.",
+      reqId,
+      {
+        path: "openai",
+        phase: oaiGovernorPhase,
+        phase_reason: oaiPhasePolicy.reason ?? null,
+      },
+    );
+  }
   const oaiContextAdmission = evaluateContextAdmission(
     modelMessages as Array<{ role: string; content: unknown }>,
     effectiveTools as unknown[],
@@ -11909,7 +11959,7 @@ app.post("/v1/messages", async (req, reply) => {
       ? { enable_thinking: claudeEffectiveEnableThinking }
       : {}),
   };
-  const providerOptions = Object.keys(claudeProviderOpenAiOverrides).length
+  let providerOptions = Object.keys(claudeProviderOpenAiOverrides).length
     ? {
         ...(adapterClaudeProviderOptions ?? {}),
         openai: {
@@ -12042,6 +12092,27 @@ app.post("/v1/messages", async (req, reply) => {
     if (forcedReadToolName) {
       effectiveClaudeToolChoice = { type: "tool", toolName: forcedReadToolName };
     }
+  }
+  const claudeThinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
+    providerOptions as Record<string, Record<string, unknown>> | undefined,
+    effectiveClaudeToolChoice as PhaseAwareToolChoice | undefined,
+  );
+  providerOptions = claudeThinkingToolChoiceGuard.providerOptions;
+  if (claudeThinkingToolChoiceGuard.suppressed) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "phase_required_tool_choice_thinking_guard",
+      "execution-governor",
+      "Suppressed thinking because tool_choice=required is incompatible with provider thinking mode.",
+      traceReqId,
+      {
+        path: "claude",
+        phase: claudeGovernorPhase,
+        phase_reason: claudePhasePolicy.reason ?? null,
+      },
+    );
   }
   const sdkTools = claudeToolsToSDK(effectiveClaudeTools as never);
   const claudeForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
