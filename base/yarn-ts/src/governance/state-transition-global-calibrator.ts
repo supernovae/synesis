@@ -1,6 +1,8 @@
 import {
   DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
   calibrateStateTransitionQualityThresholds,
+  decodeStateTransitionQualityThresholds,
+  encodeStateTransitionQualityThresholds,
   type StateTransitionCalibrationSample,
   type StateTransitionQualityCalibrationReport,
   type StateTransitionQualityThresholds,
@@ -11,7 +13,15 @@ type Scope = "org_model" | "model";
 interface Bucket {
   samples: StateTransitionCalibrationSample[];
   thresholds: StateTransitionQualityThresholds;
+  sampleCount: number;
   updatedAt: number;
+  lastHydratedAt: number;
+  lastPersistedAt: number;
+}
+
+interface ScopeRefreshState {
+  lastRequestedAt: number;
+  inflight: boolean;
 }
 
 export interface GlobalThresholdResolution {
@@ -35,9 +45,39 @@ export interface StateTransitionGlobalCalibratorOptions {
   minNegative?: number;
   smoothing?: number;
   activationSampleCount?: number;
+  backingStoreRefreshMs?: number;
+  backingStorePersistMs?: number;
+  backingStore?: StateTransitionGlobalCalibrationBackingStore | null;
 }
 
-const DEFAULT_OPTIONS: Required<StateTransitionGlobalCalibratorOptions> = {
+export interface StateTransitionGlobalCalibrationBackingStore {
+  readScope(scopeKey: string): Promise<Record<string, unknown> | null>;
+  writeScope(scopeKey: string, payload: Record<string, unknown>): Promise<boolean | void>;
+}
+
+interface PersistedScopePayload {
+  schema_version: "state_transition_global_scope_v1";
+  scope: Scope;
+  scope_key: string;
+  thresholds: Record<string, unknown>;
+  sample_count: number;
+  updated_at: number;
+}
+
+interface ResolvedOptions {
+  maxBuckets: number;
+  maxSamplesPerBucket: number;
+  minSamples: number;
+  minPositive: number;
+  minNegative: number;
+  smoothing: number;
+  activationSampleCount: number;
+  backingStoreRefreshMs: number;
+  backingStorePersistMs: number;
+  backingStore: StateTransitionGlobalCalibrationBackingStore | null;
+}
+
+const DEFAULT_OPTIONS: ResolvedOptions = {
   maxBuckets: 256,
   maxSamplesPerBucket: 128,
   minSamples: 16,
@@ -45,6 +85,9 @@ const DEFAULT_OPTIONS: Required<StateTransitionGlobalCalibratorOptions> = {
   minNegative: 4,
   smoothing: 0.45,
   activationSampleCount: 16,
+  backingStoreRefreshMs: 15_000,
+  backingStorePersistMs: 5_000,
+  backingStore: null,
 };
 
 function normalizeScopeKey(scope: Scope, orgId: string, modelId: string): string {
@@ -64,9 +107,39 @@ function cloneThresholds(input: StateTransitionQualityThresholds): StateTransiti
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function decodePersistedScopePayload(
+  scope: Scope,
+  scopeKey: string,
+  raw: Record<string, unknown> | null,
+): PersistedScopePayload | null {
+  if (!raw) return null;
+  const thresholdsRaw = asRecord(raw.thresholds);
+  const thresholds = decodeStateTransitionQualityThresholds(thresholdsRaw);
+  if (!thresholds) return null;
+  return {
+    schema_version: "state_transition_global_scope_v1",
+    scope,
+    scope_key: scopeKey,
+    thresholds: encodeStateTransitionQualityThresholds(thresholds),
+    sample_count: Math.max(0, Math.trunc(asNumber(raw.sample_count, 0))),
+    updated_at: asNumber(raw.updated_at, Date.now()),
+  };
+}
+
 export class StateTransitionGlobalCalibrator {
-  private readonly options: Required<StateTransitionGlobalCalibratorOptions>;
+  private readonly options: ResolvedOptions;
   private readonly buckets = new Map<string, Bucket>();
+  private readonly refreshStateByScope = new Map<string, ScopeRefreshState>();
 
   constructor(options: StateTransitionGlobalCalibratorOptions = {}) {
     this.options = {
@@ -81,7 +154,10 @@ export class StateTransitionGlobalCalibrator {
     const created: Bucket = {
       samples: [],
       thresholds: cloneThresholds(seedThresholds),
+      sampleCount: 0,
       updatedAt: Date.now(),
+      lastHydratedAt: 0,
+      lastPersistedAt: 0,
     };
     this.buckets.set(key, created);
     this.evictIfNeeded();
@@ -97,7 +173,85 @@ export class StateTransitionGlobalCalibrator {
       const victim = candidates[i];
       if (!victim) break;
       this.buckets.delete(victim[0]);
+      this.refreshStateByScope.delete(victim[0]);
     }
+  }
+
+  private maybeRefreshScope(
+    scope: Scope,
+    orgId: string,
+    modelId: string,
+    fallbackThresholds: StateTransitionQualityThresholds,
+  ): void {
+    if (!this.options.backingStore) return;
+    const scopeKey = normalizeScopeKey(scope, orgId, modelId);
+    const now = Date.now();
+    const refreshState = this.refreshStateByScope.get(scopeKey) ?? {
+      lastRequestedAt: 0,
+      inflight: false,
+    };
+    if (refreshState.inflight || (now - refreshState.lastRequestedAt) < this.options.backingStoreRefreshMs) {
+      return;
+    }
+    refreshState.inflight = true;
+    refreshState.lastRequestedAt = now;
+    this.refreshStateByScope.set(scopeKey, refreshState);
+    void this.options.backingStore.readScope(scopeKey)
+      .then((raw) => {
+        this.mergePersistedScope(scope, scopeKey, raw, fallbackThresholds);
+      })
+      .catch(() => {})
+      .finally(() => {
+        const state = this.refreshStateByScope.get(scopeKey);
+        if (!state) return;
+        state.inflight = false;
+        this.refreshStateByScope.set(scopeKey, state);
+      });
+  }
+
+  private mergePersistedScope(
+    scope: Scope,
+    scopeKey: string,
+    raw: Record<string, unknown> | null,
+    fallbackThresholds: StateTransitionQualityThresholds,
+  ): void {
+    const decoded = decodePersistedScopePayload(scope, scopeKey, raw);
+    if (!decoded) return;
+    const bucket = this.ensureBucket(scopeKey, fallbackThresholds);
+    const decodedThresholds = decodeStateTransitionQualityThresholds(decoded.thresholds) ?? bucket.thresholds;
+    if (decoded.updated_at >= bucket.updatedAt || decoded.sample_count > bucket.sampleCount) {
+      bucket.thresholds = cloneThresholds(decodedThresholds);
+    }
+    bucket.sampleCount = Math.max(bucket.sampleCount, decoded.sample_count);
+    bucket.updatedAt = Math.max(bucket.updatedAt, decoded.updated_at);
+    bucket.lastHydratedAt = Date.now();
+  }
+
+  private maybePersistScope(
+    scope: Scope,
+    orgId: string,
+    modelId: string,
+    force = false,
+  ): void {
+    if (!this.options.backingStore) return;
+    const scopeKey = normalizeScopeKey(scope, orgId, modelId);
+    const bucket = this.buckets.get(scopeKey);
+    if (!bucket) return;
+    const now = Date.now();
+    if (!force && (now - bucket.lastPersistedAt) < this.options.backingStorePersistMs) {
+      return;
+    }
+    bucket.lastPersistedAt = now;
+    const payload: PersistedScopePayload = {
+      schema_version: "state_transition_global_scope_v1",
+      scope,
+      scope_key: scopeKey,
+      thresholds: encodeStateTransitionQualityThresholds(bucket.thresholds),
+      sample_count: bucket.sampleCount,
+      updated_at: bucket.updatedAt,
+    };
+    void this.options.backingStore.writeScope(scopeKey, payload as unknown as Record<string, unknown>)
+      .catch(() => {});
   }
 
   private calibrateScope(
@@ -110,6 +264,7 @@ export class StateTransitionGlobalCalibrator {
     const key = normalizeScopeKey(scope, orgId, modelId);
     const bucket = this.ensureBucket(key, fallbackThresholds);
     bucket.samples.push(sample);
+    bucket.sampleCount += 1;
     if (bucket.samples.length > this.options.maxSamplesPerBucket) {
       bucket.samples = bucket.samples.slice(-this.options.maxSamplesPerBucket);
     }
@@ -138,7 +293,7 @@ export class StateTransitionGlobalCalibrator {
     if (!bucket) return null;
     return {
       thresholds: cloneThresholds(bucket.thresholds),
-      sampleCount: bucket.samples.length,
+      sampleCount: bucket.sampleCount,
     };
   }
 
@@ -150,6 +305,8 @@ export class StateTransitionGlobalCalibrator {
     const fallback = input.fallbackThresholds
       ? cloneThresholds(input.fallbackThresholds)
       : cloneThresholds(DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS);
+    this.maybeRefreshScope("org_model", input.orgId, input.modelId, fallback);
+    this.maybeRefreshScope("model", input.orgId, input.modelId, fallback);
     const orgModel = this.getScopeThresholds("org_model", input.orgId, input.modelId);
     const model = this.getScopeThresholds("model", input.orgId, input.modelId);
     const activation = this.options.activationSampleCount;
@@ -203,6 +360,8 @@ export class StateTransitionGlobalCalibrator {
     const fallback = input.fallbackThresholds
       ? cloneThresholds(input.fallbackThresholds)
       : cloneThresholds(DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS);
+    this.maybeRefreshScope("org_model", input.orgId, input.modelId, fallback);
+    this.maybeRefreshScope("model", input.orgId, input.modelId, fallback);
     const orgModelCalibration = this.calibrateScope(
       "org_model",
       input.orgId,
@@ -217,6 +376,9 @@ export class StateTransitionGlobalCalibrator {
       input.sample,
       fallback,
     );
+    const forcePersist = orgModelCalibration.applied || modelCalibration.applied;
+    this.maybePersistScope("org_model", input.orgId, input.modelId, forcePersist);
+    this.maybePersistScope("model", input.orgId, input.modelId, forcePersist);
     return {
       resolution: this.resolveThresholds({
         orgId: input.orgId,

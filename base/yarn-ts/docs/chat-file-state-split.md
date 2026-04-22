@@ -194,21 +194,43 @@ Quality thresholds are now calibrated from recent observed transitions instead o
 
 This keeps the quality labeling policy adaptive while remaining deterministic and replay-safe.
 
-## 12) Cross-session global calibrator
+## 12) Cross-session global calibrator + shared store
 
-In addition to per-session calibration, Yarn now maintains an in-process global
-calibration registry with two scopes:
+In addition to per-session calibration, Yarn now maintains a global calibrator with
+two scopes:
 
 - `org_model` (organization + model)
 - `model` (model-wide fallback across organizations)
 
-Each request contributes a calibration sample to both scopes. Global thresholds are
-resolved and blended with session thresholds before quality labeling, then refreshed
-after observation. This lets new sessions start from previously learned quality
-boundaries rather than cold defaults, while preserving deterministic scoring rules.
+Global scope state is persisted in Redis-backed shared keys so replicas can converge
+on common threshold bands (`forward_progress_min`, `regressed_max`) instead of
+calibrating in isolation.
+
+Per request:
+
+1. Resolve current global thresholds by scope (`org_model` preferred, `model` fallback)
+2. Blend global thresholds with session-local thresholds
+3. Score/label the transition
+4. Feed the transition sample back into both global scopes
+5. Persist refreshed scope thresholds/samples to shared store
 
 When global thresholds shift materially, Yarn emits
 `state_transition_quality_global_calibration_v1` for auditability.
+
+## 13) Operational watch-outs
+
+- **Eventual consistency:** scope hydration/persist is asynchronous. Labels remain deterministic
+  per request, but replica convergence is near-real-time, not strictly immediate.
+- **Fail-open behavior:** Redis/store failures should not block requests. Runtime falls back to
+  session-local calibration and default thresholds.
+- **Cold-start bias:** new org/model scopes start from defaults until enough samples accumulate.
+  Avoid over-interpreting early threshold movement.
+- **Threshold drift:** monitor calibration events and quality-score distributions for runaway shifts.
+  Keep minimum sample guards and smoothing conservative.
+- **Schema compatibility:** shared payloads are versioned (`state_transition_global_scope_v1`);
+  bump schema when changing persisted shape.
+- **Cardinality control:** scope key space grows with org+model combinations; enforce TTL + bucket caps
+  to prevent unbounded memory growth.
 
 ## Weird UX/client affordance handling improvements
 

@@ -3183,6 +3183,12 @@ const stateTransitionGlobalCalibrator = new StateTransitionGlobalCalibrator({
   minNegative: 4,
   smoothing: 0.4,
   activationSampleCount: 16,
+  backingStoreRefreshMs: 12_000,
+  backingStorePersistMs: 4_000,
+  backingStore: {
+    readScope: async (scopeKey) => distributedCounters.getStateTransitionGlobalCalibrationScope(scopeKey),
+    writeScope: async (scopeKey, payload) => distributedCounters.setStateTransitionGlobalCalibrationScope(scopeKey, payload),
+  },
 });
 const streamAdmission = new StreamAdmissionController({
   maxConcurrentStreams: config.SYNESIS_YARN_MAX_CONCURRENT_STREAMS,

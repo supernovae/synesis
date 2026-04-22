@@ -80,6 +80,7 @@ export class DistributedCounterService {
   private readonly consecutiveToolTtlSeconds: number;
   private readonly hourlyWindowMinutes: number;
   private readonly hourlyCounterTtlSeconds: number;
+  private readonly globalCalibrationTtlSeconds: number;
   private stats = { redisOps: 0, redisErrors: 0, fallbackInvocations: 0 };
 
   constructor(config: AppConfig) {
@@ -97,6 +98,10 @@ export class DistributedCounterService {
     const hourlyWindowMs = Math.max(60_000, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS ?? 3_600_000);
     this.hourlyWindowMinutes = Math.max(1, Math.ceil(hourlyWindowMs / 60_000));
     this.hourlyCounterTtlSeconds = Math.max(120, Math.ceil((hourlyWindowMs * 2) / 1000));
+    this.globalCalibrationTtlSeconds = Math.max(
+      3_600,
+      Math.ceil((config.SYNESIS_YARN_SESSION_TTL_MS ?? 14_400_000) / 1000) * 2,
+    );
   }
 
   /**
@@ -194,6 +199,40 @@ export class DistributedCounterService {
       this.stats.redisErrors += 1;
       this.stats.fallbackInvocations += 1;
       return null;
+    }
+  }
+
+  async getStateTransitionGlobalCalibrationScope(
+    scopeKey: string,
+  ): Promise<Record<string, unknown> | null> {
+    const key = `yarn-ts:state-transition:global:${scopeKey}`;
+    try {
+      this.stats.redisOps += 1;
+      const raw = await this.redis.get(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      return parsed as Record<string, unknown>;
+    } catch {
+      this.stats.redisErrors += 1;
+      this.stats.fallbackInvocations += 1;
+      return null;
+    }
+  }
+
+  async setStateTransitionGlobalCalibrationScope(
+    scopeKey: string,
+    payload: Record<string, unknown>,
+  ): Promise<boolean> {
+    const key = `yarn-ts:state-transition:global:${scopeKey}`;
+    try {
+      this.stats.redisOps += 1;
+      await this.redis.set(key, JSON.stringify(payload), "EX", this.globalCalibrationTtlSeconds);
+      return true;
+    } catch {
+      this.stats.redisErrors += 1;
+      this.stats.fallbackInvocations += 1;
+      return false;
     }
   }
 
