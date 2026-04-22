@@ -921,6 +921,17 @@ function hasEditFailureSignature(sig: string): boolean {
   return /error editing file|old[_\s-]?string.*not found|string to replace.*not found|not found in file|failed to find context|exactly once|replace_all is false|found (?:<n>|\d+) matches.*replace_all.*false|uniquely identify the instance|failed to apply patch|did not match file content/.test(sig);
 }
 
+/** Index of the most recent failed edit/apply event, or -1. */
+function lastEditFailureEventIndex(
+  events: Array<{ command: string; resultSignature: string }>,
+): number {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const c = normalizeString(events[i].command);
+    if (isEditCommand(c) && hasEditFailureSignature(events[i].resultSignature)) return i;
+  }
+  return -1;
+}
+
 function hasIdempotentEditSignature(sig: string): boolean {
   if (!sig) return false;
   return /already\s+(?:replaced|exists|present)|already\s+contains|no changes (?:made|needed)|nothing to (?:replace|update)/.test(sig);
@@ -1962,7 +1973,18 @@ export function evaluateExecutionGovernor(
     totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold
     || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
   ) pushRule("broad_discovery_repeat");
-  if (repeatedReadSearchCalls >= thresholds.repeatedReadSearchPauseThreshold) pushRule("bounded_exploration_budget");
+  // Failed edits are often followed by many consecutive re-reads of the same `read:<path>` to
+  // rebuild exact `old_string` anchors. That drives repeatedReadSearchCalls and would otherwise
+  // spuriously trip bounded_exploration_budget while the model is in legitimate recovery.
+  const ANCHOR_RECOVERY_SINCE_FAIL_MAX = 64;
+  const lastFailIdx = lastEditFailureEventIndex(events);
+  const inAnchorReadRecovery =
+    lastFailIdx >= 0 && (events.length - 1 - lastFailIdx) <= ANCHOR_RECOVERY_SINCE_FAIL_MAX;
+  if (repeatedReadSearchCalls >= thresholds.repeatedReadSearchPauseThreshold) {
+    if (!inAnchorReadRecovery) {
+      pushRule("bounded_exploration_budget");
+    }
+  }
   if (needsTestEntryGate(userText) && hasRunTest && requiresTestConfigDiscovery(testRuntime) && !hasTestConfigDiscovery(events)) {
     pushRule("test_entry_contract");
   }

@@ -279,6 +279,20 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("bounded_exploration_budget");
   });
 
+  it("does not apply bounded_exploration_budget when many re-reads follow a recent failed edit (anchor recovery)", () => {
+    const messages: Array<{ role: string; content: unknown; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }> = [
+      { role: "user", content: "fix cmd/synesis/ask.go" },
+      assistantCall("e1", "Edit", { file_path: "cmd/synesis/ask.go", old_string: "foo", new_string: "bar" }),
+      toolResult("e1", "Error: String to replace not found in file."),
+    ];
+    for (let i = 0; i < 7; i++) {
+      messages.push(assistantCall(`r${i}`, "read_file", { path: "cmd/synesis/ask.go" }));
+      messages.push(toolResult(`r${i}`, "package main // ask"));
+    }
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("bounded_exploration_budget");
+  });
+
   it("does not treat idempotent edit responses as edit failures", () => {
     const messages = [
       { role: "user", content: "wire up --print-request flag" },
