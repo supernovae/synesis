@@ -424,7 +424,13 @@ function applyExecutionGovernorToolRestrictions(
     // so the model can finish its initial discovery. But once no_progress_loop fires
     // (model cycling through same commands), pureExploration is disabled at the call
     // site and reads are blocked too — the model already has its information.
-    const blockedDiscoveryTools = (failureFixContext || options?.pureExploration)
+    // Never strip Read during edit-replay/anchor-miss recovery (verbal_intent_without_action
+    // can co-fire and would otherwise block read+grep together).
+    const allowReadsDuringStall = failureFixContext
+      || options?.pureExploration
+      || editReplayContext
+      || options?.preserveReadTools;
+    const blockedDiscoveryTools = allowReadsDuringStall
       ? ["search", "grep", "find", "list_dir", "list_files"]
       : ["read_file", "read", "readfile", "file_read", "search", "grep", "find", "list_dir", "list_files"];
     for (const t of blockedDiscoveryTools) {
@@ -432,7 +438,10 @@ function applyExecutionGovernorToolRestrictions(
     }
   }
   if (options?.escalatedExploration) {
-    for (const t of ["bash", "shell", "execute", "terminal", "read_file", "read", "readfile", "file_read", "search", "grep", "find", "glob", "list_dir", "list_files"]) {
+    const blockReads = !options?.preserveReadTools && !editReplayContext;
+    for (const t of (blockReads
+      ? (["bash", "shell", "execute", "terminal", "read_file", "read", "readfile", "file_read", "search", "grep", "find", "glob", "list_dir", "list_files"] as const)
+      : (["bash", "shell", "execute", "terminal", "search", "grep", "find", "glob", "list_dir", "list_files"] as const))) {
       deny.add(t);
     }
   }
@@ -1356,8 +1365,10 @@ type ToolExecutionFailureObservation = {
   snippet: string;
 };
 
+// More specific "anchor miss" / patch signals must come *before* the generic
+// "error editing file" line so tool results like "Error editing file" + "not
+// found" classify as edit_context_miss (drives read-preservation, counters).
 const TOOL_FAILURE_PATTERNS: Array<{ reason: string; re: RegExp }> = [
-  { reason: "edit_error", re: /\berror editing file\b/i },
   { reason: "edit_context_miss", re: /\bfailed to find context\b/i },
   { reason: "edit_context_miss", re: /\bold[_\s-]?string\b.*\bnot found\b/i },
   { reason: "edit_context_miss", re: /\bnot found in file\b/i },
@@ -1365,6 +1376,7 @@ const TOOL_FAILURE_PATTERNS: Array<{ reason: string; re: RegExp }> = [
   { reason: "edit_context_miss", re: /\bfound \d+ matches\b.*\breplace_all\b.*\bfalse\b/i },
   { reason: "edit_context_miss", re: /\breplace_all is false\b/i },
   { reason: "edit_context_miss", re: /\buniquely identify the instance\b/i },
+  { reason: "edit_error", re: /\berror editing file\b/i },
   { reason: "patch_apply_failed", re: /\b(apply\s*patch|patch)\b.*\b(failed|error)\b/i },
   { reason: "write_permission_denied", re: /\b(permission denied|operation not permitted)\b/i },
 ];
@@ -6521,8 +6533,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
   const oaiEditMissFailureCount = oaiToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
+  const oaiAnyWriteToolEditFailure = oaiToolFailures.some(
+    (f) => f.reason === "edit_error"
+      || f.reason === "edit_context_miss"
+      || f.reason === "write_tool_error"
+      || f.reason === "patch_apply_failed",
+  );
   const oaiHasActiveEditMissFailure =
     oaiEditMissFailureCount > 0
+    || oaiAnyWriteToolEditFailure
     || oaiLatestToolProgress.hasRecentEditContextMiss
     || oaiEditMissGuard?.active === true
     || session.editMissForceReadPending;
@@ -7244,6 +7263,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiPreserveReadForReplay =
       oaiEditMissGuard?.active === true
       || oaiEditMissFailureCount > 0
+      || oaiAnyWriteToolEditFailure
       || session.consecutiveEditContextMisses > 0
       || oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
       || oaiExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
@@ -9614,8 +9634,15 @@ app.post("/v1/messages", async (req, reply) => {
     );
   }
   const claudeEditMissFailureCount = claudeToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
+  const claudeAnyWriteToolEditFailure = claudeToolFailures.some(
+    (f) => f.reason === "edit_error"
+      || f.reason === "edit_context_miss"
+      || f.reason === "write_tool_error"
+      || f.reason === "patch_apply_failed",
+  );
   const claudeHasActiveEditMissFailure =
     claudeEditMissFailureCount > 0
+    || claudeAnyWriteToolEditFailure
     || claudeLatestToolProgress.hasRecentEditContextMiss
     || claudeEditMissGuard?.active === true
     || session.editMissForceReadPending;
@@ -10332,6 +10359,7 @@ app.post("/v1/messages", async (req, reply) => {
     const claudePreserveReadForReplay =
       claudeEditMissGuard?.active === true
       || claudeEditMissFailureCount > 0
+      || claudeAnyWriteToolEditFailure
       || session.consecutiveEditContextMisses > 0
       || claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
       || claudeExecutionGovernor.matchedRules.includes("consecutive_edit_failures");
