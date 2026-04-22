@@ -117,7 +117,7 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("path drift");
   });
 
-  it("blocks compound git inspection churn for claude-code", () => {
+  it("allows first compound git inspection as grace for orientation", () => {
     const out = governToolCall({
       toolName: "Bash",
       input: { command: "git status && git diff pkg/output/output.go" },
@@ -125,6 +125,21 @@ describe("governToolCall", () => {
       enforcePathRoot: true,
       blockBashPathDrift: true,
       clientKind: "claude-code",
+      sessionGitInspectionBlockCount: 0,
+    });
+    expect(out.toolName).toBe("Bash");
+    expect(out.blockedUnsafeShell).toBe(false);
+  });
+
+  it("blocks compound git inspection churn after grace for claude-code", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "git status && git diff pkg/output/output.go" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      sessionGitInspectionBlockCount: 1,
     });
     expect(out.toolName).toBe("Synesis_Error_GitInspectionChurn");
     expect(out.blockedUnsafeShell).toBe(true);

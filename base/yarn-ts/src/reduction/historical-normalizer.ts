@@ -163,20 +163,19 @@ export function stabilizeToolCallIds(
   if (idMap.size === 0) return { messages, rewriteCount: 0 };
 
   // Second pass: rewrite IDs.
+  // Tool call IDs in assistant messages are only rewritten before keepFromIndex,
+  // but tool_call_id references in tool-result messages are ALWAYS rewritten
+  // to prevent orphaned tool calls across the keepFromIndex boundary.
   let rewriteCount = 0;
   const result: MessageLike[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
-    if (i >= keepFromIndex) {
-      result.push(m);
-      continue;
-    }
 
     let changed = false;
     let newToolCalls = m.tool_calls;
     let newToolCallId = m.tool_call_id;
 
-    if (m.role === "assistant" && m.tool_calls) {
+    if (i < keepFromIndex && m.role === "assistant" && m.tool_calls) {
       const rewritten = m.tool_calls.map((tc) => {
         const newId = tc.id ? idMap.get(tc.id) : undefined;
         if (newId && newId !== tc.id) {

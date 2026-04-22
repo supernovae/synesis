@@ -313,6 +313,10 @@ type SessionState = {
   lastGovernorNoPauseAt: number;
   /** Cached governor result from the last evaluation that returned pause=false. */
   lastGovernorCachedResult: ExecutionGovernorDecision | null;
+  /** Skip tool ID stabilization on next request after a MissingToolResults error. */
+  skipToolIdStabilization: boolean;
+  /** Count of compound git inspection blocks in this session. */
+  gitInspectionBlockCount: number;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -3795,6 +3799,8 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     regroundCooldownRemaining: 0,
     lastGovernorNoPauseAt: 0,
     lastGovernorCachedResult: null,
+    skipToolIdStabilization: false,
+    gitInspectionBlockCount: 0,
   };
   sessions.set(key, state);
   return state;
@@ -6227,6 +6233,7 @@ function sanitizeUpstreamError(err: unknown): string {
   if (/\b[45]\d{2}\b/.test(raw)) return "Upstream model service error";
   if (/rate.?limit/i.test(raw)) return "Upstream rate limit exceeded";
   if (/context.?length|too.?long|too.?large/i.test(raw)) return "Request too large for model context window";
+  if (/MissingToolResults|missing tool results?/i.test(raw)) return "Internal message integrity error (missing tool results)";
   return "Model request failed";
 }
 
@@ -7183,13 +7190,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
         normalizedOpenAI.messages = histResult.messages as never;
         oaiOptLedger?.addHistoricalNormReplacements(histResult.stats.timestampsReplaced + histResult.stats.pathsNormalized);
       }
-      const idResult = stabilizeToolCallIds(normalizedOpenAI.messages as never, keepFromIdx);
-      if (idResult.rewriteCount > 0) {
-        normalizedOpenAI.messages = idResult.messages as never;
-        oaiOptLedger?.addToolIdRewrites(idResult.rewriteCount);
-        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-          app.log.debug({ reqId: oaiTraceReqId, rewrites: idResult.rewriteCount }, "tool_id_stabilization_applied");
+      if (!session.skipToolIdStabilization) {
+        const idResult = stabilizeToolCallIds(normalizedOpenAI.messages as never, keepFromIdx);
+        if (idResult.rewriteCount > 0) {
+          normalizedOpenAI.messages = idResult.messages as never;
+          oaiOptLedger?.addToolIdRewrites(idResult.rewriteCount);
+          if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+            app.log.debug({ reqId: oaiTraceReqId, rewrites: idResult.rewriteCount }, "tool_id_stabilization_applied");
+          }
         }
+      } else {
+        app.log.warn({ reqId: oaiTraceReqId }, "tool_id_stabilization_skipped_after_missing_tool_results");
+        session.skipToolIdStabilization = false;
       }
     }
     const oaiPlanRemediation = remediatePlanFileStubs(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>);
@@ -9125,6 +9137,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       }
     } catch (err) {
       const upstream = extractUpstreamErrorDiagnostics(err);
+      if (upstream.isMissingToolResults) {
+        session.skipToolIdStabilization = true;
+      }
       circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
       otelSpan.setStatus("error", upstream.userMessage);
       otelSpan.end();
@@ -9206,6 +9221,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           strictBashBlock: openClawStrictGovernance,
           blockWriteCapableTools: openClawStrictGovernance,
           clientKind: oaiClientKind,
+          sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
           restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
           blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
           blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
@@ -9216,6 +9232,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
             session.artifactEditTurns.set(canonicalPath, turnIndex);
           },
         });
+        if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+          session.gitInspectionBlockCount += 1;
+        }
         trackGovernedHardening(governed);
         if (governed.planWriteAudit) {
           emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
@@ -9762,6 +9781,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             strictBashBlock: openClawStrictGovernance,
             blockWriteCapableTools: openClawStrictGovernance,
             clientKind: oaiClientKind,
+            sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
             restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
@@ -9772,6 +9792,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
               session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
           });
+          if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+            session.gitInspectionBlockCount += 1;
+          }
           trackGovernedHardening(governed);
           if (governed.planWriteAudit) {
             emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
@@ -9924,6 +9947,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiTimedOut = oaiStreamAbortController.signal.aborted
       && /stream_hard_timeout/i.test(String(oaiStreamAbortController.signal.reason ?? ""));
     const upstream = extractUpstreamErrorDiagnostics(streamErr);
+    if (upstream.isMissingToolResults) {
+      session.skipToolIdStabilization = true;
+    }
     circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
     otelStreamSpan.setStatus(
       "error",
@@ -9960,16 +9986,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         missing_tool_results: upstream.isMissingToolResults,
       },
     );
+    const errorHint = upstream.isMissingToolResults
+      ? "\n\n[Internal message integrity error — retrying should resolve this automatically]"
+      : oaiTimedOut
+        ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
+        : "\n\n[Upstream provider error — retrying may help]";
     finishReason = "error";
     safeWrite(reply.raw, `data: ${JSON.stringify({
       id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
       choices: [{
         index: 0,
-        delta: {
-          content: oaiTimedOut
-            ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
-            : "\n\n[Upstream provider error — retrying may help]",
-        },
+        delta: { content: errorHint },
         finish_reason: null,
       }]
     })}\n\n`);
@@ -10600,12 +10627,17 @@ app.post("/v1/messages", async (req, reply) => {
       if (histResult.stats.messagesNormalized > 0) {
         normalizedFromClaude.messages = histResult.messages as never;
       }
-      const idResult = stabilizeToolCallIds(normalizedFromClaude.messages as never, keepFromIdx);
-      if (idResult.rewriteCount > 0) {
-        normalizedFromClaude.messages = idResult.messages as never;
-        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-          app.log.debug({ reqId: traceReqId, rewrites: idResult.rewriteCount }, "tool_id_stabilization_applied");
+      if (!session.skipToolIdStabilization) {
+        const idResult = stabilizeToolCallIds(normalizedFromClaude.messages as never, keepFromIdx);
+        if (idResult.rewriteCount > 0) {
+          normalizedFromClaude.messages = idResult.messages as never;
+          if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+            app.log.debug({ reqId: traceReqId, rewrites: idResult.rewriteCount }, "tool_id_stabilization_applied");
+          }
         }
+      } else {
+        app.log.warn({ reqId: traceReqId }, "tool_id_stabilization_skipped_after_missing_tool_results");
+        session.skipToolIdStabilization = false;
       }
     }
     const claudePlanRemediation = remediatePlanFileStubs(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>);
@@ -12878,6 +12910,7 @@ app.post("/v1/messages", async (req, reply) => {
             strictBashBlock: claudeOpenClawStrictGovernance,
             blockWriteCapableTools: claudeOpenClawStrictGovernance,
             clientKind: claudeClientKind,
+            sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
             restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
             blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
@@ -12888,6 +12921,9 @@ app.post("/v1/messages", async (req, reply) => {
               session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
           });
+          if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+            session.gitInspectionBlockCount += 1;
+          }
           emitToolName = governed.toolName;
           finalInput = governed.input;
           trackGovernedHardening(governed);
@@ -13077,6 +13113,9 @@ app.post("/v1/messages", async (req, reply) => {
       const claudeTimedOut = claudeStreamAbortController.signal.aborted
         && /stream_hard_timeout/i.test(String(claudeStreamAbortController.signal.reason ?? ""));
       const upstream = extractUpstreamErrorDiagnostics(streamErr);
+      if (upstream.isMissingToolResults) {
+        session.skipToolIdStabilization = true;
+      }
       circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
       claudeStreamSpan.setStatus(
         "error",
@@ -13113,6 +13152,11 @@ app.post("/v1/messages", async (req, reply) => {
           missing_tool_results: upstream.isMissingToolResults,
         },
       );
+      const errorHint = upstream.isMissingToolResults
+        ? "\n\n[Internal message integrity error — retrying should resolve this automatically]"
+        : claudeTimedOut
+          ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
+          : "\n\n[Upstream provider error — retrying may help]";
       if (!claudeStreamingTextOpen) {
         safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
         claudeStreamingTextOpen = true;
@@ -13121,12 +13165,7 @@ app.post("/v1/messages", async (req, reply) => {
       safeSse(reply, "content_block_delta", {
         type: "content_block_delta",
         index: blockIdx,
-        delta: {
-          type: "text_delta",
-          text: claudeTimedOut
-            ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
-            : "\n\n[Upstream provider error — retrying may help]",
-        },
+        delta: { type: "text_delta", text: errorHint },
       });
       stopReason = "end_turn";
     }
@@ -13607,6 +13646,7 @@ app.post("/v1/messages", async (req, reply) => {
         strictBashBlock: claudeOpenClawStrictGovernance,
         blockWriteCapableTools: claudeOpenClawStrictGovernance,
         clientKind: claudeClientKind,
+        sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
         restrictDiscoveryForPlanWork: shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
         blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
         blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
@@ -13617,6 +13657,9 @@ app.post("/v1/messages", async (req, reply) => {
           session.artifactEditTurns.set(canonicalPath, turnIndex);
         },
       });
+      if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+        session.gitInspectionBlockCount += 1;
+      }
       trackGovernedHardening(governed);
       if (governed.planWriteAudit) {
         emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, governed.planWriteAudit);

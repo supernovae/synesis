@@ -34,6 +34,8 @@ export interface GovernToolCallOptions {
   currentTurnIndex?: number;
   /** Callback to record an edit turn for artifact shadow staleness. */
   onEditTurn?: (canonicalPath: string, turnIndex: number) => void;
+  /** Total git inspection blocks so far in this session. Allows a grace first offense. */
+  sessionGitInspectionBlockCount?: number;
 }
 
 export interface PlanWriteAuditRecord {
@@ -259,7 +261,8 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
     const command = out.input.command;
     if (typeof command === "string" && command.trim()) {
       const gitInspectionChurn = detectCompoundGitInspection(command, opts.clientKind);
-      if (gitInspectionChurn) {
+      const gitInspectionGrace = (opts.sessionGitInspectionBlockCount ?? 0) === 0;
+      if (gitInspectionChurn && !gitInspectionGrace) {
         const message = `Synesis Yarn blocked low-yield git inspection churn: ${gitInspectionChurn.reason}. Perform one concrete action next (Edit/Write, test/build, or git add/commit).`;
         if (opts.clientKind === "claude-code") {
           out.toolName = "Synesis_Error_GitInspectionChurn";

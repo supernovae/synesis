@@ -1335,9 +1335,12 @@ function isReadOnlyInvestigationIntent(userText: string): boolean {
 function isPlanRecoveryDiscoveryIntent(userText: string): boolean {
   const text = userText.toLowerCase();
   if (!/\bplan\b/.test(text)) return false;
-  const resumeCue = /\b(continue|resume|pick up|pick-up|pick it up|where we left off|last stuck session|prior run|previous run|continue with plan)\b/.test(text);
-  const uncertaintyCue = /\b(crash|crashed|stuck|stalled|unknown|not sure|unsure|lost state|left off|what remains|what's left)\b/.test(text);
-  return resumeCue && uncertaintyCue;
+  const resumeCue = /\b(continue|resume|pick up|pick-up|pick it up|where we left off|last stuck session|prior run|previous run|continue with plan|continue with completing|please continue)\b/.test(text);
+  const uncertaintyCue = /\b(crash|crashed|stuck|stalled|unknown|not sure|unsure|lost state|left off|what remains|what's left|incomplete|remaining)\b/.test(text);
+  // "continue with plan" is a strong enough signal on its own — the model needs
+  // orientation time even without an explicit crash/stuck mention.
+  const strongResumeCue = /\b(continue with (?:completing |the )?plan|resume (?:the )?plan|pick up (?:the |where )?plan)\b/.test(text);
+  return strongResumeCue || (resumeCue && uncertaintyCue);
 }
 
 export type GovernanceUserTextSource = "user_message" | "askuser_tool_result" | "empty";
@@ -1967,6 +1970,8 @@ export function evaluateExecutionGovernor(
   // (edits or verification). During pure exploration the model's text often references prior
   // context ("features are already implemented") as orientation — not a real claim that the
   // current task is finished.
+  // Also suppressed during plan recovery grace: the model legitimately says "already done"
+  // when describing prior plan progress during orientation.
   const hasNonExplorationEvents = changedFiles.length > 0
     || events.some((e) => isExecutionVerificationCommand(e.toolName, e.command));
   if (
@@ -1974,6 +1979,7 @@ export function evaluateExecutionGovernor(
     && hasNonExplorationEvents
     && !hasActiveRepairEvidenceAfterCompletionClaim
     && !editContextMissActive
+    && !planRecoveryDiscoveryGraceActive
   ) {
     pushRule("completion_claim_requires_task_update");
   }
@@ -2031,7 +2037,8 @@ export function evaluateExecutionGovernor(
   if (!isInvestigationOnly && trailingNoProgressLength >= noProgressThreshold && effectiveNoEditEvidence && trailingNoProgressHasRepeats) {
     pushRule("no_progress_loop");
   }
-  if (!isInvestigationOnly && planCachedRereadCount >= 2 && !hasPlanEdit) {
+  const planRereadThreshold = planRecoveryDiscoveryGraceActive ? 4 : 2;
+  if (!isInvestigationOnly && planCachedRereadCount >= planRereadThreshold && !hasPlanEdit) {
     pushRule("plan_reread_loop");
   }
   if (!isInvestigationOnly && maxSourceFileRereadCount >= sourceFileStaleRereadThreshold) {
