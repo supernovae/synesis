@@ -208,6 +208,7 @@ import {
   type ExecutionGovernorDecision,
   type GovernorPauseEnvelope,
   type GovernorInputMessage,
+  type SessionPhase,
 } from "./governance/execution-governor.js";
 import {
   buildRequiredRepairPrompt,
@@ -3514,6 +3515,29 @@ function chatPhaseFromWorkflowPhase(phase?: WorkflowPhase): ChatPhase | undefine
   if (phase === "planning") return "interpret";
   if (phase === "validation") return "verify";
   return "edit";
+}
+
+function resolveWorkingPhase(args: {
+  orchestratorOverride?: WorkflowPhase;
+  framePhase?: WorkflowPhase;
+  governorPreviewPhase?: SessionPhase;
+}): WorkflowPhase | undefined {
+  if (args.orchestratorOverride) return args.orchestratorOverride;
+  const governorPhase = args.governorPreviewPhase
+    ? governorPhaseToWorkflowPhase(args.governorPreviewPhase)
+    : undefined;
+  const framePhase = args.framePhase;
+  if (!framePhase) return governorPhase;
+  if (!governorPhase || governorPhase === framePhase) return framePhase;
+  // If the frame lags behind observed execution behavior, trust governor phase
+  // to avoid planning-vs-implementation drift that can cause pause churn.
+  if (
+    (framePhase === "explore" || framePhase === "planning")
+    && (governorPhase === "implementation" || governorPhase === "validation")
+  ) {
+    return governorPhase;
+  }
+  return framePhase;
 }
 
 function splitAdapterBlockForStability(adapterBlock?: string): { stable?: string; volatile?: string } {
@@ -7405,10 +7429,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
     normalizedOpenAI.messages as Array<GovernorInputMessage>,
   );
   const oaiFramePhase = oaiPreFrame ? phaseFromFrame(oaiPreFrame.currentPhase) : undefined;
-  const oaiWorkingPhase: WorkflowPhase | undefined =
-    oaiOrchestratorPhaseOverride
-    ?? oaiFramePhase
-    ?? governorPhaseToWorkflowPhase(oaiGovernorPreviewPhase);
+  const oaiWorkingPhase: WorkflowPhase | undefined = resolveWorkingPhase({
+    orchestratorOverride: oaiOrchestratorPhaseOverride,
+    framePhase: oaiFramePhase,
+    governorPreviewPhase: oaiGovernorPreviewPhase,
+  });
   const oaiWorkingFrameGoal: string | undefined = oaiPreFrame?.goal;
 
   let oaiPrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
@@ -9527,9 +9552,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiForensicsPhasePolicy,
     oaiForensicsCapabilityMatrix,
   );
+  const oaiStreamAbortController = new AbortController();
+  const oaiStreamHardTimeoutMs = Math.max(
+    config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
+    config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+  );
+  const oaiStreamHardTimeout = setTimeout(() => {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "stream_hard_timeout",
+      "stream-heartbeat",
+      `Aborted OpenAI stream after ${oaiStreamHardTimeoutMs}ms`,
+      reqId,
+      { elapsedMs: Date.now() - started, model: resolved.resolvedModelId },
+    );
+    oaiStreamAbortController.abort(new Error("stream_hard_timeout"));
+  }, oaiStreamHardTimeoutMs);
   const streamed = streamText({
     model: resolved.model as never,
     messages: modelMessages,
+    abortSignal: oaiStreamAbortController.signal,
     maxOutputTokens: clampMaxOutputTokensForSafety(
       Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
     ),
@@ -9845,9 +9889,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
     }
   } catch (streamErr) {
+    const oaiTimedOut = oaiStreamAbortController.signal.aborted
+      && /stream_hard_timeout/i.test(String(oaiStreamAbortController.signal.reason ?? ""));
     const upstream = extractUpstreamErrorDiagnostics(streamErr);
     circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
-    otelStreamSpan.setStatus("error", upstream.userMessage);
+    otelStreamSpan.setStatus(
+      "error",
+      oaiTimedOut ? "Upstream model request timed out" : upstream.userMessage,
+    );
     app.log.error(
       {
         err: streamErr,
@@ -9882,9 +9931,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
     finishReason = "error";
     safeWrite(reply.raw, `data: ${JSON.stringify({
       id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
-      choices: [{ index: 0, delta: { content: "\n\n[Upstream provider error — retrying may help]" }, finish_reason: null }]
+      choices: [{
+        index: 0,
+        delta: {
+          content: oaiTimedOut
+            ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
+            : "\n\n[Upstream provider error — retrying may help]",
+        },
+        finish_reason: null,
+      }]
     })}\n\n`);
   }
+  clearTimeout(oaiStreamHardTimeout);
 
   oaiAdmission.release!();
 
@@ -10766,10 +10824,11 @@ app.post("/v1/messages", async (req, reply) => {
     normalizedFromClaude.messages as Array<GovernorInputMessage>,
   );
   const claudeFramePhase = claudePreFrame ? phaseFromFrame(claudePreFrame.currentPhase) : undefined;
-  const claudeWorkingPhase: WorkflowPhase | undefined =
-    claudeOrchestratorPhaseOverride
-    ?? claudeFramePhase
-    ?? governorPhaseToWorkflowPhase(claudeGovernorPreviewPhase);
+  const claudeWorkingPhase: WorkflowPhase | undefined = resolveWorkingPhase({
+    orchestratorOverride: claudeOrchestratorPhaseOverride,
+    framePhase: claudeFramePhase,
+    governorPreviewPhase: claudeGovernorPreviewPhase,
+  });
   const claudeWorkingFrameGoal: string | undefined = claudePreFrame?.goal;
 
   let claudePrefetchResult: import("./evidence/fast-path.js").FastPathResult | undefined;
@@ -12554,9 +12613,28 @@ app.post("/v1/messages", async (req, reply) => {
       claudeForensicsPhasePolicy,
       claudeForensicsCapabilityMatrix,
     );
+    const claudeStreamAbortController = new AbortController();
+    const claudeStreamHardTimeoutMs = Math.max(
+      config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
+      config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+    );
+    const claudeStreamHardTimeout = setTimeout(() => {
+      recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        "stream_hard_timeout",
+        "stream-heartbeat",
+        `Aborted Claude stream after ${claudeStreamHardTimeoutMs}ms`,
+        traceReqId,
+        { elapsedMs: Date.now() - started, model: resolved.resolvedModelId },
+      );
+      claudeStreamAbortController.abort(new Error("stream_hard_timeout"));
+    }, claudeStreamHardTimeoutMs);
     const streamed = streamText({
       model: resolved.model as never,
       messages: claudeModelMessages,
+      abortSignal: claudeStreamAbortController.signal,
       maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
       ...claudeSamplingOptions,
       ...(sdkStop ? { stopSequences: sdkStop } : {}),
@@ -12943,9 +13021,14 @@ app.post("/v1/messages", async (req, reply) => {
         );
       }
     } catch (streamErr) {
+      const claudeTimedOut = claudeStreamAbortController.signal.aborted
+        && /stream_hard_timeout/i.test(String(claudeStreamAbortController.signal.reason ?? ""));
       const upstream = extractUpstreamErrorDiagnostics(streamErr);
       circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
-      claudeStreamSpan.setStatus("error", upstream.userMessage);
+      claudeStreamSpan.setStatus(
+        "error",
+        claudeTimedOut ? "Upstream model request timed out" : upstream.userMessage,
+      );
       app.log.error(
         {
           err: streamErr,
@@ -12982,9 +13065,19 @@ app.post("/v1/messages", async (req, reply) => {
         claudeStreamingTextOpen = true;
         inTextBlock = true;
       }
-      safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "text_delta", text: `\n\n[Upstream provider error — retrying may help]` } });
+      safeSse(reply, "content_block_delta", {
+        type: "content_block_delta",
+        index: blockIdx,
+        delta: {
+          type: "text_delta",
+          text: claudeTimedOut
+            ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
+            : "\n\n[Upstream provider error — retrying may help]",
+        },
+      });
       stopReason = "end_turn";
     }
+    clearTimeout(claudeStreamHardTimeout);
 
     claudeAdmission.release!();
 
