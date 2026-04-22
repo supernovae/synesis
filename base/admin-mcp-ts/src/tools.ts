@@ -83,6 +83,105 @@ function asStringArray(v: unknown): string[] {
   return out;
 }
 
+function isHttpNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\(404\)/.test(message);
+}
+
+function stripWrappingQuotes(value: string): string {
+  let out = value.trim();
+  // Strip common wrapper quotes/backticks users often paste.
+  while (
+    out.length >= 2
+    && (
+      (out.startsWith("\"") && out.endsWith("\""))
+      || (out.startsWith("'") && out.endsWith("'"))
+      || (out.startsWith("`") && out.endsWith("`"))
+    )
+  ) {
+    out = out.slice(1, -1).trim();
+  }
+  return out;
+}
+
+function buildSessionKeyCandidates(rawInput: unknown): string[] {
+  const raw = asString(rawInput).trim();
+  if (!raw) return [];
+  const out: string[] = [];
+  const add = (value: string) => {
+    const v = value.trim();
+    if (!v || out.includes(v)) return;
+    out.push(v);
+  };
+
+  const stripped = stripWrappingQuotes(raw);
+  add(stripped);
+
+  // If user pasted surrounding text, recover explicit synesis session keys.
+  for (const match of stripped.matchAll(/synesis:[^\s"'`]+/gi)) {
+    add(match[0]);
+  }
+
+  // Accept URL-encoded keys from copied links.
+  for (const value of [...out]) {
+    if (!/%[0-9a-f]{2}/i.test(value)) continue;
+    try {
+      add(decodeURIComponent(value));
+    } catch {
+      // Ignore malformed encoded values.
+    }
+  }
+
+  // If a full key was provided, also keep just the trailing UUID conversation tail
+  // for fuzzy fallback matching against recent sessions.
+  const tailMatch = stripped.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  if (tailMatch) add(tailMatch[0]);
+
+  return out;
+}
+
+async function resolveSessionKeyFromRecentSessions(
+  ctx: ToolContext,
+  candidates: string[],
+): Promise<string | null> {
+  const lowerCandidates = candidates.map((v) => v.toLowerCase());
+  let page = 1;
+  const pageSize = 100;
+  let total = Number.POSITIVE_INFINITY;
+
+  while ((page - 1) * pageSize < total && page <= 10) {
+    const payload = await apiRequest(ctx, "GET", "/api/v1/yarn/sessions", {
+      page,
+      page_size: pageSize,
+      active_since_hours: 8760,
+    });
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) break;
+    const record = payload as { sessions?: unknown; total?: unknown };
+    const sessions = Array.isArray(record.sessions) ? record.sessions : [];
+    total = typeof record.total === "number" && Number.isFinite(record.total) ? record.total : sessions.length;
+
+    for (const row of sessions) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const session = row as { session_key?: unknown; conversation_id?: unknown };
+      const key = asString(session.session_key).trim();
+      const conversationId = asString(session.conversation_id).trim();
+      if (!key) continue;
+      const lowerKey = key.toLowerCase();
+      const lowerConversation = conversationId.toLowerCase();
+      if (
+        lowerCandidates.includes(lowerKey)
+        || lowerCandidates.includes(lowerConversation)
+        || lowerCandidates.some((candidate) => candidate.length >= 8 && lowerKey.endsWith(candidate))
+      ) {
+        return key;
+      }
+    }
+    page += 1;
+  }
+
+  return null;
+}
+
 function queryString(params: Record<string, unknown>): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -368,9 +467,29 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       required: ["session_key"],
     },
     invoke: async (ctx, args) => {
-      const key = asString(args.session_key).trim();
-      if (!key) throw new Error("session_key required");
-      return apiRequest(ctx, "GET", `/api/v1/yarn/sessions/${encodeURIComponent(key)}`);
+      const candidates = buildSessionKeyCandidates(args.session_key);
+      if (candidates.length === 0) throw new Error("session_key required");
+
+      let lastNotFound: Error | null = null;
+      for (const key of candidates) {
+        try {
+          return await apiRequest(ctx, "GET", `/api/v1/yarn/sessions/${encodeURIComponent(key)}`);
+        } catch (error) {
+          if (!isHttpNotFoundError(error)) throw error;
+          lastNotFound = error instanceof Error ? error : new Error(String(error));
+        }
+      }
+
+      const resolvedKey = await resolveSessionKeyFromRecentSessions(ctx, candidates);
+      if (resolvedKey) {
+        return apiRequest(ctx, "GET", `/api/v1/yarn/sessions/${encodeURIComponent(resolvedKey)}`);
+      }
+      if (lastNotFound) {
+        throw new Error(
+          `${lastNotFound.message} (tried normalized keys: ${candidates.join(", ")})`,
+        );
+      }
+      throw new Error("Session not found");
     },
   },
   {
