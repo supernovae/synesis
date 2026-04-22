@@ -12,8 +12,11 @@ ingestion, health, etc.). Each invocation is logged to ``admin_audit_events``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -227,6 +230,95 @@ _TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {"since_hours": {"type": "integer", "default": 24}},
+        },
+    },
+    {
+        "name": "yarn_transition_quality",
+        "description": (
+            "Transition quality calibration trends and alerts "
+            "(GET /api/v1/yarn/transition-quality)."
+        ),
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 168, "description": "Lookback hours (1-720)"},
+                "bucket_minutes": {"type": "integer", "default": 60, "description": "Bucket size 5-60"},
+            },
+        },
+    },
+    {
+        "name": "yarn_transition_events_tail",
+        "description": (
+            "Tail transition-related Yarn session events with risk extraction "
+            "(request_trajectory/state_transition/calibration events)."
+        ),
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_minutes": {"type": "integer", "default": 60, "description": "Lookback minutes (1-1440)"},
+                "limit": {"type": "integer", "default": 100, "description": "Max events (1-500)"},
+                "after_id": {"type": "integer", "default": 0, "description": "Return only events with id > after_id"},
+                "risk_only": {"type": "boolean", "default": True, "description": "Include only risk-bearing events"},
+                "include_metadata": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Include full metadata_json for each event",
+                },
+                "event_kinds": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional event-kind allowlist",
+                },
+            },
+        },
+    },
+    {
+        "name": "yarn_transition_watch",
+        "description": (
+            "Watch transition quality over a short live window by polling trend "
+            "and event-tail snapshots (pseudo-stream for incident triage)."
+        ),
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 24, "description": "Trend lookback hours"},
+                "bucket_minutes": {"type": "integer", "default": 15, "description": "Trend bucket size 5-60"},
+                "events_since_minutes": {
+                    "type": "integer",
+                    "default": 30,
+                    "description": "Event tail lookback minutes per poll",
+                },
+                "event_limit": {"type": "integer", "default": 120, "description": "Max events fetched per poll"},
+                "after_id": {"type": "integer", "default": 0, "description": "Cursor for incremental event tails"},
+                "risk_only": {"type": "boolean", "default": True},
+                "include_metadata": {"type": "boolean", "default": False},
+                "polls": {"type": "integer", "default": 4, "description": "Number of polling iterations (1-12)"},
+                "interval_seconds": {
+                    "type": "number",
+                    "default": 5,
+                    "description": "Pause between polls (1-30 sec)",
+                },
+            },
+        },
+    },
+    {
+        "name": "yarn_transition_incident_brief",
+        "description": (
+            "Generate an operator-ready transition-quality incident brief by combining "
+            "calibration trends with recent risk events and recommended actions."
+        ),
+        "min_role": Role.org_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 24},
+                "bucket_minutes": {"type": "integer", "default": 15},
+                "events_since_minutes": {"type": "integer", "default": 180},
+                "event_limit": {"type": "integer", "default": 150},
+            },
         },
     },
     {
@@ -553,8 +645,6 @@ async def invoke_mcp_tool_for_chat(
 
 # ── Tool handlers ────────────────────────────────────────────────────────────
 
-import time
-
 
 def _ensure_org_observability(user: UserInfo) -> None:
     if not can_access_route_group(user, RouteGroup.org_observability):
@@ -576,6 +666,91 @@ def _yarn_scope(user: UserInfo) -> tuple[str, str, str]:
     tenant_ids = getattr(user, "tenant_ids", None) or []
     scope_tenant = (tenant_ids[0].strip()[:64]) if tenant_ids else ""
     return user.user_id or user.username, "", scope_tenant
+
+
+_TRANSITION_EVENT_KINDS = {
+    "request_trajectory_v1",
+    "state_transition_v1",
+    "state_transition_quality_calibration_v1",
+    "state_transition_quality_global_calibration_v1",
+}
+_TRANSITION_RISK_LABELS = {"regressed", "reground_required"}
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _extract_transition_event_view(event_kind: str, metadata_json: Any) -> dict[str, Any]:
+    metadata = metadata_json if isinstance(metadata_json, dict) else {}
+    training = metadata.get("training_signals")
+    quality = metadata.get("quality")
+
+    training_dict = training if isinstance(training, dict) else {}
+    quality_dict = quality if isinstance(quality, dict) else {}
+
+    label = str(training_dict.get("state_transition_quality_label") or "").strip().lower()
+    if not label:
+        label = str(quality_dict.get("label") or "").strip().lower()
+
+    score = _coerce_float(training_dict.get("state_transition_quality_score"))
+    if score is None:
+        score = _coerce_float(quality_dict.get("score"))
+
+    global_scope = str(training_dict.get("state_transition_quality_global_scope") or "").strip() or None
+    reasons = _str_list(training_dict.get("state_transition_quality_reasons"))
+    if not reasons:
+        reasons = _str_list(quality_dict.get("reasons"))
+
+    risk_flags = _str_list(training_dict.get("state_transition_quality_risk_flags"))
+    if score is not None and score < 0 and "negative_quality_score" not in risk_flags:
+        risk_flags.append("negative_quality_score")
+    if label in _TRANSITION_RISK_LABELS:
+        flag = f"quality_label_{label}"
+        if flag not in risk_flags:
+            risk_flags.append(flag)
+    if event_kind == "state_transition_quality_global_calibration_v1":
+        if "global_calibration" not in risk_flags:
+            risk_flags.append("global_calibration")
+    if event_kind == "state_transition_quality_calibration_v1":
+        if "local_calibration" not in risk_flags:
+            risk_flags.append("local_calibration")
+
+    calibration_samples = _coerce_int(training_dict.get("state_transition_quality_calibration_sample_count"), 0)
+    if calibration_samples <= 0 and event_kind.endswith("calibration_v1"):
+        calibration_meta = metadata.get("calibration")
+        if isinstance(calibration_meta, dict):
+            calibration_samples = _coerce_int(calibration_meta.get("sample_count"), 0)
+
+    return {
+        "quality_label": label or None,
+        "quality_score": score,
+        "global_scope": global_scope,
+        "reasons": reasons,
+        "risk_flags": risk_flags,
+        "calibration_sample_count": calibration_samples if calibration_samples > 0 else None,
+    }
 
 
 async def _list_traces(user: UserInfo, args: dict) -> Any:
@@ -787,6 +962,262 @@ async def _yarn_safety_summary(user: UserInfo, args: dict) -> Any:
         scope_user_id=su,
         scope_org_id=so,
     )
+
+
+async def _yarn_transition_quality(user: UserInfo, args: dict) -> Any:
+    from ..services import yarn_service
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    since_hours = max(1, min(_coerce_int(args.get("since_hours", 168), 168), 720))
+    bucket_minutes = max(5, min(_coerce_int(args.get("bucket_minutes", 60), 60), 60))
+    return await yarn_service.get_yarn_transition_quality_series(
+        since_hours=since_hours,
+        bucket_minutes=bucket_minutes,
+        scope_user_id=su,
+        scope_org_id=so,
+    )
+
+
+async def _yarn_transition_events_tail(user: UserInfo, args: dict) -> Any:
+    from sqlalchemy import select
+
+    from ..db.engine import async_session
+    from ..db.models import YarnSessionEvent
+
+    _ensure_org_admin(user)
+    su, so, _ = _yarn_scope(user)
+    since_minutes = max(1, min(_coerce_int(args.get("since_minutes", 60), 60), 1440))
+    limit = max(1, min(_coerce_int(args.get("limit", 100), 100), 500))
+    after_id = max(0, _coerce_int(args.get("after_id", 0), 0))
+    risk_only = bool(args.get("risk_only", True))
+    include_metadata = bool(args.get("include_metadata", False))
+    kinds_arg = args.get("event_kinds")
+    requested_kinds = _str_list(kinds_arg) if isinstance(kinds_arg, list) else []
+    event_kinds = requested_kinds or sorted(_TRANSITION_EVENT_KINDS)
+    cutoff = datetime.now(UTC) - timedelta(minutes=since_minutes)
+
+    async with async_session() as session:
+        stmt = select(YarnSessionEvent).where(YarnSessionEvent.created_at >= cutoff)
+        if su:
+            stmt = stmt.where(YarnSessionEvent.user_id == su)
+        elif so:
+            stmt = stmt.where(YarnSessionEvent.org_id == so)
+        if after_id > 0:
+            stmt = stmt.where(YarnSessionEvent.id > after_id)
+        if event_kinds:
+            stmt = stmt.where(YarnSessionEvent.event_kind.in_(event_kinds))
+        rows = (
+            await session.execute(
+                stmt.order_by(YarnSessionEvent.id.desc()).limit(limit)
+            )
+        ).scalars().all()
+
+    rows = list(reversed(rows))
+    events: list[dict[str, Any]] = []
+    counts_by_kind: dict[str, int] = {}
+    next_after_id = after_id
+    sessions: set[str] = set()
+    requests: set[str] = set()
+
+    for row in rows:
+        event_view = _extract_transition_event_view(row.event_kind, row.metadata_json)
+        risk_flags = list(event_view["risk_flags"])
+        is_risk = bool(risk_flags)
+        if risk_only and not is_risk:
+            continue
+
+        sessions.add(row.session_key)
+        if row.request_id:
+            requests.add(row.request_id)
+        counts_by_kind[row.event_kind] = counts_by_kind.get(row.event_kind, 0) + 1
+        next_after_id = max(next_after_id, int(row.id))
+
+        item: dict[str, Any] = {
+            "id": int(row.id),
+            "session_key": row.session_key,
+            "request_id": row.request_id,
+            "event_kind": row.event_kind,
+            "component": row.component,
+            "detail": row.detail,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "quality_label": event_view["quality_label"],
+            "quality_score": event_view["quality_score"],
+            "global_scope": event_view["global_scope"],
+            "reasons": event_view["reasons"],
+            "risk_flags": risk_flags,
+            "calibration_sample_count": event_view["calibration_sample_count"],
+        }
+        if include_metadata:
+            item["metadata_json"] = row.metadata_json
+        events.append(item)
+
+    return {
+        "since_minutes": since_minutes,
+        "event_kinds": event_kinds,
+        "risk_only": risk_only,
+        "include_metadata": include_metadata,
+        "count": len(events),
+        "session_count": len(sessions),
+        "request_count": len(requests),
+        "counts_by_kind": counts_by_kind,
+        "next_after_id": next_after_id,
+        "events": events,
+    }
+
+
+async def _yarn_transition_watch(user: UserInfo, args: dict) -> Any:
+    polls = max(1, min(_coerce_int(args.get("polls", 4), 4), 12))
+    interval_seconds = float(args.get("interval_seconds", 5) or 5)
+    interval_seconds = max(1.0, min(interval_seconds, 30.0))
+    since_hours = max(1, min(_coerce_int(args.get("since_hours", 24), 24), 720))
+    bucket_minutes = max(5, min(_coerce_int(args.get("bucket_minutes", 15), 15), 60))
+    events_since_minutes = max(1, min(_coerce_int(args.get("events_since_minutes", 30), 30), 1440))
+    event_limit = max(1, min(_coerce_int(args.get("event_limit", 120), 120), 300))
+    risk_only = bool(args.get("risk_only", True))
+    include_metadata = bool(args.get("include_metadata", False))
+    cursor = max(0, _coerce_int(args.get("after_id", 0), 0))
+
+    frames: list[dict[str, Any]] = []
+    collected_events: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    quality_snapshot: dict[str, Any] = {}
+    watch_started_at = datetime.now(UTC).isoformat()
+
+    for idx in range(polls):
+        quality_snapshot = await _yarn_transition_quality(
+            user,
+            {"since_hours": since_hours, "bucket_minutes": bucket_minutes},
+        )
+        tail = await _yarn_transition_events_tail(
+            user,
+            {
+                "since_minutes": events_since_minutes,
+                "limit": event_limit,
+                "after_id": cursor,
+                "risk_only": risk_only,
+                "include_metadata": include_metadata,
+            },
+        )
+        cursor = max(cursor, _coerce_int(tail.get("next_after_id", cursor), cursor))
+
+        new_events: list[dict[str, Any]] = []
+        for event in tail.get("events", []):
+            event_id = _coerce_int(event.get("id"), 0)
+            if event_id <= 0 or event_id in seen_ids:
+                continue
+            seen_ids.add(event_id)
+            new_events.append(event)
+            collected_events.append(event)
+
+        summary = quality_snapshot.get("summary", {}) if isinstance(quality_snapshot, dict) else {}
+        frames.append(
+            {
+                "iteration": idx + 1,
+                "captured_at": datetime.now(UTC).isoformat(),
+                "quality_score_avg": summary.get("quality_score_avg"),
+                "regressed_rate_avg": summary.get("regressed_rate_avg"),
+                "reground_required_rate_avg": summary.get("reground_required_rate_avg"),
+                "global_scope_coverage_avg": summary.get("global_scope_coverage_avg"),
+                "risk_flags": summary.get("risk_flags") or [],
+                "new_event_count": len(new_events),
+                "next_after_id": cursor,
+                "new_events": new_events,
+            }
+        )
+        if idx < polls - 1:
+            await asyncio.sleep(interval_seconds)
+
+    summary = quality_snapshot.get("summary", {}) if isinstance(quality_snapshot, dict) else {}
+    actions = quality_snapshot.get("actions", []) if isinstance(quality_snapshot, dict) else []
+    return {
+        "watch": {
+            "started_at": watch_started_at,
+            "ended_at": datetime.now(UTC).isoformat(),
+            "polls": polls,
+            "interval_seconds": interval_seconds,
+            "since_hours": since_hours,
+            "bucket_minutes": bucket_minutes,
+            "events_since_minutes": events_since_minutes,
+            "event_limit": event_limit,
+            "risk_only": risk_only,
+            "next_after_id": cursor,
+        },
+        "final_quality_summary": summary,
+        "recommended_actions": actions,
+        "frames": frames,
+        "events": collected_events[-200:],
+    }
+
+
+async def _yarn_transition_incident_brief(user: UserInfo, args: dict) -> Any:
+    since_hours = max(1, min(_coerce_int(args.get("since_hours", 24), 24), 720))
+    bucket_minutes = max(5, min(_coerce_int(args.get("bucket_minutes", 15), 15), 60))
+    events_since_minutes = max(1, min(_coerce_int(args.get("events_since_minutes", 180), 180), 1440))
+    event_limit = max(1, min(_coerce_int(args.get("event_limit", 150), 150), 300))
+
+    quality = await _yarn_transition_quality(
+        user,
+        {
+            "since_hours": since_hours,
+            "bucket_minutes": bucket_minutes,
+        },
+    )
+    tail = await _yarn_transition_events_tail(
+        user,
+        {
+            "since_minutes": events_since_minutes,
+            "limit": event_limit,
+            "risk_only": True,
+            "include_metadata": False,
+        },
+    )
+
+    summary = quality.get("summary", {}) if isinstance(quality, dict) else {}
+    top_reasons = quality.get("top_quality_reasons", []) if isinstance(quality, dict) else []
+    risk_flags = summary.get("risk_flags", []) if isinstance(summary, dict) else []
+    actions = quality.get("actions", []) if isinstance(quality, dict) else []
+    recent_events = tail.get("events", []) if isinstance(tail, dict) else []
+    latest_event = recent_events[-1] if recent_events else None
+
+    priority_findings: list[str] = []
+    if "high_regressed_rate" in risk_flags:
+        priority_findings.append("Regressed transition rate is above warning threshold.")
+    if "high_reground_required_rate" in risk_flags:
+        priority_findings.append("Re-ground required rate is elevated; file-state confidence may be degrading.")
+    if "low_global_scope_coverage" in risk_flags:
+        priority_findings.append("Global scope coverage is low; check calibrator scope key stability.")
+    if "missing_global_calibration_events" in risk_flags:
+        priority_findings.append("No global calibration events observed in the active analysis window.")
+    if not priority_findings:
+        priority_findings.append("No major window-level transition quality alerts are active.")
+
+    return {
+        "window": {
+            "since_hours": since_hours,
+            "bucket_minutes": bucket_minutes,
+            "events_since_minutes": events_since_minutes,
+            "event_limit": event_limit,
+        },
+        "quality_summary": summary,
+        "risk_flags": risk_flags,
+        "priority_findings": priority_findings,
+        "top_quality_reasons": top_reasons[:6],
+        "recommended_actions": actions[:6],
+        "event_tail": {
+            "count": tail.get("count", 0),
+            "session_count": tail.get("session_count", 0),
+            "request_count": tail.get("request_count", 0),
+            "counts_by_kind": tail.get("counts_by_kind", {}),
+            "latest_event": latest_event,
+            "events": recent_events[-20:],
+        },
+        "next_best_questions": [
+            "Which sessions dominate regressed transitions and what quality reasons repeat?",
+            "Are global calibration events lagging behind local calibration in this period?",
+            "Do risk spikes correlate with specific models or finish reasons?",
+        ],
+    }
 
 
 async def _service_health(user: UserInfo, args: dict) -> Any:
@@ -1023,6 +1454,10 @@ _HANDLERS: dict[str, Any] = {
     "yarn_performance": _yarn_performance,
     "yarn_events": _yarn_events,
     "yarn_safety_summary": _yarn_safety_summary,
+    "yarn_transition_quality": _yarn_transition_quality,
+    "yarn_transition_events_tail": _yarn_transition_events_tail,
+    "yarn_transition_watch": _yarn_transition_watch,
+    "yarn_transition_incident_brief": _yarn_transition_incident_brief,
     "service_health": _service_health,
     "list_models": _list_models,
     "cache_metrics": _cache_metrics,

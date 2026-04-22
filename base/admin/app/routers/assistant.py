@@ -29,11 +29,15 @@ cite specific numbers and suggest next steps.
 You have tools that call the live Admin API (same RBAC as the signed-in user): traces
 (including decision analytics), usage/cost summaries and hourly ``usage_time_series``,
 ``unified_usage_snapshot``, Yarn ops (``yarn_overview``, ``yarn_sessions``, ``yarn_performance``, …),
+transition calibration (``yarn_transition_quality``, ``yarn_transition_incident_brief``),
+live transition watch/tail (``yarn_transition_watch``, ``yarn_transition_events_tail``),
 service health, model roles, and (for privileged users) cache metrics, circuit breakers, ingestion, etc.
 When the user asks about current costs, usage, health, or live data, call the
 appropriate tools instead of guessing. Prefer ``unified_usage_snapshot`` for
 cost/spend questions when a broad picture is needed; use ``usage_time_series`` for
-trends; use Yarn tools for IDE session utilization and performance."""
+trends; use Yarn tools for IDE session utilization and performance.
+When debugging transition quality, prefer ``yarn_transition_incident_brief`` first,
+then drill into ``yarn_transition_events_tail`` and ``yarn_transition_watch``."""
 
 SUPPORT_SYSTEM_PROMPT = """You are the Synesis Support Assistant. You help authenticated
 users with account-safe guidance, usage questions, and product assistance.

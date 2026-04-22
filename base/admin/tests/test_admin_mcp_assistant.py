@@ -23,10 +23,16 @@ def test_openai_tools_respects_role_hierarchy():
     assert "usage_time_series" in names_org_admin
     assert "trace_decision_analytics" in names_org_admin
     assert "yarn_overview" in names_org_admin
+    assert "yarn_transition_quality" in names_org_admin
+    assert "yarn_transition_events_tail" in names_org_admin
+    assert "yarn_transition_watch" in names_org_admin
+    assert "yarn_transition_incident_brief" in names_org_admin
     assert "unified_usage_snapshot" in names_user
     assert "usage_summary" not in names_user
+    assert "yarn_transition_quality" not in names_user
     assert "usage_summary" in names_org_admin
     assert "list_traces" not in names_readonly
+    assert "yarn_transition_watch" not in names_readonly
     assert "reconcile_litellm" in names_platform
     assert "reconcile_litellm" not in names_user
 

@@ -12,6 +12,13 @@ interface Message {
   toolRounds?: number;
 }
 
+const QUICK_PROMPTS = [
+  "Give me a transition-quality incident brief for the last 24 hours.",
+  "Watch transition quality live for 4 polls at 5-second intervals and call out risks.",
+  "Tail transition risk events from the last 90 minutes and group by event kind and session.",
+  "What are the top quality reasons behind recent regressed transitions?",
+];
+
 export default function AdminAssistant() {
   const location = useLocation();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -79,6 +86,18 @@ export default function AdminAssistant() {
           </Link>{" "}
           for charts; token counts below are for this chat turn only.
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {QUICK_PROMPTS.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => setInput(prompt)}
+              className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">

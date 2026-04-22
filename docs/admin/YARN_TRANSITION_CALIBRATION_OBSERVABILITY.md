@@ -57,6 +57,19 @@ In **Coder session detail → Events**, operators can:
   - includes summary rollups, alert thresholds, top reasons, and alert buckets
   - powers the dedicated **Coder → Transition Calibration** page
 
+## Admin Assistant + MCP Tools
+
+Transition-quality telemetry is also exposed to the Admin Assistant through Admin MCP:
+
+- `yarn_transition_quality`: direct access to transition-quality trend telemetry.
+- `yarn_transition_events_tail`: risk-focused tail of `yarn_session_events` for transition event kinds.
+- `yarn_transition_watch`: short live watch loop (poll + interval) for near-real-time incident triage.
+- `yarn_transition_incident_brief`: synthesized operator brief that combines quality summary,
+  event-tail signals, and recommended actions.
+
+This enables conversation-first debugging without switching repeatedly between pages and raw
+event JSON, reducing cognitive overhead during optimization and incident response.
+
 ## Operator Playbook
 
 1. Open **Coder → Transition Calibration** and scan score trend + threshold crossings.
