@@ -233,8 +233,13 @@ import {
   deriveFileState,
   formatFileStateBlock,
   toFileStateSnapshot,
+  type FileState,
   type FileStateSnapshot,
 } from "./governance/file-state.js";
+import {
+  applyObjectiveScope,
+  resolveObjectiveEpoch,
+} from "./governance/objective-scope.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
   buildImplementationSoftStallNudgeMessage,
@@ -1091,6 +1096,94 @@ function summarizeFileStateForGovernor(snapshot: FileStateSnapshot): {
     stale_files: snapshot.staleFiles,
     partial_files: snapshot.partialFiles,
     evicted_files: snapshot.evictedFiles,
+  };
+}
+
+function applyObjectiveScopeAndPersist<TMessage extends {
+  role: string;
+  content: unknown;
+  name?: string;
+  tool_call_id?: string;
+}>(
+  params: {
+    state: SessionState;
+    sessionKey: string;
+    requestId: string;
+    userId: string;
+    orgId: string;
+    messages: TMessage[];
+    chatState: ChatState;
+    fileState: FileState;
+    latestUserPromptText: string | null;
+  },
+): {
+  scopedMessages: TMessage[];
+  relevantEvidenceBlock: string | null;
+  boundaryIndex: number;
+  retainedEvidenceCount: number;
+  droppedPreBoundaryCount: number;
+  objectiveChanged: boolean;
+  epochId: number;
+} {
+  const requestOrdinal = params.state.record.requestCount + 1;
+  const objectiveEpoch = resolveObjectiveEpoch({
+    metadata: params.state.record.metadata,
+    chatState: params.chatState,
+    latestUserPromptText: params.latestUserPromptText,
+    requestOrdinal,
+  });
+  const scoped = applyObjectiveScope({
+    messages: params.messages,
+    chatState: params.chatState,
+    fileState: params.fileState,
+    epoch: objectiveEpoch,
+    maxRelevantEvidence: 6,
+    preBoundaryWindow: 80,
+    minimumScore: 3,
+  });
+
+  params.state.record.metadata.objective_epoch_id = objectiveEpoch.epochId;
+  params.state.record.metadata.objective_epoch_objective_hash = objectiveEpoch.objectiveHash;
+  params.state.record.metadata.objective_epoch_objective_text = objectiveEpoch.objectiveText;
+  params.state.record.metadata.objective_epoch_anchor_user_hash = objectiveEpoch.anchorUserHash;
+  params.state.record.metadata.objective_epoch_set_request = objectiveEpoch.objectiveSetRequest;
+  params.state.record.metadata.objective_scope_boundary_index = scoped.boundaryIndex;
+  params.state.record.metadata.objective_scope_retained_evidence = scoped.retainedEvidenceCount;
+  params.state.record.metadata.objective_scope_dropped_pre_boundary = scoped.droppedPreBoundaryCount;
+
+  if (
+    objectiveEpoch.objectiveChanged
+    || scoped.droppedPreBoundaryCount > 0
+    || scoped.retainedEvidenceCount > 0
+  ) {
+    recordSessionEvent(
+      params.sessionKey,
+      params.userId,
+      params.orgId,
+      "objective_scope_applied",
+      "objective-scope",
+      `epoch=${objectiveEpoch.epochId} changed=${objectiveEpoch.objectiveChanged} boundary=${scoped.boundaryIndex} retained=${scoped.retainedEvidenceCount} dropped=${scoped.droppedPreBoundaryCount}`,
+      params.requestId,
+      {
+        objective_epoch_id: objectiveEpoch.epochId,
+        objective_changed: objectiveEpoch.objectiveChanged,
+        objective_similarity: objectiveEpoch.similarityToPrevious,
+        boundary_index: scoped.boundaryIndex,
+        retained_evidence: scoped.retainedEvidenceCount,
+        dropped_pre_boundary: scoped.droppedPreBoundaryCount,
+        anchor_matched: scoped.anchorMatched,
+      },
+    );
+  }
+
+  return {
+    scopedMessages: scoped.scopedMessages,
+    relevantEvidenceBlock: scoped.relevantEvidenceBlock,
+    boundaryIndex: scoped.boundaryIndex,
+    retainedEvidenceCount: scoped.retainedEvidenceCount,
+    droppedPreBoundaryCount: scoped.droppedPreBoundaryCount,
+    objectiveChanged: objectiveEpoch.objectiveChanged,
+    epochId: objectiveEpoch.epochId,
   };
 }
 
@@ -4193,6 +4286,18 @@ function persistSessionAndUsage(
   const fileStateSummaryForTelemetry = persistedFileSnapshot
     ? summarizeFileStateForGovernor(persistedFileSnapshot)
     : undefined;
+  const objectiveEpochId = Number(state.record.metadata.objective_epoch_id ?? 0);
+  const objectiveScopeBoundaryIndex = Number(state.record.metadata.objective_scope_boundary_index ?? -1);
+  const objectiveScopeRetainedEvidence = Number(state.record.metadata.objective_scope_retained_evidence ?? 0);
+  const objectiveScopeDroppedPreBoundary = Number(state.record.metadata.objective_scope_dropped_pre_boundary ?? 0);
+  const objectiveScopeSummary = objectiveEpochId > 0
+    ? {
+        epoch_id: objectiveEpochId,
+        boundary_index: objectiveScopeBoundaryIndex,
+        retained_evidence: objectiveScopeRetainedEvidence,
+        dropped_pre_boundary: objectiveScopeDroppedPreBoundary,
+      }
+    : undefined;
 
   usageWriter.enqueueSessionEvent({
     sessionKey: state.record.sessionKey,
@@ -4267,10 +4372,11 @@ function persistSessionAndUsage(
         matched_rules: snapshot.governor.matchedRules,
         telemetry: snapshot.governor.telemetry,
       } : undefined,
-      state_channels: (chatStateSummaryForTelemetry || fileStateSummaryForTelemetry)
+      state_channels: (chatStateSummaryForTelemetry || fileStateSummaryForTelemetry || objectiveScopeSummary)
         ? {
             chat_state: chatStateSummaryForTelemetry,
             file_state: fileStateSummaryForTelemetry,
+            objective_scope: objectiveScopeSummary,
           }
         : undefined,
       training_signals: {
@@ -4285,6 +4391,10 @@ function persistSessionAndUsage(
         file_state_stale_count: persistedFileSnapshot?.statusCounts.stale ?? 0,
         file_state_partial_count: persistedFileSnapshot?.statusCounts.partial ?? 0,
         file_state_evicted_count: persistedFileSnapshot?.statusCounts.evicted ?? 0,
+        objective_epoch_id: objectiveEpochId > 0 ? objectiveEpochId : undefined,
+        objective_scope_boundary_index: objectiveScopeBoundaryIndex >= 0 ? objectiveScopeBoundaryIndex : undefined,
+        objective_scope_retained_evidence: objectiveScopeRetainedEvidence > 0 ? objectiveScopeRetainedEvidence : undefined,
+        objective_scope_dropped_pre_boundary: objectiveScopeDroppedPreBoundary > 0 ? objectiveScopeDroppedPreBoundary : undefined,
       },
     },
   });
@@ -4337,6 +4447,7 @@ function persistSessionAndUsage(
       root_trace_id: rootTraceId,
       chat_state: chatStateSummaryForTelemetry,
       file_state: fileStateSummaryForTelemetry,
+      objective_scope: objectiveScopeSummary,
     },
     ...(optimizationLedger ? { optimization_ledger: optimizationLedger } : {}),
     has_error: finishReason === "error" || undefined,
@@ -7103,6 +7214,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
       previousSnapshot: oaiPersistedChatState,
     },
   );
+  const oaiObjectiveScope = applyObjectiveScopeAndPersist({
+    state: session,
+    sessionKey,
+    requestId: oaiTraceReqId,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    messages: normalizedOpenAI.messages as Array<{
+      role: string;
+      content: unknown;
+      name?: string;
+      tool_call_id?: string;
+      tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown }; name?: string }>;
+    }>,
+    chatState: oaiChatState,
+    fileState: oaiFileState,
+    latestUserPromptText: latestUserText ? extractTextFromUnknownContent(latestUserText.content) : "",
+  });
+  const oaiScopedMessages = oaiObjectiveScope.scopedMessages;
   const oaiFileStateSnapshot = toFileStateSnapshot(oaiFileState, { maxPaths: 8 });
   const oaiChatStateSnapshot = toChatStateSnapshot(oaiChatState);
   const oaiPauseChatSummary = summarizeChatStateForGovernor(oaiChatState);
@@ -7114,7 +7243,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
-        normalizedOpenAI.messages as Array<GovernorInputMessage>,
+        oaiScopedMessages as Array<GovernorInputMessage>,
         {
           profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
           activePlanStage: oaiPlanGraph?.activeStage ?? null,
@@ -7195,7 +7324,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
   const oaiLoopObs = deriveGovernorLoopObservability(
-    normalizedOpenAI.messages as Array<{ role: string; tool_calls?: unknown }>,
+    oaiScopedMessages as Array<{ role: string; tool_calls?: unknown }>,
   );
   recordSessionEvent(
     sessionKey,
@@ -7214,6 +7343,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       has_run_test: oaiLoopObs.hasRunTest,
       last_assistant_tool_calls: oaiLoopObs.lastAssistantToolCalls,
       assistant_tool_calls_since_latest_user: oaiLoopObs.assistantToolCallsSinceLatestUser,
+      objective_epoch_id: oaiObjectiveScope.epochId,
+      objective_scope_boundary_index: oaiObjectiveScope.boundaryIndex,
+      objective_scope_retained_evidence: oaiObjectiveScope.retainedEvidenceCount,
+      objective_scope_dropped_pre_boundary: oaiObjectiveScope.droppedPreBoundaryCount,
       evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
       artifact_context: oaiArtifactContext,
       chat_state_summary: oaiPauseChatSummary,
@@ -7732,7 +7865,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
   );
   const oaiEnriched = enrichWithFrameAndManifest(
-    normalizedOpenAI.messages as never,
+    oaiScopedMessages as never,
     sessionKey,
     effectiveOaiAdapterBlock,
     oaiPromptContext,
@@ -7741,6 +7874,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiTaskIntake ? [formatTaskIntakeBlock(oaiTaskIntake)] : []),
       ...(oaiPlanGraph ? [formatPlanProgressBlock(oaiPlanGraph)] : []),
       ...oaiMemBlocks,
+      ...(oaiObjectiveScope.relevantEvidenceBlock ? [oaiObjectiveScope.relevantEvidenceBlock] : []),
     ],
     oaiSeedDirs,
     session,
@@ -10362,6 +10496,24 @@ app.post("/v1/messages", async (req, reply) => {
       previousSnapshot: claudePersistedChatState,
     },
   );
+  const claudeObjectiveScope = applyObjectiveScopeAndPersist({
+    state: session,
+    sessionKey: claudeSessionKey,
+    requestId: traceReqId,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+    messages: normalizedFromClaude.messages as Array<{
+      role: string;
+      content: unknown;
+      name?: string;
+      tool_call_id?: string;
+      tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown }; name?: string }>;
+    }>,
+    chatState: claudeChatState,
+    fileState: claudeFileState,
+    latestUserPromptText: latestClaudeUser ? extractTextFromUnknownContent(latestClaudeUser.content) : "",
+  });
+  const claudeScopedMessages = claudeObjectiveScope.scopedMessages;
   const claudeFileStateSnapshot = toFileStateSnapshot(claudeFileState, { maxPaths: 8 });
   const claudeChatStateSnapshot = toChatStateSnapshot(claudeChatState);
   const claudePauseChatSummary = summarizeChatStateForGovernor(claudeChatState);
@@ -10373,7 +10525,7 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
     ? withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
       const decision = evaluateExecutionGovernor(
-        normalizedFromClaude.messages as Array<GovernorInputMessage>,
+        claudeScopedMessages as Array<GovernorInputMessage>,
         {
           profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
           activePlanStage: claudePlanGraph?.activeStage ?? null,
@@ -10454,7 +10606,7 @@ app.post("/v1/messages", async (req, reply) => {
     );
   }
   const claudeLoopObs = deriveGovernorLoopObservability(
-    normalizedFromClaude.messages as Array<{ role: string; tool_calls?: unknown }>,
+    claudeScopedMessages as Array<{ role: string; tool_calls?: unknown }>,
   );
   recordSessionEvent(
     claudeSessionKey,
@@ -10473,6 +10625,10 @@ app.post("/v1/messages", async (req, reply) => {
       has_run_test: claudeLoopObs.hasRunTest,
       last_assistant_tool_calls: claudeLoopObs.lastAssistantToolCalls,
       assistant_tool_calls_since_latest_user: claudeLoopObs.assistantToolCallsSinceLatestUser,
+      objective_epoch_id: claudeObjectiveScope.epochId,
+      objective_scope_boundary_index: claudeObjectiveScope.boundaryIndex,
+      objective_scope_retained_evidence: claudeObjectiveScope.retainedEvidenceCount,
+      objective_scope_dropped_pre_boundary: claudeObjectiveScope.droppedPreBoundaryCount,
       evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
       artifact_context: claudeArtifactContext,
       chat_state_summary: claudePauseChatSummary,
@@ -10992,7 +11148,7 @@ app.post("/v1/messages", async (req, reply) => {
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
   );
   const claudeEnriched = enrichWithFrameAndManifest(
-    normalizedFromClaude.messages as never,
+    claudeScopedMessages as never,
     claudeSessionKey,
     effectiveClaudeAdapterBlock,
     claudePromptContext,
@@ -11001,6 +11157,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudeTaskIntake ? [formatTaskIntakeBlock(claudeTaskIntake)] : []),
       ...(claudePlanGraph ? [formatPlanProgressBlock(claudePlanGraph)] : []),
       ...claudeMemBlocks,
+      ...(claudeObjectiveScope.relevantEvidenceBlock ? [claudeObjectiveScope.relevantEvidenceBlock] : []),
     ],
     claudeSeedDirs,
     session,

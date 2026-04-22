@@ -118,6 +118,21 @@ Follow-up hardening adds:
 This makes debugging and training-data extraction state-native instead of requiring
 fragile reconstruction from raw transcript residue.
 
+## 7) Objective epoch fence + relevancy gate
+
+To reduce "entire session" bleed-through into current decisions, the runtime now
+applies an objective-scoped context pass:
+
+- `objective_epoch_*` metadata tracks the active objective epoch and anchor user turn
+- prompt/governor context is fenced to the active objective boundary ("now -> forward")
+- pre-boundary history is not replayed wholesale; instead a bounded
+  `<SYNESIS_RELEVANT_EVIDENCE>` block carries only top-scoring, objective-relevant
+  evidence (path/objective-token aligned)
+- scope decisions are emitted as `objective_scope_applied` session telemetry events
+
+This keeps context forward-looking and state-led while preserving deterministic,
+cache-safe behavior.
+
 ## Weird UX/client affordance handling improvements
 
 This split improves resilience in exactly the failure cases we observed:
