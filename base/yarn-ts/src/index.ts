@@ -6792,8 +6792,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
             || session.editMissForceReadPending
             || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
           artifactShadows: oaiArtifactShadows,
+          orchestratorWorkflowPhase: oaiWorkingPhase,
         },
       );
+      if (oaiWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", oaiWorkingPhase);
       govSpan.setAttribute("governor.pause", decision.pause);
       govSpan.setAttribute("governor.reason", decision.reason ?? "");
       govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
@@ -9914,8 +9916,10 @@ app.post("/v1/messages", async (req, reply) => {
             || session.editMissForceReadPending
             || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
           artifactShadows: claudeArtifactShadows,
+          orchestratorWorkflowPhase: claudeWorkingPhase,
         },
       );
+      if (claudeWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", claudeWorkingPhase);
       govSpan.setAttribute("governor.pause", decision.pause);
       govSpan.setAttribute("governor.reason", decision.reason ?? "");
       govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));

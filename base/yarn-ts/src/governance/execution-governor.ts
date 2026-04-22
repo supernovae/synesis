@@ -1,4 +1,5 @@
 import { suggestScopedVerificationCommand } from "../verification/test-scope-selector.js";
+import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
 
 export interface GovernorInputMessage {
   role: string;
@@ -189,21 +190,28 @@ function isExecutionVerificationCommand(toolName: string, command: string): bool
  *   any     -> Report (completion claim with no subsequent edit/explore)
  *
  * Walks events forward so the LAST transition wins (most recent phase).
+ *
+ * @param orchestratorWorkflowPhase When `"implementation"` (from working frame / `x-synesis-orchestrator-phase`),
+ *   we do **not** treat read-only investigation verbs ("review the codebase", "audit", …) as locking the FSM
+ *   into `explore`. That keeps `governorPhaseToWorkflowPhase` aligned with Claude Code / client "coding" mode
+ *   while leaving investigation-only heuristics (`isReadOnlyInvestigationIntent` elsewhere) unchanged.
  */
 export function detectSessionPhase(
   events: CommandEvent[],
   userText: string,
   changedFiles: string[],
   hasCompletionClaim: boolean,
+  orchestratorWorkflowPhase?: WorkflowPhase,
 ): SessionPhase {
-  const isInvestigation = isReadOnlyInvestigationIntent(userText);
+  const investigationLocksExplore =
+    isReadOnlyInvestigationIntent(userText) && orchestratorWorkflowPhase !== "implementation";
 
   // Investigation intent with no events → explore
-  if (events.length === 0) return isInvestigation ? "explore" : "edit";
+  if (events.length === 0) return investigationLocksExplore ? "explore" : "edit";
 
   // Default: "edit" allows all rules (backward-compatible).
   // "explore" is only entered when investigation intent is confirmed.
-  let phase: SessionPhase = isInvestigation ? "explore" : "edit";
+  let phase: SessionPhase = investigationLocksExplore ? "explore" : "edit";
   let hasEdited = false;
   let sawVerificationFailure = false;
   let sawVerificationSuccess = false;
@@ -271,7 +279,7 @@ export function detectSessionPhase(
   // Investigation intent keeps us in explore even if tests ran, as long as no edits —
   // unless we already have failure-driven verification/edit failures: then the model
   // must act, not stay in read-only explore.
-  if (isInvestigation && !hasEdited) {
+  if (investigationLocksExplore && !hasEdited) {
     const hasFailureDrivenSignals = sawVerificationFailure
       || sawEditFailure
       || events.some(
@@ -1413,6 +1421,11 @@ export interface ExecutionGovernorOptions {
   artifactShadows?: ReadonlyMap<string, { stale: boolean; completeness: "full" | "partial"; readReturnedContent: boolean }>;
   /** Model family for dynamic threshold adjustment (e.g. "qwen", "claude", "gpt"). */
   modelFamily?: string;
+  /**
+   * Client / working-frame workflow phase. When `implementation`, session phase is not forced to `explore`
+   * from investigation-only user wording, so governor workflow telemetry matches "coding" expectations.
+   */
+  orchestratorWorkflowPhase?: WorkflowPhase;
 }
 
 export function evaluateExecutionGovernor(
@@ -1460,7 +1473,13 @@ export function evaluateExecutionGovernor(
   const hasCompletionClaim = hasActiveCompletionClaim(messages);
   // Full-turn claim: any completion text in the entire turn (for phase-independent rules)
   const hasTurnCompletionClaim = hasCompletionClaimInAssistantText(turnMessages);
-  let sessionPhase = detectSessionPhase(events, latestUserText, changedFiles, hasCompletionClaim);
+  let sessionPhase = detectSessionPhase(
+    events,
+    latestUserText,
+    changedFiles,
+    hasCompletionClaim,
+    opts.orchestratorWorkflowPhase,
+  );
   const verificationEvents = events.filter((e) => isVerificationLike(e.toolName, e.command));
   const sawAnyVerificationSuccess = verificationEvents.some((e) => hasSuccessSignature(e.resultSignature) || !e.resultSignature);
   const sawAnyVerificationFailure = verificationEvents.some((e) => hasFailureSignature(e.resultSignature));

@@ -2140,6 +2140,12 @@ describe("detectSessionPhase", () => {
     expect(detectSessionPhase([], "fix the bug", [], false)).toBe("edit");
   });
 
+  it("when orchestrator workflow is implementation, investigation wording does not default to explore", () => {
+    expect(
+      detectSessionPhase([], "review the codebase for security issues", [], false, "implementation"),
+    ).toBe("edit");
+  });
+
   it("stays in explore during reads and searches with investigation intent", () => {
     const events = [
       ev("read:src/main.ts", "read_file"),
@@ -2309,6 +2315,8 @@ describe("detectSessionPhase", () => {
     ];
     // With investigation intent, stays in explore despite failed edit
     expect(detectSessionPhase(events, "review the codebase", [], false)).toBe("explore");
+    // With orchestrator implementation, same wording stays in the edit FSM (aligns with coding mode)
+    expect(detectSessionPhase(events, "review the codebase", [], false, "implementation")).toBe("edit");
     // Without investigation intent, default is edit (all rules apply)
     expect(detectSessionPhase(events, "fix something", [], false)).toBe("edit");
   });
