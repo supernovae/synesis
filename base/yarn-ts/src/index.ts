@@ -6706,11 +6706,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   let effectiveOaiPathCtx = mergeSessionPathHints(oaiPathCtx, session);
-  const effectiveOaiAdapterBlock = (() => {
-    const ctxBlock = toSessionExecutionContextSystemBlock(effectiveOaiPathCtx);
+  const buildEffectiveOaiAdapterBlock = (pathCtx: SessionPathHints): string | undefined => {
+    const ctxBlock = toSessionExecutionContextSystemBlock(pathCtx);
     if (!ctxBlock) return adapterBlock;
     return `${clientAdapterPacks.toSystemBlock(adapterProfile)}\n\n${ctxBlock}`;
-  })();
+  };
+  let effectiveOaiAdapterBlock = buildEffectiveOaiAdapterBlock(effectiveOaiPathCtx);
   if (shouldStartWorkspaceHandshake(session, effectiveOaiPathCtx)) {
     if (!hasBashTool(request.tools as unknown[] | undefined)) {
       setSessionWorkspaceContext(session, "unavailable", oaiTraceReqId, { reason: "Bash tool not available for workspace handshake" });
@@ -7406,6 +7407,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         platform: effectiveOaiPathCtx.platform ?? preMeta.platform ?? undefined,
         osVersion: effectiveOaiPathCtx.osVersion ?? preMeta.osVersion ?? undefined,
       };
+      effectiveOaiAdapterBlock = buildEffectiveOaiAdapterBlock(effectiveOaiPathCtx);
       setSessionWorkspaceContext(session, "ready", oaiTraceReqId, {
         reason: "Extracted from client system message (pre-enrich)",
         projectRoot: preMeta.projectRoot ?? undefined,
@@ -9878,11 +9880,12 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   let effectiveClaudePathCtx = mergeSessionPathHints(claudePathCtx, session);
-  const effectiveClaudeAdapterBlock = (() => {
-    const ctxBlock = toSessionExecutionContextSystemBlock(effectiveClaudePathCtx);
+  const buildEffectiveClaudeAdapterBlock = (pathCtx: SessionPathHints): string | undefined => {
+    const ctxBlock = toSessionExecutionContextSystemBlock(pathCtx);
     if (!ctxBlock) return claudeAdapterBlock;
     return `${clientAdapterPacks.toSystemBlock(claudeAdapterProfile)}\n\n${ctxBlock}`;
-  })();
+  };
+  let effectiveClaudeAdapterBlock = buildEffectiveClaudeAdapterBlock(effectiveClaudePathCtx);
   if (shouldStartWorkspaceHandshake(session, effectiveClaudePathCtx)) {
     if (!hasBashTool(body.tools as unknown[] | undefined)) {
       setSessionWorkspaceContext(session, "unavailable", traceReqId, { reason: "Bash tool not available for workspace handshake" });
@@ -10574,6 +10577,7 @@ app.post("/v1/messages", async (req, reply) => {
         platform: effectiveClaudePathCtx.platform ?? preMeta.platform ?? undefined,
         osVersion: effectiveClaudePathCtx.osVersion ?? preMeta.osVersion ?? undefined,
       };
+      effectiveClaudeAdapterBlock = buildEffectiveClaudeAdapterBlock(effectiveClaudePathCtx);
       setSessionWorkspaceContext(session, "ready", traceReqId, {
         reason: "Extracted from client system message (pre-enrich)",
         projectRoot: preMeta.projectRoot ?? undefined,
