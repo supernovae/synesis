@@ -393,6 +393,53 @@ def test_yarn_transition_quality_returns_telemetry(client, monkeypatch):
     assert kwargs["bucket_minutes"] == 60
 
 
+def test_yarn_transition_events_returns_tail(client, monkeypatch):
+    payload = {
+        "since_minutes": 60,
+        "event_kinds": ["request_trajectory_v1", "state_transition_v1"],
+        "risk_only": True,
+        "include_metadata": False,
+        "count": 1,
+        "session_count": 1,
+        "request_count": 1,
+        "counts_by_kind": {"state_transition_v1": 1},
+        "next_after_id": 1234,
+        "events": [
+            {
+                "id": 1234,
+                "session_key": "synesis:u1:coder:conv-1",
+                "request_id": "req-1",
+                "event_kind": "state_transition_v1",
+                "component": "governor",
+                "detail": "transition",
+                "created_at": "2026-04-22T13:00:00+00:00",
+                "quality_label": "regressed",
+                "quality_score": -0.2,
+                "global_scope": "org_model",
+                "reasons": ["stale_files_increased"],
+                "risk_flags": ["quality_label_regressed"],
+                "calibration_sample_count": 12,
+            }
+        ],
+    }
+    mock_tail = AsyncMock(return_value=payload)
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_transition_events", mock_tail)
+
+    resp = client.get(
+        "/api/v1/yarn/transition-events?since_minutes=60&limit=100&after_id=7&risk_only=true&event_kinds=state_transition_v1"
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == payload
+    mock_tail.assert_awaited_once()
+    kwargs = mock_tail.await_args.kwargs
+    assert kwargs["since_minutes"] == 60
+    assert kwargs["limit"] == 100
+    assert kwargs["after_id"] == 7
+    assert kwargs["risk_only"] is True
+    assert kwargs["event_kinds"] == ["state_transition_v1"]
+
+
 def test_yarn_health_uses_probe_service(client, monkeypatch):
     probe_result = {
         "name": "synesis-yarn",

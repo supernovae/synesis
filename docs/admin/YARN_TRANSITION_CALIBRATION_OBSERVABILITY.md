@@ -56,6 +56,10 @@ In **Coder session detail → Events**, operators can:
   - returns bucketed transition-quality trends
   - includes summary rollups, alert thresholds, top reasons, and alert buckets
   - powers the dedicated **Coder → Transition Calibration** page
+- `GET /api/v1/yarn/transition-events?since_minutes=<m>&limit=<n>&after_id=<id>&risk_only=<bool>`
+  - returns a risk-aware transition event tail (cursorable by `next_after_id`)
+  - includes per-event quality label/score/reasons/risk flags and optional raw metadata
+  - powers live watch loops and incident-tail workflows
 
 ## Admin Assistant + MCP Tools
 
@@ -66,6 +70,10 @@ Transition-quality telemetry is also exposed to the Admin Assistant through Admi
 - `yarn_transition_watch`: short live watch loop (poll + interval) for near-real-time incident triage.
 - `yarn_transition_incident_brief`: synthesized operator brief that combines quality summary,
   event-tail signals, and recommended actions.
+
+`synesis-admin-mcp-ts` is now the tool-catalog and invocation source of truth for these
+Admin tools, authenticated with the same Admin UI bearer token. Access is restricted to
+`org_admin` / `platform_admin` users.
 
 This enables conversation-first debugging without switching repeatedly between pages and raw
 event JSON, reducing cognitive overhead during optimization and incident response.

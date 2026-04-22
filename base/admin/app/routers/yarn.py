@@ -166,6 +166,30 @@ async def yarn_transition_quality(
     )
 
 
+@router.get("/transition-events")
+async def yarn_transition_events(
+    since_minutes: int = Query(60, ge=1, le=1440),
+    limit: int = Query(100, ge=1, le=500),
+    after_id: int = Query(0, ge=0),
+    risk_only: bool = Query(True),
+    include_metadata: bool = Query(False),
+    event_kinds: list[str] = Query(default=[]),
+    user: UserInfo = Depends(require_org_admin),
+):
+    scope_user_id, scope_org_id, _tenant_id = _scope(user)
+    selected_kinds = [k.strip() for k in event_kinds if k.strip()]
+    return await yarn_service.get_yarn_transition_events(
+        since_minutes=since_minutes,
+        limit=limit,
+        after_id=after_id,
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
+        risk_only=risk_only,
+        include_metadata=include_metadata,
+        event_kinds=selected_kinds or None,
+    )
+
+
 # ── Diagnostics passthrough ──────────────────────────────────────────────────
 
 

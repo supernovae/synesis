@@ -7,11 +7,16 @@ import logging
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ..auth import UserInfo, get_current_user
 from ..deps import ASSISTANT_MODEL, LITELLM_MASTER_KEY, LITELLM_URL
 from ..rbac import Role, can_access_trace, resolve_role
+from ..services.admin_mcp_ts_client import (
+    invoke_admin_mcp_tool,
+    list_admin_mcp_tools,
+    openai_function_tools_from_admin_mcp_catalog,
+)
 from ..services import trace_store
 from .admin_mcp import invoke_mcp_tool_for_chat, openai_function_tools_for_role
 
@@ -123,6 +128,7 @@ def _message_content_text(msg: dict[str, Any]) -> str | None:
 async def _assistant_chat_impl(
     data: dict = Body(...),
     _user: UserInfo = Depends(get_current_user),
+    request: Request | None = None,
     *,
     support_mode: bool,
 ):
@@ -161,11 +167,27 @@ async def _assistant_chat_impl(
         messages.append({"role": "user", "content": user_message})
 
     role = resolve_role(_user)
-    tools = (
-        openai_function_tools_for_role(role, allowed_tool_names=SUPPORT_ALLOWED_TOOL_NAMES)
-        if support_mode
-        else openai_function_tools_for_role(role)
-    )
+    auth_header = (request.headers.get("authorization") if request else "") or ""
+    org_headers: dict[str, str] = {}
+    if request:
+        for header_name in ("x-synesis-org-id", "x-active-org-id"):
+            value = (request.headers.get(header_name) or "").strip()
+            if value:
+                org_headers[header_name] = value
+
+    if support_mode:
+        tools = openai_function_tools_for_role(role, allowed_tool_names=SUPPORT_ALLOWED_TOOL_NAMES)
+    else:
+        tools = []
+        if auth_header.lower().startswith("bearer "):
+            try:
+                catalog = await list_admin_mcp_tools(auth_header, org_headers)
+                tools = openai_function_tools_from_admin_mcp_catalog(catalog)
+            except PermissionError:
+                tools = []
+            except Exception:
+                logger.warning("assistant_admin_mcp_catalog_failed", exc_info=True)
+                tools = []
     tool_rounds = 0
     total_usage_tokens = 0
     last_model = ASSISTANT_MODEL
@@ -235,7 +257,12 @@ async def _assistant_chat_impl(
                             args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
                         except json.JSONDecodeError:
                             args = {}
-                        tool_text = await invoke_mcp_tool_for_chat(_user, tname, args, audit_source="assistant")
+                        if support_mode:
+                            tool_text = await invoke_mcp_tool_for_chat(_user, tname, args, audit_source="assistant")
+                        elif auth_header.lower().startswith("bearer "):
+                            tool_text = await invoke_admin_mcp_tool(auth_header, org_headers, tname, args)
+                        else:
+                            tool_text = json.dumps({"error": "missing_authorization_header", "tool": tname})
                         messages.append(
                             {
                                 "role": "tool",
@@ -287,21 +314,23 @@ async def _assistant_chat_impl(
 
 @router.post("/chat")
 async def assistant_chat(
+    request: Request,
     data: dict = Body(...),
     _user: UserInfo = Depends(get_current_user),
 ):
     """Admin assistant chat endpoint (org_admin+)."""
     if resolve_role(_user) < Role.org_admin:
         raise HTTPException(status_code=403, detail="Admin assistant requires org_admin role or higher")
-    return await _assistant_chat_impl(data=data, _user=_user, support_mode=False)
+    return await _assistant_chat_impl(data=data, _user=_user, request=request, support_mode=False)
 
 
 @router.post("/support/chat")
 async def support_assistant_chat(
+    request: Request,
     data: dict = Body(...),
     _user: UserInfo = Depends(get_current_user),
 ):
     """Support assistant endpoint for authenticated user context."""
     if resolve_role(_user) < Role.user:
         raise HTTPException(status_code=403, detail="Authentication required")
-    return await _assistant_chat_impl(data=data, _user=_user, support_mode=True)
+    return await _assistant_chat_impl(data=data, _user=_user, request=request, support_mode=True)

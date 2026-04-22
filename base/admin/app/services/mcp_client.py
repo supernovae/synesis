@@ -87,3 +87,36 @@ async def probe_admin_mcp_health() -> dict:
             "url": url,
             "error": "request_failed",
         }
+
+
+async def get_admin_mcp_tools(auth_header: str, org_headers: dict[str, str] | None = None) -> list[dict]:
+    """Catalog from synesis-admin-mcp-ts (`GET /v1/admin-tools`) for the caller token."""
+    if not auth_header.strip():
+        return []
+    headers: dict[str, str] = {"Authorization": auth_header}
+    if org_headers:
+        for key in ("x-synesis-org-id", "x-active-org-id"):
+            value = str(org_headers.get(key, "") or "").strip()
+            if value:
+                headers[key] = value
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{ADMIN_MCP_URL.rstrip('/')}/v1/admin-tools", headers=headers, timeout=10.0)
+            if resp.status_code in (401, 403):
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            tools = data.get("tools", []) if isinstance(data, dict) else []
+            return [
+                {
+                    "name": t.get("name", ""),
+                    "description": t.get("description", ""),
+                    "min_role": t.get("min_role", ""),
+                    "parameters": t.get("inputSchema", {}),
+                }
+                for t in tools
+                if isinstance(t, dict)
+            ]
+    except Exception as exc:
+        logger.warning("admin_mcp_tools_error error=%s", str(exc)[:120])
+        return []

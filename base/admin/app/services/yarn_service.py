@@ -1462,6 +1462,175 @@ async def get_yarn_transition_quality_series(
     }
 
 
+# ── Transition event tail ─────────────────────────────────────────────────────
+
+_TRANSITION_EVENT_KINDS = {
+    "request_trajectory_v1",
+    "state_transition_v1",
+    "state_transition_quality_calibration_v1",
+    "state_transition_quality_global_calibration_v1",
+}
+_TRANSITION_RISK_LABELS = {"regressed", "reground_required"}
+
+
+def _coerce_transition_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_transition_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_transition_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _extract_transition_event_view(event_kind: str, metadata_json: object) -> dict:
+    metadata = metadata_json if isinstance(metadata_json, dict) else {}
+    training = metadata.get("training_signals")
+    quality = metadata.get("quality")
+
+    training_dict = training if isinstance(training, dict) else {}
+    quality_dict = quality if isinstance(quality, dict) else {}
+
+    label = str(training_dict.get("state_transition_quality_label") or "").strip().lower()
+    if not label:
+        label = str(quality_dict.get("label") or "").strip().lower()
+
+    score = _coerce_transition_float(training_dict.get("state_transition_quality_score"))
+    if score is None:
+        score = _coerce_transition_float(quality_dict.get("score"))
+
+    global_scope = str(training_dict.get("state_transition_quality_global_scope") or "").strip() or None
+    reasons = _coerce_transition_str_list(training_dict.get("state_transition_quality_reasons"))
+    if not reasons:
+        reasons = _coerce_transition_str_list(quality_dict.get("reasons"))
+
+    risk_flags = _coerce_transition_str_list(training_dict.get("state_transition_quality_risk_flags"))
+    if score is not None and score < 0 and "negative_quality_score" not in risk_flags:
+        risk_flags.append("negative_quality_score")
+    if label in _TRANSITION_RISK_LABELS:
+        flag = f"quality_label_{label}"
+        if flag not in risk_flags:
+            risk_flags.append(flag)
+    if event_kind == "state_transition_quality_global_calibration_v1":
+        if "global_calibration" not in risk_flags:
+            risk_flags.append("global_calibration")
+    if event_kind == "state_transition_quality_calibration_v1":
+        if "local_calibration" not in risk_flags:
+            risk_flags.append("local_calibration")
+
+    calibration_samples = _coerce_transition_int(training_dict.get("state_transition_quality_calibration_sample_count"), 0)
+    if calibration_samples <= 0 and event_kind.endswith("calibration_v1"):
+        calibration_meta = metadata.get("calibration")
+        if isinstance(calibration_meta, dict):
+            calibration_samples = _coerce_transition_int(calibration_meta.get("sample_count"), 0)
+
+    return {
+        "quality_label": label or None,
+        "quality_score": score,
+        "global_scope": global_scope,
+        "reasons": reasons,
+        "risk_flags": risk_flags,
+        "calibration_sample_count": calibration_samples if calibration_samples > 0 else None,
+    }
+
+
+async def get_yarn_transition_events(
+    since_minutes: int = 60,
+    limit: int = 100,
+    after_id: int = 0,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+    risk_only: bool = True,
+    include_metadata: bool = False,
+    event_kinds: list[str] | None = None,
+) -> dict:
+    cutoff = datetime.now(UTC) - timedelta(minutes=since_minutes)
+    requested_event_kinds = [str(kind).strip() for kind in (event_kinds or []) if str(kind).strip()]
+    selected_event_kinds = requested_event_kinds or sorted(_TRANSITION_EVENT_KINDS)
+
+    async with async_session() as session:
+        base = select(YarnSessionEvent).where(YarnSessionEvent.created_at >= cutoff)
+        if scope_user_id:
+            base = base.where(YarnSessionEvent.user_id == scope_user_id)
+        elif scope_org_id:
+            base = base.where(YarnSessionEvent.org_id == scope_org_id)
+        if after_id > 0:
+            base = base.where(YarnSessionEvent.id > after_id)
+        if selected_event_kinds:
+            base = base.where(YarnSessionEvent.event_kind.in_(selected_event_kinds))
+
+        rows = (
+            await session.execute(base.order_by(YarnSessionEvent.id.desc()).limit(limit))
+        ).scalars().all()
+
+    rows = list(reversed(rows))
+    events: list[dict] = []
+    counts_by_kind: dict[str, int] = {}
+    next_after_id = after_id
+    sessions: set[str] = set()
+    requests: set[str] = set()
+
+    for row in rows:
+        event_view = _extract_transition_event_view(row.event_kind, row.metadata_json)
+        risk_flags = list(event_view["risk_flags"])
+        is_risk = bool(risk_flags)
+        if risk_only and not is_risk:
+            continue
+
+        sessions.add(row.session_key)
+        if row.request_id:
+            requests.add(row.request_id)
+        counts_by_kind[row.event_kind] = counts_by_kind.get(row.event_kind, 0) + 1
+        next_after_id = max(next_after_id, int(row.id))
+
+        item: dict = {
+            "id": int(row.id),
+            "session_key": row.session_key,
+            "request_id": row.request_id,
+            "event_kind": row.event_kind,
+            "component": row.component,
+            "detail": row.detail,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "quality_label": event_view["quality_label"],
+            "quality_score": event_view["quality_score"],
+            "global_scope": event_view["global_scope"],
+            "reasons": event_view["reasons"],
+            "risk_flags": risk_flags,
+            "calibration_sample_count": event_view["calibration_sample_count"],
+        }
+        if include_metadata:
+            item["metadata_json"] = row.metadata_json
+        events.append(item)
+
+    return {
+        "since_minutes": since_minutes,
+        "event_kinds": selected_event_kinds,
+        "risk_only": risk_only,
+        "include_metadata": include_metadata,
+        "count": len(events),
+        "session_count": len(sessions),
+        "request_count": len(requests),
+        "counts_by_kind": counts_by_kind,
+        "next_after_id": next_after_id,
+        "events": events,
+    }
+
+
 # ── Safety events ─────────────────────────────────────────────────────────────
 
 

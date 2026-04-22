@@ -240,6 +240,9 @@ Admin now exposes transition-quality + calibration telemetry in Coder views:
   calibration event counts, top quality reasons, and actionable risk notes.
 - **Transition Calibration page:** bucketed trend charts for quality score, threshold bands,
   label-rate movement, calibration cadence, and recent alert buckets with operator actions.
+- **Admin Assistant (TS-owned MCP):** `synesis-admin-mcp-ts` now owns the admin tool catalog
+  and invocation path, including transition-quality trend, event tail, watch, and incident-brief
+  tools using admin-token RBAC.
 - **Session Event drilldown:** transition-risk preset + quality-specific chips on
   `request_trajectory_v1` events.
 - **Calibration events:** `state_transition_quality_calibration_v1` and

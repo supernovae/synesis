@@ -1,20 +1,21 @@
 /**
  * Synesis Admin MCP — Streamable HTTP (@modelcontextprotocol/sdk).
- * Authenticates against Admin API (JWT / PAT), loads role-filtered tools, invokes Python handlers via internal routes.
+ * Authenticates against Admin API (JWT / PAT), owns Admin MCP tool catalog/execution,
+ * and serves Streamable HTTP plus a lightweight JSON tool API for the Admin Assistant.
  */
 import Fastify, { type FastifyRequest } from "fastify";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 import { loadConfig, type AdminMcpConfig } from "./config.js";
+import {
+  invokeTool,
+  isOrgAdminOrHigher,
+  type SessionUser,
+  visibleToolDescriptorsForRole,
+} from "./tools.js";
 
 const FlexibleArgs = z.object({}).passthrough();
-
-interface AdminToolRow {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
 
 function extractBearer(req: FastifyRequest): string {
   const raw = req.headers.authorization ?? "";
@@ -35,7 +36,7 @@ async function validateSession(
   cfg: AdminMcpConfig,
   authHeader: string,
   orgHeaders: Record<string, string>,
-): Promise<void> {
+): Promise<SessionUser> {
   const base = cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
   const r = await fetch(`${base}/api/v1/auth/me`, {
     headers: { Authorization: authHeader, ...orgHeaders },
@@ -46,58 +47,8 @@ async function validateSession(
   if (!r.ok) {
     throw new Error(`auth_upstream_${r.status}`);
   }
-}
-
-async function fetchAdminToolCatalog(
-  cfg: AdminMcpConfig,
-  authHeader: string,
-  orgHeaders: Record<string, string>,
-): Promise<AdminToolRow[]> {
-  const base = cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
-  const r = await fetch(`${base}/api/v1/internal/mcp/tools`, {
-    headers: { Authorization: authHeader, ...orgHeaders },
-  });
-  if (r.status === 401) throw new Error("unauthorized");
-  if (r.status === 403) throw new Error("forbidden");
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`catalog_${r.status}:${t.slice(0, 120)}`);
-  }
-  const data = (await r.json()) as { tools?: AdminToolRow[] };
-  return Array.isArray(data.tools) ? data.tools : [];
-}
-
-async function invokeAdminTool(
-  cfg: AdminMcpConfig,
-  authHeader: string,
-  orgHeaders: Record<string, string>,
-  name: string,
-  args: Record<string, unknown>,
-): Promise<unknown> {
-  const base = cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
-  const r = await fetch(`${base}/api/v1/internal/mcp/invoke`, {
-    method: "POST",
-    headers: { Authorization: authHeader, "Content-Type": "application/json", ...orgHeaders },
-    body: JSON.stringify({ name, arguments: args }),
-  });
-  const text = await r.text();
-  let parsed: unknown;
-  try {
-    parsed = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`invoke_bad_json:${text.slice(0, 200)}`);
-  }
-  if (!r.ok) {
-    const detail =
-      typeof parsed === "object" && parsed !== null && "detail" in parsed
-        ? (parsed as { detail: unknown }).detail
-        : parsed;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-  }
-  if (typeof parsed === "object" && parsed !== null && "result" in parsed) {
-    return (parsed as { result: unknown }).result;
-  }
-  return parsed;
+  const data = (await r.json()) as SessionUser;
+  return data;
 }
 
 function jsonResult(data: unknown): { content: Array<{ type: "text"; text: string }> } {
@@ -106,16 +57,57 @@ function jsonResult(data: unknown): { content: Array<{ type: "text"; text: strin
   };
 }
 
+function parseInvokeBody(body: unknown): { name: string; args: Record<string, unknown> } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("invalid_body");
+  }
+  const raw = body as { name?: unknown; arguments?: unknown };
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!name) throw new Error("name_required");
+  const argsRaw = raw.arguments;
+  if (argsRaw === undefined || argsRaw === null) return { name, args: {} };
+  if (typeof argsRaw === "object" && !Array.isArray(argsRaw)) {
+    return { name, args: argsRaw as Record<string, unknown> };
+  }
+  throw new Error("arguments_must_be_object");
+}
+
+interface AuthenticatedRequestContext {
+  authHeader: string;
+  orgHeaders: Record<string, string>;
+  user: SessionUser;
+}
+
+async function authenticateAdminRequest(
+  cfg: AdminMcpConfig,
+  req: FastifyRequest,
+): Promise<AuthenticatedRequestContext> {
+  const bearer = extractBearer(req);
+  if (!bearer) throw new Error("missing_bearer");
+  const authHeader = `Bearer ${bearer}`;
+  const orgHeaders = forwardOrgHeaders(req);
+  const user = await validateSession(cfg, authHeader, orgHeaders);
+  if (!isOrgAdminOrHigher(user.role)) {
+    throw new Error("forbidden");
+  }
+  return { authHeader, orgHeaders, user };
+}
+
 export function buildAdminMcpServer(
   cfg: AdminMcpConfig,
-  authHeader: string,
-  orgHeaders: Record<string, string>,
-  tools: AdminToolRow[],
+  authCtx: AuthenticatedRequestContext,
 ): McpServer {
   const server = new McpServer(
     { name: "synesis-admin-mcp", version: "0.1.0" },
     { capabilities: { tools: { listChanged: true } } },
   );
+
+  const tools = visibleToolDescriptorsForRole(authCtx.user.role);
+  const toolContext = {
+    cfg,
+    authHeader: authCtx.authHeader,
+    orgHeaders: authCtx.orgHeaders,
+  };
 
   for (const tool of tools) {
     server.registerTool(
@@ -128,7 +120,7 @@ export function buildAdminMcpServer(
         const raw = args && typeof args === "object" && !Array.isArray(args) ? args : {};
         const record = z.record(z.string(), z.unknown()).parse(raw);
         try {
-          const result = await invokeAdminTool(cfg, authHeader, orgHeaders, tool.name, record);
+          const result = await invokeTool(toolContext, authCtx.user.role, tool.name, record);
           return jsonResult(result);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -144,6 +136,7 @@ export function buildAdminMcpServer(
 function createApp(cfg: AdminMcpConfig) {
   let mcpRequests = 0;
   let mcpAuthFailures = 0;
+  let directToolInvocations = 0;
 
   const app = Fastify({ logger: { level: cfg.LOG_LEVEL } });
 
@@ -159,55 +152,112 @@ function createApp(cfg: AdminMcpConfig) {
     service: "synesis-admin-mcp-ts",
     mcp_http_requests: mcpRequests,
     mcp_auth_failures: mcpAuthFailures,
+    direct_tool_invocations: directToolInvocations,
     otel: { configured: Boolean(cfg.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) },
   }));
+
+  app.get("/v1/admin-tools", async (req, reply) => {
+    try {
+      const authCtx = await authenticateAdminRequest(cfg, req);
+      const tools = visibleToolDescriptorsForRole(authCtx.user.role);
+      return reply.code(200).send({
+        role: authCtx.user.role ?? "unknown",
+        tools,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "missing_bearer" || msg === "unauthorized") {
+        mcpAuthFailures++;
+        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing bearer token" });
+      }
+      if (msg === "forbidden") {
+        return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
+      }
+      app.log.error({ err: msg }, "admin_tools_catalog_failed");
+      return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
+    }
+  });
+
+  app.post("/v1/admin-tools/invoke", async (req, reply) => {
+    let authCtx: AuthenticatedRequestContext;
+    try {
+      authCtx = await authenticateAdminRequest(cfg, req);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "missing_bearer" || msg === "unauthorized") {
+        mcpAuthFailures++;
+        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing bearer token" });
+      }
+      if (msg === "forbidden") {
+        return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
+      }
+      app.log.error({ err: msg }, "admin_tools_invoke_auth_failed");
+      return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
+    }
+
+    let parsed: { name: string; args: Record<string, unknown> };
+    try {
+      parsed = parseInvokeBody(req.body as unknown);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "name_required") {
+        return reply.code(400).send({ error: "invalid_request", detail: "name required" });
+      }
+      if (msg === "arguments_must_be_object") {
+        return reply.code(400).send({ error: "invalid_request", detail: "arguments must be an object" });
+      }
+      return reply.code(400).send({ error: "invalid_request", detail: "invalid request body" });
+    }
+
+    try {
+      const result = await invokeTool(
+        {
+          cfg,
+          authHeader: authCtx.authHeader,
+          orgHeaders: authCtx.orgHeaders,
+        },
+        authCtx.user.role,
+        parsed.name,
+        parsed.args,
+      );
+      directToolInvocations++;
+      return reply.code(200).send({ result });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.startsWith("Unknown tool:")) {
+        return reply.code(404).send({ error: "tool_not_found", detail: msg });
+      }
+      if (msg.includes("requires")) {
+        return reply.code(403).send({ error: "forbidden", detail: msg });
+      }
+      app.log.error({ err: msg, tool: parsed.name }, "admin_tools_invoke_failed");
+      return reply.code(500).send({ error: "tool_failed", detail: msg });
+    }
+  });
 
   app.route({
     method: ["GET", "POST", "DELETE"],
     url: cfg.SYNESIS_ADMIN_MCP_HTTP_PATH,
     handler: async (req, reply) => {
       mcpRequests++;
-      const bearer = extractBearer(req);
-      if (!bearer) {
-        mcpAuthFailures++;
-        return reply.code(401).send({
-          error: "unauthorized",
-          message: "Bearer token required (Keycloak JWT or syn- PAT)",
-        });
-      }
-      const authHeader = `Bearer ${bearer}`;
-      const orgHeaders = forwardOrgHeaders(req);
-
+      let authCtx: AuthenticatedRequestContext;
       try {
-        await validateSession(cfg, authHeader, orgHeaders);
+        authCtx = await authenticateAdminRequest(cfg, req);
       } catch (e) {
-        mcpAuthFailures++;
         const msg = e instanceof Error ? e.message : String(e);
-        if (msg === "unauthorized") {
-          return reply.code(401).send({ error: "unauthorized", message: "Invalid or expired token" });
+        if (msg === "missing_bearer" || msg === "unauthorized") {
+          mcpAuthFailures++;
+          return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing bearer token" });
+        }
+        if (msg === "forbidden") {
+          return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
         }
         return reply.code(502).send({ error: "bad_gateway", message: "Admin auth validation failed" });
       }
 
-      let tools: AdminToolRow[];
-      try {
-        tools = await fetchAdminToolCatalog(cfg, authHeader, orgHeaders);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg === "unauthorized") {
-          mcpAuthFailures++;
-          return reply.code(401).send({ error: "unauthorized", message: "Invalid token for MCP catalog" });
-        }
-        if (msg === "forbidden") {
-          return reply.code(403).send({ error: "forbidden", message: "Not allowed to list MCP tools" });
-        }
-        app.log.error({ err: msg }, "admin_mcp_catalog_failed");
-        return reply.code(502).send({ error: "bad_gateway", message: "Could not load tool catalog from admin API" });
-      }
-
       reply.hijack();
 
-      const server = buildAdminMcpServer(cfg, authHeader, orgHeaders, tools);
+      const server = buildAdminMcpServer(cfg, authCtx);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
