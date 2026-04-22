@@ -217,6 +217,10 @@ import { buildArtifactShadows, summarizeArtifactContext } from "./governance/art
 import { computeEvidenceDelta, summarizeEvidenceDelta, evidenceDeltaStreakAdjustment } from "./governance/evidence-delta.js";
 import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
+import {
+  buildImplementationSoftStallNudgeMessage,
+  isOnlyImplementationSoftStallRules,
+} from "./governance/implementation-soft-stall-nudge.js";
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
 type SessionState = {
@@ -251,6 +255,11 @@ type SessionState = {
   lastIncomingMessageCount: number;
   /** One-shot pre-pause recovery attempts keyed by phase+rule. */
   governorPrePauseAttemptsByRule: Map<string, number>;
+  /**
+   * 0: next implementation-only soft stall (explore/no_progress) may receive a nudge without pause;
+   * 1: next identical stall is a full soft-fail pause, then reset to 0.
+   */
+  implementationSoftStallNudgeStrikes: 0 | 1;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -1536,6 +1545,57 @@ function buildGovernorPrePauseRecovery(decision: ExecutionGovernorDecision): str
     "PRE-PAUSE GUIDED RECOVERY: This is a one-shot guided attempt before full governor pause escalation.",
     "Take exactly one focused action now: Read the failing file once if needed, make one concrete edit, then run one narrow verification command.",
   ].join("\n\n");
+}
+
+function applyImplementationSoftStallNudge(
+  session: SessionState,
+  workingPhase: WorkflowPhase | undefined,
+  decision: ExecutionGovernorDecision,
+  messages: Array<{ role: string; content: unknown }>,
+  record: { sessionKey: string; userId: string; orgId: string; reqId: string },
+  hasRecentWriteSuccess: boolean,
+  hasActiveEditMissFailure: boolean,
+): ExecutionGovernorDecision {
+  if (!config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) return decision;
+  if (hasRecentWriteSuccess && !hasActiveEditMissFailure) {
+    session.implementationSoftStallNudgeStrikes = 0;
+  }
+  if (workingPhase !== "implementation") {
+    session.implementationSoftStallNudgeStrikes = 0;
+    return decision;
+  }
+  if (!decision.pause) return decision;
+  if (!isOnlyImplementationSoftStallRules(decision.matchedRules)) {
+    session.implementationSoftStallNudgeStrikes = 0;
+    return decision;
+  }
+  if (session.implementationSoftStallNudgeStrikes === 0) {
+    injectGovernorRecoveryMessage(messages, buildImplementationSoftStallNudgeMessage(decision));
+    session.implementationSoftStallNudgeStrikes = 1;
+    recordSessionEvent(
+      record.sessionKey,
+      record.userId,
+      record.orgId,
+      "execution_governor_implementation_soft_stall_nudge",
+      "execution-governor",
+      "Nudge (non-pause) before full soft-fail for exploration/no-progress only",
+      record.reqId,
+      { matched_rules: decision.matchedRules, reason: decision.reason },
+    );
+    return { ...decision, pause: false, reason: "implementation_soft_stall_nudge" };
+  }
+  session.implementationSoftStallNudgeStrikes = 0;
+  recordSessionEvent(
+    record.sessionKey,
+    record.userId,
+    record.orgId,
+    "execution_governor_implementation_soft_stall_full_pause",
+    "execution-governor",
+    "Full soft-fail pause after nudge: exploration/no-progress in implementation mode",
+    record.reqId,
+    { matched_rules: decision.matchedRules, reason: decision.reason },
+  );
+  return decision;
 }
 
 function consumeGovernorPrePauseRecoveryAttempt(
@@ -3291,6 +3351,7 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     lastEvidenceDelta: null,
     lastIncomingMessageCount: 0,
     governorPrePauseAttemptsByRule: new Map(),
+    implementationSoftStallNudgeStrikes: 0,
   };
   sessions.set(key, state);
   return state;
@@ -6317,6 +6378,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
     session.governorPrePauseAttemptsByRule.clear();
+    session.implementationSoftStallNudgeStrikes = 0;
     void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch(() => {});
   }
   {
@@ -6596,6 +6658,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    session.implementationSoftStallNudgeStrikes = 0;
     recordSessionEvent(
       sessionKey,
       identity.userId,
@@ -7024,6 +7087,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (session.lastGovernorPhase && oaiGovernorPhase !== session.lastGovernorPhase) {
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    session.implementationSoftStallNudgeStrikes = 0;
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "governor_phase_transition", "execution-governor",
       `${session.lastGovernorPhase} → ${oaiGovernorPhase}`, oaiTraceReqId);
   }
@@ -7064,6 +7128,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
     }
   }
+  oaiExecutionGovernor = applyImplementationSoftStallNudge(
+    session,
+    oaiWorkingPhase,
+    oaiExecutionGovernor,
+    normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+    { sessionKey, userId: identity.userId, orgId: identity.orgId, reqId: oaiTraceReqId },
+    oaiLatestToolProgress.hasRecentWriteSuccess,
+    oaiHasActiveEditMissFailure,
+  );
   if (oaiExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const oaiTerminalRules = new Set([
       "finalize_action_required",
@@ -9452,6 +9525,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.blockBroadVerificationUntilEdit = false;
     session.blockFailingVerificationUntilEdit = false;
     session.governorPrePauseAttemptsByRule.clear();
+    session.implementationSoftStallNudgeStrikes = 0;
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
   }
   {
@@ -9725,6 +9799,7 @@ app.post("/v1/messages", async (req, reply) => {
   if (claudeLatestToolProgress.hasRecentWriteSuccess && !claudeHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    session.implementationSoftStallNudgeStrikes = 0;
     recordSessionEvent(
       claudeSessionKey,
       claudeIdentity.userId,
@@ -10148,6 +10223,7 @@ app.post("/v1/messages", async (req, reply) => {
   if (session.lastGovernorPhase && claudeGovernorPhase !== session.lastGovernorPhase) {
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    session.implementationSoftStallNudgeStrikes = 0;
     recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "governor_phase_transition", "execution-governor",
       `${session.lastGovernorPhase} → ${claudeGovernorPhase}`, traceReqId);
   }
@@ -10188,6 +10264,15 @@ app.post("/v1/messages", async (req, reply) => {
       );
     }
   }
+  claudeExecutionGovernor = applyImplementationSoftStallNudge(
+    session,
+    claudeWorkingPhase,
+    claudeExecutionGovernor,
+    normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+    { sessionKey: claudeSessionKey, userId: claudeIdentity.userId, orgId: claudeIdentity.orgId, reqId: traceReqId },
+    claudeLatestToolProgress.hasRecentWriteSuccess,
+    claudeHasActiveEditMissFailure,
+  );
   if (claudeExecutionGovernor.pause && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     const claudeTerminalRules = new Set([
       "finalize_action_required",
