@@ -20,6 +20,11 @@ describe("compaction-sensitivity", () => {
     expect(inferCompactionSensitivity("qwen3-coder-480b")).toBe("qwen_coder");
   });
 
+  it("classifies MiniMax / abab as qwen_coder (verbatim tool retention, higher raw caps)", () => {
+    expect(inferCompactionSensitivity("MiniMax-m2.1")).toBe("qwen_coder");
+    expect(inferCompactionSensitivity("provider/abab-6.5")).toBe("qwen_coder");
+  });
+
   it("demotes aggressive reducer profile for qwen_coder", () => {
     expect(effectiveReducerProfile("aggressive", "qwen_coder")).toBe("balanced");
     expect(effectiveReducerProfile("balanced", "qwen_coder")).toBe("balanced");

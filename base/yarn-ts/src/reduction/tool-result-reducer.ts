@@ -21,6 +21,7 @@ import {
   effectiveReducerProfile,
   inferCompactionSensitivity,
   looksLikeVerificationFailureOutput,
+  shouldPreserveLastVerificationFailureIndex,
   type CompactionSensitivity,
   type ReducerProfileName,
 } from "../context/compaction-sensitivity.js";
@@ -202,15 +203,27 @@ export class ToolResultReductionService {
     return map;
   }
 
+  private isBashLikeToolName(name: string | undefined): boolean {
+    const n = (name ?? "").toLowerCase();
+    return n === "bash"
+      || n.includes("run_terminal")
+      || n.includes("run_command")
+      || n === "run_terminal_cmd"
+      || n === "execute_command"
+      || n.includes("shell");
+  }
+
   private findLastVerificationFailureIndex(messages: ToolResultLike[]): number {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const m = messages[i];
       if (m.role !== "tool") continue;
-      if (!this.isVerificationOutput(m.name)) continue;
       const normalized = this.buildReductionInput(m.name, m.content);
       const raw = normalized.raw;
       if (raw.length > VERIFY_LITERAL_PRESERVE_CAP) continue;
-      if (looksLikeVerificationFailureOutput(raw)) return i;
+      if (!looksLikeVerificationFailureOutput(raw)) continue;
+      if (this.isVerificationOutput(m.name) || this.isBashLikeToolName(m.name)) {
+        return i;
+      }
     }
     return -1;
   }
@@ -225,8 +238,9 @@ export class ToolResultReductionService {
     const sensitivity: CompactionSensitivity = inferCompactionSensitivity(opts?.backendModelHint ?? "");
     const effProfile = effectiveReducerProfile(this.config.SYNESIS_YARN_REDUCER_PROFILE as ReducerProfileName, sensitivity);
     const effMaxChars = effectiveMaxRawChars(this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS, sensitivity);
-    const lastVerificationFailureIdx =
-      sensitivity === "strict_literals" ? this.findLastVerificationFailureIndex(messages) : -1;
+    const lastVerificationFailureIdx = shouldPreserveLastVerificationFailureIndex(sensitivity)
+      ? this.findLastVerificationFailureIndex(messages)
+      : -1;
 
     const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
     const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
@@ -395,8 +409,9 @@ export class ToolResultReductionService {
     const sensitivity: CompactionSensitivity = inferCompactionSensitivity(opts?.backendModelHint ?? "");
     const effProfile = effectiveReducerProfile(this.config.SYNESIS_YARN_REDUCER_PROFILE as ReducerProfileName, sensitivity);
     const effMaxChars = effectiveMaxRawChars(this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS, sensitivity);
-    const lastVerificationFailureIdx =
-      sensitivity === "strict_literals" ? this.findLastVerificationFailureIndex(messages) : -1;
+    const lastVerificationFailureIdx = shouldPreserveLastVerificationFailureIndex(sensitivity)
+      ? this.findLastVerificationFailureIndex(messages)
+      : -1;
 
     const toolIndices: number[] = [];
     const toolInputs: Array<{ raw: string; commandHint: string; allowDispatch: boolean }> = [];
@@ -1045,6 +1060,9 @@ export class ToolResultReductionService {
     if (!isCodeReadCommand && !isShellLikeTool && !isDirectReadTool && !isArtifactFetch) return false;
     if (isDirectReadTool || isArtifactFetch) return true;
     if (isCodeReadCommand && isShellLikeTool) return true;
+    // Keep full go test / build / lint stderr when stderr-like signals exist — task pruning
+    // would otherwise drop the tail of the failure the model needs to fix the root cause.
+    if (isShellLikeTool && this.hasDiagnosticSignals(lines)) return true;
     if (this.hasDiagnosticSignals(lines)) return false;
     return this.looksLikeSourceCode(lines);
   }

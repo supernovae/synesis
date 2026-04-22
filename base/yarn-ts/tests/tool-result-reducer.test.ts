@@ -218,10 +218,12 @@ describe("ToolResultReductionService", () => {
 
   it("applies deterministic task-conditioned pruning with artifact expansion handle", () => {
     const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
+    // No FAIL/traceback/ERROR:/stderr/exception in the first 200+ lines, or task pruning is bypassed
+    // to keep full go test / build output for the model.
     const lines = Array.from({ length: 140 }, (_, i) => {
       if (i === 15) return "INFO compiling package";
-      if (i === 56) return "ERROR retry behavior duplicated request id=abc123";
-      if (i === 57) return "stack traceback duplicate request";
+      if (i === 56) return "log line: retry behavior duplicated request id=abc123";
+      if (i === 57) return "log line: duplicate request correlation note";
       return `noise line ${i}`;
     }).join("\n");
     const recentPadding = Array.from({ length: 9 }, (_, i) => ({
@@ -267,7 +269,7 @@ describe("ToolResultReductionService", () => {
     expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
   });
 
-  it("keeps task-pruning enabled for diagnostic bash output", () => {
+  it("does not task-prune shell output when failure/diagnostic lines are present", () => {
     const svc = new ToolResultReductionService(makeConfig(48_000), new ArtifactStore());
     const diag = Array.from({ length: 160 }, (_, i) => {
       if (i === 50) return "ERROR retry behavior duplicated request id=abc123";
@@ -281,9 +283,9 @@ describe("ToolResultReductionService", () => {
       [{ role: "tool", name: "run_command", content: diag }, ...recentPadding],
       "add tests for retry behavior duplicate requests",
     );
-    expect(out.reducedCount).toBe(1);
-    expect(String(out.messages[0].content)).toContain('code="task_conditioned_pruning"');
-    expect(svc.getPerRequestTaskPrunedDelta()).toBe(1);
+    expect(out.reducedCount).toBe(0);
+    expect(String(out.messages[0].content)).not.toContain('code="task_conditioned_pruning"');
+    expect(svc.getPerRequestTaskPrunedDelta()).toBe(0);
   });
 
   it.each(Object.entries(codeFixtureByLanguage))(

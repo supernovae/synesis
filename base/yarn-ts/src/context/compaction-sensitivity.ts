@@ -10,7 +10,7 @@ const STRICT_LITERAL_SUBSTRINGS = ["coder-next", "qwen3-coder-next", "qwen3.6-co
 /**
  * Classify backend model id / name for compaction and tool-output retention policy.
  * - strict_literals: smallest models / "next" SKUs — keep more verbatim failure output, compact less often.
- * - qwen_coder: other Qwen3 coder variants — gentler reduction than global defaults.
+ * - qwen_coder: other Qwen3 coder variants — gentler reduction than global defaults; also used for MiniMax/Abab.
  */
 export function inferCompactionSensitivity(backendModel: string): CompactionSensitivity {
   const m = (backendModel || "").toLowerCase();
@@ -19,7 +19,17 @@ export function inferCompactionSensitivity(backendModel: string): CompactionSens
     if (m.includes(s)) return "strict_literals";
   }
   if (/qwen3.*coder/.test(m)) return "qwen_coder";
+  // MiniMax/Abab: same retention policy as other edge coders (verbatim test/build output, higher raw caps).
+  if (/minimax|abab|m2\.1|m1\.1/.test(m)) return "qwen_coder";
   return "default";
+}
+
+/**
+ * When true, the tool-result reducer returns the most recent verification failure (including
+ * `Bash`/`go test` output) verbatim so it is not task-pruned or compacted to an artifact.
+ */
+export function shouldPreserveLastVerificationFailureIndex(s: CompactionSensitivity): boolean {
+  return s === "strict_literals" || s === "qwen_coder";
 }
 
 export type ReducerProfileName = "balanced" | "aggressive" | "ultra";
