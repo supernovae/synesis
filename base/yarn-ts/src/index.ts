@@ -1104,6 +1104,7 @@ function applyObjectiveScopeAndPersist<TMessage extends {
 ): {
   scopedMessages: TMessage[];
   relevantEvidenceBlock: string | null;
+  artifactBridgeBlock: string | null;
   boundaryIndex: number;
   retainedEvidenceCount: number;
   droppedPreBoundaryCount: number;
@@ -1117,12 +1118,14 @@ function applyObjectiveScopeAndPersist<TMessage extends {
     latestUserPromptText: params.latestUserPromptText,
     requestOrdinal,
   });
+  const msgCount = params.messages.length;
+  const scaledEvidence = msgCount > 200 ? 12 : msgCount > 100 ? 9 : 6;
   const scoped = applyObjectiveScope({
     messages: params.messages,
     chatState: params.chatState,
     fileState: params.fileState,
     epoch: objectiveEpoch,
-    maxRelevantEvidence: 6,
+    maxRelevantEvidence: scaledEvidence,
     preBoundaryWindow: 80,
     minimumScore: 3,
   });
@@ -1164,6 +1167,7 @@ function applyObjectiveScopeAndPersist<TMessage extends {
   return {
     scopedMessages: scoped.scopedMessages,
     relevantEvidenceBlock: scoped.relevantEvidenceBlock,
+    artifactBridgeBlock: scoped.artifactBridgeBlock,
     boundaryIndex: scoped.boundaryIndex,
     retainedEvidenceCount: scoped.retainedEvidenceCount,
     droppedPreBoundaryCount: scoped.droppedPreBoundaryCount,
@@ -8047,6 +8051,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiPlanGraph ? [formatPlanProgressBlock(oaiPlanGraph)] : []),
       ...oaiMemBlocks,
       ...(oaiObjectiveScope.relevantEvidenceBlock ? [oaiObjectiveScope.relevantEvidenceBlock] : []),
+      ...(oaiObjectiveScope.artifactBridgeBlock ? [oaiObjectiveScope.artifactBridgeBlock] : []),
       ...(oaiStateConfidenceBlock ? [oaiStateConfidenceBlock] : []),
     ],
     oaiSeedDirs,
@@ -8599,10 +8604,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
         : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
     const oaiBudgetPolicy = buildBudgetPolicy(oaiBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE);
+    const oaiPlanPaths = session.record.metadata.plan_file_path
+      ? [session.record.metadata.plan_file_path as string]
+      : [];
     const oaiRetentionCtx = buildRetentionContext(
       modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
       oaiChatState.currentFocusPaths,
-      [],
+      oaiPlanPaths,
     );
     const oaiBudgetResult = evaluateContextBudget({
       messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
@@ -8616,6 +8624,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(oaiChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1 },
       },
       enableCompaction: true,
+      artifactStore,
     });
     oaiBudgetEvaluation = oaiBudgetResult.evaluation;
     if (oaiBudgetResult.evaluation.compactionApplied !== "none") {
@@ -11391,6 +11400,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudePlanGraph ? [formatPlanProgressBlock(claudePlanGraph)] : []),
       ...claudeMemBlocks,
       ...(claudeObjectiveScope.relevantEvidenceBlock ? [claudeObjectiveScope.relevantEvidenceBlock] : []),
+      ...(claudeObjectiveScope.artifactBridgeBlock ? [claudeObjectiveScope.artifactBridgeBlock] : []),
       ...(claudeStateConfidenceBlock ? [claudeStateConfidenceBlock] : []),
     ],
     claudeSeedDirs,
@@ -11959,10 +11969,13 @@ app.post("/v1/messages", async (req, reply) => {
         ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
         : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
     const claudeBudgetPolicy = buildBudgetPolicy(claudeBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE);
+    const claudePlanPaths = session.record.metadata.plan_file_path
+      ? [session.record.metadata.plan_file_path as string]
+      : [];
     const claudeRetentionCtx = buildRetentionContext(
       claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
       claudeChatState.currentFocusPaths,
-      [],
+      claudePlanPaths,
     );
     const claudeBudgetResult = evaluateContextBudget({
       messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
@@ -11976,6 +11989,7 @@ app.post("/v1/messages", async (req, reply) => {
         objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(claudeChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1 },
       },
       enableCompaction: true,
+      artifactStore,
     });
     claudeBudgetEvaluation = claudeBudgetResult.evaluation;
     if (claudeBudgetResult.evaluation.compactionApplied !== "none") {

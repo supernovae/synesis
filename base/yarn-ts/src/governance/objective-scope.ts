@@ -40,6 +40,7 @@ export interface ApplyObjectiveScopeOptions<TMessage extends ObjectiveScopeMessa
 export interface ObjectiveScopeResult<TMessage extends ObjectiveScopeMessage> {
   scopedMessages: TMessage[];
   relevantEvidenceBlock: string | null;
+  artifactBridgeBlock: string | null;
   boundaryIndex: number;
   preBoundaryCount: number;
   retainedEvidenceCount: number;
@@ -548,6 +549,24 @@ function healToolCallResultPairs<T extends ObjectiveScopeMessage>(messages: T[])
   return result;
 }
 
+const ARTIFACT_HANDLE_RE = /artifact_handle="([^"]+)"/g;
+
+function extractArtifactHandles(messages: ObjectiveScopeMessage[]): string[] {
+  const handles: string[] = [];
+  const seen = new Set<string>();
+  for (const msg of messages) {
+    const raw = typeof msg.content === "string" ? msg.content : "";
+    if (!raw) continue;
+    for (const m of raw.matchAll(ARTIFACT_HANDLE_RE)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        handles.push(m[1]);
+      }
+    }
+  }
+  return handles;
+}
+
 export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
   options: ApplyObjectiveScopeOptions<TMessage>,
 ): ObjectiveScopeResult<TMessage> {
@@ -556,6 +575,7 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
     return {
       scopedMessages: [],
       relevantEvidenceBlock: null,
+      artifactBridgeBlock: null,
       boundaryIndex: 0,
       preBoundaryCount: 0,
       retainedEvidenceCount: 0,
@@ -617,9 +637,22 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
       ].join("\n")
     : null;
 
+  const droppedMessages = allMessages.slice(0, Math.max(0, boundaryIndex));
+  const bridgedHandles = extractArtifactHandles(droppedMessages);
+  const artifactBridgeBlock = bridgedHandles.length > 0
+    ? [
+        `<SYNESIS_AVAILABLE_ARTIFACTS count="${bridgedHandles.length}" source="objective_scope_bridge">`,
+        "These artifact handles reference content from earlier in the session that was compacted.",
+        "Recover any via synesis_artifact_retrieve with the artifact_handle value.",
+        ...bridgedHandles.map((h) => `  handle="${h}"`),
+        "</SYNESIS_AVAILABLE_ARTIFACTS>",
+      ].join("\n")
+    : null;
+
   return {
     scopedMessages,
     relevantEvidenceBlock,
+    artifactBridgeBlock,
     boundaryIndex,
     preBoundaryCount: preBoundaryMessages.length,
     retainedEvidenceCount: retained.length,

@@ -251,6 +251,8 @@ export function parseReadSnapshotEnvelope(raw: string): ReadSnapshotEnvelope | n
   }
 }
 
+const FALLBACK_READ_MAX_BYTES = 200_000;
+
 export async function guardedFallbackRead(
   rawPath: string,
   options?: {
@@ -265,16 +267,18 @@ export async function guardedFallbackRead(
   }
   const canonical = guard.canonicalPath;
   try {
-    const [raw, stats] = await Promise.all([
+    const [rawBuf, stats] = await Promise.all([
       readFile(canonical, "utf8"),
       stat(canonical),
     ]);
+    const truncated = rawBuf.length > FALLBACK_READ_MAX_BYTES;
+    const raw = truncated ? rawBuf.slice(0, FALLBACK_READ_MAX_BYTES) : rawBuf;
     const fsVersion = snapshotFsVersionFromStats(stats);
     if (!options?.lineRange) {
       return {
         ok: true,
         content: raw,
-        completeness: "full",
+        completeness: truncated ? "partial" : "full",
         versionIdentity: {
           contentHash: sha256(raw),
           filesystem: fsVersion,

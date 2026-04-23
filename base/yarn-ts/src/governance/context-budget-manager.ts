@@ -20,6 +20,7 @@ import { createContextCheckpoint, renderCheckpointMessage } from "./context-chec
 import type { ChatState } from "./chat-state.js";
 import type { FileState } from "./file-state.js";
 import type { ObjectiveEpochState } from "./objective-scope.js";
+import type { ArtifactStore } from "../state/artifact-store.js";
 
 // ── Budget Policy ──────────────────────────────────────────────────────────
 
@@ -130,10 +131,20 @@ function hasToolCalls(msg: ContextBudgetMessage): boolean {
   return Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
 }
 
+function retainToArtifact(store: ArtifactStore | null | undefined, raw: string): string {
+  if (!store || raw.length < 100) return "";
+  try {
+    return ` artifact_handle="${store.putToolResult(raw).id}" recovery="synesis_artifact_retrieve"`;
+  } catch {
+    return "";
+  }
+}
+
 export function applySoftCompaction(
   messages: ContextBudgetMessage[],
   classified: ClassifiedMessage[],
   targetTokens: number,
+  artifactStore?: ArtifactStore | null,
 ): { messages: ContextBudgetMessage[]; tokensRecovered: number } {
   let currentTokens = classified.reduce((s, c) => s + c.estimatedTokens, 0);
   if (currentTokens <= targetTokens) {
@@ -162,7 +173,8 @@ export function applySoftCompaction(
     const latest = latestReadByPath.get(fp);
     if (latest === undefined || latest === i) continue;
     const before = estimateMessageTokens(msg);
-    const stub = `<FILE_SHADOW path="${fp}" latest_at_msg=${latest} />`;
+    const handle = retainToArtifact(artifactStore, contentString(msg.content));
+    const stub = `<FILE_SHADOW path="${fp}" latest_at_msg=${latest}${handle} />`;
     out[i] = { ...msg, content: stub };
     const after = estimateMessageTokens(out[i]);
     const delta = before - after;
@@ -255,9 +267,10 @@ export function applySoftCompaction(
     const before = estimateMessageTokens(msg);
     const toolName = getToolName(msg) || "unknown";
     const preview = raw.slice(0, 120).replace(/\n/g, " ");
+    const handle = retainToArtifact(artifactStore, raw);
     out[i] = {
       ...msg,
-      content: `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}>${preview}...</STALE_EXPLORATION>`,
+      content: `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}${handle}>${preview}...</STALE_EXPLORATION>`,
     };
     const after = estimateMessageTokens(out[i]);
     const delta = before - after;
@@ -282,6 +295,7 @@ export function applyHeavyCompaction(
   classified: ClassifiedMessage[],
   targetTokens: number,
   ctx: HeavyCompactionContext,
+  artifactStore?: ArtifactStore | null,
 ): { messages: ContextBudgetMessage[]; tokensRecovered: number; checkpoint: ContextCheckpoint } {
   const checkpoint = createContextCheckpoint(
     ctx.sessionKey,
@@ -319,6 +333,12 @@ export function applyHeavyCompaction(
       continue;
     }
 
+    if (artifactStore && messages[i].role === "tool") {
+      const raw = contentString(messages[i].content);
+      if (raw.length >= 100) {
+        retainToArtifact(artifactStore, raw);
+      }
+    }
     droppedTokens += cl.estimatedTokens;
   }
 
@@ -348,12 +368,13 @@ export interface EvaluateContextBudgetOptions {
   retentionContext?: RetentionContext;
   heavyCompactionContext?: HeavyCompactionContext;
   enableCompaction?: boolean;
+  artifactStore?: ArtifactStore | null;
 }
 
 export function evaluateContextBudget(
   options: EvaluateContextBudgetOptions,
 ): { evaluation: BudgetEvaluation; messages: ContextBudgetMessage[] } {
-  const { messages, tools, policy, enableCompaction = true } = options;
+  const { messages, tools, policy, enableCompaction = true, artifactStore: artStore } = options;
 
   const estimate = estimateTokens(
     messages as Array<{ role: string; content: unknown }>,
@@ -386,7 +407,7 @@ export function evaluateContextBudget(
   }
 
   if (zone === "soft") {
-    const softResult = applySoftCompaction(messages, classified, policy.softTokens);
+    const softResult = applySoftCompaction(messages, classified, policy.softTokens, artStore);
     const newEstimate = estimateTokens(
       softResult.messages as Array<{ role: string; content: unknown }>,
       tools,
@@ -405,7 +426,7 @@ export function evaluateContextBudget(
   }
 
   // Heavy or emergency: always run soft first, then heavy if still above threshold
-  const softResult = applySoftCompaction(messages, classified, policy.softTokens);
+  const softResult = applySoftCompaction(messages, classified, policy.softTokens, artStore);
   const afterSoftEstimate = estimateTokens(
     softResult.messages as Array<{ role: string; content: unknown }>,
     tools,
@@ -449,6 +470,7 @@ export function evaluateContextBudget(
     reclassified,
     policy.heavyTokens,
     options.heavyCompactionContext,
+    artStore,
   );
   const afterHeavyEstimate = estimateTokens(
     heavyResult.messages as Array<{ role: string; content: unknown }>,

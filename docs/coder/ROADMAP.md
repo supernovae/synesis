@@ -50,6 +50,10 @@ Filesystem boundary enforcement for agent file operations. Project root is the s
 
 Three-layer system to detect when agent changes exceed user intent scope. Prevents agents from deleting features when asked to fix security issues, or rewriting modules when asked for targeted refactors. Classifies user prompts into scope envelopes, tracks cumulative diff stats, and feeds proportionality signals into the sensemaking governor for graduated response (nudge, guide, intervene). Includes optional fast-model critic for high-risk assessments. See [`docs/coder/YARN_PROPORTIONALITY_GOVERNANCE.md`](YARN_PROPORTIONALITY_GOVERNANCE.md).
 
+### Shipped: Context Stretch Hardening (Apr 2026)
+
+Five improvements to make Yarn's 100k token window resilient to large documents and large repositories. Artifact handles now survive objective scope boundaries, budget compaction writes to the ArtifactStore, `guardedFallbackRead` is capped at 200 KB, plan file paths boost retention during compaction, and the evidence window scales with session length. See [`docs/coder/YARN_CONTEXT_STRETCH.md`](YARN_CONTEXT_STRETCH.md).
+
 ## Phase 4: Enterprise & Workflow Integration
 *   **Automated PR Generation & Review**: Deep integration with GitHub/GitLab. The agent should autonomously create branches, commit changes, open PRs with detailed summaries, and respond to human reviewer comments in a continuous loop.
 *   **Issue Tracker Sync (Jira/Linear)**: Automatically parse tickets, extract acceptance criteria, and link commits/PRs back to the original issue without manual intervention.
