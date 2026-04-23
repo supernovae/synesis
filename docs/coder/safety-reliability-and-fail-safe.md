@@ -29,5 +29,6 @@ Hard constraints apply to:
 - security-sensitive operations
 - compliance controls
 - runtime integrity and data-protection boundaries
+- **filesystem sandbox** — agent file access is restricted to the project root and curated allowlist; cross-project agent configs (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`) are blocked to prevent context poisoning. See [`YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md).
 
 All other constraints remain guiding unless promoted by policy.

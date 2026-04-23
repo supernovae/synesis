@@ -42,6 +42,10 @@ This roadmap outlines future features and capabilities required to compete again
 - [ ] Additional governance and eval loops over orchestration traces (quality scoring, regression gates, policy drift alerts).
 - [ ] Optional broader MCP surface refinement after baseline stability (further minimization and per-flow policy hardening).
 
+### Shipped: Path Sandbox & Cross-Harness Filesystem Safety (Apr 2026)
+
+Filesystem boundary enforcement for agent file operations. Project root is the sandbox root; cross-project agent configs (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`) are blocked to prevent context poisoning. Includes harness compatibility matrix for 7+ coding harnesses (Claude Code, Cursor, Gemini CLI, Codex CLI, OpenCode, Windsurf, Aider) with `$TMPDIR` carve-out for macOS and `/tmp` nudge toward project-scoped subdirectories. See [`docs/coder/YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md).
+
 ## Phase 4: Enterprise & Workflow Integration
 *   **Automated PR Generation & Review**: Deep integration with GitHub/GitLab. The agent should autonomously create branches, commit changes, open PRs with detailed summaries, and respond to human reviewer comments in a continuous loop.
 *   **Issue Tracker Sync (Jira/Linear)**: Automatically parse tickets, extract acceptance criteria, and link commits/PRs back to the original issue without manual intervention.

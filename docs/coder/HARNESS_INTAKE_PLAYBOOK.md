@@ -41,6 +41,10 @@ Only ship candidates that are `high/medium transferability`, `S/M effort`, and h
 5. Roll out to coder clients first.
 6. Keep kill switch documented in deployment env.
 
+## Cross-Harness Filesystem Safety
+
+The path sandbox (`base/yarn-ts/src/path-governance/path-sandbox.ts`) maintains a harness compatibility matrix for config directories, temp paths, and write allowlists across all major coding harnesses. When adopting patterns from a new harness, update the sandbox's allowlist if the harness introduces new config or temp directories. See [`YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md).
+
 ## Suggested Quarterly Benchmark Loop
 
 - Review updates from:

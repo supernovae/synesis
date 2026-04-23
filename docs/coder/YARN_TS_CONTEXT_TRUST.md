@@ -79,6 +79,7 @@ The `TrustPacketV1` schema includes `source_type` values `mcp_response` and `rag
 
 - `packages/synesis-context-trust/src/` — shared trust package (schemas, scanner, policy, ingest)
 - `base/yarn-ts/src/security/transcript-trust.ts` — yarn-ts trust pipeline
+- `base/yarn-ts/src/path-governance/path-sandbox.ts` — filesystem boundary enforcement (see [`YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md))
 - `base/yarn-ts/src/config.ts` — trust/scan env vars
 - `base/yarn-ts/src/index.ts` — error sanitization, trust block handling
 - `base/yarn-ts/src/mcp/index.ts` — MCP tool error sanitization

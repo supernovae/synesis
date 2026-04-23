@@ -33,10 +33,11 @@ Required runtime behavior:
 ## Governance Precedence
 
 1. Safety/compliance hard constraints
-2. Active org/tenant constitutions
-3. Team/project constitutions
-4. Local tool rules (`AGENTS.md`, tool-local config, prompt guidance)
-5. Session-specific user preferences
+2. **Filesystem sandbox** — project-root boundary, cross-project config isolation, system path blocking. See [`YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md).
+3. Active org/tenant constitutions
+4. Team/project constitutions
+5. Local tool rules (`AGENTS.md`, tool-local config, prompt guidance)
+6. Session-specific user preferences
 
 ## Why Top-Down Plus Bottom-Up
 
