@@ -50,6 +50,10 @@ Filesystem boundary enforcement for agent file operations. Project root is the s
 
 Three-layer system to detect when agent changes exceed user intent scope. Prevents agents from deleting features when asked to fix security issues, or rewriting modules when asked for targeted refactors. Classifies user prompts into scope envelopes, tracks cumulative diff stats, and feeds proportionality signals into the sensemaking governor for graduated response (nudge, guide, intervene). Includes optional fast-model critic for high-risk assessments. See [`docs/coder/YARN_PROPORTIONALITY_GOVERNANCE.md`](YARN_PROPORTIONALITY_GOVERNANCE.md).
 
+### Shipped: Deterministic Prefix Cache Optimization (Apr 2026)
+
+Five mechanisms to maximize KV-cache prefix hit rate (targeting 85%+) by transitioning from fluid pruning to deterministic state management. Epoch-based sticky boundary freezes the pruning checkpoint for N turns. Content-hash tool call IDs (`tc_{sha256hex}`) remain byte-identical even when earlier messages shift. Governor guidance is tail-appended instead of mid-spliced. Snap-to-grid aligns message counts to 50-message buckets. Anthropic `cache_control` breakpoints are placed at three deterministic positions: system prefix (BP1), epoch anchor (BP2), and optional volatile-tail midpoint (BP3). See [`base/yarn-ts/docs/CACHING.md`](../../base/yarn-ts/docs/CACHING.md).
+
 ### Shipped: Context Stretch Hardening (Apr 2026)
 
 Five improvements to make Yarn's 100k token window resilient to large documents and large repositories. Artifact handles now survive objective scope boundaries, budget compaction writes to the ArtifactStore, `guardedFallbackRead` is capped at 200 KB, plan file paths boost retention during compaction, and the evidence window scales with session length. See [`docs/coder/YARN_CONTEXT_STRETCH.md`](YARN_CONTEXT_STRETCH.md).

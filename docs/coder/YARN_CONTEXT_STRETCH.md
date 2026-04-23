@@ -100,6 +100,27 @@ Long sessions (200+ messages) have more pre-boundary history worth summarising.
 
 **File**: `index.ts` — `scaledEvidence` in `applyObjectiveScopeAndPersist`
 
+### 6. Deterministic Prefix Cache Optimization
+
+**Gap**: Fluid pruning shifted the byte-prefix every turn, invalidating the KV
+cache.  Sequential tool call IDs broke when message indices shifted.  Governor
+guidance spliced into the middle of the history poisoned the cache downstream.
+
+**Fix**: Five coordinated mechanisms make the prefix byte-stable turn-over-turn:
+
+| Mechanism | Effect |
+|-----------|--------|
+| **Epoch-based sticky boundary** | Freezes `PruningCheckpoint` for N turns (default 10) or until message growth exceeds threshold.  Only re-anchors when necessary. |
+| **Content-hash tool call IDs** | Rewrites old tool IDs to `tc_{sha256hex}` based on `tool_name + arguments` — stable regardless of message position. |
+| **Governor guidance tail-append** | System messages from sensemaking/recovery are pushed to the end instead of spliced into the middle. |
+| **Snap-to-grid pruning** | Message counts snap to 50-message bucket multiples during both objective scope and heavy compaction. Heavy compaction snap never drops tool, system, or assistant-with-tool-calls messages (prevents MissingToolResultsError). |
+| **Anthropic `cache_control` breakpoints** | BP1 at end of system prefix (static), BP2 at `messages.length - 21` (end of epoch anchor), BP3 optionally at volatile-tail midpoint. |
+
+**Files**: `governance/objective-scope.ts`, `reduction/historical-normalizer.ts`,
+`context/provider-cache-hints.ts`, `governance/context-budget-manager.ts`, `index.ts`
+
+**Config**: `SYNESIS_YARN_SCOPE_EPOCH_INTERVAL` (10), `SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD` (80), `SYNESIS_YARN_SCOPE_BUCKET_SIZE` (50)
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -110,6 +131,9 @@ Long sessions (200+ messages) have more pre-boundary history worth summarising.
 | `SYNESIS_YARN_TRANSCRIPT_PRUNE_ARTIFACT_RETENTION_ENABLED` | `true` | Enable ArtifactStore writes during pruning |
 | `SYNESIS_YARN_ARTIFACT_MAX_COUNT` | `500` | Max artifact records in memory |
 | `SYNESIS_YARN_ARTIFACT_TTL_MS` | `3600000` | Artifact expiry (1 hour) |
+| `SYNESIS_YARN_SCOPE_EPOCH_INTERVAL` | `10` | Turns between pruning boundary re-anchors |
+| `SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD` | `80` | Message growth before forced re-anchor |
+| `SYNESIS_YARN_SCOPE_BUCKET_SIZE` | `50` | Snap-to-grid bucket size for message counts |
 
 ## How Recovery Works
 

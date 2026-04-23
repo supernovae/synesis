@@ -350,7 +350,7 @@ export function applyHeavyCompaction(
     out.splice(insertAt, 0, { role: "system", content: checkpointMsg });
   }
 
-  snapHeavyCompactionToBucket(out, classified, HEAVY_COMPACTION_BUCKET_SIZE, artifactStore);
+  snapHeavyCompactionToBucket(out, HEAVY_COMPACTION_BUCKET_SIZE, artifactStore);
 
   checkpoint.compactedTokenEstimate = droppedTokens;
   checkpoint.retainedMessageCount = out.length;
@@ -364,14 +364,18 @@ export function applyHeavyCompaction(
 }
 
 /**
- * After heavy compaction, drop additional low-retention messages to snap the
- * retained count down to the nearest bucket multiple.  This is a soft
- * preference: immutable, working, and unresolved_failure messages are never
- * dropped.
+ * After heavy compaction, drop additional low-priority messages to snap the
+ * retained count down to the nearest bucket multiple.
+ *
+ * Invariants:
+ *  - System, tool, and assistant-with-tool_calls messages are never dropped
+ *    (prevents orphaned tool-call/result pairs that cause MissingToolResultsError).
+ *  - Only user and plain assistant (no tool_calls) messages are candidates.
+ *  - Candidates near the tail (recent) are preferred to keep; drop from the
+ *    oldest candidates first.
  */
 function snapHeavyCompactionToBucket(
   out: ContextBudgetMessage[],
-  classified: ClassifiedMessage[],
   bucketSize: number,
   artifactStore?: ArtifactStore | null,
 ): void {
@@ -380,24 +384,23 @@ function snapHeavyCompactionToBucket(
   if (snappedTarget >= out.length || snappedTarget <= 0) return;
   const excess = out.length - snappedTarget;
 
-  const droppable: Array<{ index: number; score: number }> = [];
+  const droppable: number[] = [];
   for (let i = 0; i < out.length; i++) {
-    const cl = classified[i];
-    if (!cl) continue;
-    if (cl.tier === "immutable" || cl.tier === "working") continue;
-    if (cl.tags.includes("unresolved_failure")) continue;
-    droppable.push({ index: i, score: cl.retentionScore });
+    const m = out[i];
+    if (m.role === "system") continue;
+    if (m.role === "tool") continue;
+    if (m.role === "assistant" && hasToolCalls(m)) continue;
+    droppable.push(i);
   }
 
-  droppable.sort((a, b) => a.score - b.score);
   const toRemove = new Set<number>();
-  for (const { index } of droppable) {
+  for (const idx of droppable) {
     if (toRemove.size >= excess) break;
-    if (artifactStore && out[index].role === "tool") {
-      const raw = contentString(out[index].content);
+    if (artifactStore && out[idx].role === "tool") {
+      const raw = contentString(out[idx].content);
       if (raw.length >= 100) retainToArtifact(artifactStore, raw);
     }
-    toRemove.add(index);
+    toRemove.add(idx);
   }
 
   if (toRemove.size === 0) return;
@@ -409,6 +412,7 @@ function snapHeavyCompactionToBucket(
   }
   out.length = writeIdx;
 }
+
 
 // ── Main Evaluation ────────────────────────────────────────────────────────
 

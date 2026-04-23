@@ -9449,7 +9449,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiCacheHints = annotateCacheBreakpoints(
       modelMessages as Array<{ role: string; content: unknown }>,
       "anthropic_explicit",
-      { anchorIndex: oaiObjectiveScope.boundaryIndex },
     );
     modelMessages = oaiCacheHints.messages as typeof modelMessages;
   }
@@ -12536,7 +12535,6 @@ app.post("/v1/messages", async (req, reply) => {
       const claudeCacheHints = annotateCacheBreakpoints(
         claudeModelMessages as Array<{ role: string; content: unknown }>,
         "anthropic_explicit",
-        { anchorIndex: claudeObjectiveScope.boundaryIndex },
       );
       claudeModelMessages = claudeCacheHints.messages as typeof claudeModelMessages;
     }

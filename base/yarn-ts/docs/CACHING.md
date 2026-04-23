@@ -1,12 +1,12 @@
 # Caching, prefix stability, and provider shims in Yarn (yarn-ts)
 
-This document is the **authoritative** description of how Synesis Coder (the `synesis-yarn-ts` service) reasons about **prefix / KV cache**, **pluggable “explicit” cache** hooks, and **optional provider shims** (including DashScope-style backends). It is updated together with the code in this directory.
+This document is the **authoritative** description of how Synesis Coder (the `synesis-yarn-ts` service) reasons about **prefix / KV cache**, **pluggable "explicit" cache** hooks, and **optional provider shims** (including DashScope-style backends). It is updated together with the code in this directory.
 
 ## Goals
 
 - **Maximize** stable-prefix reuse (implicit KV cache) for OpenAI-compatible `POST` bodies.
 - **Never** contort the core request pipeline around a single vendor. Provider specifics live in the provider layer, adapter metadata, and optional shims.
-- **Observe** what actually hits: if a vendor claims “tiered” or “id” cache but your metrics show **no effective hit rate**, treat the integration as **experimental** until proven.
+- **Observe** what actually hits: if a vendor claims "tiered" or "id" cache but your metrics show **no effective hit rate**, treat the integration as **experimental** until proven.
 
 ## Implicit prefix (default path)
 
@@ -14,21 +14,45 @@ This document is the **authoritative** description of how Synesis Coder (the `sy
 - **What breaks cache**: shuffling system blocks, nondeterministic tool JSON ordering, unbounded volatile material early in the prefix, and frequent edits to the same system block.
 - **Observability**: `computePrefixFingerprint` in [provider-cache-hints.ts](../src/context/provider-cache-hints.ts) and request forensics in production metrics help spot drift.
 
-## Explicit / “tiered” cache — pluggable, not guaranteed
+## Explicit / "tiered" cache — pluggable, not guaranteed
 
 - Some vendors offer **marker-based** or **id-based** cache reporting on responses. Yarn exposes a path for **Anthropic-style** `cache_control` in [annotateCacheBreakpoints](../src/context/provider-cache-hints.ts), but the **default OpenAI-shaped** route may **not** attach those markers. That is an **intentional** tradeoff, not a TODO left open by mistake.
-- **Historical note**: an integration that mapped a vendor’s **tiered / id** cache fields to our telemetry showed **no useful hit rate** in practice. Do not assume “vendor says cache” means **measurable** savings until `cached_tokens` / hit metrics move in a controlled experiment.
+- **Historical note**: an integration that mapped a vendor's **tiered / id** cache fields to our telemetry showed **no useful hit rate** in practice. Do not assume "vendor says cache" means **measurable** savings until `cached_tokens` / hit metrics move in a controlled experiment.
+
+### Deterministic breakpoint strategy (Anthropic explicit)
+
+When `detectCacheStrategy` returns `anthropic_explicit`, `annotateCacheBreakpoints` places up to **three** `cache_control: { type: "ephemeral" }` markers at fixed, deterministic positions:
+
+| Breakpoint | Position | Stability |
+|------------|----------|-----------|
+| **BP1** | End of the leading system-message prefix (system prompt + tool definitions) | Static — changes only on tool schema updates |
+| **BP2** | `messages.length - VOLATILE_TAIL_SIZE - 1` (end of the epoch-frozen stable history) | Stable — moves only on epoch re-anchor (every N turns) |
+| **BP3** *(optional)* | Midpoint of the volatile tail, when tail exceeds ~10 k estimated tokens | Semi-stable — shifts each turn but provides partial reuse on retries |
+
+The key insight: new messages only append to the tail.  Everything before **BP2** is identical turn-over-turn, giving the KV cache a byte-stable prefix to match.  BP2 only shifts when the epoch re-anchors (controlled by `SYNESIS_YARN_SCOPE_EPOCH_INTERVAL`, default 10 turns).
+
+`VOLATILE_TAIL_SIZE` is set to **20** (the recent keep-window).  If the conversation is too short for BP2 or it would overlap BP1, it is omitted.
+
+### Supporting mechanisms for prefix stability
+
+| Mechanism | File | Purpose |
+|-----------|------|---------|
+| **Epoch-based sticky boundary** | `governance/objective-scope.ts` | Freezes the pruning boundary for N turns via `PruningCheckpoint` — prevents the boundary from shifting every request |
+| **Content-hash tool call IDs** | `reduction/historical-normalizer.ts` | Rewrites tool call IDs to `tc_{sha256hex}` — stable even when earlier messages are pruned |
+| **Governor guidance tail-append** | `index.ts` | Recovery/sensemaking system messages are pushed to the end instead of spliced into the middle |
+| **Snap-to-grid pruning** | `governance/objective-scope.ts`, `governance/context-budget-manager.ts` | Message counts snap to bucket multiples (50) to reduce boundary variation |
 
 **Debug checklist when a vendor advertises cache**
 
 1. Confirm **prefix bytes** are stable (fingerprints, first-changed system section in forensics).
-2. Confirm the **right route** (OpenAI vs native Anthropic SDK) is used for that vendor’s feature.
+2. Confirm the **right route** (OpenAI vs native Anthropic SDK) is used for that vendor's feature.
 3. Compare **input token growth** per turn vs. expected cache discount.
+4. Check that BP2 position is not shifting every turn — verify `SYNESIS_YARN_SCOPE_EPOCH_INTERVAL` is set.
 
 ## DashScope and similar providers (service-layer shim)
 
 - **DashScope**-style backends are optional **inference** targets, like any other `baseUrl` in the model registry. They are **not** architectural requirements of Yarn.
-- The repository may retain **test-only** or **shim** helpers (e.g. [dashscope-cache-interceptor.ts](../src/providers/dashscope-cache-interceptor.ts)) to reproduce a provider’s wire behavior. Production may pass a no-op or neutral cache options object where a legacy call signature remains for **compatibility** with `resolve()`.
+- The repository may retain **test-only** or **shim** helpers (e.g. [dashscope-cache-interceptor.ts](../src/providers/dashscope-cache-interceptor.ts)) to reproduce a provider's wire behavior. Production may pass a no-op or neutral cache options object where a legacy call signature remains for **compatibility** with `resolve()`.
 - Re-introducing a full DashScope cache shim belongs in the **provider adapter** layer, not in the core enrichment pipeline.
 
 ## Optional Redis layers (multi-replica)
@@ -46,6 +70,6 @@ This document is the **authoritative** description of how Synesis Coder (the `sy
 ## Related files
 
 - [REQUEST_PIPELINE_MAP.md](../REQUEST_PIPELINE_MAP.md) — end-to-end production path
-- [provider-cache-hints.ts](../src/context/provider-cache-hints.ts) — `annotateCacheBreakpoints`, `computePrefixFingerprint`
+- [provider-cache-hints.ts](../src/context/provider-cache-hints.ts) — `annotateCacheBreakpoints`, `computePrefixFingerprint`, `VOLATILE_TAIL_SIZE`
 - [synesis-provider.ts](../src/providers/synesis-provider.ts) — model resolution, compatibility options
 - [prefix-optimizer/](../src/providers/prefix-optimizer/) — client metadata and marker policy

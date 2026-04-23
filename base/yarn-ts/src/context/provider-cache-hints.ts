@@ -73,17 +73,42 @@ interface MessageLike {
   content: unknown;
 }
 
+/**
+ * Number of messages from the tail of the conversation considered "volatile"
+ * (the recent keep-window).  Everything before this is the "stable" epoch
+ * anchor that should be KV-cached.
+ */
+export const VOLATILE_TAIL_SIZE = 20;
+
+/**
+ * Minimum token estimate for the volatile tail before we spend a 3rd
+ * breakpoint to cache the first half of it.
+ */
+const BP3_TAIL_TOKEN_THRESHOLD = 10_000;
+const APPROX_TOKENS_PER_MSG = 250;
+
 export interface AnnotateCacheBreakpointsOptions {
-  anchorIndex?: number;
+  /** Override the volatile tail size (default: VOLATILE_TAIL_SIZE). */
+  volatileTailSize?: number;
 }
 
 /**
- * Annotate stable cache breakpoints for providers that support explicit
- * caching (Anthropic `cache_control`).  Breakpoints are placed at:
+ * Place Anthropic `cache_control` breakpoints at deterministic positions:
  *
- *   1. The end of the leading system-message prefix (system prompt + tools).
- *   2. Optionally, the epoch-anchor boundary index (end of the frozen
- *      history from sticky pruning).
+ *   **BP1** — End of the leading system-message prefix (static; system
+ *   prompt + tool definitions).
+ *
+ *   **BP2** — End of the epoch-anchor (frozen history).  Computed as
+ *   `messages.length - volatileTailSize - 1`.  Because new messages only
+ *   append to the tail, the byte-prefix up to BP2 is identical turn-over-
+ *   turn and only shifts when the epoch re-anchors.
+ *
+ *   **BP3** (optional) — Midpoint of the volatile tail when the tail is
+ *   large (>10 k tokens estimated).  Provides partial reuse of the recent
+ *   window across retries and regenerations.
+ *
+ * If the conversation is too short for BP2 (or BP2 would overlap BP1),
+ * it is omitted.
  *
  * For non-explicit strategies, computes stable prefix bytes for diagnostics
  * without modifying messages.
@@ -110,45 +135,50 @@ export function annotateCacheBreakpoints(
   }
 
   const out = [...messages];
+  const tailSize = options?.volatileTailSize ?? VOLATILE_TAIL_SIZE;
 
+  // ── Locate end of leading system-message prefix ──────────────────────
   let lastSystemIdx = -1;
   for (let i = 0; i < out.length; i++) {
     if (out[i].role === "system") {
       lastSystemIdx = i;
       stats.stablePrefixBytes += typeof out[i].content === "string"
         ? (out[i].content as string).length : 0;
-    } else if (out[i].role !== "system" && lastSystemIdx >= 0) {
+    } else if (lastSystemIdx >= 0) {
       break;
     }
   }
 
-  if (strategy === "anthropic_explicit") {
-    if (lastSystemIdx >= 0) {
-      const msg = out[lastSystemIdx];
-      if (typeof msg.content === "string") {
-        out[lastSystemIdx] = {
-          ...msg,
-          providerOptions: {
-            anthropic: { cacheControl: { type: "ephemeral" } },
-          },
-        } as MessageLike;
-        stats.breakpointsPlaced += 1;
-      }
-    }
+  if (strategy !== "anthropic_explicit") {
+    return { messages: out, stats };
+  }
 
-    const anchorIdx = options?.anchorIndex;
-    if (anchorIdx !== undefined && anchorIdx > 0 && anchorIdx < out.length) {
-      const anchorTarget = Math.min(anchorIdx, out.length - 1);
-      if (anchorTarget !== lastSystemIdx) {
-        const msg = out[anchorTarget];
-        out[anchorTarget] = {
-          ...msg,
-          providerOptions: {
-            anthropic: { cacheControl: { type: "ephemeral" } },
-          },
-        } as MessageLike;
-        stats.breakpointsPlaced += 1;
-      }
+  const placeMark = (idx: number): void => {
+    out[idx] = {
+      ...out[idx],
+      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    } as MessageLike;
+    stats.breakpointsPlaced += 1;
+  };
+
+  // ── BP1: End of system prefix ────────────────────────────────────────
+  if (lastSystemIdx >= 0) {
+    placeMark(lastSystemIdx);
+  }
+
+  // ── BP2: End of the epoch-frozen stable history ──────────────────────
+  const bp2 = out.length - tailSize - 1;
+  if (bp2 > lastSystemIdx && bp2 > 0 && bp2 < out.length) {
+    placeMark(bp2);
+  }
+
+  // ── BP3: Midpoint of the volatile tail (optional) ────────────────────
+  const tailStart = Math.max(bp2 + 1, lastSystemIdx + 1);
+  const tailLength = out.length - tailStart;
+  if (tailLength * APPROX_TOKENS_PER_MSG > BP3_TAIL_TOKEN_THRESHOLD) {
+    const bp3 = tailStart + Math.floor(tailLength / 2);
+    if (bp3 > bp2 && bp3 < out.length - 1) {
+      placeMark(bp3);
     }
   }
 
