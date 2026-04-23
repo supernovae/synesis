@@ -3849,6 +3849,7 @@ import {
 } from "./providers/model-adapter.js";
 import { governToolCall } from "./path-governance/tool-call-governance.js";
 import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
+import { buildDefaultPolicy, type PathSandboxPolicy } from "./path-governance/path-sandbox.js";
 import {
   buildWorkspaceHandshakeBashCommand,
   contextFromSessionMetadata,
@@ -8905,6 +8906,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           onEditTurn: (canonicalPath, turnIndex) => {
             session.artifactEditTurns.set(canonicalPath, turnIndex);
           },
+          pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveOaiPathCtx.projectRoot
+            ? buildDefaultPolicy(effectiveOaiPathCtx.projectRoot) : null,
         });
         if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
           session.gitInspectionBlockCount += 1;
@@ -9465,6 +9468,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
             onEditTurn: (canonicalPath, turnIndex) => {
               session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
+            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveOaiPathCtx.projectRoot
+              ? buildDefaultPolicy(effectiveOaiPathCtx.projectRoot) : null,
           });
           if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
             session.gitInspectionBlockCount += 1;
@@ -12447,6 +12452,8 @@ app.post("/v1/messages", async (req, reply) => {
             onEditTurn: (canonicalPath, turnIndex) => {
               session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
+            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveClaudePathCtx.projectRoot
+              ? buildDefaultPolicy(effectiveClaudePathCtx.projectRoot) : null,
           });
           if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
             session.gitInspectionBlockCount += 1;
@@ -13183,6 +13190,8 @@ app.post("/v1/messages", async (req, reply) => {
         onEditTurn: (canonicalPath, turnIndex) => {
           session.artifactEditTurns.set(canonicalPath, turnIndex);
         },
+        pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveClaudePathCtx.projectRoot
+          ? buildDefaultPolicy(effectiveClaudePathCtx.projectRoot) : null,
       });
       if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
         session.gitInspectionBlockCount += 1;

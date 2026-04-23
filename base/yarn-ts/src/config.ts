@@ -635,6 +635,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Enforce path sandbox boundaries — block file access outside project root + curated allowlist. */
+  SYNESIS_YARN_PATH_SANDBOX_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
   // When true, block risky mkdir/cd duplicate-segment drift by rewriting Bash to a safe error command.
   SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED: z

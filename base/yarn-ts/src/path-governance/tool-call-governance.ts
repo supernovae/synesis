@@ -12,6 +12,13 @@ import {
   type PlanContentShadow,
   type PlanWriteValidationResult,
 } from "../planning/plan-content-shadow.js";
+import {
+  evaluatePathAccess,
+  extractBashFilePaths,
+  buildDefaultPolicy,
+  type PathSandboxPolicy,
+  type PathOperation,
+} from "./path-sandbox.js";
 
 export interface GovernToolCallOptions {
   toolName: string;
@@ -36,6 +43,8 @@ export interface GovernToolCallOptions {
   onEditTurn?: (canonicalPath: string, turnIndex: number) => void;
   /** Total git inspection blocks so far in this session. Allows a grace first offense. */
   sessionGitInspectionBlockCount?: number;
+  /** Path sandbox policy. When set, file operations outside allowed paths are blocked. */
+  pathSandboxPolicy?: PathSandboxPolicy | null;
 }
 
 export interface PlanWriteAuditRecord {
@@ -61,6 +70,8 @@ export interface GovernedToolCall {
   planWriteAudit?: PlanWriteAuditRecord;
   blockedStaleWrite?: boolean;
   blockedStubContent?: boolean;
+  blockedPathSandbox?: boolean;
+  pathSandboxNudge?: string;
 }
 
 const WRITE_CAPABLE_LOGICAL = new Set([
@@ -97,6 +108,18 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   out.input = envelope.input;
   out.envelopeUnwrapped = envelope.unwrapped;
   out.envelopeSource = envelope.source;
+
+  // Path sandbox: block file operations outside allowed boundaries
+  if (opts.pathSandboxPolicy) {
+    const sandboxBlock = maybeBlockPathSandbox(logicalName, out.input, opts.pathSandboxPolicy, opts.clientKind);
+    if (sandboxBlock) {
+      out.toolName = sandboxBlock.toolName;
+      out.input = sandboxBlock.input;
+      out.blockedPathSandbox = true;
+      out.pathSandboxNudge = sandboxBlock.nudge;
+      return out;
+    }
+  }
 
   const subagentProtection = maybeBlockSubagentExploration(logicalName, opts.clientKind);
   if (subagentProtection) {
@@ -938,6 +961,118 @@ function detectBashPathDrift(command: string): { reason: string } | null {
   if (created === changed) {
     return { reason: "mkdir && cd path drift detected (duplicate segment)" };
   }
+  return null;
+}
+
+function maybeBlockPathSandbox(
+  logicalName: string,
+  input: Record<string, unknown>,
+  policy: PathSandboxPolicy,
+  clientKind?: string,
+): { toolName: string; input: Record<string, unknown>; nudge?: string } | null {
+  // Determine operation type and extract paths
+  const isWrite = WRITE_CAPABLE_LOGICAL.has(logicalName);
+  const operation: PathOperation = isWrite ? "write" : "read";
+
+  // File tool paths (Read, Write, Edit, Glob target)
+  const filePath = typeof input.file_path === "string" ? input.file_path.trim()
+    : typeof input.path === "string" ? input.path.trim() : "";
+
+  if (filePath && logicalName !== "Bash") {
+    const result = evaluatePathAccess(filePath, operation, policy);
+    if (!result.allowed) {
+      const message = result.nudge
+        ?? `Path "${filePath}" is outside the project sandbox. ${result.reason}. Use files within ${policy.projectRoot} or ~/.claude/ instead.`;
+      if (clientKind === "claude-code") {
+        return {
+          toolName: "Synesis_Error_PathSandbox",
+          input: {
+            synesis_error: true,
+            reason: "path_sandbox_violation",
+            detail: result.reason,
+            blocked_path: filePath,
+            resolved_path: result.resolvedPath,
+            operation,
+            message,
+            retryable: true,
+          },
+          nudge: result.nudge,
+        };
+      }
+      return {
+        toolName: "Bash",
+        input: {
+          command: buildStructuredErrorBashCommand({
+            synesis_error: true,
+            schema_version: 1,
+            category: "security",
+            reason: "path_sandbox_violation",
+            detail: result.reason,
+            blocked_path: filePath,
+            operation,
+            message,
+            retryable: true,
+          }),
+          description: `Blocked ${operation} outside sandbox: ${result.reason}`,
+        },
+        nudge: result.nudge,
+      };
+    }
+  }
+
+  // Bash commands: check file paths embedded in the command
+  if (logicalName === "Bash" && typeof input.command === "string") {
+    const bashPaths = extractBashFilePaths(input.command);
+    for (const bp of bashPaths) {
+      if (!bp || bp.startsWith("-")) continue;
+      // Determine if it's a write based on context (redirect)
+      const bashOp: PathOperation = input.command.includes(`> ${bp}`)
+        || input.command.includes(`>> ${bp}`)
+        || input.command.includes(`>${bp}`)
+        || input.command.includes(`>>${bp}`)
+          ? "write" : "read";
+      const result = evaluatePathAccess(bp, bashOp, policy);
+      if (!result.allowed) {
+        const message = result.nudge
+          ?? `Bash command references "${bp}" which is outside the project sandbox. ${result.reason}.`;
+        if (clientKind === "claude-code") {
+          return {
+            toolName: "Synesis_Error_PathSandbox",
+            input: {
+              synesis_error: true,
+              reason: "path_sandbox_violation",
+              detail: result.reason,
+              blocked_path: bp,
+              resolved_path: result.resolvedPath,
+              operation: bashOp,
+              message,
+              retryable: true,
+            },
+            nudge: result.nudge,
+          };
+        }
+        return {
+          toolName: "Bash",
+          input: {
+            command: buildStructuredErrorBashCommand({
+              synesis_error: true,
+              schema_version: 1,
+              category: "security",
+              reason: "path_sandbox_violation",
+              detail: result.reason,
+              blocked_path: bp,
+              operation: bashOp,
+              message,
+              retryable: true,
+            }),
+            description: `Blocked bash ${bashOp} outside sandbox: ${result.reason}`,
+          },
+          nudge: result.nudge,
+        };
+      }
+    }
+  }
+
   return null;
 }
 
