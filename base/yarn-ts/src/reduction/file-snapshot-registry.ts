@@ -125,7 +125,7 @@ export class FileSnapshotRegistry {
       && rangesEqual(existing.requestedRange, requestedRange)
       && rangesEqual(existing.returnedRange, returnedRange)
       ? existing.snapshotId
-      : `snap_${(++this.sequence).toString(36)}_${contentHash.slice(0, 10)}`;
+      : contentAddressedSnapshotId(contentHash, completeness, requestedRange, returnedRange);
     const versionIdentity: SnapshotVersionIdentity = {
       contentHash,
       filesystem: params.fsVersion
@@ -430,4 +430,25 @@ function snapshotFsVersionFromStats(stats: Awaited<ReturnType<typeof stat>>): Sn
 
 function sha256(content: string): string {
   return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+/**
+ * Content-addressed snapshot ID: deterministic from content + range metadata.
+ * Avoids the monotonic sequence counter that broke KV-cache prefix stability
+ * by producing a different ID for the same file on every turn.
+ */
+function contentAddressedSnapshotId(
+  contentHash: string,
+  completeness: SnapshotCompleteness,
+  requestedRange?: SnapshotLineRange,
+  returnedRange?: SnapshotLineRange,
+): string {
+  const rangeSuffix = completeness === "partial" && returnedRange
+    ? `:${returnedRange.startLine}-${returnedRange.endLine}`
+    : completeness === "partial" && requestedRange
+      ? `:${requestedRange.startLine}-${requestedRange.endLine}`
+      : "";
+  const composite = `${contentHash}:${completeness}${rangeSuffix}`;
+  const shortHash = crypto.createHash("sha256").update(composite).digest("hex").slice(0, 12);
+  return `snap_${shortHash}`;
 }
