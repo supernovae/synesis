@@ -81,6 +81,15 @@ function isAgentConfigFile(filePath: string): boolean {
   return AGENT_CONFIG_NAMES.has(base);
 }
 
+/**
+ * Derive a safe `/tmp` subdirectory name from the project root.
+ * e.g. `/Users/me/src/myproject` → `myproject`
+ */
+export function projectTmpDir(projectRoot: string): string {
+  const base = path.basename(path.resolve(projectRoot));
+  return `/tmp/${base || "synesis-scratch"}`;
+}
+
 export function buildDefaultPolicy(projectRoot: string): PathSandboxPolicy {
   const homeDir = os.homedir();
   return {
@@ -93,12 +102,14 @@ export function buildDefaultPolicy(projectRoot: string): PathSandboxPolicy {
       "~/.config/opencode/**",
       "~/.vscode/**",
       "~/.local/share/code-server/**",
+      "/tmp/**",
     ],
     allowedWriteGlobs: [
       `${projectRoot}/**`,
       "~/.claude/plans/**",
       "~/.claude/settings.json",
       "~/.claude/history/**",
+      "/tmp/**",
     ],
     blockedGlobs: [
       "/etc/**",
@@ -107,7 +118,6 @@ export function buildDefaultPolicy(projectRoot: string): PathSandboxPolicy {
       "/proc/**",
       "/sys/**",
       "/dev/**",
-      "/tmp/**",
       "/private/var/**",
       "/private/etc/**",
       "/System/**",
@@ -177,7 +187,15 @@ export function evaluatePathAccess(
   for (const glob of allowGlobs) {
     const expandedGlob = expandHome(glob, homeDir);
     if (matchesGlob(normalized, expandedGlob)) {
-      return { allowed: true, reason: `allowed_${operation}: ${glob}`, resolvedPath: normalized };
+      const result: PathSandboxResult = { allowed: true, reason: `allowed_${operation}: ${glob}`, resolvedPath: normalized };
+      // Nudge /tmp usage toward a project-scoped subdirectory
+      if (normalized.startsWith("/tmp/")) {
+        const scopedDir = projectTmpDir(projectRoot);
+        if (!normalized.startsWith(scopedDir + "/") && normalized !== scopedDir) {
+          result.nudge = `Prefer using ${scopedDir}/ for temp files to avoid collisions with other projects.`;
+        }
+      }
+      return result;
     }
   }
 

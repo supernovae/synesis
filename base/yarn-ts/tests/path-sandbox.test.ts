@@ -3,6 +3,7 @@ import {
   evaluatePathAccess,
   buildDefaultPolicy,
   extractBashFilePaths,
+  projectTmpDir,
 } from "../src/path-governance/path-sandbox.js";
 import os from "node:os";
 import path from "node:path";
@@ -120,6 +121,37 @@ describe("path-sandbox", () => {
     it("blocks /proc/self/environ", () => {
       const result = evaluatePathAccess("/proc/self/environ", "read", policy());
       expect(result.allowed).toBe(false);
+    });
+  });
+
+  describe("/tmp access with project-scoped nudge", () => {
+    it("allows reading /tmp files", () => {
+      const result = evaluatePathAccess("/tmp/build-output.log", "read", policy());
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows writing /tmp files", () => {
+      const result = evaluatePathAccess("/tmp/scratch.txt", "write", policy());
+      expect(result.allowed).toBe(true);
+    });
+
+    it("nudges toward project-scoped /tmp subdir for unscoped paths", () => {
+      const result = evaluatePathAccess("/tmp/scratch.txt", "write", policy());
+      expect(result.allowed).toBe(true);
+      expect(result.nudge).toContain("/tmp/myproject");
+      expect(result.nudge).toContain("Prefer using");
+    });
+
+    it("does not nudge when already in project-scoped /tmp subdir", () => {
+      const scoped = projectTmpDir(PROJECT);
+      const result = evaluatePathAccess(`${scoped}/output.log`, "write", policy());
+      expect(result.allowed).toBe(true);
+      expect(result.nudge).toBeUndefined();
+    });
+
+    it("projectTmpDir derives name from project root basename", () => {
+      expect(projectTmpDir("/Users/me/src/cool-app")).toBe("/tmp/cool-app");
+      expect(projectTmpDir("/home/dev/synesis")).toBe("/tmp/synesis");
     });
   });
 
