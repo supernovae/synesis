@@ -313,35 +313,60 @@ export function applyHeavyCompaction(
   const checkpointMsg = renderCheckpointMessage(checkpoint);
   const checkpointTokens = estimateMessageTokens({ role: "system", content: checkpointMsg });
 
+  // ── Phase 1: initial keep/drop decisions (retention-based) ──
+  const keep = new Array<boolean>(messages.length);
+  for (let i = 0; i < messages.length; i++) {
+    const cl = classified[i];
+    if (!cl) { keep[i] = true; continue; }
+    if (cl.tier === "immutable" || cl.tier === "working") { keep[i] = true; continue; }
+    if (cl.retentionScore >= retentionThreshold || cl.tags.includes("unresolved_failure")) { keep[i] = true; continue; }
+    keep[i] = false;
+  }
+
+  // ── Phase 2: enforce tool-call / tool-result pair integrity ──
+  // The Vercel AI SDK rejects conversations where an assistant tool_call has
+  // no matching tool result (AI_MissingToolResultsError).  Dropping a tool
+  // result while retaining its paired assistant creates an orphan.
+  const toolResultIdx = new Map<string, number>();
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "tool" && messages[i].tool_call_id) {
+      toolResultIdx.set(messages[i].tool_call_id!, i);
+    }
+  }
+  for (let i = 0; i < messages.length; i++) {
+    if (!keep[i]) continue;
+    const msg = messages[i];
+    if (msg.role !== "assistant" || !hasToolCalls(msg)) continue;
+    for (const tc of msg.tool_calls!) {
+      if (!tc.id) continue;
+      const ri = toolResultIdx.get(tc.id);
+      if (ri !== undefined) keep[ri] = true;
+    }
+  }
+
+  // ── Phase 3: build output ──
   const out: ContextBudgetMessage[] = [];
   let droppedTokens = 0;
   let insertedCheckpoint = false;
 
   for (let i = 0; i < messages.length; i++) {
-    const cl = classified[i];
-    if (!cl) { out.push(messages[i]); continue; }
-
-    if (cl.tier === "immutable" || cl.tier === "working") {
-      if (!insertedCheckpoint && cl.tier === "working") {
+    if (keep[i]) {
+      const cl = classified[i];
+      if (!insertedCheckpoint && cl && (cl.tier === "working")) {
         out.push({ role: "system", content: checkpointMsg });
         insertedCheckpoint = true;
       }
       out.push(messages[i]);
-      continue;
-    }
-
-    if (cl.retentionScore >= retentionThreshold || cl.tags.includes("unresolved_failure")) {
-      out.push(messages[i]);
-      continue;
-    }
-
-    if (artifactStore && messages[i].role === "tool") {
-      const raw = contentString(messages[i].content);
-      if (raw.length >= 100) {
-        retainToArtifact(artifactStore, raw);
+    } else {
+      if (artifactStore && messages[i].role === "tool") {
+        const raw = contentString(messages[i].content);
+        if (raw.length >= 100) {
+          retainToArtifact(artifactStore, raw);
+        }
       }
+      const cl = classified[i];
+      if (cl) droppedTokens += cl.estimatedTokens;
     }
-    droppedTokens += cl.estimatedTokens;
   }
 
   if (!insertedCheckpoint && out.length > 0) {
