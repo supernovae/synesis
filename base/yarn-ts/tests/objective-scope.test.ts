@@ -357,4 +357,55 @@ describe("objective scope", () => {
     expect(retainedToolCallIds.has("tc_3_0")).toBe(true);
     expect(retainedToolResultIds.has("tc_3_0")).toBe(true);
   });
+
+  it("injects placeholder for assistant tool_call whose result was pruned/dropped", () => {
+    const chatState = makeChatState({
+      activeObjective: "Continue work",
+      pendingUserDirective: "Continue work",
+    });
+    // tc_orphan has an assistant tool_call but its result was evicted by pruning.
+    // The healer should inject a synthetic placeholder tool result.
+    const messages: Array<ObjectiveScopeMessage & { tool_calls?: Array<{ id: string; function?: { name: string } }> }> = [
+      { role: "user", content: "Continue work" },                                      // 0 - last user = boundary
+      { role: "assistant", content: "", tool_calls: [{ id: "tc_orphan", function: { name: "Bash" } }] }, // 1
+      // No tool result for tc_orphan — it was evicted
+      { role: "assistant", content: "", tool_calls: [{ id: "tc_good" }] },             // 2
+      { role: "tool", content: "result for tc_good", tool_call_id: "tc_good", name: "read_file" }, // 3
+    ];
+
+    const scoped = applyObjectiveScope({
+      messages: messages as ObjectiveScopeMessage[],
+      epoch: {
+        epochId: 3,
+        objectiveHash: "cont",
+        objectiveText: "Continue work",
+        anchorUserHash: "",
+        objectiveSetRequest: 3,
+        objectiveChanged: true,
+        similarityToPrevious: 0.3,
+      },
+      chatState,
+      fileState: makeFileState("src/app.ts"),
+    });
+
+    const retainedToolCallIds = new Set<string>();
+    const retainedToolResultIds = new Set<string>();
+    for (const m of scoped.scopedMessages as Array<ObjectiveScopeMessage & { tool_calls?: Array<{ id: string }> }>) {
+      if (m.tool_calls) for (const tc of m.tool_calls) retainedToolCallIds.add(tc.id);
+      if (m.tool_call_id) retainedToolResultIds.add(m.tool_call_id);
+    }
+    // Every tool_call must have a matching result (placeholder injected for tc_orphan)
+    for (const id of retainedToolCallIds) {
+      expect(retainedToolResultIds.has(id)).toBe(true);
+    }
+    // tc_orphan should now have a result (the injected placeholder)
+    expect(retainedToolCallIds.has("tc_orphan")).toBe(true);
+    expect(retainedToolResultIds.has("tc_orphan")).toBe(true);
+    // The placeholder should contain the compaction notice
+    const placeholder = scoped.scopedMessages.find(
+      (m) => m.role === "tool" && m.tool_call_id === "tc_orphan",
+    );
+    expect(placeholder).toBeTruthy();
+    expect(String(placeholder?.content)).toContain("compacted");
+  });
 });

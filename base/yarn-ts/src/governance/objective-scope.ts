@@ -422,52 +422,78 @@ function adjustBoundaryForToolPairIntegrity(
 }
 
 /**
- * Remove orphaned tool results from the retained window.
+ * Ensure every tool_call has a matching tool_result and vice versa.
  *
- * After boundary adjustment, tool results may reference assistant tool_calls
- * that were dropped (before the boundary). The Vercel AI SDK throws
- * AI_MissingToolResultsError if it finds a tool result without a matching
- * tool_call. We strip these orphans rather than pulling the boundary all the
- * way back (which would defeat scope pruning).
+ * After boundary slicing + transcript pruning, two orphan directions exist:
+ *   1. Tool results whose assistant tool_call was dropped → strip result
+ *   2. Assistant tool_calls whose tool result was dropped → inject placeholder
+ *
+ * The Vercel AI SDK throws AI_MissingToolResultsError for either direction.
  */
-function stripOrphanedToolResults<T extends ObjectiveScopeMessage>(messages: T[]): T[] {
-  const presentToolCallIds = new Set<string>();
+function healToolCallResultPairs<T extends ObjectiveScopeMessage>(messages: T[]): T[] {
+  // Collect all assistant tool_call IDs and all tool_result IDs
+  const toolCallIds = new Set<string>();
+  const toolResultIds = new Set<string>();
+
   for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
-    const toolCalls = (msg as unknown as Record<string, unknown>).tool_calls as
-      | Array<{ id?: string }>
-      | undefined;
-    if (toolCalls) {
-      for (const tc of toolCalls) {
-        if (tc.id) presentToolCallIds.add(tc.id);
+    if (msg.role === "assistant") {
+      const toolCalls = (msg as unknown as Record<string, unknown>).tool_calls as
+        | Array<{ id?: string }>
+        | undefined;
+      if (toolCalls) {
+        for (const tc of toolCalls) {
+          if (tc.id) toolCallIds.add(tc.id);
+        }
+      }
+      if (Array.isArray(msg.content)) {
+        for (const block of msg.content as Array<{ type?: string; id?: string }>) {
+          if (block?.type === "tool_use" && block.id) toolCallIds.add(block.id);
+        }
       }
     }
-    const content = msg.content;
-    if (Array.isArray(content)) {
-      for (const block of content as Array<{ type?: string; id?: string }>) {
-        if (block?.type === "tool_use" && block.id) presentToolCallIds.add(block.id);
+    if (msg.role === "tool" && msg.tool_call_id) {
+      toolResultIds.add(msg.tool_call_id);
+    }
+    if (msg.role === "user" && Array.isArray(msg.content)) {
+      for (const block of msg.content as Array<{ type?: string; tool_use_id?: string }>) {
+        if (block?.type === "tool_result" && block.tool_use_id) {
+          toolResultIds.add(block.tool_use_id);
+        }
       }
     }
   }
 
-  if (presentToolCallIds.size === 0) return messages;
+  // Direction 1: tool results without matching tool_call → strip
+  const orphanedResults = new Set<string>();
+  for (const id of toolResultIds) {
+    if (!toolCallIds.has(id)) orphanedResults.add(id);
+  }
 
+  // Direction 2: tool_calls without matching tool result → need placeholder
+  const orphanedCalls = new Set<string>();
+  for (const id of toolCallIds) {
+    if (!toolResultIds.has(id)) orphanedCalls.add(id);
+  }
+
+  if (orphanedResults.size === 0 && orphanedCalls.size === 0) return messages;
+
+  // Pass 1: strip orphaned tool results
   const result: T[] = [];
   for (const msg of messages) {
-    // OpenAI format: role=tool with tool_call_id
-    if (msg.role === "tool" && msg.tool_call_id && !presentToolCallIds.has(msg.tool_call_id)) {
-      continue; // drop orphaned tool result
+    if (msg.role === "tool" && msg.tool_call_id && orphanedResults.has(msg.tool_call_id)) {
+      continue;
     }
-    // Claude format: user message with tool_result blocks — filter blocks
     if (msg.role === "user" && Array.isArray(msg.content)) {
       const blocks = msg.content as Array<{ type?: string; tool_use_id?: string }>;
-      const hasToolResults = blocks.some((b) => b?.type === "tool_result");
-      if (hasToolResults) {
+      const hasOrphans = blocks.some(
+        (b) => b?.type === "tool_result" && b.tool_use_id && orphanedResults.has(b.tool_use_id),
+      );
+      if (hasOrphans) {
         const filtered = blocks.filter((b) => {
           if (b?.type !== "tool_result") return true;
-          return !b.tool_use_id || presentToolCallIds.has(b.tool_use_id);
+          return !b.tool_use_id || !orphanedResults.has(b.tool_use_id);
         });
-        if (filtered.length === 0) continue; // drop empty user message
+        if (filtered.length === 0) continue;
         if (filtered.length !== blocks.length) {
           result.push({ ...msg, content: filtered } as T);
           continue;
@@ -476,6 +502,49 @@ function stripOrphanedToolResults<T extends ObjectiveScopeMessage>(messages: T[]
     }
     result.push(msg);
   }
+
+  // Pass 2: inject placeholders for orphaned tool_calls right after their assistant message
+  if (orphanedCalls.size > 0) {
+    const injected: T[] = [];
+    for (const msg of result) {
+      injected.push(msg);
+      if (msg.role === "assistant") {
+        const toolCalls = (msg as unknown as Record<string, unknown>).tool_calls as
+          | Array<{ id?: string; function?: { name?: string } }>
+          | undefined;
+        if (toolCalls) {
+          for (const tc of toolCalls) {
+            if (tc.id && orphanedCalls.has(tc.id)) {
+              injected.push({
+                role: "tool",
+                content: "[Result no longer available — prior context was compacted]",
+                tool_call_id: tc.id,
+                name: tc.function?.name ?? "unknown",
+              } as unknown as T);
+              orphanedCalls.delete(tc.id);
+            }
+          }
+        }
+        if (Array.isArray(msg.content)) {
+          for (const block of msg.content as Array<{ type?: string; id?: string; name?: string }>) {
+            if (block?.type === "tool_use" && block.id && orphanedCalls.has(block.id)) {
+              injected.push({
+                role: "user",
+                content: [{
+                  type: "tool_result",
+                  tool_use_id: block.id,
+                  content: "[Result no longer available — prior context was compacted]",
+                }],
+              } as unknown as T);
+              orphanedCalls.delete(block.id);
+            }
+          }
+        }
+      }
+    }
+    return injected;
+  }
+
   return result;
 }
 
@@ -507,7 +576,7 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
 
   boundaryIndex = adjustBoundaryForToolPairIntegrity(allMessages, boundaryIndex);
 
-  const scopedMessages = stripOrphanedToolResults(allMessages.slice(Math.max(0, boundaryIndex)));
+  const scopedMessages = healToolCallResultPairs(allMessages.slice(Math.max(0, boundaryIndex)));
   const preStart = Math.max(0, boundaryIndex - preBoundaryWindow);
   const preBoundaryMessages = allMessages.slice(preStart, boundaryIndex);
 
