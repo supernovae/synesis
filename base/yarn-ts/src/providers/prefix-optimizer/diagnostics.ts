@@ -135,6 +135,56 @@ export function logPrefixDiagnostics(
 }
 
 /**
+ * Diagnose exactly where two consecutive payloads diverge.
+ * Logs the byte offset, a snippet of both sides around the divergence point,
+ * and which segment the divergence falls in (tools vs first message vs Nth message).
+ */
+export function logPrefixDivergence(
+  previousPayload: string | null,
+  currentPayload: string,
+  prefixStableBytes: number,
+  totalPayloadBytes: number,
+): void {
+  if (!previousPayload || prefixStableBytes <= 0) return;
+  if (prefixStableBytes >= Math.min(previousPayload.length, currentPayload.length)) return;
+
+  const CONTEXT = 80;
+  const offset = prefixStableBytes;
+  const prevSnippet = previousPayload.slice(Math.max(0, offset - CONTEXT), offset + CONTEXT);
+  const currSnippet = currentPayload.slice(Math.max(0, offset - CONTEXT), offset + CONTEXT);
+
+  const toolsBoundary = currentPayload.indexOf("\nmessages=");
+  let divergenceRegion: string;
+  if (toolsBoundary < 0) {
+    divergenceRegion = "unknown";
+  } else if (offset < toolsBoundary) {
+    divergenceRegion = "tools";
+  } else {
+    const msgSlice = currentPayload.slice(toolsBoundary);
+    const boundaries = [...msgSlice.matchAll(/\n<MSG_BOUNDARY>\n/g)];
+    let msgIdx = 0;
+    for (const m of boundaries) {
+      if ((m.index! + toolsBoundary) > offset) break;
+      msgIdx++;
+    }
+    divergenceRegion = `message[${msgIdx}]`;
+  }
+
+  console.log(JSON.stringify({
+    level: 30,
+    msg: "prefix_divergence_diagnostic",
+    divergeAtByte: offset,
+    totalPayloadBytes,
+    prevPayloadBytes: previousPayload.length,
+    divergenceRegion,
+    prevSnippet,
+    currSnippet,
+    prevCharAtDiverge: previousPayload[offset],
+    currCharAtDiverge: currentPayload[offset],
+  }));
+}
+
+/**
  * Generate a human-readable debug report explaining cache miss causes.
  */
 export function generateMissReport(

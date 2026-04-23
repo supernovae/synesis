@@ -27,7 +27,7 @@ import { canonicalizeTools } from "./tool-canonicalizer.js";
 import { extractCompactFrame } from "./frame-compactor.js";
 import { rebuildRequest } from "./request-rebuilder.js";
 import { computeMarkerPlacements } from "./marker-policy.js";
-import { buildDiagnostics, logPrefixDiagnostics } from "./diagnostics.js";
+import { buildDiagnostics, logPrefixDiagnostics, logPrefixDivergence } from "./diagnostics.js";
 import { extractMetadataFromMessages } from "./metadata-extractor.js";
 import { canonicalStringify } from "./serializer.js";
 
@@ -146,6 +146,9 @@ export class PrefixOptimizer {
 
     if (this.opts.enableDiagnosticLogging) {
       logPrefixDiagnostics(diagnostics, previousDiag, null);
+      if (previousPayload && prefixStableBytes < comparablePayload.length) {
+        logPrefixDivergence(previousPayload, comparablePayload, prefixStableBytes, comparablePayload.length);
+      }
     }
 
     return {
@@ -195,6 +198,6 @@ export { parseRequest } from "./request-parser.js";
 export { classifyVolatility, splitAtVolatileBoundary } from "./volatility.js";
 export { rebuildRequest, countSystemPrefix } from "./request-rebuilder.js";
 export { computeMarkerPlacements } from "./marker-policy.js";
-export { buildDiagnostics, logPrefixDiagnostics, generateMissReport } from "./diagnostics.js";
+export { buildDiagnostics, logPrefixDiagnostics, logPrefixDivergence, generateMissReport } from "./diagnostics.js";
 export { canonicalizeMessage, canonicalStringify, normalizeWhitespace } from "./serializer.js";
 export { extractClientMetadata, extractMetadataFromMessages } from "./metadata-extractor.js";
