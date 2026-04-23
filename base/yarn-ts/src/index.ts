@@ -8646,7 +8646,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         sessionKey,
         chatState: oaiChatState,
         fileState: oaiFileState,
-        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(oaiChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1 },
+        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(oaiChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1, pruningCheckpoint: { frozenBoundaryIndex: 0, frozenAtRequest: 0, frozenMessageCount: 0 } },
       },
       enableCompaction: true,
       artifactStore,
@@ -12021,7 +12021,7 @@ app.post("/v1/messages", async (req, reply) => {
         sessionKey: claudeSessionKey,
         chatState: claudeChatState,
         fileState: claudeFileState,
-        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(claudeChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1 },
+        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(claudeChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1, pruningCheckpoint: { frozenBoundaryIndex: 0, frozenAtRequest: 0, frozenMessageCount: 0 } },
       },
       enableCompaction: true,
       artifactStore,
@@ -12451,19 +12451,6 @@ app.post("/v1/messages", async (req, reply) => {
       claudeForensicsPhasePolicy,
       claudeForensicsCapabilityMatrix,
     );
-    const claudeResolvedCacheStrategy = detectCacheStrategy(
-      resolved.baseUrl ?? "",
-      resolved.resolvedModelId,
-    );
-    if (claudeResolvedCacheStrategy === "anthropic_explicit") {
-      const claudeCacheHints = annotateCacheBreakpoints(
-        claudeModelMessages as Array<{ role: string; content: unknown }>,
-        "anthropic_explicit",
-        { anchorIndex: claudeObjectiveScope.boundaryIndex },
-      );
-      claudeModelMessages = claudeCacheHints.messages as typeof claudeModelMessages;
-    }
-
     const claudeStreamAbortController = new AbortController();
     const claudeStreamHardTimeoutMs = Math.max(
       config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
@@ -12545,6 +12532,14 @@ app.post("/v1/messages", async (req, reply) => {
       resolvedTier?.baseUrl ?? "",
       resolvedTier?.backendModel ?? resolved.resolvedModelId,
     );
+    if (claudeCacheStrategy === "anthropic_explicit") {
+      const claudeCacheHints = annotateCacheBreakpoints(
+        claudeModelMessages as Array<{ role: string; content: unknown }>,
+        "anthropic_explicit",
+        { anchorIndex: claudeObjectiveScope.boundaryIndex },
+      );
+      claudeModelMessages = claudeCacheHints.messages as typeof claudeModelMessages;
+    }
     const claudePrefixFingerprint = computePrefixFingerprint(
       claudeModelMessages as Array<{ role: string; content: unknown }>,
     );

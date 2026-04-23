@@ -634,6 +634,8 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
       retainedEvidenceCount: 0,
       droppedPreBoundaryCount: 0,
       anchorMatched: false,
+      reanchored: true,
+      updatedCheckpoint: { frozenBoundaryIndex: 0, frozenAtRequest: 0, frozenMessageCount: 0 },
     };
   }
 
