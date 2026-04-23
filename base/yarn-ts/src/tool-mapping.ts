@@ -131,46 +131,63 @@ export function coalesceLeadingSystemMessages(messages: OpenAIChatMessage[]): Op
 }
 
 /**
- * Convert mid-conversation system messages to user messages for providers
- * that only accept system role at the very beginning (e.g. MiniMax).
+ * Normalize system messages for providers that restrict where/how many
+ * system-role messages may appear (e.g. MiniMax: exactly one, at the top).
  *
- * Preserves leading system messages; any system message that appears after
- * the first non-system message is rewritten as a user message.
+ * 1. Coalesces all leading system messages into a single system message.
+ * 2. Converts any remaining mid-conversation system messages to user messages.
+ *
  * Operates on ModelMessage[] (Vercel AI SDK format).
  */
 export function demoteInlineSystemMessages<T extends { role: string; content: unknown }>(messages: T[]): T[] {
-  let sawNonSystem = false;
-  let hasLateSystem = false;
-  for (const m of messages) {
-    if (m.role === "system") {
-      if (sawNonSystem) { hasLateSystem = true; break; }
+  if (messages.length < 2) return messages;
+
+  function extractText(m: T): string {
+    if (typeof m.content === "string") return m.content;
+    if (Array.isArray(m.content)) {
+      return (m.content as Array<{ type?: string; text?: string }>)
+        .filter((b) => b?.type === "text" && b.text)
+        .map((b) => b.text)
+        .join("\n");
+    }
+    return String(m.content ?? "");
+  }
+
+  const leadingSystem: T[] = [];
+  let firstNonSystemIdx = 0;
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "system") {
+      leadingSystem.push(messages[i]);
+      firstNonSystemIdx = i + 1;
     } else {
-      sawNonSystem = true;
+      break;
     }
   }
-  if (!hasLateSystem) return messages;
+
+  let needsWork = leadingSystem.length > 1;
+  if (!needsWork) {
+    for (let i = firstNonSystemIdx; i < messages.length; i++) {
+      if (messages[i].role === "system") { needsWork = true; break; }
+    }
+  }
+  if (!needsWork) return messages;
 
   const out: T[] = [];
-  let pastLeading = false;
-  for (const m of messages) {
+  if (leadingSystem.length === 1) {
+    out.push(leadingSystem[0]);
+  } else if (leadingSystem.length > 1) {
+    const merged = leadingSystem.map(extractText).filter((s) => s.trim()).join("\n\n");
+    out.push({ ...leadingSystem[0], content: merged } as T);
+  }
+  for (let i = firstNonSystemIdx; i < messages.length; i++) {
+    const m = messages[i];
     if (m.role !== "system") {
-      pastLeading = true;
-      out.push(m);
-    } else if (!pastLeading) {
       out.push(m);
     } else {
-      const text = typeof m.content === "string"
-        ? m.content
-        : Array.isArray(m.content)
-          ? (m.content as Array<{ type?: string; text?: string }>)
-              .filter((b) => b?.type === "text" && b.text)
-              .map((b) => b.text)
-              .join("\n")
-          : String(m.content ?? "");
       out.push({
         ...m,
         role: "user",
-        content: [{ type: "text", text: `[System note]\n${text}` }],
+        content: [{ type: "text", text: `[System note]\n${extractText(m)}` }],
       } as unknown as T);
     }
   }
