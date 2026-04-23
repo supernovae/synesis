@@ -707,6 +707,37 @@ function annotatePlanFileReads(
   return { messages: out, annotatedCount, planFilePaths };
 }
 
+const PLAN_MODE_ERROR_RE = /not in plan mode|only for exiting plan mode/i;
+
+/**
+ * Detect "not in plan mode" errors in recent tool results and inject a
+ * guidance hint telling the agent to use Write/Bash instead. This prevents
+ * the agent from looping on the client's plan-mode-restricted tool.
+ */
+function injectPlanModeRecoveryHint(
+  messages: Array<{ role: string; content: unknown }>,
+): boolean {
+  const tail = messages.slice(-6);
+  const hasPlanModeError = tail.some((m) => {
+    if (m.role !== "tool" && m.role !== "user") return false;
+    const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+    return PLAN_MODE_ERROR_RE.test(text);
+  });
+  if (!hasPlanModeError) return false;
+
+  const hint = [
+    "<SYNESIS_EXECUTION_RECOVERY source=\"plan_mode_error\">",
+    "The client's plan tool rejected your update because you are not in plan mode.",
+    "To update a plan file from implementation mode, use the Write tool or Bash (e.g., cat > path) to write the file directly.",
+    "Do NOT attempt to use the plan tool again — it only works in plan mode.",
+    "If the plan is complete, write the updated content to the plan file using Write, then continue with your task.",
+    "</SYNESIS_EXECUTION_RECOVERY>",
+  ].join("\n");
+
+  injectGovernorRecoveryMessage(messages, hint);
+  return true;
+}
+
 /**
  * Extract a PlanContentShadow from the most recent successful plan file read
  * in the message history. Uses the read path map from annotatePlanFileReads.
@@ -7095,6 +7126,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     if (oaiVerifGaps.annotatedCount > 0) {
       normalizedOpenAI.messages = oaiVerifGaps.messages as never;
     }
+    if (injectPlanModeRecoveryHint(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)) {
+      app.log.info({ reqId: oaiTraceReqId }, "plan_mode_recovery_hint_injected");
+    }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
@@ -10441,6 +10475,9 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeVerifGaps = annotateVerificationGaps(normalizedFromClaude.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
     if (claudeVerifGaps.annotatedCount > 0) {
       normalizedFromClaude.messages = claudeVerifGaps.messages as never;
+    }
+    if (injectPlanModeRecoveryHint(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)) {
+      app.log.info({ reqId: traceReqId }, "plan_mode_recovery_hint_injected");
     }
   }
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, body.metadata ?? undefined);
