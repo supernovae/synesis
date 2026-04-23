@@ -163,7 +163,8 @@ import {
   openAIMessagesToModelMessages,
   ensureSystemMessagesAtBeginning,
   coalesceLeadingSystemMessages,
-  sanitizeToolCalls
+  sanitizeToolCalls,
+  demoteInlineSystemMessages,
 } from "./tool-mapping.js";
 import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
@@ -9504,6 +9505,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "tool_pair_integrity_repaired", "validation",
       `orphaned=${oaiPairRepair.orphanedToolCallIds.length} ids=${oaiPairRepair.orphanedToolCallIds.slice(0, 3).join(",")}`, reqId);
+  }
+  if (adapter.family === "minimax") {
+    modelMessages = demoteInlineSystemMessages(modelMessages) as typeof modelMessages;
   }
   const streamed = streamText({
     model: resolved.model as never,

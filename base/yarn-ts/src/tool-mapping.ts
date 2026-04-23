@@ -131,6 +131,53 @@ export function coalesceLeadingSystemMessages(messages: OpenAIChatMessage[]): Op
 }
 
 /**
+ * Convert mid-conversation system messages to user messages for providers
+ * that only accept system role at the very beginning (e.g. MiniMax).
+ *
+ * Preserves leading system messages; any system message that appears after
+ * the first non-system message is rewritten as a user message.
+ * Operates on ModelMessage[] (Vercel AI SDK format).
+ */
+export function demoteInlineSystemMessages<T extends { role: string; content: unknown }>(messages: T[]): T[] {
+  let sawNonSystem = false;
+  let hasLateSystem = false;
+  for (const m of messages) {
+    if (m.role === "system") {
+      if (sawNonSystem) { hasLateSystem = true; break; }
+    } else {
+      sawNonSystem = true;
+    }
+  }
+  if (!hasLateSystem) return messages;
+
+  const out: T[] = [];
+  let pastLeading = false;
+  for (const m of messages) {
+    if (m.role !== "system") {
+      pastLeading = true;
+      out.push(m);
+    } else if (!pastLeading) {
+      out.push(m);
+    } else {
+      const text = typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? (m.content as Array<{ type?: string; text?: string }>)
+              .filter((b) => b?.type === "text" && b.text)
+              .map((b) => b.text)
+              .join("\n")
+          : String(m.content ?? "");
+      out.push({
+        ...m,
+        role: "user",
+        content: [{ type: "text", text: `[System note]\n${text}` }],
+      } as unknown as T);
+    }
+  }
+  return out;
+}
+
+/**
  * Repair malformed tool_calls in conversation history so strict providers
  * (e.g. DeepInfra) don't reject the request with 422.
  *
