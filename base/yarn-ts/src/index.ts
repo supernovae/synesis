@@ -218,6 +218,8 @@ import {
   buildSensemakingGuidanceInjection,
   type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
+import { detectStdoutCaptureLoop } from "./governance/stdout-capture-loop.js";
+import { repairToolCallPairIntegrity } from "./validation/tool-pair-integrity.js";
 import {
   buildRequiredRepairPrompt,
   derivePhaseExecutionPolicy,
@@ -8251,6 +8253,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiRecentCallsForSteering = extractRecentToolCallDetails(
     normalizedRequest.messages as Array<{ role: string; content: unknown }>,
   );
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const captureLoop = detectStdoutCaptureLoop(oaiRecentCallsForSteering);
+    if (captureLoop) {
+      injectGovernorRecoveryMessage(
+        normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+        captureLoop.guidance,
+      );
+      recordSessionEvent(
+        sessionKey, identity.userId, identity.orgId,
+        "stdout_capture_loop_detected",
+        "governor",
+        `base_cmd=${captureLoop.baseCommand.slice(0, 80)} retries=${captureLoop.retryCount}`,
+        oaiTraceReqId,
+      );
+      if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+        app.log.info(
+          { reqId: oaiTraceReqId, baseCommand: captureLoop.baseCommand.slice(0, 120), retryCount: captureLoop.retryCount },
+          "yarn_harness_stdout_capture_loop",
+        );
+      }
+    }
+  }
   const qwenLoopRiskOpenAI = adapter.family === "qwen3-coder" && detectQwenLoopRisk(oaiRecentCallsForSteering);
   const prunedTools = pruneToolSchemas(
     rawTools,
@@ -9471,6 +9495,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
     oaiStreamAbortController.abort(new Error("stream_hard_timeout"));
   }, oaiStreamHardTimeoutMs);
+  const oaiPairRepair = repairToolCallPairIntegrity(modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>);
+  if (oaiPairRepair.repaired) {
+    modelMessages = oaiPairRepair.messages as typeof modelMessages;
+    app.log.warn(
+      { reqId, orphanedToolCallIds: oaiPairRepair.orphanedToolCallIds, count: oaiPairRepair.orphanedToolCallIds.length },
+      "tool_pair_integrity_repair_applied",
+    );
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "tool_pair_integrity_repaired", "validation",
+      `orphaned=${oaiPairRepair.orphanedToolCallIds.length} ids=${oaiPairRepair.orphanedToolCallIds.slice(0, 3).join(",")}`, reqId);
+  }
   const streamed = streamText({
     model: resolved.model as never,
     messages: modelMessages,
@@ -11606,6 +11640,28 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeRecentCallsForSteering = extractRecentToolCallDetails(
     normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
   );
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+    const captureLoop = detectStdoutCaptureLoop(claudeRecentCallsForSteering);
+    if (captureLoop) {
+      injectGovernorRecoveryMessage(
+        normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+        captureLoop.guidance,
+      );
+      recordSessionEvent(
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "stdout_capture_loop_detected",
+        "governor",
+        `base_cmd=${captureLoop.baseCommand.slice(0, 80)} retries=${captureLoop.retryCount}`,
+        traceReqId,
+      );
+      if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+        app.log.info(
+          { reqId: traceReqId, baseCommand: captureLoop.baseCommand.slice(0, 120), retryCount: captureLoop.retryCount },
+          "yarn_harness_stdout_capture_loop",
+        );
+      }
+    }
+  }
   const qwenLoopRiskClaude =
     claudeAdapter.family === "qwen3-coder" && detectQwenLoopRisk(claudeRecentCallsForSteering);
   const prunedClaudeTools = pruneToolSchemas(
@@ -12468,6 +12524,16 @@ app.post("/v1/messages", async (req, reply) => {
       );
       claudeStreamAbortController.abort(new Error("stream_hard_timeout"));
     }, claudeStreamHardTimeoutMs);
+    const claudePairRepair = repairToolCallPairIntegrity(claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>);
+    if (claudePairRepair.repaired) {
+      claudeModelMessages = claudePairRepair.messages as typeof claudeModelMessages;
+      app.log.warn(
+        { reqId: traceReqId, orphanedToolCallIds: claudePairRepair.orphanedToolCallIds, count: claudePairRepair.orphanedToolCallIds.length },
+        "tool_pair_integrity_repair_applied",
+      );
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "tool_pair_integrity_repaired", "validation",
+        `orphaned=${claudePairRepair.orphanedToolCallIds.length} ids=${claudePairRepair.orphanedToolCallIds.slice(0, 3).join(",")}`, traceReqId);
+    }
     const streamed = streamText({
       model: resolved.model as never,
       messages: claudeModelMessages,
