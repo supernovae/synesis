@@ -255,6 +255,13 @@ import {
   type StateConfidenceAssessment,
 } from "./governance/state-confidence.js";
 import {
+  evaluateContextBudget,
+  buildBudgetPolicy,
+  type BudgetEvaluation,
+  type ContextBudgetPolicy,
+} from "./governance/context-budget-manager.js";
+import { buildRetentionContext } from "./governance/context-retention.js";
+import {
   buildStateTransitionCalibrationSample,
   calibrateStateTransitionQualityThresholds,
   buildStateTransitionRecord,
@@ -7598,6 +7605,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   // Sensemaking governor — primary decision-maker
   let oaiSensemakingDecision: SensemakingDecision | null = null;
+  let oaiBudgetEvaluation: BudgetEvaluation | null = null;
   if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const oaiGovEvents = extractCommandEvents(
       (oaiScopedMessages as GovernorInputMessage[]).slice(
@@ -8453,6 +8461,49 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     );
   }
+  // Context Budget Manager — proactive tiered compaction (OpenAI path)
+  if (config.SYNESIS_YARN_CONTEXT_BUDGET_ENABLED) {
+    const oaiBudgetTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
+    const oaiBudgetCeiling = oaiBudgetTier?.contextCeilingTokens
+      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
+        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
+        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
+    const oaiBudgetPolicy = buildBudgetPolicy(oaiBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE);
+    const oaiRetentionCtx = buildRetentionContext(
+      modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+      oaiChatState.currentFocusPaths,
+      [],
+    );
+    const oaiBudgetResult = evaluateContextBudget({
+      messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+      tools: effectiveTools as unknown[],
+      policy: oaiBudgetPolicy,
+      retentionContext: oaiRetentionCtx,
+      heavyCompactionContext: {
+        sessionKey,
+        chatState: oaiChatState,
+        fileState: oaiFileState,
+        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(oaiChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1 },
+      },
+      enableCompaction: true,
+    });
+    oaiBudgetEvaluation = oaiBudgetResult.evaluation;
+    if (oaiBudgetResult.evaluation.compactionApplied !== "none") {
+      modelMessages = oaiBudgetResult.messages as typeof modelMessages;
+    }
+    recordSessionEvent(
+      sessionKey, identity.userId, identity.orgId,
+      "context_budget_evaluated", "context-budget",
+      `zone=${oaiBudgetResult.evaluation.zone} tokens=${oaiBudgetResult.evaluation.estimate.totalTokens} headroom=${oaiBudgetResult.evaluation.headroomTokens} compaction=${oaiBudgetResult.evaluation.compactionApplied} recovered=${oaiBudgetResult.evaluation.tokensRecovered}`,
+      reqId,
+      { zone: oaiBudgetResult.evaluation.zone, estimatedTokens: oaiBudgetResult.evaluation.estimate.totalTokens, headroomTokens: oaiBudgetResult.evaluation.headroomTokens, compactionApplied: oaiBudgetResult.evaluation.compactionApplied, tokensRecovered: oaiBudgetResult.evaluation.tokensRecovered },
+    );
+    if (oaiBudgetResult.evaluation.checkpoint) {
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "context_checkpoint_created", "context-budget",
+        `id=${oaiBudgetResult.evaluation.checkpoint.checkpointId} compacted=${oaiBudgetResult.evaluation.checkpoint.compactedMessageCount}`, reqId);
+    }
+  }
+
   const oaiContextAdmission = evaluateContextAdmission(
     modelMessages as Array<{ role: string; content: unknown }>,
     effectiveTools as unknown[],
@@ -8473,29 +8524,34 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
       "context_admission_warn_openai",
     );
-    const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
-    const emergencyResult = transcriptPruning.emergencyPrune(
-      modelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-      hardCharBudget,
-      oaiCompactionOpts.backendModelHint,
-    );
-    if (emergencyResult.pruned) {
-      modelMessages = emergencyResult.messages as typeof modelMessages;
-      app.log.info(
-        {
-          requestId: reqId,
-          charsBefore: emergencyResult.charsBefore,
-          charsAfter: emergencyResult.charsAfter,
-          charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
-        },
-        "context_admission_emergency_prune_openai",
+    const budgetAlreadyCompacted = oaiBudgetEvaluation?.compactionApplied !== "none" && oaiBudgetEvaluation?.compactionApplied !== undefined;
+    if (!budgetAlreadyCompacted) {
+      const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
+      const emergencyResult = transcriptPruning.emergencyPrune(
+        modelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+        hardCharBudget,
+        oaiCompactionOpts.backendModelHint,
       );
-      recordSessionEvent(
-        sessionKey, identity.userId, identity.orgId,
-        "emergency_context_prune", "context-admission",
-        `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit`,
-        reqId,
-      );
+      if (emergencyResult.pruned) {
+        modelMessages = emergencyResult.messages as typeof modelMessages;
+        app.log.info(
+          {
+            requestId: reqId,
+            charsBefore: emergencyResult.charsBefore,
+            charsAfter: emergencyResult.charsAfter,
+            charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
+          },
+          "context_admission_emergency_prune_openai",
+        );
+        recordSessionEvent(
+          sessionKey, identity.userId, identity.orgId,
+          "emergency_context_prune", "context-admission",
+          `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit (fallback — budget manager inactive)`,
+          reqId,
+        );
+      }
+    } else {
+      app.log.info({ requestId: reqId, budgetZone: oaiBudgetEvaluation?.zone, tokensRecovered: oaiBudgetEvaluation?.tokensRecovered }, "context_admission_warn_budget_manager_handled_openai");
     }
     void forceCheckpoint(session);
   }
@@ -10847,6 +10903,7 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Sensemaking governor — primary decision-maker
   let claudeSensemakingDecision: SensemakingDecision | null = null;
+  let claudeBudgetEvaluation: BudgetEvaluation | null = null;
   if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeGovEvents = extractCommandEvents(
       (claudeScopedMessages as GovernorInputMessage[]).slice(
@@ -11717,6 +11774,49 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
   const claudeForceNonStreamKickoff =
     !!body.stream && claudePhasePolicy.active && claudePhasePolicy.toolChoice === "required" && !!claudePhasePolicy.enforceNonStreaming;
+  // Context Budget Manager — proactive tiered compaction (Claude path)
+  if (config.SYNESIS_YARN_CONTEXT_BUDGET_ENABLED) {
+    const claudeBudgetTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
+    const claudeBudgetCeiling = claudeBudgetTier?.contextCeilingTokens
+      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
+        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
+        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
+    const claudeBudgetPolicy = buildBudgetPolicy(claudeBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE);
+    const claudeRetentionCtx = buildRetentionContext(
+      claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+      claudeChatState.currentFocusPaths,
+      [],
+    );
+    const claudeBudgetResult = evaluateContextBudget({
+      messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+      tools: effectiveClaudeTools as unknown[],
+      policy: claudeBudgetPolicy,
+      retentionContext: claudeRetentionCtx,
+      heavyCompactionContext: {
+        sessionKey: claudeSessionKey,
+        chatState: claudeChatState,
+        fileState: claudeFileState,
+        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(claudeChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1 },
+      },
+      enableCompaction: true,
+    });
+    claudeBudgetEvaluation = claudeBudgetResult.evaluation;
+    if (claudeBudgetResult.evaluation.compactionApplied !== "none") {
+      claudeModelMessages = claudeBudgetResult.messages as typeof claudeModelMessages;
+    }
+    recordSessionEvent(
+      claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+      "context_budget_evaluated", "context-budget",
+      `zone=${claudeBudgetResult.evaluation.zone} tokens=${claudeBudgetResult.evaluation.estimate.totalTokens} headroom=${claudeBudgetResult.evaluation.headroomTokens} compaction=${claudeBudgetResult.evaluation.compactionApplied} recovered=${claudeBudgetResult.evaluation.tokensRecovered}`,
+      traceReqId,
+      { zone: claudeBudgetResult.evaluation.zone, estimatedTokens: claudeBudgetResult.evaluation.estimate.totalTokens, headroomTokens: claudeBudgetResult.evaluation.headroomTokens, compactionApplied: claudeBudgetResult.evaluation.compactionApplied, tokensRecovered: claudeBudgetResult.evaluation.tokensRecovered },
+    );
+    if (claudeBudgetResult.evaluation.checkpoint) {
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "context_checkpoint_created", "context-budget",
+        `id=${claudeBudgetResult.evaluation.checkpoint.checkpointId} compacted=${claudeBudgetResult.evaluation.checkpoint.compactedMessageCount}`, traceReqId);
+    }
+  }
+
   const claudeContextAdmission = evaluateContextAdmission(
     claudeModelMessages as Array<{ role: string; content: unknown }>,
     effectiveClaudeTools as unknown[],
@@ -11737,29 +11837,34 @@ app.post("/v1/messages", async (req, reply) => {
       },
       "context_admission_warn_claude",
     );
-    const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
-    const emergencyResult = transcriptPruning.emergencyPrune(
-      claudeModelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-      hardCharBudget,
-      claudeCompactionOpts.backendModelHint,
-    );
-    if (emergencyResult.pruned) {
-      claudeModelMessages = emergencyResult.messages as typeof claudeModelMessages;
-      app.log.info(
-        {
-          requestId: req.id,
-          charsBefore: emergencyResult.charsBefore,
-          charsAfter: emergencyResult.charsAfter,
-          charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
-        },
-        "context_admission_emergency_prune_claude",
+    const claudeBudgetAlreadyCompacted = claudeBudgetEvaluation?.compactionApplied !== "none" && claudeBudgetEvaluation?.compactionApplied !== undefined;
+    if (!claudeBudgetAlreadyCompacted) {
+      const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
+      const emergencyResult = transcriptPruning.emergencyPrune(
+        claudeModelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
+        hardCharBudget,
+        claudeCompactionOpts.backendModelHint,
       );
-      recordSessionEvent(
-        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-        "emergency_context_prune", "context-admission",
-        `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit`,
-        traceReqId,
-      );
+      if (emergencyResult.pruned) {
+        claudeModelMessages = emergencyResult.messages as typeof claudeModelMessages;
+        app.log.info(
+          {
+            requestId: req.id,
+            charsBefore: emergencyResult.charsBefore,
+            charsAfter: emergencyResult.charsAfter,
+            charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
+          },
+          "context_admission_emergency_prune_claude",
+        );
+        recordSessionEvent(
+          claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+          "emergency_context_prune", "context-admission",
+          `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit (fallback — budget manager inactive)`,
+          traceReqId,
+        );
+      }
+    } else {
+      app.log.info({ requestId: req.id, budgetZone: claudeBudgetEvaluation?.zone, tokensRecovered: claudeBudgetEvaluation?.tokensRecovered }, "context_admission_warn_budget_manager_handled_claude");
     }
     void forceCheckpoint(session);
   }

@@ -113,6 +113,15 @@ const EnvSchema = z.object({
   SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS: z.coerce.number().default(80_000),
   /** Hard safety threshold for estimated outbound input tokens (0 disables hard admission reject). */
   SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS: z.coerce.number().default(100_000),
+  /** Enable the context budget manager for proactive tiered compaction. */
+  SYNESIS_YARN_CONTEXT_BUDGET_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Override the default context ceiling for budget policy (0 = use CONTEXT_ADMISSION_HARD_TOKENS). */
+  SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS: z.coerce.number().default(0),
+  /** Output token reserve subtracted from budget ceiling. */
+  SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE: z.coerce.number().default(10_000),
   /** When > 0, cap `maxOutputTokens` sent to the provider (runaway output safety). 0 = disabled. */
   SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(0),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(25),

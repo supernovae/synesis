@@ -1,0 +1,471 @@
+/**
+ * Context Budget Manager
+ *
+ * Hierarchical context management for coder sessions.  Evaluates the current
+ * message array against a tiered budget policy and applies progressive
+ * compaction (soft → heavy → emergency) to keep context within safe limits.
+ *
+ * Inserted into the Yarn pipeline after objective_scope and before the
+ * execution governor so that budget metrics inform governor decisions.
+ *
+ * Budget thresholds are ratios of the effective ceiling, so they scale
+ * automatically when different models have different context limits.
+ */
+
+import { estimateTokens, estimateMessageTokens, type TokenEstimate } from "./context-token-estimator.js";
+import type { ClassifiedMessage, RetentionContext } from "./context-retention.js";
+import { classifyMessages } from "./context-retention.js";
+import type { ContextCheckpoint } from "./context-checkpoint.js";
+import { createContextCheckpoint, renderCheckpointMessage } from "./context-checkpoint.js";
+import type { ChatState } from "./chat-state.js";
+import type { FileState } from "./file-state.js";
+import type { ObjectiveEpochState } from "./objective-scope.js";
+
+// ── Budget Policy ──────────────────────────────────────────────────────────
+
+export interface ContextBudgetPolicy {
+  ceilingTokens: number;
+  outputReserveTokens: number;
+  hardLimitTokens: number;
+  emergencyTokens: number;
+  heavyTokens: number;
+  softTokens: number;
+}
+
+export type BudgetZone = "green" | "soft" | "heavy" | "emergency" | "reject";
+
+export interface BudgetEvaluation {
+  zone: BudgetZone;
+  estimate: TokenEstimate;
+  headroomTokens: number;
+  policy: ContextBudgetPolicy;
+  classification: ClassifiedMessage[] | null;
+  compactionApplied: "none" | "soft" | "heavy" | "emergency";
+  tokensRecovered: number;
+  checkpoint: ContextCheckpoint | null;
+}
+
+export interface ContextBudgetMessage {
+  role: string;
+  content: unknown;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
+}
+
+const DEFAULT_OUTPUT_RESERVE_TOKENS = 10_000;
+
+const SOFT_RATIO = 0.75;
+const HEAVY_RATIO = 0.88;
+const EMERGENCY_RATIO = 0.93;
+const HARD_RATIO = 0.95;
+
+export function buildBudgetPolicy(
+  ceilingTokens: number,
+  outputReserveTokens = DEFAULT_OUTPUT_RESERVE_TOKENS,
+): ContextBudgetPolicy {
+  return {
+    ceilingTokens,
+    outputReserveTokens,
+    hardLimitTokens: Math.floor(ceilingTokens * HARD_RATIO),
+    emergencyTokens: Math.floor(ceilingTokens * EMERGENCY_RATIO),
+    heavyTokens: Math.floor(ceilingTokens * HEAVY_RATIO),
+    softTokens: Math.floor(ceilingTokens * SOFT_RATIO),
+  };
+}
+
+export function classifyZone(estimatedTokens: number, policy: ContextBudgetPolicy): BudgetZone {
+  if (estimatedTokens >= policy.hardLimitTokens) return "reject";
+  if (estimatedTokens >= policy.emergencyTokens) return "emergency";
+  if (estimatedTokens >= policy.heavyTokens) return "heavy";
+  if (estimatedTokens >= policy.softTokens) return "soft";
+  return "green";
+}
+
+// ── Soft Compaction ────────────────────────────────────────────────────────
+
+const VERIFICATION_PASS_RE = /\b(pass|passed|ok\b|success|all tests passed|0 failed|no failures?|verification passed)\b/i;
+const VERIFICATION_FAIL_RE = /\bfail(ed|ure)?\b|\berror\b|\bpanic\b|\btraceback\b|exit\s+code\s+[1-9]\d*/i;
+const PLAN_FILE_RE = /\.claude\/plans\//;
+
+function contentString(content: unknown): string {
+  if (typeof content === "string") return content;
+  try { return JSON.stringify(content ?? ""); } catch { return String(content); }
+}
+
+function isPassingVerification(content: string): boolean {
+  return VERIFICATION_PASS_RE.test(content) && !VERIFICATION_FAIL_RE.test(content);
+}
+
+function isPlanRead(msg: ContextBudgetMessage): boolean {
+  const raw = contentString(msg.content);
+  return PLAN_FILE_RE.test(raw);
+}
+
+function getToolName(msg: ContextBudgetMessage): string {
+  return (msg.name ?? "").toLowerCase();
+}
+
+function isFileRead(msg: ContextBudgetMessage): boolean {
+  const name = getToolName(msg);
+  return name === "read_file" || name === "readfile" || name === "read"
+    || name === "file_read" || name === "cat";
+}
+
+function extractFilePath(msg: ContextBudgetMessage): string | null {
+  const raw = contentString(msg.content);
+  if (raw.startsWith("{")) {
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      for (const key of ["filePath", "file_path", "path", "file"]) {
+        if (typeof obj[key] === "string" && obj[key]) return obj[key] as string;
+      }
+    } catch { /* not JSON */ }
+  }
+  const match = raw.match(/(?:filePath|file_path|path)\s*[:=]\s*"?([^\s"',}{]+)/i);
+  return match?.[1] ?? null;
+}
+
+function hasToolCalls(msg: ContextBudgetMessage): boolean {
+  return Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+}
+
+export function applySoftCompaction(
+  messages: ContextBudgetMessage[],
+  classified: ClassifiedMessage[],
+  targetTokens: number,
+): { messages: ContextBudgetMessage[]; tokensRecovered: number } {
+  let currentTokens = classified.reduce((s, c) => s + c.estimatedTokens, 0);
+  if (currentTokens <= targetTokens) {
+    return { messages, tokensRecovered: 0 };
+  }
+
+  const out = [...messages];
+  let recovered = 0;
+
+  // Strategy 1: Collapse repeated file reads (keep latest per path)
+  const latestReadByPath = new Map<string, number>();
+  for (let i = out.length - 1; i >= 0; i--) {
+    const msg = out[i];
+    if (msg.role !== "tool" || !isFileRead(msg)) continue;
+    const fp = extractFilePath(msg);
+    if (!fp) continue;
+    if (!latestReadByPath.has(fp)) latestReadByPath.set(fp, i);
+  }
+  for (let i = 0; i < out.length && currentTokens > targetTokens; i++) {
+    const cl = classified[i];
+    if (!cl || cl.tier !== "historical" && cl.tier !== "artifact_shadow") continue;
+    const msg = out[i];
+    if (msg.role !== "tool" || !isFileRead(msg)) continue;
+    const fp = extractFilePath(msg);
+    if (!fp) continue;
+    const latest = latestReadByPath.get(fp);
+    if (latest === undefined || latest === i) continue;
+    const before = estimateMessageTokens(msg);
+    const stub = `<FILE_SHADOW path="${fp}" latest_at_msg=${latest} />`;
+    out[i] = { ...msg, content: stub };
+    const after = estimateMessageTokens(out[i]);
+    const delta = before - after;
+    recovered += delta;
+    currentTokens -= delta;
+  }
+
+  // Strategy 2: Fold repeated successful verifications
+  const verifyCommands = new Map<string, number[]>();
+  for (let i = 0; i < out.length; i++) {
+    const msg = out[i];
+    if (msg.role !== "tool") continue;
+    const raw = contentString(msg.content);
+    if (!isPassingVerification(raw)) continue;
+    const name = getToolName(msg);
+    const key = name || "verification";
+    const arr = verifyCommands.get(key) ?? [];
+    arr.push(i);
+    verifyCommands.set(key, arr);
+  }
+  for (const [key, indices] of verifyCommands) {
+    if (indices.length < 2 || currentTokens <= targetTokens) continue;
+    const latest = indices[indices.length - 1];
+    for (const idx of indices.slice(0, -1)) {
+      const cl = classified[idx];
+      if (!cl || cl.tier === "immutable" || cl.tier === "working") continue;
+      if (cl.tags.includes("unresolved_failure")) continue;
+      const msg = out[idx];
+      const before = estimateMessageTokens(msg);
+      out[idx] = { ...msg, content: `<VERIFICATION_FOLDED tool="${key}" result="pass" latest_at_msg=${latest} count=${indices.length} />` };
+      const after = estimateMessageTokens(out[idx]);
+      const delta = before - after;
+      recovered += delta;
+      currentTokens -= delta;
+    }
+  }
+
+  // Strategy 3: Drop assistant narration with no state change
+  for (let i = 0; i < out.length - 1 && currentTokens > targetTokens; i++) {
+    const cl = classified[i];
+    if (!cl || cl.tier !== "historical") continue;
+    const msg = out[i];
+    if (msg.role !== "assistant") continue;
+    if (hasToolCalls(msg)) continue;
+    const raw = contentString(msg.content);
+    if (raw.length <= 100) continue;
+    const before = estimateMessageTokens(msg);
+    const preview = raw.slice(0, 80).replace(/\n/g, " ");
+    out[i] = { ...msg, content: `<NARRATION_CONDENSED chars=${raw.length}>${preview}...</NARRATION_CONDENSED>` };
+    const after = estimateMessageTokens(out[i]);
+    const delta = before - after;
+    recovered += delta;
+    currentTokens -= delta;
+  }
+
+  // Strategy 4: Dedupe superseded plan reads
+  const planReadIndices: number[] = [];
+  for (let i = 0; i < out.length; i++) {
+    if (out[i].role === "tool" && isPlanRead(out[i])) planReadIndices.push(i);
+  }
+  if (planReadIndices.length > 1) {
+    const latest = planReadIndices[planReadIndices.length - 1];
+    for (const idx of planReadIndices.slice(0, -1)) {
+      if (currentTokens <= targetTokens) break;
+      const cl = classified[idx];
+      if (!cl || cl.tier === "working") continue;
+      const msg = out[idx];
+      const before = estimateMessageTokens(msg);
+      out[idx] = { ...msg, content: `<PLAN_SUPERSEDED latest_at_msg=${latest} />` };
+      const after = estimateMessageTokens(out[idx]);
+      const delta = before - after;
+      recovered += delta;
+      currentTokens -= delta;
+    }
+  }
+
+  // Strategy 5: Summarize stale exploration output
+  for (let i = 0; i < out.length && currentTokens > targetTokens; i++) {
+    const cl = classified[i];
+    if (!cl || cl.retentionScore > 0.3) continue;
+    if (cl.tier === "immutable" || cl.tier === "working") continue;
+    if (cl.tags.includes("unresolved_failure")) continue;
+    const msg = out[i];
+    if (msg.role !== "tool") continue;
+    const raw = contentString(msg.content);
+    if (raw.length <= 200) continue;
+    if (raw.startsWith("<FILE_SHADOW") || raw.startsWith("<VERIFICATION_FOLDED")
+      || raw.startsWith("<PLAN_SUPERSEDED") || raw.startsWith("<NARRATION_CONDENSED")
+      || raw.startsWith("<TOOL_RESULT_PRUNED") || raw.startsWith("<CONTEXT_CHECKPOINT")) continue;
+    const before = estimateMessageTokens(msg);
+    const toolName = getToolName(msg) || "unknown";
+    const preview = raw.slice(0, 120).replace(/\n/g, " ");
+    out[i] = {
+      ...msg,
+      content: `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}>${preview}...</STALE_EXPLORATION>`,
+    };
+    const after = estimateMessageTokens(out[i]);
+    const delta = before - after;
+    recovered += delta;
+    currentTokens -= delta;
+  }
+
+  return { messages: out, tokensRecovered: recovered };
+}
+
+// ── Heavy Compaction ───────────────────────────────────────────────────────
+
+export interface HeavyCompactionContext {
+  sessionKey: string;
+  chatState: ChatState;
+  fileState: FileState;
+  objectiveEpoch: ObjectiveEpochState;
+}
+
+export function applyHeavyCompaction(
+  messages: ContextBudgetMessage[],
+  classified: ClassifiedMessage[],
+  targetTokens: number,
+  ctx: HeavyCompactionContext,
+): { messages: ContextBudgetMessage[]; tokensRecovered: number; checkpoint: ContextCheckpoint } {
+  const checkpoint = createContextCheckpoint(
+    ctx.sessionKey,
+    ctx.chatState,
+    ctx.fileState,
+    ctx.objectiveEpoch,
+    classified,
+  );
+
+  let currentTokens = classified.reduce((s, c) => s + c.estimatedTokens, 0);
+  const retentionThreshold = currentTokens > targetTokens * 1.1 ? 0.5 : 0.4;
+
+  const checkpointMsg = renderCheckpointMessage(checkpoint);
+  const checkpointTokens = estimateMessageTokens({ role: "system", content: checkpointMsg });
+
+  const out: ContextBudgetMessage[] = [];
+  let droppedTokens = 0;
+  let insertedCheckpoint = false;
+
+  for (let i = 0; i < messages.length; i++) {
+    const cl = classified[i];
+    if (!cl) { out.push(messages[i]); continue; }
+
+    if (cl.tier === "immutable" || cl.tier === "working") {
+      if (!insertedCheckpoint && cl.tier === "working") {
+        out.push({ role: "system", content: checkpointMsg });
+        insertedCheckpoint = true;
+      }
+      out.push(messages[i]);
+      continue;
+    }
+
+    if (cl.retentionScore >= retentionThreshold || cl.tags.includes("unresolved_failure")) {
+      out.push(messages[i]);
+      continue;
+    }
+
+    droppedTokens += cl.estimatedTokens;
+  }
+
+  if (!insertedCheckpoint && out.length > 0) {
+    const firstNonSystem = out.findIndex((m) => m.role !== "system");
+    const insertAt = firstNonSystem >= 0 ? firstNonSystem : out.length;
+    out.splice(insertAt, 0, { role: "system", content: checkpointMsg });
+  }
+
+  checkpoint.compactedTokenEstimate = droppedTokens;
+  checkpoint.retainedMessageCount = out.length;
+  checkpoint.retainedTokenEstimate = currentTokens - droppedTokens + checkpointTokens;
+
+  return {
+    messages: out,
+    tokensRecovered: Math.max(0, droppedTokens - checkpointTokens),
+    checkpoint,
+  };
+}
+
+// ── Main Evaluation ────────────────────────────────────────────────────────
+
+export interface EvaluateContextBudgetOptions {
+  messages: ContextBudgetMessage[];
+  tools?: unknown[];
+  policy: ContextBudgetPolicy;
+  retentionContext?: RetentionContext;
+  heavyCompactionContext?: HeavyCompactionContext;
+  enableCompaction?: boolean;
+}
+
+export function evaluateContextBudget(
+  options: EvaluateContextBudgetOptions,
+): { evaluation: BudgetEvaluation; messages: ContextBudgetMessage[] } {
+  const { messages, tools, policy, enableCompaction = true } = options;
+
+  const estimate = estimateTokens(
+    messages as Array<{ role: string; content: unknown }>,
+    tools,
+  );
+  const zone = classifyZone(estimate.totalTokens, policy);
+
+  const baseEvaluation: BudgetEvaluation = {
+    zone,
+    estimate,
+    headroomTokens: policy.hardLimitTokens - estimate.totalTokens,
+    policy,
+    classification: null,
+    compactionApplied: "none",
+    tokensRecovered: 0,
+    checkpoint: null,
+  };
+
+  if (zone === "green" || !enableCompaction) {
+    return { evaluation: baseEvaluation, messages };
+  }
+
+  const classified = options.retentionContext
+    ? classifyMessages(messages, options.retentionContext)
+    : null;
+  baseEvaluation.classification = classified;
+
+  if (!classified) {
+    return { evaluation: baseEvaluation, messages };
+  }
+
+  if (zone === "soft") {
+    const softResult = applySoftCompaction(messages, classified, policy.softTokens);
+    const newEstimate = estimateTokens(
+      softResult.messages as Array<{ role: string; content: unknown }>,
+      tools,
+    );
+    return {
+      evaluation: {
+        ...baseEvaluation,
+        estimate: newEstimate,
+        headroomTokens: policy.hardLimitTokens - newEstimate.totalTokens,
+        zone: classifyZone(newEstimate.totalTokens, policy),
+        compactionApplied: "soft",
+        tokensRecovered: softResult.tokensRecovered,
+      },
+      messages: softResult.messages,
+    };
+  }
+
+  // Heavy or emergency: always run soft first, then heavy if still above threshold
+  const softResult = applySoftCompaction(messages, classified, policy.softTokens);
+  const afterSoftEstimate = estimateTokens(
+    softResult.messages as Array<{ role: string; content: unknown }>,
+    tools,
+  );
+  const afterSoftZone = classifyZone(afterSoftEstimate.totalTokens, policy);
+
+  if (afterSoftZone === "green" || afterSoftZone === "soft") {
+    return {
+      evaluation: {
+        ...baseEvaluation,
+        estimate: afterSoftEstimate,
+        headroomTokens: policy.hardLimitTokens - afterSoftEstimate.totalTokens,
+        zone: afterSoftZone,
+        compactionApplied: "soft",
+        tokensRecovered: softResult.tokensRecovered,
+      },
+      messages: softResult.messages,
+    };
+  }
+
+  if (!options.heavyCompactionContext) {
+    return {
+      evaluation: {
+        ...baseEvaluation,
+        estimate: afterSoftEstimate,
+        headroomTokens: policy.hardLimitTokens - afterSoftEstimate.totalTokens,
+        zone: afterSoftZone,
+        compactionApplied: "soft",
+        tokensRecovered: softResult.tokensRecovered,
+      },
+      messages: softResult.messages,
+    };
+  }
+
+  const reclassified = options.retentionContext
+    ? classifyMessages(softResult.messages, options.retentionContext)
+    : classified;
+
+  const heavyResult = applyHeavyCompaction(
+    softResult.messages,
+    reclassified,
+    policy.heavyTokens,
+    options.heavyCompactionContext,
+  );
+  const afterHeavyEstimate = estimateTokens(
+    heavyResult.messages as Array<{ role: string; content: unknown }>,
+    tools,
+  );
+
+  return {
+    evaluation: {
+      ...baseEvaluation,
+      estimate: afterHeavyEstimate,
+      headroomTokens: policy.hardLimitTokens - afterHeavyEstimate.totalTokens,
+      zone: classifyZone(afterHeavyEstimate.totalTokens, policy),
+      compactionApplied: zone === "emergency" ? "emergency" : "heavy",
+      tokensRecovered: softResult.tokensRecovered + heavyResult.tokensRecovered,
+      classification: reclassified,
+      checkpoint: heavyResult.checkpoint,
+    },
+    messages: heavyResult.messages,
+  };
+}

@@ -77,6 +77,8 @@ export interface TierConfig {
   pricingSource: PricingSource;
   adapterHint?: string | null;
   samplingDefaults?: ModelSamplingDefaults;
+  /** Optional per-tier context ceiling for budget manager (overrides global config). */
+  contextCeilingTokens?: number | null;
 }
 
 export interface RoleAssignmentConfig {

@@ -193,6 +193,30 @@ const SIGNAL_CATALOG: ReadonlyMap<string, SignalDefinition> = new Map<string, Si
     productiveCounterweight: 0.8,
   }],
 
+  // === Context budget signals ===
+  // Injected by the context budget manager based on budget zone.
+  ["context_budget_soft", {
+    name: "context_budget_soft",
+    weight: 0.05,
+    domain: "advisory",
+    decayRate: 0.5,
+    productiveCounterweight: 0.8,
+  }],
+  ["context_budget_heavy", {
+    name: "context_budget_heavy",
+    weight: 0.12,
+    domain: "complicated",
+    decayRate: 0.8,
+    productiveCounterweight: 0.3,
+  }],
+  ["context_budget_emergency", {
+    name: "context_budget_emergency",
+    weight: 0.25,
+    domain: "chaotic",
+    decayRate: 0.95,
+    productiveCounterweight: 0.1,
+  }],
+
   // === Complicated signals ===
   // Clear patterns of waste or stall. Require expert guidance but not
   // necessarily hard stops. These build friction faster and resist
@@ -618,8 +642,13 @@ export function evaluateSensemakingGovernor(
   turnsSinceUserPrompt: number,
   changedFileCount: number,
   planRecoveryGraceActive: boolean,
+  budgetZone?: "green" | "soft" | "heavy" | "emergency" | "reject" | null,
 ): SensemakingDecision {
   const matchedRules = legacyDecision.matchedRules.filter((r) => r !== "allow");
+
+  if (budgetZone === "soft") matchedRules.push("context_budget_soft");
+  else if (budgetZone === "heavy") matchedRules.push("context_budget_heavy");
+  else if (budgetZone === "emergency" || budgetZone === "reject") matchedRules.push("context_budget_emergency");
 
   const friction = computeFriction({
     matchedRules,
