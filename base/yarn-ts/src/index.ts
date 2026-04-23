@@ -12538,6 +12538,18 @@ app.post("/v1/messages", async (req, reply) => {
       recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "tool_pair_integrity_repaired", "validation",
         `orphaned=${claudePairRepair.orphanedToolCallIds.length} ids=${claudePairRepair.orphanedToolCallIds.slice(0, 3).join(",")}`, traceReqId);
     }
+    if (claudeAdapter.family === "minimax") {
+      claudeModelMessages = demoteInlineSystemMessages(claudeModelMessages) as typeof claudeModelMessages;
+    }
+    if (!claudeAdapter.supportsThinking && providerOptions) {
+      const po = providerOptions as Record<string, Record<string, unknown>>;
+      if (po.openai) {
+        delete po.openai.thinking;
+        delete po.openai.enable_thinking;
+        if (Object.keys(po.openai).length === 0) delete po.openai;
+      }
+      if (Object.keys(po).length === 0) providerOptions = undefined;
+    }
     const streamed = streamText({
       model: resolved.model as never,
       messages: claudeModelMessages,
