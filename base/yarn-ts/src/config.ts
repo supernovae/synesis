@@ -122,6 +122,12 @@ const EnvSchema = z.object({
   SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS: z.coerce.number().default(0),
   /** Output token reserve subtracted from budget ceiling. */
   SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE: z.coerce.number().default(10_000),
+  /** Sticky boundary epoch interval: re-anchor every N requests (0 = every request). */
+  SYNESIS_YARN_SCOPE_EPOCH_INTERVAL: z.coerce.number().default(10),
+  /** Sticky boundary message growth threshold before re-anchor. */
+  SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD: z.coerce.number().default(80),
+  /** Snap-to-grid bucket size for objective scope pruning (0 = disabled). */
+  SYNESIS_YARN_SCOPE_BUCKET_SIZE: z.coerce.number().default(50),
   /** When > 0, cap `maxOutputTokens` sent to the provider (runaway output safety). 0 = disabled. */
   SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(0),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(25),

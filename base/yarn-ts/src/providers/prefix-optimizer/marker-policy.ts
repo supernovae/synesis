@@ -101,6 +101,31 @@ function computeDashScopeMarkers(
 }
 
 /**
+ * Compute Anthropic-specific marker placements.
+ * Breakpoint 1: end of stable system prefix.
+ * Anthropic supports up to 4 cache_control markers.
+ */
+function computeAnthropicMarkers(
+  messages: ChatMessage[],
+  _segments: ParsedSegment[],
+  _previousDiagnostics: PrefixDiagnostics | null,
+  maxMarkers: number,
+): number[] {
+  if (maxMarkers <= 0) return [];
+
+  const systemEnd = findStableSystemEnd(messages);
+  if (systemEnd < 0) return [];
+
+  let totalTokens = 0;
+  for (let i = 0; i <= systemEnd; i++) {
+    totalTokens += estimateTokens(messageText(messages[i]));
+  }
+  if (totalTokens < DASHSCOPE_MIN_TOKENS) return [];
+
+  return [systemEnd];
+}
+
+/**
  * Compute cache marker placements based on stability classification,
  * previous diagnostics, and provider backend.
  *
@@ -117,7 +142,7 @@ export function computeMarkerPlacements(
     case "dashscope":
       return computeDashScopeMarkers(messages, segments, previousDiagnostics, maxMarkers);
     case "anthropic":
-      return computeDashScopeMarkers(messages, segments, previousDiagnostics, maxMarkers);
+      return computeAnthropicMarkers(messages, segments, previousDiagnostics, maxMarkers);
     case "none":
       return [];
   }

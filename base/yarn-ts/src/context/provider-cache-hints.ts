@@ -73,17 +73,25 @@ interface MessageLike {
   content: unknown;
 }
 
+export interface AnnotateCacheBreakpointsOptions {
+  anchorIndex?: number;
+}
+
 /**
- * For Anthropic-explicit caching: annotate the last system message with
- * a cache_control breakpoint. The Vercel AI SDK Anthropic provider reads
- * `providerOptions.anthropic.cacheControl` on message parts.
+ * Annotate stable cache breakpoints for providers that support explicit
+ * caching (Anthropic `cache_control`).  Breakpoints are placed at:
  *
- * Currently a no-op for OpenAI SDK routes. Will activate when/if we add
- * direct Anthropic provider support.
+ *   1. The end of the leading system-message prefix (system prompt + tools).
+ *   2. Optionally, the epoch-anchor boundary index (end of the frozen
+ *      history from sticky pruning).
+ *
+ * For non-explicit strategies, computes stable prefix bytes for diagnostics
+ * without modifying messages.
  */
 export function annotateCacheBreakpoints(
   messages: MessageLike[],
   strategy: CacheStrategy,
+  options?: AnnotateCacheBreakpointsOptions,
 ): { messages: MessageLike[]; stats: CacheHintStats } {
   const stats: CacheHintStats = {
     strategy,
@@ -102,6 +110,7 @@ export function annotateCacheBreakpoints(
   }
 
   const out = [...messages];
+
   let lastSystemIdx = -1;
   for (let i = 0; i < out.length; i++) {
     if (out[i].role === "system") {
@@ -113,16 +122,33 @@ export function annotateCacheBreakpoints(
     }
   }
 
-  if (lastSystemIdx >= 0 && strategy === "anthropic_explicit") {
-    const msg = out[lastSystemIdx];
-    if (typeof msg.content === "string") {
-      out[lastSystemIdx] = {
-        ...msg,
-        providerOptions: {
-          anthropic: { cacheControl: { type: "ephemeral" } },
-        },
-      } as MessageLike;
-      stats.breakpointsPlaced = 1;
+  if (strategy === "anthropic_explicit") {
+    if (lastSystemIdx >= 0) {
+      const msg = out[lastSystemIdx];
+      if (typeof msg.content === "string") {
+        out[lastSystemIdx] = {
+          ...msg,
+          providerOptions: {
+            anthropic: { cacheControl: { type: "ephemeral" } },
+          },
+        } as MessageLike;
+        stats.breakpointsPlaced += 1;
+      }
+    }
+
+    const anchorIdx = options?.anchorIndex;
+    if (anchorIdx !== undefined && anchorIdx > 0 && anchorIdx < out.length) {
+      const anchorTarget = Math.min(anchorIdx, out.length - 1);
+      if (anchorTarget !== lastSystemIdx) {
+        const msg = out[anchorTarget];
+        out[anchorTarget] = {
+          ...msg,
+          providerOptions: {
+            anthropic: { cacheControl: { type: "ephemeral" } },
+          },
+        } as MessageLike;
+        stats.breakpointsPlaced += 1;
+      }
     }
   }
 

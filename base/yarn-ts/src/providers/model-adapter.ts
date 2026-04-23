@@ -24,6 +24,8 @@ export interface QwenPivotOptions {
   editRetryLimit?: number;
 }
 
+export type CacheMarkerBackend = "anthropic" | "dashscope" | "none";
+
 export interface ModelAdapter {
   readonly family: string;
 
@@ -49,6 +51,9 @@ export interface ModelAdapter {
 
   /** Max tool definitions this model handles well (for future schema pruning). */
   maxEffectiveTools?: number;
+
+  /** Explicit cache marker backend for this model family. Defaults to "none". */
+  cacheMarkerBackend?(): CacheMarkerBackend;
 
   /**
    * Detect model-specific early pivot condition (e.g. read-loop).
@@ -672,6 +677,15 @@ export class MiniMaxAdapter implements ModelAdapter {
   }
 }
 
+export class ClaudeAdapter implements ModelAdapter {
+  readonly family = "claude";
+  readonly supportsThinking = true;
+
+  cacheMarkerBackend(): CacheMarkerBackend {
+    return "anthropic";
+  }
+}
+
 export class DeepSeekAdapter implements ModelAdapter {
   readonly family = "deepseek";
   readonly supportsThinking = true;
@@ -962,7 +976,7 @@ function hasNativeQwenToolParser(baseUrl?: string): boolean {
 }
 
 export const KNOWN_ADAPTER_FAMILIES = [
-  "qwen3-coder", "qwen3-coder-next", "deepseek", "kimi", "minimax", "generic",
+  "qwen3-coder", "qwen3-coder-next", "claude", "deepseek", "kimi", "minimax", "generic",
 ] as const;
 export type AdapterFamily = (typeof KNOWN_ADAPTER_FAMILIES)[number];
 
@@ -978,6 +992,7 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
   }
   const m = backendModel.toLowerCase();
   if (/qwen3.*coder(-next)?/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
+  if (/claude|anthropic/i.test(m)) return new ClaudeAdapter();
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
   if (/kimi|moonshot/i.test(m)) return new GenericOpenAIAdapter("kimi");
   if (/minimax|abab/i.test(m)) return new MiniMaxAdapter();
@@ -989,6 +1004,7 @@ function resolveByFamily(family: AdapterFamily, baseUrl?: string): ModelAdapter 
     case "qwen3-coder":
     case "qwen3-coder-next":
       return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
+    case "claude": return new ClaudeAdapter();
     case "deepseek": return new DeepSeekAdapter();
     case "kimi": return new GenericOpenAIAdapter("kimi");
     case "minimax": return new MiniMaxAdapter();

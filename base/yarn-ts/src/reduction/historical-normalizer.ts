@@ -12,8 +12,11 @@
  *  1. ISO timestamps → [TIMESTAMP]
  *  2. Home-dir absolute paths → ~ prefix
  *  3. Consecutive blank lines → single blank
- *  4. Tool-call ID stabilization (separate function, called from transcript pruning)
+ *  4. Tool-call ID stabilization — content-hash-based IDs (tc_{hex12}) so
+ *     IDs stay byte-identical even when messages before them are pruned.
  */
+
+import crypto from "crypto";
 
 interface MessageLike {
   role: string;
@@ -129,13 +132,17 @@ export function normalizeHistoricalContent(
   return { messages: result, stats };
 }
 
+function hashToolCallId(toolName: string, args: string): string {
+  const input = `${toolName}\0${args}`;
+  return crypto.createHash("sha256").update(input).digest("hex").slice(0, 12);
+}
+
 /**
- * Rewrite provider-generated tool-call IDs to deterministic values for messages
- * outside the recent keep window. Both assistant tool_calls[].id and the matching
- * tool message tool_call_id are rewritten together.
- *
- * Safe because tool-call IDs are only used for matching within the same
- * conversation — they have no external meaning.
+ * Rewrite provider-generated tool-call IDs to deterministic content-hash-based
+ * values for messages outside the recent keep window.  IDs are derived from
+ * hash(tool_name + arguments) so they remain byte-identical even when earlier
+ * messages are pruned.  Collisions (same tool + args) are disambiguated with
+ * a suffix counter.
  *
  * @param keepFromIndex Messages at or after this index are left untouched.
  */
@@ -143,33 +150,36 @@ export function stabilizeToolCallIds(
   messages: MessageLike[],
   keepFromIndex: number,
 ): { messages: MessageLike[]; rewriteCount: number } {
-  // First pass: build the ID rewrite map from old assistant messages.
-  // Handles both OpenAI format (tool_calls[].id) and Claude native format
-  // (content[].id where type === "tool_use").
   const idMap = new Map<string, string>();
-  let turnIndex = 0;
+  const hashCounts = new Map<string, number>();
+
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
-    if (m.role === "user") turnIndex += 1;
     if (i >= keepFromIndex) break;
     if (m.role === "assistant") {
-      let toolIdx = 0;
       if (m.tool_calls) {
         for (const tc of m.tool_calls) {
           if (tc.id && !idMap.has(tc.id)) {
-            idMap.set(tc.id, `tc_${turnIndex}_${toolIdx}`);
+            const name = tc.function?.name ?? "unknown";
+            const args = tc.function?.arguments ?? "{}";
+            const hex = hashToolCallId(name, args);
+            const count = hashCounts.get(hex) ?? 0;
+            hashCounts.set(hex, count + 1);
+            idMap.set(tc.id, count === 0 ? `tc_${hex}` : `tc_${hex}_${count}`);
           }
-          toolIdx += 1;
         }
       }
-      // Claude native: tool_use blocks in content array
       if (Array.isArray(m.content)) {
         for (const block of m.content as Array<Record<string, unknown>>) {
           if (block && typeof block === "object" && block.type === "tool_use" && typeof block.id === "string") {
             if (!idMap.has(block.id)) {
-              idMap.set(block.id, `tc_${turnIndex}_${toolIdx}`);
+              const name = typeof block.name === "string" ? block.name : "unknown";
+              const input = block.input !== undefined ? JSON.stringify(block.input) : "{}";
+              const hex = hashToolCallId(name, input);
+              const count = hashCounts.get(hex) ?? 0;
+              hashCounts.set(hex, count + 1);
+              idMap.set(block.id, count === 0 ? `tc_${hex}` : `tc_${hex}_${count}`);
             }
-            toolIdx += 1;
           }
         }
       }
@@ -178,10 +188,6 @@ export function stabilizeToolCallIds(
 
   if (idMap.size === 0) return { messages, rewriteCount: 0 };
 
-  // Second pass: rewrite IDs.
-  // Tool call IDs in assistant messages are only rewritten before keepFromIndex,
-  // but tool_call_id references in tool-result messages are ALWAYS rewritten
-  // to prevent orphaned tool calls across the keepFromIndex boundary.
   let rewriteCount = 0;
   const result: MessageLike[] = [];
   for (let i = 0; i < messages.length; i++) {
@@ -213,8 +219,6 @@ export function stabilizeToolCallIds(
       }
     }
 
-    // Claude-format content arrays: rewrite tool_use.id in assistant blocks
-    // and tool_result.tool_use_id in user blocks.
     let newContent = m.content;
     if (Array.isArray(m.content)) {
       const blocks = m.content as Array<Record<string, unknown>>;
@@ -222,7 +226,6 @@ export function stabilizeToolCallIds(
       const rewrittenBlocks = blocks.map((block) => {
         if (!block || typeof block !== "object") return block;
 
-        // Assistant tool_use blocks (Claude native): {type: "tool_use", id: "toolu_xxx"}
         if (i < keepFromIndex && block.type === "tool_use" && typeof block.id === "string") {
           const newId = idMap.get(block.id);
           if (newId && newId !== block.id) {
@@ -232,7 +235,6 @@ export function stabilizeToolCallIds(
           }
         }
 
-        // User tool_result blocks (Claude native): {type: "tool_result", tool_use_id: "toolu_xxx"}
         if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
           const newId = idMap.get(block.tool_use_id);
           if (newId && newId !== block.tool_use_id) {

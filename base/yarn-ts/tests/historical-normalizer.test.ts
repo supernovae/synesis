@@ -82,7 +82,7 @@ describe("normalizeHistoricalContent", () => {
 });
 
 describe("stabilizeToolCallIds", () => {
-  it("rewrites old tool call IDs to deterministic format", () => {
+  it("rewrites old tool call IDs to content-hash-based format", () => {
     const messages = [
       { role: "user", content: "fix the bug" },
       {
@@ -101,10 +101,9 @@ describe("stabilizeToolCallIds", () => {
     ];
 
     const result = stabilizeToolCallIds(messages, 3);
-    // First assistant+tool pair (before keepFrom=3) should be rewritten
-    expect(result.messages[1].tool_calls![0].id).toBe("tc_1_0");
-    expect(result.messages[2].tool_call_id).toBe("tc_1_0");
-    // Second pair (at index 4,5 >= keepFrom=3) should be untouched
+    const stableId = result.messages[1].tool_calls![0].id!;
+    expect(stableId).toMatch(/^tc_[0-9a-f]{12}$/);
+    expect(result.messages[2].tool_call_id).toBe(stableId);
     expect(result.messages[4].tool_calls![0].id).toBe("toolu_01XYZ789");
     expect(result.messages[5].tool_call_id).toBe("toolu_01XYZ789");
     expect(result.rewriteCount).toBe(2);
@@ -137,10 +136,13 @@ describe("stabilizeToolCallIds", () => {
     ];
 
     const result = stabilizeToolCallIds(messages, 4);
-    expect(result.messages[1].tool_calls![0].id).toBe("tc_1_0");
-    expect(result.messages[1].tool_calls![1].id).toBe("tc_1_1");
-    expect(result.messages[2].tool_call_id).toBe("tc_1_0");
-    expect(result.messages[3].tool_call_id).toBe("tc_1_1");
+    const id0 = result.messages[1].tool_calls![0].id!;
+    const id1 = result.messages[1].tool_calls![1].id!;
+    expect(id0).toMatch(/^tc_[0-9a-f]{12}/);
+    expect(id1).toMatch(/^tc_[0-9a-f]{12}/);
+    expect(id0).not.toBe(id1);
+    expect(result.messages[2].tool_call_id).toBe(id0);
+    expect(result.messages[3].tool_call_id).toBe(id1);
     expect(result.rewriteCount).toBe(4);
   });
 
@@ -165,9 +167,10 @@ describe("stabilizeToolCallIds", () => {
 
     const result = stabilizeToolCallIds(messages, 3);
     const assistantContent = result.messages[1].content as Array<Record<string, unknown>>;
-    expect(assistantContent[1].id).toBe("tc_1_0");
+    const stableId = assistantContent[1].id as string;
+    expect(stableId).toMatch(/^tc_[0-9a-f]{12}$/);
     const userContent = result.messages[2].content as Array<Record<string, unknown>>;
-    expect(userContent[0].tool_use_id).toBe("tc_1_0");
+    expect(userContent[0].tool_use_id).toBe(stableId);
     expect(result.rewriteCount).toBe(2);
   });
 
@@ -188,12 +191,57 @@ describe("stabilizeToolCallIds", () => {
       },
     ];
 
-    // keepFromIndex=2 means the tool_result at index 2 is in the keep window
-    // but the assistant at index 1 is before it — both need consistent IDs
     const result = stabilizeToolCallIds(messages, 2);
     const assistantContent = result.messages[1].content as Array<Record<string, unknown>>;
-    expect(assistantContent[0].id).toBe("tc_1_0");
+    const stableId = assistantContent[0].id as string;
+    expect(stableId).toMatch(/^tc_[0-9a-f]{12}$/);
     const userContent = result.messages[2].content as Array<Record<string, unknown>>;
-    expect(userContent[0].tool_use_id).toBe("tc_1_0");
+    expect(userContent[0].tool_use_id).toBe(stableId);
+  });
+
+  it("produces same ID regardless of message position (prefix stability)", () => {
+    const toolCall = { id: "toolu_XYZ", function: { name: "read_file", arguments: '{"path":"src/main.ts"}' } };
+    const msgs1 = [
+      { role: "user", content: "first" },
+      { role: "assistant", content: "", tool_calls: [toolCall] },
+      { role: "tool", tool_call_id: "toolu_XYZ", content: "result" },
+      { role: "user", content: "keep" },
+    ];
+    const msgs2 = [
+      { role: "user", content: "first" },
+      { role: "user", content: "extra message inserted" },
+      { role: "assistant", content: "", tool_calls: [{ ...toolCall }] },
+      { role: "tool", tool_call_id: "toolu_XYZ", content: "result" },
+      { role: "user", content: "keep" },
+    ];
+
+    const r1 = stabilizeToolCallIds(msgs1, 3);
+    const r2 = stabilizeToolCallIds(msgs2, 4);
+    expect(r1.messages[1].tool_calls![0].id).toBe(r2.messages[2].tool_calls![0].id);
+  });
+
+  it("disambiguates collisions (same tool + args) with suffix counter", () => {
+    const messages = [
+      { role: "user", content: "do it" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { id: "call_1", function: { name: "read_file", arguments: '{"path":"a.ts"}' } },
+          { id: "call_2", function: { name: "read_file", arguments: '{"path":"a.ts"}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "r1" },
+      { role: "tool", tool_call_id: "call_2", content: "r2" },
+      { role: "user", content: "thanks" },
+    ];
+
+    const result = stabilizeToolCallIds(messages, 4);
+    const id0 = result.messages[1].tool_calls![0].id!;
+    const id1 = result.messages[1].tool_calls![1].id!;
+    expect(id0).toMatch(/^tc_[0-9a-f]{12}$/);
+    expect(id1).toMatch(/^tc_[0-9a-f]{12}_1$/);
+    expect(result.messages[2].tool_call_id).toBe(id0);
+    expect(result.messages[3].tool_call_id).toBe(id1);
   });
 });

@@ -4,6 +4,7 @@ import {
   applyObjectiveScope,
   resolveObjectiveEpoch,
   type ObjectiveScopeMessage,
+  type PruningCheckpoint,
 } from "../src/governance/objective-scope.js";
 import type { ChatState } from "../src/governance/chat-state.js";
 import type { FileState } from "../src/governance/file-state.js";
@@ -407,5 +408,215 @@ describe("objective scope", () => {
     );
     expect(placeholder).toBeTruthy();
     expect(String(placeholder?.content)).toContain("compacted");
+  });
+
+  it("sticky boundary: reuses frozen boundary across consecutive requests", () => {
+    const chatState = makeChatState({
+      activeObjective: "Implement feature X",
+      pendingUserDirective: "Implement feature X",
+    });
+    const messages: ObjectiveScopeMessage[] = [];
+    for (let i = 0; i < 20; i++) {
+      messages.push({ role: "user", content: `Message ${i}` });
+      messages.push({ role: "assistant", content: `Response ${i}` });
+    }
+    messages.push({ role: "user", content: "Implement feature X" });
+
+    const epoch = resolveObjectiveEpoch({
+      metadata: {},
+      chatState,
+      latestUserPromptText: "Implement feature X",
+      requestOrdinal: 1,
+    });
+
+    const first = applyObjectiveScope({
+      messages,
+      epoch,
+      chatState,
+      fileState: makeFileState("src/feature.ts"),
+      requestOrdinal: 1,
+      epochInterval: 10,
+      messageGrowthThreshold: 80,
+      bucketSize: 0,
+    });
+    expect(first.reanchored).toBe(true);
+
+    messages.push({ role: "assistant", content: "Working on it." });
+    messages.push({ role: "user", content: "Continue" });
+    messages.push({ role: "assistant", content: "Still working." });
+
+    const epochWithCheckpoint = {
+      ...epoch,
+      objectiveChanged: false,
+      pruningCheckpoint: first.updatedCheckpoint,
+    };
+
+    const second = applyObjectiveScope({
+      messages,
+      epoch: epochWithCheckpoint,
+      chatState,
+      fileState: makeFileState("src/feature.ts"),
+      requestOrdinal: 2,
+      epochInterval: 10,
+      messageGrowthThreshold: 80,
+      bucketSize: 0,
+    });
+
+    expect(second.reanchored).toBe(false);
+    expect(second.boundaryIndex).toBe(first.boundaryIndex);
+    expect(second.scopedMessages.length).toBeGreaterThan(first.scopedMessages.length);
+  });
+
+  it("sticky boundary: re-anchors when epochInterval is exceeded", () => {
+    const chatState = makeChatState({
+      activeObjective: "Build feature Y",
+      pendingUserDirective: "Build feature Y",
+    });
+    const messages: ObjectiveScopeMessage[] = [
+      { role: "user", content: "Build feature Y" },
+      { role: "assistant", content: "On it." },
+    ];
+
+    const epoch = resolveObjectiveEpoch({
+      metadata: {},
+      chatState,
+      latestUserPromptText: "Build feature Y",
+      requestOrdinal: 1,
+    });
+
+    const first = applyObjectiveScope({
+      messages,
+      epoch,
+      chatState,
+      fileState: makeFileState("src/y.ts"),
+      requestOrdinal: 1,
+      epochInterval: 3,
+      bucketSize: 0,
+    });
+    expect(first.reanchored).toBe(true);
+
+    const staleCheckpoint: PruningCheckpoint = {
+      frozenBoundaryIndex: first.boundaryIndex,
+      frozenAtRequest: 1,
+      frozenMessageCount: messages.length,
+    };
+
+    const reanchored = applyObjectiveScope({
+      messages,
+      epoch: { ...epoch, pruningCheckpoint: staleCheckpoint, objectiveChanged: false },
+      chatState,
+      fileState: makeFileState("src/y.ts"),
+      requestOrdinal: 5,
+      epochInterval: 3,
+      bucketSize: 0,
+    });
+    expect(reanchored.reanchored).toBe(true);
+  });
+
+  it("snap-to-grid: boundary snaps to produce bucket-aligned tail when large enough", () => {
+    const chatState = makeChatState({
+      activeObjective: "Fix bugs",
+      pendingUserDirective: "Fix bugs",
+    });
+
+    const messages: ObjectiveScopeMessage[] = [];
+    for (let i = 0; i < 60; i++) {
+      messages.push({ role: "user", content: `Old turn ${i}` });
+      messages.push({ role: "assistant", content: `Old response ${i}` });
+    }
+    messages.push({ role: "user", content: "Fix bugs" });
+    for (let i = 0; i < 40; i++) {
+      messages.push({ role: "assistant", content: `Working ${i}` });
+      messages.push({ role: "user", content: `Continue ${i}` });
+    }
+    // Total: 120 + 1 + 80 = 201
+    // Anchor at index 120 ("Fix bugs"), rawTail = 81
+    // Snap: ceil(81/50)*50 = 100, boundary = 201-100 = 101
+
+    const epoch = resolveObjectiveEpoch({
+      metadata: {},
+      chatState,
+      latestUserPromptText: "Fix bugs",
+      requestOrdinal: 1,
+    });
+
+    const withBucket = applyObjectiveScope({
+      messages,
+      epoch,
+      chatState,
+      fileState: makeFileState("src/bug.ts"),
+      requestOrdinal: 1,
+      bucketSize: 50,
+    });
+
+    const withoutBucket = applyObjectiveScope({
+      messages,
+      epoch,
+      chatState,
+      fileState: makeFileState("src/bug.ts"),
+      requestOrdinal: 1,
+      bucketSize: 0,
+    });
+
+    expect(withoutBucket.boundaryIndex).toBe(120);
+    const bucketTail = messages.length - withBucket.boundaryIndex;
+    expect(bucketTail).toBe(100);
+    expect(withBucket.boundaryIndex).toBeLessThan(withoutBucket.boundaryIndex);
+  });
+
+  it("snap-to-grid with sticky: boundary stable across appended messages", () => {
+    const objective = "Fix bugs in the parser module";
+    const chatState = makeChatState({
+      activeObjective: objective,
+      pendingUserDirective: objective,
+    });
+
+    const messages: ObjectiveScopeMessage[] = [];
+    for (let i = 0; i < 80; i++) {
+      messages.push({ role: "user", content: `Older turn ${i}` });
+      messages.push({ role: "assistant", content: `Older response ${i}` });
+    }
+    messages.push({ role: "user", content: objective });
+    for (let i = 0; i < 30; i++) {
+      messages.push({ role: "assistant", content: `Working ${i}` });
+      messages.push({ role: "user", content: `Continue ${i}` });
+    }
+
+    const epoch = resolveObjectiveEpoch({
+      metadata: {},
+      chatState,
+      latestUserPromptText: objective,
+      requestOrdinal: 1,
+    });
+
+    const first = applyObjectiveScope({
+      messages,
+      epoch,
+      chatState,
+      fileState: makeFileState("src/bug.ts"),
+      requestOrdinal: 1,
+      bucketSize: 50,
+      epochInterval: 10,
+    });
+    expect(first.reanchored).toBe(true);
+    const rawTail = messages.length - first.boundaryIndex;
+    expect(rawTail % 50).toBe(0);
+
+    for (let extra = 1; extra <= 4; extra++) {
+      messages.push({ role: "assistant", content: `Extra ${extra}` });
+      messages.push({ role: "user", content: `Extra Q ${extra}` });
+
+      const result = applyObjectiveScope({
+        messages,
+        epoch: { ...epoch, pruningCheckpoint: first.updatedCheckpoint, objectiveChanged: false },
+        chatState,
+        fileState: makeFileState("src/bug.ts"),
+        requestOrdinal: 1 + extra,
+        bucketSize: 50,
+        epochInterval: 10,
+      });
+      expect(result.reanchored).toBe(false);
+      expect(result.boundaryIndex).toBe(first.boundaryIndex);
+    }
   });
 });

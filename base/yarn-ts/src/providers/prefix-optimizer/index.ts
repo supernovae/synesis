@@ -87,6 +87,7 @@ export class PrefixOptimizer {
     messages: ChatMessage[],
     tools: ToolDefinition[] | undefined,
     sessionKey: string,
+    overrides?: { markerBackend?: MarkerBackend },
   ): OptimizedRequest {
     const previousDiag = this.sessionDiagnostics.get(sessionKey) ?? null;
 
@@ -117,11 +118,12 @@ export class PrefixOptimizer {
 
     const rebuilt = rebuildRequest(segments, messages);
 
+    const effectiveMarkerBackend = overrides?.markerBackend ?? this.opts.markerBackend;
     const markerIndices = computeMarkerPlacements(
       rebuilt,
       segments,
       previousDiag,
-      this.opts.markerBackend,
+      effectiveMarkerBackend,
       this.opts.maxMarkers,
     );
 
@@ -134,7 +136,7 @@ export class PrefixOptimizer {
     const diagnostics = buildDiagnostics(
       segments,
       markerIndices,
-      this.opts.markerBackend,
+      effectiveMarkerBackend,
       previousDiag,
       prefixStableBytes,
     );

@@ -3,6 +3,12 @@ import crypto from "crypto";
 import type { ChatState } from "./chat-state.js";
 import type { FileState } from "./file-state.js";
 
+export interface PruningCheckpoint {
+  frozenBoundaryIndex: number;
+  frozenAtRequest: number;
+  frozenMessageCount: number;
+}
+
 export interface ObjectiveEpochState {
   epochId: number;
   objectiveHash: string;
@@ -11,6 +17,7 @@ export interface ObjectiveEpochState {
   objectiveSetRequest: number;
   objectiveChanged: boolean;
   similarityToPrevious: number;
+  pruningCheckpoint: PruningCheckpoint;
 }
 
 export interface ResolveObjectiveEpochOptions {
@@ -35,6 +42,10 @@ export interface ApplyObjectiveScopeOptions<TMessage extends ObjectiveScopeMessa
   maxRelevantEvidence?: number;
   preBoundaryWindow?: number;
   minimumScore?: number;
+  requestOrdinal?: number;
+  epochInterval?: number;
+  messageGrowthThreshold?: number;
+  bucketSize?: number;
 }
 
 export interface ObjectiveScopeResult<TMessage extends ObjectiveScopeMessage> {
@@ -46,6 +57,8 @@ export interface ObjectiveScopeResult<TMessage extends ObjectiveScopeMessage> {
   retainedEvidenceCount: number;
   droppedPreBoundaryCount: number;
   anchorMatched: boolean;
+  reanchored: boolean;
+  updatedCheckpoint: PruningCheckpoint;
 }
 
 const OBJECTIVE_STOP_WORDS = new Set([
@@ -310,6 +323,12 @@ export function resolveObjectiveEpoch(options: ResolveObjectiveEpochOptions): Ob
     : "";
   const previousSetRequest = Number(metadata.objective_epoch_set_request ?? 0);
 
+  const previousPruningCheckpoint: PruningCheckpoint = {
+    frozenBoundaryIndex: Number(metadata.objective_epoch_pruning_frozen_boundary ?? 0),
+    frozenAtRequest: Number(metadata.objective_epoch_pruning_frozen_at_request ?? 0),
+    frozenMessageCount: Number(metadata.objective_epoch_pruning_frozen_message_count ?? 0),
+  };
+
   const currentObjectiveText = normalizeText(
     options.chatState.pendingUserDirective
       ?? options.chatState.activeObjective
@@ -350,6 +369,7 @@ export function resolveObjectiveEpoch(options: ResolveObjectiveEpochOptions): Ob
     objectiveSetRequest,
     objectiveChanged,
     similarityToPrevious: Number(similarityToPrevious.toFixed(3)),
+    pruningCheckpoint: previousPruningCheckpoint,
   };
 }
 
@@ -567,6 +587,39 @@ function extractArtifactHandles(messages: ObjectiveScopeMessage[]): string[] {
   return handles;
 }
 
+const DEFAULT_EPOCH_INTERVAL = 10;
+const DEFAULT_MESSAGE_GROWTH_THRESHOLD = 80;
+const DEFAULT_BUCKET_SIZE = 50;
+
+function snapBoundaryToBucket(
+  rawBoundary: number,
+  totalMessages: number,
+  bucketSize: number,
+): number {
+  if (bucketSize <= 0) return rawBoundary;
+  const rawTailLength = totalMessages - rawBoundary;
+  if (rawTailLength <= bucketSize) return rawBoundary;
+  const snappedTailLength = Math.ceil(rawTailLength / bucketSize) * bucketSize;
+  return Math.max(0, totalMessages - snappedTailLength);
+}
+
+function shouldReanchor(
+  checkpoint: PruningCheckpoint | undefined,
+  requestOrdinal: number,
+  messageCount: number,
+  epochInterval: number,
+  messageGrowthThreshold: number,
+  objectiveChanged: boolean,
+): boolean {
+  if (!checkpoint || (!checkpoint.frozenBoundaryIndex && !checkpoint.frozenAtRequest)) return true;
+  if (objectiveChanged) return true;
+  const turnsSinceFreeze = requestOrdinal - checkpoint.frozenAtRequest;
+  if (turnsSinceFreeze >= epochInterval) return true;
+  const messageGrowth = messageCount - checkpoint.frozenMessageCount;
+  if (messageGrowth >= messageGrowthThreshold) return true;
+  return false;
+}
+
 export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
   options: ApplyObjectiveScopeOptions<TMessage>,
 ): ObjectiveScopeResult<TMessage> {
@@ -587,76 +640,120 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
   const preBoundaryWindow = Math.max(10, options.preBoundaryWindow ?? 80);
   const minimumScore = Math.max(1, options.minimumScore ?? 2);
   const maxRelevantEvidence = Math.max(1, options.maxRelevantEvidence ?? 10);
+  const epochInterval = options.epochInterval ?? DEFAULT_EPOCH_INTERVAL;
+  const messageGrowthThreshold = options.messageGrowthThreshold ?? DEFAULT_MESSAGE_GROWTH_THRESHOLD;
+  const bucketSize = options.bucketSize ?? DEFAULT_BUCKET_SIZE;
+  const requestOrdinal = options.requestOrdinal ?? 0;
 
-  const anchorUserIndex = findAnchorUserIndex(allMessages, options.epoch.anchorUserHash);
-  const lastUserIndex = findLastGenuineUserIndex(allMessages);
-  let boundaryIndex = anchorUserIndex >= 0
-    ? anchorUserIndex
-    : (lastUserIndex >= 0 ? lastUserIndex : 0);
+  const checkpoint = options.epoch?.pruningCheckpoint;
+  const needsReanchor = shouldReanchor(
+    checkpoint,
+    requestOrdinal,
+    allMessages.length,
+    epochInterval,
+    messageGrowthThreshold,
+    options.epoch.objectiveChanged,
+  );
 
-  boundaryIndex = adjustBoundaryForToolPairIntegrity(allMessages, boundaryIndex);
+  let boundaryIndex: number;
+  let anchorUserIndex = -1;
+  let reanchored: boolean;
+
+  if (needsReanchor) {
+    anchorUserIndex = findAnchorUserIndex(allMessages, options.epoch.anchorUserHash);
+    const lastUserIndex = findLastGenuineUserIndex(allMessages);
+    boundaryIndex = anchorUserIndex >= 0
+      ? anchorUserIndex
+      : (lastUserIndex >= 0 ? lastUserIndex : 0);
+
+    boundaryIndex = snapBoundaryToBucket(boundaryIndex, allMessages.length, bucketSize);
+    boundaryIndex = adjustBoundaryForToolPairIntegrity(allMessages, boundaryIndex);
+    reanchored = true;
+  } else {
+    boundaryIndex = Math.min(checkpoint!.frozenBoundaryIndex, allMessages.length);
+    anchorUserIndex = findAnchorUserIndex(allMessages, options.epoch.anchorUserHash);
+    reanchored = false;
+  }
 
   const scopedMessages = healToolCallResultPairs(allMessages.slice(Math.max(0, boundaryIndex)));
-  const preStart = Math.max(0, boundaryIndex - preBoundaryWindow);
-  const preBoundaryMessages = allMessages.slice(preStart, boundaryIndex);
 
-  const objectiveText = [
-    options.chatState.pendingUserDirective,
-    options.chatState.activeObjective,
-    options.chatState.transcriptSummary,
-    ...(options.chatState.blockers ?? []),
-  ]
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .join(" ");
-  const objectiveTokens = collectTokenSet(objectiveText);
-  const focusPaths = gatherFocusPaths(options.chatState, options.fileState);
+  let relevantEvidenceBlock: string | null = null;
+  let artifactBridgeBlock: string | null = null;
+  let preBoundaryCount = 0;
+  let retainedEvidenceCount = 0;
+  let droppedPreBoundaryCount = 0;
 
-  const scored = scoreRelevancyCandidates(
-    preBoundaryMessages,
-    objectiveTokens,
-    focusPaths,
-    minimumScore,
-  );
-  const retained = scored
-    .sort((a, b) => (b.score - a.score) || (b.index - a.index))
-    .slice(0, maxRelevantEvidence)
-    .sort((a, b) => a.index - b.index);
+  if (reanchored) {
+    const preStart = Math.max(0, boundaryIndex - preBoundaryWindow);
+    const preBoundaryMessages = allMessages.slice(preStart, boundaryIndex);
+    preBoundaryCount = preBoundaryMessages.length;
 
-  const relevantEvidenceBlock = retained.length > 0
-    ? [
-        "<SYNESIS_RELEVANT_EVIDENCE version=\"1\" source=\"objective_scope_gate\">",
-        `objective_epoch_id=${options.epoch.epochId}`,
-        `objective_changed=${options.epoch.objectiveChanged ? "yes" : "no"}`,
-        `tail_start_index=${boundaryIndex}`,
-        `pre_boundary_candidates=${preBoundaryMessages.length}`,
-        `retained_candidates=${retained.length}`,
-        `dropped_candidates=${Math.max(0, preBoundaryMessages.length - retained.length)}`,
-        ...retained.map((row) =>
-          `evidence=role:${row.role};tool:${row.toolName ?? "none"};score:${row.score};summary:${row.summary.replace(/;/g, ",")}`),
-        "</SYNESIS_RELEVANT_EVIDENCE>",
-      ].join("\n")
-    : null;
+    const objectiveText = [
+      options.chatState.pendingUserDirective,
+      options.chatState.activeObjective,
+      options.chatState.transcriptSummary,
+      ...(options.chatState.blockers ?? []),
+    ]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join(" ");
+    const objectiveTokens = collectTokenSet(objectiveText);
+    const focusPaths = gatherFocusPaths(options.chatState, options.fileState);
 
-  const droppedMessages = allMessages.slice(0, Math.max(0, boundaryIndex));
-  const bridgedHandles = extractArtifactHandles(droppedMessages);
-  const artifactBridgeBlock = bridgedHandles.length > 0
-    ? [
-        `<SYNESIS_AVAILABLE_ARTIFACTS count="${bridgedHandles.length}" source="objective_scope_bridge">`,
-        "These artifact handles reference content from earlier in the session that was compacted.",
-        "Recover any via synesis_artifact_retrieve with the artifact_handle value.",
-        ...bridgedHandles.map((h) => `  handle="${h}"`),
-        "</SYNESIS_AVAILABLE_ARTIFACTS>",
-      ].join("\n")
-    : null;
+    const scored = scoreRelevancyCandidates(
+      preBoundaryMessages,
+      objectiveTokens,
+      focusPaths,
+      minimumScore,
+    );
+    const retained = scored
+      .sort((a, b) => (b.score - a.score) || (b.index - a.index))
+      .slice(0, maxRelevantEvidence)
+      .sort((a, b) => a.index - b.index);
+    retainedEvidenceCount = retained.length;
+    droppedPreBoundaryCount = Math.max(0, preBoundaryMessages.length - retained.length);
+
+    relevantEvidenceBlock = retained.length > 0
+      ? [
+          "<SYNESIS_RELEVANT_EVIDENCE version=\"1\" source=\"objective_scope_gate\">",
+          `objective_epoch_id=${options.epoch.epochId}`,
+          `objective_changed=${options.epoch.objectiveChanged ? "yes" : "no"}`,
+          `tail_start_index=${boundaryIndex}`,
+          `pre_boundary_candidates=${preBoundaryMessages.length}`,
+          `retained_candidates=${retained.length}`,
+          `dropped_candidates=${Math.max(0, preBoundaryMessages.length - retained.length)}`,
+          ...retained.map((row) =>
+            `evidence=role:${row.role};tool:${row.toolName ?? "none"};score:${row.score};summary:${row.summary.replace(/;/g, ",")}`),
+          "</SYNESIS_RELEVANT_EVIDENCE>",
+        ].join("\n")
+      : null;
+
+    const droppedMessages = allMessages.slice(0, Math.max(0, boundaryIndex));
+    const bridgedHandles = extractArtifactHandles(droppedMessages);
+    artifactBridgeBlock = bridgedHandles.length > 0
+      ? [
+          `<SYNESIS_AVAILABLE_ARTIFACTS count="${bridgedHandles.length}" source="objective_scope_bridge">`,
+          "These artifact handles reference content from earlier in the session that was compacted.",
+          "Recover any via synesis_artifact_retrieve with the artifact_handle value.",
+          ...bridgedHandles.map((h) => `  handle="${h}"`),
+          "</SYNESIS_AVAILABLE_ARTIFACTS>",
+        ].join("\n")
+      : null;
+  }
 
   return {
     scopedMessages,
     relevantEvidenceBlock,
     artifactBridgeBlock,
     boundaryIndex,
-    preBoundaryCount: preBoundaryMessages.length,
-    retainedEvidenceCount: retained.length,
-    droppedPreBoundaryCount: Math.max(0, preBoundaryMessages.length - retained.length),
+    preBoundaryCount,
+    retainedEvidenceCount,
+    droppedPreBoundaryCount,
     anchorMatched: anchorUserIndex >= 0,
+    reanchored,
+    updatedCheckpoint: {
+      frozenBoundaryIndex: boundaryIndex,
+      frozenAtRequest: requestOrdinal,
+      frozenMessageCount: allMessages.length,
+    },
   };
 }

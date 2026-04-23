@@ -163,11 +163,12 @@ describe("resolveAdapter with adapterHint", () => {
   it("KNOWN_ADAPTER_FAMILIES contains all expected families", () => {
     expect(KNOWN_ADAPTER_FAMILIES).toContain("qwen3-coder");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("qwen3-coder-next");
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("claude");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("deepseek");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("kimi");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("minimax");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("generic");
-    expect(KNOWN_ADAPTER_FAMILIES).toHaveLength(6);
+    expect(KNOWN_ADAPTER_FAMILIES).toHaveLength(7);
   });
 });
 

@@ -290,6 +290,8 @@ export interface HeavyCompactionContext {
   objectiveEpoch: ObjectiveEpochState;
 }
 
+const HEAVY_COMPACTION_BUCKET_SIZE = 50;
+
 export function applyHeavyCompaction(
   messages: ContextBudgetMessage[],
   classified: ClassifiedMessage[],
@@ -348,6 +350,8 @@ export function applyHeavyCompaction(
     out.splice(insertAt, 0, { role: "system", content: checkpointMsg });
   }
 
+  snapHeavyCompactionToBucket(out, classified, HEAVY_COMPACTION_BUCKET_SIZE, artifactStore);
+
   checkpoint.compactedTokenEstimate = droppedTokens;
   checkpoint.retainedMessageCount = out.length;
   checkpoint.retainedTokenEstimate = currentTokens - droppedTokens + checkpointTokens;
@@ -357,6 +361,53 @@ export function applyHeavyCompaction(
     tokensRecovered: Math.max(0, droppedTokens - checkpointTokens),
     checkpoint,
   };
+}
+
+/**
+ * After heavy compaction, drop additional low-retention messages to snap the
+ * retained count down to the nearest bucket multiple.  This is a soft
+ * preference: immutable, working, and unresolved_failure messages are never
+ * dropped.
+ */
+function snapHeavyCompactionToBucket(
+  out: ContextBudgetMessage[],
+  classified: ClassifiedMessage[],
+  bucketSize: number,
+  artifactStore?: ArtifactStore | null,
+): void {
+  if (bucketSize <= 0 || out.length <= bucketSize) return;
+  const snappedTarget = Math.floor(out.length / bucketSize) * bucketSize;
+  if (snappedTarget >= out.length || snappedTarget <= 0) return;
+  const excess = out.length - snappedTarget;
+
+  const droppable: Array<{ index: number; score: number }> = [];
+  for (let i = 0; i < out.length; i++) {
+    const cl = classified[i];
+    if (!cl) continue;
+    if (cl.tier === "immutable" || cl.tier === "working") continue;
+    if (cl.tags.includes("unresolved_failure")) continue;
+    droppable.push({ index: i, score: cl.retentionScore });
+  }
+
+  droppable.sort((a, b) => a.score - b.score);
+  const toRemove = new Set<number>();
+  for (const { index } of droppable) {
+    if (toRemove.size >= excess) break;
+    if (artifactStore && out[index].role === "tool") {
+      const raw = contentString(out[index].content);
+      if (raw.length >= 100) retainToArtifact(artifactStore, raw);
+    }
+    toRemove.add(index);
+  }
+
+  if (toRemove.size === 0) return;
+  let writeIdx = 0;
+  for (let i = 0; i < out.length; i++) {
+    if (!toRemove.has(i)) {
+      out[writeIdx++] = out[i];
+    }
+  }
+  out.length = writeIdx;
 }
 
 // ── Main Evaluation ────────────────────────────────────────────────────────

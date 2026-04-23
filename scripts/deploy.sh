@@ -76,6 +76,9 @@ set -euo pipefail
 #   - SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED (default true) — replace identical tool results with compact stubs.
 #   - SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED (default false) — extend dedup beyond read/search to list_files, glob, etc.
 #   - SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED (default true) — stabilize timestamps/paths/tool-call-IDs in old messages for KV cache.
+#   - SYNESIS_YARN_SCOPE_EPOCH_INTERVAL (default 10) — sticky boundary re-anchor interval (turns). 0 = recompute every turn.
+#   - SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD (default 80) — message growth before re-anchor.
+#   - SYNESIS_YARN_SCOPE_BUCKET_SIZE (default 50) — snap-to-grid bucket size for objective scope pruning. 0 = disabled.
 #
 # Yarn Eval Gym (docs/coder/EVAL_GYM.md):
 #   - SYNESIS_YARN_EVAL_API_ENABLED (default true) — exposes /v1/eval/* routes (scenario runner, results, export).
@@ -1323,6 +1326,11 @@ patch_yarn_tool_collapse_envs() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED" "${SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED:-true}" "$container"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REQUEST_FORENSICS_MODE" "${SYNESIS_YARN_REQUEST_FORENSICS_MODE:-lightweight}" "$container"
 
+    # Deterministic prefix cache optimization (epoch pruning, snap-to-grid)
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SCOPE_EPOCH_INTERVAL" "${SYNESIS_YARN_SCOPE_EPOCH_INTERVAL:-10}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD" "${SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD:-80}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SCOPE_BUCKET_SIZE" "${SYNESIS_YARN_SCOPE_BUCKET_SIZE:-50}" "$container"
+
     if [[ -n "${SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST:-}" ]]; then
         _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST" "${SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST}" "$container"
     fi
@@ -1545,6 +1553,11 @@ patch_yarn_feature_flags() {
     _flag SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED   "false"
     _flag SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED    "true"
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REQUEST_FORENSICS_MODE" "${SYNESIS_YARN_REQUEST_FORENSICS_MODE:-lightweight}" "$container"
+
+    # ── Deterministic prefix cache optimization (epoch pruning, snap-to-grid) ──
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SCOPE_EPOCH_INTERVAL" "${SYNESIS_YARN_SCOPE_EPOCH_INTERVAL:-10}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD" "${SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD:-80}" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_SCOPE_BUCKET_SIZE" "${SYNESIS_YARN_SCOPE_BUCKET_SIZE:-50}" "$container"
 
     # ── Eval Gym: scenario runner, session observer, training data export ──
     _flag SYNESIS_YARN_EVAL_API_ENABLED                "true"

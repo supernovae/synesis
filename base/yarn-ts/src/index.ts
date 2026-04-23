@@ -149,7 +149,7 @@ import {
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { inferModelFamily } from "./prompt/infer-model-family.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
-import { detectCacheStrategy, computePrefixFingerprint, type CacheStrategy } from "./context/provider-cache-hints.js"; // annotateCacheBreakpoints was dead import; vLLM now uses implicit_prefix for KV reporting
+import { detectCacheStrategy, computePrefixFingerprint, annotateCacheBreakpoints, type CacheStrategy } from "./context/provider-cache-hints.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
@@ -1120,6 +1120,9 @@ function applyObjectiveScopeAndPersist<TMessage extends {
   });
   const msgCount = params.messages.length;
   const scaledEvidence = msgCount > 200 ? 12 : msgCount > 100 ? 9 : 6;
+  const epochInterval = Number(config.SYNESIS_YARN_SCOPE_EPOCH_INTERVAL ?? 10) || 10;
+  const messageGrowthThreshold = Number(config.SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD ?? 80) || 80;
+  const bucketSize = Number(config.SYNESIS_YARN_SCOPE_BUCKET_SIZE ?? 50) || 50;
   const scoped = applyObjectiveScope({
     messages: params.messages,
     chatState: params.chatState,
@@ -1128,6 +1131,10 @@ function applyObjectiveScopeAndPersist<TMessage extends {
     maxRelevantEvidence: scaledEvidence,
     preBoundaryWindow: 80,
     minimumScore: 3,
+    requestOrdinal,
+    epochInterval,
+    messageGrowthThreshold,
+    bucketSize,
   });
 
   params.state.record.metadata.objective_epoch_id = objectiveEpoch.epochId;
@@ -1139,10 +1146,15 @@ function applyObjectiveScopeAndPersist<TMessage extends {
   params.state.record.metadata.objective_scope_retained_evidence = scoped.retainedEvidenceCount;
   params.state.record.metadata.objective_scope_dropped_pre_boundary = scoped.droppedPreBoundaryCount;
 
+  params.state.record.metadata.objective_epoch_pruning_frozen_boundary = scoped.updatedCheckpoint.frozenBoundaryIndex;
+  params.state.record.metadata.objective_epoch_pruning_frozen_at_request = scoped.updatedCheckpoint.frozenAtRequest;
+  params.state.record.metadata.objective_epoch_pruning_frozen_message_count = scoped.updatedCheckpoint.frozenMessageCount;
+
   if (
     objectiveEpoch.objectiveChanged
     || scoped.droppedPreBoundaryCount > 0
     || scoped.retainedEvidenceCount > 0
+    || scoped.reanchored
   ) {
     recordSessionEvent(
       params.sessionKey,
@@ -1150,7 +1162,7 @@ function applyObjectiveScopeAndPersist<TMessage extends {
       params.orgId,
       "objective_scope_applied",
       "objective-scope",
-      `epoch=${objectiveEpoch.epochId} changed=${objectiveEpoch.objectiveChanged} boundary=${scoped.boundaryIndex} retained=${scoped.retainedEvidenceCount} dropped=${scoped.droppedPreBoundaryCount}`,
+      `epoch=${objectiveEpoch.epochId} changed=${objectiveEpoch.objectiveChanged} boundary=${scoped.boundaryIndex} retained=${scoped.retainedEvidenceCount} dropped=${scoped.droppedPreBoundaryCount} reanchored=${scoped.reanchored}`,
       params.requestId,
       {
         objective_epoch_id: objectiveEpoch.epochId,
@@ -1160,6 +1172,7 @@ function applyObjectiveScopeAndPersist<TMessage extends {
         retained_evidence: scoped.retainedEvidenceCount,
         dropped_pre_boundary: scoped.droppedPreBoundaryCount,
         anchor_matched: scoped.anchorMatched,
+        reanchored: scoped.reanchored,
       },
     );
   }
@@ -1773,9 +1786,7 @@ function injectGovernorRecoveryMessage(
       messages.splice(i, 1);
     }
   }
-  const lastUserPromptIdx = findLastUserPromptIdx(messages as Array<{ role?: string; content?: unknown }>);
-  const tailIdx = lastUserPromptIdx >= 0 ? lastUserPromptIdx + 1 : messages.length;
-  messages.splice(tailIdx, 0, { role: "system", content: recovery });
+  messages.push({ role: "system", content: recovery });
 }
 
 function isToolResultOnlyUserContent(content: unknown): boolean {
@@ -6192,7 +6203,7 @@ function requireInternalToken(req: { headers: Record<string, unknown> }): boolea
  * Convert Claude's top-level `system` field (string or content-block array)
  * into a system-role message that can be prepended to the OpenAI message list.
  */
-function claudeSystemToMessage(system: unknown): { role: "system"; content: string } | null {
+function claudeSystemToMessage(system: unknown): { role: "system"; content: string; providerOptions?: Record<string, unknown> } | null {
   if (!system) return null;
   if (typeof system === "string") {
     return system.length > 0 ? { role: "system", content: system } : null;
@@ -6202,7 +6213,21 @@ function claudeSystemToMessage(system: unknown): { role: "system"; content: stri
       .filter((b: unknown) => typeof b === "object" && b !== null && (b as Record<string, unknown>).type === "text")
       .map((b: unknown) => String((b as Record<string, unknown>).text ?? ""));
     const joined = textParts.join("\n");
-    return joined.length > 0 ? { role: "system", content: joined } : null;
+    if (joined.length === 0) return null;
+
+    const lastCacheControl = system
+      .filter((b: unknown) => typeof b === "object" && b !== null && (b as Record<string, unknown>).cache_control)
+      .map((b: unknown) => (b as Record<string, unknown>).cache_control)
+      .pop();
+
+    if (lastCacheControl) {
+      return {
+        role: "system",
+        content: joined,
+        providerOptions: { anthropic: { cacheControl: lastCacheControl } },
+      };
+    }
+    return { role: "system", content: joined };
   }
   return null;
 }
@@ -9419,6 +9444,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiForensicsPhasePolicy,
     oaiForensicsCapabilityMatrix,
   );
+  const oaiAdapterCacheBackend = adapter.cacheMarkerBackend?.() ?? "none";
+  if (oaiAdapterCacheBackend === "anthropic") {
+    const oaiCacheHints = annotateCacheBreakpoints(
+      modelMessages as Array<{ role: string; content: unknown }>,
+      "anthropic_explicit",
+      { anchorIndex: oaiObjectiveScope.boundaryIndex },
+    );
+    modelMessages = oaiCacheHints.messages as typeof modelMessages;
+  }
+
   const oaiStreamAbortController = new AbortController();
   const oaiStreamHardTimeoutMs = Math.max(
     config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
@@ -12416,6 +12451,19 @@ app.post("/v1/messages", async (req, reply) => {
       claudeForensicsPhasePolicy,
       claudeForensicsCapabilityMatrix,
     );
+    const claudeResolvedCacheStrategy = detectCacheStrategy(
+      resolved.baseUrl ?? "",
+      resolved.resolvedModelId,
+    );
+    if (claudeResolvedCacheStrategy === "anthropic_explicit") {
+      const claudeCacheHints = annotateCacheBreakpoints(
+        claudeModelMessages as Array<{ role: string; content: unknown }>,
+        "anthropic_explicit",
+        { anchorIndex: claudeObjectiveScope.boundaryIndex },
+      );
+      claudeModelMessages = claudeCacheHints.messages as typeof claudeModelMessages;
+    }
+
     const claudeStreamAbortController = new AbortController();
     const claudeStreamHardTimeoutMs = Math.max(
       config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
