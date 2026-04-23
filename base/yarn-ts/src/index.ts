@@ -329,6 +329,10 @@ type SessionState = {
   skipToolIdStabilization: boolean;
   /** Count of compound git inspection blocks in this session. */
   gitInspectionBlockCount: number;
+  /** Proportionality: classified scope envelope from the latest user message. */
+  scopeEnvelope: import("./governance/intent-scope-classifier.js").ScopeEnvelope;
+  /** Proportionality: cumulative diff stats for the current user turn. */
+  diffStats: import("./governance/diff-accumulator.js").DiffStats;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -3604,6 +3608,8 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     lastGovernorCachedResult: null,
     skipToolIdStabilization: false,
     gitInspectionBlockCount: 0,
+    scopeEnvelope: "unconstrained",
+    diffStats: createDiffStats(),
   };
   sessions.set(key, state);
   return state;
@@ -3850,6 +3856,17 @@ import {
 import { governToolCall } from "./path-governance/tool-call-governance.js";
 import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
 import { buildDefaultPolicy, type PathSandboxPolicy } from "./path-governance/path-sandbox.js";
+import { classifyIntentScope } from "./governance/intent-scope-classifier.js";
+import {
+  createDiffStats,
+  recordEditOperation,
+  recordFileCreated,
+  recordFileDeletion,
+  parseEditMetrics,
+  isFileDeletion,
+  assessProportionality,
+  proportionalityToSignal,
+} from "./governance/diff-accumulator.js";
 import {
   buildWorkspaceHandshakeBashCommand,
   contextFromSessionMetadata,
@@ -3989,6 +4006,46 @@ function trackGovernedHardening(governed: GovernedToolCall): void {
   if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
   if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
   if (governed.validationMissing.length > 0) toolArgHardeningStats.validationFailedCount += 1;
+}
+
+/**
+ * Update the session's diff accumulator from a governed tool call.
+ * Called from all 4 governance call sites.
+ */
+function updateDiffAccumulator(session: SessionState, governed: GovernedToolCall): void {
+  if (!config.SYNESIS_YARN_PROPORTIONALITY_ENABLED) return;
+  if (session.scopeEnvelope === "unconstrained" || session.scopeEnvelope === "removal_ok") return;
+
+  const logicalName = governed.toolName;
+  const input = governed.input;
+
+  // Skip blocked/error tool calls
+  if (logicalName.startsWith("Synesis_Error")) return;
+
+  const WRITE_TOOLS = new Set(["Write", "Edit", "Update", "MultiEdit", "FileWrite", "ApplyPatch", "StrReplace"]);
+  if (!WRITE_TOOLS.has(logicalName) && logicalName !== "Bash") return;
+
+  const filePath = typeof input.file_path === "string" ? input.file_path.trim()
+    : typeof input.path === "string" ? input.path.trim() : "";
+
+  if (WRITE_TOOLS.has(logicalName) && filePath) {
+    const content = typeof input.content === "string" ? input.content : undefined;
+    if (logicalName === "Write" || logicalName === "FileWrite") {
+      if (isFileDeletion(content)) {
+        recordFileDeletion(session.diffStats, filePath, 50);
+      } else {
+        const lines = (content ?? "").split("\n").length;
+        recordEditOperation(session.diffStats, filePath, lines, 0);
+      }
+    } else {
+      // Edit/Update/StrReplace: estimate from old_string vs new_string
+      const oldStr = typeof input.old_string === "string" ? input.old_string : "";
+      const newStr = typeof input.new_string === "string" ? input.new_string : "";
+      const oldLines = oldStr ? oldStr.split("\n").length : 0;
+      const newLines = newStr ? newStr.split("\n").length : 0;
+      recordEditOperation(session.diffStats, filePath, newLines, oldLines);
+    }
+  }
 }
 
 function shouldSampleBySeed(seed: string, rate: number): boolean {
@@ -7409,6 +7466,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
       previousSnapshot: oaiPersistedChatState,
     },
   );
+
+  // Proportionality: classify intent scope from the latest user directive
+  if (config.SYNESIS_YARN_PROPORTIONALITY_ENABLED && oaiChatState.pendingUserDirective) {
+    const scopeClassification = classifyIntentScope(oaiChatState.pendingUserDirective);
+    if (scopeClassification.envelope !== "unconstrained") {
+      session.scopeEnvelope = scopeClassification.envelope;
+      session.diffStats = createDiffStats();
+    }
+  }
+
   const oaiObjectiveScope = applyObjectiveScopeAndPersist({
     state: session,
     sessionKey,
@@ -7617,12 +7684,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiPlanRecoveryGrace = isPlanRecoveryDiscoveryIntent(
       typeof oaiTaskCue === "string" ? oaiTaskCue : "",
     ) && oaiGovChangedFiles.length === 0 && oaiGovEvents.length <= 30;
+    // Proportionality assessment
+    const oaiProportionality = config.SYNESIS_YARN_PROPORTIONALITY_ENABLED
+      ? assessProportionality(session.diffStats, session.scopeEnvelope)
+      : null;
+    const oaiProportionalitySignal = oaiProportionality
+      ? proportionalityToSignal(oaiProportionality.level)
+      : null;
+
     oaiSensemakingDecision = evaluateSensemakingGovernor(
       oaiExecutionGovernor,
       oaiGovEvents,
       oaiGovEvents.length,
       oaiGovChangedFiles.length,
       oaiPlanRecoveryGrace,
+      null,
+      oaiProportionalitySignal,
     );
     const smComparison = compareSensemakingWithLegacy(oaiExecutionGovernor, oaiSensemakingDecision);
     recordSessionEvent(
@@ -7639,6 +7716,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
         planRecoveryGrace: oaiPlanRecoveryGrace,
       },
     );
+    if (oaiProportionality && oaiProportionality.level !== "proportional") {
+      recordSessionEvent(
+        sessionKey, identity.userId, identity.orgId,
+        "proportionality_check", "proportionality",
+        `level=${oaiProportionality.level} scope=${session.scopeEnvelope} files=${session.diffStats.filesModified} deleted=${session.diffStats.filesDeleted} net_removed=${session.diffStats.netLinesRemoved} breaches=${oaiProportionality.breaches.join(";")}`,
+        oaiTraceReqId,
+        {
+          level: oaiProportionality.level,
+          scopeEnvelope: session.scopeEnvelope,
+          filesModified: session.diffStats.filesModified,
+          filesDeleted: session.diffStats.filesDeleted,
+          netLinesRemoved: session.diffStats.netLinesRemoved,
+          totalLinesChanged: session.diffStats.totalLinesChanged,
+          breaches: oaiProportionality.breaches,
+          signal: oaiProportionalitySignal,
+        },
+      );
+    }
   }
 
   const oaiAggressiveRepeatGuard =
@@ -8913,6 +9008,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           session.gitInspectionBlockCount += 1;
         }
         trackGovernedHardening(governed);
+        updateDiffAccumulator(session, governed);
         if (governed.planWriteAudit) {
           emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
         }
@@ -9475,6 +9571,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             session.gitInspectionBlockCount += 1;
           }
           trackGovernedHardening(governed);
+          updateDiffAccumulator(session, governed);
           if (governed.planWriteAudit) {
             emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
           }
@@ -10711,6 +10808,16 @@ app.post("/v1/messages", async (req, reply) => {
       previousSnapshot: claudePersistedChatState,
     },
   );
+
+  // Proportionality: classify intent scope from the latest user directive
+  if (config.SYNESIS_YARN_PROPORTIONALITY_ENABLED && claudeChatState.pendingUserDirective) {
+    const scopeClassification = classifyIntentScope(claudeChatState.pendingUserDirective);
+    if (scopeClassification.envelope !== "unconstrained") {
+      session.scopeEnvelope = scopeClassification.envelope;
+      session.diffStats = createDiffStats();
+    }
+  }
+
   const claudeObjectiveScope = applyObjectiveScopeAndPersist({
     state: session,
     sessionKey: claudeSessionKey,
@@ -10919,12 +11026,22 @@ app.post("/v1/messages", async (req, reply) => {
     const claudePlanRecoveryGrace = isPlanRecoveryDiscoveryIntent(
       typeof claudeTaskCue === "string" ? claudeTaskCue : "",
     ) && claudeGovChangedFiles.length === 0 && claudeGovEvents.length <= 30;
+    // Proportionality assessment
+    const claudeProportionality = config.SYNESIS_YARN_PROPORTIONALITY_ENABLED
+      ? assessProportionality(session.diffStats, session.scopeEnvelope)
+      : null;
+    const claudeProportionalitySignal = claudeProportionality
+      ? proportionalityToSignal(claudeProportionality.level)
+      : null;
+
     claudeSensemakingDecision = evaluateSensemakingGovernor(
       claudeExecutionGovernor,
       claudeGovEvents,
       claudeGovEvents.length,
       claudeGovChangedFiles.length,
       claudePlanRecoveryGrace,
+      null,
+      claudeProportionalitySignal,
     );
     const smComparison = compareSensemakingWithLegacy(claudeExecutionGovernor, claudeSensemakingDecision);
     recordSessionEvent(
@@ -10941,6 +11058,24 @@ app.post("/v1/messages", async (req, reply) => {
         planRecoveryGrace: claudePlanRecoveryGrace,
       },
     );
+    if (claudeProportionality && claudeProportionality.level !== "proportional") {
+      recordSessionEvent(
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "proportionality_check", "proportionality",
+        `level=${claudeProportionality.level} scope=${session.scopeEnvelope} files=${session.diffStats.filesModified} deleted=${session.diffStats.filesDeleted} net_removed=${session.diffStats.netLinesRemoved} breaches=${claudeProportionality.breaches.join(";")}`,
+        traceReqId,
+        {
+          level: claudeProportionality.level,
+          scopeEnvelope: session.scopeEnvelope,
+          filesModified: session.diffStats.filesModified,
+          filesDeleted: session.diffStats.filesDeleted,
+          netLinesRemoved: session.diffStats.netLinesRemoved,
+          totalLinesChanged: session.diffStats.totalLinesChanged,
+          breaches: claudeProportionality.breaches,
+          signal: claudeProportionalitySignal,
+        },
+      );
+    }
   }
 
   const claudeAggressiveRepeatGuard =
@@ -12461,6 +12596,7 @@ app.post("/v1/messages", async (req, reply) => {
           emitToolName = governed.toolName;
           finalInput = governed.input;
           trackGovernedHardening(governed);
+          updateDiffAccumulator(session, governed);
           if (governed.planWriteAudit) {
             emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, governed.planWriteAudit);
           }
@@ -13197,6 +13333,7 @@ app.post("/v1/messages", async (req, reply) => {
         session.gitInspectionBlockCount += 1;
       }
       trackGovernedHardening(governed);
+      updateDiffAccumulator(session, governed);
       if (governed.planWriteAudit) {
         emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, governed.planWriteAudit);
       }

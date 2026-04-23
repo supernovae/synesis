@@ -46,6 +46,10 @@ This roadmap outlines future features and capabilities required to compete again
 
 Filesystem boundary enforcement for agent file operations. Project root is the sandbox root; cross-project agent configs (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`) are blocked to prevent context poisoning. Includes harness compatibility matrix for 7+ coding harnesses (Claude Code, Cursor, Gemini CLI, Codex CLI, OpenCode, Windsurf, Aider) with `$TMPDIR` carve-out for macOS and `/tmp` nudge toward project-scoped subdirectories. See [`docs/coder/YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md).
 
+### Shipped: Proportionality Governance (Apr 2026)
+
+Three-layer system to detect when agent changes exceed user intent scope. Prevents agents from deleting features when asked to fix security issues, or rewriting modules when asked for targeted refactors. Classifies user prompts into scope envelopes, tracks cumulative diff stats, and feeds proportionality signals into the sensemaking governor for graduated response (nudge, guide, intervene). Includes optional fast-model critic for high-risk assessments. See [`docs/coder/YARN_PROPORTIONALITY_GOVERNANCE.md`](YARN_PROPORTIONALITY_GOVERNANCE.md).
+
 ## Phase 4: Enterprise & Workflow Integration
 *   **Automated PR Generation & Review**: Deep integration with GitHub/GitLab. The agent should autonomously create branches, commit changes, open PRs with detailed summaries, and respond to human reviewer comments in a continuous loop.
 *   **Issue Tracker Sync (Jira/Linear)**: Automatically parse tickets, extract acceptance criteria, and link commits/PRs back to the original issue without manual intervention.

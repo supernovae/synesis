@@ -640,6 +640,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Proportionality governance — detect when agent changes exceed user intent scope. */
+  SYNESIS_YARN_PROPORTIONALITY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
 
   // When true, block risky mkdir/cd duplicate-segment drift by rewriting Bash to a safe error command.
   SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED: z

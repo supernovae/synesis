@@ -30,5 +30,6 @@ Hard constraints apply to:
 - compliance controls
 - runtime integrity and data-protection boundaries
 - **filesystem sandbox** — agent file access is restricted to the project root and curated allowlist; cross-project agent configs (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`) are blocked to prevent context poisoning. See [`YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md).
+- **proportionality governance** — detects when cumulative agent changes exceed the scope of the user's request. Prevents disproportionate actions like deleting features when asked to fix security issues. Graduated responses from nudge to hard-pause. See [`YARN_PROPORTIONALITY_GOVERNANCE.md`](YARN_PROPORTIONALITY_GOVERNANCE.md).
 
 All other constraints remain guiding unless promoted by policy.

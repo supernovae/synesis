@@ -34,10 +34,11 @@ Required runtime behavior:
 
 1. Safety/compliance hard constraints
 2. **Filesystem sandbox** — project-root boundary, cross-project config isolation, system path blocking. See [`YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md).
-3. Active org/tenant constitutions
-4. Team/project constitutions
-5. Local tool rules (`AGENTS.md`, tool-local config, prompt guidance)
-6. Session-specific user preferences
+3. **Proportionality governance** — detects when agent changes exceed user intent scope; nudges, guides, or pauses before disproportionate actions (e.g., deleting features instead of fixing them). See [`YARN_PROPORTIONALITY_GOVERNANCE.md`](YARN_PROPORTIONALITY_GOVERNANCE.md).
+4. Active org/tenant constitutions
+5. Team/project constitutions
+6. Local tool rules (`AGENTS.md`, tool-local config, prompt guidance)
+7. Session-specific user preferences
 
 ## Why Top-Down Plus Bottom-Up
 

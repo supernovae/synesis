@@ -387,6 +387,31 @@ const SIGNAL_CATALOG: ReadonlyMap<string, SignalDefinition> = new Map<string, Si
     decayRate: 0.9,
     productiveCounterweight: 0.2,
   }],
+
+  // === Proportionality signals ===
+  // Injected by the proportionality governance layer when cumulative diff
+  // stats breach the scope envelope's thresholds.
+  ["scope_exceeded_narrow", {
+    name: "scope_exceeded_narrow",
+    weight: 0.12,
+    domain: "advisory",
+    decayRate: 0.7,
+    productiveCounterweight: 0.3,
+  }],
+  ["scope_exceeded_moderate", {
+    name: "scope_exceeded_moderate",
+    weight: 0.22,
+    domain: "complicated",
+    decayRate: 0.85,
+    productiveCounterweight: 0.2,
+  }],
+  ["scope_exceeded_dangerous", {
+    name: "scope_exceeded_dangerous",
+    weight: 0.35,
+    domain: "chaotic",
+    decayRate: 0.95,
+    productiveCounterweight: 0.05,
+  }],
 ]);
 
 export function getSignalDefinition(name: string): SignalDefinition | undefined {
@@ -598,6 +623,7 @@ function generateNudge(signalName: string, _phase: SessionPhase): string {
     broad_to_narrow_verification: "Consider running a more targeted test instead of a broad suite.",
     completion_claim_requires_task_update: "If work is done, update the plan/task status. If not, make the next edit.",
     verification_after_completion_claim: "You've said the work is done — commit or update the plan instead of re-verifying.",
+    scope_exceeded_narrow: "Your changes are broader than the request suggests. The user asked for a targeted fix — consider a more surgical approach rather than removing or rewriting large sections.",
   };
   return nudges[signalName] ?? "Consider taking a more focused action.";
 }
@@ -611,6 +637,8 @@ function generateGuide(signals: FiredSignal[], _phase: SessionPhase): string {
     verification_churn_no_edit: "Verification without edits is not progressing. Read the failing file and make a targeted code change.",
     edit_failure_replay: "The same edit keeps failing. The file may already contain changes. Check with `git diff` before retrying.",
     verification_same_failure_signature_replay: "Same build failure repeating. Make a concrete code fix at the reported location before re-running.",
+    scope_exceeded_moderate: "WARNING: Your changes appear significantly broader than what the user requested. You have modified many files or removed substantial code for what appears to be a targeted request. STOP and reconsider: fix the specific issues rather than removing or rewriting entire modules.",
+    scope_exceeded_dangerous: "CRITICAL: Your changes far exceed the user's request scope. You appear to be deleting features or rewriting modules when the user asked for targeted fixes. STOP immediately. Revert to surgical fixes only.",
   };
   return guides[top] ?? `Multiple concerns detected (${signals.map((s) => s.name).join(", ")}). Focus on one concrete action.`;
 }
@@ -622,6 +650,7 @@ function generateIntervention(signals: FiredSignal[], _phase: SessionPhase): str
     consecutive_edit_failures: "Your edits are repeatedly failing. STOP. Use `git diff` to see current state. If changes exist, mark done. If not, re-read the file with Read (not cache) and construct exact old_string.",
     verification_fail_repeat_block: "Same test failure repeating without code changes. STOP testing. Make ONE edit to fix the root cause, then ONE narrow verification.",
     false_green_suspected: "Your tests passed but may not cover the files you changed. Run a targeted test on the changed files before claiming completion.",
+    scope_exceeded_dangerous: "STOP — your changes are dangerously disproportionate to the user's request. You are deleting or rewriting large sections of code when the user asked for targeted fixes. This looks like removing capabilities rather than fixing them. Revert your approach: make minimal, surgical changes that address only the specific issues mentioned.",
   };
   return interventions[top] ?? `Critical: ${names}. Take ONE concrete action now (edit, commit, or ask user). Do not continue the current pattern.`;
 }
@@ -643,12 +672,15 @@ export function evaluateSensemakingGovernor(
   changedFileCount: number,
   planRecoveryGraceActive: boolean,
   budgetZone?: "green" | "soft" | "heavy" | "emergency" | "reject" | null,
+  proportionalitySignal?: string | null,
 ): SensemakingDecision {
   const matchedRules = legacyDecision.matchedRules.filter((r) => r !== "allow");
 
   if (budgetZone === "soft") matchedRules.push("context_budget_soft");
   else if (budgetZone === "heavy") matchedRules.push("context_budget_heavy");
   else if (budgetZone === "emergency" || budgetZone === "reject") matchedRules.push("context_budget_emergency");
+
+  if (proportionalitySignal) matchedRules.push(proportionalitySignal);
 
   const friction = computeFriction({
     matchedRules,
