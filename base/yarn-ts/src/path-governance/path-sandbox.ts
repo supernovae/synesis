@@ -2,16 +2,32 @@
  * Path Sandbox — Filesystem Boundary Enforcement
  *
  * Restricts agent file operations to the project root and a curated set of
- * external paths required by IDE tooling (~/.claude, ~/.cursor, etc.).
+ * external paths required by IDE/agent tooling.
  *
  * Deny list takes priority over allow list. Allow list takes priority over
  * the implicit "everything else is blocked" default. The project root
  * always has full read+write access regardless of other rules.
  *
+ * Harness compatibility matrix (researched Apr 2026):
+ *
+ *   Claude Code   ~/.claude/**              /tmp/claude, /private/tmp/claude
+ *   Cursor        ~/.cursor/**              (no dedicated temp)
+ *   Gemini CLI    ~/.gemini/**              ~/.gemini/tmp/
+ *   Codex CLI     ~/.codex/**               $TMPDIR, /tmp
+ *   OpenCode      ~/.config/opencode/**     OPENCODE_STATE_DIR / OPENCODE_CACHE_DIR
+ *   Windsurf      ~/.codeium/**             (no dedicated temp)
+ *   Aider         ~/.aider/**               (no dedicated temp)
+ *   VS Code       ~/.vscode/**              (no dedicated temp)
+ *   code-server   ~/.local/share/code-server/**
+ *
+ * macOS note: $TMPDIR resolves to /private/var/folders/.../T/ which is
+ * separate from /tmp. Both are allowed for read+write.
+ *
  * Design:
  *   - Project root is the sandbox root and always wins
- *   - ~/.claude/** is read-allowed (plans, settings, history, CLAUDE.md)
- *   - ~/.claude/plans/**, ~/.claude/settings.json are write-allowed
+ *   - All harness config dirs above are read-allowed
+ *   - Harness-specific write paths are individually listed
+ *   - /tmp/**, /private/tmp/**, and $TMPDIR are read+write allowed
  *   - Other projects' CLAUDE.md / .cursorrules / AGENTS.md are blocked
  *   - System paths (/etc, /usr, /var, /proc, /sys) are always blocked
  *   - Traversal attacks (../../) resolved before matching
@@ -40,8 +56,6 @@ export interface PathSandboxResult {
   nudge?: string;
 }
 
-const HOME_PLACEHOLDER = "~";
-
 function expandHome(pattern: string, homeDir: string): string {
   if (pattern.startsWith("~/")) return path.join(homeDir, pattern.slice(2));
   if (pattern === "~") return homeDir;
@@ -66,12 +80,16 @@ function isUnderDirectory(filePath: string, dir: string): boolean {
   return filePath === dir || filePath.startsWith(norm);
 }
 
-// Patterns for agent config files that should only be read from the project root
+// Agent config files that should only be read from the project root or
+// their harness's own config dir — never from a sibling project.
 const AGENT_CONFIG_NAMES = new Set([
   "claude.md", "CLAUDE.md", "Claude.md",
   ".cursorrules", "cursorrules",
   "AGENTS.md", "agents.md",
   ".windsurfrules",
+  ".gemini",        // Gemini CLI config dir (at project root)
+  "GEMINI.md",
+  ".aider.conf.yml",
   "CONVENTIONS.md",
   "RULES.md",
 ]);
@@ -80,6 +98,17 @@ function isAgentConfigFile(filePath: string): boolean {
   const base = path.basename(filePath);
   return AGENT_CONFIG_NAMES.has(base);
 }
+
+/** Home-level harness config directories where agent configs are legitimate. */
+const HARNESS_CONFIG_DIRS = [
+  "~/.claude",
+  "~/.cursor",
+  "~/.gemini",
+  "~/.codex",
+  "~/.config/opencode",
+  "~/.codeium",
+  "~/.aider",
+];
 
 /**
  * Derive a safe `/tmp` subdirectory name from the project root.
@@ -90,26 +119,71 @@ export function projectTmpDir(projectRoot: string): string {
   return `/tmp/${base || "synesis-scratch"}`;
 }
 
+/**
+ * Resolve the macOS $TMPDIR (e.g. /private/var/folders/xx/yy/T/) so we
+ * can allowlist it alongside /tmp.  Returns null on non-Darwin or if
+ * $TMPDIR is already under /tmp.
+ */
+function resolveSessionTmpDir(): string | null {
+  const envTmp = process.env.TMPDIR;
+  if (!envTmp) return null;
+  const resolved = path.resolve(envTmp);
+  if (resolved.startsWith("/tmp")) return null;
+  return resolved;
+}
+
 export function buildDefaultPolicy(projectRoot: string): PathSandboxPolicy {
   const homeDir = os.homedir();
+
+  // Harness config directories — read-only access for all major agents/IDEs
+  const harnessReadGlobs = [
+    "~/.claude/**",           // Claude Code
+    "~/.cursor/**",           // Cursor IDE
+    "~/.gemini/**",           // Gemini CLI
+    "~/.codex/**",            // Codex CLI (OpenAI)
+    "~/.config/opencode/**",  // OpenCode
+    "~/.codeium/**",          // Windsurf / Codeium
+    "~/.aider/**",            // Aider
+    "~/.vscode/**",           // VS Code
+    "~/.local/share/code-server/**",  // code-server
+  ];
+
+  // Harness-specific write paths — only the subdirs that agents actually
+  // need to modify outside the project root
+  const harnessWriteGlobs = [
+    // Claude Code
+    "~/.claude/plans/**",
+    "~/.claude/settings.json",
+    "~/.claude/settings.local.json",
+    "~/.claude/history/**",
+    // Gemini CLI tool temp
+    "~/.gemini/tmp/**",
+  ];
+
+  // Temp directories — agents write build output, captured logs, etc.
+  // Claude Code hardcodes /tmp/claude and /private/tmp/claude.
+  // Codex CLI uses $TMPDIR (macOS: /private/var/folders/.../T/).
+  const tmpGlobs = [
+    "/tmp/**",
+    "/private/tmp/**",        // macOS symlink target for /tmp
+  ];
+  const sessionTmp = resolveSessionTmpDir();
+  if (sessionTmp) {
+    tmpGlobs.push(`${sessionTmp}/**`);
+  }
+
   return {
     projectRoot: path.resolve(projectRoot),
     homeDir,
     allowedReadGlobs: [
       `${projectRoot}/**`,
-      "~/.claude/**",
-      "~/.cursor/**",
-      "~/.config/opencode/**",
-      "~/.vscode/**",
-      "~/.local/share/code-server/**",
-      "/tmp/**",
+      ...harnessReadGlobs,
+      ...tmpGlobs,
     ],
     allowedWriteGlobs: [
       `${projectRoot}/**`,
-      "~/.claude/plans/**",
-      "~/.claude/settings.json",
-      "~/.claude/history/**",
-      "/tmp/**",
+      ...harnessWriteGlobs,
+      ...tmpGlobs,
     ],
     blockedGlobs: [
       "/etc/**",
@@ -118,6 +192,9 @@ export function buildDefaultPolicy(projectRoot: string): PathSandboxPolicy {
       "/proc/**",
       "/sys/**",
       "/dev/**",
+      // /private/var is blocked but /private/tmp is allowed (order matters:
+      // deny list is checked before allow list, so we carve /private/tmp out
+      // via the allow list and keep /private/var blocked).
       "/private/var/**",
       "/private/etc/**",
       "/System/**",
@@ -143,22 +220,36 @@ export function evaluatePathAccess(
     return { allowed: true, reason: "project_root", resolvedPath: normalized };
   }
 
-  // 2. Block system paths (deny list takes priority)
-  for (const glob of policy.blockedGlobs) {
+  // 2. Allow explicitly listed paths before deny list — handles $TMPDIR
+  //    on macOS which lives under /private/var/folders/… (a deny-listed
+  //    prefix).  This carve-out prevents false blocks for session temp dirs.
+  const allowGlobsAll = [...policy.allowedReadGlobs, ...policy.allowedWriteGlobs];
+  const isExplicitlyAllowed = allowGlobsAll.some((glob) => {
     const expandedGlob = expandHome(glob, homeDir);
-    if (matchesGlob(normalized, expandedGlob)) {
-      return {
-        allowed: false,
-        reason: `blocked_system_path: ${glob}`,
-        resolvedPath: normalized,
-      };
+    return matchesGlob(normalized, expandedGlob);
+  });
+
+  // 3. Block system paths (deny list) — but only if the path isn't
+  //    in an explicit allow list (allows $TMPDIR carve-out)
+  if (!isExplicitlyAllowed) {
+    for (const glob of policy.blockedGlobs) {
+      const expandedGlob = expandHome(glob, homeDir);
+      if (matchesGlob(normalized, expandedGlob)) {
+        return {
+          allowed: false,
+          reason: `blocked_system_path: ${glob}`,
+          resolvedPath: normalized,
+        };
+      }
     }
   }
 
-  // 3. Block agent config files from other projects
+  // 4. Block agent config files from other projects
   if (isAgentConfigFile(normalized) && !isUnderDirectory(normalized, projectRoot)) {
-    const inDotClaude = isUnderDirectory(normalized, path.join(homeDir, ".claude"));
-    if (!inDotClaude) {
+    const inHarnessConfigDir = HARNESS_CONFIG_DIRS.some((dir) =>
+      isUnderDirectory(normalized, expandHome(dir, homeDir)),
+    );
+    if (!inHarnessConfigDir) {
       return {
         allowed: false,
         reason: "cross_project_agent_config",
@@ -168,7 +259,7 @@ export function evaluatePathAccess(
     }
   }
 
-  // 4. Block reads from other users' home directories
+  // 5. Block reads from other users' home directories
   const usersPattern = /^\/(Users|home)\/([^/]+)/;
   const usersMatch = usersPattern.exec(normalized);
   if (usersMatch) {
@@ -182,14 +273,16 @@ export function evaluatePathAccess(
     }
   }
 
-  // 5. Check allow lists
+  // 6. Check allow lists
   const allowGlobs = operation === "write" ? policy.allowedWriteGlobs : policy.allowedReadGlobs;
   for (const glob of allowGlobs) {
     const expandedGlob = expandHome(glob, homeDir);
     if (matchesGlob(normalized, expandedGlob)) {
       const result: PathSandboxResult = { allowed: true, reason: `allowed_${operation}: ${glob}`, resolvedPath: normalized };
-      // Nudge /tmp usage toward a project-scoped subdirectory
-      if (normalized.startsWith("/tmp/")) {
+      // Nudge /tmp usage toward a project-scoped subdirectory.
+      // Applies to /tmp, /private/tmp, and $TMPDIR paths.
+      const isTmpPath = normalized.startsWith("/tmp/") || normalized.startsWith("/private/tmp/");
+      if (isTmpPath) {
         const scopedDir = projectTmpDir(projectRoot);
         if (!normalized.startsWith(scopedDir + "/") && normalized !== scopedDir) {
           result.nudge = `Prefer using ${scopedDir}/ for temp files to avoid collisions with other projects.`;
@@ -199,7 +292,7 @@ export function evaluatePathAccess(
     }
   }
 
-  // 6. Path traversal detection: anything that resolved outside project root
+  // 7. Path traversal detection: anything that resolved outside project root
   //    and isn't in an explicit allow list
   const rel = path.relative(projectRoot, normalized);
   if (rel.startsWith("..")) {

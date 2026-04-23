@@ -168,7 +168,7 @@ describe("path-sandbox", () => {
     });
   });
 
-  describe("IDE config reads", () => {
+  describe("harness config directory reads", () => {
     it("allows reading ~/.cursor/rules/my-rule.mdc", () => {
       const result = evaluatePathAccess("~/.cursor/rules/my-rule.mdc", "read", policy());
       expect(result.allowed).toBe(true);
@@ -179,9 +179,79 @@ describe("path-sandbox", () => {
       expect(result.allowed).toBe(true);
     });
 
+    it("allows reading ~/.gemini/settings.json", () => {
+      const result = evaluatePathAccess("~/.gemini/settings.json", "read", policy());
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows reading ~/.codex/config.toml", () => {
+      const result = evaluatePathAccess("~/.codex/config.toml", "read", policy());
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows reading ~/.codeium/windsurf/global_rules.md", () => {
+      const result = evaluatePathAccess("~/.codeium/windsurf/global_rules.md", "read", policy());
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows reading ~/.aider/history", () => {
+      const result = evaluatePathAccess("~/.aider/history", "read", policy());
+      expect(result.allowed).toBe(true);
+    });
+
     it("blocks writing to ~/.cursor (no write allowlist)", () => {
       const result = evaluatePathAccess("~/.cursor/settings.json", "write", policy());
       expect(result.allowed).toBe(false);
+    });
+
+    it("allows writing to ~/.gemini/tmp/ (Gemini tool temp)", () => {
+      const result = evaluatePathAccess("~/.gemini/tmp/tool-output.json", "write", policy());
+      expect(result.allowed).toBe(true);
+    });
+  });
+
+  describe("macOS $TMPDIR carve-out", () => {
+    it("allows $TMPDIR path even though it is under /private/var", () => {
+      // Simulate macOS TMPDIR: /private/var/folders/xx/yy/T/
+      const p = policy();
+      // Manually add the TMPDIR glob to simulate what resolveSessionTmpDir does
+      const macTmpDir = "/private/var/folders/ab/cd1234/T";
+      p.allowedReadGlobs.push(`${macTmpDir}/**`);
+      p.allowedWriteGlobs.push(`${macTmpDir}/**`);
+      const result = evaluatePathAccess(`${macTmpDir}/session-out.log`, "write", p);
+      expect(result.allowed).toBe(true);
+    });
+
+    it("still blocks /private/var paths that are not $TMPDIR", () => {
+      const result = evaluatePathAccess("/private/var/db/something.db", "read", policy());
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("blocked_system_path");
+    });
+  });
+
+  describe("/private/tmp (macOS /tmp symlink target)", () => {
+    it("allows reading /private/tmp/claude/output.txt", () => {
+      const result = evaluatePathAccess("/private/tmp/claude/output.txt", "read", policy());
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows writing /private/tmp/claude/scratch.txt", () => {
+      const result = evaluatePathAccess("/private/tmp/claude/scratch.txt", "write", policy());
+      expect(result.allowed).toBe(true);
+    });
+  });
+
+  describe("cross-project config allows harness config dirs", () => {
+    it("allows CLAUDE.md within ~/.claude", () => {
+      const result = evaluatePathAccess("~/.claude/CLAUDE.md", "read", policy());
+      expect(result.allowed).toBe(true);
+    });
+
+    it("blocks .aider.conf.yml from another project", () => {
+      const other = path.join(HOME, "src/other-project/.aider.conf.yml");
+      const result = evaluatePathAccess(other, "read", policy());
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe("cross_project_agent_config");
     });
   });
 });
