@@ -307,4 +307,54 @@ describe("objective scope", () => {
       expect(toolResultIds.has(id)).toBe(true);
     }
   });
+
+  it("strips orphaned tool results whose assistant tool_call is before the boundary", () => {
+    const chatState = makeChatState({
+      activeObjective: "Deploy the fix",
+      pendingUserDirective: "Deploy the fix",
+    });
+    // Simulate: tc_1_0 assistant+result pair at index 1-2 (before boundary, dropped).
+    // After boundary: assistant with tc_3_0 (retained), orphaned tool result for tc_1_0.
+    // The orphan should be stripped so AI SDK doesn't throw AI_MissingToolResultsError.
+    const messages: Array<ObjectiveScopeMessage & { tool_calls?: Array<{ id: string }> }> = [
+      { role: "user", content: "Old task" },                                          // 0
+      { role: "assistant", content: "", tool_calls: [{ id: "tc_1_0" }] },             // 1
+      { role: "tool", content: "result for tc_1_0", tool_call_id: "tc_1_0", name: "Bash" }, // 2
+      { role: "user", content: "Deploy the fix" },                                    // 3 - last user msg = boundary
+      { role: "assistant", content: "", tool_calls: [{ id: "tc_3_0" }] },             // 4
+      { role: "tool", content: "result for tc_3_0", tool_call_id: "tc_3_0", name: "read_file" }, // 5
+      { role: "tool", content: "orphaned result", tool_call_id: "tc_1_0", name: "Bash" }, // 6 - orphan
+    ];
+
+    const scoped = applyObjectiveScope({
+      messages: messages as ObjectiveScopeMessage[],
+      epoch: {
+        epochId: 2,
+        objectiveHash: "deploy",
+        objectiveText: "Deploy the fix",
+        anchorUserHash: "",
+        objectiveSetRequest: 2,
+        objectiveChanged: true,
+        similarityToPrevious: 0.3,
+      },
+      chatState,
+      fileState: makeFileState("src/deploy.ts"),
+    });
+
+    const retainedToolResultIds = new Set<string>();
+    const retainedToolCallIds = new Set<string>();
+    for (const m of scoped.scopedMessages as Array<ObjectiveScopeMessage & { tool_calls?: Array<{ id: string }> }>) {
+      if (m.tool_calls) for (const tc of m.tool_calls) retainedToolCallIds.add(tc.id);
+      if (m.tool_call_id) retainedToolResultIds.add(m.tool_call_id);
+    }
+    // Every retained tool result must have a matching tool call
+    for (const id of retainedToolResultIds) {
+      expect(retainedToolCallIds.has(id)).toBe(true);
+    }
+    // The orphaned tc_1_0 result should be stripped
+    expect(retainedToolResultIds.has("tc_1_0")).toBe(false);
+    // tc_3_0 pair should be intact
+    expect(retainedToolCallIds.has("tc_3_0")).toBe(true);
+    expect(retainedToolResultIds.has("tc_3_0")).toBe(true);
+  });
 });

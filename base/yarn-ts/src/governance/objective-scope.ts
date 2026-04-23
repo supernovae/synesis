@@ -365,6 +365,7 @@ function adjustBoundaryForToolPairIntegrity(
   let adjusted = Math.max(0, boundary);
   const retained = messages.slice(adjusted);
 
+  // --- Forward direction: pull boundary back for assistant tool_calls whose results are missing ---
   const neededToolCallIds = new Set<string>();
   for (const msg of retained) {
     if (msg.role !== "assistant") continue;
@@ -383,7 +384,6 @@ function adjustBoundaryForToolPairIntegrity(
       }
     }
   }
-  if (neededToolCallIds.size === 0) return adjusted;
 
   for (const msg of retained) {
     if (msg.role === "tool" && msg.tool_call_id) {
@@ -397,26 +397,86 @@ function adjustBoundaryForToolPairIntegrity(
       }
     }
   }
-  if (neededToolCallIds.size === 0) return adjusted;
 
-  for (let i = adjusted - 1; i >= 0 && neededToolCallIds.size > 0; i--) {
-    const msg = messages[i];
-    let pulls = false;
-    if (msg.role === "tool" && msg.tool_call_id && neededToolCallIds.has(msg.tool_call_id)) {
-      neededToolCallIds.delete(msg.tool_call_id);
-      pulls = true;
+  if (neededToolCallIds.size > 0) {
+    for (let i = adjusted - 1; i >= 0 && neededToolCallIds.size > 0; i--) {
+      const msg = messages[i];
+      let pulls = false;
+      if (msg.role === "tool" && msg.tool_call_id && neededToolCallIds.has(msg.tool_call_id)) {
+        neededToolCallIds.delete(msg.tool_call_id);
+        pulls = true;
+      }
+      if (msg.role === "user" && Array.isArray(msg.content)) {
+        for (const block of msg.content as Array<{ type?: string; tool_use_id?: string }>) {
+          if (block?.type === "tool_result" && block.tool_use_id && neededToolCallIds.has(block.tool_use_id)) {
+            neededToolCallIds.delete(block.tool_use_id);
+            pulls = true;
+          }
+        }
+      }
+      if (pulls) adjusted = i;
     }
+  }
+
+  return adjusted;
+}
+
+/**
+ * Remove orphaned tool results from the retained window.
+ *
+ * After boundary adjustment, tool results may reference assistant tool_calls
+ * that were dropped (before the boundary). The Vercel AI SDK throws
+ * AI_MissingToolResultsError if it finds a tool result without a matching
+ * tool_call. We strip these orphans rather than pulling the boundary all the
+ * way back (which would defeat scope pruning).
+ */
+function stripOrphanedToolResults<T extends ObjectiveScopeMessage>(messages: T[]): T[] {
+  const presentToolCallIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    const toolCalls = (msg as unknown as Record<string, unknown>).tool_calls as
+      | Array<{ id?: string }>
+      | undefined;
+    if (toolCalls) {
+      for (const tc of toolCalls) {
+        if (tc.id) presentToolCallIds.add(tc.id);
+      }
+    }
+    const content = msg.content;
+    if (Array.isArray(content)) {
+      for (const block of content as Array<{ type?: string; id?: string }>) {
+        if (block?.type === "tool_use" && block.id) presentToolCallIds.add(block.id);
+      }
+    }
+  }
+
+  if (presentToolCallIds.size === 0) return messages;
+
+  const result: T[] = [];
+  for (const msg of messages) {
+    // OpenAI format: role=tool with tool_call_id
+    if (msg.role === "tool" && msg.tool_call_id && !presentToolCallIds.has(msg.tool_call_id)) {
+      continue; // drop orphaned tool result
+    }
+    // Claude format: user message with tool_result blocks — filter blocks
     if (msg.role === "user" && Array.isArray(msg.content)) {
-      for (const block of msg.content as Array<{ type?: string; tool_use_id?: string }>) {
-        if (block?.type === "tool_result" && block.tool_use_id && neededToolCallIds.has(block.tool_use_id)) {
-          neededToolCallIds.delete(block.tool_use_id);
-          pulls = true;
+      const blocks = msg.content as Array<{ type?: string; tool_use_id?: string }>;
+      const hasToolResults = blocks.some((b) => b?.type === "tool_result");
+      if (hasToolResults) {
+        const filtered = blocks.filter((b) => {
+          if (b?.type !== "tool_result") return true;
+          return !b.tool_use_id || presentToolCallIds.has(b.tool_use_id);
+        });
+        if (filtered.length === 0) continue; // drop empty user message
+        if (filtered.length !== blocks.length) {
+          result.push({ ...msg, content: filtered } as T);
+          continue;
         }
       }
     }
-    if (pulls) adjusted = i;
+    result.push(msg);
   }
-  return adjusted;
+  return result;
 }
 
 export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
@@ -447,7 +507,7 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
 
   boundaryIndex = adjustBoundaryForToolPairIntegrity(allMessages, boundaryIndex);
 
-  const scopedMessages = allMessages.slice(Math.max(0, boundaryIndex));
+  const scopedMessages = stripOrphanedToolResults(allMessages.slice(Math.max(0, boundaryIndex)));
   const preStart = Math.max(0, boundaryIndex - preBoundaryWindow);
   const preBoundaryMessages = allMessages.slice(preStart, boundaryIndex);
 
