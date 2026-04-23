@@ -12,12 +12,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from ..auth import UserInfo, get_current_user
 from ..deps import ASSISTANT_MODEL, LITELLM_MASTER_KEY, LITELLM_URL
 from ..rbac import Role, can_access_trace, resolve_role
+from ..services import trace_store
 from ..services.admin_mcp_ts_client import (
     invoke_admin_mcp_tool,
     list_admin_mcp_tools,
     openai_function_tools_from_admin_mcp_catalog,
 )
-from ..services import trace_store
 from .admin_mcp import invoke_mcp_tool_for_chat, openai_function_tools_for_role
 
 logger = logging.getLogger("synesis.admin.assistant")
