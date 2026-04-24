@@ -501,6 +501,14 @@ const EnvSchema = z.object({
   SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS: z.coerce.number().default(15_000),
   SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS: z.coerce.number().default(45_000),
   SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS: z.coerce.number().default(180_000),
+  SYNESIS_YARN_UPSTREAM_RETRY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_UPSTREAM_RETRY_MAX_ATTEMPTS: z.coerce.number().default(2),
+  SYNESIS_YARN_UPSTREAM_RETRY_BASE_DELAY_MS: z.coerce.number().default(250),
+  SYNESIS_YARN_UPSTREAM_RETRY_MAX_DELAY_MS: z.coerce.number().default(2_000),
+  SYNESIS_YARN_UPSTREAM_RETRY_JITTER_MS: z.coerce.number().default(125),
 
   // Reliability hardening (Phase 11)
   SYNESIS_YARN_AUTH_POOL_MAX: z.coerce.number().default(5),

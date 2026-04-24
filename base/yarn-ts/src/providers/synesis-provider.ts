@@ -4,7 +4,10 @@ import type { TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
 import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
-import { composeEndpointTransportFetch } from "./endpoint-capabilities/compose-fetch.js";
+import {
+  composeEndpointTransportFetch,
+  type EndpointTransportRetryPolicy,
+} from "./endpoint-capabilities/compose-fetch.js";
 import { getEndpointTransportAdapter } from "./endpoint-capabilities/registry.js";
 import { resolveEndpointCapabilityId } from "./endpoint-capabilities/resolve.js";
 
@@ -23,6 +26,17 @@ export class SynesisProviderRegistry {
   private tierMap = new Map<string, TierConfig>();
   private prefixOptimizer: PrefixOptimizer | null = null;
   private currentSessionKey: string | null = null;
+  private readonly upstreamRetryPolicy: EndpointTransportRetryPolicy;
+
+  constructor(opts?: { upstreamRetryPolicy?: EndpointTransportRetryPolicy }) {
+    this.upstreamRetryPolicy = opts?.upstreamRetryPolicy ?? {
+      enabled: true,
+      maxAttempts: 2,
+      baseDelayMs: 250,
+      maxDelayMs: 2_000,
+      jitterMs: 125,
+    };
+  }
 
   updateTiers(tiers: TierConfig[]): void {
     this.tierMap.clear();
@@ -77,6 +91,7 @@ export class SynesisProviderRegistry {
       globalThis.fetch,
       transportAdapter,
       () => this.currentSessionKey,
+      { retryPolicy: this.upstreamRetryPolicy },
     );
 
     const upstream = createOpenAI({
@@ -118,6 +133,7 @@ export class SynesisProviderRegistry {
       globalThis.fetch,
       transportAdapter,
       () => this.currentSessionKey,
+      { retryPolicy: this.upstreamRetryPolicy },
     );
     const upstream = createOpenAI({
       baseURL: baseUrl,

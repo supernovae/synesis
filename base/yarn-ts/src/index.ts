@@ -2741,7 +2741,15 @@ const securityIngestConfig = {
   adminUrl: config.SYNESIS_YARN_ADMIN_API_URL,
   adminToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN ?? "",
 };
-const tierRegistry = new SynesisProviderRegistry();
+const tierRegistry = new SynesisProviderRegistry({
+  upstreamRetryPolicy: {
+    enabled: config.SYNESIS_YARN_UPSTREAM_RETRY_ENABLED,
+    maxAttempts: Math.max(1, config.SYNESIS_YARN_UPSTREAM_RETRY_MAX_ATTEMPTS),
+    baseDelayMs: Math.max(0, config.SYNESIS_YARN_UPSTREAM_RETRY_BASE_DELAY_MS),
+    maxDelayMs: Math.max(0, config.SYNESIS_YARN_UPSTREAM_RETRY_MAX_DELAY_MS),
+    jitterMs: Math.max(0, config.SYNESIS_YARN_UPSTREAM_RETRY_JITTER_MS),
+  },
+});
 
 // DashScope explicit cache and markerBackend removed (see synesis-provider.ts). Prefix optimizer
 // now always uses "none" for markers (relies on implicit_prefix for vLLM KV cache). This allows
