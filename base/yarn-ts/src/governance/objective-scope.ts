@@ -452,16 +452,21 @@ function adjustBoundaryForToolPairIntegrity(
  * The Vercel AI SDK throws AI_MissingToolResultsError for either direction.
  */
 function healToolCallResultPairs<T extends ObjectiveScopeMessage>(messages: T[]): T[] {
-  // Collect all assistant tool_call IDs and all tool_result IDs
   const toolCallIds = new Set<string>();
   const toolResultIds = new Set<string>();
 
+  const roleCounts: Record<string, number> = {};
+  let assistantWithToolCalls = 0;
+  let toolMessages = 0;
+
   for (const msg of messages) {
+    roleCounts[msg.role] = (roleCounts[msg.role] ?? 0) + 1;
     if (msg.role === "assistant") {
       const toolCalls = (msg as unknown as Record<string, unknown>).tool_calls as
         | Array<{ id?: string }>
         | undefined;
       if (toolCalls) {
+        assistantWithToolCalls++;
         for (const tc of toolCalls) {
           if (tc.id) toolCallIds.add(tc.id);
         }
@@ -473,6 +478,7 @@ function healToolCallResultPairs<T extends ObjectiveScopeMessage>(messages: T[])
       }
     }
     if (msg.role === "tool" && msg.tool_call_id) {
+      toolMessages++;
       toolResultIds.add(msg.tool_call_id);
     }
     if (msg.role === "user" && Array.isArray(msg.content)) {
@@ -484,16 +490,30 @@ function healToolCallResultPairs<T extends ObjectiveScopeMessage>(messages: T[])
     }
   }
 
-  // Direction 1: tool results without matching tool_call → strip
   const orphanedResults = new Set<string>();
   for (const id of toolResultIds) {
     if (!toolCallIds.has(id)) orphanedResults.add(id);
   }
 
-  // Direction 2: tool_calls without matching tool result → need placeholder
   const orphanedCalls = new Set<string>();
   for (const id of toolCallIds) {
     if (!toolResultIds.has(id)) orphanedCalls.add(id);
+  }
+
+  if (toolCallIds.size > 0 || toolResultIds.size > 0 || orphanedResults.size > 0 || orphanedCalls.size > 0 || messages.length > 20) {
+    console.log(JSON.stringify({
+      msg: "heal_tool_pairs_diagnostic",
+      inputMsgCount: messages.length,
+      roleCounts,
+      assistantWithToolCalls,
+      toolMessages,
+      toolCallIdCount: toolCallIds.size,
+      toolResultIdCount: toolResultIds.size,
+      orphanedCallCount: orphanedCalls.size,
+      orphanedResultCount: orphanedResults.size,
+      sampleOrphanedResults: [...orphanedResults].slice(0, 3),
+      sampleOrphanedCalls: [...orphanedCalls].slice(0, 3),
+    }));
   }
 
   if (orphanedResults.size === 0 && orphanedCalls.size === 0) return messages;
