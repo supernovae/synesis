@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRetrievalPolicyToolPromptFragment,
+  buildPythonRuntimeDiscoveryToolPromptFragment,
   buildStdoutEfficiencyToolPromptFragment,
   buildVerificationDisciplineToolPromptFragment,
   mergeToolSystemPrompts,
@@ -66,9 +67,32 @@ describe("retrieval-tool-policy", () => {
     ).toBeUndefined();
   });
 
+  it("returns python runtime discovery policy when shell tool is present", () => {
+    const fragment = buildPythonRuntimeDiscoveryToolPromptFragment([
+      { type: "function", function: { name: "bash", description: "x" } },
+    ]);
+    expect(fragment).toContain("Python runtime resolution");
+    expect(fragment).toContain(".venv/bin/python");
+    expect(fragment).toContain("uv run");
+  });
+
+  it("returns no python runtime discovery policy when no shell/verification tools exist", () => {
+    expect(
+      buildPythonRuntimeDiscoveryToolPromptFragment([
+        { type: "function", function: { name: "Read", description: "x" } },
+      ]),
+    ).toBeUndefined();
+  });
+
   it("mergeToolSystemPrompts combines adapter and retrieval fragments", () => {
-    const merged = mergeToolSystemPrompts("Adapter line.", "Retrieval line.", "Stdout line.", "Verification line.");
-    expect(merged).toBe("Adapter line.\n\nRetrieval line.\n\nStdout line.\n\nVerification line.");
+    const merged = mergeToolSystemPrompts(
+      "Adapter line.",
+      "Retrieval line.",
+      "Stdout line.",
+      "Verification line.",
+      "Python runtime line.",
+    );
+    expect(merged).toBe("Adapter line.\n\nRetrieval line.\n\nStdout line.\n\nVerification line.\n\nPython runtime line.");
   });
 
   it("mergeToolSystemPrompts returns undefined when both empty", () => {

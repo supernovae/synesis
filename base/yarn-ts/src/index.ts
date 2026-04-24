@@ -178,6 +178,7 @@ import {
 } from "./compat/tool-schema-pruning.js";
 import {
   buildRetrievalPolicyToolPromptFragment,
+  buildPythonRuntimeDiscoveryToolPromptFragment,
   buildStdoutEfficiencyToolPromptFragment,
   buildVerificationDisciplineToolPromptFragment,
   mergeToolSystemPrompts,
@@ -226,6 +227,7 @@ import {
   type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
 import { detectStdoutCaptureLoop } from "./governance/stdout-capture-loop.js";
+import { detectPythonRuntimeDiscoveryLoop } from "./governance/python-runtime-discovery-loop.js";
 import { detectVerificationRerunLoop } from "./governance/verification-rerun-loop.js";
 import { repairToolCallPairIntegrity } from "./validation/tool-pair-integrity.js";
 import {
@@ -8475,6 +8477,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
         oaiTraceReqId,
       );
     }
+    const pyRuntimeLoop = detectPythonRuntimeDiscoveryLoop(oaiRecentCallsForSteering);
+    if (pyRuntimeLoop) {
+      injectGovernorRecoveryMessage(
+        normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+        pyRuntimeLoop.guidance,
+      );
+      recordSessionEvent(
+        sessionKey, identity.userId, identity.orgId,
+        "python_runtime_discovery_loop_detected",
+        "governor",
+        `attempts=${pyRuntimeLoop.attempts} variants=${pyRuntimeLoop.runtimeVariants.join(",")}`,
+        oaiTraceReqId,
+      );
+    }
   }
   const qwenLoopRiskOpenAI = adapter.family === "qwen3-coder" && detectQwenLoopRisk(oaiRecentCallsForSteering);
   const prunedTools = pruneToolSchemas(
@@ -8655,6 +8671,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     buildRetrievalPolicyToolPromptFragment(effectiveTools as unknown[]),
     buildStdoutEfficiencyToolPromptFragment(effectiveTools as unknown[]),
     buildVerificationDisciplineToolPromptFragment(effectiveTools as unknown[]),
+    buildPythonRuntimeDiscoveryToolPromptFragment(effectiveTools as unknown[]),
   );
   let modelMessages = modelToolPrompt
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
@@ -11929,6 +11946,20 @@ app.post("/v1/messages", async (req, reply) => {
         traceReqId,
       );
     }
+    const pyRuntimeLoop = detectPythonRuntimeDiscoveryLoop(claudeRecentCallsForSteering);
+    if (pyRuntimeLoop) {
+      injectGovernorRecoveryMessage(
+        normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+        pyRuntimeLoop.guidance,
+      );
+      recordSessionEvent(
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "python_runtime_discovery_loop_detected",
+        "governor",
+        `attempts=${pyRuntimeLoop.attempts} variants=${pyRuntimeLoop.runtimeVariants.join(",")}`,
+        traceReqId,
+      );
+    }
   }
   const qwenLoopRiskClaude =
     claudeAdapter.family === "qwen3-coder" && detectQwenLoopRisk(claudeRecentCallsForSteering);
@@ -11964,6 +11995,7 @@ app.post("/v1/messages", async (req, reply) => {
     buildRetrievalPolicyToolPromptFragment(effectiveClaudeTools as unknown[]),
     buildStdoutEfficiencyToolPromptFragment(effectiveClaudeTools as unknown[]),
     buildVerificationDisciplineToolPromptFragment(effectiveClaudeTools as unknown[]),
+    buildPythonRuntimeDiscoveryToolPromptFragment(effectiveClaudeTools as unknown[]),
   );
   let claudeModelMessages = claudeModelToolPrompt
     ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)

@@ -74,6 +74,14 @@ const VERIFICATION_DISCIPLINE_LINES = [
   "When rerunning, prefer narrower scope (single file/package/test) over whole-project commands.",
 ];
 
+const PYTHON_RUNTIME_DISCOVERY_LINES = [
+  "## Python runtime resolution (prefer deterministic fallback order)",
+  "For Python commands, resolve runtime once in this order: `.venv/bin/python` -> `uv run` -> `python3` -> `python`.",
+  "Do NOT loop on `python ...` retries after a not-found error. Pick one resolved runtime and continue.",
+  "Preferred test form: `<resolved_python> -m pytest ...` (or `uv run pytest ...` when uv is available).",
+  "If no runtime is found, report it once with the exact probe results instead of re-running failing commands.",
+];
+
 /**
  * Returns a short policy block if the effective tool list includes Synesis retrieval tools.
  */
@@ -101,6 +109,16 @@ export function buildVerificationDisciplineToolPromptFragment(tools: unknown[] |
   const list = Array.isArray(tools) ? tools : [];
   if (!toolListIncludesVerificationExecution(list)) return undefined;
   return VERIFICATION_DISCIPLINE_LINES.join("\n");
+}
+
+/**
+ * Returns a short policy block for Python runtime discovery/fallback behavior.
+ * Helps avoid churn from python/python3/uv/venv probing loops.
+ */
+export function buildPythonRuntimeDiscoveryToolPromptFragment(tools: unknown[] | undefined): string | undefined {
+  const list = Array.isArray(tools) ? tools : [];
+  if (!toolListIncludesShellExecution(list) && !toolListIncludesVerificationExecution(list)) return undefined;
+  return PYTHON_RUNTIME_DISCOVERY_LINES.join("\n");
 }
 
 /**
