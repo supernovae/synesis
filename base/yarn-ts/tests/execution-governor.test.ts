@@ -1521,7 +1521,7 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("cleanup_todo_harvest");
   });
 
-  it("pauses on exploration stall without edits (exploration_stall_no_edit)", () => {
+  it("nudges on discovery churn without edits before runaway thresholds", () => {
     const messages = [
       { role: "user", content: "load the plan and begin work on next item" },
       assistantCall("1", "read_file", { path: "pkg/bundle/bundle.go" }),
@@ -1530,18 +1530,26 @@ describe("execution governor", () => {
       toolResult("2", "pkg/ui/ui.go:287: DryRunOutput\npkg/ui/ui.go:302: PrintDryRun"),
       assistantCall("3", "search", { pattern: "dry-run|DryRun" }),
       toolResult("3", "pkg/ui/ui.go:287: DryRunOutput\npkg/ui/ui.go:302: PrintDryRun"),
-      assistantCall("4", "read_file", { path: "pkg/bundle/bundle.go" }),
-      toolResult("4", "package bundle\nfunc Load() {}"),
+      assistantCall("4", "read_file", { path: "pkg/clipboard/clipboard.go" }),
+      toolResult("4", "package clipboard\nfunc Read() {}"),
       assistantCall("5", "search", { pattern: "clipboard|Clipboard" }),
       toolResult("5", "pkg/clipboard/clipboard.go:1: package clipboard"),
-      assistantCall("6", "read_file", { path: "pkg/bundle/bundle.go" }),
-      toolResult("6", "package bundle\nfunc Load() {}"),
-      assistantCall("7", "search", { pattern: "watch|Watch" }),
-      toolResult("7", "pkg/watch/watch.go:1: package watch"),
+      assistantCall("6", "search", { pattern: "clipboard|Clipboard" }),
+      toolResult("6", "pkg/clipboard/clipboard.go:1: package clipboard"),
+      assistantCall("7", "read_file", { path: "pkg/watch/watch.go" }),
+      toolResult("7", "package watch\nfunc Start() {}"),
+      assistantCall("8", "search", { pattern: "watch|Watch" }),
+      toolResult("8", "pkg/watch/watch.go:1: package watch"),
+      assistantCall("9", "search", { pattern: "watch|Watch" }),
+      toolResult("9", "pkg/watch/watch.go:1: package watch"),
+      assistantCall("10", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("10", "package bundle\nfunc Load() {}"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.pause).toBe(true);
-    expect(out.matchedRules).toContain("exploration_stall_no_edit");
+    expect(out.pause).toBe(false);
+    expect(out.reason).toBe("discovery_churn_nudge");
+    expect(out.matchedRules).toContain("discovery_churn_nudge");
+    expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
     expect(out.telemetry.trailingExplorationRunLength).toBeGreaterThanOrEqual(6);
   });
 
@@ -1563,7 +1571,7 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
   });
 
-  it("lowers exploration stall threshold when plan file was read", () => {
+  it("nudges for discovery churn even when plan file lowers exploration thresholds", () => {
     const messages = [
       { role: "user", content: "load the plan and begin work" },
       assistantCall("1", "read_file", { path: "/Users/me/.claude/plans/my-plan.md" }),
@@ -1582,9 +1590,48 @@ describe("execution governor", () => {
       toolResult("7", "package clipboard"),
     ];
     const out = evaluateExecutionGovernor(messages);
-    expect(out.pause).toBe(true);
-    expect(out.matchedRules).toContain("exploration_stall_no_edit");
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).toContain("discovery_churn_nudge");
+    expect(out.matchedRules).not.toContain("exploration_stall_no_edit");
     expect(out.telemetry.hasPlanInContext).toBe(true);
+  });
+
+  it("pauses exploration churn only when it looks runaway", () => {
+    const messages = [
+      { role: "user", content: "load the plan and begin work on next item" },
+      assistantCall("1", "search", { pattern: "bundle" }),
+      toolResult("1", "pkg/bundle/bundle.go"),
+      assistantCall("2", "search", { pattern: "bundle" }),
+      toolResult("2", "pkg/bundle/bundle.go"),
+      assistantCall("3", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("3", "package bundle\nfunc Load() {}"),
+      assistantCall("4", "read_file", { path: "pkg/bundle/bundle.go" }),
+      toolResult("4", "package bundle\nfunc Load() {}"),
+      assistantCall("5", "search", { pattern: "clipboard" }),
+      toolResult("5", "pkg/clipboard/clipboard.go"),
+      assistantCall("6", "search", { pattern: "clipboard" }),
+      toolResult("6", "pkg/clipboard/clipboard.go"),
+      assistantCall("7", "read_file", { path: "pkg/clipboard/clipboard.go" }),
+      toolResult("7", "package clipboard\nfunc Read() {}"),
+      assistantCall("8", "read_file", { path: "pkg/clipboard/clipboard.go" }),
+      toolResult("8", "package clipboard\nfunc Read() {}"),
+      assistantCall("9", "search", { pattern: "watch" }),
+      toolResult("9", "pkg/watch/watch.go"),
+      assistantCall("10", "search", { pattern: "watch" }),
+      toolResult("10", "pkg/watch/watch.go"),
+      assistantCall("11", "read_file", { path: "pkg/watch/watch.go" }),
+      toolResult("11", "package watch\nfunc Start() {}"),
+      assistantCall("12", "read_file", { path: "pkg/watch/watch.go" }),
+      toolResult("12", "package watch\nfunc Start() {}"),
+      assistantCall("13", "search", { pattern: "watch" }),
+      toolResult("13", "pkg/watch/watch.go"),
+      assistantCall("14", "read_file", { path: "pkg/watch/watch.go" }),
+      toolResult("14", "package watch\nfunc Start() {}"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("discovery_churn_nudge");
+    expect(out.matchedRules).toContain("exploration_stall_no_edit");
   });
 
   it("exploration_stall recovery block mentions plan trust", () => {

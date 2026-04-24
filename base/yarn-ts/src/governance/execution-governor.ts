@@ -366,6 +366,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "bounded_exploration_budget",
     "plan_reread_loop",
     "source_file_stale_reread",
+    "discovery_churn_nudge",
     "exploration_stall_no_edit",
     // Progress / intent loops — even in explore, the model shouldn't narrate
     // "I'll explore..." 18 times without producing a result.
@@ -394,6 +395,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "bounded_exploration_budget",
     "plan_reread_loop",
     "source_file_stale_reread",
+    "discovery_churn_nudge",
     // Verification stalls
     "verification_stall_no_edit",
     "verification_churn_no_edit",
@@ -449,6 +451,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "dependency_install_replay",
     "plan_reread_loop",
     "source_file_stale_reread",
+    "discovery_churn_nudge",
     "task_creation_replay",
   ]),
   report: new Set([
@@ -456,6 +459,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "verification_after_completion_claim",
     "verification_stall_no_edit",
     "verification_churn_no_edit",
+    "discovery_churn_nudge",
     "exploration_stall_no_edit",
     "no_progress_loop",
     "repeated_assistant_intro",
@@ -510,6 +514,7 @@ const RULE_PRIORITY_ORDER = [
   "plan_reread_loop",
   "no_progress_loop",
   "repeated_assistant_intro",
+  "discovery_churn_nudge",
   "exploration_stall_no_edit",
   "declaration_followthrough_required",
   "task_creation_replay",
@@ -2010,7 +2015,35 @@ export function evaluateExecutionGovernor(
   const effectiveExplorationThreshold = hasPlanInContext
     ? Math.max(2, thresholds.explorationStallThreshold - 2)
     : thresholds.explorationStallThreshold;
-  if (!isInvestigationOnly && trailingExplorationRunLength >= effectiveExplorationThreshold && effectiveNoEditEvidence && trailingExplorationHasRepeats) {
+  const trailingDiscoveryDuplicateTargets = Math.max(
+    0,
+    trailingExplorationRunLength - trailingExplorationCommands.size,
+  );
+  const discoveryChurnNudgeThreshold = effectiveExplorationThreshold;
+  const discoveryChurnRunawayThreshold = Math.max(
+    discoveryChurnNudgeThreshold + 4,
+    thresholds.explorationStallThreshold + 4,
+  );
+  const repeatedDiscoverySignals = repeatedReadSearchCalls + repeatedBroadDiscoveryCalls;
+  const discoveryChurnLikely =
+    !isInvestigationOnly
+    && effectiveNoEditEvidence
+    && trailingExplorationHasRepeats
+    && trailingExplorationRunLength >= discoveryChurnNudgeThreshold
+    && trailingDiscoveryDuplicateTargets >= 2;
+  const discoveryChurnRunaway =
+    discoveryChurnLikely
+    && (
+      trailingExplorationRunLength >= discoveryChurnRunawayThreshold
+      || repeatedReadSearchCalls >= thresholds.repeatedReadSearchPauseThreshold + 3
+      || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold + 1
+      || totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold + 2
+      || repeatedDiscoverySignals >= thresholds.repeatedReadSearchPauseThreshold + thresholds.repeatedBroadDiscoveryPauseThreshold + 2
+    );
+  if (discoveryChurnLikely) {
+    pushRule("discovery_churn_nudge");
+  }
+  if (discoveryChurnRunaway) {
     pushRule("exploration_stall_no_edit");
   }
   if (sessionPhase === "finalize" && !hasFinalizeAction && (trailingVerificationRunLength >= 1 || trailingExplorationRunLength >= 1 || verbalIntentStreak >= 1)) {
@@ -2036,7 +2069,18 @@ export function evaluateExecutionGovernor(
   const baseNoProgressThreshold = hasPlanInContext ? 5 : 8;
   const productiveBonus = Math.min(trailingProductiveCount, 4);
   const noProgressThreshold = baseNoProgressThreshold + productiveBonus;
-  if (!isInvestigationOnly && trailingNoProgressLength >= noProgressThreshold && effectiveNoEditEvidence && trailingNoProgressHasRepeats) {
+  const noProgressDiscoveryOnly =
+    trailingVerificationRunLength === 0
+    && trailingProductiveCount === 0
+    && discoveryChurnLikely
+    && !discoveryChurnRunaway;
+  if (
+    !isInvestigationOnly
+    && trailingNoProgressLength >= noProgressThreshold
+    && effectiveNoEditEvidence
+    && trailingNoProgressHasRepeats
+    && !noProgressDiscoveryOnly
+  ) {
     pushRule("no_progress_loop");
   }
   const planRereadThreshold = planRecoveryDiscoveryGraceActive ? 4 : 2;
@@ -2079,6 +2123,7 @@ export function evaluateExecutionGovernor(
   // Skip the bypass when green verification loops are active (those need their own path).
   const ADVISORY_MOMENTUM_RULES = new Set([
     "exploration_stall_no_edit",
+    "discovery_churn_nudge",
     "broad_to_narrow_verification",
     "verbal_intent_without_action",
     "broad_discovery_repeat",
@@ -2763,6 +2808,30 @@ export function evaluateExecutionGovernor(
       pause: false,
       reason: "cleanup_todo_harvest advisory only",
       suggestedNextStep,
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
+        hasPlanEdit,
+      },
+    };
+  }
+
+  const discoveryNudgeOnly = matchedRules.length > 0 && matchedRules.every((r) => r === "discovery_churn_nudge");
+  if (discoveryNudgeOnly) {
+    return {
+      pause: false,
+      reason: "discovery_churn_nudge",
+      suggestedNextStep:
+        `Discovery churn detected (${trailingExplorationRunLength} exploration calls, ${trailingDiscoveryDuplicateTargets} duplicate targets, no edits). Stop broad scanning and pick one likely file to edit now. If uncertain, provide a brief summary of findings and ask the user for the next focus area.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,

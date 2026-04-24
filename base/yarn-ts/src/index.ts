@@ -7896,6 +7896,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
       telemetry: oaiExecutionGovernor.telemetry,
     },
   );
+  if (oaiExecutionGovernor.matchedRules.includes("discovery_churn_nudge")) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "discovery_churn_guard_nudge",
+      "execution-governor",
+      `Nudge-only discovery churn detected (explore_trail=${oaiExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0}, repeated_reads=${oaiExecutionGovernor.telemetry.repeatedReadSearchCalls})`,
+      oaiTraceReqId,
+      {
+        phase: oaiExecutionGovernor.telemetry.phase,
+        matched_rules: oaiExecutionGovernor.matchedRules,
+        trailing_exploration_run_length: oaiExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0,
+        repeated_read_search_calls: oaiExecutionGovernor.telemetry.repeatedReadSearchCalls,
+        repeated_broad_discovery_calls: oaiExecutionGovernor.telemetry.repeatedBroadDiscoveryCalls,
+        total_broad_discovery_calls: oaiExecutionGovernor.telemetry.totalBroadDiscoveryCalls,
+        suggested_next_step: oaiExecutionGovernor.suggestedNextStep?.slice(0, 200),
+      },
+    );
+  }
 
   // Sensemaking governor — primary decision-maker
   let oaiSensemakingDecision: SensemakingDecision | null = null;
@@ -11318,6 +11338,26 @@ app.post("/v1/messages", async (req, reply) => {
       telemetry: claudeExecutionGovernor.telemetry,
     },
   );
+  if (claudeExecutionGovernor.matchedRules.includes("discovery_churn_nudge")) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "discovery_churn_guard_nudge",
+      "execution-governor",
+      `Nudge-only discovery churn detected (explore_trail=${claudeExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0}, repeated_reads=${claudeExecutionGovernor.telemetry.repeatedReadSearchCalls})`,
+      traceReqId,
+      {
+        phase: claudeExecutionGovernor.telemetry.phase,
+        matched_rules: claudeExecutionGovernor.matchedRules,
+        trailing_exploration_run_length: claudeExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0,
+        repeated_read_search_calls: claudeExecutionGovernor.telemetry.repeatedReadSearchCalls,
+        repeated_broad_discovery_calls: claudeExecutionGovernor.telemetry.repeatedBroadDiscoveryCalls,
+        total_broad_discovery_calls: claudeExecutionGovernor.telemetry.totalBroadDiscoveryCalls,
+        suggested_next_step: claudeExecutionGovernor.suggestedNextStep?.slice(0, 200),
+      },
+    );
+  }
 
   // Sensemaking governor — primary decision-maker
   let claudeSensemakingDecision: SensemakingDecision | null = null;
