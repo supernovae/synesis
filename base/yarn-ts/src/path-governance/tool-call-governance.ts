@@ -88,8 +88,31 @@ export function buildStructuredErrorBashCommand(payload: Record<string, unknown>
   return `printf '%s\\n' ${shellEscape(json)} >&2; exit 2`;
 }
 
+const CAMEL_TO_SNAKE: Record<string, string> = {
+  filePath: "file_path",
+  oldString: "old_string",
+  newString: "new_string",
+  replaceAll: "replace_all",
+  globPattern: "glob_pattern",
+  fileText: "file_text",
+};
+
+function normalizeCamelCaseArgs(input: Record<string, unknown>): Record<string, unknown> {
+  let changed = false;
+  const out = { ...input };
+  for (const [camel, snake] of Object.entries(CAMEL_TO_SNAKE)) {
+    if (camel in out && !(snake in out)) {
+      out[snake] = out[camel];
+      delete out[camel];
+      changed = true;
+    }
+  }
+  return changed ? out : input;
+}
+
 export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
   const logicalName = canonicalValidationToolName(opts.toolName);
+  opts.input = normalizeCamelCaseArgs(opts.input);
   const requestedFilePath = typeof opts.input.file_path === "string" ? opts.input.file_path.trim() : "";
   const out: GovernedToolCall = {
     toolName: opts.toolName,
