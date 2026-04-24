@@ -32,6 +32,17 @@ describe("deriveChatState", () => {
     expect(state.narrationResidueSummary).toContain("Repeated assistant intent narration");
   });
 
+  it("captures repeated acknowledgment residue and suppresses sycophant replay", () => {
+    const messages = [
+      { role: "user", content: "don't re-run tests; fix first" },
+      { role: "assistant", content: "I understand. I will fix it." },
+      { role: "assistant", content: "Understood, fixing now." },
+      { role: "assistant", content: "I understand, applying fixes." },
+    ];
+    const state = deriveChatState(messages);
+    expect(state.narrationResidueSummary).toContain("Repeated assistant acknowledgments");
+  });
+
   it("keeps synthetic read affordances out of transcript summary", () => {
     const messages = [
       { role: "user", content: "Read src/a.ts and summarize." },

@@ -1294,7 +1294,25 @@ describe("execution governor", () => {
     expect(out.pause).toBe(true);
     expect(out.matchedRules).toContain("repeated_assistant_intro");
     expect(out.reason).toBe("repeated_assistant_intro");
-    expect(out.suggestedNextStep).toMatch(/git diff|string not found|stale/i);
+    expect(out.suggestedNextStep).toMatch(/focused code\/test fix|directive silently/i);
+  });
+
+  it("fires repeated_assistant_intro for repeated acknowledgment openings", () => {
+    const messages = [
+      { role: "user", content: "don't re-run tests; fix code or fix the test first" },
+      { role: "assistant", content: "I understand. I will fix the code first." },
+      assistantCall("1", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("1", "FAIL cmd/synesis"),
+      { role: "assistant", content: "Understood, I already applied fixes and will adjust the test now." },
+      assistantCall("2", "bash", { command: "go test ./cmd/synesis -run TestRunCompletion -v" }),
+      toolResult("2", "FAIL cmd/synesis"),
+      { role: "assistant", content: "I understand, running tests again after I fix the assertion." },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("repeated_assistant_intro");
+    expect(out.reason).toBe("repeated_assistant_intro");
+    expect(out.suggestedNextStep).toMatch(/Do NOT restate "understood"|apply the user's directive silently/i);
   });
 
   it("fires verbal_intent_without_action on repeated 'I'll' declarations without any tool calls", () => {

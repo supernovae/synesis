@@ -207,6 +207,7 @@ export function formatChatStateBlock(chatState: ChatState): string | null {
   lines.push(`active_objective=${safeValue(chatState.activeObjective ?? "none")}`);
   lines.push(`phase=${chatState.phase}`);
   lines.push(`pending_user_directive=${safeValue(chatState.pendingUserDirective ?? "none")}`);
+  lines.push("directive_execution_mode=apply_directive_silently_without_repeated_acknowledgment");
   lines.push(`last_verification_outcome=${chatState.lastVerificationOutcome}`);
   lines.push(`completion_status=${chatState.completionStatus}`);
   lines.push(`blockers=${safeValue(chatState.blockers.join(" | ") || "none")}`);
@@ -461,15 +462,29 @@ function summarizeTranscript(messages: MessageLike[], maxEntries: number): strin
 }
 
 function summarizeNarrationResidue(messages: MessageLike[]): string | null {
+  const ACK_OPENING_RE =
+    /^(i understand|understood|got it|acknowledged|sounds good|will do|ok(?:ay)?\b|thanks,?\s+understood)\b/i;
   const openings = new Map<string, number>();
+  let ackReplayCount = 0;
+  let lastAckOpening: string | null = null;
   for (const message of messages) {
     if (message.role !== "assistant") continue;
     const raw = contentToText(message.content).trim();
     if (!raw) continue;
     const firstParagraph = (raw.split(/\n\n+/)[0] ?? raw).toLowerCase().replace(/\s+/g, " ").trim();
+    if (ACK_OPENING_RE.test(firstParagraph)) {
+      if (lastAckOpening !== null) ackReplayCount += 1;
+      lastAckOpening = firstParagraph.slice(0, 80);
+    } else {
+      lastAckOpening = null;
+    }
     if (firstParagraph.length < 40) continue;
     const normalized = firstParagraph.slice(0, 220);
     openings.set(normalized, (openings.get(normalized) ?? 0) + 1);
+  }
+
+  if (ackReplayCount >= 2) {
+    return `Repeated assistant acknowledgments (${ackReplayCount + 1}x): avoid re-stating compliance and execute the directive directly.`;
   }
 
   let maxEntry: { text: string; count: number } | null = null;

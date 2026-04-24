@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRetrievalPolicyToolPromptFragment,
   buildStdoutEfficiencyToolPromptFragment,
+  buildVerificationDisciplineToolPromptFragment,
   mergeToolSystemPrompts,
 } from "../src/retrieval-tool-policy.js";
 
@@ -41,9 +42,33 @@ describe("retrieval-tool-policy", () => {
     ).toBeUndefined();
   });
 
+  it("returns verification discipline policy when verification tool is present", () => {
+    const fragment = buildVerificationDisciplineToolPromptFragment([
+      { type: "function", function: { name: "run_test", description: "x" } },
+    ]);
+    expect(fragment).toContain("Verification discipline");
+    expect(fragment).toContain("Do NOT re-run the same test/build/lint command");
+    expect(fragment).toContain("one focused edit");
+  });
+
+  it("returns verification discipline policy when shell execution tool is present", () => {
+    const fragment = buildVerificationDisciplineToolPromptFragment([
+      { type: "function", function: { name: "bash", description: "x" } },
+    ]);
+    expect(fragment).toContain("Verification discipline");
+  });
+
+  it("returns no verification discipline policy when neither test nor shell tools are present", () => {
+    expect(
+      buildVerificationDisciplineToolPromptFragment([
+        { type: "function", function: { name: "Read", description: "x" } },
+      ]),
+    ).toBeUndefined();
+  });
+
   it("mergeToolSystemPrompts combines adapter and retrieval fragments", () => {
-    const merged = mergeToolSystemPrompts("Adapter line.", "Retrieval line.", "Stdout line.");
-    expect(merged).toBe("Adapter line.\n\nRetrieval line.\n\nStdout line.");
+    const merged = mergeToolSystemPrompts("Adapter line.", "Retrieval line.", "Stdout line.", "Verification line.");
+    expect(merged).toBe("Adapter line.\n\nRetrieval line.\n\nStdout line.\n\nVerification line.");
   });
 
   it("mergeToolSystemPrompts returns undefined when both empty", () => {

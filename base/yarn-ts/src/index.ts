@@ -179,6 +179,7 @@ import {
 import {
   buildRetrievalPolicyToolPromptFragment,
   buildStdoutEfficiencyToolPromptFragment,
+  buildVerificationDisciplineToolPromptFragment,
   mergeToolSystemPrompts,
 } from "./retrieval-tool-policy.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
@@ -225,6 +226,7 @@ import {
   type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
 import { detectStdoutCaptureLoop } from "./governance/stdout-capture-loop.js";
+import { detectVerificationRerunLoop } from "./governance/verification-rerun-loop.js";
 import { repairToolCallPairIntegrity } from "./validation/tool-pair-integrity.js";
 import {
   buildRequiredRepairPrompt,
@@ -8459,6 +8461,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
         );
       }
     }
+    const rerunLoop = detectVerificationRerunLoop(oaiRecentCallsForSteering);
+    if (rerunLoop) {
+      injectGovernorRecoveryMessage(
+        normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+        rerunLoop.guidance,
+      );
+      recordSessionEvent(
+        sessionKey, identity.userId, identity.orgId,
+        "verification_rerun_loop_detected",
+        "governor",
+        `fingerprint=${rerunLoop.fingerprint.slice(0, 120)} repeats=${rerunLoop.repeatCount}`,
+        oaiTraceReqId,
+      );
+    }
   }
   const qwenLoopRiskOpenAI = adapter.family === "qwen3-coder" && detectQwenLoopRisk(oaiRecentCallsForSteering);
   const prunedTools = pruneToolSchemas(
@@ -8638,6 +8654,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     adapter.toolSystemPrompt?.(effectiveTools.length),
     buildRetrievalPolicyToolPromptFragment(effectiveTools as unknown[]),
     buildStdoutEfficiencyToolPromptFragment(effectiveTools as unknown[]),
+    buildVerificationDisciplineToolPromptFragment(effectiveTools as unknown[]),
   );
   let modelMessages = modelToolPrompt
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
@@ -11898,6 +11915,20 @@ app.post("/v1/messages", async (req, reply) => {
         );
       }
     }
+    const rerunLoop = detectVerificationRerunLoop(claudeRecentCallsForSteering);
+    if (rerunLoop) {
+      injectGovernorRecoveryMessage(
+        normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+        rerunLoop.guidance,
+      );
+      recordSessionEvent(
+        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+        "verification_rerun_loop_detected",
+        "governor",
+        `fingerprint=${rerunLoop.fingerprint.slice(0, 120)} repeats=${rerunLoop.repeatCount}`,
+        traceReqId,
+      );
+    }
   }
   const qwenLoopRiskClaude =
     claudeAdapter.family === "qwen3-coder" && detectQwenLoopRisk(claudeRecentCallsForSteering);
@@ -11932,6 +11963,7 @@ app.post("/v1/messages", async (req, reply) => {
     claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length),
     buildRetrievalPolicyToolPromptFragment(effectiveClaudeTools as unknown[]),
     buildStdoutEfficiencyToolPromptFragment(effectiveClaudeTools as unknown[]),
+    buildVerificationDisciplineToolPromptFragment(effectiveClaudeTools as unknown[]),
   );
   let claudeModelMessages = claudeModelToolPrompt
     ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)

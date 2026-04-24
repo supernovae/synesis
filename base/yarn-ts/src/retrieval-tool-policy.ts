@@ -14,6 +14,11 @@ const SHELL_EXECUTION_TOOLS = new Set([
   "run_shell",
   "shell",
 ]);
+const VERIFICATION_TOOLS = new Set([
+  "run_test",
+  "run_build",
+  "run_lint",
+]);
 
 function toolListIncludesSynesisRetrieval(tools: unknown[]): boolean {
   for (const t of tools) {
@@ -35,6 +40,16 @@ function toolListIncludesShellExecution(tools: unknown[]): boolean {
   return false;
 }
 
+function toolListIncludesVerificationExecution(tools: unknown[]): boolean {
+  for (const t of tools) {
+    const n = extractToolSchemaName(t);
+    if (!n) continue;
+    const norm = n.trim().toLowerCase();
+    if (VERIFICATION_TOOLS.has(norm) || SHELL_EXECUTION_TOOLS.has(norm)) return true;
+  }
+  return false;
+}
+
 const POLICY_LINES = [
   "## Synesis retrieval (optional — only when you need external facts)",
   "Do not run knowledge or web search on every turn; use them when you lack specifics.",
@@ -49,6 +64,14 @@ const STDOUT_EFFICIENCY_LINES = [
   "Preferred pattern: `<command> > /tmp/_synesis_cmd_out.txt 2>&1; echo \"EXIT:$?\"; tail -120 /tmp/_synesis_cmd_out.txt`",
   "Do NOT re-run the same command just to swap `| cat`, `| tee`, `| head`, or `| tail` variants.",
   "If details are still missing, inspect the same output file with targeted reads (`tail`, `rg -n`, `sed -n`) instead of re-executing the command.",
+];
+
+const VERIFICATION_DISCIPLINE_LINES = [
+  "## Verification discipline (avoid no-change reruns)",
+  "Do NOT re-run the same test/build/lint command unless code changed or the verification scope was narrowed.",
+  "If verification fails: read failure lines, make one focused edit, then run one targeted re-check.",
+  "If verification is already green: stop rerunning broad checks and continue implementation or finalize.",
+  "When rerunning, prefer narrower scope (single file/package/test) over whole-project commands.",
 ];
 
 /**
@@ -68,6 +91,16 @@ export function buildStdoutEfficiencyToolPromptFragment(tools: unknown[] | undef
   const list = Array.isArray(tools) ? tools : [];
   if (!toolListIncludesShellExecution(list)) return undefined;
   return STDOUT_EFFICIENCY_LINES.join("\n");
+}
+
+/**
+ * Returns a short policy block when verification-capable tools are present.
+ * This reduces test/build rerun loops without edits.
+ */
+export function buildVerificationDisciplineToolPromptFragment(tools: unknown[] | undefined): string | undefined {
+  const list = Array.isArray(tools) ? tools : [];
+  if (!toolListIncludesVerificationExecution(list)) return undefined;
+  return VERIFICATION_DISCIPLINE_LINES.join("\n");
 }
 
 /**

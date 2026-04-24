@@ -1127,6 +1127,34 @@ export function countRepeatedAssistantIntroEdges(messages: GovernorInputMessage[
   return edges;
 }
 
+/**
+ * Count repeated assistant acknowledgment openings ("I understand", "Understood", etc.).
+ * This captures sycophantic replay where wording changes slightly, so exact intro matching
+ * does not trigger. Returns edge-count (streak length - 1).
+ */
+function countDirectiveAcknowledgementEdges(messages: GovernorInputMessage[]): number {
+  const ACK_OPENING_RE =
+    /^(i understand|understood|got it|acknowledged|sounds good|will do|ok(?:ay)?\b|thanks,?\s+understood)\b/i;
+  let streak = 0;
+  let maxEdges = 0;
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    const text = contentToText(m.content).trim();
+    if (!text) continue;
+    const firstParaRaw = text.split(/\n\n+/)[0] ?? text;
+    const opening = firstParaRaw.toLowerCase().replace(/\s+/g, " ").trim();
+    if (ACK_OPENING_RE.test(opening)) {
+      streak += 1;
+      if (streak >= 2) {
+        maxEdges = Math.max(maxEdges, streak - 1);
+      }
+    } else {
+      streak = 0;
+    }
+  }
+  return maxEdges;
+}
+
 function hasTaskDoneStatusUpdate(events: CommandEvent[]): boolean {
   for (const e of events) {
     const tool = normalizeString(e.toolName).toLowerCase();
@@ -1928,7 +1956,11 @@ export function evaluateExecutionGovernor(
   const recentEventsForIntent = events.slice(-INTENT_RECENCY_EVENTS);
   const verbalIntentStreak = countVerbalIntentStreak(recentMessagesForIntent, recentEventsForIntent);
   const verificationIntentStreak = countVerificationIntentWithoutAction(recentMessagesForIntent, recentEventsForIntent);
-  let repeatedAssistantIntroEdges = countRepeatedAssistantIntroEdges(recentMessagesForIntent);
+  const directiveAckReplayEdges = countDirectiveAcknowledgementEdges(recentMessagesForIntent);
+  let repeatedAssistantIntroEdges = Math.max(
+    countRepeatedAssistantIntroEdges(recentMessagesForIntent),
+    directiveAckReplayEdges,
+  );
   if (opts.chatState?.narrationResidueSummary) {
     // State-derived residue indicates repeated intent narration happened even if
     // the current transcript window has been compacted.
@@ -2060,7 +2092,11 @@ export function evaluateExecutionGovernor(
   const hasEditFailureInTurn = events.some(
     (e) => isEditCommand(e.command) && hasEditFailureSignature(e.resultSignature),
   );
-  if (!isInvestigationOnly && repeatedAssistantIntroEdges >= 2 && (noEditEvidence || hasEditFailureInTurn)) {
+  if (
+    !isInvestigationOnly
+    && repeatedAssistantIntroEdges >= 2
+    && (noEditEvidence || hasEditFailureInTurn || directiveAckReplayEdges >= 2)
+  ) {
     pushRule("repeated_assistant_intro");
   }
   // Combined no-progress: fires when verification + exploration interleaving hides the stall.
@@ -2452,7 +2488,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "repeated_assistant_intro",
       suggestedNextStep:
-        `You repeated the same opening (${repeatedAssistantIntroEdges + 1} assistant messages share an identical first paragraph) without a successful code edit landing. Do NOT paste that plan again. Either: (1) run \`git diff <path>\` and if your change is already there, stop editing and update the task/plan; (2) for StrReplace/Edit, copy old_string from the CURRENT file (Read full file or use cat) — "string not found" usually means the file already changed or your snippet is stale; (3) make ONE different edit than your last attempt, or reply to the user with a single sentence on what is blocked.`,
+        `You are repeating acknowledgment/opening narration (${repeatedAssistantIntroEdges + 1} repeated assistant openings) without landing new forward progress. Do NOT restate "understood"/"I understand" again. Apply the user's directive silently: either (1) make exactly one focused code/test fix now, then run one targeted verification, (2) if the fix already exists, show concrete evidence (diff or failing line) and move on, or (3) state one blocker in a single sentence.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
