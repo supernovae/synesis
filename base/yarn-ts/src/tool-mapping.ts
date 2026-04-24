@@ -354,7 +354,10 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
             });
           }
         }
-        if (parts.length === 0) parts.push({ type: "text", text: "" });
+        if (parts.length === 0) {
+          // Skip truly empty assistant messages — strict providers reject them.
+          break;
+        }
         out.push({ role: "assistant", content: parts } as ModelMessage);
         break;
       }
