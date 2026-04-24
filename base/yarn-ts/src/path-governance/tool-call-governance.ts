@@ -88,6 +88,12 @@ export function buildStructuredErrorBashCommand(payload: Record<string, unknown>
   return `printf '%s\\n' ${shellEscape(json)} >&2; exit 2`;
 }
 
+/** User-safe stderr message + exit 2 for client-visible tool failures. */
+export function buildUserSafeErrorBashCommand(message: string): string {
+  const compact = message.replace(/\s+/g, " ").trim();
+  return `printf '%s\\n' ${shellEscape(compact)} >&2; exit 2`;
+}
+
 const CAMEL_TO_SNAKE: Record<string, string> = {
   filePath: "file_path",
   oldString: "old_string",
@@ -432,19 +438,9 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
         };
       } else {
         out.toolName = "Bash";
+        const userSafe = `Tool call blocked: invalid arguments for ${logicalName} (missing: ${validation.missing.join(", ")}). Retry with the required schema fields.`;
         out.input = {
-          command: buildStructuredErrorBashCommand({
-            synesis_error: true,
-            schema_version: 1,
-            category: "validation",
-            original_tool: logicalName,
-            missing: validation.missing,
-            message: human,
-            hint: validationHint(logicalName, validation.missing),
-            expected_schema: expectedToolSchema(logicalName),
-            example: validationExample(logicalName),
-            retryable: true,
-          }),
+          command: buildUserSafeErrorBashCommand(userSafe),
           description: "Blocked invalid tool arguments",
         };
       }

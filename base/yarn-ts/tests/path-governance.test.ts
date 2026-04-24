@@ -589,7 +589,7 @@ describe("governToolCall", () => {
     expect(out.planWriteAudit?.reason).toContain("unchanged since last read");
   });
 
-  it("emits structured JSON for Write validation failure", () => {
+  it("emits user-safe validation failure text for non-claude clients", () => {
     const out = governToolCall({
       toolName: "Write",
       input: { file_path: "main.go" },
@@ -601,9 +601,9 @@ describe("governToolCall", () => {
     expect(out.validationMissing).toContain("content");
     const cmd = String(out.input.command);
     expect(cmd).toContain("printf");
-    expect(cmd).toContain('"category":"validation"');
-    expect(cmd).toContain('"original_tool":"Write"');
-    expect(cmd).toContain("missing");
+    expect(cmd).toContain("Tool call blocked: invalid arguments for Write");
+    expect(cmd).toContain("missing: content");
+    expect(cmd).not.toContain("\"synesis_error\":true");
   });
 
   it("rewrites validation failure to synthetic error tool for claude-code", () => {

@@ -2195,6 +2195,79 @@ function toolDefinitionName(tool: unknown): string {
     || (nested && typeof nested.name === "string" ? nested.name : "")).trim();
 }
 
+function listOfferedToolNames(tools: unknown[] | undefined): string[] {
+  if (!Array.isArray(tools) || tools.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const tool of tools) {
+    const name = toolDefinitionName(tool);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+function buildOfferedToolNameSet(tools: unknown[] | undefined): Set<string> {
+  const offered = new Set<string>();
+  if (!Array.isArray(tools) || tools.length === 0) return offered;
+  for (const tool of tools) {
+    const name = toolDefinitionName(tool);
+    if (!name) continue;
+    offered.add(name.toLowerCase());
+    offered.add(canonicalValidationToolName(name).toLowerCase());
+  }
+  return offered;
+}
+
+function findOfferedToolNameByCanonical(tools: unknown[] | undefined, canonicalToolName: string): string | null {
+  if (!Array.isArray(tools) || tools.length === 0) return null;
+  const wanted = canonicalToolName.trim().toLowerCase();
+  if (!wanted) return null;
+  for (const tool of tools) {
+    const name = toolDefinitionName(tool);
+    if (!name) continue;
+    if (canonicalValidationToolName(name).toLowerCase() === wanted) {
+      return name;
+    }
+  }
+  return null;
+}
+
+function rewriteUnavailableToolCall(
+  call: GuardrailToolCall,
+  offeredToolSet: Set<string>,
+  offeredToolNames: string[],
+  fallbackBashToolName: string | null,
+): { call: GuardrailToolCall; rewritten: boolean; requestedTool?: string } {
+  const requestedTool = String(call.toolName ?? "").trim();
+  if (!requestedTool) return { call, rewritten: false };
+  const requestedLower = requestedTool.toLowerCase();
+  const requestedCanonical = canonicalValidationToolName(requestedTool).toLowerCase();
+  if (offeredToolSet.has(requestedLower) || offeredToolSet.has(requestedCanonical)) {
+    return { call, rewritten: false };
+  }
+  if (!fallbackBashToolName) {
+    return { call, rewritten: false };
+  }
+  const preview = offeredToolNames.slice(0, 12).join(", ");
+  const message = preview
+    ? `Tool call blocked: requested unavailable tool "${requestedTool}". Available tools: ${preview}.`
+    : `Tool call blocked: requested unavailable tool "${requestedTool}". Use only tools provided for this session.`;
+  return {
+    call: {
+      toolCallId: call.toolCallId,
+      toolName: fallbackBashToolName,
+      input: {
+        command: buildUserSafeErrorBashCommand(message),
+        description: "Blocked unavailable tool call",
+      },
+    },
+    rewritten: true,
+    requestedTool,
+  };
+}
+
 function findReadToolDefinition(tools: unknown[] | undefined): unknown | undefined {
   if (!Array.isArray(tools)) return undefined;
   for (const tool of tools) {
@@ -3976,9 +4049,13 @@ import {
   repairBashToolCall,
   repairWriteToolCall,
 } from "./providers/model-adapter.js";
-import { governToolCall } from "./path-governance/tool-call-governance.js";
+import {
+  buildUserSafeErrorBashCommand,
+  governToolCall,
+} from "./path-governance/tool-call-governance.js";
 import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
 import { buildDefaultPolicy, type PathSandboxPolicy } from "./path-governance/path-sandbox.js";
+import { canonicalValidationToolName } from "./tool-aliases.js";
 import { classifyIntentScope } from "./governance/intent-scope-classifier.js";
 import {
   createDiffStats,
@@ -9365,6 +9442,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     otelSpan.end();
 
     const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+    const oaiOfferedToolSet = buildOfferedToolNameSet(effectiveTools as unknown[]);
+    const oaiOfferedToolNames = listOfferedToolNames(effectiveTools as unknown[]);
+    const oaiFallbackBashToolName = findOfferedToolNameByCanonical(effectiveTools as unknown[], "Bash");
     let finalAssistantText = finalResult.text;
     let externalToolCalls = toolCalls
       .filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME)
@@ -9436,11 +9516,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
         if (openClawStrictGovernance && isWriteCapableToolName(tc.toolName) && governed.toolName === "Bash") {
           openClawProfileStats.strictGovernanceRewrites += 1;
         }
-        return {
+        const candidateCall: GuardrailToolCall = {
           toolCallId: tc.toolCallId,
           toolName: governed.toolName,
           input: governed.input,
         };
+        const unavailableRewrite = rewriteUnavailableToolCall(
+          candidateCall,
+          oaiOfferedToolSet,
+          oaiOfferedToolNames,
+          oaiFallbackBashToolName,
+        );
+        if (unavailableRewrite.rewritten) {
+          app.log.warn(
+            {
+              reqId,
+              requested_tool: unavailableRewrite.requestedTool,
+              fallback_tool: unavailableRewrite.call.toolName,
+            },
+            "tool_call_unavailable_rewritten",
+          );
+        }
+        return unavailableRewrite.call;
       });
     let oaiBlockedBroadDiscovery = 0;
     let oaiRedirectedBroadDiscovery = 0;
@@ -9939,6 +10036,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       choices: [{ index: 0, delta: { reasoning_content: text }, finish_reason: null }],
     })}\n\n`);
   };
+  const oaiStreamOfferedToolSet = buildOfferedToolNameSet(effectiveTools as unknown[]);
+  const oaiStreamOfferedToolNames = listOfferedToolNames(effectiveTools as unknown[]);
+  const oaiStreamFallbackBashToolName = findOfferedToolNameByCanonical(effectiveTools as unknown[], "Bash");
 
   try {
     for await (const part of streamed.fullStream) {
@@ -10064,6 +10164,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
             toolName: governed.toolName,
             input: governed.input,
           };
+          const unavailableRewrite = rewriteUnavailableToolCall(
+            candidateCall,
+            oaiStreamOfferedToolSet,
+            oaiStreamOfferedToolNames,
+            oaiStreamFallbackBashToolName,
+          );
+          if (unavailableRewrite.rewritten) {
+            app.log.warn(
+              {
+                reqId,
+                requested_tool: unavailableRewrite.requestedTool,
+                fallback_tool: unavailableRewrite.call.toolName,
+              },
+              "tool_call_unavailable_rewritten",
+            );
+          }
+          candidateCall = unavailableRewrite.call;
+          argsStr = JSON.stringify(candidateCall.input);
           const oaiStreamTopDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
           const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall], oaiStreamTopDirs);
           if (streamGuarded.redirectedCount > 0) {
