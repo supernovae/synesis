@@ -6938,6 +6938,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     hasTools: !!(request.tools as unknown[])?.length,
     stream: request.stream,
     client: adapterProfile.client,
+    temperature: request.temperature,
+    top_p: request.top_p,
   });
   const oaiClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown");
   const identity: SessionIdentity = {
@@ -7560,6 +7562,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
     latestUserPromptText: latestUserText ? extractTextFromUnknownContent(latestUserText.content) : "",
   });
   const oaiScopedMessages = oaiObjectiveScope.scopedMessages;
+  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+    const preScopeChars = (normalizedOpenAI.messages as Array<{ content?: unknown }>).reduce(
+      (s, m) => s + (typeof m.content === "string" ? m.content.length : m.content != null ? JSON.stringify(m.content).length : 0), 0,
+    );
+    const postScopeChars = (oaiScopedMessages as Array<{ content?: unknown }>).reduce(
+      (s, m) => s + (typeof m.content === "string" ? m.content.length : m.content != null ? JSON.stringify(m.content).length : 0), 0,
+    );
+    app.log.info(
+      {
+        reqId: oaiTraceReqId,
+        preScopeMsgCount: (normalizedOpenAI.messages as unknown[]).length,
+        postScopeMsgCount: oaiScopedMessages.length,
+        preScopeChars,
+        postScopeChars,
+        boundaryIndex: oaiObjectiveScope.boundaryIndex,
+        droppedPreBoundary: oaiObjectiveScope.droppedPreBoundaryCount,
+        retainedEvidence: oaiObjectiveScope.retainedEvidenceCount,
+      },
+      "objective_scope_diagnostic",
+    );
+  }
   const oaiStateConfidence = assessStateConfidence({
     chatState: oaiChatState,
     fileState: oaiFileState,
@@ -9508,6 +9531,34 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   if (adapter.family === "minimax") {
     modelMessages = demoteInlineSystemMessages(modelMessages) as typeof modelMessages;
+  }
+  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+    const msgShapes = (modelMessages as Array<{ role: string; content: unknown }>).map((m, i) => {
+      const role = m.role;
+      const contentLen = typeof m.content === "string"
+        ? m.content.length
+        : m.content != null ? JSON.stringify(m.content).length : 0;
+      const parts = Array.isArray(m.content) ? (m.content as Array<{ type?: string; toolCallId?: string; toolName?: string }>).map(
+        (p) => ({ type: p.type, ...(p.toolCallId ? { toolCallId: p.toolCallId } : {}), ...(p.toolName ? { toolName: p.toolName } : {}) }),
+      ) : undefined;
+      return { i, role, contentLen, ...(parts ? { parts } : {}) };
+    });
+    const toolCallIds = new Set<string>();
+    const toolResultIds = new Set<string>();
+    for (const m of modelMessages as Array<{ role: string; content: unknown }>) {
+      if (Array.isArray(m.content)) {
+        for (const p of m.content as Array<{ type?: string; toolCallId?: string }>) {
+          if (p.type === "tool-call" && p.toolCallId) toolCallIds.add(p.toolCallId);
+          if (p.type === "tool-result" && p.toolCallId) toolResultIds.add(p.toolCallId);
+        }
+      }
+    }
+    const orphanedCalls = [...toolCallIds].filter((id) => !toolResultIds.has(id));
+    const orphanedResults = [...toolResultIds].filter((id) => !toolCallIds.has(id));
+    app.log.info(
+      { reqId, messageCount: msgShapes.length, msgShapes: msgShapes.slice(-20), orphanedCalls, orphanedResults, totalChars: msgShapes.reduce((s, m) => s + m.contentLen, 0), effectiveSampling: oaiSamplingOptions, adapterFamily: adapter.family },
+      "pre_stream_message_diagnostic",
+    );
   }
   const streamed = streamText({
     model: resolved.model as never,
