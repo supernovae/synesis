@@ -7,7 +7,6 @@ import {
   useDeactivateRole,
   useProviderGovernance,
   buildCatalogFromGovernance,
-  usePipelineServices,
   useDiscoverModels,
   useProviderDefaults,
   useActiveCosts,
@@ -27,7 +26,6 @@ import {
   XCircle,
   Cloud,
   Server,
-  Zap,
   Pencil,
   Link2,
   AlertTriangle,
@@ -37,13 +35,6 @@ import {
   DollarSign,
   Plus,
 } from "lucide-react";
-
-const SOURCE_ICON: Record<string, typeof Cloud> = {
-  openrouter: Cloud, xai: Zap, groq: Cloud, together: Cloud, deepinfra: Cloud,
-  dashscope: Cloud, "dashscope-us": Cloud,
-  fireworks: Cloud, openai: Cloud, anthropic: Cloud, mistral: Cloud,
-  azure: Cloud, vllm: Server, kserve: Server, custom: Cloud,
-};
 
 /** Whether the Assign/Change model dialog should show the OpenAI-compatible base URL field. */
 function showEndpointUrlField(providerKey: string, p?: ProviderInfo): boolean {
@@ -74,6 +65,40 @@ function routeViaLabel(role: string | null | undefined, effortFallback: string):
   const found = ROUTE_VIA_OPTIONS.find((o) => o.value === r);
   if (found) return found.short;
   return `Coder ${effortFallback}`;
+}
+
+/** Display order for the canonical mapping table (remaining roles sort alphabetically after). */
+const CANONICAL_ROLE_ORDER = [
+  "coder-pulse",
+  "coder-core",
+  "coder-horizon",
+  "general-pulse",
+  "general-core",
+  "general-horizon",
+  "router",
+  "general",
+  "critic",
+  "coder-compaction",
+  "summarizer",
+] as const;
+
+const ROLE_ROW_TITLE: Partial<Record<string, string>> = {
+  "coder-pulse": "Yarn / IDE — fast tier",
+  "coder-core": "Yarn / IDE — default tier",
+  "coder-horizon": "Yarn / IDE — deep tier",
+  "general-pulse": "Chat — fast effort tier",
+  "general-core": "Chat — default effort tier",
+  "general-horizon": "Chat — deep effort tier",
+};
+
+function sortRolesForCanonicalTable(a: ModelDeployment, b: ModelDeployment): number {
+  const idx = (role: string) => {
+    const i = (CANONICAL_ROLE_ORDER as readonly string[]).indexOf(role);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const d = idx(a.role) - idx(b.role);
+  if (d !== 0) return d;
+  return a.role.localeCompare(b.role);
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -404,7 +429,6 @@ export default function ModelRegistry() {
       ),
     [govData?.provider_secret_keys],
   );
-  const { data: pipelineServices } = usePipelineServices();
   const { data: publicOfferingsData, isLoading: publicOfferingsLoading } = usePublicOfferings();
   const createOfferingMut = useCreatePublicOffering();
   const patchOfferingMut = usePatchPublicOffering();
@@ -426,13 +450,19 @@ export default function ModelRegistry() {
   const assigned = roles.filter((r) => r.assigned);
   const unassigned = roles.filter((r) => !r.assigned);
 
-  // Detect shared physical models (same provider + model + endpoint).
-  const sharedMap = new Map<string, string[]>();
-  for (const r of assigned) {
-    const key = `${r.provider}|${r.model}|${r.endpoint}`;
-    if (!sharedMap.has(key)) sharedMap.set(key, []);
-    sharedMap.get(key)!.push(r.role);
-  }
+  const sortedRoles = useMemo(() => [...roles].sort(sortRolesForCanonicalTable), [roles]);
+
+  // Same provider + model + endpoint → multiple roles can share one upstream deployment.
+  const sharedMap = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const r of roles) {
+      if (!r.assigned) continue;
+      const key = `${r.provider}|${r.model}|${r.endpoint}`;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(r.role);
+    }
+    return m;
+  }, [roles]);
 
   const closeEditModal = () => {
     assignMut.reset();
@@ -502,9 +532,10 @@ export default function ModelRegistry() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Model Registry</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Assign upstream models to each pipeline role. Saving a role updates LiteLLM. Extra client-visible model
-          names (for A/B tests) are added below — they do not replace pulse/core/horizon; they reuse one of those
-          deployments for URL and keys.
+          The <strong>canonical mapping</strong> table is one row per internal role (e.g.{" "}
+          <span className="font-mono text-xs">general-core</span>, <span className="font-mono text-xs">coder-pulse</span>
+          ). Multiple roles can point at the same provider/model — you do not need a separate physical deployment per
+          role. Extra client-visible model names below add aliases (e.g. for Open WebUI) without renaming those roles.
         </p>
       </div>
 
@@ -523,74 +554,124 @@ export default function ModelRegistry() {
             <MetricCard label="Unassigned" value={unassigned.length} icon={XCircle} />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {roles.map((r) => {
-              const Icon = r.assigned ? (SOURCE_ICON[r.provider] ?? Cloud) : XCircle;
-              const shareKey = r.assigned ? `${r.provider}|${r.model}|${r.endpoint}` : "";
-              const sharedRoles = shareKey ? sharedMap.get(shareKey) ?? [] : [];
-              const isShared = sharedRoles.length > 1;
-
-              return (
-                <div
-                  key={r.role}
-                  className={`rounded-lg border p-4 transition ${
-                    r.assigned
-                      ? "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
-                      : "border-dashed border-gray-300 bg-gray-50 dark:border-gray-600 dark:bg-gray-800/50"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon className={`h-4 w-4 ${r.assigned ? "text-green-500" : "text-gray-400"}`} />
-                      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 capitalize">
-                        {r.role}
-                      </h3>
-                      {isShared && (
-                        <span className="flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" title={`Shared with ${sharedRoles.filter((x) => x !== r.role).join(", ")}`}>
-                          <Link2 className="h-2.5 w-2.5" />
-                          shared
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() =>
-                        setEditing(
-                          r.assigned
-                            ? mergeEditEndpointFromProvider(editFromDeployment(r), providers)
-                            : emptyEdit(r.role),
-                        )
-                      }
-                      className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"
-                      title={r.assigned ? "Change model" : "Assign model"}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-
-                  {r.assigned ? (
-                    <div className="mt-3 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <ProviderBadge provider={r.provider} providers={providers} />
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[r.status] || STATUS_COLORS.unknown}`}>
-                          {r.status}
-                        </span>
-                      </div>
-                      <p className="truncate text-xs text-gray-600 dark:text-gray-400" title={r.model}>
-                        {r.model || "—"}
-                      </p>
-                      {r.endpoint && (
-                        <p className="truncate text-[11px] text-gray-400" title={r.endpoint}>
-                          {r.endpoint}
-                        </p>
-                      )}
-                      <RateCardBadge cost={costByRole.get(r.role)} />
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-xs text-gray-400">No model assigned</p>
-                  )}
-                </div>
-              );
-            })}
+          <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+            <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Canonical mapping</h2>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Each role is how Yarn, Planner, and LiteLLM identify a slot. Assign the same upstream model to several
+                roles when it should serve more than one slot.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-400">
+                    <th className="px-3 py-2">Role</th>
+                    <th className="px-3 py-2">Provider</th>
+                    <th className="px-3 py-2">Model</th>
+                    <th className="hidden px-3 py-2 md:table-cell">Endpoint</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="hidden px-3 py-2 lg:table-cell">Also mapped</th>
+                    <th className="px-3 py-2 text-right"> </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRoles.map((r) => {
+                    const shareKey = r.assigned ? `${r.provider}|${r.model}|${r.endpoint}` : "";
+                    const sharedRoles = shareKey ? sharedMap.get(shareKey) ?? [] : [];
+                    const coRoles = sharedRoles.filter((x) => x !== r.role);
+                    const hint = ROLE_ROW_TITLE[r.role];
+                    return (
+                      <tr
+                        key={r.role}
+                        className={`border-b border-gray-100 dark:border-gray-800 ${
+                          r.assigned ? "" : "bg-gray-50/80 dark:bg-gray-800/30"
+                        }`}
+                      >
+                        <td className="max-w-[140px] px-3 py-2 align-top">
+                          <span
+                            className="font-mono text-[11px] font-semibold text-gray-900 dark:text-white"
+                            title={hint ?? r.role}
+                          >
+                            {r.role}
+                          </span>
+                          {hint && (
+                            <span className="mt-0.5 block text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                              {hint}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          {r.assigned ? (
+                            <ProviderBadge provider={r.provider} providers={providers} />
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="max-w-[180px] px-3 py-2 align-top">
+                          {r.assigned ? (
+                            <span className="break-all font-mono text-[11px] text-gray-800 dark:text-gray-200" title={r.model}>
+                              {r.model || "—"}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">Unassigned</span>
+                          )}
+                        </td>
+                        <td className="hidden max-w-[200px] px-3 py-2 align-top md:table-cell">
+                          {r.endpoint ? (
+                            <span className="block truncate text-[11px] text-gray-500 dark:text-gray-400" title={r.endpoint}>
+                              {r.endpoint}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          {r.assigned ? (
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[r.status] || STATUS_COLORS.unknown}`}
+                            >
+                              {r.status}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="hidden px-3 py-2 align-top lg:table-cell">
+                          {coRoles.length > 0 ? (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] text-blue-700 dark:text-blue-400"
+                              title={`Same deployment as: ${coRoles.join(", ")}`}
+                            >
+                              <Link2 className="h-3 w-3 shrink-0" />
+                              <span className="font-mono">{coRoles.join(", ")}</span>
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right align-top">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditing(
+                                r.assigned
+                                  ? mergeEditEndpointFromProvider(editFromDeployment(r), providers)
+                                  : emptyEdit(r.role),
+                              )
+                            }
+                            className="inline-flex rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"
+                            title={r.assigned ? "Change model" : "Assign model"}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}
@@ -727,40 +808,6 @@ export default function ModelRegistry() {
         )}
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Pipeline Services</h2>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Live reachability for model endpoints and ingestion microservices used by indexing.
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {(pipelineServices?.services ?? []).map((svc) => (
-            <div key={svc.name} className="rounded border border-gray-200 p-2 dark:border-gray-700">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{svc.name}</span>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] ${
-                    !svc.configured
-                      ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                      : svc.reachable
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                  }`}
-                >
-                  {!svc.configured ? "not set" : svc.reachable ? "ok" : "down"}
-                </span>
-              </div>
-              <div className="mt-1 truncate text-[11px] text-gray-500 dark:text-gray-400" title={svc.url}>
-                {svc.url || "—"}
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                {svc.status_code ? `status ${svc.status_code}` : "no status"}
-                {svc.latency_ms != null ? ` · ${svc.latency_ms}ms` : ""}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Edit / Assign modal */}
       {editing && (
         <EditModal
@@ -789,57 +836,6 @@ const PRICING_SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
   fallback_base: { bg: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", label: "fallback" },
   unknown: { bg: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400", label: "unknown" },
 };
-
-function fmtRate(v: number): string {
-  if (v >= 1) return `$${v.toFixed(2)}`;
-  if (v >= 0.01) return `$${v.toFixed(3)}`;
-  return `$${v.toFixed(4)}`;
-}
-
-function RateCardBadge({ cost }: { cost?: ActiveCostEntry }) {
-  if (!cost) return null;
-  const src = cost.pricing_source ?? "unknown";
-  const style = PRICING_SOURCE_STYLES[src] ?? PRICING_SOURCE_STYLES.unknown;
-  const isFallback = src === "fallback_base";
-  return (
-    <div className={`mt-2 rounded border px-2 py-1.5 ${isFallback ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20" : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50"}`}>
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1">
-          <DollarSign className="h-3 w-3 text-gray-400" />
-          <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">Rate Card</span>
-        </div>
-        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${style.bg}`}>
-          {style.label}
-        </span>
-      </div>
-      <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
-        <div>
-          <span className="text-gray-400">in</span>{" "}
-          <span className={`font-mono font-medium ${isFallback ? "text-amber-700 dark:text-amber-400" : "text-gray-700 dark:text-gray-300"}`}>
-            {fmtRate(cost.input_per_million)}
-          </span>
-        </div>
-        <div>
-          <span className="text-gray-400">out</span>{" "}
-          <span className={`font-mono font-medium ${isFallback ? "text-amber-700 dark:text-amber-400" : "text-gray-700 dark:text-gray-300"}`}>
-            {fmtRate(cost.output_per_million)}
-          </span>
-        </div>
-        <div>
-          <span className="text-gray-400">cache</span>{" "}
-          <span className="font-mono font-medium text-gray-700 dark:text-gray-300">
-            {cost.input_cached_per_million != null ? fmtRate(cost.input_cached_per_million) : "—"}
-          </span>
-        </div>
-      </div>
-      {isFallback && (
-        <p className="mt-1 text-[9px] text-amber-600 dark:text-amber-400">
-          Using fallback rates — click edit to set real pricing
-        </p>
-      )}
-    </div>
-  );
-}
 
 function ProviderBadge({ provider, providers }: { provider: string; providers: Record<string, ProviderInfo> }) {
   const info = providers[provider];
