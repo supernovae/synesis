@@ -4447,6 +4447,8 @@ function persistSessionAndUsage(
       tierOutputPerM: tier?.outputPerM ?? null,
     }, "fallback_pricing_in_effect: set rates in admin Model Registry for accurate costs");
   }
+  state.record.lastProvider = resolvedModelId;
+  state.record.lastModel = traceModel;
   state.record.totalTokensIn += usage.inputTokens;
   state.record.totalTokensOut += usage.outputTokens;
   state.record.totalTokensCached += usage.cachedTokens;
@@ -5222,9 +5224,27 @@ function resolveOpenAiIdentityUserId(
   requestUser: unknown,
   authUser: { userId: string; authMethod: "pat" | "bearer" },
 ): string {
+  // Always use the authenticated identity for session keying so turns
+  // from the same token converge to a single session even when
+  // request.user varies per-turn (common with opencode and other clients).
   if (authUser.authMethod === "pat") return authUser.userId;
-  if (typeof requestUser === "string" && requestUser.trim()) return requestUser.trim();
   return authUser.userId;
+}
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function resolveOpenAiDisplayName(
+  requestUser: unknown,
+  authUser: { displayName?: string },
+): string | undefined {
+  if (authUser.displayName) return authUser.displayName;
+  if (typeof requestUser === "string") {
+    const trimmed = requestUser.trim();
+    if (trimmed && EMAIL_RE.test(trimmed) && trimmed.length <= 200) {
+      return trimmed.toLowerCase();
+    }
+  }
+  return undefined;
 }
 
 function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
@@ -7163,6 +7183,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     req.headers as Record<string, unknown>,
   );
   const oaiIdentityUserId = resolveOpenAiIdentityUserId((request as Record<string, unknown>).user, authUser);
+  const oaiDisplayName = resolveOpenAiDisplayName((request as Record<string, unknown>).user, authUser);
 
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
     const rawMsgs = request.messages as Array<Record<string, unknown>>;
@@ -7231,7 +7252,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       orgId: authUser.orgId,
       conversationId: oaiConversationId,
       clientKind: oaiClientKind,
-      displayName: authUser.displayName,
+      displayName: oaiDisplayName,
     };
     const existingKey = `${id.userId}:${id.conversationId}:${id.clientKind}`;
     for (const [k, v] of sessions) {
@@ -7385,7 +7406,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orgId: authUser.orgId,
     conversationId: oaiConversationId,
     clientKind: oaiClientKind,
-    displayName: authUser.displayName,
+    displayName: oaiDisplayName,
   };
   const sessionKey = await getSessionKey(identity);
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {

@@ -27,6 +27,8 @@ export interface SessionRecord {
   requestCount: number;
   escalationCount: number;
   lastTier?: string;
+  lastProvider?: string;
+  lastModel?: string;
   consecutiveFailedVerifications: number;
   metadata: Record<string, unknown>;
   continuity?: SessionContinuity;

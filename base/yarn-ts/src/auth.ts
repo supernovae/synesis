@@ -98,7 +98,11 @@ export class AuthResolver {
         };
       }
       if (fromSub) {
-        return { userId: fromSub.slice(0, 200) };
+        const looksLikeEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fromSub);
+        return {
+          userId: fromSub.slice(0, 200),
+          displayName: looksLikeEmail ? fromSub.toLowerCase() : undefined,
+        };
       }
     }
 
