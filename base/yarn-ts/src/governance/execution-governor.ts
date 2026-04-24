@@ -1489,6 +1489,13 @@ export interface ExecutionGovernorOptions {
    * from investigation-only user wording, so governor workflow telemetry matches "coding" expectations.
    */
   orchestratorWorkflowPhase?: WorkflowPhase;
+  /**
+   * Number of open tasks in the normalized task ledger.
+   * When > 0 and a completion claim is active, strengthens the
+   * `completion_claim_requires_task_update` signal even without
+   * explicit taskcreate/todowrite events in the transcript.
+   */
+  taskLedgerOpenCount?: number;
 }
 
 export function evaluateExecutionGovernor(
@@ -1501,6 +1508,7 @@ export function evaluateExecutionGovernor(
   const profile = opts.profile ?? "balanced_completion";
   const activePlanStage = opts.activePlanStage ?? null;
   const editContextMissActive = opts.editContextMissActive === true;
+  const taskLedgerOpenCount = opts.taskLedgerOpenCount;
   const thresholds = thresholdsForProfile(profile);
   const stateObjectiveCue = normalizeString(
     opts.chatState?.pendingUserDirective
@@ -1912,6 +1920,9 @@ export function evaluateExecutionGovernor(
   const taskMentionedButNoUpdate = hasPlanInContext && hasTaskMentionInTurnText(turnMessages) && hasCompletionClaim && !hasTaskDoneUpdateInScope;
   const planNotFinalized = activePlanStage !== null && activePlanStage !== "finalize" && activePlanStage !== "done";
   if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaim && planNotFinalized)) {
+    completionClaimNeedsTaskUpdate = true;
+  }
+  if (!completionClaimNeedsTaskUpdate && hasCompletionClaim && (taskLedgerOpenCount ?? 0) > 0) {
     completionClaimNeedsTaskUpdate = true;
   }
 

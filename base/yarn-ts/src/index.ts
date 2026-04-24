@@ -298,6 +298,24 @@ import {
 } from "./governance/state-transition-ledger.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
+import {
+  type TaskLedger,
+  type ClientTaskCapabilities,
+  detectClientTaskCapabilities,
+  isTaskToolCall,
+  normalizeTaskToolCall,
+  extractTasksFromText as extractTasksFromTextFn,
+  reconcileFromToolCall,
+  reconcileFromText,
+  reconcileFromEvidence,
+  createEmptyLedger,
+  serializeTaskLedger,
+  deserializeTaskLedger,
+  buildTaskLedgerGovernanceBlock,
+  evaluateTaskCompletionGate,
+  incrementReconciliationAttempts,
+  type EvidenceSignal,
+} from "./task-ledger/index.js";
 
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
 
@@ -352,6 +370,10 @@ type SessionState = {
   scopeEnvelope: import("./governance/intent-scope-classifier.js").ScopeEnvelope;
   /** Proportionality: cumulative diff stats for the current user turn. */
   diffStats: import("./governance/diff-accumulator.js").DiffStats;
+  /** Normalized task ledger for cross-client task reconciliation. */
+  taskLedger: TaskLedger | null;
+  /** Detected client task/todo capabilities (set once per session). */
+  taskCapabilities: ClientTaskCapabilities | null;
 };
 
 type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
@@ -3796,11 +3818,85 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     gitInspectionBlockCount: 0,
     scopeEnvelope: "unconstrained",
     diffStats: createDiffStats(),
+    taskLedger: record.metadata.task_ledger
+      ? deserializeTaskLedger(record.metadata.task_ledger)
+      : null,
+    taskCapabilities: null,
   };
   sessions.set(key, state);
   return state;
 }
 
+
+/**
+ * Update the task ledger when a tool call is detected as a todo/task tool.
+ * Call after governToolCall for every tool call in the pipeline.
+ */
+function maybeUpdateTaskLedgerFromToolCall(
+  session: SessionState,
+  toolName: string,
+  args: Record<string, unknown>,
+  turn: number,
+): void {
+  if (!isTaskToolCall(toolName)) return;
+  if (!session.taskCapabilities) return;
+
+  const normalized = normalizeTaskToolCall(
+    { toolName, args, turn },
+    session.taskCapabilities,
+  );
+  if (normalized.length === 0) return;
+
+  if (!session.taskLedger) {
+    session.taskLedger = createEmptyLedger(
+      session.record.sessionKey,
+      session.taskCapabilities.hasExplicitTodoTool,
+      session.taskCapabilities.hasExplicitPlanMode,
+    );
+  }
+  session.taskLedger = reconcileFromToolCall(session.taskLedger, normalized, turn);
+}
+
+/**
+ * Update the task ledger with evidence signals from tool results.
+ */
+function maybeUpdateTaskLedgerFromEvidence(
+  session: SessionState,
+  signals: EvidenceSignal[],
+): void {
+  if (!session.taskLedger || session.taskLedger.tasks.length === 0) return;
+  if (signals.length === 0) return;
+  session.taskLedger = reconcileFromEvidence(session.taskLedger, signals);
+}
+
+/**
+ * Classify a tool result into evidence signals for the task ledger.
+ */
+function classifyToolResultAsEvidence(
+  toolName: string,
+  resultText: string,
+  turn: number,
+): EvidenceSignal[] {
+  const signals: EvidenceSignal[] = [];
+  const lower = toolName.toLowerCase().replace(/-/g, "_");
+  const resultLower = resultText.toLowerCase();
+
+  if (lower.includes("write") || lower.includes("edit") || lower.includes("patch") || lower.includes("replace") || lower.includes("str_replace")) {
+    if (!resultLower.includes("error") && !resultLower.includes("failed")) {
+      signals.push({ kind: "file_edit", detail: resultText.slice(0, 200), turn });
+    }
+  }
+
+  if (lower.includes("test") || lower.includes("bash") || lower.includes("shell")) {
+    if (/\b(pass|ok|passed|success)\b/i.test(resultText) && !/\b(fail|error|FAIL)\b/.test(resultText)) {
+      signals.push({ kind: "test_pass", detail: resultText.slice(0, 200), turn });
+    } else if (/\b(fail|FAIL|error|Error)\b/.test(resultText)) {
+      signals.push({ kind: "test_fail", detail: resultText.slice(0, 200), turn });
+    }
+  }
+
+  return signals;
+}
 
 async function casSessionSave(state: SessionState): Promise<void> {
   try {
@@ -3816,6 +3912,9 @@ async function casSessionSave(state: SessionState): Promise<void> {
       }
       state.record.continuity = continuity;
       void sessionStore.saveContinuity(state.record.userId, continuity).catch(() => {});
+    }
+    if (state.taskLedger && state.taskLedger.tasks.length > 0) {
+      state.record.metadata.task_ledger = serializeTaskLedger(state.taskLedger);
     }
     const ok = await sessionStore.save(state.record);
     if (!ok) {
@@ -5442,8 +5541,33 @@ async function finalizeCompletionText(
     recentToolNames: string[];
     nonActionableEventDetail: string;
     planGraph?: PlanGraph | null;
+    session?: SessionState | null;
   },
 ): Promise<CompletionFinalizeResult> {
+  if (input.session?.taskLedger) {
+    const taskGate = evaluateTaskCompletionGate(input.session.taskLedger, input.session.taskCapabilities);
+    if (!taskGate.allow && taskGate.nudge) {
+      input.session.taskLedger = incrementReconciliationAttempts(input.session.taskLedger);
+      recordSessionEvent(
+        input.sessionKey,
+        input.userId,
+        input.orgId,
+        "task_ledger_reconciliation_nudge",
+        "task-ledger",
+        `open_tasks=${input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length} attempt=${input.session.taskLedger.reconciliationAttempts}`,
+        input.requestId,
+      );
+      return {
+        finalText: taskGate.nudge,
+        applied: true,
+        missingMust: 0,
+        missingShould: 0,
+        blockedByVerification: false,
+        criticBlocked: false,
+      };
+    }
+  }
+
   const gate = applyCompletionGate(
     input.checklist,
     input.assistantText,
@@ -7268,6 +7392,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: oaiConversationId ? "conversation_resolved" : "conversation_fallback", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+
+  if (!session.taskCapabilities) {
+    session.taskCapabilities = detectClientTaskCapabilities(
+      (request as Record<string, unknown>).tools as Array<{ name?: string; function?: { name?: string } }> | undefined,
+      oaiClientKind,
+    );
+  }
+
   const oaiCapabilityHash = crypto
     .createHash("sha256")
     .update(
@@ -7514,6 +7646,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiLatestToolProgress = classifyLatestToolProgress(
     oaiTurnMessages,
   );
+  if (oaiLatestToolProgress.toolName && oaiLatestToolProgress.snippet) {
+    const oaiEvidenceSignals = classifyToolResultAsEvidence(
+      oaiLatestToolProgress.toolName,
+      oaiLatestToolProgress.snippet,
+      session.record.requestCount,
+    );
+    maybeUpdateTaskLedgerFromEvidence(session, oaiEvidenceSignals);
+  }
   const oaiLatestReadRefresh = classifyLatestReadRefresh(
     oaiTurnMessages,
   );
@@ -7961,6 +8101,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
             chatState: oaiChatState,
             fileState: oaiFileState,
             orchestratorWorkflowPhase: oaiWorkingPhase,
+            taskLedgerOpenCount: session.taskLedger
+              ? session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
+              : undefined,
           },
         );
         if (!decision.pause) {
@@ -8448,6 +8591,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiObjectiveScope.relevantEvidenceBlock ? [oaiObjectiveScope.relevantEvidenceBlock] : []),
       ...(oaiObjectiveScope.artifactBridgeBlock ? [oaiObjectiveScope.artifactBridgeBlock] : []),
       ...(oaiStateConfidenceBlock ? [oaiStateConfidenceBlock] : []),
+      ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
     ],
     oaiSeedDirs,
     session,
@@ -9503,6 +9647,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         }
         trackGovernedHardening(governed);
         updateDiffAccumulator(session, governed);
+        maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, (normalizedOpenAI.messages as unknown[]).length + toolCallIndex);
         if (governed.planWriteAudit) {
           emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
         }
@@ -9696,6 +9841,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
     let oaiGateBlockedVerification = false;
     let oaiCriticBlocked = false;
     if (finishReason === "stop") {
+      if (session.taskCapabilities && finalAssistantText) {
+        const oaiTextTasks = extractTasksFromTextFn(
+          finalAssistantText,
+          session.taskCapabilities.detectedSource,
+          session.record.requestCount,
+        );
+        if (oaiTextTasks.length > 0) {
+          if (!session.taskLedger) {
+            session.taskLedger = createEmptyLedger(
+              session.record.sessionKey,
+              session.taskCapabilities.hasExplicitTodoTool,
+              session.taskCapabilities.hasExplicitPlanMode,
+            );
+          }
+          session.taskLedger = reconcileFromText(session.taskLedger, oaiTextTasks, session.record.requestCount);
+        }
+      }
       const finalized = await finalizeCompletionText({
         requestId: reqId,
         sessionKey,
@@ -9709,6 +9871,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
         nonActionableEventDetail: "terminal stop had non-actionable text; emitted deterministic fallback",
         planGraph: oaiPlanGraph,
+        session,
       });
       finalAssistantText = finalized.finalText;
       oaiGateApplied = finalized.applied;
@@ -10137,6 +10300,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           }
           trackGovernedHardening(governed);
           updateDiffAccumulator(session, governed);
+          maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
           if (governed.planWriteAudit) {
             emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
           }
@@ -10372,6 +10536,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   if (finishReason !== "tool_calls" && pendingTextDeltas.length > 0) {
     const rawText = pendingTextDeltas.join("");
+    if (session.taskCapabilities && rawText) {
+      const oaiStreamTextTasks = extractTasksFromTextFn(
+        rawText,
+        session.taskCapabilities.detectedSource,
+        session.record.requestCount,
+      );
+      if (oaiStreamTextTasks.length > 0) {
+        if (!session.taskLedger) {
+          session.taskLedger = createEmptyLedger(
+            session.record.sessionKey,
+            session.taskCapabilities.hasExplicitTodoTool,
+            session.taskCapabilities.hasExplicitPlanMode,
+          );
+        }
+        session.taskLedger = reconcileFromText(session.taskLedger, oaiStreamTextTasks, session.record.requestCount);
+      }
+    }
     const finalized = await finalizeCompletionText({
       requestId: reqId,
       sessionKey,
@@ -10385,6 +10566,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
       nonActionableEventDetail: "stream stop had non-actionable text; emitted deterministic fallback",
       planGraph: oaiPlanGraph,
+      session,
     });
     oaiStreamGateApplied = finalized.applied;
     oaiStreamMissingMust = finalized.missingMust;
@@ -11066,6 +11248,14 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeLatestToolProgress = classifyLatestToolProgress(
     claudeTurnMessages,
   );
+  if (claudeLatestToolProgress.toolName && claudeLatestToolProgress.snippet) {
+    const claudeEvidenceSignals = classifyToolResultAsEvidence(
+      claudeLatestToolProgress.toolName,
+      claudeLatestToolProgress.snippet,
+      session.record.requestCount,
+    );
+    maybeUpdateTaskLedgerFromEvidence(session, claudeEvidenceSignals);
+  }
   const claudeLatestReadRefresh = classifyLatestReadRefresh(
     claudeTurnMessages,
   );
@@ -11487,6 +11677,9 @@ app.post("/v1/messages", async (req, reply) => {
             chatState: claudeChatState,
             fileState: claudeFileState,
             orchestratorWorkflowPhase: claudeWorkingPhase,
+            taskLedgerOpenCount: session.taskLedger
+              ? session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
+              : undefined,
           },
         );
         if (!decision.pause) {
@@ -11973,6 +12166,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudeObjectiveScope.relevantEvidenceBlock ? [claudeObjectiveScope.relevantEvidenceBlock] : []),
       ...(claudeObjectiveScope.artifactBridgeBlock ? [claudeObjectiveScope.artifactBridgeBlock] : []),
       ...(claudeStateConfidenceBlock ? [claudeStateConfidenceBlock] : []),
+      ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
     ],
     claudeSeedDirs,
     session,
@@ -13302,6 +13496,7 @@ app.post("/v1/messages", async (req, reply) => {
           finalInput = governed.input;
           trackGovernedHardening(governed);
           updateDiffAccumulator(session, governed);
+          maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
           if (governed.planWriteAudit) {
             emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, governed.planWriteAudit);
           }
@@ -13556,6 +13751,23 @@ app.post("/v1/messages", async (req, reply) => {
 
     if (stopReason !== "tool_use" && pendingClaudeTextDeltas.length > 0) {
       const rawText = pendingClaudeTextDeltas.join("");
+      if (session.taskCapabilities && rawText) {
+        const claudeStreamTextTasks = extractTasksFromTextFn(
+          rawText,
+          session.taskCapabilities.detectedSource,
+          session.record.requestCount,
+        );
+        if (claudeStreamTextTasks.length > 0) {
+          if (!session.taskLedger) {
+            session.taskLedger = createEmptyLedger(
+              session.record.sessionKey,
+              session.taskCapabilities.hasExplicitTodoTool,
+              session.taskCapabilities.hasExplicitPlanMode,
+            );
+          }
+          session.taskLedger = reconcileFromText(session.taskLedger, claudeStreamTextTasks, session.record.requestCount);
+        }
+      }
       const finalized = await finalizeCompletionText({
         requestId: traceReqId,
         sessionKey: claudeSessionKey,
@@ -13569,6 +13781,7 @@ app.post("/v1/messages", async (req, reply) => {
         recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
         nonActionableEventDetail: "claude stream stop had non-actionable text; emitted deterministic fallback",
         planGraph: claudePlanGraph,
+        session,
       });
       claudeStreamGateApplied = finalized.applied;
       claudeStreamMissingMust = finalized.missingMust;
@@ -14040,6 +14253,7 @@ app.post("/v1/messages", async (req, reply) => {
       }
       trackGovernedHardening(governed);
       updateDiffAccumulator(session, governed);
+      maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
       if (governed.planWriteAudit) {
         emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, governed.planWriteAudit);
       }
@@ -14199,6 +14413,7 @@ app.post("/v1/messages", async (req, reply) => {
       recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
       nonActionableEventDetail: "terminal end_turn had non-actionable text; emitted deterministic fallback",
       planGraph: claudePlanGraph,
+      session,
     });
     finalClaudeText = finalized.finalText;
     claudeGateApplied = finalized.applied;
