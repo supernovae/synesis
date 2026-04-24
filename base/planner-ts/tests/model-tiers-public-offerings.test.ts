@@ -13,6 +13,11 @@ describe("resolveTierSettings with public offerings", () => {
         client_model_id: "exp-demo",
         label: "Demo",
         effort_tier: "pulse",
+        connection_mode: "role_clone",
+        route_via_role: "coder-pulse",
+        standalone_provider: null,
+        standalone_endpoint: null,
+        standalone_api_key_env: null,
         backend_model_override: "litellm/demo",
       },
     ]);
@@ -22,5 +27,26 @@ describe("resolveTierSettings with public offerings", () => {
     expect(t.registry_general_role).toBe("general-pulse");
     expect(t.resolved_writer_model).toBe("litellm/demo");
     expect(t.responseModel).toBe("Demo");
+  });
+
+  it("uses client id for standalone planner model when override is unset", () => {
+    vi.spyOn(catalog, "getPlannerPublicOfferings").mockReturnValue([
+      {
+        client_model_id: "xiaomi-2.5",
+        label: "Xiaomi 2.5",
+        effort_tier: "core",
+        connection_mode: "standalone",
+        route_via_role: null,
+        standalone_provider: "openrouter",
+        standalone_endpoint: "https://openrouter.ai/api/v1",
+        standalone_api_key_env: "OPENROUTER_API_KEY",
+        backend_model_override: null,
+      },
+    ]);
+    vi.spyOn(catalog, "getRoleBackendModel").mockReturnValue("should-not-be-used");
+    const t = resolveTierSettings("xiaomi-2.5");
+    expect(t.tier).toBe("core");
+    expect(t.registry_general_role).toBe("general-core");
+    expect(t.resolved_writer_model).toBe("xiaomi-2.5");
   });
 });

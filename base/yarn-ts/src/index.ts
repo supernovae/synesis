@@ -37,7 +37,7 @@ import {
   fetchTierRegistrySnapshot,
   fetchPublicOfferingsForYarn,
   mergeYarnPublicOfferingsIntoTiers,
-  ROLE_TO_TIER,
+  resolveOfferingTierId,
   TIER_TO_ROLE,
   type PromptSnapshot,
   type RoleAssignmentConfig,
@@ -879,6 +879,9 @@ type RequestTrajectoryInput = {
   toolSequence?: string[];
   retryCountTotal?: number;
   taskBucket?: TrajectoryBucket;
+  filesReadCount?: number;
+  bytesReadTotal?: number;
+  prematureStopSignals?: number;
   verificationSteps?: string[];
   diagnostics?: {
     structuredErrorsCount?: number;
@@ -912,14 +915,51 @@ function inferTrajectoryBucket(sequence: string[], patchOps: number, wholeWriteO
   return "repo";
 }
 
+const PATCH_STYLE_TOOL_NAMES = new Set(["str_replace", "apply_patch", "edit", "str_replace_editor"]);
+const WHOLE_WRITE_TOOL_NAMES = new Set(["write_file", "file_write", "write"]);
+const READ_STYLE_TOOL_NAMES = new Set(["read", "read_file", "readfile", "file_read"]);
+const PREMATURE_STOP_GOVERNOR_RULES = new Set([
+  "completion_claim_requires_task_update",
+  "verification_after_completion_claim",
+  "verbal_intent_without_action",
+]);
+
+function normalizeTrajectoryToolName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 function countEditsFromToolSequence(sequence: string[]): { patchOps: number; wholeWriteOps: number } {
   let patchOps = 0;
   let wholeWriteOps = 0;
   for (const name of sequence) {
-    if (name === "str_replace") patchOps += 1;
-    if (name === "write_file") wholeWriteOps += 1;
+    const normalized = normalizeTrajectoryToolName(name);
+    if (PATCH_STYLE_TOOL_NAMES.has(normalized)) patchOps += 1;
+    if (WHOLE_WRITE_TOOL_NAMES.has(normalized)) wholeWriteOps += 1;
   }
   return { patchOps, wholeWriteOps };
+}
+
+function countReadOpsFromToolSequence(sequence: string[]): number {
+  let readOps = 0;
+  for (const name of sequence) {
+    if (READ_STYLE_TOOL_NAMES.has(normalizeTrajectoryToolName(name))) {
+      readOps += 1;
+    }
+  }
+  return readOps;
+}
+
+function inferPrematureStopSignalsFromGovernor(matchedRules: readonly string[] | undefined): number {
+  if (!Array.isArray(matchedRules) || matchedRules.length === 0) return 0;
+  const seen = new Set<string>();
+  let matched = 0;
+  for (const rule of matchedRules) {
+    const normalized = String(rule ?? "").trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    if (PREMATURE_STOP_GOVERNOR_RULES.has(normalized)) matched += 1;
+  }
+  return matched;
 }
 
 function inferVerificationSteps(sequence: string[]): string[] {
@@ -3835,10 +3875,7 @@ async function refreshTierRegistry(): Promise<void> {
     tierRegistry.updateTiers(mergedTiers);
     const offeringOrchestratorEntries: Array<{ clientId: string; tier: EffortTier }> = [];
     for (const o of publicOfferings) {
-      const role =
-        (o.route_via_role ?? "").trim().toLowerCase()
-        || `coder-${(o.effort_tier ?? "").trim().toLowerCase()}`;
-      const tier = ROLE_TO_TIER[role];
+      const tier = resolveOfferingTierId(o);
       if (tier === "synesis-pulse" || tier === "synesis-core" || tier === "synesis-horizon") {
         offeringOrchestratorEntries.push({ clientId: o.client_model_id.trim().toLowerCase(), tier });
       }
@@ -4374,6 +4411,23 @@ function persistSessionAndUsage(
   const inferredEdits = countEditsFromToolSequence(toolSequence);
   const patchOpsCount = trajectory?.patchOpsCount ?? inferredEdits.patchOps;
   const wholeWriteOpsCount = trajectory?.wholeWriteOpsCount ?? inferredEdits.wholeWriteOps;
+  const filesWrittenCount = patchOpsCount + wholeWriteOpsCount;
+  const inferredFilesReadCount = countReadOpsFromToolSequence(toolSequence);
+  const filesReadCount = Math.max(0, trajectory?.filesReadCount ?? inferredFilesReadCount);
+  const bytesReadTotal = Number.isFinite(Number(trajectory?.bytesReadTotal))
+    ? Math.max(0, Number(trajectory?.bytesReadTotal))
+    : undefined;
+  const readEditRatio = filesWrittenCount > 0
+    ? Number((filesReadCount / filesWrittenCount).toFixed(3))
+    : undefined;
+  const patchRatio = filesWrittenCount > 0
+    ? Number((patchOpsCount / filesWrittenCount).toFixed(3))
+    : undefined;
+  const wholeWriteRatio = filesWrittenCount > 0
+    ? Number((wholeWriteOpsCount / filesWrittenCount).toFixed(3))
+    : undefined;
+  const inferredPrematureStopSignals = inferPrematureStopSignalsFromGovernor(snapshot?.governor?.matchedRules);
+  const prematureStopSignals = Math.max(0, trajectory?.prematureStopSignals ?? inferredPrematureStopSignals);
   const verificationSteps = trajectory?.verificationSteps ?? [];
   const countsByKind = { discovery: 0, evidence: 0, mutation: 0, verification: 0, other: 0 };
   for (const name of toolSequence) {
@@ -4580,14 +4634,15 @@ function persistSessionAndUsage(
         blind_retry_count: state.stagnantToolCycles,
       },
       edits: {
-        files_read_count: undefined,
-        bytes_read_total: undefined,
-        files_written_count: patchOpsCount + wholeWriteOpsCount,
+        files_read_count: filesReadCount,
+        bytes_read_total: bytesReadTotal,
+        files_written_count: filesWrittenCount,
+        read_edit_ratio: readEditRatio,
         patch_ops_count: patchOpsCount,
         whole_write_ops_count: wholeWriteOpsCount,
-        patch_success_rate: patchOpsCount + wholeWriteOpsCount > 0
-          ? Number((patchOpsCount / (patchOpsCount + wholeWriteOpsCount)).toFixed(3))
-          : undefined,
+        patch_ratio: patchRatio,
+        whole_write_ratio: wholeWriteRatio,
+        patch_success_rate: patchRatio,
       },
       verification: {
         steps: verificationSteps,
@@ -4666,6 +4721,7 @@ function persistSessionAndUsage(
           ? globalThresholdResolutionAfter.selected_scope
           : undefined,
         state_transition_quality_global_samples: globalSampleCountAfter || undefined,
+        premature_stop_signals: prematureStopSignals || undefined,
       },
     },
   });

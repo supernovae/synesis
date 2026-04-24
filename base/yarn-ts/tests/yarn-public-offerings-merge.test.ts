@@ -32,4 +32,28 @@ describe("mergeYarnPublicOfferingsIntoTiers", () => {
     ]);
     expect(merged.find((t) => t.id === "exp-2")?.backendModel).toBe("m-core");
   });
+
+  it("supports standalone offering endpoint/api key for yarn", () => {
+    const prev = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "standalone-k";
+    try {
+      const merged = mergeYarnPublicOfferingsIntoTiers(base, [
+        {
+          client_model_id: "xiaomi-2.5",
+          effort_tier: "core",
+          connection_mode: "standalone",
+          standalone_provider: "openrouter",
+          standalone_endpoint: "https://openrouter.ai/api/v1",
+          standalone_api_key_env: "OPENROUTER_API_KEY",
+          backend_model_override: null,
+        },
+      ]);
+      const standalone = merged.find((t) => t.id === "xiaomi-2.5");
+      expect(standalone?.backendModel).toBe("xiaomi-2.5");
+      expect(standalone?.baseUrl).toBe("https://openrouter.ai/api/v1");
+      expect(standalone?.apiKey).toBe("standalone-k");
+    } finally {
+      process.env.OPENROUTER_API_KEY = prev;
+    }
+  });
 });

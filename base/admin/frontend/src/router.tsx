@@ -17,7 +17,6 @@ const ModelsCostsOverview = lazy(() => import("./pages/models/ModelsCostsOvervie
 const CostTracker = lazy(() => import("./pages/models/CostTracker"));
 const ModelPerformance = lazy(() => import("./pages/models/ModelPerformance"));
 const ProviderManagement = lazy(() => import("./pages/models/ProviderManagement"));
-const ServingManagement = lazy(() => import("./pages/models/ServingManagement"));
 const ModelPolicies = lazy(() => import("./pages/models/ModelPolicies"));
 const EffortRoutingPreview = lazy(() => import("./pages/models/EffortRoutingPreview"));
 const PromptLibrary = lazy(() => import("./pages/models/PromptLibrary"));
@@ -150,11 +149,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "models/serving",
-        element: (
-          <RequireRole role="admin">
-            <ServingManagement />
-          </RequireRole>
-        ),
+        element: <Navigate to="/models" replace />,
       },
       {
         path: "models/policies",

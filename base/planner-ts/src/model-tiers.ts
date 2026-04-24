@@ -69,6 +69,14 @@ function normalizeTier(model: string): ModelTier {
 }
 
 function generalRoleFromOffering(o: PublicPlannerOffering): string {
+  const mode = (o.connection_mode ?? "").trim().toLowerCase();
+  if (mode === "standalone") {
+    const effort = (o.effort_tier ?? "").trim().toLowerCase();
+    if (effort === "pulse" || effort === "core" || effort === "horizon") {
+      return `general-${effort}`;
+    }
+    return "general";
+  }
   const rv = (o.route_via_role ?? "").trim().toLowerCase();
   if (rv === "coder-pulse") return "general-pulse";
   if (rv === "coder-core") return "general-core";
@@ -84,8 +92,10 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
     if (o.client_model_id.trim().toLowerCase() !== reqLow) continue;
     const tier = effortToTier(o.effort_tier);
     const generalRole = generalRoleFromOffering(o);
-    const registryModel =
-      (o.backend_model_override ?? "").trim() || getRoleBackendModel(generalRole);
+    const mode = (o.connection_mode ?? "").trim().toLowerCase();
+    const registryModel = mode === "standalone"
+      ? ((o.backend_model_override ?? "").trim() || o.client_model_id.trim() || requestedModel)
+      : ((o.backend_model_override ?? "").trim() || getRoleBackendModel(generalRole));
     if (tier === "pulse") {
       return {
         requestedModel,

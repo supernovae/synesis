@@ -4,7 +4,11 @@ export interface PublicPlannerOffering {
   client_model_id: string;
   label: string | null;
   effort_tier: string;
+  connection_mode: string | null;
   route_via_role: string | null;
+  standalone_provider: string | null;
+  standalone_endpoint: string | null;
+  standalone_api_key_env: string | null;
   backend_model_override: string | null;
 }
 

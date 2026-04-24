@@ -667,7 +667,11 @@ export interface PublicModelOffering {
   client_model_id: string;
   label: string | null;
   effort_tier: string;
+  connection_mode: string;
   route_via_role: string | null;
+  standalone_provider: string | null;
+  standalone_endpoint: string | null;
+  standalone_api_key_env: string | null;
   backend_model_override: string | null;
   expose_planner: boolean;
   expose_yarn: boolean;
@@ -691,7 +695,11 @@ export function useCreatePublicOffering() {
       client_model_id: string;
       label?: string | null;
       effort_tier?: string | null;
+      connection_mode?: string | null;
       route_via_role?: string | null;
+      standalone_provider?: string | null;
+      standalone_endpoint?: string | null;
+      standalone_api_key_env?: string | null;
       backend_model_override?: string | null;
       expose_planner?: boolean;
       expose_yarn?: boolean;
@@ -713,7 +721,11 @@ export function usePatchPublicOffering() {
       client_model_id: string;
       label: string | null;
       effort_tier: string;
+      connection_mode: string | null;
       route_via_role: string | null;
+      standalone_provider: string | null;
+      standalone_endpoint: string | null;
+      standalone_api_key_env: string | null;
       backend_model_override: string | null;
       expose_planner: boolean;
       expose_yarn: boolean;

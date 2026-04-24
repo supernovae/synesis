@@ -164,7 +164,11 @@ class PublicOfferingCreate(BaseModel):
     client_model_id: str
     label: str | None = None
     effort_tier: str | None = None
+    connection_mode: str | None = None
     route_via_role: str | None = None
+    standalone_provider: str | None = None
+    standalone_endpoint: str | None = None
+    standalone_api_key_env: str | None = None
     backend_model_override: str | None = None
     expose_planner: bool = False
     expose_yarn: bool = False
@@ -175,7 +179,11 @@ class PublicOfferingPatch(BaseModel):
     client_model_id: str | None = None
     label: str | None = None
     effort_tier: str | None = None
+    connection_mode: str | None = None
     route_via_role: str | None = None
+    standalone_provider: str | None = None
+    standalone_endpoint: str | None = None
+    standalone_api_key_env: str | None = None
     backend_model_override: str | None = None
     expose_planner: bool | None = None
     expose_yarn: bool | None = None
@@ -213,7 +221,11 @@ async def create_public_offering(
                 client_model_id=body.client_model_id,
                 label=body.label,
                 effort_tier=body.effort_tier,
+                connection_mode=body.connection_mode,
                 route_via_role=body.route_via_role,
+                standalone_provider=body.standalone_provider,
+                standalone_endpoint=body.standalone_endpoint,
+                standalone_api_key_env=body.standalone_api_key_env,
                 backend_model_override=body.backend_model_override,
                 expose_planner=body.expose_planner,
                 expose_yarn=body.expose_yarn,

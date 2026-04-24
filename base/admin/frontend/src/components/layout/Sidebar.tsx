@@ -49,7 +49,6 @@ const navigation: NavItem[] = [
       { label: "Overview", path: "/models/overview" },
       { label: "Registry", path: "/models" },
       { label: "Providers & API keys", path: "/models/providers" },
-      { label: "Effective Serving", path: "/models/serving" },
       { label: "Usage & spend", path: "/models/costs" },
       { label: "Policies", path: "/models/policies" },
       { label: "Prompt Library", path: "/models/prompts" },

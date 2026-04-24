@@ -120,6 +120,12 @@ export const ROLE_TO_TIER: Record<string, TierId> = {
   "coder-compaction": "synesis-compaction"
 };
 
+const EFFORT_TO_TIER: Record<string, TierId> = {
+  pulse: "synesis-pulse",
+  core: "synesis-core",
+  horizon: "synesis-horizon",
+};
+
 export const TIER_TO_ROLE: Record<TierId, string> = {
   "synesis-pulse": "coder-pulse",
   "synesis-core": "coder-core",
@@ -336,11 +342,34 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
 const PublicOfferingRowSchema = z.object({
   client_model_id: z.string(),
   effort_tier: z.string().optional(),
+  connection_mode: z.string().optional(),
   route_via_role: z.string().nullable().optional(),
+  standalone_provider: z.string().nullable().optional(),
+  standalone_endpoint: z.string().nullable().optional(),
+  standalone_api_key_env: z.string().nullable().optional(),
   backend_model_override: z.string().nullable().optional(),
 });
 
 export type PublicYarnOffering = z.infer<typeof PublicOfferingRowSchema>;
+
+function normalizeOfferingConnectionMode(mode: string | null | undefined): "role_clone" | "standalone" {
+  return (mode ?? "").trim().toLowerCase() === "standalone" ? "standalone" : "role_clone";
+}
+
+/**
+ * Resolve canonical effort tier id for a public offering.
+ */
+export function resolveOfferingTierId(offering: PublicYarnOffering): TierId | undefined {
+  const mode = normalizeOfferingConnectionMode(offering.connection_mode);
+  if (mode === "standalone") {
+    const effort = (offering.effort_tier ?? "").trim().toLowerCase();
+    return EFFORT_TO_TIER[effort] ?? ROLE_TO_TIER[(offering.route_via_role ?? "").trim().toLowerCase()];
+  }
+  const role =
+    (offering.route_via_role ?? "").trim().toLowerCase()
+    || `coder-${(offering.effort_tier ?? "").trim().toLowerCase()}`;
+  return ROLE_TO_TIER[role];
+}
 
 const PublicOfferingsEnvelopeSchema = z.object({
   offerings: z.array(PublicOfferingRowSchema),
@@ -383,16 +412,28 @@ export function mergeYarnPublicOfferingsIntoTiers(
   const byId = new Map(baseTiers.map((t) => [t.id, t]));
   const extra: TierConfig[] = [];
   for (const o of offerings) {
-    const role =
-      (o.route_via_role ?? "").trim().toLowerCase()
-      || `coder-${(o.effort_tier ?? "").trim().toLowerCase()}`;
-    const canon = ROLE_TO_TIER[role];
+    const canon = resolveOfferingTierId(o);
     if (!canon) continue;
     const base = byId.get(canon);
     if (!base) continue;
     const cid = (o.client_model_id ?? "").trim().toLowerCase();
     if (!cid) continue;
     const override = (o.backend_model_override ?? "").trim();
+    const mode = normalizeOfferingConnectionMode(o.connection_mode);
+    if (mode === "standalone") {
+      const provider = (o.standalone_provider ?? "").trim().toLowerCase();
+      const endpoint = (o.standalone_endpoint ?? "").trim() || PROVIDER_BASE_URLS[provider] || base.baseUrl;
+      const keyEnv = (o.standalone_api_key_env ?? "").trim();
+      const apiKey = (keyEnv ? process.env[keyEnv] : undefined) || base.apiKey;
+      extra.push({
+        ...base,
+        id: cid,
+        backendModel: override || cid,
+        baseUrl: endpoint,
+        apiKey,
+      });
+      continue;
+    }
     extra.push({
       ...base,
       id: cid,

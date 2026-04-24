@@ -60,6 +60,17 @@ const ROUTE_VIA_OPTIONS = [
   { value: "coder-horizon", short: "Coder Horizon" },
 ] as const;
 
+const EFFORT_PROFILE_OPTIONS = [
+  { value: "pulse", short: "Pulse" },
+  { value: "core", short: "Core" },
+  { value: "horizon", short: "Horizon" },
+] as const;
+
+const CONNECTION_MODE_OPTIONS = [
+  { value: "role_clone", short: "Canonical role clone" },
+  { value: "standalone", short: "Standalone Yarn connection" },
+] as const;
+
 function routeViaLabel(role: string | null | undefined, effortFallback: string): string {
   const r = (role ?? "").trim().toLowerCase();
   const found = ROUTE_VIA_OPTIONS.find((o) => o.value === r);
@@ -242,18 +253,48 @@ function parseOptionalInt(value: string): number | undefined {
   return parsed;
 }
 
+type OfferingConnectionMode = (typeof CONNECTION_MODE_OPTIONS)[number]["value"];
+
+function normalizeConnectionMode(v: string | null | undefined): OfferingConnectionMode {
+  return (v ?? "").trim().toLowerCase() === "standalone" ? "standalone" : "role_clone";
+}
+
+function connectionModeLabel(mode: string | null | undefined): string {
+  return normalizeConnectionMode(mode) === "standalone"
+    ? "Standalone Yarn connection"
+    : "Canonical role clone";
+}
+
 type PublicOfferingPatch = {
   id: number;
 } & Partial<{
   client_model_id: string;
   label: string | null;
   effort_tier: string;
+  connection_mode: OfferingConnectionMode;
   route_via_role: string | null;
+  standalone_provider: string | null;
+  standalone_endpoint: string | null;
+  standalone_api_key_env: string | null;
   backend_model_override: string | null;
   expose_planner: boolean;
   expose_yarn: boolean;
   is_active: boolean;
 }>;
+
+interface NewOfferingDraft {
+  client_model_id: string;
+  label: string;
+  effort_tier: (typeof EFFORT_PROFILE_OPTIONS)[number]["value"];
+  connection_mode: OfferingConnectionMode;
+  route_via_role: (typeof ROUTE_VIA_OPTIONS)[number]["value"];
+  standalone_provider: string;
+  standalone_endpoint: string;
+  standalone_api_key_env: string;
+  backend_model_override: string;
+  expose_planner: boolean;
+  expose_yarn: boolean;
+}
 
 function ExtraPublicOfferingCard({
   o,
@@ -268,12 +309,27 @@ function ExtraPublicOfferingCard({
 }) {
   const [label, setLabel] = useState(() => o.label ?? "");
   const [wire, setWire] = useState(() => o.backend_model_override ?? "");
+  const [standaloneProvider, setStandaloneProvider] = useState(() => o.standalone_provider ?? "");
+  const [standaloneEndpoint, setStandaloneEndpoint] = useState(() => o.standalone_endpoint ?? "");
+  const [standaloneApiKeyEnv, setStandaloneApiKeyEnv] = useState(() => o.standalone_api_key_env ?? "");
 
   useEffect(() => {
     setLabel(o.label ?? "");
     setWire(o.backend_model_override ?? "");
-  }, [o.id, o.label, o.backend_model_override, o.updated_at]);
+    setStandaloneProvider(o.standalone_provider ?? "");
+    setStandaloneEndpoint(o.standalone_endpoint ?? "");
+    setStandaloneApiKeyEnv(o.standalone_api_key_env ?? "");
+  }, [
+    o.id,
+    o.label,
+    o.backend_model_override,
+    o.standalone_provider,
+    o.standalone_endpoint,
+    o.standalone_api_key_env,
+    o.updated_at,
+  ]);
 
+  const mode = normalizeConnectionMode(o.connection_mode);
   const routeKey = (o.route_via_role ?? `coder-${o.effort_tier}`).trim();
   const dep = roles.find((r) => r.role === routeKey);
 
@@ -291,7 +347,29 @@ function ExtraPublicOfferingCard({
     onPatch({ id: o.id, backend_model_override: next === "" ? null : next });
   };
 
-  const effectiveWire = wire.trim() || dep?.model?.trim() || "—";
+  const commitStandaloneProvider = () => {
+    const next = standaloneProvider.trim();
+    const cur = (o.standalone_provider ?? "").trim();
+    if (next === cur) return;
+    onPatch({ id: o.id, standalone_provider: next === "" ? null : next });
+  };
+
+  const commitStandaloneEndpoint = () => {
+    const next = standaloneEndpoint.trim();
+    const cur = (o.standalone_endpoint ?? "").trim();
+    if (next === cur) return;
+    onPatch({ id: o.id, standalone_endpoint: next === "" ? null : next });
+  };
+
+  const commitStandaloneApiKeyEnv = () => {
+    const next = standaloneApiKeyEnv.trim();
+    const cur = (o.standalone_api_key_env ?? "").trim();
+    if (next === cur) return;
+    onPatch({ id: o.id, standalone_api_key_env: next === "" ? null : next });
+  };
+
+  const effectiveWire =
+    wire.trim() || (mode === "standalone" ? o.client_model_id.trim() : dep?.model?.trim()) || "—";
 
   return (
     <div className="rounded-lg border border-violet-200 bg-violet-50/30 p-3 dark:border-violet-900/40 dark:bg-violet-950/20">
@@ -313,6 +391,24 @@ function ExtraPublicOfferingCard({
         >
           Remove
         </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+        <span className="rounded bg-violet-100 px-1.5 py-0.5 font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+          {connectionModeLabel(o.connection_mode)}
+        </span>
+        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          {o.effort_tier}
+        </span>
+        {o.expose_yarn && (
+          <span className="rounded bg-blue-100 px-1.5 py-0.5 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+            Yarn
+          </span>
+        )}
+        {o.expose_planner && (
+          <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+            Planner
+          </span>
+        )}
       </div>
 
       <label className="mt-2 block text-[11px] text-gray-500 dark:text-gray-400">
@@ -346,33 +442,78 @@ function ExtraPublicOfferingCard({
         Effective wire: <span className="font-mono text-gray-700 dark:text-gray-300">{effectiveWire}</span>
       </p>
 
-      <label className="mt-2 block text-[11px] text-gray-500 dark:text-gray-400">
-        Connection
-        <select
-          className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
-          value={routeKey}
-          onChange={(e) =>
-            onPatch({
-              id: o.id,
-              route_via_role: e.target.value,
-            })
-          }
-        >
-          {ROUTE_VIA_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.short}
-            </option>
-          ))}
-        </select>
-      </label>
-      {dep?.assigned ? (
-        <p className="mt-1 truncate text-[10px] text-gray-500" title={dep.endpoint || ""}>
-          {routeViaLabel(o.route_via_role, o.effort_tier)} → {dep.provider} · {dep.endpoint || "default URL"}
-        </p>
+      {mode === "standalone" ? (
+        <>
+          <div className="mt-2 rounded border border-violet-200 bg-white/70 p-2 dark:border-violet-900/40 dark:bg-violet-950/20">
+            <p className="text-[10px] font-medium text-violet-700 dark:text-violet-300">
+              Standalone Yarn connection
+            </p>
+            <label className="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
+              Provider key
+              <input
+                className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={standaloneProvider}
+                onChange={(e) => setStandaloneProvider(e.target.value)}
+                onBlur={commitStandaloneProvider}
+                placeholder="e.g. openrouter, dashscope, custom"
+              />
+            </label>
+            <label className="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
+              Endpoint
+              <input
+                className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={standaloneEndpoint}
+                onChange={(e) => setStandaloneEndpoint(e.target.value)}
+                onBlur={commitStandaloneEndpoint}
+                placeholder="https://..."
+              />
+            </label>
+            <label className="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
+              API key env var
+              <input
+                className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={standaloneApiKeyEnv}
+                onChange={(e) => setStandaloneApiKeyEnv(e.target.value)}
+                onBlur={commitStandaloneApiKeyEnv}
+                placeholder="OPENROUTER_API_KEY"
+              />
+            </label>
+          </div>
+          <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+            Planner still uses the global gateway; standalone connection fields are used by Yarn.
+          </p>
+        </>
       ) : (
-        <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400">
-          Assign {routeViaLabel(o.route_via_role, o.effort_tier)} in the cards above so this model can route.
-        </p>
+        <>
+          <label className="mt-2 block text-[11px] text-gray-500 dark:text-gray-400">
+            Connection
+            <select
+              className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+              value={routeKey}
+              onChange={(e) =>
+                onPatch({
+                  id: o.id,
+                  route_via_role: e.target.value,
+                })
+              }
+            >
+              {ROUTE_VIA_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.short}
+                </option>
+              ))}
+            </select>
+          </label>
+          {dep?.assigned ? (
+            <p className="mt-1 truncate text-[10px] text-gray-500" title={dep.endpoint || ""}>
+              {routeViaLabel(o.route_via_role, o.effort_tier)} → {dep.provider} · {dep.endpoint || "default URL"}
+            </p>
+          ) : (
+            <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400">
+              Assign {routeViaLabel(o.route_via_role, o.effort_tier)} in the canonical mapping table so this model can route.
+            </p>
+          )}
+        </>
       )}
       <div className="mt-2 flex flex-wrap gap-3 border-t border-violet-100 pt-2 text-[11px] dark:border-violet-900/30">
         <label className="flex items-center gap-1">
@@ -433,10 +574,17 @@ export default function ModelRegistry() {
   const createOfferingMut = useCreatePublicOffering();
   const patchOfferingMut = usePatchPublicOffering();
   const deleteOfferingMut = useDeletePublicOffering();
-  const [newOffering, setNewOffering] = useState({
+  const [newModelOpen, setNewModelOpen] = useState(false);
+  const [newModelError, setNewModelError] = useState<string | null>(null);
+  const [newOffering, setNewOffering] = useState<NewOfferingDraft>({
     client_model_id: "",
     label: "",
+    effort_tier: "core" as (typeof EFFORT_PROFILE_OPTIONS)[number]["value"],
+    connection_mode: "role_clone" as OfferingConnectionMode,
     route_via_role: "coder-core" as (typeof ROUTE_VIA_OPTIONS)[number]["value"],
+    standalone_provider: "",
+    standalone_endpoint: "",
+    standalone_api_key_env: "",
     backend_model_override: "",
     expose_planner: true,
     expose_yarn: true,
@@ -527,6 +675,83 @@ export default function ModelRegistry() {
     );
   };
 
+  const resetNewOffering = () => {
+    setNewOffering({
+      client_model_id: "",
+      label: "",
+      effort_tier: "core",
+      connection_mode: "role_clone",
+      route_via_role: "coder-core",
+      standalone_provider: "",
+      standalone_endpoint: "",
+      standalone_api_key_env: "",
+      backend_model_override: "",
+      expose_planner: true,
+      expose_yarn: true,
+    });
+  };
+
+  const openNewModelModal = () => {
+    setNewModelError(null);
+    createOfferingMut.reset();
+    resetNewOffering();
+    setNewModelOpen(true);
+  };
+
+  const closeNewModelModal = () => {
+    setNewModelOpen(false);
+    setNewModelError(null);
+    createOfferingMut.reset();
+  };
+
+  const handleCreateNewModel = () => {
+    const clientModelId = newOffering.client_model_id.trim();
+    if (!clientModelId) {
+      setNewModelError("Model name is required.");
+      return;
+    }
+    const mode = newOffering.connection_mode;
+    if (mode === "standalone" && newOffering.expose_yarn) {
+      if (!newOffering.standalone_provider.trim()) {
+        setNewModelError("Standalone Yarn mode requires a provider key.");
+        return;
+      }
+      if (!newOffering.standalone_endpoint.trim()) {
+        setNewModelError("Standalone Yarn mode requires an endpoint.");
+        return;
+      }
+      if (!newOffering.standalone_api_key_env.trim()) {
+        setNewModelError("Standalone Yarn mode requires an API key env var name.");
+        return;
+      }
+    }
+    setNewModelError(null);
+    createOfferingMut.mutate(
+      {
+        client_model_id: clientModelId,
+        label: newOffering.label.trim() || null,
+        effort_tier: newOffering.effort_tier,
+        connection_mode: mode,
+        route_via_role: mode === "role_clone" ? newOffering.route_via_role : null,
+        standalone_provider: mode === "standalone" ? (newOffering.standalone_provider.trim() || null) : null,
+        standalone_endpoint: mode === "standalone" ? (newOffering.standalone_endpoint.trim() || null) : null,
+        standalone_api_key_env: mode === "standalone" ? (newOffering.standalone_api_key_env.trim() || null) : null,
+        backend_model_override: newOffering.backend_model_override.trim() || null,
+        expose_planner: newOffering.expose_planner,
+        expose_yarn: newOffering.expose_yarn,
+      },
+      {
+        onSuccess: () => {
+          closeNewModelModal();
+          resetNewOffering();
+        },
+        onError: (err) => {
+          setNewModelError((err as Error)?.message || "Create failed");
+        },
+      },
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -535,7 +760,8 @@ export default function ModelRegistry() {
           The <strong>canonical mapping</strong> table is one row per internal role (e.g.{" "}
           <span className="font-mono text-xs">general-core</span>, <span className="font-mono text-xs">coder-pulse</span>
           ). Multiple roles can point at the same provider/model — you do not need a separate physical deployment per
-          role. Extra client-visible model names below add aliases (e.g. for Open WebUI) without renaming those roles.
+          role. Extra client-visible model names below can either clone canonical role routing or use standalone Yarn
+          connection details, without renaming those roles.
         </p>
       </div>
 
@@ -556,11 +782,23 @@ export default function ModelRegistry() {
 
           <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
             <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Canonical mapping</h2>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Each role is how Yarn, Planner, and LiteLLM identify a slot. Assign the same upstream model to several
-                roles when it should serve more than one slot.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Canonical mapping</h2>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Each role is how Yarn, Planner, and LiteLLM identify a slot. Assign the same upstream model to several
+                    roles when it should serve more than one slot.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openNewModelModal}
+                  className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  New Model
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-xs">
@@ -682,111 +920,25 @@ export default function ModelRegistry() {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Extra model names</h2>
             <p className="mt-1 max-w-3xl text-xs text-gray-500 dark:text-gray-400">
               Add additional <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">model</code> strings clients can
-              select (e.g. <span className="font-mono">kimi</span>, <span className="font-mono">minimax</span>). Each
-              entry uses the <strong>wire model</strong> you set (or the deployment’s model if left blank) and inherits
-              <strong> base URL and API keys</strong> from one of the coder assignments above — without renaming
-              pulse/core/horizon themselves.
+              select (e.g. <span className="font-mono">kimi</span>, <span className="font-mono">minimax</span>). Choose
+              whether each entry clones a canonical role connection or has standalone Yarn connection details. Planner
+              uses its global gateway and optional wire-model override.
             </p>
           </div>
         </div>
 
-        <div className="mt-4 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900/50 dark:bg-indigo-950/20">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900/50 dark:bg-indigo-950/20 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-indigo-900 dark:text-indigo-200">
+            Add a new client-selectable model name for Yarn, Planner, or both without changing pulse/core/horizon.
+          </p>
+          <button
+            type="button"
+            onClick={openNewModelModal}
+            className="inline-flex items-center justify-center gap-1 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+          >
             <Plus className="h-3.5 w-3.5" />
-            Add model (platform admin)
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <input
-              className="rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
-              placeholder="Model id (e.g. kimi, qwen-pro)"
-              value={newOffering.client_model_id}
-              onChange={(e) => setNewOffering({ ...newOffering, client_model_id: e.target.value })}
-            />
-            <input
-              className="rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
-              placeholder="Label (shown in UIs)"
-              value={newOffering.label}
-              onChange={(e) => setNewOffering({ ...newOffering, label: e.target.value })}
-            />
-            <input
-              className="rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
-              placeholder="Wire model / LiteLLM id (optional if same as deployment)"
-              value={newOffering.backend_model_override}
-              onChange={(e) => setNewOffering({ ...newOffering, backend_model_override: e.target.value })}
-            />
-          </div>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-              <span className="shrink-0">Use connection from</span>
-              <select
-                className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
-                value={newOffering.route_via_role}
-                onChange={(e) =>
-                  setNewOffering({
-                    ...newOffering,
-                    route_via_role: e.target.value as (typeof ROUTE_VIA_OPTIONS)[number]["value"],
-                  })
-                }
-              >
-                {ROUTE_VIA_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.short} deployment
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-1 text-xs">
-              <input
-                type="checkbox"
-                checked={newOffering.expose_planner}
-                onChange={(e) => setNewOffering({ ...newOffering, expose_planner: e.target.checked })}
-              />
-              Planner / chat
-            </label>
-            <label className="flex items-center gap-1 text-xs">
-              <input
-                type="checkbox"
-                checked={newOffering.expose_yarn}
-                onChange={(e) => setNewOffering({ ...newOffering, expose_yarn: e.target.checked })}
-              />
-              Yarn / coder
-            </label>
-            <button
-              type="button"
-              disabled={createOfferingMut.isPending || !newOffering.client_model_id.trim()}
-              onClick={() => {
-                createOfferingMut.mutate(
-                  {
-                    client_model_id: newOffering.client_model_id.trim(),
-                    label: newOffering.label.trim() || null,
-                    route_via_role: newOffering.route_via_role,
-                    backend_model_override: newOffering.backend_model_override.trim() || null,
-                    expose_planner: newOffering.expose_planner,
-                    expose_yarn: newOffering.expose_yarn,
-                  },
-                  {
-                    onSuccess: () =>
-                      setNewOffering({
-                        client_model_id: "",
-                        label: "",
-                        route_via_role: "coder-core",
-                        backend_model_override: "",
-                        expose_planner: true,
-                        expose_yarn: true,
-                      }),
-                  },
-                );
-              }}
-              className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 sm:ml-auto"
-            >
-              {createOfferingMut.isPending ? "Adding…" : "Add model"}
-            </button>
-          </div>
-          {createOfferingMut.isError && (
-            <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-              {(createOfferingMut.error as Error)?.message ?? "Create failed"}
-            </p>
-          )}
+            New Model
+          </button>
         </div>
 
         {publicOfferingsLoading ? (
@@ -808,6 +960,18 @@ export default function ModelRegistry() {
         )}
       </div>
 
+      {newModelOpen && (
+        <NewPublicOfferingModal
+          draft={newOffering}
+          setDraft={setNewOffering}
+          providers={providers}
+          isSaving={createOfferingMut.isPending}
+          error={newModelError || (createOfferingMut.isError ? ((createOfferingMut.error as Error)?.message ?? "Create failed") : null)}
+          onClose={closeNewModelModal}
+          onSubmit={handleCreateNewModel}
+        />
+      )}
+
       {/* Edit / Assign modal */}
       {editing && (
         <EditModal
@@ -824,6 +988,221 @@ export default function ModelRegistry() {
         />
       )}
 
+    </div>
+  );
+}
+
+function NewPublicOfferingModal({
+  draft,
+  setDraft,
+  providers,
+  isSaving,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  draft: NewOfferingDraft;
+  setDraft: (next: NewOfferingDraft) => void;
+  providers: Record<string, ProviderInfo>;
+  isSaving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const isStandalone = draft.connection_mode === "standalone";
+  const providerKeys = useMemo(
+    () => Object.keys(providers).sort((a, b) => a.localeCompare(b)),
+    [providers],
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">New Model</h2>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Add a client-selectable model name without changing canonical pulse/core/horizon roles.
+          </p>
+        </div>
+        <div className="space-y-3 px-5 py-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-gray-600 dark:text-gray-400">
+              Name (client model id)
+              <input
+                autoFocus
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={draft.client_model_id}
+                onChange={(e) => setDraft({ ...draft, client_model_id: e.target.value })}
+                placeholder="e.g. xiaomi-2.5, qwen3.6-pro"
+              />
+            </label>
+            <label className="block text-xs text-gray-600 dark:text-gray-400">
+              Label (optional)
+              <input
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={draft.label}
+                onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+                placeholder="Friendly display name"
+              />
+            </label>
+          </div>
+
+          <label className="block text-xs text-gray-600 dark:text-gray-400">
+            Wire model / LiteLLM model id (optional)
+            <input
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+              value={draft.backend_model_override}
+              onChange={(e) => setDraft({ ...draft, backend_model_override: e.target.value })}
+              placeholder="If empty, uses deployment model (role clone) or model name (standalone)"
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-gray-600 dark:text-gray-400">
+              Behavior profile
+              <select
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={draft.effort_tier}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    effort_tier: e.target.value as NewOfferingDraft["effort_tier"],
+                  })
+                }
+              >
+                {EFFORT_PROFILE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.short}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs text-gray-600 dark:text-gray-400">
+              Connection mode
+              <select
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={draft.connection_mode}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    connection_mode: e.target.value as OfferingConnectionMode,
+                  })
+                }
+              >
+                {CONNECTION_MODE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.short}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {isStandalone ? (
+            <div className="rounded border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+              <p className="mb-2 text-xs font-medium text-indigo-900 dark:text-indigo-200">
+                Standalone Yarn connection fields
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs text-gray-600 dark:text-gray-400">
+                  Provider
+                  <select
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+                    value={draft.standalone_provider}
+                    onChange={(e) => setDraft({ ...draft, standalone_provider: e.target.value })}
+                  >
+                    <option value="">Select provider</option>
+                    {providerKeys.map((k) => (
+                      <option key={k} value={k}>
+                        {providers[k]?.label ?? k}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs text-gray-600 dark:text-gray-400">
+                  API key env var
+                  <input
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                    value={draft.standalone_api_key_env}
+                    onChange={(e) => setDraft({ ...draft, standalone_api_key_env: e.target.value })}
+                    placeholder="OPENROUTER_API_KEY"
+                  />
+                </label>
+              </div>
+              <label className="mt-2 block text-xs text-gray-600 dark:text-gray-400">
+                Endpoint
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.standalone_endpoint}
+                  onChange={(e) => setDraft({ ...draft, standalone_endpoint: e.target.value })}
+                  placeholder="https://api.provider.com/v1"
+                />
+              </label>
+              <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                Planner continues to use its global LiteLLM gateway; standalone provider/endpoint/key apply to Yarn.
+              </p>
+            </div>
+          ) : (
+            <label className="block text-xs text-gray-600 dark:text-gray-400">
+              Use connection from canonical role
+              <select
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={draft.route_via_role}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    route_via_role: e.target.value as NewOfferingDraft["route_via_role"],
+                  })
+                }
+              >
+                {ROUTE_VIA_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.short}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <div className="flex flex-wrap gap-3 text-xs">
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={draft.expose_yarn}
+                onChange={(e) => setDraft({ ...draft, expose_yarn: e.target.checked })}
+              />
+              Expose in Yarn / Coder
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={draft.expose_planner}
+                onChange={(e) => setDraft({ ...draft, expose_planner: e.target.checked })}
+              />
+              Expose in Planner / Chat
+            </label>
+          </div>
+
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-gray-200 px-5 py-3 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={onSubmit}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isSaving ? "Creating..." : "Create model"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

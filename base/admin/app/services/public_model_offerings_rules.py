@@ -8,6 +8,8 @@ VALID_EFFORT_TIERS = frozenset({"pulse", "core", "horizon"})
 
 ROUTE_VIA_CODER_ROLES = frozenset({"coder-pulse", "coder-core", "coder-horizon"})
 
+VALID_CONNECTION_MODES = frozenset({"role_clone", "standalone"})
+
 RESERVED_CLIENT_MODEL_IDS = frozenset(
     {
         "auto",
@@ -78,6 +80,13 @@ def validate_route_via_role(role: str) -> str:
     return r
 
 
+def validate_connection_mode(mode: str) -> str:
+    m = (mode or "").strip().lower()
+    if m not in VALID_CONNECTION_MODES:
+        raise ValueError("connection_mode must be one of: role_clone, standalone")
+    return m
+
+
 def normalize_route_and_effort(
     effort_tier: str | None,
     route_via_role: str | None,
@@ -97,6 +106,58 @@ def normalize_route_and_effort(
     raise ValueError(
         "Set route_via_role (coder-pulse, coder-core, coder-horizon) or effort_tier (pulse, core, horizon)"
     )
+
+
+def normalize_offering_connection(
+    *,
+    effort_tier: str | None,
+    route_via_role: str | None,
+    connection_mode: str | None,
+    standalone_provider: str | None,
+    standalone_endpoint: str | None,
+    standalone_api_key_env: str | None,
+    expose_yarn: bool,
+) -> tuple[str, str | None, str, str | None, str | None, str | None]:
+    """Normalize public-offering routing fields.
+
+    Returns:
+      (effort_tier, route_via_role, connection_mode,
+       standalone_provider, standalone_endpoint, standalone_api_key_env)
+    """
+    mode = validate_connection_mode(connection_mode or "role_clone")
+    provider = (standalone_provider or "").strip().lower() or None
+    endpoint = (standalone_endpoint or "").strip() or None
+    api_key_env = (standalone_api_key_env or "").strip() or None
+
+    if mode == "role_clone":
+        effort, route = normalize_route_and_effort(effort_tier, route_via_role)
+        return effort, route, mode, None, None, None
+
+    # standalone
+    if effort_tier:
+        effort = validate_effort_tier(effort_tier)
+    elif route_via_role:
+        route = validate_route_via_role(route_via_role)
+        effort = route.removeprefix("coder-")
+        if effort not in VALID_EFFORT_TIERS:
+            raise ValueError("invalid route_via_role suffix")
+    else:
+        raise ValueError("effort_tier is required for standalone connection_mode")
+
+    if expose_yarn:
+        missing: list[str] = []
+        if not provider:
+            missing.append("standalone_provider")
+        if not endpoint:
+            missing.append("standalone_endpoint")
+        if not api_key_env:
+            missing.append("standalone_api_key_env")
+        if missing:
+            raise ValueError(
+                "standalone offerings exposed to yarn require: " + ", ".join(missing)
+            )
+
+    return effort, None, mode, provider, endpoint, api_key_env
 
 
 def effort_to_coder_role(effort: str) -> str:
