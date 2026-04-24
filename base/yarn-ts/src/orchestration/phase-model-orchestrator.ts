@@ -1,3 +1,5 @@
+import { normalizeOpenAICompatTierModelId } from "../providers/admin-tier-registry.js";
+
 export type WorkflowPhase = "explore" | "planning" | "implementation" | "validation";
 export type EffortTier = "synesis-pulse" | "synesis-core" | "synesis-horizon";
 export type DecisionPath = "deterministic" | "constrained" | "inference_first" | "abstain";
@@ -87,14 +89,8 @@ export interface ResolvedExplicitTier {
   reason: ResolvedExplicitTierReason;
 }
 
+/** Only aliases not covered by `normalizeOpenAICompatTierModelId` + `SYNESIS_TIER_IDS` (orchestrator tiers). */
 const SHORT_TIER_ALIASES: Record<string, EffortTier> = {
-  pulse: "synesis-pulse",
-  core: "synesis-core",
-  horizon: "synesis-horizon",
-  /** Matches Admin role ids (`coder-pulse` / `coder-core` / `coder-horizon`) for `/model` in Claude Code and other clients. */
-  "coder-pulse": "synesis-pulse",
-  "coder-core": "synesis-core",
-  "coder-horizon": "synesis-horizon",
   compaction: "synesis-compaction" as EffortTier,
 };
 
@@ -104,7 +100,8 @@ const SHORT_TIER_ALIASES: Record<string, EffortTier> = {
  *
  * Precedence:
  * 1. Exact `synesis-pulse` | `synesis-core` | `synesis-horizon`
- * 1b. Short aliases: `pulse` | `core` | `horizon` | `coder-pulse` | `coder-core` | `coder-horizon` | `compaction`
+ * 1b. Short aliases / path suffixes via `normalizeOpenAICompatTierModelId` (e.g. `core`, `vendor/core`, `coder-core`)
+ * 1c. `compaction` → compaction tier (orchestrator extension)
  * 2. Substring keys from `extraMap` (SYNESIS_YARN_CLAUDE_TIER_MAP), longest key first
  * 3. Built-in Claude family substrings: opus → horizon, sonnet → core, haiku → pulse
  * 4. Word-boundary aliases: tiny/small → pulse, medium/balanced → core, large → horizon
@@ -116,8 +113,9 @@ export function resolveExplicitTierFromRequestedModel(
   const raw = (requestedModel ?? "").trim();
   if (!raw) return null;
 
-  if (SYNESIS_TIER_IDS.has(raw as EffortTier)) {
-    return { tier: raw as EffortTier, reason: "synesis_exact" };
+  const normalizedCanon = normalizeOpenAICompatTierModelId(raw);
+  if (SYNESIS_TIER_IDS.has(normalizedCanon as EffortTier)) {
+    return { tier: normalizedCanon as EffortTier, reason: "synesis_exact" };
   }
 
   const m = raw.toLowerCase();

@@ -1,6 +1,6 @@
 import { customProvider } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { TierConfig } from "./admin-tier-registry.js";
+import { normalizeOpenAICompatTierModelId, type TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
 import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
@@ -63,16 +63,28 @@ export class SynesisProviderRegistry {
   }
 
   getAvailableModels(): Array<{ id: string; object: "model"; owned_by: string; created: number }> {
-    const models = Array.from(this.tierMap.keys()).map((id) => ({
+    const fromMap = Array.from(this.tierMap.keys());
+    const shortIds: string[] = [];
+    for (const s of ["pulse", "core", "horizon", "compaction"]) {
+      const canon = normalizeOpenAICompatTierModelId(s);
+      if (this.tierMap.has(canon)) shortIds.push(s);
+    }
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    const push = (id: string) => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      ids.push(id);
+    };
+    push("auto");
+    for (const id of shortIds.sort((a, b) => a.localeCompare(b))) push(id);
+    for (const id of fromMap.sort((a, b) => a.localeCompare(b))) push(id);
+    return ids.map((id) => ({
       id,
       object: "model" as const,
       owned_by: "synesis",
-      created: 1704067200
+      created: 1704067200,
     }));
-    return [
-      { id: "auto", object: "model" as const, owned_by: "synesis", created: 1704067200 },
-      ...models,
-    ];
   }
 
   resolve(
@@ -81,7 +93,13 @@ export class SynesisProviderRegistry {
     /** @deprecated ignored — DashScope explicit cache removed; kept for call-site compatibility. */
     _dashScopeCache?: DashScopeCacheOpts,
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
-    const selected = this.tierMap.get(modelId) ?? this.tierMap.get(fallbackModelId);
+    const primary = normalizeOpenAICompatTierModelId(modelId);
+    const fallback = normalizeOpenAICompatTierModelId(fallbackModelId);
+    const selected =
+      this.tierMap.get(primary)
+      ?? this.tierMap.get(modelId)
+      ?? this.tierMap.get(fallback)
+      ?? this.tierMap.get(fallbackModelId);
     if (!selected) {
       throw new Error(`No tier config available for ${modelId} or fallback ${fallbackModelId}`);
     }
@@ -117,7 +135,8 @@ export class SynesisProviderRegistry {
   }
 
   getTierConfig(modelId: string): TierConfig | undefined {
-    return this.tierMap.get(modelId);
+    const normalized = normalizeOpenAICompatTierModelId(modelId);
+    return this.tierMap.get(normalized) ?? this.tierMap.get(modelId);
   }
 
   resolveAdHoc(

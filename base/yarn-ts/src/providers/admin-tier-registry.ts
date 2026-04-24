@@ -126,6 +126,51 @@ export const TIER_TO_ROLE: Record<TierId, string> = {
   "synesis-compaction": "coder-compaction",
 };
 
+/** Canonical tier ids registered in the admin model registry / Yarn tier map. */
+export const CANONICAL_SYNESIS_TIER_IDS: readonly TierId[] = [
+  "synesis-pulse",
+  "synesis-core",
+  "synesis-horizon",
+  "synesis-compaction",
+];
+
+const CANONICAL_SYNESIS_TIER_ID_SET = new Set<string>(CANONICAL_SYNESIS_TIER_IDS);
+
+/**
+ * Short names and role-style ids accepted on OpenAI-compatible `model` (and listed on `/v1/models`).
+ * Maps to registry tier ids: `pulse` ↔ `synesis-pulse`, etc.
+ */
+export const OPENAI_COMPAT_TIER_ALIASES: Record<string, TierId> = {
+  pulse: "synesis-pulse",
+  core: "synesis-core",
+  horizon: "synesis-horizon",
+  compaction: "synesis-compaction",
+  ...ROLE_TO_TIER,
+};
+
+/**
+ * Normalize client `model` strings so short tier names and path suffixes resolve to registry tier ids.
+ * Examples: `core` → `synesis-core`, `OpenAI/core` → `synesis-core`, `synesis-horizon` unchanged.
+ * Unknown vendor strings are returned as-is.
+ */
+export function normalizeOpenAICompatTierModelId(modelId: string): string {
+  const raw = (modelId ?? "").trim();
+  if (!raw) return raw;
+  const lower = raw.toLowerCase();
+  if (CANONICAL_SYNESIS_TIER_ID_SET.has(lower)) return lower;
+  const mapped = OPENAI_COMPAT_TIER_ALIASES[lower];
+  if (mapped) return mapped;
+  if (lower.includes("/")) {
+    const seg = lower.split("/").pop() ?? lower;
+    if (seg !== lower) {
+      if (CANONICAL_SYNESIS_TIER_ID_SET.has(seg)) return seg;
+      const segMapped = OPENAI_COMPAT_TIER_ALIASES[seg];
+      if (segMapped) return segMapped;
+    }
+  }
+  return raw;
+}
+
 const PROVIDER_BASE_URLS: Record<string, string> = {
   openrouter: "https://openrouter.ai/api/v1",
   deepinfra: "https://api.deepinfra.com/v1/openai",

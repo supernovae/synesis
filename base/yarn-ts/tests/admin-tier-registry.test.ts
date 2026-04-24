@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchTierConfigs } from "../src/providers/admin-tier-registry.js";
+import { fetchTierConfigs, normalizeOpenAICompatTierModelId } from "../src/providers/admin-tier-registry.js";
 import type { AppConfig } from "../src/config.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -203,5 +203,24 @@ describe("fetchTierConfigs", () => {
       repetition_penalty: 1,
       enable_thinking: true,
     });
+  });
+});
+
+describe("normalizeOpenAICompatTierModelId", () => {
+  it("maps short and canonical synesis tier names", () => {
+    expect(normalizeOpenAICompatTierModelId("core")).toBe("synesis-core");
+    expect(normalizeOpenAICompatTierModelId("pulse")).toBe("synesis-pulse");
+    expect(normalizeOpenAICompatTierModelId("horizon")).toBe("synesis-horizon");
+    expect(normalizeOpenAICompatTierModelId("synesis-core")).toBe("synesis-core");
+    expect(normalizeOpenAICompatTierModelId("Coder-Core")).toBe("synesis-core");
+  });
+
+  it("maps the last slash segment", () => {
+    expect(normalizeOpenAICompatTierModelId("openai/core")).toBe("synesis-core");
+    expect(normalizeOpenAICompatTierModelId("x/y/synesis-pulse")).toBe("synesis-pulse");
+  });
+
+  it("passes through unknown vendor ids", () => {
+    expect(normalizeOpenAICompatTierModelId("gpt-4.1")).toBe("gpt-4.1");
   });
 });

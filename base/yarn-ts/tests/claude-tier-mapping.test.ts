@@ -63,6 +63,11 @@ describe("resolveExplicitTierFromRequestedModel", () => {
     });
   });
 
+  it("maps last path segment to tier (OpenAI-style model paths)", () => {
+    expect(resolveExplicitTierFromRequestedModel("acme/core")?.tier).toBe("synesis-core");
+    expect(resolveExplicitTierFromRequestedModel("vendor/synesis-horizon")?.tier).toBe("synesis-horizon");
+  });
+
   it("returns null when no match", () => {
     expect(resolveExplicitTierFromRequestedModel("gpt-4")).toBeNull();
     expect(resolveExplicitTierFromRequestedModel("")).toBeNull();
