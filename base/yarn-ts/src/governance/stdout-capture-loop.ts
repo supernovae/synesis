@@ -21,8 +21,17 @@ const OUTPUT_CAPTURE_WRAPPERS = [
   /\s*\|\s*tail\s+-\d+\s*$/,
   /\s*\|\s*head\s+-n\s*\d+\s*$/,
   /\s*\|\s*tail\s+-n\s*\d+\s*$/,
+  /\s*\|\s*sed\s+-n\s+['"][^'"]+['"]\s*$/,
+  /\s*\|\s*awk\s+['"][^'"]+['"]\s*$/,
+  /\s*\|\s*rg\s+-n\s+['"][^'"]+['"]\s*$/,
   /\s*>\s*\S+\s*2>&1\s*;\s*(echo\s+"[^"]*"\s*;\s*)?cat\s+\S+\s*$/,
   /\s*>\s*\S+\s*2>&1\s*;\s*head\s+-\d+\s+\S+\s*$/,
+  /\s*>\s*\S+\s*2>&1\s*;\s*tail\s+-\d+\s+\S+\s*$/,
+  /\s*>\s*\S+\s*2>&1\s*;\s*tail\s+-n\s*\d+\s+\S+\s*$/,
+  /\s*>\s*\S+\s*2>&1\s*;\s*sed\s+-n\s+['"][^'"]+['"]\s+\S+\s*$/,
+  /\s*>\s*\S+\s*2>&1\s*;\s*rg\s+-n\s+['"][^'"]+['"]\s+\S+\s*$/,
+  /\s*2>&1\s*\|\s*tee\s+\S+\s*\|\s*tail\s+-\d+\s*$/,
+  /\s*2>&1\s*\|\s*tee\s+\S+\s*\|\s*tail\s+-n\s*\d+\s*$/,
   /\s*2>&1\s*$/,
   /\s*-v\s+2>&1\s*$/,
 ];
@@ -44,6 +53,11 @@ function extractBaseCommand(cmd: string): string {
   base = base.replace(/\s+-count=\d+/g, "");
   base = base.replace(/\s+-timeout=\S+/g, "");
   return base.trim();
+}
+
+function isLikelyHighOutputCommand(baseCommand: string): boolean {
+  const cmd = baseCommand.toLowerCase();
+  return /\b(go test|go build|go vet|npm test|pnpm test|yarn test|pytest|vitest|jest|cargo test|cargo build|mvn|gradle|ruff|eslint|tsc|docker build|podman build|kubectl logs|oc logs|git log|npm install|pnpm install|yarn install)\b/.test(cmd);
 }
 
 export interface StdoutCaptureLoopResult {
@@ -90,6 +104,10 @@ export function detectStdoutCaptureLoop(
     const uniqueVariants = new Set(variants);
     if (uniqueVariants.size < 2) continue;
 
+    const likelyHighOutput = isLikelyHighOutputCommand(base);
+    const commandHint = likelyHighOutput
+      ? `For this command family, always capture once to a stable file and inspect slices from that file.`
+      : `Capture once to a stable file and inspect slices from that file instead of re-running.`;
     return {
       detected: true,
       baseCommand: base,
@@ -99,9 +117,12 @@ export function detectStdoutCaptureLoop(
         `The command \`${base}\` has been run ${variants.length} times with different output-capture strategies.`,
         `The client is truncating stdout — retrying the same command with | cat, | tee, or | head will not recover the missing output.`,
         ``,
+        commandHint,
+        ``,
         `Instead, redirect output to a temp file and read the relevant section:`,
         `  ${base} > /tmp/_test_out.txt 2>&1; echo "EXIT:$?"; tail -80 /tmp/_test_out.txt`,
         ``,
+        `If you need specific failures, run: rg -n "error|fail|panic|exception|traceback" /tmp/_test_out.txt`,
         `If you need the full output, use the Read/cat tool on /tmp/_test_out.txt afterward.`,
         `Do NOT re-run the command with another pipe variant.`,
         `</SYNESIS_OUTPUT_CAPTURE_HINT>`,

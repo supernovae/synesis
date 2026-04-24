@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRetrievalPolicyToolPromptFragment,
+  buildStdoutEfficiencyToolPromptFragment,
   mergeToolSystemPrompts,
 } from "../src/retrieval-tool-policy.js";
 
@@ -22,9 +23,27 @@ describe("retrieval-tool-policy", () => {
     expect(fragment).toContain("fetch_pages");
   });
 
+  it("returns stdout efficiency policy when shell tool is present", () => {
+    const fragment = buildStdoutEfficiencyToolPromptFragment([
+      { type: "function", function: { name: "Bash", description: "x" } },
+    ]);
+    expect(fragment).toContain("Shell output efficiency");
+    expect(fragment).toContain("/tmp/_synesis_cmd_out.txt");
+    expect(fragment).toContain("Do NOT re-run the same command");
+  });
+
+  it("returns no stdout efficiency policy when shell tools are absent", () => {
+    expect(buildStdoutEfficiencyToolPromptFragment([])).toBeUndefined();
+    expect(
+      buildStdoutEfficiencyToolPromptFragment([
+        { type: "function", function: { name: "Read", description: "x" } },
+      ]),
+    ).toBeUndefined();
+  });
+
   it("mergeToolSystemPrompts combines adapter and retrieval fragments", () => {
-    const merged = mergeToolSystemPrompts("Adapter line.", "Retrieval line.");
-    expect(merged).toBe("Adapter line.\n\nRetrieval line.");
+    const merged = mergeToolSystemPrompts("Adapter line.", "Retrieval line.", "Stdout line.");
+    expect(merged).toBe("Adapter line.\n\nRetrieval line.\n\nStdout line.");
   });
 
   it("mergeToolSystemPrompts returns undefined when both empty", () => {

@@ -176,7 +176,11 @@ import {
   extractToolSchemaName,
   pruneToolSchemas,
 } from "./compat/tool-schema-pruning.js";
-import { buildRetrievalPolicyToolPromptFragment, mergeToolSystemPrompts } from "./retrieval-tool-policy.js";
+import {
+  buildRetrievalPolicyToolPromptFragment,
+  buildStdoutEfficiencyToolPromptFragment,
+  mergeToolSystemPrompts,
+} from "./retrieval-tool-policy.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
@@ -8633,6 +8637,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const modelToolPrompt = mergeToolSystemPrompts(
     adapter.toolSystemPrompt?.(effectiveTools.length),
     buildRetrievalPolicyToolPromptFragment(effectiveTools as unknown[]),
+    buildStdoutEfficiencyToolPromptFragment(effectiveTools as unknown[]),
   );
   let modelMessages = modelToolPrompt
     ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
@@ -11926,6 +11931,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeModelToolPrompt = mergeToolSystemPrompts(
     claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length),
     buildRetrievalPolicyToolPromptFragment(effectiveClaudeTools as unknown[]),
+    buildStdoutEfficiencyToolPromptFragment(effectiveClaudeTools as unknown[]),
   );
   let claudeModelMessages = claudeModelToolPrompt
     ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)
