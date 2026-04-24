@@ -6751,6 +6751,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const request = parsed.data;
   const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+
+  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+    const rawMsgs = request.messages as Array<Record<string, unknown>>;
+    const assistantSample = rawMsgs.filter((m) => m.role === "assistant").slice(0, 3).map((m) => ({
+      keys: Object.keys(m),
+      hasToolCalls: "tool_calls" in m,
+      hasFunctionCall: "function_call" in m,
+      hasToolCallsCamel: "toolCalls" in m,
+      contentType: typeof m.content,
+      contentIsArray: Array.isArray(m.content),
+      contentSnippet: typeof m.content === "string" ? m.content.slice(0, 150) : Array.isArray(m.content) ? JSON.stringify(m.content).slice(0, 150) : String(m.content).slice(0, 80),
+      toolCallsValue: m.tool_calls ? JSON.stringify(m.tool_calls).slice(0, 200) : undefined,
+    }));
+    const toolSample = rawMsgs.filter((m) => m.role === "tool").slice(0, 2).map((m) => ({
+      keys: Object.keys(m),
+      tool_call_id: m.tool_call_id,
+      contentSnippet: typeof m.content === "string" ? m.content.slice(0, 100) : String(m.content).slice(0, 100),
+    }));
+    app.log.info({ reqId: oaiTraceReqId, assistantSample, toolSample }, "raw_message_shape_diagnostic");
+  }
+
   const oaiTaskCue = extractLatestUserPromptFromMessages(request.messages as Array<{ role: string; content: unknown }>);
   const oaiOptLedger = new OptimizationLedger();
   oaiOptLedger.recordOriginal(request.messages as Array<{ content?: unknown }>);
