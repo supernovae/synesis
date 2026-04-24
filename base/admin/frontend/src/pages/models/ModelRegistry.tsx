@@ -1014,6 +1014,36 @@ function NewPublicOfferingModal({
     () => Object.keys(providers).sort((a, b) => a.localeCompare(b)),
     [providers],
   );
+  const selectedProvider = providers[draft.standalone_provider];
+
+  const handleStandaloneProviderChange = (nextProvider: string) => {
+    const prevProvider = providers[draft.standalone_provider];
+    const prevDefaultEndpoint = (prevProvider?.default_endpoint ?? "").trim();
+    const prevDefaultKeyEnv = (prevProvider?.api_key_env ?? "").trim();
+    const nextInfo = providers[nextProvider];
+    const nextDefaultEndpoint = (nextInfo?.default_endpoint ?? "").trim();
+    const nextDefaultKeyEnv = (nextInfo?.api_key_env ?? "").trim();
+
+    const endpointCurrent = draft.standalone_endpoint.trim();
+    const keyEnvCurrent = draft.standalone_api_key_env.trim();
+
+    // Auto-fill from provider defaults, but preserve explicit manual overrides.
+    const nextEndpoint =
+      endpointCurrent === "" || endpointCurrent === prevDefaultEndpoint
+        ? nextDefaultEndpoint
+        : draft.standalone_endpoint;
+    const nextKeyEnv =
+      keyEnvCurrent === "" || keyEnvCurrent === prevDefaultKeyEnv
+        ? nextDefaultKeyEnv
+        : draft.standalone_api_key_env;
+
+    setDraft({
+      ...draft,
+      standalone_provider: nextProvider,
+      standalone_endpoint: nextEndpoint,
+      standalone_api_key_env: nextKeyEnv,
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1109,7 +1139,7 @@ function NewPublicOfferingModal({
                   <select
                     className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
                     value={draft.standalone_provider}
-                    onChange={(e) => setDraft({ ...draft, standalone_provider: e.target.value })}
+                    onChange={(e) => handleStandaloneProviderChange(e.target.value)}
                   >
                     <option value="">Select provider</option>
                     {providerKeys.map((k) => (
@@ -1125,7 +1155,7 @@ function NewPublicOfferingModal({
                     className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
                     value={draft.standalone_api_key_env}
                     onChange={(e) => setDraft({ ...draft, standalone_api_key_env: e.target.value })}
-                    placeholder="OPENROUTER_API_KEY"
+                    placeholder={selectedProvider?.api_key_env || "OPENROUTER_API_KEY"}
                   />
                 </label>
               </div>
@@ -1135,7 +1165,7 @@ function NewPublicOfferingModal({
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
                   value={draft.standalone_endpoint}
                   onChange={(e) => setDraft({ ...draft, standalone_endpoint: e.target.value })}
-                  placeholder="https://api.provider.com/v1"
+                  placeholder={selectedProvider?.default_endpoint || "https://api.provider.com/v1"}
                 />
               </label>
               <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
