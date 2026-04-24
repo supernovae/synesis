@@ -116,6 +116,18 @@ function extractLoosePatterns(text: string, meta: ClientMetadata): void {
     if (wsMatch) meta.workspacePath = wsMatch[1].trim();
   }
 
+  // opencode: "Workspace root folder: /path/to/root"
+  if (!meta.workspacePath) {
+    const rootMatch = text.match(/Workspace root folder:\s*(.+)/i);
+    if (rootMatch) meta.workspacePath = rootMatch[1].trim();
+  }
+
+  // opencode: "Working directory: /path/to/dir" → shellCwd (may differ from workspace root)
+  if (!meta.shellCwd) {
+    const cwdMatch = text.match(/Working directory:\s*(.+)/i);
+    if (cwdMatch) meta.shellCwd = cwdMatch[1].trim();
+  }
+
   if (!meta.osVersion) {
     const osMatch = text.match(/OS Version:\s*(.+)/i);
     if (osMatch) {
@@ -123,6 +135,12 @@ function extractLoosePatterns(text: string, meta: ClientMetadata): void {
       const parts = meta.osVersion.split(/\s+/);
       if (parts.length > 0) meta.platform = parts[0];
     }
+  }
+
+  // opencode: "Platform: darwin" (bare platform without full OS version string)
+  if (!meta.platform) {
+    const platMatch = text.match(/Platform:\s*(\w+)/i);
+    if (platMatch) meta.platform = platMatch[1].trim();
   }
 
   if (!meta.shell) {
@@ -200,13 +218,19 @@ function extractOpenFiles(text: string, meta: ClientMetadata): void {
 function deriveProjectRoot(meta: ClientMetadata): void {
   if (meta.workspacePath) {
     meta.projectRoot = meta.workspacePath;
-    meta.shellCwd = meta.workspacePath;
+    if (!meta.shellCwd) meta.shellCwd = meta.workspacePath;
     return;
   }
 
   if (meta.gitRepoPath) {
     meta.projectRoot = meta.gitRepoPath;
-    meta.shellCwd = meta.gitRepoPath;
+    if (!meta.shellCwd) meta.shellCwd = meta.gitRepoPath;
+    return;
+  }
+
+  // shellCwd was set directly (e.g. opencode "Working directory:") but no workspace root
+  if (meta.shellCwd && !meta.projectRoot) {
+    meta.projectRoot = meta.shellCwd;
     return;
   }
 

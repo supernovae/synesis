@@ -35,13 +35,15 @@ export class AuthResolver {
       if (user) return user;
       throw new Error("Invalid token");
     }
+    const bearerIdentity = this.resolveBearerIdentity(token);
     return {
-      userId: "bearer-user",
+      userId: bearerIdentity.userId,
       orgId: "",
       tenantIds: [],
       role: "user",
       authMethod: "bearer",
-      tokenScopes: []
+      tokenScopes: [],
+      displayName: bearerIdentity.displayName,
     };
   }
 
@@ -81,6 +83,49 @@ export class AuthResolver {
       return crypto.createHash("sha256").update(token).digest("hex");
     }
     return crypto.createHmac("sha256", this.pepper).update(token).digest("hex");
+  }
+
+  private resolveBearerIdentity(token: string): { userId: string; displayName?: string } {
+    const payload = this.decodeJwtPayload(token);
+    if (payload) {
+      const fromEmail = this.safePayloadString(payload, ["email", "preferred_username", "upn"]);
+      const fromSub = this.safePayloadString(payload, ["sub", "user_id", "uid"]);
+      if (fromEmail) {
+        const normalized = fromEmail.toLowerCase();
+        return {
+          userId: normalized.slice(0, 200),
+          displayName: normalized,
+        };
+      }
+      if (fromSub) {
+        return { userId: fromSub.slice(0, 200) };
+      }
+    }
+
+    // Keep identity stable for non-PAT opaque bearer tokens.
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex").slice(0, 24);
+    return { userId: `bearer-${tokenHash}` };
+  }
+
+  private decodeJwtPayload(token: string): Record<string, unknown> | null {
+    if (!token.includes(".")) return null;
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf-8")) as unknown;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+      return payload as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private safePayloadString(payload: Record<string, unknown>, keys: string[]): string | null {
+    for (const key of keys) {
+      const value = payload[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
   }
 
   private async resolvePat(token: string): Promise<AuthUser | null> {

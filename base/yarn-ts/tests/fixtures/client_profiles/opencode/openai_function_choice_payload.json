@@ -10,7 +10,7 @@
   "messages": [
     {
       "role": "system",
-      "content": "Apply focused edits."
+      "content": "You are powered by the model named claude-sonnet-4-20250514. The exact model ID is anthropic/claude-sonnet-4-20250514\nHere is some useful information about the environment you are running in:\n \n Working directory: /Users/dev/projects/my-app\n Workspace root folder: /Users/dev/projects/my-app\n Is directory a git repo: yes\n Platform: darwin\n Today's date: Thu Apr 24 2026\n "
     },
     {
       "role": "user",

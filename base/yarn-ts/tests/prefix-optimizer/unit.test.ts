@@ -809,4 +809,68 @@ Today's date: Wednesday Apr 9, 2026`;
     expect(meta.shell).toBe("powershell");
     expect(meta.workspacePath).toBe("C:\\Users\\dev\\project");
   });
+
+  it("extracts opencode environment block with distinct cwd and workspace root", () => {
+    const opencodeSys = `You are powered by the model named claude-sonnet-4-20250514. The exact model ID is anthropic/claude-sonnet-4-20250514
+Here is some useful information about the environment you are running in:
+ 
+ Working directory: /Users/dev/projects/my-app/packages/api
+ Workspace root folder: /Users/dev/projects/my-app
+ Is directory a git repo: yes
+ Platform: darwin
+ Today's date: Thu Apr 24 2026
+ `;
+    const meta = extractClientMetadata(opencodeSys);
+    expect(meta.projectRoot).toBe("/Users/dev/projects/my-app");
+    expect(meta.shellCwd).toBe("/Users/dev/projects/my-app/packages/api");
+    expect(meta.platform).toBe("darwin");
+    expect(meta.gitIsRepo).toBe(true);
+    expect(meta.currentDate).toBe("Thu Apr 24 2026");
+  });
+
+  it("extracts opencode environment when cwd equals workspace root", () => {
+    const opencodeSys = `Here is some useful information about the environment you are running in:
+ 
+ Working directory: /home/user/repo
+ Workspace root folder: /home/user/repo
+ Is directory a git repo: yes
+ Platform: linux
+ Today's date: Thu Apr 24 2026
+ `;
+    const meta = extractClientMetadata(opencodeSys);
+    expect(meta.projectRoot).toBe("/home/user/repo");
+    expect(meta.shellCwd).toBe("/home/user/repo");
+    expect(meta.platform).toBe("linux");
+  });
+
+  it("extracts opencode cwd-only when workspace root is missing", () => {
+    const cwdOnly = `Working directory: /tmp/scratch
+Platform: darwin`;
+    const meta = extractClientMetadata(cwdOnly);
+    expect(meta.shellCwd).toBe("/tmp/scratch");
+    expect(meta.projectRoot).toBe("/tmp/scratch");
+    expect(meta.platform).toBe("darwin");
+  });
+
+  it("opencode Platform does not clobber OS Version when both present", () => {
+    const both = `OS Version: darwin 25.4.0
+Platform: darwin`;
+    const meta = extractClientMetadata(both);
+    expect(meta.osVersion).toBe("darwin 25.4.0");
+    expect(meta.platform).toBe("darwin");
+  });
+
+  it("extracts via extractMetadataFromMessages for opencode system messages", () => {
+    const messages = [
+      {
+        role: "system",
+        content: `You are powered by the model named gpt-4.1.\nHere is some useful information about the environment you are running in:\n \n Working directory: /Users/dev/app\n Workspace root folder: /Users/dev/app\n Is directory a git repo: yes\n Platform: darwin\n Today's date: Thu Apr 24 2026\n `,
+      },
+      { role: "user", content: "Fix the bug" },
+    ];
+    const meta = extractMetadataFromMessages(messages);
+    expect(meta.projectRoot).toBe("/Users/dev/app");
+    expect(meta.shellCwd).toBe("/Users/dev/app");
+    expect(meta.platform).toBe("darwin");
+  });
 });

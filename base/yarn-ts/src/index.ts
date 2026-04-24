@@ -4853,6 +4853,96 @@ function resolveClaudeConversationId(
   return "";
 }
 
+function headerOne(headers: Record<string, unknown>, key: string): string | null {
+  const raw = headers[key];
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (typeof entry === "string" && entry.trim()) return entry.trim();
+    }
+  }
+  return null;
+}
+
+function inferOpenAiClientKindFromUserAgent(ua: string): string | null {
+  const normalized = ua.toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("opencode")) return "opencode";
+  if (normalized.includes("roo") && normalized.includes("opencode")) return "roo-opencode";
+  if (normalized.includes("claude-code") || normalized.includes("anthropic")) return "claude-code";
+  if (normalized.includes("cursor")) return "cursor";
+  if (normalized.includes("codex")) return "codex-cli";
+  if (normalized.includes("goose")) return "goose";
+  return null;
+}
+
+function resolveOpenAiClientKind(
+  headers: Record<string, unknown>,
+  metadata: Record<string, unknown> | null,
+): string {
+  const explicit = headerOne(headers, "x-synesis-client");
+  if (explicit) return explicit;
+
+  const candidates: unknown[] = metadata
+    ? [
+        metadata.synesis_client,
+        metadata.client,
+        metadata.client_name,
+        metadata.synesis_acp_client_name,
+      ]
+    : [];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim().toLowerCase().replace(/\s+/g, "-");
+    }
+  }
+
+  const userAgent = headerOne(headers, "user-agent");
+  if (userAgent) {
+    const inferred = inferOpenAiClientKindFromUserAgent(userAgent);
+    if (inferred) return inferred;
+  }
+  return "unknown";
+}
+
+function resolveOpenAiConversationId(
+  bodyConversationId: unknown,
+  metadata: Record<string, unknown> | null,
+  headers: Record<string, unknown>,
+): string {
+  if (typeof bodyConversationId === "string" && bodyConversationId.trim()) return bodyConversationId.trim();
+
+  if (metadata) {
+    for (const key of ["synesis_conversation_id", "conversation_id", "session_id", "thread_id", "chat_id"]) {
+      const val = metadata[key];
+      if (typeof val === "string" && val.trim()) return val.trim();
+    }
+    const rawUserId = metadata.user_id;
+    if (typeof rawUserId === "string" && rawUserId.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(rawUserId) as Record<string, unknown>;
+        const nested = parsed.session_id;
+        if (typeof nested === "string" && nested.trim()) return nested.trim();
+      } catch { /* ignore malformed nested metadata */ }
+    }
+  }
+
+  for (const key of ["x-synesis-conversation-id", "x-opencode-session-id"]) {
+    const val = headerOne(headers, key);
+    if (val) return val;
+  }
+  return "";
+}
+
+function resolveOpenAiIdentityUserId(
+  requestUser: unknown,
+  authUser: { userId: string; authMethod: "pat" | "bearer" },
+): string {
+  if (authUser.authMethod === "pat") return authUser.userId;
+  if (typeof requestUser === "string" && requestUser.trim()) return requestUser.trim();
+  return authUser.userId;
+}
+
 function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
   const text = typeof userPrompt === "string" ? userPrompt.toLowerCase() : "";
   if (!text) return false;
@@ -6752,6 +6842,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const request = parsed.data;
   const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+  const oaiBodyMetaRaw = (request as Record<string, unknown>).metadata;
+  const oaiBodyMeta =
+    oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
+      ? (oaiBodyMetaRaw as Record<string, unknown>)
+      : null;
+  const oaiClientKind = resolveOpenAiClientKind(req.headers as Record<string, unknown>, oaiBodyMeta);
+  const oaiConversationId = resolveOpenAiConversationId(
+    (request as Record<string, unknown>).conversation_id,
+    oaiBodyMeta,
+    req.headers as Record<string, unknown>,
+  );
+  const oaiIdentityUserId = resolveOpenAiIdentityUserId((request as Record<string, unknown>).user, authUser);
 
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
     const rawMsgs = request.messages as Array<Record<string, unknown>>;
@@ -6816,10 +6918,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const oaiPeekWatermark = (() => {
     const id: SessionIdentity = {
-      userId: request.user || authUser.userId,
+      userId: oaiIdentityUserId,
       orgId: authUser.orgId,
-      conversationId: request.conversation_id || "",
-      clientKind: String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
+      conversationId: oaiConversationId,
+      clientKind: oaiClientKind,
       displayName: authUser.displayName,
     };
     const existingKey = `${id.userId}:${id.conversationId}:${id.clientKind}`;
@@ -6939,7 +7041,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     request.messages as Array<{ role: string; content: unknown; name?: string }>,
   );
   const adapterProfile = clientAdapterPacks.resolve(
-    String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
+    oaiClientKind,
     String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
   );
   const openClawStrictGovernance =
@@ -6949,17 +7051,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (isOpenClawProfile(adapterProfile)) {
     openClawProfileStats.requestsObserved += 1;
   }
-  const oaiBodyMetaRaw = (request as Record<string, unknown>).metadata;
-  const oaiBodyMeta =
-    oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
-      ? (oaiBodyMetaRaw as Record<string, unknown>)
-      : null;
   const oaiPathCtx = parseSessionExecutionContext(req.headers as Record<string, string | string[] | undefined>, oaiBodyMeta);
   const adapterBlock = appendPathContextToAdapterBlock(
     clientAdapterPacks.toSystemBlock(adapterProfile),
     req.headers as Record<string, string | string[] | undefined>,
     oaiBodyMeta,
-    String((req.headers["x-synesis-client"] as string | undefined) ?? ""),
+    oaiClientKind,
     { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
   );
   const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
@@ -6974,17 +7071,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
     temperature: request.temperature,
     top_p: request.top_p,
   });
-  const oaiClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown");
   const identity: SessionIdentity = {
-    userId: request.user || authUser.userId,
+    userId: oaiIdentityUserId,
     orgId: authUser.orgId,
-    conversationId: request.conversation_id || "",
+    conversationId: oaiConversationId,
     clientKind: oaiClientKind,
     displayName: authUser.displayName,
   };
   const sessionKey = await getSessionKey(identity);
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-    app.log.debug({ sessionKey, source: "conversation_id_body", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
+    app.log.debug({ sessionKey, source: oaiConversationId ? "conversation_resolved" : "conversation_fallback", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
   const oaiCapabilityHash = crypto

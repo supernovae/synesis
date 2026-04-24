@@ -500,7 +500,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS: z.coerce.number().default(30_000),
   SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS: z.coerce.number().default(15_000),
   SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS: z.coerce.number().default(45_000),
-  SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS: z.coerce.number().default(90_000),
+  SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS: z.coerce.number().default(180_000),
 
   // Reliability hardening (Phase 11)
   SYNESIS_YARN_AUTH_POOL_MAX: z.coerce.number().default(5),
