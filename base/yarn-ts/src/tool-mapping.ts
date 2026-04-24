@@ -587,3 +587,68 @@ export function claudeMessagesToOpenAI(
   return out;
 }
 
+/**
+ * Reconstruct missing `tool_calls` on assistant messages when a client
+ * (e.g. opencode) replays history without them.
+ *
+ * Detection: if there are `role:"tool"` messages with `tool_call_id` but
+ * zero assistant messages carry a `tool_calls` array, the client has
+ * stripped them. We walk backwards from each tool result to the nearest
+ * preceding assistant message and graft synthetic `tool_calls` entries.
+ */
+export function reconstructMissingToolCalls<
+  T extends { role: string; content?: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown },
+>(messages: T[]): { messages: T[]; reconstructedCount: number } {
+  let hasAnyAssistantToolCalls = false;
+  let toolResultCount = 0;
+
+  for (const m of messages) {
+    if (m.role === "assistant" && m.tool_calls && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+      hasAnyAssistantToolCalls = true;
+    }
+    if (m.role === "tool" && m.tool_call_id) {
+      toolResultCount++;
+    }
+  }
+
+  if (hasAnyAssistantToolCalls || toolResultCount === 0) {
+    return { messages, reconstructedCount: 0 };
+  }
+
+  const assistantToolCalls = new Map<number, Array<{ id: string; type: string; function: { name: string; arguments: string } }>>();
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role !== "tool" || !m.tool_call_id) continue;
+
+    for (let j = i - 1; j >= 0; j--) {
+      if (messages[j].role === "assistant") {
+        if (!assistantToolCalls.has(j)) {
+          assistantToolCalls.set(j, []);
+        }
+        assistantToolCalls.get(j)!.push({
+          id: m.tool_call_id,
+          type: "function",
+          function: { name: m.name ?? "unknown", arguments: "{}" },
+        });
+        break;
+      }
+    }
+  }
+
+  if (assistantToolCalls.size === 0) {
+    return { messages, reconstructedCount: 0 };
+  }
+
+  let reconstructedCount = 0;
+  const out = messages.map((m, i) => {
+    const calls = assistantToolCalls.get(i);
+    if (calls && m.role === "assistant") {
+      reconstructedCount++;
+      return { ...m, tool_calls: calls } as T;
+    }
+    return m;
+  });
+
+  return { messages: out, reconstructedCount };
+}

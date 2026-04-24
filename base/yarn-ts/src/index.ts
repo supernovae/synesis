@@ -165,6 +165,7 @@ import {
   coalesceLeadingSystemMessages,
   sanitizeToolCalls,
   demoteInlineSystemMessages,
+  reconstructMissingToolCalls,
 } from "./tool-mapping.js";
 import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
@@ -6770,6 +6771,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
       contentSnippet: typeof m.content === "string" ? m.content.slice(0, 100) : String(m.content).slice(0, 100),
     }));
     app.log.info({ reqId: oaiTraceReqId, assistantSample, toolSample }, "raw_message_shape_diagnostic");
+  }
+
+  const toolCallReconstruction = reconstructMissingToolCalls(
+    request.messages as Array<{ role: string; content?: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+  );
+  if (toolCallReconstruction.reconstructedCount > 0) {
+    request.messages = toolCallReconstruction.messages as never;
+    app.log.info(
+      { reqId: oaiTraceReqId, reconstructedAssistantMessages: toolCallReconstruction.reconstructedCount },
+      "tool_calls_reconstructed",
+    );
   }
 
   const oaiTaskCue = extractLatestUserPromptFromMessages(request.messages as Array<{ role: string; content: unknown }>);
