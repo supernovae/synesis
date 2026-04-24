@@ -26,6 +26,7 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [`admin-control-plane-and-constitutions.md`](./admin-control-plane-and-constitutions.md)
 - [`safety-reliability-and-fail-safe.md`](./safety-reliability-and-fail-safe.md)
 - [`observability-verification-and-evals.md`](./observability-verification-and-evals.md)
+- [`../development/HARNESS_TRUST_HARDENING.md`](../development/HARNESS_TRUST_HARDENING.md)
 - [`GOVERNOR_HARNESS.md`](./GOVERNOR_HARNESS.md)
 - [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md)
 - [`qwen-stability-feedback-loop.md`](./qwen-stability-feedback-loop.md)

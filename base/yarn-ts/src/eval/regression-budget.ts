@@ -7,6 +7,9 @@ export interface RegressionMetrics {
   interventionRate: number;
   repeatedCommandAnomalyRate: number;
   avgTurnsToResolution: number;
+  readEditRatio: number;
+  wholeWriteRatio: number;
+  prematureStopSignalRate: number;
 }
 
 export interface RegressionBudgetThresholds {
@@ -15,6 +18,9 @@ export interface RegressionBudgetThresholds {
   maxInterventionRateIncrease: number;
   maxRepeatedCommandAnomalyRateIncrease: number;
   maxAvgTurnsIncrease: number;
+  maxReadEditRatioDrop: number;
+  maxWholeWriteRatioIncrease: number;
+  maxPrematureStopSignalRateIncrease: number;
 }
 
 export interface RegressionBudgetViolation {
@@ -40,7 +46,23 @@ export const DEFAULT_REGRESSION_THRESHOLDS: RegressionBudgetThresholds = {
   maxInterventionRateIncrease: 0.1,
   maxRepeatedCommandAnomalyRateIncrease: 0.08,
   maxAvgTurnsIncrease: 0.4,
+  maxReadEditRatioDrop: 0.75,
+  maxWholeWriteRatioIncrease: 0.2,
+  maxPrematureStopSignalRateIncrease: 0.15,
 };
+
+const READ_TOOL_NAMES = new Set(["read", "read_file", "readfile", "file_read"]);
+const PATCH_STYLE_TOOL_NAMES = new Set(["str_replace", "apply_patch", "edit", "str_replace_editor", "edit_file"]);
+const WHOLE_WRITE_TOOL_NAMES = new Set(["write", "write_file", "file_write"]);
+const PREMATURE_STOP_RULES = new Set([
+  "completion_claim_requires_task_update",
+  "verification_after_completion_claim",
+  "verbal_intent_without_action",
+]);
+
+function normalizeToken(value: string): string {
+  return value.trim().toLowerCase();
+}
 
 function safeDiv(numerator: number, denominator: number): number {
   if (denominator <= 0) return 0;
@@ -61,6 +83,9 @@ export function computeRegressionMetrics(results: ScenarioResult[]): RegressionM
       interventionRate: 0,
       repeatedCommandAnomalyRate: 0,
       avgTurnsToResolution: 0,
+      readEditRatio: 0,
+      wholeWriteRatio: 0,
+      prematureStopSignalRate: 0,
     };
   }
 
@@ -69,18 +94,44 @@ export function computeRegressionMetrics(results: ScenarioResult[]): RegressionM
   let interventions = 0;
   let totalTurns = 0;
   let repeatedCommandAnomalies = 0;
+  let totalReads = 0;
+  let totalWrites = 0;
+  let wholeWrites = 0;
+  let scenariosWithPrematureStopSignals = 0;
 
   for (const r of results) {
     if (r.passed) passed += 1;
     scoreTotal += r.score;
     if (r.governorInterventions > 0) interventions += 1;
     totalTurns += r.totalTurns;
+    const prematureSignalsThisScenario = new Set<string>();
     for (const turn of r.turnResults) {
+      for (const rule of turn.governorRulesFired) {
+        const normalizedRule = normalizeToken(rule);
+        if (PREMATURE_STOP_RULES.has(normalizedRule)) {
+          prematureSignalsThisScenario.add(normalizedRule);
+        }
+      }
+      for (const msg of turn.messages) {
+        if (msg.role !== "assistant" || !Array.isArray(msg.tool_calls)) continue;
+        for (const call of msg.tool_calls) {
+          const normalizedName = normalizeToken(call.function.name);
+          if (READ_TOOL_NAMES.has(normalizedName)) totalReads += 1;
+          if (PATCH_STYLE_TOOL_NAMES.has(normalizedName)) totalWrites += 1;
+          if (WHOLE_WRITE_TOOL_NAMES.has(normalizedName)) {
+            totalWrites += 1;
+            wholeWrites += 1;
+          }
+        }
+      }
       for (const anomaly of turn.anomalies) {
         if (anomaly.kind === "repeated_tool_call" || anomaly.kind === "repeated_content") {
           repeatedCommandAnomalies += 1;
         }
       }
+    }
+    if (prematureSignalsThisScenario.size > 0) {
+      scenariosWithPrematureStopSignals += 1;
     }
   }
 
@@ -91,6 +142,9 @@ export function computeRegressionMetrics(results: ScenarioResult[]): RegressionM
     interventionRate: round3(safeDiv(interventions, scenarioCount)),
     repeatedCommandAnomalyRate: round3(safeDiv(repeatedCommandAnomalies, scenarioCount)),
     avgTurnsToResolution: round3(safeDiv(totalTurns, scenarioCount)),
+    readEditRatio: round3(safeDiv(totalReads, totalWrites)),
+    wholeWriteRatio: round3(safeDiv(wholeWrites, totalWrites)),
+    prematureStopSignalRate: round3(safeDiv(scenariosWithPrematureStopSignals, scenarioCount)),
   };
 }
 
@@ -163,6 +217,42 @@ export function evaluateRegressionBudget(params: {
       candidate: candidate.avgTurnsToResolution,
       delta: round3(turnsDelta),
       threshold: thresholds.maxAvgTurnsIncrease,
+      direction: "increase",
+    });
+  }
+
+  const readEditDelta = candidate.readEditRatio - baseline.readEditRatio;
+  if (readEditDelta < -thresholds.maxReadEditRatioDrop) {
+    violations.push({
+      metric: "readEditRatio",
+      baseline: baseline.readEditRatio,
+      candidate: candidate.readEditRatio,
+      delta: round3(readEditDelta),
+      threshold: thresholds.maxReadEditRatioDrop,
+      direction: "drop",
+    });
+  }
+
+  const wholeWriteDelta = candidate.wholeWriteRatio - baseline.wholeWriteRatio;
+  if (wholeWriteDelta > thresholds.maxWholeWriteRatioIncrease) {
+    violations.push({
+      metric: "wholeWriteRatio",
+      baseline: baseline.wholeWriteRatio,
+      candidate: candidate.wholeWriteRatio,
+      delta: round3(wholeWriteDelta),
+      threshold: thresholds.maxWholeWriteRatioIncrease,
+      direction: "increase",
+    });
+  }
+
+  const prematureStopDelta = candidate.prematureStopSignalRate - baseline.prematureStopSignalRate;
+  if (prematureStopDelta > thresholds.maxPrematureStopSignalRateIncrease) {
+    violations.push({
+      metric: "prematureStopSignalRate",
+      baseline: baseline.prematureStopSignalRate,
+      candidate: candidate.prematureStopSignalRate,
+      delta: round3(prematureStopDelta),
+      threshold: thresholds.maxPrematureStopSignalRateIncrease,
       direction: "increase",
     });
   }

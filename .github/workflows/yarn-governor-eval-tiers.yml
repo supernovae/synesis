@@ -1,6 +1,11 @@
 name: Yarn Governor Eval Tiers
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "base/yarn-ts/**"
+      - ".github/workflows/yarn-governor-eval-tiers.yml"
   pull_request:
     branches: [main]
     paths:
@@ -14,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   governor-pr-fast:
@@ -49,6 +55,101 @@ jobs:
 
       - name: Run fast governor replay suite
         run: npm run ci:governor:pr
+
+  governor-main:
+    name: Governor main replay + budget + e2e
+    if: github.event_name == 'push'
+    runs-on: self-hosted
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: base/yarn-ts
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: base/yarn-ts/package-lock.json
+
+      - name: Main governor + e2e evals
+        env:
+          SYNESIS_EVAL_TARGET_URL: ${{ vars.SYNESIS_YARN_EVAL_URL }}
+          SYNESIS_EVAL_TARGET_KEY: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
+          SYNESIS_EVAL_BASELINE_JSON: ${{ vars.SYNESIS_EVAL_BASELINE_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SYNESIS_EVAL_TARGET_URL:-}" ]; then
+            echo "Missing repository variable SYNESIS_YARN_EVAL_URL."
+            exit 1
+          fi
+          if [ -z "${SYNESIS_EVAL_TARGET_KEY:-}" ]; then
+            echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
+            exit 1
+          fi
+          if [ -z "${SYNESIS_EVAL_BASELINE_JSON:-}" ]; then
+            echo "Missing repository variable SYNESIS_EVAL_BASELINE_JSON."
+            exit 1
+          fi
+          if [ ! -f "${SYNESIS_EVAL_BASELINE_JSON}" ]; then
+            echo "Baseline file not found at ${SYNESIS_EVAL_BASELINE_JSON}."
+            exit 1
+          fi
+          npm ci
+          npm run ci:governor:prerelease
+
+      - name: Restore main scorecard history cache
+        uses: actions/cache/restore@v4
+        with:
+          path: base/yarn-ts/harness-scorecard-history-main.json
+          key: harness-scorecard-history-main-${{ github.run_id }}
+          restore-keys: |
+            harness-scorecard-history-main-
+
+      - name: Build main scorecard + rollback decision
+        run: |
+          set -euo pipefail
+          npm run eval:scorecard -- \
+            --lane main \
+            --regression eval-governor-regression.json \
+            --budget eval-governor-budget.json \
+            --canary eval-power-user-canary.json \
+            --out-json harness-scorecard-main.json \
+            --out-md harness-scorecard-main.md
+          npm run eval:rollback -- \
+            --scorecard harness-scorecard-main.json \
+            --history-in harness-scorecard-history-main.json \
+            --history-out harness-scorecard-history-main.json \
+            --decision-out harness-rollback-main.json \
+            --markdown-out harness-scorecard-main-with-decision.md \
+            --breach-threshold 2 \
+            --enforce
+
+      - name: Save main scorecard history cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: base/yarn-ts/harness-scorecard-history-main.json
+          key: harness-scorecard-history-main-${{ github.run_id }}
+
+      - name: Upload main artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: governor-main-results
+          path: |
+            base/yarn-ts/eval-governor-regression.json
+            base/yarn-ts/eval-governor-budget.json
+            base/yarn-ts/eval-power-user-canary.json
+            base/yarn-ts/eval-governor-e2e.json
+            base/yarn-ts/eval-governor-swebench.json
+            base/yarn-ts/harness-scorecard-main.json
+            base/yarn-ts/harness-scorecard-main.md
+            base/yarn-ts/harness-scorecard-main-with-decision.md
+            base/yarn-ts/harness-rollback-main.json
+            base/yarn-ts/harness-scorecard-history-main.json
+          if-no-files-found: ignore
 
   governor-nightly:
     name: Governor nightly replay + budget + swebench
@@ -93,6 +194,39 @@ jobs:
           npm ci
           npm run ci:governor:nightly
 
+      - name: Restore nightly scorecard history cache
+        uses: actions/cache/restore@v4
+        with:
+          path: base/yarn-ts/harness-scorecard-history-nightly.json
+          key: harness-scorecard-history-nightly-${{ github.run_id }}
+          restore-keys: |
+            harness-scorecard-history-nightly-
+
+      - name: Build nightly scorecard + rollback decision
+        run: |
+          set -euo pipefail
+          npm run eval:scorecard -- \
+            --lane nightly \
+            --regression eval-governor-regression.json \
+            --budget eval-governor-budget.json \
+            --canary eval-power-user-canary.json \
+            --out-json harness-scorecard-nightly.json \
+            --out-md harness-scorecard-nightly.md
+          npm run eval:rollback -- \
+            --scorecard harness-scorecard-nightly.json \
+            --history-in harness-scorecard-history-nightly.json \
+            --history-out harness-scorecard-history-nightly.json \
+            --decision-out harness-rollback-nightly.json \
+            --markdown-out harness-scorecard-nightly-with-decision.md \
+            --breach-threshold 2
+
+      - name: Save nightly scorecard history cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: base/yarn-ts/harness-scorecard-history-nightly.json
+          key: harness-scorecard-history-nightly-${{ github.run_id }}
+
       - name: Upload nightly artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -101,7 +235,13 @@ jobs:
           path: |
             base/yarn-ts/eval-governor-regression.json
             base/yarn-ts/eval-governor-budget.json
+            base/yarn-ts/eval-power-user-canary.json
             base/yarn-ts/eval-governor-swebench.json
+            base/yarn-ts/harness-scorecard-nightly.json
+            base/yarn-ts/harness-scorecard-nightly.md
+            base/yarn-ts/harness-scorecard-nightly-with-decision.md
+            base/yarn-ts/harness-rollback-nightly.json
+            base/yarn-ts/harness-scorecard-history-nightly.json
           if-no-files-found: ignore
 
   governor-prerelease:
@@ -147,6 +287,40 @@ jobs:
           npm ci
           npm run ci:governor:prerelease
 
+      - name: Restore release scorecard history cache
+        uses: actions/cache/restore@v4
+        with:
+          path: base/yarn-ts/harness-scorecard-history-release.json
+          key: harness-scorecard-history-release-${{ github.run_id }}
+          restore-keys: |
+            harness-scorecard-history-release-
+
+      - name: Build release scorecard + rollback decision
+        run: |
+          set -euo pipefail
+          npm run eval:scorecard -- \
+            --lane release \
+            --regression eval-governor-regression.json \
+            --budget eval-governor-budget.json \
+            --canary eval-power-user-canary.json \
+            --out-json harness-scorecard-release.json \
+            --out-md harness-scorecard-release.md
+          npm run eval:rollback -- \
+            --scorecard harness-scorecard-release.json \
+            --history-in harness-scorecard-history-release.json \
+            --history-out harness-scorecard-history-release.json \
+            --decision-out harness-rollback-release.json \
+            --markdown-out harness-scorecard-release-with-decision.md \
+            --breach-threshold 2 \
+            --enforce
+
+      - name: Save release scorecard history cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: base/yarn-ts/harness-scorecard-history-release.json
+          key: harness-scorecard-history-release-${{ github.run_id }}
+
       - name: Upload prerelease artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -155,6 +329,12 @@ jobs:
           path: |
             base/yarn-ts/eval-governor-regression.json
             base/yarn-ts/eval-governor-budget.json
+            base/yarn-ts/eval-power-user-canary.json
             base/yarn-ts/eval-governor-e2e.json
             base/yarn-ts/eval-governor-swebench.json
+            base/yarn-ts/harness-scorecard-release.json
+            base/yarn-ts/harness-scorecard-release.md
+            base/yarn-ts/harness-scorecard-release-with-decision.md
+            base/yarn-ts/harness-rollback-release.json
+            base/yarn-ts/harness-scorecard-history-release.json
           if-no-files-found: ignore

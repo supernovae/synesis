@@ -28,7 +28,9 @@ Uses `graph.astream_events(version="v2")` for fine-grained token-level streaming
 - **Plan step visibility:** For knowledge deep-dives (non-code tasks with a planner), plan steps are emitted as visible markdown content (blockquote) before the main response
 - `StatusQueueCallback` provides fallback node-level status when `streaming_events_enabled=false`
 
-### Phase Labels
+### Phase Labels (Legacy Python Reference)
+
+The mapping below reflects the older Python planner implementation and is kept for migration context only. Runtime phase labels for production are defined in planner-ts (`base/planner-ts/src/streaming/phases.ts`) in the next section.
 
 ```python
 _NODE_TO_PHASE = {
@@ -254,8 +256,7 @@ chunk regardless.
 - **planner-ts SSE helpers:** `base/planner-ts/src/streaming/sse.ts` — `writeContentDelta`, `writeReasoningDelta`
 - **planner-ts graph:** `base/planner-ts/src/graph.ts` — `streamGraph()` yields `NodeTransitionEvent`
 - **planner-ts closing follow-up:** `base/planner-ts/src/pipeline.ts` — `buildClosingFollowup()`, `finalScrubberNode()`
-- **Python planner streaming:** `base/planner/app/main.py` — `sse_generator()`, `_NODE_TO_PHASE`
-- **Python fallback streaming:** `base/planner/app/streaming_events.py` — `StatusQueueCallback`
+- **Legacy Python planner path:** retired; planner-ts is the maintained runtime.
 - Open WebUI Events: https://docs.openwebui.com/features/plugin/events/
 - LiteLLM config: `base/gateway/litellm-config.yaml`
-- Dev direct-planner: `overlays/dev/openwebui-direct-planner.yaml`
+- Open WebUI deployment base: `base/webui/deployment.yaml`

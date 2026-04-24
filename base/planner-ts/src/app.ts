@@ -103,6 +103,19 @@ function sanitizeErrorMessage(raw: string): string {
   return "Internal server error";
 }
 
+export function resolveSupportHandle(input: { authzTraceId?: string | null; runId?: string | null }): string | undefined {
+  return optionalString(input.authzTraceId) ?? optionalString(input.runId);
+}
+
+export function withSupportHandleHint(
+  message: string,
+  input: { authzTraceId?: string | null; runId?: string | null },
+): string {
+  const supportHandle = resolveSupportHandle(input);
+  if (!supportHandle || message.includes(supportHandle)) return message;
+  return `${message} (support id: ${supportHandle})`;
+}
+
 function optionalString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   const s = String(value).trim();
@@ -1650,9 +1663,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
         const state = await invokeGraph(initialState);
         let content = state.generated_code ?? "";
         if (!content.trim()) {
-          content = state.error?.trim()
+          const fallback = state.error?.trim()
             ? `Something went wrong: ${state.error}`
             : EMPTY_ASSISTANT_FALLBACK;
+          content = withSupportHandleHint(fallback, {
+            authzTraceId: state.authz_trace_id,
+            runId: state.run_id,
+          });
         }
 
         if (config.SYNESIS_INJECTION_SCAN_ENABLED && content) {
@@ -1840,9 +1857,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
         let content = finalState.generated_code ?? "";
         if (!content.trim() && !streamingError) {
-          const filled = finalState.error?.trim()
+          const fallback = finalState.error?.trim()
             ? `Something went wrong: ${finalState.error}`
             : EMPTY_ASSISTANT_FALLBACK;
+          const filled = withSupportHandleHint(fallback, {
+            authzTraceId: finalState.authz_trace_id,
+            runId: finalState.run_id,
+          });
           content = filled;
           finalState = { ...finalState, generated_code: filled };
         }
@@ -1901,7 +1922,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
             id: completionId,
             created,
             model: responseModel,
-            content: "\n\nAn error occurred while processing your request. Please try again.",
+            content: `\n\n${withSupportHandleHint(
+              "An error occurred while processing your request. Please try again.",
+              {
+                authzTraceId,
+                runId: finalState.run_id,
+              },
+            )}`,
             system_fingerprint: SYSTEM_FINGERPRINT,
           });
         }

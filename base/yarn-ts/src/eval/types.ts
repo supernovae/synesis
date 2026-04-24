@@ -30,6 +30,7 @@ export interface EvalToolCall {
 
 export type EvalCategory =
   | "governor_regression"
+  | "power_user_canary"
   | "e2e_build"
   | "recovery"
   | "plan_management"

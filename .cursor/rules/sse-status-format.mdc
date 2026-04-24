@@ -11,7 +11,7 @@ alwaysApply: false
 ## Required Format
 
 Open WebUI routes status events via a JSON `"event"` key in `data:` lines.
-The `_sse_status_chunk` function in `main.py` handles this:
+Use `writeStatusEvent` from `base/planner-ts/src/streaming/sse.ts` to emit this shape:
 
 ```
 data: {"event": {"type": "status", "data": {"description": "...", "done": false, "hidden": false, "detail": "optional subtext"}}}
@@ -31,13 +31,13 @@ data: {"type": "status", ...}
 
 ## Rules
 
-1. **Always use `_emit_phase(description, done, hidden, detail=None)`** for status emissions. Never call `_sse_status_chunk` directly from streaming generators.
+1. **Always use `writeStatusEvent(response, { description, done, hidden, detail })`** for status emissions.
 2. **Status descriptions must be generic**: phase name + counts/domain label from semantic frame. Never embed domain-specific content, user prompt text, or LLM output in status events.
-3. **Every new LangGraph node must be added to**:
-   - `_NODE_TO_PHASE` dict in `main.py`
-   - `KNOWN_NODE_NAMES` frozenset in `streaming_events.py`
-   - `StatusQueueCallback.on_chain_start` in `streaming_events.py`
-4. **Never filter or strip status events** in scrubber, compiler, or any post-processing node. Status events are emitted by the SSE generator in `main.py`, not by LangGraph nodes.
+3. **Every new planner-ts node should be reflected in**:
+   - `PHASE_DESCRIPTION` in `base/planner-ts/src/streaming/phases.ts`
+   - stream transition handling in `base/planner-ts/src/app.ts`
+   - streaming tests (`base/planner-ts/tests/streaming-phases.test.ts`, `base/planner-ts/tests/sse-status-shape.test.ts`)
+4. **Never filter or strip status events** in scrubber, compiler, or post-processing steps. Status events are emitted at streaming boundaries in `base/planner-ts/src/app.ts`.
 5. **Test with** `GET /debug/sse-test` (requires `stream_debug_chatter=true`) to verify events reach Open WebUI after any streaming changes.
 
 ## Rich Status Messages

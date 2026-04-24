@@ -2,7 +2,8 @@
 /**
  * Compare eval-gym candidate results against a baseline and fail on
  * meaningful regressions in pass rate, score, intervention rate,
- * repeated-command anomalies, or turns-to-resolution.
+ * repeated-command anomalies, turns-to-resolution, research-first
+ * behavior, and premature-stop signals.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -85,6 +86,9 @@ const evaluation = evaluateRegressionBudget({
     maxInterventionRateIncrease: parseNumArg("max-intervention-rate-increase"),
     maxRepeatedCommandAnomalyRateIncrease: parseNumArg("max-repeated-command-rate-increase"),
     maxAvgTurnsIncrease: parseNumArg("max-turns-increase"),
+    maxReadEditRatioDrop: parseNumArg("max-read-edit-ratio-drop"),
+    maxWholeWriteRatioIncrease: parseNumArg("max-whole-write-ratio-increase"),
+    maxPrematureStopSignalRateIncrease: parseNumArg("max-premature-stop-rate-increase"),
   },
 });
 
@@ -111,6 +115,12 @@ console.log(`- Baseline repeated-command anomaly rate: ${evaluation.baseline.rep
 console.log(`- Candidate repeated-command anomaly rate: ${evaluation.candidate.repeatedCommandAnomalyRate}`);
 console.log(`- Baseline avg turns: ${evaluation.baseline.avgTurnsToResolution}`);
 console.log(`- Candidate avg turns: ${evaluation.candidate.avgTurnsToResolution}`);
+console.log(`- Baseline read:edit ratio: ${evaluation.baseline.readEditRatio}`);
+console.log(`- Candidate read:edit ratio: ${evaluation.candidate.readEditRatio}`);
+console.log(`- Baseline whole-write ratio: ${evaluation.baseline.wholeWriteRatio}`);
+console.log(`- Candidate whole-write ratio: ${evaluation.candidate.wholeWriteRatio}`);
+console.log(`- Baseline premature-stop signal rate: ${evaluation.baseline.prematureStopSignalRate}`);
+console.log(`- Candidate premature-stop signal rate: ${evaluation.candidate.prematureStopSignalRate}`);
 console.log(`- Summary written to ${summaryOut}`);
 
 if (!evaluation.pass) {

@@ -487,6 +487,90 @@ export const completionClaimEditMissCollision: EvalScenario = {
 };
 
 // ---------------------------------------------------------------------------
+// 13. Edit-without-read discipline
+//
+// Complex edits should read target context first, then mutate.
+// This scenario enforces explicit research-first behavior.
+// ---------------------------------------------------------------------------
+
+export const editWithoutReadDiscipline: EvalScenario = {
+  id: "edit-without-read-discipline",
+  name: "Edit requires read-first discipline",
+  category: "governor_regression",
+  description:
+    "Model must read target file context before mutating. " +
+    "This protects against edit-first drift in multi-file work.",
+  target: {},
+  systemPrompt:
+    "You are a coding assistant. Read target context before editing code. " +
+    "Prefer surgical edits over whole-file rewrites.",
+  turns: [
+    {
+      messages: [
+        { role: "user", content: "Update cmd/synesis/ask.go to support --verbose. Read the file first, then apply one focused edit." },
+      ],
+      simulatedToolResults: {
+        Read: "package main\n\nfunc runAsk(args []string) error {\n\treturn nil\n}\n",
+        Edit: "Applied patch to cmd/synesis/ask.go",
+        Bash: "ok  synesis.sh/synesis/cmd/synesis  (cached)",
+      },
+      maxToolRounds: 3,
+      assertions: [
+        { type: "tool_name_present", params: { name: "Read" } },
+        { type: "tool_name_present", params: { name: "Edit" } },
+        { type: "tool_name_absent", params: { name: "Write" } },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+    requiredToolActions: ["Read", "Edit"],
+    requiredArtifactPaths: ["cmd/synesis/ask.go"],
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 14. Permission-seeking stop loop
+//
+// Model should continue autonomously when scope is clear instead of repeatedly
+// asking to proceed. This catches premature-stop style behavior.
+// ---------------------------------------------------------------------------
+
+export const permissionSeekingStopLoop: EvalScenario = {
+  id: "permission-seeking-stop-loop",
+  name: "Permission-seeking stop loop",
+  category: "governor_regression",
+  description:
+    "Model should continue with concrete edits when instructions are clear, " +
+    "not ask for repeated permission to proceed.",
+  target: {},
+  systemPrompt:
+    "You are a coding assistant. If task scope is clear, execute directly and report progress after concrete actions.",
+  turns: [
+    {
+      messages: [
+        { role: "user", content: "Add a --verbose flag to cmd/synesis/main.go and update the related todo item." },
+      ],
+      simulatedToolResults: {
+        Write: "File written: cmd/synesis/main.go",
+        TodoWrite: "updated todos: verbose flag completed",
+        Read: "package main\n\nfunc main() {}\n",
+      },
+      maxToolRounds: 3,
+      assertions: [
+        { type: "no_waffling_markers" },
+        { type: "tool_name_present", params: { name: "Write" } },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+    requiredToolActions: ["Write"],
+    failIfRules: ["verbal_intent_without_action", "completion_claim_requires_task_update"],
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -503,4 +587,6 @@ export const GOVERNOR_REGRESSION_SCENARIOS: EvalScenario[] = [
   noSignalVerificationRetry,
   postCompletionVerificationChurn,
   completionClaimEditMissCollision,
+  editWithoutReadDiscipline,
+  permissionSeekingStopLoop,
 ];

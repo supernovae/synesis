@@ -18,24 +18,25 @@ The Router is the **single retrieval orchestrator**. All retrieval (RAG, web sea
 | **Writer** | NO | Consumes evidence packets; produces knowledge responses |
 | **Critic** | NO | Validates against evidence packets; sets `need_more_evidence` |
 
-**Enforcement:** Non-router nodes must NOT import `rag_client`, `web_search`, `unified_retrieval`, `query_distiller`, or `context_formatter`. Static import analysis in `test_router_governance.py` verifies this.
+**Enforcement:** Non-router nodes must NOT import retrieval clients directly. Static import analysis in `base/planner-ts/tests/router-governance.test.ts` verifies this.
 
 ## Evidence Packets
 
-All evidence flows as structured `EvidencePacket` objects (Pydantic model in `state.py`):
+All evidence flows as structured `EvidencePacket` objects (Zod contract in `base/planner-ts/src/contracts/schemas.ts`):
 
-```python
-class EvidencePacket(BaseModel):
-    query: str
-    sources: list[EvidenceSource] = []
-    snippets: list[EvidenceSnippet] = []
-    summary: str = ""
-    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
-    retrieval_notes: str = ""
-    section_id: int | None = None
+```typescript
+export const EvidencePacketSchema = z.object({
+  query: z.string().default(""),
+  sources: z.array(EvidenceSourceSchema).default([]),
+  snippets: z.array(EvidenceSnippetSchema).default([]),
+  summary: z.string().default(""),
+  confidence: z.number().min(0).max(1).default(0),
+  retrieval_notes: z.string().default(""),
+  section_id: z.number().int().nullable().optional(),
+});
 ```
 
-State field: `evidence_packets` with `_merge_evidence_packets` reducer (deduplicates by `(query, section_id)`).
+State field: `evidence_packets` with `mergeEvidencePackets` reducer in `base/planner-ts/src/state/reducers.ts` (deduplicates by `(query, section_id)`).
 
 ## Router Internal Flow
 
@@ -75,9 +76,9 @@ If you add a new content-producing node:
 
 1. Do NOT add retrieval imports — request evidence via `evidence_requests` in state
 2. Consume `state["evidence_packets"]` for grounding
-3. Register in `_NODE_TO_PHASE` (main.py) and `KNOWN_NODE_NAMES` (streaming_events.py)
-4. Add to `graph.py` node registrations and edge definitions
-5. If the node produces `generated_code`, wrap with `validated_node()` validators
+3. Add phase coverage in `base/planner-ts/src/streaming/phases.ts` (`PHASE_DESCRIPTION`)
+4. Add to `base/planner-ts/src/graph.ts` node registrations and edge definitions
+5. Update streaming status handling/tests in `base/planner-ts/src/app.ts` and `base/planner-ts/tests/streaming-phases.test.ts`
 
 ## Graph Topology
 

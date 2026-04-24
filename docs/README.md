@@ -22,6 +22,7 @@ This tree is organized by **audience** and **product surface**. Implementation c
 - **Coder runtime:** [`base/yarn-ts/README.md`](../base/yarn-ts/README.md) · [Coder doc index](coder/README.md).
 - **Connect a client:** [Client overview](clients/CLIENTS.md) · [Claude Code → coder](clients/CLAUDECODE.md).
 - **Develop & test:** [Development index](development/README.md).
+- **Harness trust strategy:** [Trust hardening plan](development/HARNESS_TRUST_HARDENING.md).
 
 ## Admin-only
 

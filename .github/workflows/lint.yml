@@ -49,6 +49,15 @@ jobs:
       - name: Run yamllint
         run: uvx yamllint -c .yamllint.yml base/ overlays/
 
+  docs-reference-integrity:
+    name: Docs Reference Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate doc and rule references
+        run: python3 scripts/check-doc-reference-integrity.py
+
   kustomize:
     name: Kustomize Build
     runs-on: ubuntu-latest

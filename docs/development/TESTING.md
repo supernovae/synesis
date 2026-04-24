@@ -2,7 +2,7 @@
 
 This document is the **inventory** of how we validate Synesis: what runs automatically, what needs secrets or live APIs, and where to extend coverage. Use it when adding features or tuning CI.
 
-**Related:** [OPENAI_COMPAT_PROBING.md](../chat/OPENAI_COMPAT_PROBING.md) (HTTP probe + streaming `usage` semantics), [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets).
+**Related:** [OPENAI_COMPAT_PROBING.md](../chat/OPENAI_COMPAT_PROBING.md) (HTTP probe + streaming `usage` semantics), [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets), [HARNESS_TRUST_HARDENING.md](./HARNESS_TRUST_HARDENING.md) (strategy-to-execution plan for trust KPI hardening).
 
 ---
 
@@ -309,6 +309,81 @@ python benchmarks/retrieval/bench_hybrid.py \
   --output benchmarks/retrieval/baseline.json
 ```
 
+### 9.7 Harness Trust KPI Lane (Coder Reliability)
+
+Use this lane to detect and stop quality drift in long-session coding workflows.
+
+Minimum rollout sequence:
+
+1. **Observe:** add KPI fields to trajectory/eval outputs, no blocking.
+2. **Baseline:** run nightly against known-good baseline artifacts.
+3. **Enforce:** fail main/release lanes when trust red-line deltas are exceeded.
+4. **Rollback:** hold rollout and revert harness config/prompt deltas after consecutive breaches.
+
+Primary implementation surfaces:
+
+- Runtime telemetry: `base/yarn-ts/src/index.ts`
+- Budget logic: `base/yarn-ts/src/eval/regression-budget.ts`
+- Budget script: `base/yarn-ts/scripts/eval-regression-budget.ts`
+- Scenario suite: `base/yarn-ts/src/eval/scenarios/governor-regression.ts`
+- Main/release lanes: `.github/workflows/yarn-governor-eval-tiers.yml`
+
+Canonical strategy and acceptance criteria: [HARNESS_TRUST_HARDENING.md](./HARNESS_TRUST_HARDENING.md).
+
+Budget script supports trust KPI thresholds:
+
+```bash
+cd base/yarn-ts
+tsx scripts/eval-regression-budget.ts \
+  --candidate eval-governor-regression.json \
+  --baseline "$SYNESIS_EVAL_BASELINE_JSON" \
+  --max-read-edit-ratio-drop 0.75 \
+  --max-whole-write-ratio-increase 0.20 \
+  --max-premature-stop-rate-increase 0.15
+```
+
+Daily scorecard + rollback policy (canary streak enforcement):
+
+```bash
+cd base/yarn-ts
+
+# Nightly canary run (non-blocking failures at scenario level, scored separately)
+npm run eval:canary
+
+# Build scorecard from eval outputs
+npm run eval:scorecard -- \
+  --lane nightly \
+  --regression eval-governor-regression.json \
+  --budget eval-governor-budget.json \
+  --canary eval-power-user-canary.json \
+  --out-json harness-scorecard-nightly.json \
+  --out-md harness-scorecard-nightly.md
+
+# Apply streak-aware rollback policy (hold after N consecutive red-line breaches)
+npm run eval:rollback -- \
+  --scorecard harness-scorecard-nightly.json \
+  --history-in harness-scorecard-history-nightly.json \
+  --history-out harness-scorecard-history-nightly.json \
+  --decision-out harness-rollback-nightly.json \
+  --breach-threshold 2
+```
+
+Workflow automation (`.github/workflows/yarn-governor-eval-tiers.yml`):
+
+- `governor-nightly`: generates canary scorecard + rollback decision in advisory mode (no enforced hold).
+- `governor-main`: enforces hold policy when red-line breaches persist for the configured streak threshold.
+- `governor-prerelease`: enforces hold policy on release lane before promotion.
+
+Published artifacts include:
+
+- `eval-governor-regression.json`
+- `eval-governor-budget.json`
+- `eval-power-user-canary.json`
+- `harness-scorecard-*.json`
+- `harness-scorecard-*.md`
+- `harness-rollback-*.json`
+- `harness-scorecard-history-*.json`
+
 ---
 
 ## 10. Yarn-TS Live Verification (Reducers)
@@ -343,3 +418,7 @@ Scenarios send deterministic tool-result payloads for each reducer family (`pyte
 | 2026-03-24 | §8: Validation ring (CI-to-cluster security). §9: H2 quality regression workflows + Testing Labs. |
 | 2026-03-24 | §9: Three-mode activation (PR-gated, dispatch, release). Local/CLI usage. Secrets reference. |
 | 2026-03-25 | §10: Yarn-TS live verification suite (M9) — reducer smoke tests, telemetry assertions, A-B comparison. |
+| 2026-04-24 | Added trust-hardening references and §9.7 Harness Trust KPI lane (observe → baseline → enforce → rollback). |
+| 2026-04-24 | Expanded §9.7 with trust budget threshold flags and main/release lane enforcement notes. |
+| 2026-04-24 | Added scorecard + rollback CLI flow (power-user canaries, streak-aware hold policy, and history artifacts). |
+| 2026-04-24 | Documented CI lane behavior and published scorecard/rollback artifacts for nightly/main/release governance tiers. |

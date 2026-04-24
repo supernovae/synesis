@@ -57,7 +57,7 @@ Synesis classifies your request before any LLM runs. The canonical graph flow is
 plan first: write a hello script
 ```
 
-**Effect:** Routes to the Planner node regardless of task complexity. You see a structured plan and are asked to approve before execution proceeds to the Executor.
+**Effect:** Routes to the Planner node regardless of task complexity. You get structured planning output first, and `plan_gate` validates plan quality before routing to `router`/`respond` (with clarification when needed).
 
 ---
 

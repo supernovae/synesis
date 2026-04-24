@@ -16,6 +16,7 @@
  *   npx tsx scripts/eval-gym.ts --scenario plan-load-exploration-drift
  *   npx tsx scripts/eval-gym.ts --list
  *   npx tsx scripts/eval-gym.ts --category e2e_build --model qwen/qwen3-coder
+ *   npx tsx scripts/eval-gym.ts --category power_user_canary --allow-failures --json --out eval-power-user-canary.json
  *   npx tsx scripts/eval-gym.ts --category governor_regression --export sft --out training.jsonl
  *   npx tsx scripts/eval-gym.ts --all --json --out results.json
  */
@@ -220,7 +221,10 @@ async function main() {
   const failed = results.filter(r => !r.passed).length;
   if (failed > 0) {
     console.log(`\n${failed} scenario(s) FAILED`);
-    process.exit(1);
+    if (!hasFlag("allow-failures")) {
+      process.exit(1);
+    }
+    console.log("Failure exit bypassed because --allow-failures was supplied.");
   }
 }
 
