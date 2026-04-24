@@ -4,6 +4,7 @@ export interface PublicPlannerOffering {
   client_model_id: string;
   label: string | null;
   effort_tier: string;
+  route_via_role: string | null;
   backend_model_override: string | null;
 }
 

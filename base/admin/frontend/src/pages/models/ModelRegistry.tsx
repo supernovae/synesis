@@ -5,7 +5,6 @@ import {
   useRoleAssignments,
   useAssignRole,
   useDeactivateRole,
-  useReconcileModels,
   useProviderGovernance,
   buildCatalogFromGovernance,
   usePipelineServices,
@@ -36,6 +35,7 @@ import {
   Wand2,
   RefreshCw,
   DollarSign,
+  Plus,
 } from "lucide-react";
 
 const SOURCE_ICON: Record<string, typeof Cloud> = {
@@ -60,6 +60,20 @@ function showEndpointUrlField(providerKey: string, p?: ProviderInfo): boolean {
   // Custom providers from DB: show unless explicitly needs_endpoint=false
   if (p.is_custom === true && p.needs_endpoint !== false) return true;
   return hardcoded;
+}
+
+/** Which coder-* deployment row supplies base URL / API keys for an extra public model name. */
+const ROUTE_VIA_OPTIONS = [
+  { value: "coder-pulse", short: "Coder Pulse" },
+  { value: "coder-core", short: "Coder Core" },
+  { value: "coder-horizon", short: "Coder Horizon" },
+] as const;
+
+function routeViaLabel(role: string | null | undefined, effortFallback: string): string {
+  const r = (role ?? "").trim().toLowerCase();
+  const found = ROUTE_VIA_OPTIONS.find((o) => o.value === r);
+  if (found) return found.short;
+  return `Coder ${effortFallback}`;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -203,11 +217,172 @@ function parseOptionalInt(value: string): number | undefined {
   return parsed;
 }
 
+type PublicOfferingPatch = {
+  id: number;
+} & Partial<{
+  client_model_id: string;
+  label: string | null;
+  effort_tier: string;
+  route_via_role: string | null;
+  backend_model_override: string | null;
+  expose_planner: boolean;
+  expose_yarn: boolean;
+  is_active: boolean;
+}>;
+
+function ExtraPublicOfferingCard({
+  o,
+  roles,
+  onPatch,
+  onDelete,
+}: {
+  o: PublicModelOffering;
+  roles: ModelDeployment[];
+  onPatch: (patch: PublicOfferingPatch) => void;
+  onDelete: (id: number) => void;
+}) {
+  const [label, setLabel] = useState(() => o.label ?? "");
+  const [wire, setWire] = useState(() => o.backend_model_override ?? "");
+
+  useEffect(() => {
+    setLabel(o.label ?? "");
+    setWire(o.backend_model_override ?? "");
+  }, [o.id, o.label, o.backend_model_override, o.updated_at]);
+
+  const routeKey = (o.route_via_role ?? `coder-${o.effort_tier}`).trim();
+  const dep = roles.find((r) => r.role === routeKey);
+
+  const commitLabel = () => {
+    const next = label.trim();
+    const cur = (o.label ?? "").trim();
+    if (next === cur) return;
+    onPatch({ id: o.id, label: next === "" ? null : next });
+  };
+
+  const commitWire = () => {
+    const next = wire.trim();
+    const cur = (o.backend_model_override ?? "").trim();
+    if (next === cur) return;
+    onPatch({ id: o.id, backend_model_override: next === "" ? null : next });
+  };
+
+  const effectiveWire = wire.trim() || dep?.model?.trim() || "—";
+
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50/30 p-3 dark:border-violet-900/40 dark:bg-violet-950/20">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Wand2 className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
+          <div className="min-w-0">
+            <h3 className="font-mono text-sm font-semibold text-gray-900 dark:text-white">{o.client_model_id}</h3>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Remove model “${o.client_model_id}”?`)) {
+              onDelete(o.id);
+            }
+          }}
+          className="shrink-0 text-xs text-red-600 hover:underline dark:text-red-400"
+        >
+          Remove
+        </button>
+      </div>
+
+      <label className="mt-2 block text-[11px] text-gray-500 dark:text-gray-400">
+        Label (shown in UIs)
+        <input
+          className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={commitLabel}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          placeholder="Optional display name"
+        />
+      </label>
+
+      <label className="mt-2 block text-[11px] text-gray-500 dark:text-gray-400">
+        Wire model / LiteLLM id
+        <input
+          className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+          value={wire}
+          onChange={(e) => setWire(e.target.value)}
+          onBlur={commitWire}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          placeholder={dep?.model ? `Leave blank to use ${dep.model}` : "Optional override"}
+        />
+      </label>
+      <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+        Effective wire: <span className="font-mono text-gray-700 dark:text-gray-300">{effectiveWire}</span>
+      </p>
+
+      <label className="mt-2 block text-[11px] text-gray-500 dark:text-gray-400">
+        Connection
+        <select
+          className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+          value={routeKey}
+          onChange={(e) =>
+            onPatch({
+              id: o.id,
+              route_via_role: e.target.value,
+            })
+          }
+        >
+          {ROUTE_VIA_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.short}
+            </option>
+          ))}
+        </select>
+      </label>
+      {dep?.assigned ? (
+        <p className="mt-1 truncate text-[10px] text-gray-500" title={dep.endpoint || ""}>
+          {routeViaLabel(o.route_via_role, o.effort_tier)} → {dep.provider} · {dep.endpoint || "default URL"}
+        </p>
+      ) : (
+        <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400">
+          Assign {routeViaLabel(o.route_via_role, o.effort_tier)} in the cards above so this model can route.
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-3 border-t border-violet-100 pt-2 text-[11px] dark:border-violet-900/30">
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={o.expose_planner}
+            onChange={(e) => onPatch({ id: o.id, expose_planner: e.target.checked })}
+          />
+          Planner
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={o.expose_yarn}
+            onChange={(e) => onPatch({ id: o.id, expose_yarn: e.target.checked })}
+          />
+          Yarn
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={o.is_active}
+            onChange={(e) => onPatch({ id: o.id, is_active: e.target.checked })}
+          />
+          Active
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export default function ModelRegistry() {
   const { data, isLoading } = useRoleAssignments();
   const assignMut = useAssignRole();
   const deactivateMut = useDeactivateRole();
-  const reconcileMut = useReconcileModels();
   const { data: costsData } = useActiveCosts();
   const costByRole = useMemo(() => {
     const m = new Map<string, ActiveCostEntry>();
@@ -237,9 +412,9 @@ export default function ModelRegistry() {
   const [newOffering, setNewOffering] = useState({
     client_model_id: "",
     label: "",
-    effort_tier: "core",
+    route_via_role: "coder-core" as (typeof ROUTE_VIA_OPTIONS)[number]["value"],
     backend_model_override: "",
-    expose_planner: false,
+    expose_planner: true,
     expose_yarn: true,
   });
 
@@ -324,23 +499,13 @@ export default function ModelRegistry() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Model Registry</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Assign a model to each pipeline role. Changes sync to LiteLLM automatically.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => reconcileMut.mutate()}
-            disabled={reconcileMut.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            <Zap className="h-3.5 w-3.5" />
-            {reconcileMut.isPending ? "Syncing..." : "Force Sync"}
-          </button>
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Model Registry</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Assign upstream models to each pipeline role. Saving a role updates LiteLLM. Extra client-visible model
+          names (for A/B tests) are added below — they do not replace pulse/core/horizon; they reuse one of those
+          deployments for URL and keys.
+        </p>
       </div>
 
       {isLoading ? (
@@ -431,173 +596,134 @@ export default function ModelRegistry() {
       )}
 
       <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Public model offerings</h2>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Named client <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">model</code> ids for Open WebUI and
-          API clients. Each maps to pulse/core/horizon and inherits routing from the matching coder (Yarn) or general
-          (Planner) deployment unless you set a backend override.
-        </p>
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Extra model names</h2>
+            <p className="mt-1 max-w-3xl text-xs text-gray-500 dark:text-gray-400">
+              Add additional <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">model</code> strings clients can
+              select (e.g. <span className="font-mono">kimi</span>, <span className="font-mono">minimax</span>). Each
+              entry uses the <strong>wire model</strong> you set (or the deployment’s model if left blank) and inherits
+              <strong> base URL and API keys</strong> from one of the coder assignments above — without renaming
+              pulse/core/horizon themselves.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900/50 dark:bg-indigo-950/20">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+            <Plus className="h-3.5 w-3.5" />
+            Add model (platform admin)
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <input
+              className="rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+              placeholder="Model id (e.g. kimi, qwen-pro)"
+              value={newOffering.client_model_id}
+              onChange={(e) => setNewOffering({ ...newOffering, client_model_id: e.target.value })}
+            />
+            <input
+              className="rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+              placeholder="Label (shown in UIs)"
+              value={newOffering.label}
+              onChange={(e) => setNewOffering({ ...newOffering, label: e.target.value })}
+            />
+            <input
+              className="rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+              placeholder="Wire model / LiteLLM id (optional if same as deployment)"
+              value={newOffering.backend_model_override}
+              onChange={(e) => setNewOffering({ ...newOffering, backend_model_override: e.target.value })}
+            />
+          </div>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <span className="shrink-0">Use connection from</span>
+              <select
+                className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                value={newOffering.route_via_role}
+                onChange={(e) =>
+                  setNewOffering({
+                    ...newOffering,
+                    route_via_role: e.target.value as (typeof ROUTE_VIA_OPTIONS)[number]["value"],
+                  })
+                }
+              >
+                {ROUTE_VIA_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.short} deployment
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1 text-xs">
+              <input
+                type="checkbox"
+                checked={newOffering.expose_planner}
+                onChange={(e) => setNewOffering({ ...newOffering, expose_planner: e.target.checked })}
+              />
+              Planner / chat
+            </label>
+            <label className="flex items-center gap-1 text-xs">
+              <input
+                type="checkbox"
+                checked={newOffering.expose_yarn}
+                onChange={(e) => setNewOffering({ ...newOffering, expose_yarn: e.target.checked })}
+              />
+              Yarn / coder
+            </label>
+            <button
+              type="button"
+              disabled={createOfferingMut.isPending || !newOffering.client_model_id.trim()}
+              onClick={() => {
+                createOfferingMut.mutate(
+                  {
+                    client_model_id: newOffering.client_model_id.trim(),
+                    label: newOffering.label.trim() || null,
+                    route_via_role: newOffering.route_via_role,
+                    backend_model_override: newOffering.backend_model_override.trim() || null,
+                    expose_planner: newOffering.expose_planner,
+                    expose_yarn: newOffering.expose_yarn,
+                  },
+                  {
+                    onSuccess: () =>
+                      setNewOffering({
+                        client_model_id: "",
+                        label: "",
+                        route_via_role: "coder-core",
+                        backend_model_override: "",
+                        expose_planner: true,
+                        expose_yarn: true,
+                      }),
+                  },
+                );
+              }}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 sm:ml-auto"
+            >
+              {createOfferingMut.isPending ? "Adding…" : "Add model"}
+            </button>
+          </div>
+          {createOfferingMut.isError && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+              {(createOfferingMut.error as Error)?.message ?? "Create failed"}
+            </p>
+          )}
+        </div>
+
         {publicOfferingsLoading ? (
-          <div className="mt-3 h-24 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+          <div className="mt-4 h-28 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+        ) : (publicOfferingsData?.offerings ?? []).length === 0 ? (
+          <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">No extra model names yet.</p>
         ) : (
-          <>
-            <div className="mt-3 overflow-x-auto">
-              <table className="min-w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700">
-                    <th className="py-2 pr-3 font-medium">Client id</th>
-                    <th className="py-2 pr-3 font-medium">Label</th>
-                    <th className="py-2 pr-3 font-medium">Effort</th>
-                    <th className="py-2 pr-3 font-medium">Backend override</th>
-                    <th className="py-2 pr-3 font-medium">Planner</th>
-                    <th className="py-2 pr-3 font-medium">Yarn</th>
-                    <th className="py-2 pr-3 font-medium">Active</th>
-                    <th className="py-2 font-medium" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {(publicOfferingsData?.offerings ?? []).map((o: PublicModelOffering) => (
-                    <tr key={o.id} className="border-b border-gray-100 dark:border-gray-800">
-                      <td className="py-2 pr-3 font-mono text-gray-800 dark:text-gray-200">{o.client_model_id}</td>
-                      <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">{o.label ?? "—"}</td>
-                      <td className="py-2 pr-3">{o.effort_tier}</td>
-                      <td className="max-w-[140px] truncate py-2 pr-3 text-gray-600 dark:text-gray-400" title={o.backend_model_override ?? ""}>
-                        {o.backend_model_override ?? "—"}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <input
-                          type="checkbox"
-                          checked={o.expose_planner}
-                          onChange={(e) =>
-                            patchOfferingMut.mutate({ id: o.id, expose_planner: e.target.checked })
-                          }
-                          className="rounded border-gray-300"
-                        />
-                      </td>
-                      <td className="py-2 pr-3">
-                        <input
-                          type="checkbox"
-                          checked={o.expose_yarn}
-                          onChange={(e) =>
-                            patchOfferingMut.mutate({ id: o.id, expose_yarn: e.target.checked })
-                          }
-                          className="rounded border-gray-300"
-                        />
-                      </td>
-                      <td className="py-2 pr-3">
-                        <input
-                          type="checkbox"
-                          checked={o.is_active}
-                          onChange={(e) =>
-                            patchOfferingMut.mutate({ id: o.id, is_active: e.target.checked })
-                          }
-                          className="rounded border-gray-300"
-                        />
-                      </td>
-                      <td className="py-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm(`Delete offering ${o.client_model_id}?`)) {
-                              deleteOfferingMut.mutate(o.id);
-                            }
-                          }}
-                          className="text-red-600 hover:underline dark:text-red-400"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-4 rounded border border-dashed border-gray-300 p-3 dark:border-gray-600">
-              <p className="mb-2 text-[11px] font-medium text-gray-600 dark:text-gray-400">Add offering (platform admin)</p>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <input
-                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
-                  placeholder="client_model_id (e.g. exp-qwen-test)"
-                  value={newOffering.client_model_id}
-                  onChange={(e) => setNewOffering({ ...newOffering, client_model_id: e.target.value })}
-                />
-                <input
-                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
-                  placeholder="label (optional)"
-                  value={newOffering.label}
-                  onChange={(e) => setNewOffering({ ...newOffering, label: e.target.value })}
-                />
-                <select
-                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
-                  value={newOffering.effort_tier}
-                  onChange={(e) => setNewOffering({ ...newOffering, effort_tier: e.target.value })}
-                >
-                  <option value="pulse">pulse</option>
-                  <option value="core">core</option>
-                  <option value="horizon">horizon</option>
-                </select>
-                <input
-                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
-                  placeholder="backend override (optional)"
-                  value={newOffering.backend_model_override}
-                  onChange={(e) => setNewOffering({ ...newOffering, backend_model_override: e.target.value })}
-                />
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-xs">
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={newOffering.expose_planner}
-                    onChange={(e) => setNewOffering({ ...newOffering, expose_planner: e.target.checked })}
-                  />
-                  Expose to Planner
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={newOffering.expose_yarn}
-                    onChange={(e) => setNewOffering({ ...newOffering, expose_yarn: e.target.checked })}
-                  />
-                  Expose to Yarn
-                </label>
-                <button
-                  type="button"
-                  disabled={createOfferingMut.isPending || !newOffering.client_model_id.trim()}
-                  onClick={() => {
-                    createOfferingMut.mutate(
-                      {
-                        client_model_id: newOffering.client_model_id.trim(),
-                        label: newOffering.label.trim() || null,
-                        effort_tier: newOffering.effort_tier,
-                        backend_model_override: newOffering.backend_model_override.trim() || null,
-                        expose_planner: newOffering.expose_planner,
-                        expose_yarn: newOffering.expose_yarn,
-                      },
-                      {
-                        onSuccess: () =>
-                          setNewOffering({
-                            client_model_id: "",
-                            label: "",
-                            effort_tier: "core",
-                            backend_model_override: "",
-                            expose_planner: false,
-                            expose_yarn: true,
-                          }),
-                      },
-                    );
-                  }}
-                  className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {createOfferingMut.isPending ? "Creating…" : "Create"}
-                </button>
-                {createOfferingMut.isError && (
-                  <span className="text-red-600 dark:text-red-400">
-                    {(createOfferingMut.error as Error)?.message ?? "Create failed"}
-                  </span>
-                )}
-              </div>
-            </div>
-          </>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {(publicOfferingsData?.offerings ?? []).map((o: PublicModelOffering) => (
+              <ExtraPublicOfferingCard
+                key={o.id}
+                o={o}
+                roles={roles}
+                onPatch={(patch) => patchOfferingMut.mutate(patch)}
+                onDelete={(id) => deleteOfferingMut.mutate(id)}
+              />
+            ))}
+          </div>
         )}
       </div>
 
@@ -651,12 +777,6 @@ export default function ModelRegistry() {
         />
       )}
 
-      {/* Reconcile result toast */}
-      {reconcileMut.isSuccess && reconcileMut.data && (
-        <div className="fixed bottom-4 right-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-lg dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-          Sync complete: {reconcileMut.data.added} added, {reconcileMut.data.removed} removed, {reconcileMut.data.unchanged} unchanged
-        </div>
-      )}
     </div>
   );
 }

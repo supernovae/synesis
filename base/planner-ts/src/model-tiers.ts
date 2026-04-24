@@ -1,5 +1,9 @@
 import type { AppConfig } from "./config.js";
-import { getPlannerPublicOfferings, getRoleBackendModel } from "./public-model-catalog.js";
+import {
+  getPlannerPublicOfferings,
+  getRoleBackendModel,
+  type PublicPlannerOffering,
+} from "./public-model-catalog.js";
 
 export type ModelTier = "auto" | "pulse" | "core" | "horizon";
 
@@ -64,6 +68,14 @@ function normalizeTier(model: string): ModelTier {
   return TIER_ALIAS[key] ?? "auto";
 }
 
+function generalRoleFromOffering(o: PublicPlannerOffering): string {
+  const rv = (o.route_via_role ?? "").trim().toLowerCase();
+  if (rv === "coder-pulse") return "general-pulse";
+  if (rv === "coder-core") return "general-core";
+  if (rv === "coder-horizon") return "general-horizon";
+  return `general-${o.effort_tier.trim().toLowerCase()}`;
+}
+
 export function resolveTierSettings(requestModel: string | null | undefined): TierSettings {
   const requestedModel = (requestModel ?? "").trim();
   const reqLow = requestedModel.toLowerCase();
@@ -71,7 +83,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
   for (const o of getPlannerPublicOfferings()) {
     if (o.client_model_id.trim().toLowerCase() !== reqLow) continue;
     const tier = effortToTier(o.effort_tier);
-    const generalRole = `general-${o.effort_tier.trim().toLowerCase()}`;
+    const generalRole = generalRoleFromOffering(o);
     const registryModel =
       (o.backend_model_override ?? "").trim() || getRoleBackendModel(generalRole);
     if (tier === "pulse") {

@@ -335,7 +335,8 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
 
 const PublicOfferingRowSchema = z.object({
   client_model_id: z.string(),
-  effort_tier: z.string(),
+  effort_tier: z.string().optional(),
+  route_via_role: z.string().nullable().optional(),
   backend_model_override: z.string().nullable().optional(),
 });
 
@@ -382,8 +383,9 @@ export function mergeYarnPublicOfferingsIntoTiers(
   const byId = new Map(baseTiers.map((t) => [t.id, t]));
   const extra: TierConfig[] = [];
   for (const o of offerings) {
-    const effort = (o.effort_tier ?? "").trim().toLowerCase();
-    const role = `coder-${effort}`;
+    const role =
+      (o.route_via_role ?? "").trim().toLowerCase()
+      || `coder-${(o.effort_tier ?? "").trim().toLowerCase()}`;
     const canon = ROLE_TO_TIER[role];
     if (!canon) continue;
     const base = byId.get(canon);

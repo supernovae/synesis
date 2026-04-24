@@ -6,6 +6,8 @@ import re
 
 VALID_EFFORT_TIERS = frozenset({"pulse", "core", "horizon"})
 
+ROUTE_VIA_CODER_ROLES = frozenset({"coder-pulse", "coder-core", "coder-horizon"})
+
 RESERVED_CLIENT_MODEL_IDS = frozenset(
     {
         "auto",
@@ -64,6 +66,37 @@ def validate_effort_tier(tier: str) -> str:
     if t not in VALID_EFFORT_TIERS:
         raise ValueError(f"effort_tier must be one of: {', '.join(sorted(VALID_EFFORT_TIERS))}")
     return t
+
+
+def validate_route_via_role(role: str) -> str:
+    r = (role or "").strip().lower()
+    if r not in ROUTE_VIA_CODER_ROLES:
+        raise ValueError(
+            "route_via_role must be one of: coder-pulse, coder-core, coder-horizon "
+            "(which coder deployment supplies base URL and API keys)"
+        )
+    return r
+
+
+def normalize_route_and_effort(
+    effort_tier: str | None,
+    route_via_role: str | None,
+) -> tuple[str, str]:
+    """Return (effort_tier, route_via_role) both set and consistent."""
+    r_raw = (route_via_role or "").strip().lower() or None
+    e_raw = (effort_tier or "").strip().lower() or None
+    if r_raw:
+        r = validate_route_via_role(r_raw)
+        e = r.removeprefix("coder-")
+        if e not in VALID_EFFORT_TIERS:
+            raise ValueError("invalid route_via_role suffix")
+        return e, r
+    if e_raw:
+        e = validate_effort_tier(e_raw)
+        return e, f"coder-{e}"
+    raise ValueError(
+        "Set route_via_role (coder-pulse, coder-core, coder-horizon) or effort_tier (pulse, core, horizon)"
+    )
 
 
 def effort_to_coder_role(effort: str) -> str:

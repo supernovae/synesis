@@ -246,7 +246,7 @@ class ModelDeployment(Base):
 
 
 class ModelPublicOffering(Base):
-    """Admin-managed client-visible model ids mapped to pulse/core/horizon effort tiers."""
+    """Admin-managed client-visible model ids; route_via_role selects which coder deployment supplies URL/keys."""
 
     __tablename__ = "model_public_offering"
 
@@ -254,6 +254,7 @@ class ModelPublicOffering(Base):
     client_model_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     label: Mapped[str | None] = mapped_column(String(256), nullable=True)
     effort_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    route_via_role: Mapped[str | None] = mapped_column(String(64), nullable=True)
     backend_model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     expose_planner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     expose_yarn: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

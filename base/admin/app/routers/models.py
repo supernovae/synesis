@@ -163,7 +163,8 @@ async def list_role_assignments_internal(
 class PublicOfferingCreate(BaseModel):
     client_model_id: str
     label: str | None = None
-    effort_tier: str
+    effort_tier: str | None = None
+    route_via_role: str | None = None
     backend_model_override: str | None = None
     expose_planner: bool = False
     expose_yarn: bool = False
@@ -174,6 +175,7 @@ class PublicOfferingPatch(BaseModel):
     client_model_id: str | None = None
     label: str | None = None
     effort_tier: str | None = None
+    route_via_role: str | None = None
     backend_model_override: str | None = None
     expose_planner: bool | None = None
     expose_yarn: bool | None = None
@@ -211,6 +213,7 @@ async def create_public_offering(
                 client_model_id=body.client_model_id,
                 label=body.label,
                 effort_tier=body.effort_tier,
+                route_via_role=body.route_via_role,
                 backend_model_override=body.backend_model_override,
                 expose_planner=body.expose_planner,
                 expose_yarn=body.expose_yarn,

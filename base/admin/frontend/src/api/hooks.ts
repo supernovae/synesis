@@ -667,6 +667,7 @@ export interface PublicModelOffering {
   client_model_id: string;
   label: string | null;
   effort_tier: string;
+  route_via_role: string | null;
   backend_model_override: string | null;
   expose_planner: boolean;
   expose_yarn: boolean;
@@ -689,7 +690,8 @@ export function useCreatePublicOffering() {
     mutationFn: (body: {
       client_model_id: string;
       label?: string | null;
-      effort_tier: string;
+      effort_tier?: string | null;
+      route_via_role?: string | null;
       backend_model_override?: string | null;
       expose_planner?: boolean;
       expose_yarn?: boolean;
@@ -711,6 +713,7 @@ export function usePatchPublicOffering() {
       client_model_id: string;
       label: string | null;
       effort_tier: string;
+      route_via_role: string | null;
       backend_model_override: string | null;
       expose_planner: boolean;
       expose_yarn: boolean;

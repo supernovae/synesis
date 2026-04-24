@@ -3835,8 +3835,9 @@ async function refreshTierRegistry(): Promise<void> {
     tierRegistry.updateTiers(mergedTiers);
     const offeringOrchestratorEntries: Array<{ clientId: string; tier: EffortTier }> = [];
     for (const o of publicOfferings) {
-      const effort = (o.effort_tier ?? "").trim().toLowerCase();
-      const role = `coder-${effort}`;
+      const role =
+        (o.route_via_role ?? "").trim().toLowerCase()
+        || `coder-${(o.effort_tier ?? "").trim().toLowerCase()}`;
       const tier = ROLE_TO_TIER[role];
       if (tier === "synesis-pulse" || tier === "synesis-core" || tier === "synesis-horizon") {
         offeringOrchestratorEntries.push({ clientId: o.client_model_id.trim().toLowerCase(), tier });
