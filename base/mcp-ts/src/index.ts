@@ -88,9 +88,10 @@ async function enforceFga(patUser: PatUser): Promise<void> {
 
 const app = Fastify({ logger: { level: config.LOG_LEVEL } });
 void app.register(fastifyRateLimit, { global: false });
-const authRouteRateLimit = (max: number) => ({
-  config: { rateLimit: { max, timeWindow: "1 minute" as const } },
-});
+// Cloudflare edge policies are the first line of defense, but we also enforce
+// app-layer limits so direct origin traffic and internal callers are bounded.
+const mcpAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
+const mcpAuthPreHandler = app.rateLimit(mcpAuthRateLimit);
 
 /** Public catalog for UIs (Integrations page) — no secrets; same tool surface as Streamable MCP. */
 app.get("/v1/synesis-tools", async () => ({
@@ -103,7 +104,8 @@ app.get("/v1/synesis-tools", async () => ({
 app.route({
   method: ["GET", "POST", "DELETE"],
   url: config.SYNESIS_MCP_HTTP_PATH,
-  ...authRouteRateLimit(240),
+  config: { rateLimit: mcpAuthRateLimit },
+  preHandler: mcpAuthPreHandler,
   handler: async (req, reply) => {
     mcpHttpRequests++;
     let patUser: PatUser;

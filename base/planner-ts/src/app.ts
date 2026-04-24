@@ -271,10 +271,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     forceCloseConnections: "idle"
   });
   void app.register(fastifyRateLimit, { global: false });
-  const authRouteRateLimit = (max: number) => ({
-    config: { rateLimit: { max, timeWindow: "1 minute" as const } },
-    preHandler: app.rateLimit({ max, timeWindow: "1 minute" }),
-  });
+  // Keep origin-side throttling in addition to Cloudflare edge controls so
+  // internal/private paths remain consistently rate-limited.
 
   const promRegistry = new Registry();
   const metrics = createServiceMetrics("planner", promRegistry);
@@ -876,7 +874,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
   // -----------------------------------------------------------------------
   // Knowledge search — structured RAG retrieval for MCP and Yarn
   // -----------------------------------------------------------------------
-  app.post("/v1/knowledge/search", authRouteRateLimit(180), async (request, reply) => {
+  app.post(
+    "/v1/knowledge/search",
+    {
+      config: { rateLimit: { max: 180, timeWindow: "1 minute" as const } },
+      preHandler: app.rateLimit({ max: 180, timeWindow: "1 minute" }),
+    },
+    async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
     if (!await isSearchRouteAuthorized(
       request.headers.authorization,
@@ -980,12 +984,19 @@ export function buildApp(config: AppConfig): FastifyInstance {
       request.log.error({ err: msg }, "knowledge_search_failed");
       return reply.code(500).send({ error: "Knowledge search failed", detail: msg });
     }
-  });
+    },
+  );
 
   // -----------------------------------------------------------------------
   // Web search — planner-owned route for MCP/Yarn/OpenWebUI attribution
   // -----------------------------------------------------------------------
-  app.post("/v1/web/search", authRouteRateLimit(180), async (request, reply) => {
+  app.post(
+    "/v1/web/search",
+    {
+      config: { rateLimit: { max: 180, timeWindow: "1 minute" as const } },
+      preHandler: app.rateLimit({ max: 180, timeWindow: "1 minute" }),
+    },
+    async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
     if (!await isSearchRouteAuthorized(
       request.headers.authorization,
@@ -1111,7 +1122,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
         policy: { action: "degraded", reason: "planner_web_search_error" },
       });
     }
-  });
+    },
+  );
 
   app.get("/v1/models", async () => ({
     object: "list",
@@ -1123,7 +1135,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }))
   }));
 
-  app.delete("/v1/memory/:conversationId", authRouteRateLimit(60), async (request, reply) => {
+  app.delete(
+    "/v1/memory/:conversationId",
+    {
+      config: { rateLimit: { max: 60, timeWindow: "1 minute" as const } },
+      preHandler: app.rateLimit({ max: 60, timeWindow: "1 minute" }),
+    },
+    async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
     reply.header("x-synesis-authz-engine", authzPolicyEngine.engineName);
@@ -1192,7 +1210,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
         }
       });
     }
-  });
+    },
+  );
 
   function countAssumptionTags(text: string): TraceSensemaking["assumption_tags_applied"] {
     return {
@@ -1504,7 +1523,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
     );
   }
 
-  app.post("/v1/chat/completions", authRouteRateLimit(300), async (request, reply) => {
+  app.post(
+    "/v1/chat/completions",
+    {
+      config: { rateLimit: { max: 300, timeWindow: "1 minute" as const } },
+      preHandler: app.rateLimit({ max: 300, timeWindow: "1 minute" }),
+    },
+    async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     const inboundTraceparentHeader = request.headers["traceparent"];
     const inboundTraceparent = typeof inboundTraceparentHeader === "string" && inboundTraceparentHeader.trim().length > 0
@@ -1965,7 +1990,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     } finally {
       requestSpan.end();
     }
-  });
+    },
+  );
 
   return app;
 }

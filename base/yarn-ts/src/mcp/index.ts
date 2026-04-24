@@ -220,10 +220,10 @@ export async function registerMcpRoutes(
     return;
   }
 
-  const authRouteRateLimit = (max: number) => ({
-    config: { rateLimit: { max, timeWindow: "1 minute" as const } },
-    preHandler: app.rateLimit({ max, timeWindow: "1 minute" }),
-  });
+  // Cloudflare may enforce edge throttling, but origin-side MCP routes still
+  // apply local limits so private traffic paths are consistently protected.
+  const mcpAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
+  const mcpAuthPreHandler = app.rateLimit(mcpAuthRateLimit);
 
   async function resolveUser(req: FastifyRequest, reply: FastifyReply): Promise<AuthUser | null> {
     try {
@@ -241,7 +241,13 @@ export async function registerMcpRoutes(
     }
   }
 
-  app.get("/v1/mcp/tools", authRouteRateLimit(240), async (req, reply) => {
+  app.get(
+    "/v1/mcp/tools",
+    {
+      config: { rateLimit: mcpAuthRateLimit },
+      preHandler: mcpAuthPreHandler,
+    },
+    async (req, reply) => {
     const user = await resolveUser(req, reply);
     if (!user) return;
     const openClawClient = opts.openClawProfileEnabled
@@ -271,9 +277,16 @@ export async function registerMcpRoutes(
         filteredForAgentFlow: !agentFlow,
       },
     });
-  });
+    },
+  );
 
-  app.post("/v1/mcp/tools/call", authRouteRateLimit(240), async (req, reply) => {
+  app.post(
+    "/v1/mcp/tools/call",
+    {
+      config: { rateLimit: mcpAuthRateLimit },
+      preHandler: mcpAuthPreHandler,
+    },
+    async (req, reply) => {
     const user = await resolveUser(req, reply);
     if (!user) return;
 
@@ -433,7 +446,8 @@ export async function registerMcpRoutes(
         },
       });
     }
-  });
+    },
+  );
 
   app.log.info(
     { toolCount: registry.getCatalog().length + getSynesisPlatformCatalog().length },

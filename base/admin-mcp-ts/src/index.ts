@@ -4,6 +4,7 @@
  * and serves Streamable HTTP plus a lightweight JSON tool API for the Admin Assistant.
  */
 import Fastify, { type FastifyRequest } from "fastify";
+import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
@@ -139,6 +140,11 @@ function createApp(cfg: AdminMcpConfig) {
   let directToolInvocations = 0;
 
   const app = Fastify({ logger: { level: cfg.LOG_LEVEL } });
+  void app.register(fastifyRateLimit, { global: false });
+  // Keep app-level limits even when Cloudflare is enabled so origin-only traffic
+  // and trusted network paths still have bounded abuse protection.
+  const adminAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
+  const adminAuthPreHandler = app.rateLimit(adminAuthRateLimit);
 
   app.get("/health", async () => ({
     status: "ok",
@@ -156,7 +162,13 @@ function createApp(cfg: AdminMcpConfig) {
     otel: { configured: Boolean(cfg.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) },
   }));
 
-  app.get("/v1/admin-tools", async (req, reply) => {
+  app.get(
+    "/v1/admin-tools",
+    {
+      config: { rateLimit: adminAuthRateLimit },
+      preHandler: adminAuthPreHandler,
+    },
+    async (req, reply) => {
     try {
       const authCtx = await authenticateAdminRequest(cfg, req);
       const tools = visibleToolDescriptorsForRole(authCtx.user.role);
@@ -176,9 +188,16 @@ function createApp(cfg: AdminMcpConfig) {
       app.log.error({ err: msg }, "admin_tools_catalog_failed");
       return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
     }
-  });
+    },
+  );
 
-  app.post("/v1/admin-tools/invoke", async (req, reply) => {
+  app.post(
+    "/v1/admin-tools/invoke",
+    {
+      config: { rateLimit: adminAuthRateLimit },
+      preHandler: adminAuthPreHandler,
+    },
+    async (req, reply) => {
     let authCtx: AuthenticatedRequestContext;
     try {
       authCtx = await authenticateAdminRequest(cfg, req);
@@ -233,11 +252,14 @@ function createApp(cfg: AdminMcpConfig) {
       app.log.error({ err: msg, tool: parsed.name }, "admin_tools_invoke_failed");
       return reply.code(500).send({ error: "tool_failed", detail: msg });
     }
-  });
+    },
+  );
 
   app.route({
     method: ["GET", "POST", "DELETE"],
     url: cfg.SYNESIS_ADMIN_MCP_HTTP_PATH,
+    config: { rateLimit: adminAuthRateLimit },
+    preHandler: adminAuthPreHandler,
     handler: async (req, reply) => {
       mcpRequests++;
       let authCtx: AuthenticatedRequestContext;
