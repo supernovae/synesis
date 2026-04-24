@@ -97,22 +97,56 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   fileText: "file_text",
 };
 
-function normalizeCamelCaseArgs(input: Record<string, unknown>): Record<string, unknown> {
-  let changed = false;
+const SNAKE_TO_CAMEL: Record<string, string> = Object.fromEntries(
+  Object.entries(CAMEL_TO_SNAKE).map(([c, s]) => [s, c]),
+);
+
+/**
+ * Normalize camelCase tool args to snake_case for internal governance.
+ * Returns the normalized input and the set of keys that were remapped
+ * so the caller can reverse-map them in the output.
+ */
+function normalizeCamelCaseArgs(input: Record<string, unknown>): { input: Record<string, unknown>; remappedKeys: Set<string> } {
+  const remappedKeys = new Set<string>();
   const out = { ...input };
   for (const [camel, snake] of Object.entries(CAMEL_TO_SNAKE)) {
     if (camel in out && !(snake in out)) {
       out[snake] = out[camel];
       delete out[camel];
-      changed = true;
+      remappedKeys.add(snake);
     }
   }
-  return changed ? out : input;
+  return { input: out, remappedKeys };
+}
+
+/**
+ * Reverse snake_case keys back to camelCase for keys that were originally camelCase.
+ */
+function restoreCamelCaseArgs(input: Record<string, unknown>, remappedKeys: Set<string>): Record<string, unknown> {
+  if (remappedKeys.size === 0) return input;
+  const out = { ...input };
+  for (const snake of remappedKeys) {
+    const camel = SNAKE_TO_CAMEL[snake];
+    if (camel && snake in out) {
+      out[camel] = out[snake];
+      delete out[snake];
+    }
+  }
+  return out;
 }
 
 export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
+  const { input: normalizedInput, remappedKeys } = normalizeCamelCaseArgs(opts.input);
+  opts.input = normalizedInput;
+  const result = governToolCallInner(opts);
+  if (remappedKeys.size > 0) {
+    result.input = restoreCamelCaseArgs(result.input, remappedKeys);
+  }
+  return result;
+}
+
+function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
   const logicalName = canonicalValidationToolName(opts.toolName);
-  opts.input = normalizeCamelCaseArgs(opts.input);
   const requestedFilePath = typeof opts.input.file_path === "string" ? opts.input.file_path.trim() : "";
   const out: GovernedToolCall = {
     toolName: opts.toolName,

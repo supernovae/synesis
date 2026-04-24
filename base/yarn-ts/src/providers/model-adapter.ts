@@ -896,10 +896,22 @@ export function validateToolArgs(
   const required = requiredByTool[toolName];
   if (!required) return { valid: true, missing: [] };
 
+  const alternates: Record<string, string[]> = {
+    glob_pattern: ["pattern"],
+  };
   const missing = required.filter((k) => {
     const v = input[k];
-    if (typeof v === "string") return v.trim().length === 0;
-    return v === undefined || v === null;
+    if (typeof v === "string") return v.trim().length > 0 ? false : true;
+    if (v !== undefined && v !== null) return false;
+    const alts = alternates[k];
+    if (alts) {
+      for (const alt of alts) {
+        const av = input[alt];
+        if (typeof av === "string" && av.trim().length > 0) return false;
+        if (av !== undefined && av !== null) return false;
+      }
+    }
+    return true;
   });
   return { valid: missing.length === 0, missing };
 }
