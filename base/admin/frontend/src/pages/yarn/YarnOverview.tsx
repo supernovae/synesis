@@ -706,6 +706,18 @@ export default function YarnOverview() {
                   <span>Reducer failures</span>
                   <span className="font-medium">{runtimeTelemetry.toolResultReduction.reducerFailures}</span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span>Raw chars in</span>
+                  <span className="font-medium">
+                    {runtimeTelemetry.toolResultReduction.rawCharsTotal.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Reduced chars out</span>
+                  <span className="font-medium">
+                    {runtimeTelemetry.toolResultReduction.reducedCharsTotal.toLocaleString()}
+                  </span>
+                </div>
               </div>
             </ChartCard>
             <ChartCard
@@ -827,6 +839,18 @@ export default function YarnOverview() {
                         {reducerHistory.cumulative.fallback_to_artifact_total.toLocaleString()}
                       </span>
                     </div>
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Raw chars in (DB)</span>
+                      <span className="font-medium tabular-nums">
+                        {(reducerHistory.cumulative.raw_chars_total ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Reduced chars out (DB)</span>
+                      <span className="font-medium tabular-nums">
+                        {(reducerHistory.cumulative.reduced_chars_total ?? 0).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -857,6 +881,18 @@ export default function YarnOverview() {
                       <span>Fallback to artifact (Δ)</span>
                       <span className="font-medium tabular-nums">
                         {reducerHistory.rollup.fallback_to_artifact_delta.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Raw chars (Δ)</span>
+                      <span className="font-medium tabular-nums">
+                        {(reducerHistory.rollup.raw_chars_delta ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800/80">
+                      <span>Reduced chars (Δ)</span>
+                      <span className="font-medium tabular-nums">
+                        {(reducerHistory.rollup.reduced_chars_delta ?? 0).toLocaleString()}
                       </span>
                     </div>
                   </div>

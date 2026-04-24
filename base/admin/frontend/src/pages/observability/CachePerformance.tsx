@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   LineChart,
   Line,
@@ -9,11 +10,12 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { useCacheMetrics, useCacheHistory } from "../../api/hooks";
+import { useCacheMetrics, useCacheHistory, useYarnReducerTelemetryHistory } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
-import { Database, Zap, Target, Server, Key, Activity } from "lucide-react";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import { Database, Zap, Target, Server, Key, Activity, BarChart3 } from "lucide-react";
 import type { PrefixCacheServiceMetrics } from "../../types";
 
 const PERIOD_OPTIONS = [
@@ -128,7 +130,7 @@ function OptimizationsCard({
   optimizations: NonNullable<PrefixCacheServiceMetrics["optimizations"]>;
 }) {
   const tp = optimizations.transcriptPruning;
-  const tr = optimizations.toolResultReduction;
+  const tr = optimizations.toolResultReduction as Record<string, unknown> | undefined;
   const ff = optimizations.featureFlags;
 
   const enabledFlags = ff
@@ -177,13 +179,43 @@ function OptimizationsCard({
           </>
         )}
         {tr && (
-          <MetricCard
-            label="Tool Result Reductions"
-            value={(tr.reductions ?? tr.invocations ?? 0).toLocaleString()}
-            icon={Zap}
-            subtitle="Large tool outputs summarized"
-          />
+          <>
+            <MetricCard
+              label="Tool outputs transformed"
+              value={(typeof tr.reducedCount === "number" ? tr.reducedCount : 0).toLocaleString()}
+              icon={Zap}
+              subtitle="Reducer invocations (live process)"
+            />
+            <MetricCard
+              label="Raw chars in (reducer)"
+              value={(typeof tr.rawCharsTotal === "number" ? tr.rawCharsTotal : 0).toLocaleString()}
+              icon={Database}
+              subtitle="Input size before reduction"
+            />
+            <MetricCard
+              label="Reduced chars out"
+              value={(typeof tr.reducedCharsTotal === "number" ? tr.reducedCharsTotal : 0).toLocaleString()}
+              icon={Target}
+              subtitle="Size after reduction"
+            />
+            <MetricCard
+              label="Net chars saved (reducer)"
+              value={(typeof tr.netCharsSavedTotal === "number" ? tr.netCharsSavedTotal : 0).toLocaleString()}
+              icon={Activity}
+              subtitle="Cumulative raw − reduced (live)"
+            />
+          </>
         )}
+        {optimizations.validationNormalization &&
+          typeof optimizations.validationNormalization === "object" &&
+          !Array.isArray(optimizations.validationNormalization) && (
+            <MetricCard
+              label="Validation normalization"
+              value="active"
+              icon={Key}
+              subtitle="JSON / envelope normalization (see telemetry for counters)"
+            />
+          )}
         {ff && (
           <MetricCard
             label="Feature Flags"
@@ -219,120 +251,212 @@ function OptimizationsCard({
 }
 
 export default function CachePerformance() {
-  const { data, isLoading } = useCacheMetrics();
+  const { data: cache, isLoading, isError, error } = useCacheMetrics();
   const [period, setPeriod] = useState(24);
   const { data: history } = useCacheHistory(period);
+  const { data: reducerHistory } = useYarnReducerTelemetryHistory(period);
 
-  if (isLoading) {
-    return <div className="h-64 animate-pulse rounded-lg bg-gray-100" />;
+  const initialLoading = isLoading && cache === undefined && !isError;
+  if (initialLoading) {
+    return <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />;
   }
 
-  if (!data) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Prefix Cache Performance
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Provider-level prefix cache metrics for Chat (planner-ts) and Coder (yarn-ts)
-          </p>
-        </div>
-        <EmptyState title="No cache data" icon={Database} />
-      </div>
-    );
-  }
-
+  const data = cache;
   const mergedChart = mergeHitRateHistory(history?.snapshots ?? []);
+  const reducerSnapCount = reducerHistory?.snapshot_count ?? 0;
+  const cum = reducerHistory?.cumulative;
+  const roll = reducerHistory?.rollup;
+  const hasPrefixCards = Boolean(data?.planner || data?.yarn);
+  const hasCoderEfficiencyLive = Boolean(data?.yarn?.optimizations);
+  const hasCoderEfficiencyDb = reducerSnapCount > 0;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
           Prefix Cache Performance
         </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Prometheus counters from the Chat service (planner-ts) and Coder runtime (yarn-ts) at /metrics, plus live session stats from /health.
-          History below comes from periodic snapshots in Postgres when enabled.
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Prometheus counters from the Chat service (planner-ts) and Coder runtime (yarn-ts) at /metrics, plus live
+          session stats from /health. Coder token-efficiency metrics combine live /health/telemetry with DB-backed
+          reducer snapshots (same source as{" "}
+          <Link to="/yarn/reducers" className="text-blue-600 hover:underline dark:text-blue-400">
+            Yarn → Reducers
+          </Link>
+          ). Charts use periodic Postgres snapshots when the telemetry scraper is enabled.
         </p>
       </div>
 
-      {/* Service-level prefix cache cards */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {data.planner && (
-          <PrefixCacheCard label="Chat (planner-ts)" metrics={data.planner} />
-        )}
-        {data.yarn && (
-          <PrefixCacheCard label="Coder (yarn-ts)" metrics={data.yarn} />
-        )}
+      <ApiErrorBanner error={isError ? error : undefined} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Time window:</span>
+        {PERIOD_OPTIONS.map((opt) => (
+          <button
+            key={opt.hours}
+            type="button"
+            onClick={() => setPeriod(opt.hours)}
+            className={`rounded px-2 py-1 text-xs font-medium ${
+              period === opt.hours
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          Applies to prefix-cache history chart and persisted reducer rollup below.
+        </span>
       </div>
 
-      {/* Coder runtime optimization stats */}
-      {data.yarn?.optimizations && (
+      {/* Service-level prefix cache cards */}
+      {!data && !isError ? (
+        <EmptyState title="No cache data" icon={Database} />
+      ) : !hasPrefixCards && !isError ? (
+        <EmptyState
+          title="No prefix-cache scrape yet"
+          icon={Database}
+          description="The admin API could not read planner-ts / yarn-ts metrics, or counters are still zero. Verify SYNESIS_PLANNER_TS_URL, SYNESIS_YARN_TS_URL, and network from admin to those services."
+        />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {data?.planner && <PrefixCacheCard label="Chat (planner-ts)" metrics={data.planner} />}
+          {data?.yarn && <PrefixCacheCard label="Coder (yarn-ts)" metrics={data.yarn} />}
+        </div>
+      )}
+
+      {/* Coder: persisted reducer / char totals (windowed, restart-tolerant) */}
+      {hasCoderEfficiencyDb && cum && roll ? (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+            <BarChart3 className="h-4 w-4" />
+            Coder reduction — persisted ({period}h window)
+          </h3>
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            Totals sum monotonic deltas between telemetry snapshots (Coder restarts handled). Δ is change across the
+            selected window. For live process-only counters, see &quot;Coder token efficiency&quot; below or{" "}
+            <Link to="/yarn/reducers" className="text-blue-600 hover:underline dark:text-blue-400">
+              Reducers
+            </Link>
+            .
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <MetricCard
+              label="Raw chars in (total)"
+              value={(cum.raw_chars_total ?? 0).toLocaleString()}
+              icon={Database}
+              subtitle="Persisted cumulative in window"
+            />
+            <MetricCard
+              label="Reduced chars out (total)"
+              value={(cum.reduced_chars_total ?? 0).toLocaleString()}
+              icon={Target}
+              subtitle="Persisted cumulative in window"
+            />
+            <MetricCard
+              label="Net chars saved (total)"
+              value={(cum.net_chars_saved_total ?? 0).toLocaleString()}
+              icon={Activity}
+              subtitle="Persisted cumulative in window"
+            />
+            <MetricCard
+              label="Raw chars (Δ in window)"
+              value={(roll.raw_chars_delta ?? 0).toLocaleString()}
+              icon={Zap}
+            />
+            <MetricCard
+              label="Reduced chars (Δ)"
+              value={(roll.reduced_chars_delta ?? 0).toLocaleString()}
+              icon={Zap}
+            />
+            <MetricCard
+              label="Snapshots / stale"
+              value={`${reducerSnapCount} / ${reducerHistory?.stale ? "stale" : "fresh"}`}
+              icon={Server}
+              subtitle={
+                reducerHistory?.latest_snapshot_at
+                  ? `Latest ${new Date(reducerHistory.latest_snapshot_at).toLocaleString()}`
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {/* Coder runtime optimization stats (live telemetry) */}
+      {hasCoderEfficiencyLive && data?.yarn?.optimizations ? (
         <OptimizationsCard optimizations={data.yarn.optimizations} />
+      ) : hasCoderEfficiencyDb ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Live coder token-efficiency (transcript pruning, feature flags) needs{" "}
+          <code className="text-[0.7rem]">yarn-ts /health/telemetry</code> from admin. Persisted reducer char totals in
+          this window are shown above.
+        </p>
+      ) : (
+        <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/80 p-4 dark:border-gray-600 dark:bg-gray-900/40">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            <strong className="font-medium">Coder token efficiency</strong> (live transcript pruning, reducers, flags)
+            appears when the admin API can read <code className="text-xs">yarn-ts /health/telemetry</code> with{" "}
+            <code className="text-xs">INTERNAL_SERVICE_TOKEN</code>. Persisted reducer totals appear once the telemetry
+            scraper stores snapshots.
+          </p>
+        </div>
       )}
 
       {/* Time-series chart */}
-      {mergedChart.length > 0 && (
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">Period:</span>
-            {PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.hours}
-                onClick={() => setPeriod(opt.hours)}
-                className={`rounded px-2 py-1 text-xs font-medium ${
-                  period === opt.hours
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <ChartCard
-            title="Cache Hit Rate Over Time"
-            subtitle="Percentage of prompt tokens served from prefix cache"
-          >
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={mergedChart}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis
-                  domain={[0, 100]}
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip formatter={(v) => (v == null ? "" : `${Number(v)}%`)} />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="planner"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Chat"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="yarn"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Coder"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartCard>
-        </div>
+      {mergedChart.length > 0 ? (
+        <ChartCard
+          title="Cache Hit Rate Over Time"
+          subtitle="Percentage of prompt tokens served from prefix cache"
+        >
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={mergedChart}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+              <YAxis
+                domain={[0, 100]}
+                tick={{ fontSize: 11 }}
+                tickFormatter={(v) => `${v}%`}
+              />
+              <Tooltip formatter={(v) => (v == null ? "" : `${Number(v)}%`)} />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="planner"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={false}
+                name="Chat"
+              />
+              <Line
+                type="monotone"
+                dataKey="yarn"
+                stroke="#8b5cf6"
+                strokeWidth={2}
+                dot={false}
+                name="Coder"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      ) : (
+        <ChartCard
+          title="Cache Hit Rate Over Time"
+          subtitle="Percentage of prompt tokens served from prefix cache"
+        >
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            No prefix-cache snapshots in this window. The admin telemetry job must write{" "}
+            <code className="text-xs">PrefixCacheSnapshot</code> rows (planner-ts and yarn-ts reachable from admin).
+          </p>
+        </ChartCard>
       )}
 
       {/* Redis & Sessions */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {data.redis && (
-          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">
+        {data?.redis && (
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
               Redis
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -363,9 +487,9 @@ export default function CachePerformance() {
           </div>
         )}
 
-        {data.sessions && (
-          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">
+        {data?.sessions && (
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
               Sessions
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">

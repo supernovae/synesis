@@ -47,6 +47,9 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "task_pruned_delta": 0,
         "task_pruned_lines_kept_delta": 0,
         "task_pruned_lines_dropped_delta": 0,
+        "raw_chars_delta": 0,
+        "reduced_chars_delta": 0,
+        "net_chars_saved_delta": 0,
         "lifecycle": {},
     }
     if len(rows) < 2:
@@ -61,6 +64,9 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "task_pruned_delta": 0,
         "task_pruned_lines_kept_delta": 0,
         "task_pruned_lines_dropped_delta": 0,
+        "raw_chars_delta": 0,
+        "reduced_chars_delta": 0,
+        "net_chars_saved_delta": 0,
         "lifecycle": defaultdict(lambda: {"success_delta": 0, "fail_delta": 0}),
     }
 
@@ -97,6 +103,15 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
             _as_int(prev.get("taskPrunedLinesDropped")),
             _as_int(curr.get("taskPrunedLinesDropped")),
         )
+        totals["raw_chars_delta"] += _monotonic_delta(
+            _as_int(prev.get("rawCharsTotal")), _as_int(curr.get("rawCharsTotal"))
+        )
+        totals["reduced_chars_delta"] += _monotonic_delta(
+            _as_int(prev.get("reducedCharsTotal")), _as_int(curr.get("reducedCharsTotal"))
+        )
+        totals["net_chars_saved_delta"] += _monotonic_delta(
+            _as_int(prev.get("netCharsSavedTotal")), _as_int(curr.get("netCharsSavedTotal"))
+        )
 
         prev_l = prev.get("lifecycle") if isinstance(prev.get("lifecycle"), dict) else {}
         curr_l = curr.get("lifecycle") if isinstance(curr.get("lifecycle"), dict) else {}
@@ -118,6 +133,9 @@ def rollup_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "task_pruned_delta": totals["task_pruned_delta"],
         "task_pruned_lines_kept_delta": totals["task_pruned_lines_kept_delta"],
         "task_pruned_lines_dropped_delta": totals["task_pruned_lines_dropped_delta"],
+        "raw_chars_delta": totals["raw_chars_delta"],
+        "reduced_chars_delta": totals["reduced_chars_delta"],
+        "net_chars_saved_delta": totals["net_chars_saved_delta"],
         "lifecycle": lifecycle_out,
     }
 
@@ -133,6 +151,9 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "task_pruned_total": 0,
         "task_pruned_lines_kept_total": 0,
         "task_pruned_lines_dropped_total": 0,
+        "raw_chars_total": 0,
+        "reduced_chars_total": 0,
+        "net_chars_saved_total": 0,
         "lifecycle": {},
     }
     if not rows:
@@ -148,6 +169,9 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "task_pruned_total": _as_int(first_payload.get("taskPrunedCount")),
         "task_pruned_lines_kept_total": _as_int(first_payload.get("taskPrunedLinesKept")),
         "task_pruned_lines_dropped_total": _as_int(first_payload.get("taskPrunedLinesDropped")),
+        "raw_chars_total": _as_int(first_payload.get("rawCharsTotal")),
+        "reduced_chars_total": _as_int(first_payload.get("reducedCharsTotal")),
+        "net_chars_saved_total": _as_int(first_payload.get("netCharsSavedTotal")),
         "lifecycle": defaultdict(lambda: {"success_total": 0, "fail_total": 0}),
     }
 
@@ -191,6 +215,15 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
             _as_int(prev.get("taskPrunedLinesDropped")),
             _as_int(curr.get("taskPrunedLinesDropped")),
         )
+        totals["raw_chars_total"] += _monotonic_delta(
+            _as_int(prev.get("rawCharsTotal")), _as_int(curr.get("rawCharsTotal"))
+        )
+        totals["reduced_chars_total"] += _monotonic_delta(
+            _as_int(prev.get("reducedCharsTotal")), _as_int(curr.get("reducedCharsTotal"))
+        )
+        totals["net_chars_saved_total"] += _monotonic_delta(
+            _as_int(prev.get("netCharsSavedTotal")), _as_int(curr.get("netCharsSavedTotal"))
+        )
 
         prev_l = prev.get("lifecycle") if isinstance(prev.get("lifecycle"), dict) else {}
         curr_l = curr.get("lifecycle") if isinstance(curr.get("lifecycle"), dict) else {}
@@ -212,6 +245,9 @@ def cumulative_reducer_snapshots(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "task_pruned_total": totals["task_pruned_total"],
         "task_pruned_lines_kept_total": totals["task_pruned_lines_kept_total"],
         "task_pruned_lines_dropped_total": totals["task_pruned_lines_dropped_total"],
+        "raw_chars_total": totals["raw_chars_total"],
+        "reduced_chars_total": totals["reduced_chars_total"],
+        "net_chars_saved_total": totals["net_chars_saved_total"],
         "lifecycle": lifecycle_out,
     }
 

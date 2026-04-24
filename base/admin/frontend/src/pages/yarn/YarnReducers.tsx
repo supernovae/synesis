@@ -15,6 +15,7 @@ import {
 } from "../../api/hooks";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { formatReducerHealth, formatSnapshotFreshness } from "./reducerTelemetry";
 
 const PERIOD_OPTIONS = [
@@ -26,12 +27,14 @@ const PERIOD_OPTIONS = [
 ];
 
 export default function YarnReducers() {
-  const { data: rt, isLoading } = useYarnRuntimeTelemetry();
+  const { data: rt, isLoading, isError, error } = useYarnRuntimeTelemetry();
   const trr = rt?.toolResultReduction;
   const [period, setPeriod] = useState(24);
   const { data: reducerHistory } = useYarnReducerTelemetryHistory(period);
   const { data: compactionHistory } = useCompactionHistory(period, "yarn");
   const cumulative = reducerHistory?.cumulative;
+  const hasLive = Boolean(trr);
+  const hasDb = (reducerHistory?.snapshot_count ?? 0) > 0;
 
   const historyChart = (compactionHistory?.snapshots ?? []).map((s) => ({
     time: new Date(s.captured_at).toLocaleTimeString([], {
@@ -42,9 +45,12 @@ export default function YarnReducers() {
     tokensSaved: s.tokens_saved_estimate,
     errors: s.errors,
   }));
-  const reducerSizeDeltaPct = trr && trr.rawCharsTotal > 0
-    ? ((trr.reducedCharsTotal - trr.rawCharsTotal) / trr.rawCharsTotal) * 100
-    : null;
+  const rawCharsForRatio = trr?.rawCharsTotal ?? cumulative?.raw_chars_total ?? 0;
+  const reducedCharsForRatio = trr?.reducedCharsTotal ?? cumulative?.reduced_chars_total ?? 0;
+  const reducerSizeDeltaPct =
+    rawCharsForRatio > 0
+      ? ((reducedCharsForRatio - rawCharsForRatio) / rawCharsForRatio) * 100
+      : null;
   const sawtoothDeltaPct = rt?.sawtoothContext && rt.sawtoothContext.totalCharsBefore > 0
     ? ((rt.sawtoothContext.totalCharsAfter - rt.sawtoothContext.totalCharsBefore) / rt.sawtoothContext.totalCharsBefore) * 100
     : null;
@@ -56,33 +62,66 @@ export default function YarnReducers() {
           Reducer &amp; Compaction
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Real-time tool-output reduction and artifact compaction metrics from
-          the live Coder runtime. Historical data persists across restarts.
+          Real-time tool-output reduction from the live Coder runtime; DB-backed totals match the selected time window
+          and survive restarts (same rollup as Observability → Cache). Use the period control for historical compaction
+          charts.
         </p>
       </div>
 
-      {isLoading ? (
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Period:</span>
+        {PERIOD_OPTIONS.map((opt) => (
+          <button
+            key={opt.hours}
+            type="button"
+            onClick={() => setPeriod(opt.hours)}
+            className={`rounded px-2 py-1 text-xs font-medium ${
+              period === opt.hours
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <ApiErrorBanner error={isError ? error : undefined} />
+
+      {isLoading && !hasLive && !hasDb ? (
         <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
-      ) : !trr ? (
+      ) : !hasLive && !hasDb ? (
         <EmptyState
           title="No reducer telemetry available"
-          description="Reducer metrics appear after the Coder runtime processes tool results that match a reducer family. Possible reasons for no data: the service hasn't started, no tool-calling requests have been made, tool outputs were too small to trigger reduction (under max raw chars), or reducers are disabled via SYNESIS_YARN_REDUCERS_ENABLED=false."
+          description="Reducer metrics appear after the Coder runtime processes tool results that match a reducer family. Possible reasons for no data: the service hasn't started, no tool-calling requests have been made, tool outputs were too small to trigger reduction (under max raw chars), reducers are disabled via SYNESIS_YARN_REDUCERS_ENABLED=false, or admin cannot reach SYNESIS_YARN_URL /health/telemetry."
         />
       ) : (
         <>
+          {!hasLive && hasDb ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+              Live <code className="text-xs">/health/telemetry</code> is unavailable; showing persisted totals for the
+              selected window and any cached runtime fields.
+            </p>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Total Transformed" value={cumulative?.reduced_count_total ?? trr.reducedCount} />
             <StatCard
-              label="Tokens Saved"
-              value={cumulative?.tokens_saved_estimate_total ?? trr.tokensSavedEstimateTotal}
+              label="Total Transformed"
+              value={cumulative?.reduced_count_total ?? trr?.reducedCount ?? 0}
+            />
+            <StatCard
+              label="Tokens Saved (est.)"
+              value={cumulative?.tokens_saved_estimate_total ?? trr?.tokensSavedEstimateTotal ?? 0}
             />
             <StatCard
               label="Raw Chars In"
-              value={trr.rawCharsTotal}
+              value={cumulative?.raw_chars_total ?? trr?.rawCharsTotal ?? 0}
+              subtitle={hasDb ? "DB total in window (preferred)" : "Live process"}
             />
             <StatCard
               label="Reduced Chars Out"
-              value={trr.reducedCharsTotal}
+              value={cumulative?.reduced_chars_total ?? trr?.reducedCharsTotal ?? 0}
+              subtitle={hasDb ? "DB total in window (preferred)" : "Live process"}
             />
           </div>
 
@@ -102,6 +141,13 @@ export default function YarnReducers() {
               />
               <Row label="Snapshot stale" value={reducerHistory?.stale ? "yes" : "no"} warn={Boolean(reducerHistory?.stale)} />
               <Row label="Reduced outputs (total)" value={cumulative?.reduced_count_total ?? 0} />
+              <Row label="Raw chars in (total)" value={cumulative?.raw_chars_total ?? 0} />
+              <Row label="Reduced chars out (total)" value={cumulative?.reduced_chars_total ?? 0} />
+              <Row
+                label="Net chars saved (total)"
+                value={cumulative?.net_chars_saved_total ?? 0}
+                warn={(cumulative?.net_chars_saved_total ?? 0) < 0}
+              />
               <Row label="Reducer failures (total)" value={cumulative?.reducer_failures_total ?? 0} warn={(cumulative?.reducer_failures_total ?? 0) > 0} />
               <Row label="Fallback to artifact (total)" value={cumulative?.fallback_to_artifact_total ?? 0} />
               <Row label="Guided truncations (total)" value={cumulative?.guided_truncation_total ?? 0} />
@@ -117,63 +163,55 @@ export default function YarnReducers() {
           <div className="grid gap-4 lg:grid-cols-2">
             <ChartCard
               title="Overall Performance"
-              subtitle="Live reducer metrics from the current Coder process"
+              subtitle={
+                hasLive
+                  ? "Live reducer metrics from the current Coder process"
+                  : "Live metrics unavailable — see persisted totals above"
+              }
             >
-              <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
-                <Row label="Total transformed outputs" value={trr.reducedCount} />
-                <Row label="Outputs shrunk" value={trr.shrunkCount} />
-                <Row label="Outputs expanded" value={trr.expandedCount} warn={trr.expandedCount > 0} />
-                <Row label="Outputs unchanged" value={trr.unchangedCount} />
-                <Row
-                  label="Estimated tokens saved"
-                  value={trr.tokensSavedEstimateTotal}
-                />
-                <Row
-                  label="Net chars saved"
-                  value={formatSigned(trr.netCharsSavedTotal)}
-                  warn={trr.netCharsSavedTotal < 0}
-                />
-                <Row
-                  label="Raw chars processed"
-                  value={trr.rawCharsTotal}
-                />
-                <Row
-                  label="Reduced chars emitted"
-                  value={trr.reducedCharsTotal}
-                />
-                {reducerSizeDeltaPct !== null && (
+              {hasLive ? (
+                <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                  <Row label="Total transformed outputs" value={trr!.reducedCount} />
+                  <Row label="Outputs shrunk" value={trr!.shrunkCount} />
+                  <Row label="Outputs expanded" value={trr!.expandedCount} warn={trr!.expandedCount > 0} />
+                  <Row label="Outputs unchanged" value={trr!.unchangedCount} />
+                  <Row label="Estimated tokens saved" value={trr!.tokensSavedEstimateTotal} />
                   <Row
-                    label={reducerSizeDeltaPct <= 0 ? "Avg reduction ratio" : "Avg expansion ratio"}
-                    value={`${Math.abs(reducerSizeDeltaPct).toFixed(1)}%`}
-                    warn={reducerSizeDeltaPct > 0}
+                    label="Net chars saved"
+                    value={formatSigned(trr!.netCharsSavedTotal)}
+                    warn={trr!.netCharsSavedTotal < 0}
                   />
-                )}
-                <Row
-                  label="Artifact fallbacks"
-                  value={trr.fallbackToArtifactCount}
-                />
-                <Row
-                  label="Reducer failures"
-                  value={trr.reducerFailures}
-                  warn={trr.reducerFailures > 0}
-                />
-                <Row
-                  label="Guided truncations"
-                  value={trr.guidedTruncationCount ?? 0}
-                />
-                <Row
-                  label="Task-pruned outputs"
-                  value={trr.taskPrunedCount ?? 0}
-                />
-                <Row
-                  label="Task-pruned lines kept"
-                  value={trr.taskPrunedLinesKept ?? 0}
-                />
-                <Row
-                  label="Task-pruned lines dropped"
-                  value={trr.taskPrunedLinesDropped ?? 0}
-                />
-              </div>
+                  <Row label="Raw chars processed" value={trr!.rawCharsTotal} />
+                  <Row label="Reduced chars emitted" value={trr!.reducedCharsTotal} />
+                  {reducerSizeDeltaPct !== null && (
+                    <Row
+                      label={reducerSizeDeltaPct <= 0 ? "Avg reduction ratio" : "Avg expansion ratio"}
+                      value={`${Math.abs(reducerSizeDeltaPct).toFixed(1)}%`}
+                      warn={reducerSizeDeltaPct > 0}
+                    />
+                  )}
+                  <Row label="Artifact fallbacks" value={trr!.fallbackToArtifactCount} />
+                  <Row label="Reducer failures" value={trr!.reducerFailures} warn={trr!.reducerFailures > 0} />
+                  <Row label="Guided truncations" value={trr!.guidedTruncationCount ?? 0} />
+                  <Row label="Task-pruned outputs" value={trr!.taskPrunedCount ?? 0} />
+                  <Row label="Task-pruned lines kept" value={trr!.taskPrunedLinesKept ?? 0} />
+                  <Row label="Task-pruned lines dropped" value={trr!.taskPrunedLinesDropped ?? 0} />
+                </div>
+              ) : (
+                <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                  <Row label="Net chars saved (persisted window)" value={cumulative?.net_chars_saved_total ?? 0} />
+                  <Row label="Raw chars (Δ in window)" value={reducerHistory?.rollup.raw_chars_delta ?? 0} />
+                  <Row label="Reduced chars (Δ)" value={reducerHistory?.rollup.reduced_chars_delta ?? 0} />
+                  <Row label="Net chars saved (Δ)" value={reducerHistory?.rollup.net_chars_saved_delta ?? 0} />
+                  {reducerSizeDeltaPct !== null ? (
+                    <Row
+                      label={reducerSizeDeltaPct <= 0 ? "Avg reduction ratio" : "Avg expansion ratio"}
+                      value={`${Math.abs(reducerSizeDeltaPct).toFixed(1)}%`}
+                      warn={reducerSizeDeltaPct > 0}
+                    />
+                  ) : null}
+                </div>
+              )}
             </ChartCard>
 
             <ChartCard
@@ -181,12 +219,14 @@ export default function YarnReducers() {
               subtitle="Invocation counts by reducer family"
             >
               <div className="space-y-2">
-                {Object.keys(trr.byFamily || {}).length === 0 ? (
-                  <p className="text-sm text-gray-500">
-                    No family dispatch data yet.
+                {!hasLive || Object.keys(trr!.byFamily || {}).length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {!hasLive
+                      ? "Family dispatch requires live telemetry."
+                      : "No family dispatch data yet."}
                   </p>
                 ) : (
-                  Object.entries(trr.byFamily)
+                  Object.entries(trr!.byFamily)
                     .sort(([, a], [, b]) => (b as number) - (a as number))
                     .map(([family, count]) => (
                       <div
@@ -236,7 +276,7 @@ export default function YarnReducers() {
                     {Object.entries(cumulative?.lifecycle || {})
                       .sort(([a], [b]) => a.localeCompare(b))
                       .map(([name, state]) => {
-                        const liveState = trr.lifecycle?.[name]?.lifecycle ?? "unknown";
+                        const liveState = trr?.lifecycle?.[name]?.lifecycle ?? "unknown";
                         const healthLabel = formatReducerHealth(state.success_total, state.fail_total);
                         return (
                           <tr
@@ -267,7 +307,7 @@ export default function YarnReducers() {
             )}
           </ChartCard>
 
-          {rt?.sawtoothContext ? (
+          {hasLive && rt?.sawtoothContext ? (
             <ChartCard
               title="Sawtooth Context Compaction"
               subtitle="LLM-driven context compaction metrics"
@@ -317,24 +357,6 @@ export default function YarnReducers() {
 
           {/* Historical compaction data */}
           <div>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                Historical Period:
-              </span>
-              {PERIOD_OPTIONS.map((opt) => (
-                <button
-                  key={opt.hours}
-                  onClick={() => setPeriod(opt.hours)}
-                  className={`rounded px-2 py-1 text-xs font-medium ${
-                    period === opt.hours
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
             {historyChart.length > 0 ? (
               <ChartCard
                 title="Compaction Over Time"
@@ -379,9 +401,7 @@ export default function YarnReducers() {
                 subtitle="Persisted compaction events — survives restarts"
               >
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {!trr
-                    ? "Awaiting first request — historical data will appear after compaction events are recorded."
-                    : `No historical compaction data in this period. Compaction checkpoints occur after ${12} tool calls or when history reaches 60 messages. The admin telemetry scraper must also be running and able to reach the Coder runtime /metrics endpoint.`}
+                  {`No historical compaction data in this period. Compaction checkpoints occur after ${12} tool calls or when history reaches 60 messages. The admin telemetry scraper must also be running and able to reach the Coder runtime /metrics endpoint.`}
                 </p>
               </ChartCard>
             )}
@@ -392,7 +412,7 @@ export default function YarnReducers() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value, subtitle }: { label: string; value: number; subtitle?: string }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -401,6 +421,9 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
         {typeof value === "number" ? value.toLocaleString() : value}
       </p>
+      {subtitle ? (
+        <p className="mt-1 text-[0.65rem] text-gray-500 dark:text-gray-400">{subtitle}</p>
+      ) : null}
     </div>
   );
 }

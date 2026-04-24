@@ -2516,6 +2516,12 @@ export interface YarnReducerTelemetryRollup {
   task_pruned_delta: number;
   task_pruned_lines_kept_delta: number;
   task_pruned_lines_dropped_delta: number;
+  /** Monotonic deltas on toolResultReduction.rawCharsTotal between snapshots */
+  raw_chars_delta: number;
+  /** Monotonic deltas on toolResultReduction.reducedCharsTotal */
+  reduced_chars_delta: number;
+  /** Monotonic deltas on toolResultReduction.netCharsSavedTotal */
+  net_chars_saved_delta: number;
   lifecycle: Record<string, { success_delta: number; fail_delta: number }>;
 }
 
@@ -2528,6 +2534,10 @@ export interface YarnReducerTelemetryCumulative {
   task_pruned_total: number;
   task_pruned_lines_kept_total: number;
   task_pruned_lines_dropped_total: number;
+  /** Restart-tolerant sum of raw chars processed (from persisted telemetry) */
+  raw_chars_total: number;
+  reduced_chars_total: number;
+  net_chars_saved_total: number;
   lifecycle: Record<string, { success_total: number; fail_total: number }>;
 }
 

@@ -536,8 +536,9 @@ export interface PrefixCacheServiceMetrics {
   /** Yarn-only: optimization pipeline stats from /health/telemetry */
   optimizations?: {
     transcriptPruning?: Record<string, number>;
-    toolResultReduction?: Record<string, number>;
-    validationNormalization?: Record<string, number>;
+    /** Full toolResultReduction stats blob (counters + nested maps) */
+    toolResultReduction?: Record<string, unknown>;
+    validationNormalization?: Record<string, unknown>;
     featureFlags?: Record<string, boolean>;
   };
 }
