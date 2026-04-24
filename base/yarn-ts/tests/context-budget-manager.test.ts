@@ -622,3 +622,66 @@ describe("governor budget signal integration", () => {
     expect(withBudgetHeavy.frictionScore).toBeGreaterThanOrEqual(withoutBudget.frictionScore);
   });
 });
+
+describe("applySoftCompaction preserves SDK ModelMessage content format", () => {
+  function sdkToolResult(value: string, toolCallId: string, toolName = "read_file"): ContextBudgetMessage {
+    return {
+      role: "tool",
+      content: [{
+        type: "tool-result",
+        toolCallId,
+        toolName,
+        output: { type: "text", value },
+      }],
+    };
+  }
+
+  function sdkAssistant(text: string): ContextBudgetMessage {
+    return { role: "assistant", content: [{ type: "text", text }] };
+  }
+
+  it("preserves array content format for tool messages after file-read dedup", () => {
+    const longFileContent = "x".repeat(2000);
+    const messages: ContextBudgetMessage[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "read foo" },
+      sdkAssistant("reading foo.ts"),
+      sdkToolResult(JSON.stringify({ filePath: "foo.ts", content: longFileContent }), "tc_1", "read_file"),
+      sdkAssistant("reading foo.ts again"),
+      sdkToolResult(JSON.stringify({ filePath: "foo.ts", content: longFileContent }), "tc_2", "read_file"),
+    ];
+    const retention = buildRetentionContext(messages as unknown as RetentionMessage[]);
+    const classified = classifyMessages(messages as unknown as RetentionMessage[], retention);
+    const result = applySoftCompaction(messages, classified, 100);
+
+    for (const m of result.messages) {
+      if (m.role === "tool") {
+        expect(Array.isArray(m.content)).toBe(true);
+        const parts = m.content as Array<{ type: string }>;
+        expect(parts[0].type).toBe("tool-result");
+      }
+    }
+  });
+
+  it("preserves array content format for assistant messages after narration condensation", () => {
+    const longNarration = "Here is my detailed explanation of the changes I made to the codebase. ".repeat(50);
+    const messages: ContextBudgetMessage[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "do something" },
+      sdkAssistant(longNarration),
+      { role: "user", content: "ok" },
+      sdkAssistant("done"),
+    ];
+    const retention = buildRetentionContext(messages as unknown as RetentionMessage[]);
+    const classified = classifyMessages(messages as unknown as RetentionMessage[], retention);
+    const result = applySoftCompaction(messages, classified, 100);
+
+    for (const m of result.messages) {
+      if (m.role === "assistant") {
+        expect(Array.isArray(m.content)).toBe(true);
+        const parts = m.content as Array<{ type: string }>;
+        expect(parts[0].type).toBe("text");
+      }
+    }
+  });
+});

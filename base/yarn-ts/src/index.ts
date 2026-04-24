@@ -173,6 +173,7 @@ import {
   sanitizeToolCalls,
   demoteInlineSystemMessages,
   reconstructMissingToolCalls,
+  ensureModelMessageContentFormat,
 } from "./tool-mapping.js";
 import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
@@ -10140,6 +10141,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "pre_stream_message_diagnostic",
     );
   }
+  modelMessages = ensureModelMessageContentFormat(modelMessages) as typeof modelMessages;
   const streamed = streamText({
     model: resolved.model as never,
     messages: modelMessages,
@@ -13296,6 +13298,7 @@ app.post("/v1/messages", async (req, reply) => {
       }
       if (Object.keys(po).length === 0) providerOptions = undefined;
     }
+    claudeModelMessages = ensureModelMessageContentFormat(claudeModelMessages) as typeof claudeModelMessages;
     const streamed = streamText({
       model: resolved.model as never,
       messages: claudeModelMessages,

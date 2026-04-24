@@ -140,6 +140,37 @@ function retainToArtifact(store: ArtifactStore | null | undefined, raw: string):
   }
 }
 
+/**
+ * Replace a message's content with a compaction stub while preserving SDK
+ * ModelMessage content structure.  When `content` is already an array of
+ * tool-result parts (SDK format), the stub is wrapped in the same shape so
+ * downstream `standardizePrompt` Zod validation passes.
+ */
+function replaceContentPreservingFormat(
+  msg: ContextBudgetMessage,
+  stubText: string,
+): ContextBudgetMessage {
+  if (msg.role === "tool" && Array.isArray(msg.content)) {
+    const parts = msg.content as Array<Record<string, unknown>>;
+    const existing = parts.find((p) => p.type === "tool-result");
+    if (existing) {
+      return {
+        ...msg,
+        content: [{
+          type: "tool-result",
+          toolCallId: existing.toolCallId ?? "",
+          toolName: existing.toolName ?? "",
+          output: { type: "text", value: stubText },
+        }],
+      };
+    }
+  }
+  if (msg.role === "assistant" && Array.isArray(msg.content)) {
+    return { ...msg, content: [{ type: "text", text: stubText }] };
+  }
+  return { ...msg, content: stubText };
+}
+
 export function applySoftCompaction(
   messages: ContextBudgetMessage[],
   classified: ClassifiedMessage[],
@@ -175,7 +206,7 @@ export function applySoftCompaction(
     const before = estimateMessageTokens(msg);
     const handle = retainToArtifact(artifactStore, contentString(msg.content));
     const stub = `<FILE_SHADOW path="${fp}" latest_at_msg=${latest}${handle} />`;
-    out[i] = { ...msg, content: stub };
+    out[i] = replaceContentPreservingFormat(msg, stub);
     const after = estimateMessageTokens(out[i]);
     const delta = before - after;
     recovered += delta;
@@ -204,7 +235,7 @@ export function applySoftCompaction(
       if (cl.tags.includes("unresolved_failure")) continue;
       const msg = out[idx];
       const before = estimateMessageTokens(msg);
-      out[idx] = { ...msg, content: `<VERIFICATION_FOLDED tool="${key}" result="pass" latest_at_msg=${latest} count=${indices.length} />` };
+      out[idx] = replaceContentPreservingFormat(msg, `<VERIFICATION_FOLDED tool="${key}" result="pass" latest_at_msg=${latest} count=${indices.length} />`);
       const after = estimateMessageTokens(out[idx]);
       const delta = before - after;
       recovered += delta;
@@ -223,7 +254,7 @@ export function applySoftCompaction(
     if (raw.length <= 100) continue;
     const before = estimateMessageTokens(msg);
     const preview = raw.slice(0, 80).replace(/\n/g, " ");
-    out[i] = { ...msg, content: `<NARRATION_CONDENSED chars=${raw.length}>${preview}...</NARRATION_CONDENSED>` };
+    out[i] = replaceContentPreservingFormat(msg, `<NARRATION_CONDENSED chars=${raw.length}>${preview}...</NARRATION_CONDENSED>`);
     const after = estimateMessageTokens(out[i]);
     const delta = before - after;
     recovered += delta;
@@ -243,7 +274,7 @@ export function applySoftCompaction(
       if (!cl || cl.tier === "working") continue;
       const msg = out[idx];
       const before = estimateMessageTokens(msg);
-      out[idx] = { ...msg, content: `<PLAN_SUPERSEDED latest_at_msg=${latest} />` };
+      out[idx] = replaceContentPreservingFormat(msg, `<PLAN_SUPERSEDED latest_at_msg=${latest} />`);
       const after = estimateMessageTokens(out[idx]);
       const delta = before - after;
       recovered += delta;
@@ -268,10 +299,7 @@ export function applySoftCompaction(
     const toolName = getToolName(msg) || "unknown";
     const preview = raw.slice(0, 120).replace(/\n/g, " ");
     const handle = retainToArtifact(artifactStore, raw);
-    out[i] = {
-      ...msg,
-      content: `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}${handle}>${preview}...</STALE_EXPLORATION>`,
-    };
+    out[i] = replaceContentPreservingFormat(msg, `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}${handle}>${preview}...</STALE_EXPLORATION>`);
     const after = estimateMessageTokens(out[i]);
     const delta = before - after;
     recovered += delta;

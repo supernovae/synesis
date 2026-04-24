@@ -10,6 +10,7 @@ import {
   coalesceLeadingSystemMessages,
   sanitizeToolCalls,
   openAIMessagesToModelMessages,
+  ensureModelMessageContentFormat,
 } from "../src/tool-mapping.js";
 
 describe("openAIToolsToSDK", () => {
@@ -514,6 +515,104 @@ describe("vercel tool protocol ordering", () => {
     const sanitized = sanitizeToolCalls(converted as never);
     expect(sanitized.map((m) => m.role)).toEqual(["assistant", "tool", "user"]);
     expect(sanitized[1].tool_call_id).toBe("toolu_01");
+  });
+});
+
+describe("ensureModelMessageContentFormat", () => {
+  it("returns same array when all messages already conform", () => {
+    const msgs = [
+      { role: "system", content: "You are helpful." },
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: [{ type: "text", text: "Hi there" }] },
+      { role: "tool", content: [{ type: "tool-result", toolCallId: "tc1", toolName: "read", output: { type: "text", value: "ok" } }] },
+    ];
+    const result = ensureModelMessageContentFormat(msgs);
+    expect(result).toBe(msgs);
+  });
+
+  it("wraps assistant string content in text-part array", () => {
+    const msgs = [
+      { role: "assistant", content: "<NARRATION_CONDENSED chars=500>some preview...</NARRATION_CONDENSED>" },
+    ];
+    const result = ensureModelMessageContentFormat(msgs);
+    expect(result).not.toBe(msgs);
+    expect(Array.isArray(result[0].content)).toBe(true);
+    const parts = result[0].content as Array<{ type: string; text: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe("text");
+    expect(parts[0].text).toContain("NARRATION_CONDENSED");
+  });
+
+  it("wraps tool string content in tool-result-part array", () => {
+    const msgs = [
+      { role: "tool", content: '<FILE_SHADOW path="foo.ts" latest_at_msg=5 />' },
+    ];
+    const result = ensureModelMessageContentFormat(msgs);
+    expect(Array.isArray(result[0].content)).toBe(true);
+    const parts = result[0].content as Array<{ type: string; toolCallId: string; output: { value: string } }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe("tool-result");
+    expect(parts[0].output.value).toContain("FILE_SHADOW");
+  });
+
+  it("preserves tool_call_id from message properties when wrapping tool content", () => {
+    const msgs = [
+      { role: "tool", content: "compacted stub", tool_call_id: "tc_abc", name: "read_file" },
+    ];
+    const result = ensureModelMessageContentFormat(msgs as Array<{ role: string; content: unknown }>);
+    const parts = result[0].content as Array<{ type: string; toolCallId: string; toolName: string }>;
+    expect(parts[0].toolCallId).toBe("tc_abc");
+    expect(parts[0].toolName).toBe("read_file");
+  });
+
+  it("does not modify system or user messages", () => {
+    const msgs = [
+      { role: "system", content: "system prompt" },
+      { role: "user", content: "user input" },
+    ];
+    const result = ensureModelMessageContentFormat(msgs);
+    expect(result).toBe(msgs);
+  });
+
+  it("handles empty assistant string as text part with empty string", () => {
+    const msgs = [
+      { role: "assistant", content: "" },
+    ];
+    const result = ensureModelMessageContentFormat(msgs);
+    const parts = result[0].content as Array<{ type: string; text: string }>;
+    expect(parts[0].type).toBe("text");
+    expect(parts[0].text).toBe("");
+  });
+
+  it("handles tool content that is neither string nor array", () => {
+    const msgs = [
+      { role: "tool", content: 42 },
+    ];
+    const result = ensureModelMessageContentFormat(msgs);
+    const parts = result[0].content as Array<{ type: string; output: { value: string } }>;
+    expect(parts[0].type).toBe("tool-result");
+    expect(parts[0].output.value).toBe("42");
+  });
+
+  it("handles mixed messages where only some need fixing", () => {
+    const msgs = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      { role: "tool", content: "compacted" },
+      { role: "assistant", content: "also compacted" },
+      { role: "tool", content: [{ type: "tool-result", toolCallId: "tc2", toolName: "bash", output: { type: "text", value: "fine" } }] },
+    ];
+    const result = ensureModelMessageContentFormat(msgs);
+    expect(result).not.toBe(msgs);
+    expect(result[0].content).toBe("sys");
+    expect(result[1].content).toBe("hi");
+    expect(result[2].content).toEqual([{ type: "text", text: "ok" }]);
+    expect(Array.isArray(result[3].content)).toBe(true);
+    expect((result[3].content as Array<{ type: string }>)[0].type).toBe("tool-result");
+    expect(Array.isArray(result[4].content)).toBe(true);
+    expect((result[4].content as Array<{ type: string }>)[0].type).toBe("text");
+    expect(result[5].content).toEqual(msgs[5].content);
   });
 });
 

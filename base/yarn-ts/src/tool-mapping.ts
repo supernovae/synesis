@@ -381,6 +381,73 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
   return out;
 }
 
+/**
+ * Ensure every message in a ModelMessage[] array has the content type that
+ * the Vercel AI SDK's `standardizePrompt` Zod schema expects:
+ *
+ *   system   → string
+ *   user     → string | TextPart[]
+ *   assistant → ContentPart[]  (at least one text or tool-call part)
+ *   tool     → ToolResultPart[]
+ *
+ * Post-compaction, the context budget manager may replace content with a
+ * plain string stub (e.g. `<FILE_SHADOW .../>`).  That is valid for the
+ * budget-manager's own `ContextBudgetMessage` type but violates the SDK
+ * schema for assistant and tool roles, causing AI_TypeValidationError.
+ *
+ * This pass re-wraps any such string content in the correct part-array
+ * format so `streamText` never sees an illegal content shape.
+ */
+export function ensureModelMessageContentFormat<
+  T extends { role: string; content: unknown },
+>(messages: T[]): T[] {
+  let changed = false;
+  const out: T[] = new Array(messages.length);
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === "assistant" && typeof m.content === "string") {
+      const text = m.content as string;
+      out[i] = { ...m, content: text ? [{ type: "text", text }] : [{ type: "text", text: "" }] } as T;
+      changed = true;
+    } else if (m.role === "tool" && typeof m.content === "string") {
+      const value = m.content as string;
+      const toolCallId =
+        (m as Record<string, unknown>).tool_call_id as string | undefined ?? "";
+      const toolName =
+        (m as Record<string, unknown>).name as string | undefined ?? "";
+      out[i] = {
+        ...m,
+        content: [{
+          type: "tool-result",
+          toolCallId,
+          toolName,
+          output: { type: "text", value },
+        }],
+      } as T;
+      changed = true;
+    } else if (m.role === "tool" && !Array.isArray(m.content)) {
+      const value = m.content != null ? stableJsonStringify(m.content) : "";
+      const toolCallId =
+        (m as Record<string, unknown>).tool_call_id as string | undefined ?? "";
+      const toolName =
+        (m as Record<string, unknown>).name as string | undefined ?? "";
+      out[i] = {
+        ...m,
+        content: [{
+          type: "tool-result",
+          toolCallId,
+          toolName,
+          output: { type: "text", value },
+        }],
+      } as T;
+      changed = true;
+    } else {
+      out[i] = m;
+    }
+  }
+  return changed ? out : messages;
+}
+
 interface OpenAITool {
   type?: string;
   function?: {
