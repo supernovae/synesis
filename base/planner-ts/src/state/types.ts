@@ -27,6 +27,10 @@ export interface GraphState {
   authz_rules?: string[];
   requested_model?: string;
   response_model?: string;
+  /** Admin registry role for pricing (e.g. general-core) when using public offerings or tiered general roles. */
+  registry_general_role?: string;
+  /** Resolved LiteLLM / gateway model id for the writer when using a public offering. */
+  resolved_writer_model?: string;
   model_tier?: "auto" | "pulse" | "core" | "horizon";
   task_size?: "easy" | "medium" | "hard";
   difficulty?: number;

@@ -40,6 +40,7 @@ import { buildMetadataFilter, extractTagMetadata } from "./retrieval/metadata-fi
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { buildDomainProfile } from "./nodes/domain-profile.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
+import { startPublicModelCatalogPolling } from "./public-model-catalog.js";
 import { optimizeContext } from "./optimization/context-optimizer.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
@@ -290,6 +291,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     app.log.warn({ err }, "pricing registry startup failed (non-fatal)");
   });
 
+  startPublicModelCatalogPolling(config);
+
   const embedderConfigured = Boolean(config.SYNESIS_EMBEDDER_URL?.trim());
   const webSearchConfigured =
     config.SYNESIS_WEB_SEARCH_ENABLED && Boolean(config.SYNESIS_WEB_SEARCH_URL?.trim());
@@ -509,6 +512,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     );
     const tierSettings = resolveTierSettings(requestBody.model);
     const requestedEffortMode = tierSettings.tier;
+    const generalPricingRole = tierSettings.registry_general_role ?? "general";
     const plannerMatrixModelId = String(tierSettings.responseModel || tierSettings.requestedModel || requestBody.model || "");
     const plannerMatrixModelPath = plannerMatrixModelId;
     const plannerMatrixFamily = inferPlannerModelFamily(plannerMatrixModelId);
@@ -637,9 +641,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
       requested_model: tierSettings.requestedModel || requestBody.model,
       response_model: tierSettings.responseModel,
       model_tier: tierSettings.tier,
+      registry_general_role: tierSettings.registry_general_role,
+      resolved_writer_model: tierSettings.resolved_writer_model,
       pricing_rates_by_role: {
         router: pricingRegistry.getRates("router"),
-        general: pricingRegistry.getRates("general"),
+        general: pricingRegistry.getRates(generalPricingRole),
         critic: pricingRegistry.getRates("critic"),
       },
       requested_effort_mode: requestedEffortMode,
@@ -1421,6 +1427,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
       ctx.capability_matrix_family = matrix.family;
       ctx.capability_matrix_matched_override_ids = matrix.matched_override_ids;
     }
+    if (state.registry_general_role) ctx.registry_general_role = state.registry_general_role;
+    if (state.resolved_writer_model) {
+      ctx.resolved_backend_model = state.resolved_writer_model;
+      ctx.client_requested_model = state.requested_model;
+    }
     return ctx;
   }
 
@@ -1431,8 +1442,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
     auth: Awaited<ReturnType<typeof resolveAuthContext>>,
     streamingCtx?: { mode: "streaming" | "non-streaming"; timeToFirstTokenMs?: number },
   ): void {
-    const model = state.response_model ?? state.requested_model ?? "unknown";
-    const rates = state.pricing_rates_by_role?.general ?? pricingRegistry.getRates("general");
+    const model = state.requested_model ?? state.response_model ?? "unknown";
+    const generalRole = state.registry_general_role ?? "general";
+    const rates = state.pricing_rates_by_role?.general ?? pricingRegistry.getRates(generalRole);
     const collector = state._span_collector;
     const spans = collector?.getSpans() ?? [];
     const phaseTimings = collector?.getPhaseTimings() ?? {};
@@ -1500,7 +1512,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     latencyMs: number,
     auth: Awaited<ReturnType<typeof resolveAuthContext>>,
   ): void {
-    const model = state.response_model ?? state.requested_model ?? "unknown";
+    const model = state.requested_model ?? state.response_model ?? "unknown";
     const requestId = state.authz_trace_id ?? "";
     if (!requestId) return;
     emitPlannerUsageMetering(

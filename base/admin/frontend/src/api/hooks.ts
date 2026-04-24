@@ -662,6 +662,76 @@ export function useActiveCosts() {
   });
 }
 
+export interface PublicModelOffering {
+  id: number;
+  client_model_id: string;
+  label: string | null;
+  effort_tier: string;
+  backend_model_override: string | null;
+  expose_planner: boolean;
+  expose_yarn: boolean;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export function usePublicOfferings() {
+  return useQuery<{ offerings: PublicModelOffering[] }>({
+    queryKey: ["models", "public-offerings"],
+    queryFn: () => client.get("/models/public-offerings").then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useCreatePublicOffering() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      client_model_id: string;
+      label?: string | null;
+      effort_tier: string;
+      backend_model_override?: string | null;
+      expose_planner?: boolean;
+      expose_yarn?: boolean;
+      is_active?: boolean;
+    }) => client.post<PublicModelOffering>("/models/public-offerings", body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "public-offerings"] });
+    },
+  });
+}
+
+export function usePatchPublicOffering() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...patch
+    }: { id: number } & Partial<{
+      client_model_id: string;
+      label: string | null;
+      effort_tier: string;
+      backend_model_override: string | null;
+      expose_planner: boolean;
+      expose_yarn: boolean;
+      is_active: boolean;
+    }>) => client.patch<PublicModelOffering>(`/models/public-offerings/${id}`, patch).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "public-offerings"] });
+    },
+  });
+}
+
+export function useDeletePublicOffering() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => client.delete(`/models/public-offerings/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "public-offerings"] });
+    },
+  });
+}
+
 // --- Infrastructure cost settings ---
 
 export function useInfraCatalog() {

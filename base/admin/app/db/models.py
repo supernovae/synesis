@@ -245,6 +245,27 @@ class ModelDeployment(Base):
     )
 
 
+class ModelPublicOffering(Base):
+    """Admin-managed client-visible model ids mapped to pulse/core/horizon effort tiers."""
+
+    __tablename__ = "model_public_offering"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_model_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    label: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    effort_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    backend_model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expose_planner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    expose_yarn: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_model_public_offering_active_expose", "is_active", "expose_planner", "expose_yarn"),)
+
+
 class ModelRoleHistory(Base):
     __tablename__ = "model_role_history"
 

@@ -35,6 +35,9 @@ import {
 } from "./claude-compat.js";
 import {
   fetchTierRegistrySnapshot,
+  fetchPublicOfferingsForYarn,
+  mergeYarnPublicOfferingsIntoTiers,
+  ROLE_TO_TIER,
   TIER_TO_ROLE,
   type PromptSnapshot,
   type RoleAssignmentConfig,
@@ -139,7 +142,11 @@ import {
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { classifyLatestToolProgress } from "./governance/recovery-progress.js";
 import { synesisPolicyErrorExtension } from "./policy/policy-error-extension.js";
-import { PhaseModelOrchestrator, type WorkflowPhase } from "./orchestration/phase-model-orchestrator.js";
+import {
+  PhaseModelOrchestrator,
+  type EffortTier,
+  type WorkflowPhase,
+} from "./orchestration/phase-model-orchestrator.js";
 import {
   appendPathContextToAdapterBlock,
   ClientAdapterPacks,
@@ -3823,7 +3830,19 @@ function injectSessionContext(
 async function refreshTierRegistry(): Promise<void> {
   try {
     const snapshot = await fetchTierRegistrySnapshot(config);
-    tierRegistry.updateTiers(snapshot.tiers);
+    const publicOfferings = await fetchPublicOfferingsForYarn(config);
+    const mergedTiers = mergeYarnPublicOfferingsIntoTiers(snapshot.tiers, publicOfferings);
+    tierRegistry.updateTiers(mergedTiers);
+    const offeringOrchestratorEntries: Array<{ clientId: string; tier: EffortTier }> = [];
+    for (const o of publicOfferings) {
+      const effort = (o.effort_tier ?? "").trim().toLowerCase();
+      const role = `coder-${effort}`;
+      const tier = ROLE_TO_TIER[role];
+      if (tier === "synesis-pulse" || tier === "synesis-core" || tier === "synesis-horizon") {
+        offeringOrchestratorEntries.push({ clientId: o.client_model_id.trim().toLowerCase(), tier });
+      }
+    }
+    phaseOrchestrator.setPublicOfferingTiers(offeringOrchestratorEntries);
     roleAssignmentRegistry.clear();
     for (const role of snapshot.roleAssignments) {
       roleAssignmentRegistry.set(role.role, role);
@@ -4163,10 +4182,14 @@ function persistSessionAndUsage(
   snapshot?: DecisionSnapshot,
   trajectory?: RequestTrajectoryInput,
   optimizationLedger?: OptimizationLedgerSnapshot,
+  clientRequestedModel?: string,
 ): void {
+  const origRaw = (clientRequestedModel ?? "").trim();
+  const orig = origRaw && origRaw.toLowerCase() !== "auto" ? origRaw : "";
+  const traceModel = orig || resolvedModelId;
   const persistSpan = getTracer().startSpan("yarn.persist_session", {
     "yarn.request_id": requestId,
-    "yarn.model": resolvedModelId,
+    "yarn.model": traceModel,
     "yarn.latency_ms": latencyMs,
   });
   const tier = tierRegistry.getTierConfig(resolvedModelId);
@@ -4202,7 +4225,7 @@ function persistSessionAndUsage(
 
   if (pricingSource === "fallback_base" && (usage.inputTokens + usage.outputTokens) > 0) {
     app.log.info({
-      model: resolvedModelId,
+      model: traceModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       pricingSource,
@@ -4277,7 +4300,7 @@ function persistSessionAndUsage(
     userId: state.record.userId,
     orgId: state.record.orgId,
     provider: resolvedModelId,
-    model: resolvedModelId,
+    model: traceModel,
     tokensIn: usage.inputTokens,
     tokensOut: usage.outputTokens,
     tokensCached: usage.cachedTokens,
@@ -4541,7 +4564,7 @@ function persistSessionAndUsage(
       task_bucket: taskBucket,
       identity: {
         client_kind: state.record.clientKind || "unknown",
-        model: resolvedModelId,
+        model: traceModel,
       },
       workflow: {
         decision_path: snapshot?.decisionPath,
@@ -4706,7 +4729,7 @@ function persistSessionAndUsage(
     estimated_cost_usd: normalizedEstimatedCostUsd,
     actual_cost_usd: usage.costUsd > 0 ? usage.costUsd : 0,
   };
-  recordUsageMetrics(svcMetrics, resolvedModelId, resolvedModelId, telemetryUsage, latencyMs / 1000);
+  recordUsageMetrics(svcMetrics, traceModel, resolvedModelId, telemetryUsage, latencyMs / 1000);
   const rootPromptSnippet = getMetadataString(state.record.metadata, "trace_root_prompt");
   const latestPromptSnippet = getMetadataString(state.record.metadata, "latest_user_prompt");
 
@@ -4721,7 +4744,7 @@ function persistSessionAndUsage(
     user_id: state.record.userId,
     org_id: state.record.orgId,
     tenant_id: "",
-    model: resolvedModelId,
+    model: traceModel,
     query_snippet: (rootPromptSnippet || latestPromptSnippet).slice(0, 2000),
     tokens: telemetryUsage,
     cost: {
@@ -4743,6 +4766,16 @@ function persistSessionAndUsage(
       latest_user_prompt: latestPromptSnippet || undefined,
       parent_trace_id: parentTraceId,
       root_trace_id: rootTraceId,
+      ...(orig
+        ? {
+            client_requested_model: orig,
+            resolved_backend_model: tier?.backendModel,
+            registry_tier_id: resolvedModelId,
+          }
+        : {
+            resolved_backend_model: tier?.backendModel,
+            registry_tier_id: resolvedModelId,
+          }),
       chat_state: chatStateSummaryForTelemetry,
       file_state: fileStateSummaryForTelemetry,
       objective_scope: objectiveScopeSummary,
@@ -4772,6 +4805,7 @@ function persistAndEmitDecisionTelemetry(input: {
   userId: string;
   orgId: string;
   optimizationLedger?: OptimizationLedgerSnapshot;
+  clientRequestedModel?: string;
 }): void {
   persistSessionAndUsage(
     input.state,
@@ -4785,6 +4819,7 @@ function persistAndEmitDecisionTelemetry(input: {
     input.snapshot,
     input.trajectory,
     input.optimizationLedger,
+    input.clientRequestedModel,
   );
   maybeCheckpoint(input.state);
   emitDecisionEvents(input.sessionKey, input.userId, input.orgId, input.requestId, input.snapshot);
@@ -8057,7 +8092,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
         usage,
         Date.now() - started,
         "stop",
-        0
+        0,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        request.model,
       );
       maybeCheckpoint(session);
       recordSessionEvent(
@@ -8084,6 +8124,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
         Date.now() - started,
         "stop",
         0,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        request.model,
       );
       maybeCheckpoint(session);
       recordSessionEvent(
@@ -9594,6 +9639,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       userId: identity.userId,
       orgId: identity.orgId,
       optimizationLedger: oaiLedgerSnap,
+      clientRequestedModel: request.model,
     });
 
     const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
@@ -10302,6 +10348,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     userId: identity.userId,
     orgId: identity.orgId,
     optimizationLedger: oaiStreamLedgerSnap,
+    clientRequestedModel: request.model,
   });
   const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({
@@ -11530,7 +11577,12 @@ app.post("/v1/messages", async (req, reply) => {
         usage,
         Date.now() - started,
         "end_turn",
-        0
+        0,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        body.model,
       );
       maybeCheckpoint(session);
       recordSessionEvent(
@@ -11557,6 +11609,11 @@ app.post("/v1/messages", async (req, reply) => {
         Date.now() - started,
         "end_turn",
         0,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        body.model,
       );
       maybeCheckpoint(session);
       recordSessionEvent(
@@ -12742,6 +12799,7 @@ app.post("/v1/messages", async (req, reply) => {
         sessionKey: claudeSessionKey,
         userId: claudeIdentity.userId,
         orgId: claudeIdentity.orgId,
+        clientRequestedModel: body.model,
       });
 
       safeSse(reply, "message_delta", {
@@ -13470,6 +13528,7 @@ app.post("/v1/messages", async (req, reply) => {
       sessionKey: claudeSessionKey,
       userId: claudeIdentity.userId,
       orgId: claudeIdentity.orgId,
+      clientRequestedModel: body.model,
     });
     const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
     pushDiagnostic({
@@ -14048,6 +14107,7 @@ app.post("/v1/messages", async (req, reply) => {
     sessionKey: claudeSessionKey,
     userId: claudeIdentity.userId,
     orgId: claudeIdentity.orgId,
+    clientRequestedModel: body.model,
   });
   const claudeNonStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
   pushDiagnostic({

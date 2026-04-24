@@ -65,7 +65,8 @@ const CostEnvelopeSchema = z
 export type TierId = "synesis-pulse" | "synesis-core" | "synesis-horizon" | "synesis-compaction";
 
 export interface TierConfig {
-  id: TierId;
+  /** Canonical synesis-* tier id or a dynamic public-offering client id. */
+  id: string;
   backendModel: string;
   baseUrl: string;
   apiKey: string;
@@ -330,4 +331,71 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
 export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]> {
   const snapshot = await fetchTierRegistrySnapshot(config);
   return snapshot.tiers;
+}
+
+const PublicOfferingRowSchema = z.object({
+  client_model_id: z.string(),
+  effort_tier: z.string(),
+  backend_model_override: z.string().nullable().optional(),
+});
+
+export type PublicYarnOffering = z.infer<typeof PublicOfferingRowSchema>;
+
+const PublicOfferingsEnvelopeSchema = z.object({
+  offerings: z.array(PublicOfferingRowSchema),
+});
+
+/**
+ * Active public offerings exposed to Yarn (requires internal service token + admin URL).
+ */
+export async function fetchPublicOfferingsForYarn(config: AppConfig): Promise<PublicYarnOffering[]> {
+  if (!config.SYNESIS_INTERNAL_SERVICE_TOKEN?.trim()) {
+    return [];
+  }
+  const base = config.SYNESIS_YARN_ADMIN_API_URL.replace(/\/$/, "");
+  const url = `${base}/api/v1/models/public-offerings/internal?for=yarn`;
+  const token = config.SYNESIS_INTERNAL_SERVICE_TOKEN!;
+  const headers: Record<string, string> = {
+    "x-synesis-service-token": token,
+    "x-synesis-service-name": "synesis-yarn-ts",
+    authorization: `Bearer ${token}`,
+  };
+  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(8_000) });
+  if (!resp.ok) {
+    return [];
+  }
+  try {
+    const parsed = PublicOfferingsEnvelopeSchema.parse(await resp.json());
+    return parsed.offerings;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Clone coder-{effort} tier rows under each public offering client_model_id for OpenAI `model` resolution.
+ */
+export function mergeYarnPublicOfferingsIntoTiers(
+  baseTiers: TierConfig[],
+  offerings: PublicYarnOffering[],
+): TierConfig[] {
+  const byId = new Map(baseTiers.map((t) => [t.id, t]));
+  const extra: TierConfig[] = [];
+  for (const o of offerings) {
+    const effort = (o.effort_tier ?? "").trim().toLowerCase();
+    const role = `coder-${effort}`;
+    const canon = ROLE_TO_TIER[role];
+    if (!canon) continue;
+    const base = byId.get(canon);
+    if (!base) continue;
+    const cid = (o.client_model_id ?? "").trim().toLowerCase();
+    if (!cid) continue;
+    const override = (o.backend_model_override ?? "").trim();
+    extra.push({
+      ...base,
+      id: cid,
+      backendModel: override || base.backendModel,
+    });
+  }
+  return [...baseTiers, ...extra];
 }

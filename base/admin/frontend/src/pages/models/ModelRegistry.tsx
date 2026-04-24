@@ -13,6 +13,11 @@ import {
   useProviderDefaults,
   useActiveCosts,
   useUpdateModelCost,
+  usePublicOfferings,
+  useCreatePublicOffering,
+  usePatchPublicOffering,
+  useDeletePublicOffering,
+  type PublicModelOffering,
 } from "../../api/hooks";
 import type { ModelDeployment, ProviderInfo, DiscoveredModel, ActiveCostEntry } from "../../types";
 import MetricCard from "../../components/common/MetricCard";
@@ -225,6 +230,18 @@ export default function ModelRegistry() {
     [govData?.provider_secret_keys],
   );
   const { data: pipelineServices } = usePipelineServices();
+  const { data: publicOfferingsData, isLoading: publicOfferingsLoading } = usePublicOfferings();
+  const createOfferingMut = useCreatePublicOffering();
+  const patchOfferingMut = usePatchPublicOffering();
+  const deleteOfferingMut = useDeletePublicOffering();
+  const [newOffering, setNewOffering] = useState({
+    client_model_id: "",
+    label: "",
+    effort_tier: "core",
+    backend_model_override: "",
+    expose_planner: false,
+    expose_yarn: true,
+  });
 
   const [editing, setEditing] = useState<EditState | null>(null);
 
@@ -412,6 +429,177 @@ export default function ModelRegistry() {
           </div>
         </>
       )}
+
+      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Public model offerings</h2>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Named client <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">model</code> ids for Open WebUI and
+          API clients. Each maps to pulse/core/horizon and inherits routing from the matching coder (Yarn) or general
+          (Planner) deployment unless you set a backend override.
+        </p>
+        {publicOfferingsLoading ? (
+          <div className="mt-3 h-24 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+        ) : (
+          <>
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700">
+                    <th className="py-2 pr-3 font-medium">Client id</th>
+                    <th className="py-2 pr-3 font-medium">Label</th>
+                    <th className="py-2 pr-3 font-medium">Effort</th>
+                    <th className="py-2 pr-3 font-medium">Backend override</th>
+                    <th className="py-2 pr-3 font-medium">Planner</th>
+                    <th className="py-2 pr-3 font-medium">Yarn</th>
+                    <th className="py-2 pr-3 font-medium">Active</th>
+                    <th className="py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {(publicOfferingsData?.offerings ?? []).map((o: PublicModelOffering) => (
+                    <tr key={o.id} className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-2 pr-3 font-mono text-gray-800 dark:text-gray-200">{o.client_model_id}</td>
+                      <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">{o.label ?? "—"}</td>
+                      <td className="py-2 pr-3">{o.effort_tier}</td>
+                      <td className="max-w-[140px] truncate py-2 pr-3 text-gray-600 dark:text-gray-400" title={o.backend_model_override ?? ""}>
+                        {o.backend_model_override ?? "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          type="checkbox"
+                          checked={o.expose_planner}
+                          onChange={(e) =>
+                            patchOfferingMut.mutate({ id: o.id, expose_planner: e.target.checked })
+                          }
+                          className="rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          type="checkbox"
+                          checked={o.expose_yarn}
+                          onChange={(e) =>
+                            patchOfferingMut.mutate({ id: o.id, expose_yarn: e.target.checked })
+                          }
+                          className="rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          type="checkbox"
+                          checked={o.is_active}
+                          onChange={(e) =>
+                            patchOfferingMut.mutate({ id: o.id, is_active: e.target.checked })
+                          }
+                          className="rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="py-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Delete offering ${o.client_model_id}?`)) {
+                              deleteOfferingMut.mutate(o.id);
+                            }
+                          }}
+                          className="text-red-600 hover:underline dark:text-red-400"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 rounded border border-dashed border-gray-300 p-3 dark:border-gray-600">
+              <p className="mb-2 text-[11px] font-medium text-gray-600 dark:text-gray-400">Add offering (platform admin)</p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <input
+                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                  placeholder="client_model_id (e.g. exp-qwen-test)"
+                  value={newOffering.client_model_id}
+                  onChange={(e) => setNewOffering({ ...newOffering, client_model_id: e.target.value })}
+                />
+                <input
+                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                  placeholder="label (optional)"
+                  value={newOffering.label}
+                  onChange={(e) => setNewOffering({ ...newOffering, label: e.target.value })}
+                />
+                <select
+                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={newOffering.effort_tier}
+                  onChange={(e) => setNewOffering({ ...newOffering, effort_tier: e.target.value })}
+                >
+                  <option value="pulse">pulse</option>
+                  <option value="core">core</option>
+                  <option value="horizon">horizon</option>
+                </select>
+                <input
+                  className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                  placeholder="backend override (optional)"
+                  value={newOffering.backend_model_override}
+                  onChange={(e) => setNewOffering({ ...newOffering, backend_model_override: e.target.value })}
+                />
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-4 text-xs">
+                <label className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={newOffering.expose_planner}
+                    onChange={(e) => setNewOffering({ ...newOffering, expose_planner: e.target.checked })}
+                  />
+                  Expose to Planner
+                </label>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={newOffering.expose_yarn}
+                    onChange={(e) => setNewOffering({ ...newOffering, expose_yarn: e.target.checked })}
+                  />
+                  Expose to Yarn
+                </label>
+                <button
+                  type="button"
+                  disabled={createOfferingMut.isPending || !newOffering.client_model_id.trim()}
+                  onClick={() => {
+                    createOfferingMut.mutate(
+                      {
+                        client_model_id: newOffering.client_model_id.trim(),
+                        label: newOffering.label.trim() || null,
+                        effort_tier: newOffering.effort_tier,
+                        backend_model_override: newOffering.backend_model_override.trim() || null,
+                        expose_planner: newOffering.expose_planner,
+                        expose_yarn: newOffering.expose_yarn,
+                      },
+                      {
+                        onSuccess: () =>
+                          setNewOffering({
+                            client_model_id: "",
+                            label: "",
+                            effort_tier: "core",
+                            backend_model_override: "",
+                            expose_planner: false,
+                            expose_yarn: true,
+                          }),
+                      },
+                    );
+                  }}
+                  className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {createOfferingMut.isPending ? "Creating…" : "Create"}
+                </button>
+                {createOfferingMut.isError && (
+                  <span className="text-red-600 dark:text-red-400">
+                    {(createOfferingMut.error as Error)?.message ?? "Create failed"}
+                  </span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Pipeline Services</h2>

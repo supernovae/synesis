@@ -278,7 +278,10 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     if (personaBlock) systemParts.push(`\n${personaBlock}`);
   }
 
-  const writerModel = process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis";
+  const writerModel =
+    state.resolved_writer_model?.trim()
+    || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+    || "Synesis";
   const composedWriterSystem = composePlannerPrompt(systemParts.join(" "), {
     tier: state.model_tier,
     role: "general",
@@ -315,7 +318,10 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
 
   try {
     const result = await chatCompletion({
-      model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+      model:
+        state.resolved_writer_model?.trim()
+        || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+        || "Synesis",
       temperature: 0.2,
       max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
       pricingRates: state.pricing_rates_by_role?.general,
@@ -373,7 +379,10 @@ export async function composeWriterDraftStream(
 
     const result = await chatCompletionStream(
       {
-        model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+        model:
+          state.resolved_writer_model?.trim()
+          || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+          || "Synesis",
         temperature: 0.2,
         max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
         pricingRates: state.pricing_rates_by_role?.general,

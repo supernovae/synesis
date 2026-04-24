@@ -82,7 +82,11 @@ const TIER_ORDER: Record<EffortTier, number> = {
 
 const SYNESIS_TIER_IDS = new Set<EffortTier>(["synesis-pulse", "synesis-core", "synesis-horizon"]);
 
-export type ResolvedExplicitTierReason = "synesis_exact" | "env_map" | "family_or_alias";
+export type ResolvedExplicitTierReason =
+  | "synesis_exact"
+  | "env_map"
+  | "family_or_alias"
+  | "public_offering";
 
 export interface ResolvedExplicitTier {
   tier: EffortTier;
@@ -217,8 +221,22 @@ export class PhaseModelOrchestrator {
 
   private lastTierBySession = new Map<string, EffortTier>();
   private thresholds: DecisionMatrixThresholds = { ...DEFAULT_THRESHOLDS };
+  private publicOfferingTierByClientId = new Map<string, EffortTier>();
 
   constructor(private readonly claudeTierMap: Record<string, EffortTier> = {}) {}
+
+  /**
+   * Registry poll pushes active Yarn offerings (client_model_id → effort tier).
+   * Keys must be lowercase (matches admin normalization).
+   */
+  setPublicOfferingTiers(entries: Array<{ clientId: string; tier: EffortTier }>): void {
+    this.publicOfferingTierByClientId.clear();
+    for (const e of entries) {
+      const k = e.clientId.trim().toLowerCase();
+      if (!k || !SYNESIS_TIER_IDS.has(e.tier)) continue;
+      this.publicOfferingTierByClientId.set(k, e.tier);
+    }
+  }
 
   setThresholds(t: Partial<DecisionMatrixThresholds>): void {
     Object.assign(this.thresholds, t);
@@ -255,12 +273,19 @@ export class PhaseModelOrchestrator {
     const escalationResult = this.applyEscalationOverrides(tier, ev, ctx.riskProfile ?? "standard", th, reasons);
     tier = escalationResult.tier;
 
-    // Respect explicit tier (synesis ids, Claude family wire ids, env map) unless risk overrides pulse
+    // Respect explicit tier (public offerings, synesis ids, Claude family wire ids, env map)
     const requestedNormalized = (ctx.requestedModel ?? "").trim().toLowerCase();
     const explicitRoutingRequested = requestedNormalized !== "" && requestedNormalized !== "auto";
+    const publicOfferingTier = explicitRoutingRequested
+      ? this.publicOfferingTierByClientId.get(requestedNormalized)
+      : undefined;
     const mode = ctx.modelSelectionMode ?? "respect_explicit";
     const resolvedExplicit = explicitRoutingRequested
-      ? resolveExplicitTierFromRequestedModel(ctx.requestedModel, this.claudeTierMap)
+      ? (
+          publicOfferingTier
+            ? { tier: publicOfferingTier, reason: "public_offering" as const }
+            : resolveExplicitTierFromRequestedModel(ctx.requestedModel, this.claudeTierMap)
+        )
       : null;
     if (resolvedExplicit) {
       if (mode === "lock") {
@@ -275,7 +300,9 @@ export class PhaseModelOrchestrator {
         }
       } else if (!(ctx.riskProfile === "high" && resolvedExplicit.tier === "synesis-pulse")) {
         tier = resolvedExplicit.tier;
-        if (resolvedExplicit.reason === "synesis_exact") {
+        if (resolvedExplicit.reason === "public_offering") {
+          reasons.push("explicit_public_offering");
+        } else if (resolvedExplicit.reason === "synesis_exact") {
           reasons.push("explicit_requested_tier");
         } else if (resolvedExplicit.reason === "env_map") {
           reasons.push("explicit_claude_tier_map");
@@ -319,8 +346,13 @@ export class PhaseModelOrchestrator {
       case "abstain": this.stats.abstainCount++; break;
     }
 
+    let selectedModel: string = tier;
+    if (publicOfferingTier && requestedNormalized && tier === publicOfferingTier) {
+      selectedModel = requestedNormalized;
+    }
+
     return {
-      selectedModel: tier,
+      selectedModel,
       phase,
       tier,
       decisionPath,

@@ -43,6 +43,7 @@ from ..services.prompt_library import (
     upsert_prompt_assignment,
 )
 from ..services.provider_catalog import KNOWN_ROLES
+from ..services import public_model_offerings as public_offerings_svc
 from ..services.token_cost import (
     estimate_llm_call_cost_from_payload,
     parse_recorded_estimated_cost,
@@ -157,6 +158,122 @@ async def list_role_assignments_internal(
 ):
     """Internal service read path for role assignments (Yarn tier polling)."""
     return {"roles": await get_role_assignments()}
+
+
+class PublicOfferingCreate(BaseModel):
+    client_model_id: str
+    label: str | None = None
+    effort_tier: str
+    backend_model_override: str | None = None
+    expose_planner: bool = False
+    expose_yarn: bool = False
+    is_active: bool = True
+
+
+class PublicOfferingPatch(BaseModel):
+    client_model_id: str | None = None
+    label: str | None = None
+    effort_tier: str | None = None
+    backend_model_override: str | None = None
+    expose_planner: bool | None = None
+    expose_yarn: bool | None = None
+    is_active: bool | None = None
+
+
+@router.get("/public-offerings")
+async def list_public_offerings(_user: UserInfo = Depends(require_org_admin)):
+    async with async_session() as session:
+        rows = await public_offerings_svc.list_offerings(session)
+    return {"offerings": rows}
+
+
+@router.get("/public-offerings/internal")
+async def list_public_offerings_internal(
+    for_service: str = Query("yarn"),
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    if for_service not in ("yarn", "planner"):
+        raise HTTPException(400, "for_service must be 'yarn' or 'planner'")
+    async with async_session() as session:
+        rows = await public_offerings_svc.list_offerings_for_service(session, for_service=for_service)
+    return {"offerings": rows, "for_service": for_service}
+
+
+@router.post("/public-offerings")
+async def create_public_offering(
+    body: PublicOfferingCreate,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    try:
+        async with async_session() as session:
+            row = await public_offerings_svc.create_offering(
+                session,
+                client_model_id=body.client_model_id,
+                label=body.label,
+                effort_tier=body.effort_tier,
+                backend_model_override=body.backend_model_override,
+                expose_planner=body.expose_planner,
+                expose_yarn=body.expose_yarn,
+                is_active=body.is_active,
+            )
+            await session.commit()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    await record_admin_audit(
+        user=user,
+        action="models.public_offering_create",
+        status="success",
+        summary=f"Created public offering {row.get('client_model_id', '')}",
+        detail={"offering": row},
+    )
+    return row
+
+
+@router.patch("/public-offerings/{offering_id}")
+async def patch_public_offering(
+    offering_id: int,
+    body: PublicOfferingPatch,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        raise HTTPException(400, "no fields to update")
+    try:
+        async with async_session() as session:
+            row = await public_offerings_svc.update_offering(session, offering_id, patch)
+            if row is None:
+                raise HTTPException(404, "public offering not found")
+            await session.commit()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    await record_admin_audit(
+        user=user,
+        action="models.public_offering_update",
+        status="success",
+        summary=f"Updated public offering id={offering_id}",
+        detail={"offering_id": offering_id, "patch": patch},
+    )
+    return row
+
+
+@router.delete("/public-offerings/{offering_id}")
+async def delete_public_offering(
+    offering_id: int,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    async with async_session() as session:
+        ok = await public_offerings_svc.delete_offering(session, offering_id)
+        if not ok:
+            raise HTTPException(404, "public offering not found")
+        await session.commit()
+    await record_admin_audit(
+        user=user,
+        action="models.public_offering_delete",
+        status="success",
+        summary=f"Deleted public offering id={offering_id}",
+        detail={"offering_id": offering_id},
+    )
+    return {"ok": True, "id": offering_id}
 
 
 @router.get("/prompts/profiles")
