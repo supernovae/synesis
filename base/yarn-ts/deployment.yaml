@@ -67,9 +67,11 @@ spec:
             - name: SYNESIS_YARN_CONTEXT_ADMISSION_MODE
               value: "hybrid"
             - name: SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS
-              value: "80000"
+              value: "200000"
             - name: SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS
-              value: "100000"
+              value: "262000"
+            - name: SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE
+              value: "minimal"
             - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED
               value: "true"
             - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS

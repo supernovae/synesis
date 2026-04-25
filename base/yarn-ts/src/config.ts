@@ -110,14 +110,24 @@ const EnvSchema = z.object({
     .enum(["advisory", "hybrid", "enforced"])
     .default("hybrid"),
   /** Advisory threshold for estimated outbound input tokens (0 disables warning threshold). */
-  SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS: z.coerce.number().default(80_000),
+  SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS: z.coerce.number().default(200_000),
   /** Hard safety threshold for estimated outbound input tokens (0 disables hard admission reject). */
-  SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS: z.coerce.number().default(100_000),
+  SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS: z.coerce.number().default(262_000),
   /** Enable the context budget manager for proactive tiered compaction. */
   SYNESIS_YARN_CONTEXT_BUDGET_ENABLED: z
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /**
+   * Compaction aggressiveness mode.
+   * - `minimal`: safe dedup only (repeated reads, passed verifications); heavy compaction
+   *   reserved for emergency near model limit. Trusts client harness to manage its own context.
+   * - `aggressive`: full 5-strategy soft compaction + heavy checkpoint at lower thresholds.
+   *   Use for clients with weak context management.
+   */
+  SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE: z
+    .enum(["minimal", "aggressive"])
+    .default("minimal"),
   /** Override the default context ceiling for budget policy (0 = use CONTEXT_ADMISSION_HARD_TOKENS). */
   SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS: z.coerce.number().default(0),
   /** Output token reserve subtracted from budget ceiling. */

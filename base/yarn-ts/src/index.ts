@@ -279,6 +279,7 @@ import {
   buildBudgetPolicy,
   type BudgetEvaluation,
   type ContextBudgetPolicy,
+  type CompactionMode,
 } from "./governance/context-budget-manager.js";
 import { buildRetentionContext } from "./governance/context-retention.js";
 import {
@@ -3975,8 +3976,11 @@ function compactionCheckpointHints(state: SessionState): { backendHint: string; 
 
 function maybeCheckpoint(state: SessionState): void {
   const { sensitivity } = compactionCheckpointHints(state);
-  const toolTh = effectiveSawtoothCheckpointToolCalls(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS, sensitivity);
-  const histTh = effectiveSawtoothHistoryLengthThreshold(60, sensitivity);
+  const isMinimal = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE === "minimal";
+  const baseToolCalls = config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS;
+  const baseHistLen = 60;
+  const toolTh = effectiveSawtoothCheckpointToolCalls(isMinimal ? baseToolCalls * 2 : baseToolCalls, sensitivity);
+  const histTh = effectiveSawtoothHistoryLengthThreshold(isMinimal ? baseHistLen * 2 : baseHistLen, sensitivity);
   if (!sawtooth.shouldCheckpoint(state.history, state.toolCallsSinceCheckpoint, {
     toolCallsThreshold: toolTh,
     historyLengthThreshold: histTh,
@@ -4029,6 +4033,13 @@ function injectSessionContext(
   messages: Array<{ role: string; content: unknown }>,
   state: SessionState
 ): Array<{ role: string; content: unknown }> {
+  // In minimal compaction mode, skip injecting server-side architectural
+  // state.  Clients that manage their own context window (Cursor, Claude
+  // Code, OpenCode) already compact; prepending a stale server summary
+  // over their compacted transcript can cause the model to lose turns.
+  if (config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE === "minimal") {
+    return messages;
+  }
   const compacted = state.history.find(
     (m) => m.role === "system" && m.content.includes("<ARCHITECTURAL_STATE>")
   );
@@ -9217,7 +9228,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
         ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
         : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
-    const oaiBudgetPolicy = buildBudgetPolicy(oaiBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE);
+    const oaiCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
+    const oaiBudgetPolicy = buildBudgetPolicy(oaiBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE, oaiCompactionMode);
     const oaiPlanPaths = session.record.metadata.plan_file_path
       ? [session.record.metadata.plan_file_path as string]
       : [];
@@ -9239,6 +9251,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
       enableCompaction: true,
       artifactStore,
+      compactionMode: oaiCompactionMode,
     });
     oaiBudgetEvaluation = oaiBudgetResult.evaluation;
     if (oaiBudgetResult.evaluation.compactionApplied !== "none") {
@@ -9284,6 +9297,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         modelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
         hardCharBudget,
         oaiCompactionOpts.backendModelHint,
+        config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE,
       );
       if (emergencyResult.pruned) {
         modelMessages = emergencyResult.messages as typeof modelMessages;
@@ -12809,7 +12823,8 @@ app.post("/v1/messages", async (req, reply) => {
       ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
         ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
         : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
-    const claudeBudgetPolicy = buildBudgetPolicy(claudeBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE);
+    const claudeCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
+    const claudeBudgetPolicy = buildBudgetPolicy(claudeBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE, claudeCompactionMode);
     const claudePlanPaths = session.record.metadata.plan_file_path
       ? [session.record.metadata.plan_file_path as string]
       : [];
@@ -12831,6 +12846,7 @@ app.post("/v1/messages", async (req, reply) => {
       },
       enableCompaction: true,
       artifactStore,
+      compactionMode: claudeCompactionMode,
     });
     claudeBudgetEvaluation = claudeBudgetResult.evaluation;
     if (claudeBudgetResult.evaluation.compactionApplied !== "none") {
@@ -12876,6 +12892,7 @@ app.post("/v1/messages", async (req, reply) => {
         claudeModelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
         hardCharBudget,
         claudeCompactionOpts.backendModelHint,
+        config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE,
       );
       if (emergencyResult.pruned) {
         claudeModelMessages = emergencyResult.messages as typeof claudeModelMessages;

@@ -56,22 +56,33 @@ export interface ContextBudgetMessage {
 
 const DEFAULT_OUTPUT_RESERVE_TOKENS = 10_000;
 
-const SOFT_RATIO = 0.75;
-const HEAVY_RATIO = 0.88;
-const EMERGENCY_RATIO = 0.93;
-const HARD_RATIO = 0.95;
+export type CompactionMode = "minimal" | "aggressive";
+
+/**
+ * Minimal mode: trust the client harness for context management; only safe
+ * dedup in the soft zone, heavy compaction reserved for true emergencies.
+ *
+ * Aggressive mode (opt-in): original tight ratios for clients with weak
+ * context management.
+ */
+const RATIOS: Record<CompactionMode, { soft: number; heavy: number; emergency: number; hard: number }> = {
+  minimal:    { soft: 0.85, heavy: 0.95, emergency: 0.97, hard: 0.99 },
+  aggressive: { soft: 0.75, heavy: 0.88, emergency: 0.93, hard: 0.95 },
+};
 
 export function buildBudgetPolicy(
   ceilingTokens: number,
   outputReserveTokens = DEFAULT_OUTPUT_RESERVE_TOKENS,
+  mode: CompactionMode = "minimal",
 ): ContextBudgetPolicy {
+  const r = RATIOS[mode];
   return {
     ceilingTokens,
     outputReserveTokens,
-    hardLimitTokens: Math.floor(ceilingTokens * HARD_RATIO),
-    emergencyTokens: Math.floor(ceilingTokens * EMERGENCY_RATIO),
-    heavyTokens: Math.floor(ceilingTokens * HEAVY_RATIO),
-    softTokens: Math.floor(ceilingTokens * SOFT_RATIO),
+    hardLimitTokens: Math.floor(ceilingTokens * r.hard),
+    emergencyTokens: Math.floor(ceilingTokens * r.emergency),
+    heavyTokens: Math.floor(ceilingTokens * r.heavy),
+    softTokens: Math.floor(ceilingTokens * r.soft),
   };
 }
 
@@ -176,6 +187,7 @@ export function applySoftCompaction(
   classified: ClassifiedMessage[],
   targetTokens: number,
   artifactStore?: ArtifactStore | null,
+  mode: CompactionMode = "minimal",
 ): { messages: ContextBudgetMessage[]; tokensRecovered: number } {
   let currentTokens = classified.reduce((s, c) => s + c.estimatedTokens, 0);
   if (currentTokens <= targetTokens) {
@@ -243,67 +255,73 @@ export function applySoftCompaction(
     }
   }
 
-  // Strategy 3: Drop assistant narration with no state change
-  for (let i = 0; i < out.length - 1 && currentTokens > targetTokens; i++) {
-    const cl = classified[i];
-    if (!cl || cl.tier !== "historical") continue;
-    const msg = out[i];
-    if (msg.role !== "assistant") continue;
-    if (hasToolCalls(msg)) continue;
-    const raw = contentString(msg.content);
-    if (raw.length <= 100) continue;
-    const before = estimateMessageTokens(msg);
-    const preview = raw.slice(0, 80).replace(/\n/g, " ");
-    out[i] = replaceContentPreservingFormat(msg, `<NARRATION_CONDENSED chars=${raw.length}>${preview}...</NARRATION_CONDENSED>`);
-    const after = estimateMessageTokens(out[i]);
-    const delta = before - after;
-    recovered += delta;
-    currentTokens -= delta;
-  }
-
-  // Strategy 4: Dedupe superseded plan reads
-  const planReadIndices: number[] = [];
-  for (let i = 0; i < out.length; i++) {
-    if (out[i].role === "tool" && isPlanRead(out[i])) planReadIndices.push(i);
-  }
-  if (planReadIndices.length > 1) {
-    const latest = planReadIndices[planReadIndices.length - 1];
-    for (const idx of planReadIndices.slice(0, -1)) {
-      if (currentTokens <= targetTokens) break;
-      const cl = classified[idx];
-      if (!cl || cl.tier === "working") continue;
-      const msg = out[idx];
+  // Strategies 3-5 rewrite content the client harness should own.
+  // In minimal mode these only run during emergency compaction (caller
+  // passes mode="aggressive" for that path).  In aggressive mode they
+  // always run when the soft zone is entered.
+  if (mode === "aggressive") {
+    // Strategy 3: Drop assistant narration with no state change
+    for (let i = 0; i < out.length - 1 && currentTokens > targetTokens; i++) {
+      const cl = classified[i];
+      if (!cl || cl.tier !== "historical") continue;
+      const msg = out[i];
+      if (msg.role !== "assistant") continue;
+      if (hasToolCalls(msg)) continue;
+      const raw = contentString(msg.content);
+      if (raw.length <= 100) continue;
       const before = estimateMessageTokens(msg);
-      out[idx] = replaceContentPreservingFormat(msg, `<PLAN_SUPERSEDED latest_at_msg=${latest} />`);
-      const after = estimateMessageTokens(out[idx]);
+      const preview = raw.slice(0, 80).replace(/\n/g, " ");
+      out[i] = replaceContentPreservingFormat(msg, `<NARRATION_CONDENSED chars=${raw.length}>${preview}...</NARRATION_CONDENSED>`);
+      const after = estimateMessageTokens(out[i]);
       const delta = before - after;
       recovered += delta;
       currentTokens -= delta;
     }
-  }
 
-  // Strategy 5: Summarize stale exploration output
-  for (let i = 0; i < out.length && currentTokens > targetTokens; i++) {
-    const cl = classified[i];
-    if (!cl || cl.retentionScore > 0.3) continue;
-    if (cl.tier === "immutable" || cl.tier === "working") continue;
-    if (cl.tags.includes("unresolved_failure")) continue;
-    const msg = out[i];
-    if (msg.role !== "tool") continue;
-    const raw = contentString(msg.content);
-    if (raw.length <= 200) continue;
-    if (raw.startsWith("<FILE_SHADOW") || raw.startsWith("<VERIFICATION_FOLDED")
-      || raw.startsWith("<PLAN_SUPERSEDED") || raw.startsWith("<NARRATION_CONDENSED")
-      || raw.startsWith("<TOOL_RESULT_PRUNED") || raw.startsWith("<CONTEXT_CHECKPOINT")) continue;
-    const before = estimateMessageTokens(msg);
-    const toolName = getToolName(msg) || "unknown";
-    const preview = raw.slice(0, 120).replace(/\n/g, " ");
-    const handle = retainToArtifact(artifactStore, raw);
-    out[i] = replaceContentPreservingFormat(msg, `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}${handle}>${preview}...</STALE_EXPLORATION>`);
-    const after = estimateMessageTokens(out[i]);
-    const delta = before - after;
-    recovered += delta;
-    currentTokens -= delta;
+    // Strategy 4: Dedupe superseded plan reads
+    const planReadIndices: number[] = [];
+    for (let i = 0; i < out.length; i++) {
+      if (out[i].role === "tool" && isPlanRead(out[i])) planReadIndices.push(i);
+    }
+    if (planReadIndices.length > 1) {
+      const latest = planReadIndices[planReadIndices.length - 1];
+      for (const idx of planReadIndices.slice(0, -1)) {
+        if (currentTokens <= targetTokens) break;
+        const cl = classified[idx];
+        if (!cl || cl.tier === "working") continue;
+        const msg = out[idx];
+        const before = estimateMessageTokens(msg);
+        out[idx] = replaceContentPreservingFormat(msg, `<PLAN_SUPERSEDED latest_at_msg=${latest} />`);
+        const after = estimateMessageTokens(out[idx]);
+        const delta = before - after;
+        recovered += delta;
+        currentTokens -= delta;
+      }
+    }
+
+    // Strategy 5: Summarize stale exploration output
+    for (let i = 0; i < out.length && currentTokens > targetTokens; i++) {
+      const cl = classified[i];
+      if (!cl || cl.retentionScore > 0.3) continue;
+      if (cl.tier === "immutable" || cl.tier === "working") continue;
+      if (cl.tags.includes("unresolved_failure")) continue;
+      const msg = out[i];
+      if (msg.role !== "tool") continue;
+      const raw = contentString(msg.content);
+      if (raw.length <= 200) continue;
+      if (raw.startsWith("<FILE_SHADOW") || raw.startsWith("<VERIFICATION_FOLDED")
+        || raw.startsWith("<PLAN_SUPERSEDED") || raw.startsWith("<NARRATION_CONDENSED")
+        || raw.startsWith("<TOOL_RESULT_PRUNED") || raw.startsWith("<CONTEXT_CHECKPOINT")) continue;
+      const before = estimateMessageTokens(msg);
+      const toolName = getToolName(msg) || "unknown";
+      const preview = raw.slice(0, 120).replace(/\n/g, " ");
+      const handle = retainToArtifact(artifactStore, raw);
+      out[i] = replaceContentPreservingFormat(msg, `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}${handle}>${preview}...</STALE_EXPLORATION>`);
+      const after = estimateMessageTokens(out[i]);
+      const delta = before - after;
+      recovered += delta;
+      currentTokens -= delta;
+    }
   }
 
   return { messages: out, tokensRecovered: recovered };
@@ -477,12 +495,16 @@ export interface EvaluateContextBudgetOptions {
   heavyCompactionContext?: HeavyCompactionContext;
   enableCompaction?: boolean;
   artifactStore?: ArtifactStore | null;
+  compactionMode?: CompactionMode;
 }
 
 export function evaluateContextBudget(
   options: EvaluateContextBudgetOptions,
 ): { evaluation: BudgetEvaluation; messages: ContextBudgetMessage[] } {
-  const { messages, tools, policy, enableCompaction = true, artifactStore: artStore } = options;
+  const {
+    messages, tools, policy, enableCompaction = true,
+    artifactStore: artStore, compactionMode = "minimal",
+  } = options;
 
   const estimate = estimateTokens(
     messages as Array<{ role: string; content: unknown }>,
@@ -515,7 +537,7 @@ export function evaluateContextBudget(
   }
 
   if (zone === "soft") {
-    const softResult = applySoftCompaction(messages, classified, policy.softTokens, artStore);
+    const softResult = applySoftCompaction(messages, classified, policy.softTokens, artStore, compactionMode);
     const newEstimate = estimateTokens(
       softResult.messages as Array<{ role: string; content: unknown }>,
       tools,
@@ -533,8 +555,15 @@ export function evaluateContextBudget(
     };
   }
 
-  // Heavy or emergency: always run soft first, then heavy if still above threshold
-  const softResult = applySoftCompaction(messages, classified, policy.softTokens, artStore);
+  // In minimal mode, the heavy zone is treated as soft-only (strategies 1-2).
+  // Heavy compaction (retention-based message drop + checkpoint) only fires
+  // in the emergency zone -- the "lame client near model limit" path.
+  const isEmergencyZone = zone === "emergency" || zone === "reject";
+  const allowHeavy = compactionMode === "aggressive" || isEmergencyZone;
+
+  // Run soft first (minimal strategies in minimal mode, all 5 in aggressive)
+  const softMode: CompactionMode = allowHeavy ? "aggressive" : compactionMode;
+  const softResult = applySoftCompaction(messages, classified, policy.softTokens, artStore, softMode);
   const afterSoftEstimate = estimateTokens(
     softResult.messages as Array<{ role: string; content: unknown }>,
     tools,
@@ -555,7 +584,9 @@ export function evaluateContextBudget(
     };
   }
 
-  if (!options.heavyCompactionContext) {
+  // In minimal mode and non-emergency zone: skip heavy, pass through with
+  // whatever soft dedup recovered.  Trusts upstream model + client harness.
+  if (!allowHeavy || !options.heavyCompactionContext) {
     return {
       evaluation: {
         ...baseEvaluation,
@@ -591,7 +622,7 @@ export function evaluateContextBudget(
       estimate: afterHeavyEstimate,
       headroomTokens: policy.hardLimitTokens - afterHeavyEstimate.totalTokens,
       zone: classifyZone(afterHeavyEstimate.totalTokens, policy),
-      compactionApplied: zone === "emergency" ? "emergency" : "heavy",
+      compactionApplied: isEmergencyZone ? "emergency" : "heavy",
       tokensRecovered: softResult.tokensRecovered + heavyResult.tokensRecovered,
       classification: reclassified,
       checkpoint: heavyResult.checkpoint,

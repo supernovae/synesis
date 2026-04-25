@@ -560,16 +560,18 @@ export class TranscriptPruningService {
    * Emergency pruning for context admission warnings.
    *
    * Unlike normal `prune()` which respects a generous keep window, this method
-   * uses a minimal keep window (last 4 tool results) and applies all strategies
-   * aggressively to get the total context chars under `targetCharBudget`.
+   * uses a minimal keep window and applies all strategies aggressively to get
+   * the total context chars under `targetCharBudget`.
    *
-   * If the first pass isn't enough, a second pass with an even smaller window
-   * (2 tool results) strips more content.
+   * In `"minimal"` compaction mode, wider keep windows are used (8/4 tool
+   * results) to preserve more recent context and reduce turn loss.  In
+   * `"aggressive"` mode the original tight windows (4/2) are used.
    */
   emergencyPrune(
     messages: MessageLike[],
     targetCharBudget: number,
     backendModelHint?: string,
+    compactionMode: "minimal" | "aggressive" = "minimal",
   ): { messages: MessageLike[]; pruned: boolean; charsBefore: number; charsAfter: number } {
     const charsBefore = messages.reduce((sum, m) => sum + contentLength(m.content), 0);
     if (charsBefore <= targetCharBudget) {
@@ -580,7 +582,10 @@ export class TranscriptPruningService {
     const protectedReadIdx = protectedCurrentTurnReadToolIndices(messages);
     const evictProtectedIdx = new Set<number>([...protectedFailIdx, ...protectedReadIdx]);
 
-    const emergencyKeep = this.computeEmergencyKeepFromIndex(messages, 4);
+    const firstPassKeep = compactionMode === "minimal" ? 8 : 4;
+    const secondPassKeep = compactionMode === "minimal" ? 4 : 2;
+
+    const emergencyKeep = this.computeEmergencyKeepFromIndex(messages, firstPassKeep);
     let out = this.deduplicateCommands(messages, emergencyKeep);
     out = this.deduplicateFileReads(out, emergencyKeep, protectedReadIdx);
     out = this.evictStaleToolResults(out, emergencyKeep, evictProtectedIdx);
@@ -589,7 +594,7 @@ export class TranscriptPruningService {
 
     let charsAfter = out.reduce((sum, m) => sum + contentLength(m.content), 0);
     if (charsAfter > targetCharBudget) {
-      const tinyKeep = this.computeEmergencyKeepFromIndex(out, 2);
+      const tinyKeep = this.computeEmergencyKeepFromIndex(out, secondPassKeep);
       out = this.evictStaleToolResults(out, tinyKeep, evictProtectedIdx);
       out = this.condenseOldAssistant(out, tinyKeep);
       charsAfter = out.reduce((sum, m) => sum + contentLength(m.content), 0);

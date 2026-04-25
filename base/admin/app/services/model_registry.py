@@ -389,6 +389,7 @@ def _deployment_to_dict(row: ModelDeployment, maps: ProviderGovernanceMaps) -> d
         "litellm_model_id": row.litellm_model_id,
         "fallbacks": row.fallbacks,
         "adapter_hint": row.adapter_hint,
+        "context_window": row.context_window,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
 
@@ -434,6 +435,7 @@ async def get_role_assignments() -> list[dict]:
                 "source": "",
                 "gpu_config": None,
                 "adapter_hint": None,
+                "context_window": None,
             }
         assignments.append(d)
     return assignments
@@ -456,6 +458,7 @@ async def assign_role(
     enable_thinking: bool | None = None,
     fallbacks: list[str] | None = None,
     adapter_hint: str | None = None,
+    context_window: int | None = None,
     description: str = "",
     notes: str = "",
 ) -> dict:
@@ -535,6 +538,7 @@ async def assign_role(
             notes=notes,
             fallbacks=norm_fallbacks,
             adapter_hint=adapter_hint or None,
+            context_window=context_window,
         )
         session.add(row)
         await session.commit()

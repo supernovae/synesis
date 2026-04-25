@@ -7,6 +7,7 @@ import {
   applySoftCompaction,
   applyHeavyCompaction,
   type ContextBudgetMessage,
+  type CompactionMode,
 } from "../src/governance/context-budget-manager.js";
 import {
   classifyMessages,
@@ -139,25 +140,34 @@ describe("context-token-estimator", () => {
 // ── Budget Policy ─────────────────────────────────────────────────────────
 
 describe("budget policy", () => {
-  it("builds policy with correct ratios", () => {
-    const policy = buildBudgetPolicy(100_000);
+  it("builds minimal-mode policy with wider ratios (default)", () => {
+    const policy = buildBudgetPolicy(262_000);
+    expect(policy.ceilingTokens).toBe(262_000);
+    expect(policy.softTokens).toBe(Math.floor(262_000 * 0.85));
+    expect(policy.heavyTokens).toBe(Math.floor(262_000 * 0.95));
+    expect(policy.emergencyTokens).toBe(Math.floor(262_000 * 0.97));
+    expect(policy.hardLimitTokens).toBe(Math.floor(262_000 * 0.99));
+    expect(policy.outputReserveTokens).toBe(10_000);
+  });
+
+  it("builds aggressive-mode policy with tight ratios", () => {
+    const policy = buildBudgetPolicy(100_000, 10_000, "aggressive");
     expect(policy.ceilingTokens).toBe(100_000);
     expect(policy.softTokens).toBe(75_000);
     expect(policy.heavyTokens).toBe(88_000);
     expect(policy.emergencyTokens).toBe(93_000);
     expect(policy.hardLimitTokens).toBe(95_000);
-    expect(policy.outputReserveTokens).toBe(10_000);
   });
 
   it("scales proportionally for different ceilings", () => {
-    const policy = buildBudgetPolicy(200_000);
+    const policy = buildBudgetPolicy(200_000, 10_000, "aggressive");
     expect(policy.softTokens).toBe(150_000);
     expect(policy.heavyTokens).toBe(176_000);
     expect(policy.hardLimitTokens).toBe(190_000);
   });
 
-  it("classifies zones correctly", () => {
-    const policy = buildBudgetPolicy(100_000);
+  it("classifies zones correctly in aggressive mode", () => {
+    const policy = buildBudgetPolicy(100_000, 10_000, "aggressive");
     expect(classifyZone(50_000, policy)).toBe("green");
     expect(classifyZone(74_999, policy)).toBe("green");
     expect(classifyZone(75_000, policy)).toBe("soft");
@@ -167,6 +177,15 @@ describe("budget policy", () => {
     expect(classifyZone(93_000, policy)).toBe("emergency");
     expect(classifyZone(94_999, policy)).toBe("emergency");
     expect(classifyZone(95_000, policy)).toBe("reject");
+  });
+
+  it("classifies zones correctly in minimal mode", () => {
+    const policy = buildBudgetPolicy(262_000);
+    expect(classifyZone(200_000, policy)).toBe("green");
+    expect(classifyZone(222_700, policy)).toBe("soft");
+    expect(classifyZone(248_900, policy)).toBe("heavy");
+    expect(classifyZone(254_140, policy)).toBe("emergency");
+    expect(classifyZone(259_380, policy)).toBe("reject");
   });
 });
 
@@ -301,7 +320,7 @@ describe("soft compaction", () => {
     expect(folded.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("condenses assistant narration without tool calls", () => {
+  it("condenses assistant narration in aggressive mode only", () => {
     const padding: ContextBudgetMessage[] = [];
     for (let i = 0; i < 10; i++) {
       padding.push(msg("assistant", `step ${i}`));
@@ -317,14 +336,21 @@ describe("soft compaction", () => {
     ];
     const ctx = buildRetentionContext(messages as RetentionMessage[]);
     const classified = classifyMessages(messages as RetentionMessage[], ctx);
-    const result = applySoftCompaction(messages, classified, 100);
-    const condensed = result.messages.filter((m) =>
+
+    const aggressiveResult = applySoftCompaction(messages, classified, 100, null, "aggressive");
+    const condensed = aggressiveResult.messages.filter((m) =>
       typeof m.content === "string" && m.content.includes("NARRATION_CONDENSED"),
     );
     expect(condensed.length).toBeGreaterThanOrEqual(1);
+
+    const minimalResult = applySoftCompaction(messages, classified, 100, null, "minimal");
+    const minimalCondensed = minimalResult.messages.filter((m) =>
+      typeof m.content === "string" && m.content.includes("NARRATION_CONDENSED"),
+    );
+    expect(minimalCondensed.length).toBe(0);
   });
 
-  it("dedupes superseded plan reads", () => {
+  it("dedupes superseded plan reads in aggressive mode only", () => {
     const planContent = JSON.stringify({ filePath: "~/.claude/plans/my-plan.md", content: "plan content ".repeat(50) });
     const padding: ContextBudgetMessage[] = [];
     for (let i = 0; i < 10; i++) {
@@ -342,11 +368,18 @@ describe("soft compaction", () => {
     ];
     const ctx = buildRetentionContext(messages as RetentionMessage[]);
     const classified = classifyMessages(messages as RetentionMessage[], ctx);
-    const result = applySoftCompaction(messages, classified, 100);
-    const superseded = result.messages.filter((m) =>
+
+    const aggressiveResult = applySoftCompaction(messages, classified, 100, null, "aggressive");
+    const superseded = aggressiveResult.messages.filter((m) =>
       typeof m.content === "string" && m.content.includes("PLAN_SUPERSEDED"),
     );
     expect(superseded.length).toBe(1);
+
+    const minimalResult = applySoftCompaction(messages, classified, 100, null, "minimal");
+    const minimalSuperseded = minimalResult.messages.filter((m) =>
+      typeof m.content === "string" && m.content.includes("PLAN_SUPERSEDED"),
+    );
+    expect(minimalSuperseded.length).toBe(0);
   });
 
   it("never compacts unresolved failures", () => {
@@ -674,7 +707,7 @@ describe("applySoftCompaction preserves SDK ModelMessage content format", () => 
     ];
     const retention = buildRetentionContext(messages as unknown as RetentionMessage[]);
     const classified = classifyMessages(messages as unknown as RetentionMessage[], retention);
-    const result = applySoftCompaction(messages, classified, 100);
+    const result = applySoftCompaction(messages, classified, 100, null, "aggressive");
 
     for (const m of result.messages) {
       if (m.role === "assistant") {

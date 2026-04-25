@@ -314,12 +314,69 @@ The final reordering pass, optimized for upstream KV-cache behavior:
 Injection scanning, content sanitization, and trust packet wrapping. Runs after
 all optimization (untrusted content should be scanned in its optimized form).
 
-### 12. Context Admission + Optimization Ledger
+### 12. Context Budget Manager
+
+**Module:** `src/governance/context-budget-manager.ts`
+
+Proactive tiered compaction that evaluates the current message array against a
+budget policy derived from the model's context ceiling. Operates in one of two
+**compaction modes**:
+
+#### Compaction modes (`SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE`)
+
+| Mode | Default? | Behavior |
+|------|----------|----------|
+| **`minimal`** | Yes | Safe dedup only in the soft zone (duplicate file reads, duplicate passed verifications). Heavy/checkpoint compaction reserved for emergency near model limit. Trusts client harness (Cursor, Claude Code, OpenCode) to manage its own context window. |
+| **`aggressive`** | No (opt-in) | Full 5-strategy soft compaction (narration condensation, plan-read dedup, stale exploration summarization) and retention-based heavy compaction at lower thresholds. For clients with weak context management. |
+
+**Budget zones** (ratios of effective context ceiling):
+
+| Zone | Minimal ratios | Aggressive ratios | Behavior |
+|------|---------------|-------------------|----------|
+| **Green** | < 85% | < 75% | Pass through, no compaction |
+| **Soft** | 85–95% | 75–88% | Strategies 1–2 (minimal) or 1–5 (aggressive) |
+| **Heavy** | 95–97% | 88–93% | Minimal: soft only, skip heavy. Aggressive: soft + heavy checkpoint |
+| **Emergency** | 97–99% | 93–95% | Full soft + heavy compaction in both modes |
+| **Reject** | ≥ 99% | ≥ 95% | 400 rejection |
+
+**Soft compaction strategies:**
+
+1. **Collapse repeated file reads** — keep latest per path, stub earlier (both modes)
+2. **Fold repeated successful verifications** — keep latest, fold earlier (both modes)
+3. **Condense assistant narration** — truncate historical narration (aggressive only)
+4. **Dedupe superseded plan reads** — keep latest plan read (aggressive only)
+5. **Summarize stale exploration** — low-retention tool output to stub (aggressive only)
+
+**Heavy compaction** (retention-based message drop + `<CONTEXT_CHECKPOINT>` XML):
+- In minimal mode: only fires in emergency/reject zones
+- In aggressive mode: fires in heavy/emergency/reject zones
+- Always preserves: immutable tier, working tier, unresolved failures
+- Tool-call/result pair integrity enforced (no orphaned SDK messages)
+
+**Context ceiling resolution order:**
+1. Per-tier `contextCeilingTokens` from Admin registry (model's actual context window)
+2. `SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS` env (manual override)
+3. `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` (default 262k)
+
+**Config:**
+- `SYNESIS_YARN_CONTEXT_BUDGET_ENABLED` (default: `true`)
+- `SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE` (default: `"minimal"`)
+- `SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS` (default: `0` = use admission hard)
+- `SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE` (default: `10000`)
+- `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` (default: `262000`)
+- `SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS` (default: `200000`)
+
+### 13. Context Admission + Optimization Ledger
 
 **Modules:** `src/index.ts` (`evaluateContextAdmission`), `src/telemetry/optimization-ledger.ts`
 
 **Context admission:** Final gate before the upstream call. Estimates token count
-as `ceil(totalChars / 4)` and compares against warn/hard thresholds.
+as `ceil(totalChars / 4)` and compares against warn/hard thresholds (default 200k
+warn, 262k hard).
+
+Emergency pruning fires at the warn threshold when the budget manager did not
+already compact. In minimal mode, emergency prune uses wider keep windows (8/4
+tool results vs 4/2 in aggressive mode) to preserve more recent context.
 
 **Optimization ledger:** Per-request record of tokens saved at each pipeline stage:
 
@@ -383,15 +440,23 @@ all work to produce byte-identical token sequences across turns. This benefits
 ## Sawtooth compaction
 
 Long sessions accumulate O(n) context per turn. Sawtooth compaction periodically
-summarizes the conversation history into a compact `<ARCHITECTURAL_STATE>` block:
+summarizes the **server-side session history** into a compact `<ARCHITECTURAL_STATE>`
+block:
 
-1. **Checkpoint trigger:** Every N tool calls (default 12) or when history
-   exceeds 60 messages
+1. **Checkpoint trigger:** Every N tool calls or when history exceeds a length
+   threshold. In minimal compaction mode, both thresholds are doubled (24 tool
+   calls / 120 messages instead of 12 / 60) to reduce checkpoint frequency.
 2. **Compaction:** LLM-backed (using `synesis-compaction` tier) or heuristic
    fallback (last 20 masked lines, or tail truncation)
-3. **Result:** History replaced by single system message with architectural
+3. **Result:** Server history replaced by single system message with architectural
    summary (files touched, decisions made, errors encountered, current state)
-4. **Checkpoint persistence:** Serialized to Redis for session resume on
+4. **Session context injection:** In **aggressive** compaction mode, the
+   `<ARCHITECTURAL_STATE>` summary is prepended to incoming client messages.
+   In **minimal** mode (default), injection is **skipped** entirely — clients
+   that manage their own context window already compact, and prepending a stale
+   server-side summary over their compacted transcript can cause the model to
+   lose recent turns.
+5. **Checkpoint persistence:** Serialized to Redis for session resume on
    process restart
 
 The "sawtooth" pattern: context grows linearly, then drops sharply at each
@@ -419,6 +484,8 @@ defaults:
 | `SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED` | `true` | Context |
 | `SYNESIS_YARN_CONTENT_DISPATCH_ENABLED` | `true` | Reduction |
 | `SYNESIS_YARN_HISTORICAL_CONTENT_NORMALIZE_ENABLED` | `true` | KV stability |
+| `SYNESIS_YARN_CONTEXT_BUDGET_ENABLED` | `true` | Compaction |
+| `SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE` | `"minimal"` | Compaction |
 | `SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED` | `false` | Dedup |
 | `SYNESIS_YARN_TOOL_COLLAPSE_ENABLED` | `false` | Batching |
 | `SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED` | `false` | Memory |
@@ -442,6 +509,9 @@ defaults:
 | `src/dedupe/ToolCallDedupe.ts` | Exact consecutive tool call dedup |
 | `src/store/block-store.ts` | Content-addressed prompt block cache |
 | `src/context/stable-prefix.ts` | Stable prompt prefix assembly |
+| `src/governance/context-budget-manager.ts` | Tiered context budget compaction |
+| `src/governance/context-retention.ts` | Message retention classification |
+| `src/governance/context-checkpoint.ts` | Heavy compaction checkpoint XML |
 | `src/context/sawtooth-manager.ts` | Periodic conversation compaction |
 | `src/context/attention-positioning.ts` | System block reordering |
 | `src/context/prompt-frame.ts` | Typed prompt structure |

@@ -16,6 +16,7 @@ const RoleSchema = z.object({
   api_key_env: z.string().optional(),
   litellm_params: z.record(z.string(), z.any()).nullable().optional(),
   adapter_hint: z.string().nullable().optional(),
+  context_window: z.number().nullable().optional(),
 });
 
 const RolesEnvelopeSchema = z.object({
@@ -329,6 +330,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       pricingSource,
       adapterHint: row.adapter_hint ?? null,
       samplingDefaults,
+      contextCeilingTokens: row.context_window ?? null,
     });
   }
   return { tiers: out, roleAssignments, promptSnapshot };
