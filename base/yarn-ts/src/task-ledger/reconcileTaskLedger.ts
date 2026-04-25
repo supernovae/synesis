@@ -6,6 +6,14 @@ import type { EvidenceSignal, HarnessTask, TaskLedger, TaskStatus } from "./type
 const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(["completed", "obsolete"]);
 
 /**
+ * Confidence threshold above which a task with sufficient evidence
+ * is auto-promoted to "completed". This closes the feedback loop when
+ * the model does the work but forgets to call the todo tool.
+ */
+const AUTO_PROMOTE_CONFIDENCE = 0.85;
+const AUTO_PROMOTE_MIN_EVIDENCE = 2;
+
+/**
  * Match tasks by id, then by normalized title prefix (first 40 chars, lowered).
  */
 function findExistingTask(tasks: HarnessTask[], candidate: HarnessTask): HarnessTask | undefined {
@@ -136,6 +144,15 @@ export function reconcileFromEvidence(
         };
       }
     }
+
+    if (
+      !TERMINAL_STATUSES.has(updatedTask.status) &&
+      updatedTask.confidence >= AUTO_PROMOTE_CONFIDENCE &&
+      updatedTask.evidence.length >= AUTO_PROMOTE_MIN_EVIDENCE
+    ) {
+      updatedTask = { ...updatedTask, status: "completed" };
+    }
+
     return updatedTask;
   });
 

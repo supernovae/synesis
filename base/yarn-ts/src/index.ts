@@ -3889,11 +3889,13 @@ function classifyToolResultAsEvidence(
     }
   }
 
-  if (lower.includes("test") || lower.includes("bash") || lower.includes("shell")) {
+  if (lower.includes("test") || lower.includes("bash") || lower.includes("shell") || lower.includes("terminal") || lower.includes("command")) {
     if (/\b(pass|ok|passed|success)\b/i.test(resultText) && !/\b(fail|error|FAIL)\b/.test(resultText)) {
       signals.push({ kind: "test_pass", detail: resultText.slice(0, 200), turn });
     } else if (/\b(fail|FAIL|error|Error)\b/.test(resultText)) {
       signals.push({ kind: "test_fail", detail: resultText.slice(0, 200), turn });
+    } else if (!resultLower.includes("error") && !resultLower.includes("failed") && resultText.length > 5) {
+      signals.push({ kind: "command_success", detail: resultText.slice(0, 200), turn });
     }
   }
 

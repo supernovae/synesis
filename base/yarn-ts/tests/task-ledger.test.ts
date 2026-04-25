@@ -384,6 +384,82 @@ describe("task-ledger", () => {
       const result = reconcileFromEvidence(ledger, [{ kind: "file_edit", detail: "foo", turn: 1 }]);
       expect(result).toBe(ledger);
     });
+
+    it("auto-promotes task to completed when confidence >= 0.85 and evidence >= 2", () => {
+      const ledger = makeLedger({
+        tasks: [makeTask({
+          id: "hugo",
+          title: "Install Hugo extended version for site",
+          status: "in_progress",
+          confidence: 0.75,
+          evidence: ["command_success: hugo version v0.139.0+extended"],
+        })],
+      });
+      const signals: EvidenceSignal[] = [
+        { kind: "command_success", detail: "hugo new site mysite — created", turn: 6 },
+      ];
+      const result = reconcileFromEvidence(ledger, signals);
+      expect(result.tasks[0].confidence).toBeGreaterThanOrEqual(0.85);
+      expect(result.tasks[0].status).toBe("completed");
+      expect(result.tasks[0].evidence).toHaveLength(2);
+    });
+
+    it("does not auto-promote when confidence is high but evidence count is below threshold", () => {
+      const ledger = makeLedger({
+        tasks: [makeTask({
+          id: "theme",
+          title: "Choose and install a modern lightweight theme",
+          status: "pending",
+          confidence: 0.8,
+          evidence: [],
+        })],
+      });
+      const signals: EvidenceSignal[] = [
+        { kind: "file_edit", detail: "edited config for theme installation", turn: 4 },
+      ];
+      const result = reconcileFromEvidence(ledger, signals);
+      expect(result.tasks[0].confidence).toBe(0.9);
+      expect(result.tasks[0].evidence).toHaveLength(1);
+      expect(result.tasks[0].status).toBe("pending");
+    });
+
+    it("does not auto-promote already-terminal tasks", () => {
+      const ledger = makeLedger({
+        tasks: [makeTask({
+          id: "done",
+          title: "Deploy the application to staging",
+          status: "obsolete",
+          confidence: 0.5,
+          evidence: ["command_success: deploy skipped"],
+        })],
+      });
+      const signals: EvidenceSignal[] = [
+        { kind: "command_success", detail: "staging deploy completed", turn: 10 },
+      ];
+      const result = reconcileFromEvidence(ledger, signals);
+      expect(result.tasks[0].status).toBe("obsolete");
+    });
+
+    it("auto-promotes pending task that crosses both thresholds in a single reconcile", () => {
+      const ledger = makeLedger({
+        tasks: [makeTask({
+          id: "config",
+          title: "Configure hugo.toml with site metadata",
+          status: "pending",
+          confidence: 0.5,
+          evidence: [],
+        })],
+      });
+      const signals: EvidenceSignal[] = [
+        { kind: "file_edit", detail: "edited hugo.toml with site metadata config", turn: 3 },
+        { kind: "command_success", detail: "hugo build succeeded for site with metadata", turn: 4 },
+        { kind: "test_pass", detail: "hugo server started ok — site metadata renders correctly", turn: 5 },
+      ];
+      const result = reconcileFromEvidence(ledger, signals);
+      expect(result.tasks[0].confidence).toBeGreaterThanOrEqual(0.85);
+      expect(result.tasks[0].evidence.length).toBeGreaterThanOrEqual(2);
+      expect(result.tasks[0].status).toBe("completed");
+    });
   });
 
   describe("decayStaleTaskConfidence", () => {
@@ -756,6 +832,88 @@ describe("task-ledger", () => {
       expect(deserializeTaskLedger(null)).toBeNull();
       expect(deserializeTaskLedger({})).toBeNull();
       expect(deserializeTaskLedger("string")).toBeNull();
+    });
+  });
+
+  describe("OpenCode Hugo scenario: evidence auto-promotes forgotten tasks", () => {
+    it("tasks auto-complete from evidence even when model never calls todowrite again", () => {
+      const caps = makeCapabilities({
+        hasExplicitTodoTool: true,
+        todoToolName: "todowrite",
+        detectedSource: "opencode_todowrite",
+      });
+
+      const initial = normalizeTaskToolCall(
+        {
+          toolName: "todowrite",
+          args: {
+            todos: [
+              { id: "install", content: "Install Hugo extended version", status: "in_progress" },
+              { id: "site", content: "Create new Hugo site structure", status: "pending" },
+              { id: "theme", content: "Choose and install a modern theme", status: "pending" },
+              { id: "config", content: "Configure hugo.toml with metadata", status: "pending" },
+              { id: "content", content: "Create single-page homepage content", status: "pending" },
+              { id: "links", content: "Add GitHub repo links to homepage", status: "pending" },
+              { id: "build", content: "Test build and verify compatibility", status: "pending" },
+            ],
+          },
+          turn: 1,
+        },
+        caps,
+      );
+
+      let ledger = createEmptyLedger("hugo-session", true, false);
+      ledger = reconcileFromToolCall(ledger, initial, 1);
+      expect(ledger.tasks).toHaveLength(7);
+
+      const gate0 = evaluateTaskCompletionGate(ledger, caps);
+      expect(gate0.allow).toBe(false);
+
+      ledger = reconcileFromEvidence(ledger, [
+        { kind: "command_success", detail: "hugo version v0.139.0+extended installed", turn: 2 },
+        { kind: "command_success", detail: "brew install hugo — install completed", turn: 2 },
+      ]);
+      expect(ledger.tasks[0].status).toBe("completed");
+
+      ledger = reconcileFromEvidence(ledger, [
+        { kind: "command_success", detail: "hugo new site mysite — site structure created", turn: 3 },
+        { kind: "file_edit", detail: "created hugo site directory structure", turn: 3 },
+      ]);
+      expect(ledger.tasks[1].status).toBe("completed");
+
+      ledger = reconcileFromEvidence(ledger, [
+        { kind: "command_success", detail: "git submodule add modern PaperMod theme", turn: 4 },
+        { kind: "file_edit", detail: "added theme config for modern PaperMod theme", turn: 4 },
+      ]);
+      expect(ledger.tasks[2].status).toBe("completed");
+
+      ledger = reconcileFromEvidence(ledger, [
+        { kind: "file_edit", detail: "edited hugo.toml with site metadata and params", turn: 5 },
+        { kind: "file_edit", detail: "configured hugo.toml baseURL and metadata fields", turn: 5 },
+      ]);
+      expect(ledger.tasks[3].status).toBe("completed");
+
+      ledger = reconcileFromEvidence(ledger, [
+        { kind: "file_edit", detail: "created content/_index.md homepage content", turn: 6 },
+        { kind: "file_edit", detail: "wrote single-page homepage layout content", turn: 6 },
+      ]);
+      expect(ledger.tasks[4].status).toBe("completed");
+
+      ledger = reconcileFromEvidence(ledger, [
+        { kind: "file_edit", detail: "added GitHub repo links to homepage layout", turn: 7 },
+        { kind: "file_edit", detail: "configured links section with GitHub repos", turn: 7 },
+      ]);
+      expect(ledger.tasks[5].status).toBe("completed");
+
+      ledger = reconcileFromEvidence(ledger, [
+        { kind: "command_success", detail: "hugo build succeeded — verify output", turn: 8 },
+        { kind: "test_pass", detail: "hugo server ok — verified build compatibility", turn: 8 },
+      ]);
+      expect(ledger.tasks[6].status).toBe("completed");
+
+      const gateFinal = evaluateTaskCompletionGate(ledger, caps);
+      expect(gateFinal.allow).toBe(true);
+      expect(gateFinal.severity).toBe("none");
     });
   });
 });
