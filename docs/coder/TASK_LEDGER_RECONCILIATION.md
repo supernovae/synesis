@@ -7,9 +7,9 @@ Client-agnostic task/todo/plan state accounting for the Synesis API harness.
 Coding agents frequently create task lists (via TodoWrite, plan mode, markdown checklists, or numbered plans), complete the actual work, then forget to mark items done before their final response. This leaves stale progress state that degrades user trust.
 
 Different clients expose different mechanisms:
-- **OpenCode**: `todowrite` tool
-- **Claude Code**: `TodoWrite` tool
-- **Cursor**: `CreatePlan` / `TodoWrite` / `SwitchMode`
+- **OpenCode**: explicit `todowrite`; the client renders a visible todo list.
+- **Claude Code SDK / non-interactive**: `TodoWrite`; Claude Code interactive sessions may expose `TaskCreate` / `TaskUpdate` plus read-only task tools.
+- **Cursor**: internal Agent to-dos; Synesis observes text/plan artifacts or explicit todo-like tool calls only. It does not write Cursor's private to-do UI directly.
 - **Cline/Roo**: plan/act mode with markdown checklists
 - **Generic**: numbered plans or markdown checklists in assistant text
 
@@ -50,6 +50,7 @@ Client request tools         ──→  detectClientTaskCapabilities()
 | `extractTasksFromText.ts` | Extract tasks from markdown checklists, numbered plans, and `PlanTodoEntry` bridges |
 | `reconcileTaskLedger.ts` | Merge tool/text/evidence updates into `TaskLedger` immutably; serialize/deserialize |
 | `buildTaskLedgerNudge.ts` | Generate context-appropriate nudge strings and compact task summaries |
+| `scrubTaskLedgerOutput.ts` | Remove internal task-ledger tags and reconciliation instructions from visible assistant text |
 | `completionGate.ts` | `evaluateTaskCompletionGate` with soft block, 2-attempt cap, and escape hatch |
 | `index.ts` | Barrel export |
 
@@ -88,7 +89,8 @@ interface TaskLedger {
 
 On session initialization, the harness scans the request's `tools` array for known todo/task tool names (case-insensitive, hyphen-to-underscore normalized):
 
-- `todowrite`, `todo_write`, `TodoWrite`, `update_todo`, `task_update`, `plan_update`
+- `todowrite`, `todo_write`, `TodoWrite`, `update_todo`, `task_update`, `TaskUpdate`, `TaskCreate`, `plan_update`
+- Read-only capability signals: `todoread`, `TodoRead`, `TaskList`, `TaskGet`
 - `CreatePlan`, `SwitchMode` (plan mode indicators)
 
 The `clientKind` field (already resolved upstream) is used to refine the `TaskSource`:
@@ -105,8 +107,10 @@ All downstream logic operates on `ClientTaskCapabilities`, never on raw client i
 
 When the assistant emits a todo/task tool call, the normalizer extracts `HarnessTask[]` at confidence 1.0. The normalizer handles:
 - `todowrite` / `TodoWrite`: `{ todos: [{ id, content, status }] }`
-- `task_update` / `update_todo`: `{ id, title, status }`
+- `task_update` / `update_todo` / `TaskCreate` / `TaskUpdate`: `{ id, title/content/description, status, activeForm }`
 - `plan_update` / `CreatePlan`: `{ steps: [{ title, status }] }`
+
+Read-only task tools such as `TodoRead`, `TaskList`, and `TaskGet` are used only for capability detection and do not mutate the Synesis ledger.
 
 ### From assistant text
 

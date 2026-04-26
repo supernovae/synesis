@@ -27,7 +27,11 @@ function normalizeStatus(raw: unknown): TaskStatus {
 }
 
 function normalize(name: string): string {
-  return name.trim().toLowerCase().replace(/-/g, "_");
+  return name
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/-/g, "_");
 }
 
 function resolveSourceForTool(normalizedName: string, capabilities: ClientTaskCapabilities): TaskSource {
@@ -36,6 +40,9 @@ function resolveSourceForTool(normalizedName: string, capabilities: ClientTaskCa
   }
   if (normalizedName.includes("todowrite") || normalizedName.includes("todo_write")) {
     return "opencode_todowrite";
+  }
+  if (normalizedName.includes("task_create") || normalizedName.includes("task_update")) {
+    return "claude_todowrite";
   }
   return "unknown";
 }
@@ -46,8 +53,13 @@ const TASK_TOOL_NAMES: ReadonlySet<string> = new Set([
   "plan_update", "createplan", "create_plan",
 ]);
 
+const READ_ONLY_TASK_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "todoread", "todo_read", "tasklist", "task_list", "taskget", "task_get",
+]);
+
 export function isTaskToolCall(toolName: string): boolean {
-  return TASK_TOOL_NAMES.has(normalize(toolName));
+  const n = normalize(toolName);
+  return TASK_TOOL_NAMES.has(n) || READ_ONLY_TASK_TOOL_NAMES.has(n);
 }
 
 /**
@@ -113,21 +125,24 @@ function normalizeTodoWriteCall(input: ToolCallInput, source: TaskSource): Harne
  * { id, title/content, status }
  */
 function normalizeGenericTaskCall(input: ToolCallInput, source: TaskSource): HarnessTask[] {
+  const deleted = input.args.deleted ?? input.args.delete ?? input.args.obsolete ?? input.args.cancelled ?? input.args.canceled;
   const id = typeof input.args.id === "string" ? input.args.id : `auto_0`;
   const title = typeof input.args.title === "string"
     ? input.args.title
     : typeof input.args.content === "string"
       ? input.args.content
-      : "";
+      : typeof input.args.description === "string"
+        ? input.args.description
+        : "";
   if (!title) return [];
 
   return [{
     id,
     title,
-    status: normalizeStatus(input.args.status),
+    status: deleted === true ? "obsolete" : normalizeStatus(input.args.status),
     source,
     clientTaskId: id,
-    evidence: [],
+    evidence: typeof input.args.activeForm === "string" ? [`activeForm: ${input.args.activeForm}`] : [],
     lastUpdatedTurn: input.turn,
     createdTurn: input.turn,
     confidence: 1.0,

@@ -15,6 +15,7 @@ import {
   buildTaskLedgerSummary,
   buildTaskLedgerNudge,
   buildTaskLedgerGovernanceBlock,
+  scrubTaskLedgerOutput,
   evaluateTaskCompletionGate,
   incrementReconciliationAttempts,
   type HarnessTask,
@@ -76,6 +77,27 @@ describe("task-ledger", () => {
         "claude-code",
       );
       expect(caps.hasExplicitTodoTool).toBe(true);
+      expect(caps.detectedSource).toBe("claude_todowrite");
+    });
+
+    it("detects Claude interactive task tools with camel-case names", () => {
+      const caps = detectClientTaskCapabilities(
+        [{ name: "TaskCreate" }, { name: "TaskUpdate" }, { name: "TaskGet" }],
+        "claude-code",
+      );
+      expect(caps.hasExplicitTodoTool).toBe(true);
+      expect(caps.todoToolName).toBe("TaskUpdate");
+      expect(caps.detectedSource).toBe("claude_todowrite");
+    });
+
+    it("recognizes read-only task tools for capability detection without a write tool name", () => {
+      const caps = detectClientTaskCapabilities(
+        [{ name: "TodoRead" }, { name: "Bash" }],
+        "claude-code",
+      );
+      expect(caps.hasExplicitTodoTool).toBe(false);
+      expect(caps.hasExplicitPlanMode).toBe(true);
+      expect(caps.todoToolName).toBeNull();
       expect(caps.detectedSource).toBe("claude_todowrite");
     });
 
@@ -190,6 +212,35 @@ describe("task-ledger", () => {
       expect(tasks[0].status).toBe("blocked");
     });
 
+    it("normalizes Claude TaskCreate and TaskUpdate argument shapes", () => {
+      const caps = makeCapabilities({
+        hasExplicitTodoTool: true,
+        detectedSource: "claude_todowrite",
+      });
+      const created = normalizeTaskToolCall(
+        {
+          toolName: "TaskCreate",
+          args: { id: "c1", description: "Wire Claude task events", status: "in progress", activeForm: "wiring events" },
+          turn: 4,
+        },
+        caps,
+      );
+      const updated = normalizeTaskToolCall(
+        {
+          toolName: "task_update",
+          args: { id: "c1", content: "Wire Claude task events", obsolete: true },
+          turn: 5,
+        },
+        caps,
+      );
+      expect(created).toHaveLength(1);
+      expect(created[0].title).toBe("Wire Claude task events");
+      expect(created[0].status).toBe("in_progress");
+      expect(created[0].source).toBe("claude_todowrite");
+      expect(created[0].evidence).toContain("activeForm: wiring events");
+      expect(updated[0].status).toBe("obsolete");
+    });
+
     it("skips empty title", () => {
       const caps = makeCapabilities({ detectedSource: "unknown" });
       const tasks = normalizeTaskToolCall(
@@ -208,6 +259,8 @@ describe("task-ledger", () => {
       expect(isTaskToolCall("TodoWrite")).toBe(true);
       expect(isTaskToolCall("TODO_WRITE")).toBe(true);
       expect(isTaskToolCall("task_update")).toBe(true);
+      expect(isTaskToolCall("TaskUpdate")).toBe(true);
+      expect(isTaskToolCall("TaskList")).toBe(true);
       expect(isTaskToolCall("plan_update")).toBe(true);
       expect(isTaskToolCall("Read")).toBe(false);
       expect(isTaskToolCall("Bash")).toBe(false);
@@ -777,6 +830,16 @@ describe("task-ledger", () => {
       expect(nudge).toContain("reconciled task summary");
     });
 
+    it("does not tell Cursor sessions to call todowrite without an explicit todo tool", () => {
+      const ledger = makeLedger({
+        tasks: [makeTask({ status: "pending", source: "cursor_plan" })],
+      });
+      const caps = makeCapabilities({ detectedSource: "cursor_plan" });
+      const nudge = buildTaskLedgerNudge(ledger, caps);
+      expect(nudge).not.toContain("todowrite");
+      expect(nudge).not.toContain("TodoWrite");
+    });
+
     it("returns empty when no open tasks", () => {
       const ledger = makeLedger({
         tasks: [makeTask({ status: "completed" })],
@@ -799,6 +862,24 @@ describe("task-ledger", () => {
       expect(summary).toContain("[completed]");
       expect(summary).toContain("[pending]");
       expect(summary).toContain("Implement API");
+    });
+  });
+
+  describe("output scrubber", () => {
+    it("removes leaked ledger blocks and reconciliation instructions while preserving natural text", () => {
+      const leaked = [
+        "Would you like me to implement a fix?",
+        "<synesis_task_ledger>",
+        "Current task ledger:",
+        "- [pending] Patch finalizer - no evidence yet",
+        "</synesis_task_ledger>",
+        "Before final response, reconcile the task ledger. 1 task(s) remain open. Do not claim all work is complete while open tasks remain.",
+      ].join("\n");
+      const scrubbed = scrubTaskLedgerOutput(leaked);
+      expect(scrubbed.scrubbed).toBe(true);
+      expect(scrubbed.text).toBe("Would you like me to implement a fix?");
+      expect(scrubbed.text).not.toContain("synesis_task_ledger");
+      expect(scrubbed.text).not.toContain("Before final response");
     });
   });
 

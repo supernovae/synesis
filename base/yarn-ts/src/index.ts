@@ -316,6 +316,7 @@ import {
   buildTaskLedgerGovernanceBlock,
   evaluateTaskCompletionGate,
   incrementReconciliationAttempts,
+  scrubTaskLedgerOutput,
   type EvidenceSignal,
 } from "./task-ledger/index.js";
 
@@ -5605,14 +5606,6 @@ async function finalizeCompletionText(
         `open_tasks=${input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length} attempt=${input.session.taskLedger.reconciliationAttempts}`,
         input.requestId,
       );
-      return {
-        finalText: taskGate.nudge,
-        applied: true,
-        missingMust: 0,
-        missingShould: 0,
-        blockedByVerification: false,
-        criticBlocked: false,
-      };
     }
   }
 
@@ -5693,6 +5686,20 @@ async function finalizeCompletionText(
       "completion_non_actionable_fallback",
       "completion-gate",
       input.nonActionableEventDetail,
+      input.requestId,
+    );
+  }
+
+  const scrubbed = scrubTaskLedgerOutput(finalText);
+  if (scrubbed.scrubbed) {
+    finalText = scrubbed.text;
+    recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      "task_ledger_output_scrubbed",
+      "task-ledger",
+      "Removed internal task-ledger governance from assistant output",
       input.requestId,
     );
   }
@@ -9932,6 +9939,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
       oaiGateBlockedVerification = finalized.blockedByVerification;
       oaiCriticBlocked = finalized.criticBlocked;
     }
+    const scrubbedFinalAssistantText = scrubTaskLedgerOutput(finalAssistantText);
+    if (scrubbedFinalAssistantText.scrubbed) {
+      finalAssistantText = scrubbedFinalAssistantText.text;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "task_ledger_output_scrubbed",
+        "task-ledger",
+        "Removed internal task-ledger governance from OpenAI response",
+        reqId,
+      );
+    }
     session.history.push({ role: "assistant", content: finalAssistantText });
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     const oaiLatency = Date.now() - started;
@@ -10252,6 +10272,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
       choices: [{ index: 0, delta: { reasoning_content: text }, finish_reason: null }],
     })}\n\n`);
   };
+  const scrubAndFlushOpenAIText = (text: string): void => {
+    const scrubbed = scrubTaskLedgerOutput(text);
+    if (scrubbed.scrubbed) {
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "task_ledger_output_scrubbed",
+        "task-ledger",
+        "Removed internal task-ledger governance from streamed OpenAI output",
+        reqId,
+      );
+    }
+    flushOpenAIText(scrubbed.text);
+  };
   const oaiStreamOfferedToolSet = buildOfferedToolNameSet(effectiveTools as unknown[]);
   const oaiStreamOfferedToolNames = listOfferedToolNames(effectiveTools as unknown[]);
   const oaiStreamFallbackBashToolName = findOfferedToolNameByCanonical(effectiveTools as unknown[], "Bash");
@@ -10262,7 +10297,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
       if (part.type === "text-delta") {
         const td = (part as unknown as { text: string }).text ?? "";
         pendingTextDeltas.push(td);
-        flushOpenAIText(td);
       } else if (part.type === "reasoning-start") {
         const rsText = (part as unknown as { text?: string }).text ?? "";
         if (rsText) {
@@ -10279,6 +10313,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       } else if (part.type === "tool-call" || part.type === "tool-input-start") {
         const tc = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
         if (pendingTextDeltas.length > 0) {
+          scrubAndFlushOpenAIText(pendingTextDeltas.join(""));
           pendingTextDeltas.length = 0;
         }
         if (part.type === "tool-input-start") {
@@ -10627,20 +10662,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiStreamGateBlockedVerification = finalized.blockedByVerification;
     oaiStreamCriticBlocked = finalized.criticBlocked;
     const gateText = finalized.finalText;
-      const guarded = applyMarkdownGuardrail(
-        gateText,
-        config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-      );
-      if (rawText.length === 0) {
-        flushOpenAIText(guarded);
-      } else if (guarded !== rawText) {
-        if (guarded.startsWith(rawText)) {
-          flushOpenAIText(guarded.slice(rawText.length));
-        } else {
-          flushOpenAIText(guarded);
-        }
-      }
-      pendingTextDeltas.length = 0;
+    const guarded = applyMarkdownGuardrail(
+      gateText,
+      config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+    );
+    scrubAndFlushOpenAIText(guarded);
+    pendingTextDeltas.length = 0;
   }
 
   let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
@@ -10678,6 +10705,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
       planGraph: oaiPlanGraph,
     });
     streamedText = finalized.finalText;
+    const scrubbedStreamedText = scrubTaskLedgerOutput(streamedText);
+    if (scrubbedStreamedText.scrubbed) {
+      streamedText = scrubbedStreamedText.text;
+      recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        "task_ledger_output_scrubbed",
+        "task-ledger",
+        "Removed internal task-ledger governance from streamed OpenAI history",
+        reqId,
+      );
+    }
     oaiStreamMissingMust = finalized.missingMust;
     oaiStreamMissingShould = finalized.missingShould;
     oaiStreamGateBlockedVerification = finalized.blockedByVerification;
@@ -13450,15 +13490,30 @@ app.post("/v1/messages", async (req, reply) => {
       inTextBlock = false;
     };
 
+    const scrubAndFlushClaudeTextBlock = (text: string): void => {
+      const scrubbed = scrubTaskLedgerOutput(text);
+      if (scrubbed.scrubbed) {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "task_ledger_output_scrubbed",
+          "task-ledger",
+          "Removed internal task-ledger governance from streamed Claude output",
+          traceReqId,
+        );
+      }
+      flushClaudeTextBlock(scrubbed.text);
+    };
+
     try {
       for await (const part of streamed.fullStream) {
         if (part.type === "text-delta") {
           const delta = (part as unknown as { text?: string }).text ?? "";
           pendingClaudeTextDeltas.push(delta);
-          emitClaudeTextDelta(delta);
         } else if (part.type === "reasoning-start") {
           if (pendingClaudeTextDeltas.length > 0) {
-            closeClaudeStreamingTextBlock();
+            scrubAndFlushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
             pendingClaudeTextDeltas.length = 0;
           }
           const text = (part as unknown as { text?: string }).text ?? "";
@@ -13475,7 +13530,7 @@ app.post("/v1/messages", async (req, reply) => {
         } else if (part.type === "tool-input-start") {
           const tc = part as unknown as { toolCallId?: string; toolName?: string };
           if (pendingClaudeTextDeltas.length > 0) {
-            closeClaudeStreamingTextBlock();
+            scrubAndFlushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
             pendingClaudeTextDeltas.length = 0;
           }
           claudeToolBuffer.set(tc.toolCallId ?? "", { toolName: tc.toolName ?? "", toolCallId: tc.toolCallId ?? "", chunks: [] });
@@ -13850,20 +13905,7 @@ app.post("/v1/messages", async (req, reply) => {
         gateText,
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
       );
-      if (claudeStreamingTextOpen) {
-        if (guarded !== rawText) {
-          if (guarded.startsWith(rawText)) {
-            emitClaudeTextDelta(guarded.slice(rawText.length));
-          } else {
-            closeClaudeStreamingTextBlock();
-            flushClaudeTextBlock(guarded);
-          }
-        } else {
-          closeClaudeStreamingTextBlock();
-        }
-      } else {
-        flushClaudeTextBlock(guarded);
-      }
+      scrubAndFlushClaudeTextBlock(guarded);
       pendingClaudeTextDeltas.length = 0;
     }
 
@@ -13900,6 +13942,19 @@ app.post("/v1/messages", async (req, reply) => {
         planGraph: claudePlanGraph,
       });
       claudeStreamedText = finalized.finalText;
+      const scrubbedClaudeStreamedText = scrubTaskLedgerOutput(claudeStreamedText);
+      if (scrubbedClaudeStreamedText.scrubbed) {
+        claudeStreamedText = scrubbedClaudeStreamedText.text;
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          "task_ledger_output_scrubbed",
+          "task-ledger",
+          "Removed internal task-ledger governance from streamed Claude history",
+          reqId,
+        );
+      }
       claudeStreamMissingMust = finalized.missingMust;
       claudeStreamMissingShould = finalized.missingShould;
       claudeStreamGateBlockedVerification = finalized.blockedByVerification;
@@ -14483,6 +14538,19 @@ app.post("/v1/messages", async (req, reply) => {
     finalClaudeText,
     config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
   );
+  const scrubbedFinalClaudeText = scrubTaskLedgerOutput(finalClaudeText);
+  if (scrubbedFinalClaudeText.scrubbed) {
+    finalClaudeText = scrubbedFinalClaudeText.text;
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "task_ledger_output_scrubbed",
+      "task-ledger",
+      "Removed internal task-ledger governance from Claude response",
+      reqId,
+    );
+  }
   if (finalClaudeText) {
     session.history.push({ role: "assistant", content: finalClaudeText });
   }

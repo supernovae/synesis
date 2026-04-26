@@ -20,6 +20,15 @@ const TODO_TOOL_SOURCE_MAP: ReadonlyMap<string, TaskSource> = new Map([
   ["task_create", "unknown"],
 ]);
 
+const READ_ONLY_TASK_TOOLS: ReadonlySet<string> = new Set([
+  "todoread",
+  "todo_read",
+  "tasklist",
+  "task_list",
+  "taskget",
+  "task_get",
+]);
+
 const PLAN_MODE_TOOLS: ReadonlySet<string> = new Set([
   "createplan",
   "create_plan",
@@ -28,7 +37,11 @@ const PLAN_MODE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 function normalize(name: string): string {
-  return name.trim().toLowerCase().replace(/-/g, "_");
+  return name
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/-/g, "_");
 }
 
 function resolveSource(normalizedName: string, clientKind: string): TaskSource {
@@ -47,6 +60,9 @@ function resolveSource(normalizedName: string, clientKind: string): TaskSource {
 
   if (normalizedName.includes("todowrite") || normalizedName.includes("todo_write")) {
     return "opencode_todowrite";
+  }
+  if (normalizedName.includes("task_create") || normalizedName.includes("task_update")) {
+    return "claude_todowrite";
   }
   return "unknown";
 }
@@ -69,6 +85,10 @@ export function detectClientTaskCapabilities(
       if (TODO_TOOL_SOURCE_MAP.has(n)) {
         hasExplicitTodoTool = true;
         todoToolName = rawName;
+        detectedSource = resolveSource(n, clientKind);
+      }
+      if (READ_ONLY_TASK_TOOLS.has(n) && detectedSource === "unknown") {
+        hasExplicitPlanMode = true;
         detectedSource = resolveSource(n, clientKind);
       }
       if (PLAN_MODE_TOOLS.has(n)) {

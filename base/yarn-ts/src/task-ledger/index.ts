@@ -30,6 +30,8 @@ export {
   buildTaskLedgerGovernanceBlock,
 } from "./buildTaskLedgerNudge.js";
 
+export { scrubTaskLedgerOutput, type TaskLedgerOutputScrubResult } from "./scrubTaskLedgerOutput.js";
+
 export {
   evaluateTaskCompletionGate,
   incrementReconciliationAttempts,
