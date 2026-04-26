@@ -292,6 +292,24 @@ def test_terraform_fallback_preserves_plan_and_drift_contracts():
     assert "terraform plan" in enrichment["plan_guardrail"]
 
 
+def test_ecma_fallback_preserves_runtime_and_temporal_contracts():
+    chunk = language_pack.LanguageChunk(
+        text="Temporal.PlainDate avoids Date timezone shifts.",
+        doc_id="ecma:tc39/proposals:proposal-temporal/README.md:Temporal.PlainDate",
+        chunk_index=0,
+        document_name="proposal-temporal/README.md",
+        package_name="tc39",
+        symbol_kind="temporal_api",
+        symbol_fqn="Temporal.PlainDate",
+        artifact_kind="temporal_api",
+    )
+    enrichment = fallback_enrichment(chunk, error="skipped")
+    assert enrichment["temporal_type"] == "Temporal.PlainDate"
+    assert enrichment["runtime_compatibility"] == []
+    assert enrichment["legacy_date_replacement"] == "unknown"
+    assert "skipped" in enrichment["hidden_warnings"]
+
+
 def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     source = tmp_path / "go-src"
     (source / "doc").mkdir(parents=True)
@@ -781,3 +799,81 @@ def test_build_language_pack_from_terraform_fixture(monkeypatch: pytest.MonkeyPa
     schema_row = next(row for row in rows if row["artifact_kind"] == "provider_schema" and row["symbol_fqn"] == "aws_db_instance")
     enrichment = json.loads(schema_row["agent_enrichment_json"])
     assert enrichment["approval_policy"].startswith("Require human approval")
+
+
+def test_build_language_pack_from_ecma_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    source = tmp_path / "ecma-src"
+    (source / "proposal-temporal").mkdir(parents=True)
+    (source / "proposal-array-grouping").mkdir(parents=True)
+    (source / "TypeScript-Website" / "packages" / "documentation" / "copy" / "en" / "handbook-v2").mkdir(parents=True)
+    (source / "node" / "doc" / "api").mkdir(parents=True)
+    (source / "bun" / "docs").mkdir(parents=True)
+    (source / "deno" / "runtime").mkdir(parents=True)
+    (source / "mdn-content" / "files" / "en-us" / "web" / "javascript" / "reference" / "global_objects" / "temporal" / "plaindate").mkdir(parents=True)
+    (source / "README.md").write_text(
+        "# TC39 proposals\n\nStage 4 JavaScript features include Temporal, Object.groupBy, and Promise.withResolvers.",
+        encoding="utf-8",
+    )
+    (source / "proposal-temporal" / "README.md").write_text(
+        "# Temporal\n\nTemporal.PlainDate is immutable and avoids legacy Date month indexing and timezone shifts. Temporal.ZonedDateTime uses IANA time zones.",
+        encoding="utf-8",
+    )
+    (source / "proposal-array-grouping" / "README.md").write_text(
+        "# Object.groupBy\n\nObject.groupBy groups records without Lodash.",
+        encoding="utf-8",
+    )
+    (source / "TypeScript-Website" / "packages" / "documentation" / "copy" / "en" / "handbook-v2" / "Everyday Types.md").write_text(
+        "# Everyday Types\n\nUse satisfies, strict mode, type-only imports, and erasable syntax for native type stripping.",
+        encoding="utf-8",
+    )
+    (source / "node" / "doc" / "api" / "typescript.md").write_text(
+        "# TypeScript in Node\n\nNode 24 supports type stripping for erasable TypeScript syntax. The permission model protects fs and child_process.",
+        encoding="utf-8",
+    )
+    (source / "bun" / "docs" / "typescript.md").write_text(
+        "# Bun TypeScript\n\nBun runs TypeScript natively and includes fetch, SQLite, and Web APIs.",
+        encoding="utf-8",
+    )
+    (source / "deno" / "runtime" / "fundamentals.md").write_text(
+        "# Deno runtime\n\nDeno runs TypeScript and uses explicit permissions for network and filesystem access.",
+        encoding="utf-8",
+    )
+    (source / "mdn-content" / "files" / "en-us" / "web" / "javascript" / "reference" / "global_objects" / "temporal" / "plaindate" / "index.md").write_text(
+        "# Temporal.PlainDate\n\nPlainDate represents a calendar date without time or timezone. Use add({ months: 3 }) instead of mutating Date.",
+        encoding="utf-8",
+    )
+
+    class FakeEmbedClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_texts(self, texts):
+            return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    monkeypatch.setattr(language_pack, "EmbedClient", FakeEmbedClient)
+    out = tmp_path / "ecma.synpack"
+    result = build_language_pack(
+        language="ecma",
+        output_path=out,
+        source_dir=source,
+        latest_tag="main",
+        skip_enrichment=True,
+        max_chunks=100,
+    )
+    assert result["ok"] is True
+    manifest = validate_synpack(out)
+    assert manifest["source_version"] == "main"
+    assert manifest["enrichment"]["prompt_id"] == "principal_js_ts_architect_2026_v1"
+    assert "ecma_temporal_architect_2026_v1" in manifest["enrichment"]["prompt_hashes"]
+    assert "typescript_type_safety_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    with zipfile.ZipFile(out) as zf:
+        rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
+    assert any(row["artifact_kind"] == "temporal_api" for row in rows)
+    assert any(row["artifact_kind"] == "typescript_handbook" for row in rows)
+    assert any(row["artifact_kind"] == "runtime_api" and "node" in row["scope_tags"] for row in rows)
+    assert any(row["artifact_kind"] == "web_api" for row in rows)
+    assert any("type-stripping" in row["scope_tags"] for row in rows)
+    temporal_row = next(row for row in rows if row["artifact_kind"] == "temporal_api")
+    enrichment = json.loads(temporal_row["agent_enrichment_json"])
+    assert "runtime_compatibility" in enrichment
+    assert "legacy_date_replacement" in enrichment

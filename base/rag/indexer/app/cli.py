@@ -87,6 +87,7 @@ def main() -> None:
             "build-python",
             "build-godot",
             "build-terraform",
+            "build-ecma",
             "build-language",
         ],
         default="validate",
@@ -413,6 +414,34 @@ def _run_synpack(args: argparse.Namespace) -> None:
             json_dump(
                 build_language_pack(
                     language="terraform",
+                    pack_config=args.pack_config,
+                    output_path=output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, args.enrichment_concurrency),
+                    skip_enrichment=args.skip_enrichment,
+                    embedder_url=args.embedder_url,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
+                    provider_schema=args.provider_schema,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "build-ecma":
+        from .language_pack import build_language_pack
+
+        pack_id = args.pack_id or "ecma-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_language_pack(
+                    language="ecma",
                     pack_config=args.pack_config,
                     output_path=output,
                     pack_id=pack_id,

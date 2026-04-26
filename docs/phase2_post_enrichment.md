@@ -71,6 +71,26 @@ upper harness more decisive for small and OSS coding models.
   unmanaged subnet import, RDS replacement avoidance, IAM overpermission lint,
   and circular dependency repair.
 
+## Ecma Runtime And Package Steering
+
+- Use `synesis_ecma_environment_check` as a pre-search nudge for JS/TS tasks:
+  inspect package.json, tsconfig/jsconfig, deno.json, bunfig.toml, and lockfile
+  names, then automatically bias retrieval toward Temporal, runtime API,
+  TypeScript, or Web Platform rows.
+- Extend package-risk analysis into a client approval workflow for dependency
+  and script changes. Hard-gate install lifecycle scripts and steer legacy
+  additions such as Moment or Request toward native Temporal, fetch, WebStreams,
+  Object.groupBy, and runtime-native APIs where appropriate.
+- Add lockfile-aware package-manager commands later (`npm`, `pnpm`, `yarn`,
+  `bun`, `deno`) only behind explicit harness approvals and dry-run summaries.
+- Track environment-specific retrieval boosts: Node permission model and type
+  stripping, Bun native APIs, Deno permissions/import maps, browser secure
+  contexts, and edge-runtime API gaps.
+- Export fine-tuning pairs from EcmaPack rows where old patterns have clear
+  modern replacements, such as Date to Temporal, Lodash groupBy to
+  Object.groupBy, manual Promise coordination to Promise.withResolvers, and
+  CommonJS assumptions to ESM-aware package logic.
+
 ## Future Schema Candidates
 
 - First-class `map_level`, `center_of_gravity`, `edition_scope`, and
@@ -80,6 +100,9 @@ upper harness more decisive for small and OSS coding models.
 - First-class Terraform `resource_type`, `provider_address`, `core_safety`,
   `force_new_fields`, `import_id_format`, and `state_sensitivity` fields if
   plan analysis becomes a common query path.
+- First-class Ecma `runtime_env`, `module_system`, `ts_safety`,
+  `type_stripping_status`, `bundle_impact`, and `package_change_risk` fields if
+  JS/TS environment steering becomes common.
 - Indexed `error_code`/`pep_id` fields if logical `symbol_fqn` is not enough.
 - Pack-specific retrieval profiles that automatically set filters for common
   workflows such as Python SWE-bench, Quarkus config debugging, or Rust borrow

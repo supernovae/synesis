@@ -10,6 +10,7 @@ import {
   runPatchIntegrity,
 } from "./cve-license-docs-patch.js";
 import { runTerraformPlanAnalyze } from "./terraform-plan.js";
+import { runEcmaEnvironmentCheck, runEcmaPackageRiskAnalyze } from "./ecma-tools.js";
 
 export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_search",
@@ -25,6 +26,8 @@ export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_docs_lookup",
   "synesis_patch_integrity",
   "synesis_terraform_plan_analyze",
+  "synesis_ecma_environment_check",
+  "synesis_ecma_package_risk_analyze",
   /** Yarn UI name — same behavior as synesis_search */
   "synesis_knowledge_search",
   "synesis_web_search",
@@ -72,6 +75,10 @@ export async function dispatchSynesisTool(
       return runPatchIntegrity(args);
     case "synesis_terraform_plan_analyze":
       return runTerraformPlanAnalyze(args, auth, deps);
+    case "synesis_ecma_environment_check":
+      return runEcmaEnvironmentCheck(args, auth, deps);
+    case "synesis_ecma_package_risk_analyze":
+      return runEcmaPackageRiskAnalyze(args, auth, deps);
     default:
       return { error: "unknown_tool", message: `Unknown tool: ${name}` };
   }

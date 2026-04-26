@@ -22,6 +22,7 @@ const KNOWLEDGE_DESCRIPTION =
   "For Godot, use language=godot plus artifact_kind=class_reference for Node/API XML, shader_language for Godot shader syntax, " +
   "engine_manual for scene-tree tutorials, and engine_proposal for Godot 4 migration rationale; inspect agent_enrichment_json for signal_contract, node_compatibility, lifecycle_order, thread_safety, and legacy_3x_warning. " +
   "For Terraform, use language=terraform plus artifact_kind=provider_schema for hard provider constraints, provider_docs for resource docs, opentofu_feature for OpenTofu/state behavior, and iac_policy_rule for TFLint guardrails; inspect agent_enrichment_json for destroy_triggers, drift_risk, import_id_format, approval_policy, and plan_guardrail. " +
+  "For Ecma/JS/TS, run synesis_ecma_environment_check first when package.json/tsconfig context is available, then use language=ecma plus artifact_kind=temporal_api, typescript_handbook, runtime_api, or web_api; inspect runtime_compatibility, ts_safety, module_system, bundle_impact, legacy_date_replacement, and hidden_warnings. " +
   "Use filters (language, scope_tags, artifact_kind) when they narrow the query.";
 
 const KNOWLEDGE_PARAMETERS = {
@@ -33,7 +34,7 @@ const KNOWLEDGE_PARAMETERS = {
     },
     language: {
       type: "string",
-      description: "Filter by programming language/framework (e.g. python, typescript, go, rust, quarkus, godot, terraform)",
+      description: "Filter by programming language/framework (e.g. python, ecma, typescript, go, rust, quarkus, godot, terraform)",
     },
     pack_id: {
       type: "string",
@@ -66,7 +67,7 @@ const KNOWLEDGE_PARAMETERS = {
     },
     artifact_kind: {
       type: "string",
-      description: "Filter by artifact type: code, docs, config, api_spec, architecture, compiler_error, language_spec, unsafe_guidance, async_guidance, config_reference, cli_command, platform_bom, pep, packaging_spec, tool_docs, type_stub, repo_map, class_reference, engine_manual, engine_proposal, shader_language, provider_docs, provider_schema, terraform_guide, opentofu_feature, iac_policy_rule, terraform_plan, live_state",
+      description: "Filter by artifact type: code, docs, config, api_spec, architecture, compiler_error, language_spec, unsafe_guidance, async_guidance, config_reference, cli_command, platform_bom, pep, packaging_spec, tool_docs, type_stub, repo_map, class_reference, engine_manual, engine_proposal, shader_language, provider_docs, provider_schema, terraform_guide, opentofu_feature, iac_policy_rule, terraform_plan, live_state, ecma_spec, tc39_proposal, temporal_api, typescript_handbook, runtime_api, web_api, runtime_config, package_policy",
     },
     scope_tags: {
       type: "array",

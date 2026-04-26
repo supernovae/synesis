@@ -44,6 +44,14 @@ export const knowledgeSearchInputSchema = z.object({
       "iac_policy_rule",
       "terraform_plan",
       "live_state",
+      "ecma_spec",
+      "tc39_proposal",
+      "temporal_api",
+      "typescript_handbook",
+      "runtime_api",
+      "web_api",
+      "runtime_config",
+      "package_policy",
     ])
     .optional(),
   domain: z.string().optional(),
@@ -68,4 +76,22 @@ export const terraformPlanAnalyzeInputSchema = z.object({
   pack_id: z.string().optional(),
   top_k: z.number().optional(),
   synpack_metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const ecmaEnvironmentCheckInputSchema = z.object({
+  package_json: z.unknown().optional(),
+  tsconfig_json: z.unknown().optional(),
+  jsconfig_json: z.unknown().optional(),
+  deno_json: z.unknown().optional(),
+  bunfig_toml: z.string().optional(),
+  lockfiles: z.array(z.string()).optional(),
+});
+
+export const ecmaPackageRiskInputSchema = z.object({
+  dependencies_added: z.array(z.string()).optional(),
+  dependencies_removed: z.array(z.string()).optional(),
+  scripts_added: z.record(z.string(), z.string()).optional(),
+  scripts_changed: z.record(z.string(), z.string()).optional(),
+  package_json_before: z.unknown().optional(),
+  package_json_after: z.unknown().optional(),
 });

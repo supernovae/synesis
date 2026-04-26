@@ -106,6 +106,24 @@ extracts Terraform/OpenTofu docs, AWS/Azure/GCP provider docs, TFLint rules, and
 local `terraform providers schema -json` output. The builder never runs
 `terraform apply`, `destroy`, `import`, or cloud inventory commands.
 
+Build an Ecma/JS/TS pack:
+
+```bash
+python -m app.cli --mode synpack --synpack-command build-language \
+  --language ecma \
+  --pack-id ecma-latest \
+  --enrichment-url http://localhost:8000 \
+  --output dist/synpacks/ecma-latest.synpack
+```
+
+`build-ecma` is a convenience alias for the unified JavaScript/TypeScript pack.
+The Ecma builder uses `tc39/proposals` as the primary source and can include
+TypeScript Handbook, Node, Bun, Deno, and MDN Web Platform auxiliary docs. It
+tracks Temporal, runtime compatibility, native TypeScript/type stripping,
+module systems, async APIs, bundle impact, and package-risk guidance. The
+builder indexes docs only; it never runs package managers or installs
+dependencies.
+
 All language-pack builders accept `--latest-tag` or `--source-version`. For local smoke tests, use
 `--max-chunks 25`; for offline/debug builds, use `--skip-enrichment` and
 `--source-dir <checkout>`.
@@ -124,6 +142,7 @@ python -m app.cli --mode synpack --synpack-command list
 python -m app.cli --mode synpack --synpack-command search --pack-id python-latest --query "repo_map asyncio TaskGroup cancellation"
 python -m app.cli --mode synpack --synpack-command search --pack-id godot-latest --query "Button pressed signal scene tree lifecycle"
 python -m app.cli --mode synpack --synpack-command search --pack-id terraform-latest --query "aws_db_instance replacement import drift risk"
+python -m app.cli --mode synpack --synpack-command search --pack-id ecma-latest --query "Temporal PlainDate add months runtime compatibility"
 ```
 
 ## Retrieval
@@ -172,11 +191,24 @@ Terraform-specific details such as `core_safety`, `destroy_triggers`,
 `force_new_confidence`, `permission_requirements`, `cross_resource_links`,
 `drift_risk`, `provisioner_safe`, `import_id_format`, `state_sensitivity`,
 `approval_policy`, and `plan_guardrail` are preserved in the same field.
+Ecma/JS/TS-specific details such as `runtime_compatibility`, `runtime_env`,
+`ts_safety`, `ts_contract`, `async_flavor`, `bundle_impact`, `module_system`,
+`type_stripping_status`, `permission_model`, `dependency_advice`,
+`timezone_dependency`, `dst_awareness`, `runtime_status`,
+`legacy_date_replacement`, and Temporal calendar safety notes are preserved in
+the same field.
 
 Terraform also includes a read-only MCP risk analyzer,
 `synesis_terraform_plan_analyze`, for JSON produced by `terraform show -json
 tfplan`. It flags delete/replacement actions and returns an approval-ready
 hard-gate bundle; it does not execute Terraform or mutate state.
+
+Ecma also includes read-only MCP steering helpers:
+`synesis_ecma_environment_check` detects package manager, runtime, module
+system, TypeScript strictness, and recommended EcmaPack filters from local
+configuration content; `synesis_ecma_package_risk_analyze` flags lifecycle
+scripts and legacy/heavy dependency additions before a package change. Neither
+tool runs npm, pnpm, yarn, bun, deno, or mutates files.
 
 ## Migration Notes
 

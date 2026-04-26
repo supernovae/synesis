@@ -7,6 +7,8 @@ import {
   configSearchInputSchema,
   devDocsSearchInputSchema,
   terraformPlanAnalyzeInputSchema,
+  ecmaEnvironmentCheckInputSchema,
+  ecmaPackageRiskInputSchema,
 } from "./knowledge-schemas.js";
 import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
@@ -70,7 +72,7 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
   const knowledgeDesc =
     "RAG: ranked chunks from the Synesis knowledge catalog (provenance + scores). When to use: Synesis-specific behavior, deployment, conventions, or prior art — before inventing patterns from memory. When not to use: generic language tutorials available in the user repo; use workspace search_code/read_file first for project-local code.";
   const knowledgeYarnDesc =
-    "Same as synesis_search. Prefer this for documentation-style queries: examples, error catalogs, style, architecture. For Rust, use language=rust, symbol_fqn=E0xxx for compiler errors, and scope_tags like edition-2024/async/unsafe. For Quarkus, use language=quarkus with artifact_kind=config_reference or cli_command and inspect build_time_config/event_loop_safety/native_image_note/agent_advice in agent_enrichment_json. For Python, use artifact_kind=repo_map before broad search in large repos, type_stub for type ambiguity, and uv/tool_docs for environment management. For Godot, use artifact_kind=class_reference for exact Node/API XML, engine_manual for scene-tree patterns, shader_language for Godot shader syntax, and engine_proposal for Godot 4 migration rationale; inspect signal_contract/node_compatibility/lifecycle_order/legacy_3x_warning. For Terraform, use artifact_kind=provider_schema for hard provider constraints, provider_docs for resource docs, opentofu_feature for state features, and call synesis_terraform_plan_analyze on plan JSON before apply. Pair with workspace tools: search_code → read_file for user code; synesis_* for platform knowledge.";
+    "Same as synesis_search. Prefer this for documentation-style queries: examples, error catalogs, style, architecture. For Rust, use language=rust, symbol_fqn=E0xxx for compiler errors, and scope_tags like edition-2024/async/unsafe. For Quarkus, use language=quarkus with artifact_kind=config_reference or cli_command and inspect build_time_config/event_loop_safety/native_image_note/agent_advice in agent_enrichment_json. For Python, use artifact_kind=repo_map before broad search in large repos, type_stub for type ambiguity, and uv/tool_docs for environment management. For Godot, use artifact_kind=class_reference for exact Node/API XML, engine_manual for scene-tree patterns, shader_language for Godot shader syntax, and engine_proposal for Godot 4 migration rationale; inspect signal_contract/node_compatibility/lifecycle_order/legacy_3x_warning. For Terraform, use artifact_kind=provider_schema for hard provider constraints, provider_docs for resource docs, opentofu_feature for state features, and call synesis_terraform_plan_analyze on plan JSON before apply. For Ecma/JS/TS, call synesis_ecma_environment_check first, then search language=ecma with artifact_kind=temporal_api/typescript_handbook/runtime_api/web_api and inspect runtime_compatibility, ts_safety, module_system, bundle_impact, and hidden_warnings. Pair with workspace tools: search_code → read_file for user code; synesis_* for platform knowledge.";
 
   return [
     {
@@ -116,7 +118,7 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
     {
       name: "search_developer_docs",
       description:
-        "RAG over official developer documentation and installed SynPacks for programming languages and frameworks (e.g., Python, React, Go, Rust, Quarkus, Godot, Terraform). Use pack_id/package_name/symbol_kind filters when available; for Rust, prefer edition-aware rows and E0xxx compiler-error rows; for Quarkus, prefer CLI/config/native/build-time rows; for Python, prefer repo_map, type_stub, PEP, and uv/tooling rows; for Godot, prefer class_reference, engine_manual, shader_language, and engine_proposal rows; for Terraform, prefer provider_schema, provider_docs, opentofu_feature, and iac_policy_rule rows before falling back to web search.",
+        "RAG over official developer documentation and installed SynPacks for programming languages and frameworks (e.g., Python, React, Go, Rust, Quarkus, Godot, Terraform, Ecma/JS/TS). Use pack_id/package_name/symbol_kind filters when available; for Rust, prefer edition-aware rows and E0xxx compiler-error rows; for Quarkus, prefer CLI/config/native/build-time rows; for Python, prefer repo_map, type_stub, PEP, and uv/tooling rows; for Godot, prefer class_reference, engine_manual, shader_language, and engine_proposal rows; for Terraform, prefer provider_schema, provider_docs, opentofu_feature, and iac_policy_rule rows; for JS/TS, prefer EcmaPack rows with artifact_kind=temporal_api, typescript_handbook, runtime_api, or web_api before falling back to web search.",
       inputSchema: zodToJsonSchema(devDocsSearchInputSchema),
     },
     {
@@ -124,6 +126,18 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
       description:
         "Read-only Terraform plan JSON analyzer. Use after terraform plan -out=tfplan and terraform show -json tfplan. It flags delete/replacement actions, joins Terraform SynPack metadata when available, and returns an approval-ready hard-gate bundle. It never runs terraform or mutates state.",
       inputSchema: zodToJsonSchema(terraformPlanAnalyzeInputSchema),
+    },
+    {
+      name: "synesis_ecma_environment_check",
+      description:
+        "Read-only JS/TS environment analyzer. Use before suggesting JS/TS code to detect package manager, runtime, module system, TypeScript strictness, and recommended EcmaPack search filters. It never installs dependencies or edits files.",
+      inputSchema: zodToJsonSchema(ecmaEnvironmentCheckInputSchema),
+    },
+    {
+      name: "synesis_ecma_package_risk_analyze",
+      description:
+        "Read-only package.json risk analyzer. Use before dependency/script changes; flags install lifecycle scripts and legacy/heavy dependencies so the harness can require approval or steer toward native APIs like Temporal.",
+      inputSchema: zodToJsonSchema(ecmaPackageRiskInputSchema),
     },
     {
       name: "synesis_classify",

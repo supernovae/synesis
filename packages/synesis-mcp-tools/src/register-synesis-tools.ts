@@ -9,6 +9,8 @@ import {
   configSearchInputSchema,
   devDocsSearchInputSchema,
   terraformPlanAnalyzeInputSchema,
+  ecmaEnvironmentCheckInputSchema,
+  ecmaPackageRiskInputSchema,
 } from "./knowledge-schemas.js";
 import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
@@ -202,6 +204,32 @@ export function registerSynesisMcpTools(server: McpServer, auth: SynesisMcpAuth,
     async (args) =>
       jsonResult(
         await dispatchSynesisTool("synesis_terraform_plan_analyze", args as Record<string, unknown>, auth, deps),
+      ),
+  );
+
+  server.registerTool(
+    "synesis_ecma_environment_check",
+    {
+      description:
+        "Read-only JS/TS environment analyzer. Pass package.json, tsconfig/jsconfig, deno.json, bunfig.toml, and lockfile names to detect runtime, module system, TypeScript strictness, and recommended EcmaPack filters. It does not install packages or mutate files.",
+      inputSchema: ecmaEnvironmentCheckInputSchema,
+    },
+    async (args) =>
+      jsonResult(
+        await dispatchSynesisTool("synesis_ecma_environment_check", args as Record<string, unknown>, auth, deps),
+      ),
+  );
+
+  server.registerTool(
+    "synesis_ecma_package_risk_analyze",
+    {
+      description:
+        "Read-only package.json risk analyzer for JS/TS. Flags lifecycle scripts and legacy/heavy dependency additions so the harness can request approval before package changes. It does not run npm, bun, yarn, pnpm, or deno.",
+      inputSchema: ecmaPackageRiskInputSchema,
+    },
+    async (args) =>
+      jsonResult(
+        await dispatchSynesisTool("synesis_ecma_package_risk_analyze", args as Record<string, unknown>, auth, deps),
       ),
   );
 }

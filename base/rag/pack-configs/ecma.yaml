@@ -1,0 +1,52 @@
+language: ecma
+domain: javascript-typescript
+pack_id: ecma-latest
+repo: github.com/tc39/proposals
+tag_strategy: main_or_pinned
+prompt_id: principal_js_ts_architect_2026_v1
+prompt_variable: "{{DOC_OR_SOURCE_CHUNK}}"
+prompts:
+  - id: principal_js_ts_architect_2026_v1
+    path: prompts/principal_js_ts_architect_2026_v1.md
+  - id: ecma_temporal_architect_2026_v1
+    path: prompts/ecma_temporal_architect_2026_v1.md
+  - id: typescript_type_safety_architect_v1
+    path: prompts/typescript_type_safety_architect_v1.md
+  - id: js_runtime_compat_architect_v1
+    path: prompts/js_runtime_compat_architect_v1.md
+  - id: web_platform_architect_v1
+    path: prompts/web_platform_architect_v1.md
+include:
+  docs:
+    - .
+  aux_sources:
+    - name: TypeScript-Website
+      repo: github.com/microsoft/TypeScript-Website
+      path: packages/documentation/copy
+      artifact_kind: typescript_handbook
+      package_name: typescript
+      prompt_id: typescript_type_safety_architect_v1
+    - name: node
+      repo: github.com/nodejs/node
+      path: doc/api
+      artifact_kind: runtime_api
+      package_name: node
+      prompt_id: js_runtime_compat_architect_v1
+    - name: bun
+      repo: github.com/oven-sh/bun
+      path: docs
+      artifact_kind: runtime_api
+      package_name: bun
+      prompt_id: js_runtime_compat_architect_v1
+    - name: deno
+      repo: github.com/denoland/docs
+      path: runtime
+      artifact_kind: runtime_api
+      package_name: deno
+      prompt_id: js_runtime_compat_architect_v1
+    - name: mdn-content
+      repo: github.com/mdn/content
+      path: files/en-us/web
+      artifact_kind: web_api
+      package_name: mdn
+      prompt_id: web_platform_architect_v1
