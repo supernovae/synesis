@@ -13,6 +13,12 @@ const KNOWLEDGE_DESCRIPTION =
   "language specs, error catalogs, linter rules, style guides, CLI/framework patterns (e.g. Cobra, kubectl), " +
   "and architecture notes. Returns compact ranked chunks (usually fewer tokens than full web pages). " +
   "When you need external reference material, prefer this tool BEFORE synesis_web_search. " +
+  "For Rust, use language=rust plus symbol_fqn=E0xxx for compiler errors, scope_tags like edition-2024/async/unsafe, " +
+  "and inspect agent_enrichment_json for async_contract and borrow/lifetime constraints. " +
+  "For Quarkus, use language=quarkus plus artifact_kind=config_reference or cli_command, scope_tags like build-time-config/reactive/native-image/dev-services, " +
+  "and inspect agent_enrichment_json for build_time_config, event_loop_safety, native_image_note, extension_dependency, and CLI agent_advice. " +
+  "For Python, use language=python plus artifact_kind=repo_map before broad searches in large repos, artifact_kind=type_stub for C-extension/type ambiguity, " +
+  "and scope_tags like free-threading/subinterpreters/deferred-annotations/t-strings/uv to avoid environment drift and dependency hallucination. " +
   "Use filters (language, scope_tags, artifact_kind) when they narrow the query.";
 
 const KNOWLEDGE_PARAMETERS = {
@@ -24,7 +30,7 @@ const KNOWLEDGE_PARAMETERS = {
     },
     language: {
       type: "string",
-      description: "Filter by programming language (e.g. python, typescript, go, rust)",
+      description: "Filter by programming language/framework (e.g. python, typescript, go, rust, quarkus)",
     },
     pack_id: {
       type: "string",
@@ -57,7 +63,7 @@ const KNOWLEDGE_PARAMETERS = {
     },
     artifact_kind: {
       type: "string",
-      description: "Filter by artifact type: code, docs, config, api_spec, architecture",
+      description: "Filter by artifact type: code, docs, config, api_spec, architecture, compiler_error, language_spec, unsafe_guidance, async_guidance, config_reference, cli_command, platform_bom, pep, packaging_spec, tool_docs, type_stub, repo_map",
     },
     scope_tags: {
       type: "array",
@@ -108,8 +114,11 @@ export const KNOWLEDGE_TOOL_SCHEMA_CLAUDE = {
 export const DEV_DOCS_TOOL_NAME = "search_developer_docs";
 
 const DEV_DOCS_DESCRIPTION =
-  "Search curated developer documentation in the knowledge catalog for languages and frameworks (e.g. Python, Go, React). " +
+  "Search curated developer documentation in the knowledge catalog for languages and frameworks (e.g. Python, Go, Rust, Quarkus, React). " +
   "Prefer this (or synesis_knowledge_search) for API references, flags, and patterns before synesis_web_search. " +
+  "For Rust projects, inspect Cargo.toml edition when possible and prefer Rust SynPack rows matching edition-2021 or edition-2024. " +
+  "For Quarkus projects, prefer Quarkus SynPack CLI/config rows before manual Maven XML or Spring-style runtime-heavy patterns. " +
+  "For Python projects, prefer repo_map rows for large-codebase orientation and uv/tooling rows before manual dependency edits. " +
   "If results are empty or clearly stale, use web search with snippets only first (avoid fetch_pages until needed).";
 
 const DEV_DOCS_PARAMETERS = {

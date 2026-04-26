@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument("--list-handlers", action="store_true", help="List available handler types")
     parser.add_argument(
         "--synpack-command",
-        choices=["validate", "load", "list", "search", "build-go", "build-language"],
+        choices=["validate", "load", "list", "search", "build-go", "build-rust", "build-quarkus", "build-python", "build-language"],
         default="validate",
         help="SynPack command when --mode synpack",
     )
@@ -265,6 +265,87 @@ def _run_synpack(args: argparse.Namespace) -> None:
             json_dump(
                 build_language_pack(
                     language="go",
+                    pack_config=args.pack_config,
+                    output_path=output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, args.enrichment_concurrency),
+                    skip_enrichment=args.skip_enrichment,
+                    embedder_url=args.embedder_url,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "build-rust":
+        from .language_pack import build_language_pack
+
+        pack_id = args.pack_id or "rust-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_language_pack(
+                    language="rust",
+                    pack_config=args.pack_config,
+                    output_path=output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, args.enrichment_concurrency),
+                    skip_enrichment=args.skip_enrichment,
+                    embedder_url=args.embedder_url,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "build-quarkus":
+        from .language_pack import build_language_pack
+
+        pack_id = args.pack_id or "quarkus-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_language_pack(
+                    language="quarkus",
+                    pack_config=args.pack_config,
+                    output_path=output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, args.enrichment_concurrency),
+                    skip_enrichment=args.skip_enrichment,
+                    embedder_url=args.embedder_url,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "build-python":
+        from .language_pack import build_language_pack
+
+        pack_id = args.pack_id or "python-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_language_pack(
+                    language="python",
                     pack_config=args.pack_config,
                     output_path=output,
                     pack_id=pack_id,

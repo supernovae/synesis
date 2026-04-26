@@ -69,7 +69,7 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
   const knowledgeDesc =
     "RAG: ranked chunks from the Synesis knowledge catalog (provenance + scores). When to use: Synesis-specific behavior, deployment, conventions, or prior art — before inventing patterns from memory. When not to use: generic language tutorials available in the user repo; use workspace search_code/read_file first for project-local code.";
   const knowledgeYarnDesc =
-    "Same as synesis_search. Prefer this for documentation-style queries: examples, error catalogs, style, architecture. Pair with workspace tools: search_code → read_file for user code; synesis_* for platform knowledge.";
+    "Same as synesis_search. Prefer this for documentation-style queries: examples, error catalogs, style, architecture. For Rust, use language=rust, symbol_fqn=E0xxx for compiler errors, and scope_tags like edition-2024/async/unsafe. For Quarkus, use language=quarkus with artifact_kind=config_reference or cli_command and inspect build_time_config/event_loop_safety/native_image_note/agent_advice in agent_enrichment_json. For Python, use artifact_kind=repo_map before broad search in large repos, type_stub for type ambiguity, and uv/tool_docs for environment management. Pair with workspace tools: search_code → read_file for user code; synesis_* for platform knowledge.";
 
   return [
     {
@@ -115,7 +115,7 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
     {
       name: "search_developer_docs",
       description:
-        "RAG over official developer documentation and installed SynPacks for programming languages and frameworks (e.g., Python, React, Go). Use pack_id/package_name/symbol_kind filters when available before falling back to web search.",
+        "RAG over official developer documentation and installed SynPacks for programming languages and frameworks (e.g., Python, React, Go, Rust, Quarkus). Use pack_id/package_name/symbol_kind filters when available; for Rust, prefer edition-aware rows and E0xxx compiler-error rows; for Quarkus, prefer CLI/config/native/build-time rows; for Python, prefer repo_map, type_stub, PEP, and uv/tooling rows before falling back to web search.",
       inputSchema: zodToJsonSchema(devDocsSearchInputSchema),
     },
     {

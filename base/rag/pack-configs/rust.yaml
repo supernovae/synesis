@@ -1,0 +1,50 @@
+language: rust
+domain: rust
+pack_id: rust-latest
+repo: github.com/rust-lang/rust
+tag_strategy: latest_stable_rust_semver
+prompt_id: rust_agentic_architect_2024_v1
+prompt_variable: "{{DOC_CHUNK}}"
+prompts:
+  - id: rust_agentic_architect_2024_v1
+    path: prompts/rust_agentic_architect_2024_v1.md
+  - id: rust_systems_architect_2021_v1
+    path: prompts/rust_systems_architect_2021_v1.md
+  - id: rust_async_architect_v1
+    path: prompts/rust_async_architect_v1.md
+  - id: rust_error_debugger_v1
+    path: prompts/rust_error_debugger_v1.md
+  - id: rust_unsafe_nomicon_v1
+    path: prompts/rust_unsafe_nomicon_v1.md
+include:
+  rust_docs:
+    - library/std/src
+    - library/core/src
+    - library/alloc/src
+  error_codes:
+    - compiler/rustc_error_codes/src
+  aux_sources:
+    - name: reference
+      repo: github.com/rust-lang/reference
+      path: src
+      artifact_kind: language_spec
+      package_name: reference
+      prompt_id: rust_agentic_architect_2024_v1
+    - name: nomicon
+      repo: github.com/rust-lang/nomicon
+      path: src
+      artifact_kind: unsafe_guidance
+      package_name: nomicon
+      prompt_id: rust_unsafe_nomicon_v1
+    - name: async-book
+      repo: github.com/rust-lang/async-book
+      path: src
+      artifact_kind: async_guidance
+      package_name: async-book
+      prompt_id: rust_async_architect_v1
+    - name: book
+      repo: github.com/rust-lang/book
+      path: src
+      artifact_kind: docs
+      package_name: book
+      prompt_id: rust_systems_architect_2021_v1

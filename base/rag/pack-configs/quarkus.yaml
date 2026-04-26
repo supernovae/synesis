@@ -1,0 +1,25 @@
+language: quarkus
+domain: quarkus
+pack_id: quarkus-latest
+repo: github.com/quarkusio/quarkus
+tag_strategy: latest_stable_quarkus_semver
+prompt_id: quarkus_cloud_native_architect_v1
+prompt_variable: "{{DOC_OR_SOURCE_CHUNK}}"
+prompts:
+  - id: quarkus_cloud_native_architect_v1
+    path: prompts/quarkus_cloud_native_architect_v1.md
+  - id: quarkus_cli_architect_v1
+    path: prompts/quarkus_cli_architect_v1.md
+include:
+  guides:
+    - docs/src/main/asciidoc
+  cli_root: devtools/cli/src/main/java/io/quarkus/cli
+  source_roots:
+    - core/runtime/src/main/java
+    - extensions
+  aux_sources:
+    - name: quarkus-platform
+      repo: github.com/quarkusio/quarkus-platform
+      artifact_kind: platform_bom
+      package_name: quarkus-platform
+      prompt_id: quarkus_cloud_native_architect_v1

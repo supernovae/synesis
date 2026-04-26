@@ -1,0 +1,56 @@
+language: python
+domain: python
+pack_id: python-latest
+repo: github.com/python/cpython
+tag_strategy: latest_stable_python_semver
+prompt_id: python_314_agentic_architect_v1
+prompt_variable: "{{DOC_OR_SOURCE_CHUNK}}"
+prompts:
+  - id: python_314_agentic_architect_v1
+    path: prompts/python_314_agentic_architect_v1.md
+  - id: python_async_architect_v1
+    path: prompts/python_async_architect_v1.md
+  - id: python_packaging_env_architect_v1
+    path: prompts/python_packaging_env_architect_v1.md
+  - id: python_typing_architect_v1
+    path: prompts/python_typing_architect_v1.md
+  - id: python_repo_architect_v1
+    path: prompts/python_repo_architect_v1.md
+include:
+  stdlib:
+    - Lib
+  repo_map_paths:
+    - Lib
+  docs:
+    - Doc
+  aux_sources:
+    - name: peps
+      repo: github.com/python/peps
+      path: .
+      artifact_kind: pep
+      package_name: peps
+      prompt_id: python_314_agentic_architect_v1
+    - name: packaging.python.org
+      repo: github.com/pypa/packaging.python.org
+      path: source
+      artifact_kind: packaging_spec
+      package_name: packaging
+      prompt_id: python_packaging_env_architect_v1
+    - name: uv
+      repo: github.com/astral-sh/uv
+      path: docs
+      artifact_kind: tool_docs
+      package_name: uv
+      prompt_id: python_packaging_env_architect_v1
+    - name: pixi
+      repo: github.com/prefix-dev/pixi
+      path: docs
+      artifact_kind: tool_docs
+      package_name: pixi
+      prompt_id: python_packaging_env_architect_v1
+    - name: typeshed
+      repo: github.com/python/typeshed
+      path: stdlib
+      artifact_kind: type_stub
+      package_name: typeshed
+      prompt_id: python_typing_architect_v1
