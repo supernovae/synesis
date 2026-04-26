@@ -242,6 +242,13 @@ const SIGNAL_CATALOG: ReadonlyMap<string, SignalDefinition> = new Map<string, Si
     decayRate: 0.9,
     productiveCounterweight: 0.3,
   }],
+  ["identical_tool_repeat", {
+    name: "identical_tool_repeat",
+    weight: 0.25,
+    domain: "complicated",
+    decayRate: 0.95,
+    productiveCounterweight: 0.1,
+  }],
   ["verification_after_completion_claim", {
     name: "verification_after_completion_claim",
     weight: 0.18,
@@ -623,6 +630,7 @@ function generateNudge(signalName: string, _phase: SessionPhase): string {
     broad_to_narrow_verification: "Consider running a more targeted test instead of a broad suite.",
     completion_claim_requires_task_update: "If work is done, update the plan/task status. If not, make the next edit.",
     verification_after_completion_claim: "You've said the work is done — commit or update the plan instead of re-verifying.",
+    identical_tool_repeat: "You are calling the same tool with the same arguments repeatedly. The result is not changing — try a different approach or move on.",
     scope_exceeded_narrow: "Your changes are broader than the request suggests. The user asked for a targeted fix — consider a more surgical approach rather than removing or rewriting large sections.",
   };
   return nudges[signalName] ?? "Consider taking a more focused action.";
@@ -634,6 +642,7 @@ function generateGuide(signals: FiredSignal[], _phase: SessionPhase): string {
     consecutive_edit_failures: "STOP retrying edits. Run `git diff` to check if changes already exist. If they do, the work is done — update the task status.",
     verification_fail_repeat_block: "STOP re-running failing tests. Read the error location, make ONE focused fix, then run ONE narrow test.",
     no_progress_loop: "You are in a stall loop. Take ONE concrete action: either make an edit, ask the user, or commit what you have.",
+    identical_tool_repeat: "STOP calling the same tool with identical arguments. The result will not change. Either try a completely different approach, report that this action cannot be completed, or move to the next task.",
     verification_churn_no_edit: "Verification without edits is not progressing. Read the failing file and make a targeted code change.",
     edit_failure_replay: "The same edit keeps failing. The file may already contain changes. Check with `git diff` before retrying.",
     verification_same_failure_signature_replay: "Same build failure repeating. Make a concrete code fix at the reported location before re-running.",
@@ -648,6 +657,7 @@ function generateIntervention(signals: FiredSignal[], _phase: SessionPhase): str
   const names = signals.slice(0, 3).map((s) => s.name).join(", ");
   const interventions: Record<string, string> = {
     consecutive_edit_failures: "Your edits are repeatedly failing. STOP. Use `git diff` to see current state. If changes exist, mark done. If not, re-read the file with Read (not cache) and construct exact old_string.",
+    identical_tool_repeat: "CRITICAL: You are in a degenerate loop — the exact same tool call is repeating with identical arguments and the result is not changing. STOP immediately. Report to the user that this action cannot be completed in the current environment, or move on to a different task.",
     verification_fail_repeat_block: "Same test failure repeating without code changes. STOP testing. Make ONE edit to fix the root cause, then ONE narrow verification.",
     false_green_suspected: "Your tests passed but may not cover the files you changed. Run a targeted test on the changed files before claiming completion.",
     scope_exceeded_dangerous: "STOP — your changes are dangerously disproportionate to the user's request. You are deleting or rewriting large sections of code when the user asked for targeted fixes. This looks like removing capabilities rather than fixing them. Revert your approach: make minimal, surgical changes that address only the specific issues mentioned.",

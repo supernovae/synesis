@@ -371,6 +371,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     // Progress / intent loops — even in explore, the model shouldn't narrate
     // "I'll explore..." 18 times without producing a result.
     "no_progress_loop",
+    "identical_tool_repeat",
     "repeated_assistant_intro",
     "verbal_intent_without_action",
     // Concrete failures always fire — even during investigation, if a verification
@@ -411,6 +412,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "broad_to_narrow_verification",
     // Progress / workflow
     "no_progress_loop",
+    "identical_tool_repeat",
     "repeated_assistant_intro",
     "verbal_intent_without_action",
     "verification_intent_without_action",
@@ -442,6 +444,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "false_green_suspected",
     // Progress / workflow
     "no_progress_loop",
+    "identical_tool_repeat",
     "repeated_assistant_intro",
     "verbal_intent_without_action",
     "verification_intent_without_action",
@@ -462,6 +465,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "discovery_churn_nudge",
     "exploration_stall_no_edit",
     "no_progress_loop",
+    "identical_tool_repeat",
     "repeated_assistant_intro",
     "verbal_intent_without_action",
     "verification_intent_without_action",
@@ -484,6 +488,7 @@ const PHASE_ALLOWED_RULES: Record<SessionPhase, Set<string>> = {
     "completion_claim_requires_task_update",
     "git_commit_followthrough",
     "repeat_user_prompt_loop",
+    "identical_tool_repeat",
     "repeated_assistant_intro",
     // Transition guards
     "false_green_suspected",
@@ -512,6 +517,7 @@ const RULE_PRIORITY_ORDER = [
   "no_test_files_repeat",
   "source_file_stale_reread",
   "plan_reread_loop",
+  "identical_tool_repeat",
   "no_progress_loop",
   "repeated_assistant_intro",
   "discovery_churn_nudge",
@@ -1706,6 +1712,26 @@ export function evaluateExecutionGovernor(
     }
   }
 
+  // Detect consecutive identical tool calls from the tail (same command string).
+  // Catches degenerate loops like `open http://localhost:1313/` repeated 10+ times.
+  // Excludes verification/discovery commands — those have dedicated detectors.
+  let identicalToolRepeatCount = 0;
+  if (events.length >= 3) {
+    const lastEvent = events[events.length - 1];
+    const lastCmd = lastEvent.command;
+    const lastIsVerification = isVerificationCommand(lastEvent.toolName, lastCmd)
+      || isBroadDiscoveryCommand(lastEvent.toolName, lastCmd);
+    if (!lastIsVerification) {
+      for (let i = events.length - 2; i >= 0; i -= 1) {
+        if (events[i].command === lastCmd) {
+          identicalToolRepeatCount += 1;
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
   // Count trailing verification commands from end of events, stopping at first edit.
   // Also track unique commands to distinguish legitimate multi-package verification
   // from the stall pattern (same 2-3 commands cycling: go build → go test → go build → ...).
@@ -2130,6 +2156,9 @@ export function evaluateExecutionGovernor(
   ) {
     pushRule("no_progress_loop");
   }
+  if (identicalToolRepeatCount >= 2) {
+    pushRule("identical_tool_repeat");
+  }
   const planRereadThreshold = planRecoveryDiscoveryGraceActive ? 4 : 2;
   if (!isInvestigationOnly && planCachedRereadCount >= planRereadThreshold && !hasPlanEdit) {
     pushRule("plan_reread_loop");
@@ -2490,6 +2519,23 @@ export function evaluateExecutionGovernor(
         trailingProductiveCount,
         hasPlanInContext,
         hasPlanEdit,
+      },
+    };
+  }
+
+  if (matchedRules.includes("identical_tool_repeat")) {
+    return {
+      pause: true,
+      reason: "identical_tool_repeat",
+      suggestedNextStep:
+        `You have called the exact same tool with the same arguments ${identicalToolRepeatCount + 1} times in a row. This is a degenerate loop — the tool result is not changing between calls. STOP repeating this call. Either (1) try a completely different approach, (2) report that the action cannot be completed in this environment, or (3) move on to the next task.`,
+      matchedRules,
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        noEditEvidence,
+        trailingVerificationRunLength,
       },
     };
   }
@@ -2955,6 +3001,11 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
       step2 = "Take ONE concrete action now: (A) run ONE test/build Bash command, (B) make one code Edit/Write, or (C) call TaskUpdate/TodoWrite if all tasks are done.";
       step3 = "After that single action, use the result: fix if failing, or report completion if passing/done.";
       break;
+    case "identical_tool_repeat":
+      step1 = "STOP calling the same tool with the same arguments. You are in a degenerate loop — the result will not change no matter how many times you retry.";
+      step2 = "Either (A) try a completely different tool or approach, (B) report to the user that this action cannot be completed in the current environment (e.g. sandboxed, no browser, no network), or (C) move on to the next task.";
+      step3 = "Do NOT retry the same command. The environment has not changed between calls.";
+      break;
     case "repeated_assistant_intro":
       step1 = "STOP repeating the same introductory paragraph. Your last several replies started with the same text — that is not progress.";
       step2 = "Do not restate the plan. Run `git diff` on the files you care about; if the fix is already applied, stop editing. If not, read the CURRENT file content once and issue ONE edit with an old_string that matches the file on disk today.";
@@ -3082,6 +3133,10 @@ const HARD_STOP_PLAIN: Record<string, { what: string; nudge: string }> = {
   no_progress_loop: {
     what: "The assistant ran a long series of tool calls without a successful code change where one was needed, or without closing the loop with a clear summary or edit.",
     nudge: "Either make one small, targeted code change, or end with a short written summary of what is done and what is still missing—avoid more discovery in the same turn.",
+  },
+  identical_tool_repeat: {
+    what: "The assistant called the exact same tool with identical arguments multiple times in a row—the result is not changing between calls.",
+    nudge: "Do not retry this tool call. Try a different approach, report the limitation to the user, or move on to the next task.",
   },
   repeated_assistant_intro: {
     what: "The assistant repeated the same opening or plan text across multiple messages instead of new actions or a real test/build result.",

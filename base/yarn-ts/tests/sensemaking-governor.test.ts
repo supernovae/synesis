@@ -555,4 +555,57 @@ describe("message builders", () => {
       expect(msg!).toContain("[Guidance]");
     }
   });
+
+  it("identical_tool_repeat signal produces friction > 0.25 at turnsSinceUser=1", () => {
+    const result = computeFriction({
+      matchedRules: ["identical_tool_repeat"],
+      events: [],
+      phase: "edit" as SessionPhase,
+      turnsSinceUserPrompt: 1,
+      changedFileCount: 0,
+      planRecoveryGraceActive: false,
+    });
+    expect(result.score).toBeGreaterThanOrEqual(0.25);
+    expect(result.firedSignals).toHaveLength(1);
+    expect(result.firedSignals[0].name).toBe("identical_tool_repeat");
+  });
+
+  it("identical_tool_repeat resists productive counterweight", () => {
+    const productiveEvents = [
+      makeEvent("build:npm run build", "Bash", "ok build succeeded"),
+      makeEvent("build:npm run build", "Bash", "ok build succeeded"),
+      makeEvent("build:npm run build", "Bash", "ok build succeeded"),
+    ];
+    const result = computeFriction({
+      matchedRules: ["identical_tool_repeat"],
+      events: productiveEvents,
+      phase: "edit" as SessionPhase,
+      turnsSinceUserPrompt: 1,
+      changedFileCount: 0,
+      planRecoveryGraceActive: false,
+    });
+    expect(result.score).toBeGreaterThan(0.20);
+  });
+
+  it("friction does not collapse to near-zero with high turnsSinceUserPrompt for complicated signals", () => {
+    const result = computeFriction({
+      matchedRules: ["identical_tool_repeat", "no_progress_loop"],
+      events: [],
+      phase: "edit" as SessionPhase,
+      turnsSinceUserPrompt: 5,
+      changedFileCount: 0,
+      planRecoveryGraceActive: false,
+    });
+    expect(result.score).toBeGreaterThan(0.10);
+  });
+
+  it("identical_tool_repeat combined with advisory signals reaches complicated_high", () => {
+    const legacy = makeLegacyDecision({
+      pause: true,
+      matchedRules: ["identical_tool_repeat", "no_progress_loop", "repeated_assistant_intro", "verbal_intent_without_action"],
+    });
+    const sm = evaluateSensemakingGovernor(legacy, [], 1, 0, false);
+    expect(sm.frictionScore).toBeGreaterThan(0.30);
+    expect(sm.domain).not.toBe("complex");
+  });
 });

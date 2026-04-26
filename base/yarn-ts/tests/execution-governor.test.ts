@@ -2942,4 +2942,46 @@ describe("phase-aware rule gating", () => {
     expect(noProgressIdx).toBeGreaterThanOrEqual(0);
     expect(verbalIdx).toBeGreaterThan(noProgressIdx);
   });
+
+  it("fires identical_tool_repeat when 3+ consecutive identical bash calls occur", () => {
+    const messages = [
+      { role: "user", content: "preview the site" },
+      assistantCall("c1", "bash", JSON.stringify({ command: "open http://localhost:1313/" })),
+      toolResult("c1", "opened"),
+      assistantCall("c2", "bash", JSON.stringify({ command: "open http://localhost:1313/" })),
+      toolResult("c2", "opened"),
+      assistantCall("c3", "bash", JSON.stringify({ command: "open http://localhost:1313/" })),
+      toolResult("c3", "opened"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("identical_tool_repeat");
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("identical_tool_repeat");
+  });
+
+  it("does NOT fire identical_tool_repeat for only 2 identical calls", () => {
+    const messages = [
+      { role: "user", content: "preview the site" },
+      assistantCall("c1", "bash", JSON.stringify({ command: "open http://localhost:1313/" })),
+      toolResult("c1", "opened"),
+      assistantCall("c2", "bash", JSON.stringify({ command: "open http://localhost:1313/" })),
+      toolResult("c2", "opened"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+  });
+
+  it("does NOT fire identical_tool_repeat for read calls with different file paths", () => {
+    const messages = [
+      { role: "user", content: "read these files" },
+      assistantCall("c1", "Read", JSON.stringify({ path: "/src/a.ts" })),
+      toolResult("c1", "content a"),
+      assistantCall("c2", "Read", JSON.stringify({ path: "/src/b.ts" })),
+      toolResult("c2", "content b"),
+      assistantCall("c3", "Read", JSON.stringify({ path: "/src/c.ts" })),
+      toolResult("c3", "content c"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+  });
 });

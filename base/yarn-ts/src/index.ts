@@ -3902,6 +3902,20 @@ function classifyToolResultAsEvidence(
   return signals;
 }
 
+/**
+ * Count assistant turns since the last user message in a scoped message window.
+ * Used for sensemaking friction decay — prevents exponential decay from using
+ * total event count (which grows unboundedly in client-driven tool loops).
+ */
+function countTurnsSinceLastUser(messages: readonly { role: string }[]): number {
+  let count = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") break;
+    if (messages[i].role === "assistant") count++;
+  }
+  return Math.max(1, count);
+}
+
 async function casSessionSave(state: SessionState): Promise<void> {
   try {
     if (state.history.length > 2 && state.record.userId !== "anon") {
@@ -8296,7 +8310,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiSensemakingDecision = evaluateSensemakingGovernor(
       oaiExecutionGovernor,
       oaiGovEvents,
-      oaiGovEvents.length,
+      countTurnsSinceLastUser(oaiScopedMessages as readonly { role: string }[]),
       oaiGovChangedFiles.length,
       oaiPlanRecoveryGrace,
       null,
@@ -11876,7 +11890,7 @@ app.post("/v1/messages", async (req, reply) => {
     claudeSensemakingDecision = evaluateSensemakingGovernor(
       claudeExecutionGovernor,
       claudeGovEvents,
-      claudeGovEvents.length,
+      countTurnsSinceLastUser(claudeScopedMessages as readonly { role: string }[]),
       claudeGovChangedFiles.length,
       claudePlanRecoveryGrace,
       null,
