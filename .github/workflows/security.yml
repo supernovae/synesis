@@ -150,16 +150,23 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: astral-sh/setup-uv@v7
+
       - name: Audit ${{ matrix.name }}
-        uses: pypa/gh-action-pip-audit@v1.1.0
-        with:
-          # All services now use uv-compiled lockfiles with pinned versions.
-          # pip-audit reads the pre-resolved lockfile, bypassing pip's resolver.
-          inputs: ${{ matrix.dir }}/requirements.lock
-          vulnerability-service: osv
+        run: |
+          ignore_args=()
           # Indexer: nltk is transitive via crawl4ai; OSV lists no fixed PyPI version yet (last nltk 3.9.3).
           # See .github/SECURITY.md — remove when nltk publishes a fix.
-          ignore-vulns: ${{ matrix.name == 'indexer' && 'CVE-2026-33230 CVE-2026-33231 GHSA-rf74-v2fm-23pw' || '' }}
+          if [ "${{ matrix.name }}" = "indexer" ]; then
+            ignore_args+=( --ignore-vuln CVE-2026-33230 --ignore-vuln CVE-2026-33231 --ignore-vuln GHSA-rf74-v2fm-23pw )
+          fi
+          uvx pip-audit \
+            -r "${{ matrix.dir }}/requirements.lock" \
+            --disable-pip \
+            --require-hashes \
+            --vulnerability-service osv \
+            --progress-spinner off \
+            "${ignore_args[@]}"
 
   semgrep:
     name: Semgrep (Python/OWASP Security)
