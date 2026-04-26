@@ -8,6 +8,7 @@ import {
   docsSearchInputSchema,
   configSearchInputSchema,
   devDocsSearchInputSchema,
+  terraformPlanAnalyzeInputSchema,
 } from "./knowledge-schemas.js";
 import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
@@ -188,6 +189,19 @@ export function registerSynesisMcpTools(server: McpServer, auth: SynesisMcpAuth,
     async (args) =>
       jsonResult(
         await dispatchSynesisTool("synesis_patch_integrity", args as Record<string, unknown>, auth, deps),
+      ),
+  );
+
+  server.registerTool(
+    "synesis_terraform_plan_analyze",
+    {
+      description:
+        "Analyze Terraform plan JSON for destructive, replacement, update, and additive resource changes. Read-only: does not run terraform, import, apply, or destroy. Returns hard-gate approval context when risk is high.",
+      inputSchema: terraformPlanAnalyzeInputSchema,
+    },
+    async (args) =>
+      jsonResult(
+        await dispatchSynesisTool("synesis_terraform_plan_analyze", args as Record<string, unknown>, auth, deps),
       ),
   );
 }

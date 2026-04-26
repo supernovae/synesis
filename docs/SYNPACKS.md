@@ -73,6 +73,39 @@ python -m app.cli --mode synpack --synpack-command build-language \
 
 `build-python` is a convenience alias for the Python config. The Python builder
 resolves the latest stable `vX.Y.Z` tag from `github.com/python/cpython`.
+
+Build a Godot pack:
+
+```bash
+python -m app.cli --mode synpack --synpack-command build-language \
+  --language godot \
+  --pack-id godot-latest \
+  --enrichment-url http://localhost:8000 \
+  --output dist/synpacks/godot-latest.synpack
+```
+
+`build-godot` is a convenience alias for the Godot config. The Godot builder
+resolves the latest stable `X.Y-stable` or `X.Y.Z-stable` tag from
+`github.com/godotengine/godot`, extracts `doc/classes` XML, shader/rendering
+source hints, `godot-docs`, and `godot-proposals`.
+
+Build a Terraform pack:
+
+```bash
+python -m app.cli --mode synpack --synpack-command build-language \
+  --language terraform \
+  --pack-id terraform-latest \
+  --provider-schema ./provider-schemas/providers.json \
+  --enrichment-url http://localhost:8000 \
+  --output dist/synpacks/terraform-latest.synpack
+```
+
+`build-terraform` is a convenience alias for the Terraform config. The Terraform
+builder resolves the latest stable `vX.Y.Z` tag from `github.com/hashicorp/terraform`,
+extracts Terraform/OpenTofu docs, AWS/Azure/GCP provider docs, TFLint rules, and
+local `terraform providers schema -json` output. The builder never runs
+`terraform apply`, `destroy`, `import`, or cloud inventory commands.
+
 All language-pack builders accept `--latest-tag` or `--source-version`. For local smoke tests, use
 `--max-chunks 25`; for offline/debug builds, use `--skip-enrichment` and
 `--source-dir <checkout>`.
@@ -89,6 +122,8 @@ List and search installed packs:
 ```bash
 python -m app.cli --mode synpack --synpack-command list
 python -m app.cli --mode synpack --synpack-command search --pack-id python-latest --query "repo_map asyncio TaskGroup cancellation"
+python -m app.cli --mode synpack --synpack-command search --pack-id godot-latest --query "Button pressed signal scene tree lifecycle"
+python -m app.cli --mode synpack --synpack-command search --pack-id terraform-latest --query "aws_db_instance replacement import drift risk"
 ```
 
 ## Retrieval
@@ -129,6 +164,19 @@ Python-specific details such as `thread_model`, `typing_strategy`,
 `async_contract`, `dependency_footprint`, `modern_idiom`, `environment_hint`,
 `subinterpreter_safety`, `free_threading_risk`, and repo-map topology fields are
 preserved in the same field.
+Godot-specific details such as `node_compatibility`, `signal_list`,
+`signal_contract`, `gdscript_idiom`, `thread_safety`, `performance_note`,
+`scene_tree_impact`, `lifecycle_order`, `physics_rendering_boundary`, and
+`legacy_3x_warning` are preserved in the same field.
+Terraform-specific details such as `core_safety`, `destroy_triggers`,
+`force_new_confidence`, `permission_requirements`, `cross_resource_links`,
+`drift_risk`, `provisioner_safe`, `import_id_format`, `state_sensitivity`,
+`approval_policy`, and `plan_guardrail` are preserved in the same field.
+
+Terraform also includes a read-only MCP risk analyzer,
+`synesis_terraform_plan_analyze`, for JSON produced by `terraform show -json
+tfplan`. It flags delete/replacement actions and returns an approval-ready
+hard-gate bundle; it does not execute Terraform or mutate state.
 
 ## Migration Notes
 

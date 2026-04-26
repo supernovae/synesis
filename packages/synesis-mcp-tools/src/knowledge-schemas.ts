@@ -32,6 +32,18 @@ export const knowledgeSearchInputSchema = z.object({
       "tool_docs",
       "type_stub",
       "repo_map",
+      "class_reference",
+      "engine_manual",
+      "engine_proposal",
+      "shader_language",
+      "node_lifecycle",
+      "provider_docs",
+      "provider_schema",
+      "terraform_guide",
+      "opentofu_feature",
+      "iac_policy_rule",
+      "terraform_plan",
+      "live_state",
     ])
     .optional(),
   domain: z.string().optional(),
@@ -50,3 +62,10 @@ export const codeSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_
 export const docsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
 export const configSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
 export const devDocsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
+
+export const terraformPlanAnalyzeInputSchema = z.object({
+  plan_json: z.unknown(),
+  pack_id: z.string().optional(),
+  top_k: z.number().optional(),
+  synpack_metadata: z.record(z.string(), z.unknown()).optional(),
+});

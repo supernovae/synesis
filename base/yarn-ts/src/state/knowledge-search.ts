@@ -19,6 +19,9 @@ const KNOWLEDGE_DESCRIPTION =
   "and inspect agent_enrichment_json for build_time_config, event_loop_safety, native_image_note, extension_dependency, and CLI agent_advice. " +
   "For Python, use language=python plus artifact_kind=repo_map before broad searches in large repos, artifact_kind=type_stub for C-extension/type ambiguity, " +
   "and scope_tags like free-threading/subinterpreters/deferred-annotations/t-strings/uv to avoid environment drift and dependency hallucination. " +
+  "For Godot, use language=godot plus artifact_kind=class_reference for Node/API XML, shader_language for Godot shader syntax, " +
+  "engine_manual for scene-tree tutorials, and engine_proposal for Godot 4 migration rationale; inspect agent_enrichment_json for signal_contract, node_compatibility, lifecycle_order, thread_safety, and legacy_3x_warning. " +
+  "For Terraform, use language=terraform plus artifact_kind=provider_schema for hard provider constraints, provider_docs for resource docs, opentofu_feature for OpenTofu/state behavior, and iac_policy_rule for TFLint guardrails; inspect agent_enrichment_json for destroy_triggers, drift_risk, import_id_format, approval_policy, and plan_guardrail. " +
   "Use filters (language, scope_tags, artifact_kind) when they narrow the query.";
 
 const KNOWLEDGE_PARAMETERS = {
@@ -30,7 +33,7 @@ const KNOWLEDGE_PARAMETERS = {
     },
     language: {
       type: "string",
-      description: "Filter by programming language/framework (e.g. python, typescript, go, rust, quarkus)",
+      description: "Filter by programming language/framework (e.g. python, typescript, go, rust, quarkus, godot, terraform)",
     },
     pack_id: {
       type: "string",
@@ -63,7 +66,7 @@ const KNOWLEDGE_PARAMETERS = {
     },
     artifact_kind: {
       type: "string",
-      description: "Filter by artifact type: code, docs, config, api_spec, architecture, compiler_error, language_spec, unsafe_guidance, async_guidance, config_reference, cli_command, platform_bom, pep, packaging_spec, tool_docs, type_stub, repo_map",
+      description: "Filter by artifact type: code, docs, config, api_spec, architecture, compiler_error, language_spec, unsafe_guidance, async_guidance, config_reference, cli_command, platform_bom, pep, packaging_spec, tool_docs, type_stub, repo_map, class_reference, engine_manual, engine_proposal, shader_language, provider_docs, provider_schema, terraform_guide, opentofu_feature, iac_policy_rule, terraform_plan, live_state",
     },
     scope_tags: {
       type: "array",
@@ -119,6 +122,8 @@ const DEV_DOCS_DESCRIPTION =
   "For Rust projects, inspect Cargo.toml edition when possible and prefer Rust SynPack rows matching edition-2021 or edition-2024. " +
   "For Quarkus projects, prefer Quarkus SynPack CLI/config rows before manual Maven XML or Spring-style runtime-heavy patterns. " +
   "For Python projects, prefer repo_map rows for large-codebase orientation and uv/tooling rows before manual dependency edits. " +
+  "For Godot projects, prefer class_reference rows for exact Node APIs, engine_manual rows for scene-tree patterns, shader_language rows for rendering syntax, and engine_proposal rows for Godot 4 migration context. " +
+  "For Terraform projects, prefer provider_schema rows before guessing arguments, run fmt/validate/plan JSON, and use the plan analyzer before any apply recommendation. " +
   "If results are empty or clearly stale, use web search with snippets only first (avoid fetch_pages until needed).";
 
 const DEV_DOCS_PARAMETERS = {

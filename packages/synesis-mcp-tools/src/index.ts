@@ -2,6 +2,7 @@ export type { SynesisMcpAuth } from "./auth-types.js";
 export type { SynesisMcpDeps } from "./deps.js";
 export { SynesisMcpDepsSchema, bearerForUpstream, authHeaders } from "./deps.js";
 export { runKnowledgeSearch } from "./knowledge.js";
+export { runTerraformPlanAnalyze, analyzeTerraformPlanLocal } from "./terraform-plan.js";
 export { runWebSearch } from "./web-search.js";
 export { runClassify, runPlan, runCritique } from "./planner-tools.js";
 export {

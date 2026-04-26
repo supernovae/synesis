@@ -1,0 +1,35 @@
+language: godot
+domain: godot
+pack_id: godot-latest
+repo: github.com/godotengine/godot
+tag_strategy: latest_stable_godot_semver
+prompt_id: godot_4_engine_architect_v1
+prompt_variable: "{{NODE_OR_API_XML_CHUNK}}"
+prompts:
+  - id: godot_4_engine_architect_v1
+    path: prompts/godot_4_engine_architect_v1.md
+  - id: godot_class_reference_architect_v1
+    path: prompts/godot_class_reference_architect_v1.md
+  - id: godot_scene_tree_architect_v1
+    path: prompts/godot_scene_tree_architect_v1.md
+  - id: godot_shader_architect_v1
+    path: prompts/godot_shader_architect_v1.md
+  - id: godot_proposal_architect_v1
+    path: prompts/godot_proposal_architect_v1.md
+include:
+  class_reference: doc/classes
+  shader_roots:
+    - servers/rendering
+  aux_sources:
+    - name: godot-docs
+      repo: github.com/godotengine/godot-docs
+      path: .
+      artifact_kind: engine_manual
+      package_name: godot-docs
+      prompt_id: godot_scene_tree_architect_v1
+    - name: godot-proposals
+      repo: github.com/godotengine/godot-proposals
+      path: .
+      artifact_kind: engine_proposal
+      package_name: godot-proposals
+      prompt_id: godot_proposal_architect_v1

@@ -1,0 +1,70 @@
+language: terraform
+domain: terraform
+pack_id: terraform-latest
+repo: github.com/hashicorp/terraform
+tag_strategy: latest_stable_terraform_semver
+prompt_id: terraform_infrastructure_architect_v1
+prompt_variable: "{{RESOURCE_DOCUMENTATION_OR_SCHEMA_JSON}}"
+prompts:
+  - id: terraform_infrastructure_architect_v1
+    path: prompts/terraform_infrastructure_architect_v1.md
+  - id: terraform_provider_schema_architect_v1
+    path: prompts/terraform_provider_schema_architect_v1.md
+  - id: terraform_policy_lint_architect_v1
+    path: prompts/terraform_policy_lint_architect_v1.md
+  - id: opentofu_state_architect_v1
+    path: prompts/opentofu_state_architect_v1.md
+include:
+  docs:
+    - website/docs
+  provider_schema_roots:
+    - provider-schemas
+  aux_sources:
+    - name: terraform-provider-aws
+      repo: github.com/hashicorp/terraform-provider-aws
+      path: docs
+      artifact_kind: provider_docs
+      package_name: registry.terraform.io/hashicorp/aws
+      provider: registry.terraform.io/hashicorp/aws
+      prompt_id: terraform_infrastructure_architect_v1
+    - name: terraform-provider-azurerm
+      repo: github.com/hashicorp/terraform-provider-azurerm
+      path: website/docs
+      artifact_kind: provider_docs
+      package_name: registry.terraform.io/hashicorp/azurerm
+      provider: registry.terraform.io/hashicorp/azurerm
+      prompt_id: terraform_infrastructure_architect_v1
+    - name: terraform-provider-google
+      repo: github.com/hashicorp/terraform-provider-google
+      path: website/docs
+      artifact_kind: provider_docs
+      package_name: registry.terraform.io/hashicorp/google
+      provider: registry.terraform.io/hashicorp/google
+      prompt_id: terraform_infrastructure_architect_v1
+    - name: opentofu
+      repo: github.com/opentofu/opentofu
+      path: website/docs
+      artifact_kind: opentofu_feature
+      package_name: opentofu
+      prompt_id: opentofu_state_architect_v1
+    - name: tflint-ruleset-aws
+      repo: github.com/terraform-linters/tflint-ruleset-aws
+      path: docs
+      artifact_kind: iac_policy_rule
+      package_name: tflint-ruleset-aws
+      provider: registry.terraform.io/hashicorp/aws
+      prompt_id: terraform_policy_lint_architect_v1
+    - name: tflint-ruleset-azurerm
+      repo: github.com/terraform-linters/tflint-ruleset-azurerm
+      path: docs
+      artifact_kind: iac_policy_rule
+      package_name: tflint-ruleset-azurerm
+      provider: registry.terraform.io/hashicorp/azurerm
+      prompt_id: terraform_policy_lint_architect_v1
+    - name: tflint-ruleset-google
+      repo: github.com/terraform-linters/tflint-ruleset-google
+      path: docs
+      artifact_kind: iac_policy_rule
+      package_name: tflint-ruleset-google
+      provider: registry.terraform.io/hashicorp/google
+      prompt_id: terraform_policy_lint_architect_v1

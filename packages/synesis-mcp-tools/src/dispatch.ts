@@ -9,6 +9,7 @@ import {
   runDocsLookup,
   runPatchIntegrity,
 } from "./cve-license-docs-patch.js";
+import { runTerraformPlanAnalyze } from "./terraform-plan.js";
 
 export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_search",
@@ -23,6 +24,7 @@ export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_license_check",
   "synesis_docs_lookup",
   "synesis_patch_integrity",
+  "synesis_terraform_plan_analyze",
   /** Yarn UI name — same behavior as synesis_search */
   "synesis_knowledge_search",
   "synesis_web_search",
@@ -68,6 +70,8 @@ export async function dispatchSynesisTool(
       return runDocsLookup(args);
     case "synesis_patch_integrity":
       return runPatchIntegrity(args);
+    case "synesis_terraform_plan_analyze":
+      return runTerraformPlanAnalyze(args, auth, deps);
     default:
       return { error: "unknown_tool", message: `Unknown tool: ${name}` };
   }

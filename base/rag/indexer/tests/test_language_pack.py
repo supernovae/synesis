@@ -15,15 +15,19 @@ from app import language_pack
 from app.language_pack import (
     build_language_pack,
     fallback_enrichment,
+    latest_godot_stable_tag_from_refs,
     latest_go_stable_tag_from_refs,
     latest_python_stable_tag_from_refs,
     latest_quarkus_stable_tag_from_refs,
     latest_rust_stable_tag_from_refs,
+    latest_terraform_stable_tag_from_refs,
     parse_enrichment_response,
+    parse_godot_stable_tag,
     parse_go_stable_tag,
     parse_python_stable_tag,
     parse_quarkus_stable_tag,
     parse_rust_stable_tag,
+    parse_terraform_stable_tag,
 )
 from app.schema import EMBEDDING_DIM
 from app.synpack import SynPackError, validate_synpack
@@ -106,6 +110,45 @@ def test_latest_python_stable_tag_from_refs_ignores_prerelease():
         ]
     )
     assert latest_python_stable_tag_from_refs(refs) == "v3.14.4"
+
+
+def test_godot_tag_parser_accepts_stable_and_rejects_prerelease():
+    assert parse_godot_stable_tag("4.4-stable") == (4, 4, 0)
+    assert parse_godot_stable_tag("4.4.1-stable") == (4, 4, 1)
+    assert parse_godot_stable_tag("4.5-rc1") is None
+    assert parse_godot_stable_tag("4.5-beta1") is None
+    assert parse_godot_stable_tag("godot-4.4") is None
+
+
+def test_latest_godot_stable_tag_from_refs_ignores_prerelease():
+    refs = "\n".join(
+        [
+            "abc\trefs/tags/4.3-stable",
+            "def\trefs/tags/4.4-rc1",
+            "ghi\trefs/tags/4.4-stable",
+            "jkl\trefs/tags/4.4.1-stable",
+        ]
+    )
+    assert latest_godot_stable_tag_from_refs(refs) == "4.4.1-stable"
+
+
+def test_terraform_tag_parser_accepts_stable_and_rejects_prerelease():
+    assert parse_terraform_stable_tag("v1.11.2") == (1, 11, 2)
+    assert parse_terraform_stable_tag("1.11.2") == (1, 11, 2)
+    assert parse_terraform_stable_tag("v1.12.0-rc1") is None
+    assert parse_terraform_stable_tag("v1.12.0-beta1") is None
+    assert parse_terraform_stable_tag("terraform-1.11.2") is None
+
+
+def test_latest_terraform_stable_tag_from_refs_ignores_prerelease():
+    refs = "\n".join(
+        [
+            "abc\trefs/tags/v1.11.1",
+            "def\trefs/tags/v1.12.0-rc1",
+            "ghi\trefs/tags/v1.11.2",
+        ]
+    )
+    assert latest_terraform_stable_tag_from_refs(refs) == "v1.11.2"
 
 
 def test_enrichment_response_parser_requires_single_object():
@@ -211,6 +254,42 @@ def test_python_fallback_preserves_language_and_repo_map_contracts():
     map_enrichment = fallback_enrichment(map_chunk, error="skipped")
     assert map_enrichment["map_level"] == 2
     assert map_enrichment["module_intent"] == "Auth helpers"
+
+
+def test_godot_fallback_preserves_scene_and_signal_contracts():
+    chunk = language_pack.LanguageChunk(
+        text="Signal: Button.pressed()\n\nEmitted when pressed.",
+        doc_id="godot:github.com/godotengine/godot:doc/classes/Button.xml:Button.pressed",
+        chunk_index=0,
+        document_name="doc/classes/Button.xml",
+        package_name="godot-class-reference",
+        symbol_kind="signal",
+        symbol_fqn="Button.pressed",
+        artifact_kind="class_reference",
+        metadata={"signal_list": ["pressed()"]},
+    )
+    enrichment = fallback_enrichment(chunk, error="skipped")
+    assert enrichment["signal_list"] == ["pressed()"]
+    assert enrichment["signal_contract"] == "unknown"
+    assert enrichment["legacy_3x_warning"] == "unknown"
+
+
+def test_terraform_fallback_preserves_plan_and_drift_contracts():
+    chunk = language_pack.LanguageChunk(
+        text='{"name":"aws_db_instance"}',
+        doc_id="terraform:registry.terraform.io/hashicorp/aws:schema.json:resource:aws_db_instance",
+        chunk_index=0,
+        document_name="schema.json",
+        package_name="registry.terraform.io/hashicorp/aws",
+        symbol_kind="resource",
+        symbol_fqn="aws_db_instance",
+        artifact_kind="provider_schema",
+        metadata={"provider": "registry.terraform.io/hashicorp/aws"},
+    )
+    enrichment = fallback_enrichment(chunk, error="skipped")
+    assert enrichment["cloud_provider"] == "registry.terraform.io/hashicorp/aws"
+    assert enrichment["destroy_triggers"] == []
+    assert "terraform plan" in enrichment["plan_guardrail"]
 
 
 def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -481,3 +560,224 @@ def test_build_language_pack_from_python_fixture(monkeypatch: pytest.MonkeyPatch
     assert any("subinterpreters" in row["scope_tags"] for row in rows)
     map_row = next(row for row in rows if row["artifact_kind"] == "repo_map" and row["symbol_kind"] == "module")
     assert "center_of_gravity" in json.loads(map_row["agent_enrichment_json"])
+
+
+def test_build_language_pack_from_godot_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    source = tmp_path / "godot-src"
+    (source / "doc" / "classes").mkdir(parents=True)
+    (source / "servers" / "rendering").mkdir(parents=True)
+    (source / "godot-docs" / "tutorials" / "scripting").mkdir(parents=True)
+    (source / "godot-docs" / "concepts").mkdir(parents=True)
+    (source / "godot-proposals").mkdir(parents=True)
+    (source / "doc" / "classes" / "Button.xml").write_text(
+        """
+<class name="Button" inherits="BaseButton">
+  <brief_description>Clickable UI button.</brief_description>
+  <description>Emits pressed when activated in the scene tree.</description>
+  <methods>
+    <method name="set_text">
+      <return type="void" />
+      <param index="0" name="text" type="String" />
+      <description>Sets label text.</description>
+    </method>
+  </methods>
+  <members>
+    <member name="text" type="String">Button label.</member>
+  </members>
+  <signals>
+    <signal name="pressed">
+      <description>Emitted when the button is pressed.</description>
+    </signal>
+  </signals>
+  <constants>
+    <constant name="ALIGN_CENTER" value="1">Center alignment.</constant>
+  </constants>
+</class>
+""",
+        encoding="utf-8",
+    )
+    (source / "doc" / "classes" / "Area2D.xml").write_text(
+        """
+<class name="Area2D" inherits="CollisionObject2D">
+  <brief_description>2D detection and physics area.</brief_description>
+  <description>Detects bodies in the physics step.</description>
+  <signals>
+    <signal name="body_entered">
+      <param index="0" name="body" type="Node2D" />
+      <description>Emitted when a physics body enters.</description>
+    </signal>
+  </signals>
+</class>
+""",
+        encoding="utf-8",
+    )
+    (source / "godot-docs" / "tutorials" / "scripting" / "signals.rst").write_text(
+        "Signals decouple nodes in the scene tree. Connect pressed in _ready and await signals in Godot 4.",
+        encoding="utf-8",
+    )
+    (source / "godot-docs" / "concepts" / "scene_tree.rst").write_text(
+        "The scene tree calls _enter_tree before _ready and _process every frame.",
+        encoding="utf-8",
+    )
+    (source / "godot-proposals" / "0001-godot-4-change.md").write_text(
+        "# Godot 4 migration\n\nAvoid legacy Godot 3.x node and signal patterns.",
+        encoding="utf-8",
+    )
+    (source / "servers" / "rendering" / "shader_language.cpp").write_text(
+        "// Godot shader language parser for rendering server materials.\nvoid parse_shader() {}\n",
+        encoding="utf-8",
+    )
+
+    class FakeEmbedClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_texts(self, texts):
+            return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    monkeypatch.setattr(language_pack, "EmbedClient", FakeEmbedClient)
+    out = tmp_path / "godot.synpack"
+    result = build_language_pack(
+        language="godot",
+        output_path=out,
+        source_dir=source,
+        latest_tag="4.4-stable",
+        skip_enrichment=True,
+        max_chunks=100,
+    )
+    assert result["ok"] is True
+    manifest = validate_synpack(out)
+    assert manifest["source_version"] == "4.4-stable"
+    assert manifest["enrichment"]["prompt_id"] == "godot_4_engine_architect_v1"
+    assert "godot_class_reference_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    with zipfile.ZipFile(out) as zf:
+        rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
+    assert any(row["artifact_kind"] == "class_reference" and row["symbol_kind"] == "class" for row in rows)
+    assert any(row["artifact_kind"] == "class_reference" and row["symbol_kind"] == "signal" and row["symbol_fqn"] == "Button.pressed" for row in rows)
+    assert any(row["artifact_kind"] == "engine_manual" for row in rows)
+    assert any(row["artifact_kind"] == "engine_proposal" for row in rows)
+    assert any(row["artifact_kind"] == "shader_language" for row in rows)
+    assert any("signals" in row["scope_tags"] for row in rows)
+    signal_row = next(row for row in rows if row["symbol_fqn"] == "Button.pressed")
+    assert json.loads(signal_row["agent_enrichment_json"])["signal_contract"] == "unknown"
+    class_row = next(row for row in rows if row["symbol_fqn"] == "Button")
+    assert json.loads(class_row["agent_enrichment_json"])["signal_list"] == ["pressed()"]
+
+
+def test_build_language_pack_from_terraform_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    source = tmp_path / "terraform-src"
+    (source / "website" / "docs").mkdir(parents=True)
+    (source / "provider-schemas").mkdir(parents=True)
+    (source / "terraform-provider-aws" / "docs" / "resources").mkdir(parents=True)
+    (source / "terraform-provider-azurerm" / "website" / "docs" / "resources").mkdir(parents=True)
+    (source / "terraform-provider-google" / "website" / "docs" / "resources").mkdir(parents=True)
+    (source / "opentofu" / "website" / "docs").mkdir(parents=True)
+    (source / "tflint-ruleset-aws" / "docs").mkdir(parents=True)
+    (source / "tflint-ruleset-azurerm" / "docs").mkdir(parents=True)
+    (source / "tflint-ruleset-google" / "docs").mkdir(parents=True)
+    (source / "website" / "docs" / "state.md").write_text(
+        "# Terraform State\n\nState tracks resources and drift. Use plan before apply.",
+        encoding="utf-8",
+    )
+    (source / "terraform-provider-aws" / "docs" / "resources" / "db_instance.md").write_text(
+        "# aws_db_instance\n\nChanging identifier can force replacement. Import uses DB identifier.",
+        encoding="utf-8",
+    )
+    (source / "terraform-provider-azurerm" / "website" / "docs" / "resources" / "resource_group.md").write_text(
+        "# azurerm_resource_group\n\nResource groups contain Azure resources.",
+        encoding="utf-8",
+    )
+    (source / "terraform-provider-google" / "website" / "docs" / "resources" / "compute_instance.md").write_text(
+        "# google_compute_instance\n\nCompute instances may be recreated for boot disk changes.",
+        encoding="utf-8",
+    )
+    (source / "opentofu" / "website" / "docs" / "state-encryption.md").write_text(
+        "# State Encryption\n\nOpenTofu can encrypt state and supports early variable evaluation.",
+        encoding="utf-8",
+    )
+    (source / "tflint-ruleset-aws" / "docs" / "aws_instance_invalid_type.md").write_text(
+        "# aws_instance_invalid_type\n\nFlags invalid EC2 instance types.",
+        encoding="utf-8",
+    )
+    (source / "tflint-ruleset-azurerm" / "docs" / "azurerm_resource_group_invalid_name.md").write_text(
+        "# azurerm_resource_group_invalid_name\n\nFlags invalid resource group names.",
+        encoding="utf-8",
+    )
+    (source / "tflint-ruleset-google" / "docs" / "google_project_iam_member_invalid_member.md").write_text(
+        "# google_project_iam_member_invalid_member\n\nFlags invalid IAM members.",
+        encoding="utf-8",
+    )
+    schema = {
+        "provider_schemas": {
+            "registry.terraform.io/hashicorp/aws": {
+                "resource_schemas": {
+                    "aws_db_instance": {
+                        "version": 1,
+                        "block": {
+                            "attributes": {
+                                "identifier": {"type": "string", "optional": True},
+                                "engine": {"type": "string", "required": True},
+                                "password": {"type": "string", "optional": True, "sensitive": True},
+                                "arn": {"type": "string", "computed": True},
+                            },
+                            "block_types": {"timeouts": {"nesting_mode": "single"}},
+                        },
+                    }
+                },
+                "data_source_schemas": {
+                    "aws_ami": {
+                        "version": 0,
+                        "block": {"attributes": {"owners": {"type": ["list", "string"], "required": True}}},
+                    }
+                },
+            },
+            "registry.terraform.io/hashicorp/azurerm": {
+                "resource_schemas": {
+                    "azurerm_resource_group": {
+                        "block": {"attributes": {"name": {"type": "string", "required": True}, "location": {"type": "string", "required": True}}},
+                    }
+                }
+            },
+            "registry.terraform.io/hashicorp/google": {
+                "resource_schemas": {
+                    "google_compute_instance": {
+                        "block": {"attributes": {"name": {"type": "string", "required": True}, "machine_type": {"type": "string", "required": True}}},
+                    }
+                }
+            },
+        }
+    }
+    (source / "provider-schemas" / "providers.json").write_text(json.dumps(schema), encoding="utf-8")
+
+    class FakeEmbedClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_texts(self, texts):
+            return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    monkeypatch.setattr(language_pack, "EmbedClient", FakeEmbedClient)
+    out = tmp_path / "terraform.synpack"
+    result = build_language_pack(
+        language="terraform",
+        output_path=out,
+        source_dir=source,
+        latest_tag="v1.11.2",
+        skip_enrichment=True,
+        max_chunks=100,
+    )
+    assert result["ok"] is True
+    manifest = validate_synpack(out)
+    assert manifest["source_version"] == "v1.11.2"
+    assert manifest["enrichment"]["prompt_id"] == "terraform_infrastructure_architect_v1"
+    assert "terraform_provider_schema_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    with zipfile.ZipFile(out) as zf:
+        rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
+    assert any(row["artifact_kind"] == "provider_schema" and row["symbol_fqn"] == "aws_db_instance" for row in rows)
+    assert any(row["artifact_kind"] == "provider_docs" and row["symbol_fqn"] == "db_instance" for row in rows)
+    assert any(row["artifact_kind"] == "opentofu_feature" for row in rows)
+    assert any(row["artifact_kind"] == "iac_policy_rule" for row in rows)
+    assert any("sensitive-state" in row["scope_tags"] for row in rows)
+    schema_row = next(row for row in rows if row["artifact_kind"] == "provider_schema" and row["symbol_fqn"] == "aws_db_instance")
+    enrichment = json.loads(schema_row["agent_enrichment_json"])
+    assert enrichment["approval_policy"].startswith("Require human approval")

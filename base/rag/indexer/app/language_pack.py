@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -34,11 +35,15 @@ GO_TAG_RE = re.compile(r"^go(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 RUST_TAG_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 QUARKUS_TAG_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:\.Final)?$")
 PYTHON_TAG_RE = re.compile(r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
+GODOT_TAG_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<patch>\d+))?-stable$")
+TERRAFORM_TAG_RE = re.compile(r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 DEFAULT_ENRICHMENT_MODEL = "qwen3.6-35b-a3b"
 GO_PROMPT_ID = "go_agentic_architect_v1"
 RUST_PROMPT_ID = "rust_agentic_architect_2024_v1"
 QUARKUS_PROMPT_ID = "quarkus_cloud_native_architect_v1"
 PYTHON_PROMPT_ID = "python_314_agentic_architect_v1"
+GODOT_PROMPT_ID = "godot_4_engine_architect_v1"
+TERRAFORM_PROMPT_ID = "terraform_infrastructure_architect_v1"
 REQUIRED_UNIVERSAL_ENRICHMENT_FIELDS = {
     "agent_hook",
     "perf_tier",
@@ -167,6 +172,56 @@ def latest_python_stable_tag_from_refs(refs: str) -> str:
     return tags[-1][1]
 
 
+def parse_godot_stable_tag(tag: str) -> tuple[int, int, int] | None:
+    """Return comparable version tuple for stable Godot 4 tags, rejecting prereleases."""
+    value = tag.strip()
+    if any(marker in value.lower() for marker in ("alpha", "beta", "rc", "dev")):
+        return None
+    m = GODOT_TAG_RE.match(value)
+    if not m:
+        return None
+    return (int(m.group("major")), int(m.group("minor")), int(m.group("patch") or 0))
+
+
+def latest_godot_stable_tag_from_refs(refs: str) -> str:
+    tags: list[tuple[tuple[int, int, int], str]] = []
+    for line in refs.splitlines():
+        ref = line.rsplit("/", 1)[-1].strip()
+        ref = ref[:-3] if ref.endswith("^{}") else ref
+        parsed = parse_godot_stable_tag(ref)
+        if parsed:
+            tags.append((parsed, ref))
+    if not tags:
+        raise SynPackError("no stable Godot tags found")
+    tags.sort(key=lambda x: x[0])
+    return tags[-1][1]
+
+
+def parse_terraform_stable_tag(tag: str) -> tuple[int, int, int] | None:
+    """Return comparable version tuple for stable Terraform tags, rejecting prereleases."""
+    value = tag.strip()
+    if any(marker in value.lower() for marker in ("alpha", "beta", "rc", "dev")):
+        return None
+    m = TERRAFORM_TAG_RE.match(value)
+    if not m:
+        return None
+    return (int(m.group("major")), int(m.group("minor")), int(m.group("patch")))
+
+
+def latest_terraform_stable_tag_from_refs(refs: str) -> str:
+    tags: list[tuple[tuple[int, int, int], str]] = []
+    for line in refs.splitlines():
+        ref = line.rsplit("/", 1)[-1].strip()
+        ref = ref[:-3] if ref.endswith("^{}") else ref
+        parsed = parse_terraform_stable_tag(ref)
+        if parsed:
+            tags.append((parsed, ref))
+    if not tags:
+        raise SynPackError("no stable Terraform tags found")
+    tags.sort(key=lambda x: x[0])
+    return tags[-1][1]
+
+
 def _git_ls_remote_tags(repo: str) -> str:
     proc = subprocess.run(
         ["git", "ls-remote", "--tags", f"https://{repo}"],
@@ -191,6 +246,14 @@ def resolve_latest_quarkus_tag() -> str:
 
 def resolve_latest_python_tag() -> str:
     return latest_python_stable_tag_from_refs(_git_ls_remote_tags("github.com/python/cpython"))
+
+
+def resolve_latest_godot_tag() -> str:
+    return latest_godot_stable_tag_from_refs(_git_ls_remote_tags("github.com/godotengine/godot"))
+
+
+def resolve_latest_terraform_tag() -> str:
+    return latest_terraform_stable_tag_from_refs(_git_ls_remote_tags("github.com/hashicorp/terraform"))
 
 
 def clone_repo(repo: str, target: Path, *, tag: str = "", depth: int = 1) -> None:
@@ -1455,6 +1518,519 @@ def extract_python_chunks(source_root: Path, *, config: dict[str, Any], tag: str
     return chunks
 
 
+def _xml_text(node: ET.Element | None) -> str:
+    if node is None:
+        return ""
+    return "".join(node.itertext()).strip()
+
+
+def _godot_prompt_for_chunk(text: str, *, rel_path: str, artifact_kind: str, symbol_kind: str = "") -> str:
+    lower = f"{rel_path}\n{text}".lower()
+    if artifact_kind == "class_reference":
+        return "godot_class_reference_architect_v1"
+    if artifact_kind == "shader_language" or "shader" in lower or "rendering" in rel_path.lower():
+        return "godot_shader_architect_v1"
+    if artifact_kind == "engine_proposal":
+        return "godot_proposal_architect_v1"
+    if any(token in lower for token in ("scene tree", "signal", "_ready", "_process", "_enter_tree", "node lifecycle")):
+        return "godot_scene_tree_architect_v1"
+    return GODOT_PROMPT_ID
+
+
+def _godot_metadata(
+    *,
+    text: str,
+    rel_path: str,
+    artifact_kind: str,
+    symbol_kind: str = "",
+    prompt_id: str = "",
+) -> dict[str, Any]:
+    lower = f"{rel_path}\n{text}".lower()
+    tags = ["language-pack", "godot", "godot-4"]
+    if artifact_kind == "class_reference":
+        tags.append("class-reference")
+    if "signal" in lower or symbol_kind == "signal":
+        tags.append("signals")
+    if any(token in lower for token in ("scene tree", "_ready", "_enter_tree", "_process", "_physics_process")):
+        tags.extend(["scene-tree", "node-lifecycle"])
+    if artifact_kind == "shader_language" or "shader" in lower:
+        tags.extend(["shader-language", "rendering", "gpu"])
+    if artifact_kind == "engine_proposal":
+        tags.extend(["proposal", "legacy-migration"])
+    if "physics" in lower:
+        tags.append("physics")
+    return {
+        "scope_tags": tags,
+        "constraint_kind": "hard" if artifact_kind in {"class_reference", "shader_language"} else "guiding",
+        "constraint_source": "godot-class-reference" if artifact_kind == "class_reference" else "godot-proposals" if artifact_kind == "engine_proposal" else "godot-docs",
+        "content_profile": "reference",
+        "prompt_id": prompt_id or _godot_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
+    }
+
+
+def _godot_class_row(
+    *,
+    repo: str,
+    tag: str,
+    rel_path: str,
+    class_name: str,
+    text: str,
+    symbol_kind: str,
+    symbol_name: str,
+    symbol_fqn: str,
+    metadata_extra: dict[str, Any] | None = None,
+) -> LanguageChunk:
+    metadata = _godot_metadata(text=text, rel_path=rel_path, artifact_kind="class_reference", symbol_kind=symbol_kind)
+    if metadata_extra:
+        metadata.update(metadata_extra)
+    return LanguageChunk(
+        text=text,
+        doc_id=f"godot:{repo}:{rel_path}:{symbol_fqn}",
+        chunk_index=0,
+        document_name=rel_path,
+        heading_path=symbol_fqn,
+        section=symbol_name,
+        source_url=f"https://{repo}/blob/{tag}/{rel_path}",
+        package_name="godot-class-reference",
+        symbol_kind=symbol_kind,
+        symbol_fqn=symbol_fqn,
+        symbol_name=symbol_name,
+        module_path=rel_path,
+        artifact_kind="class_reference",
+        content_format="xml",
+        metadata=metadata,
+    )
+
+
+def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any], tag: str) -> list[LanguageChunk]:
+    repo = str(config.get("repo") or "github.com/godotengine/godot")
+    include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
+    root = source_root / str(include.get("class_reference", "doc/classes"))
+    chunks: list[LanguageChunk] = []
+    if not root.exists():
+        return chunks
+    for file_path in sorted(root.glob("*.xml")):
+        rel_path = file_path.relative_to(source_root).as_posix()
+        try:
+            tree = ET.parse(file_path)
+        except ET.ParseError:
+            continue
+        class_el = tree.getroot()
+        class_name = class_el.attrib.get("name", file_path.stem)
+        inherits = class_el.attrib.get("inherits", "")
+        brief = _xml_text(class_el.find("brief_description"))
+        desc = _xml_text(class_el.find("description"))
+        methods = []
+        signals = []
+        properties = []
+        constants = []
+        for method in class_el.findall("./methods/method"):
+            name = method.attrib.get("name", "")
+            return_type = method.find("return")
+            ret = return_type.attrib.get("type", "") if return_type is not None else ""
+            args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in method.findall("param")]
+            methods.append(f"{name}({', '.join(args)}) -> {ret}".strip())
+        for signal in class_el.findall("./signals/signal"):
+            name = signal.attrib.get("name", "")
+            args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in signal.findall("param")]
+            signals.append(f"{name}({', '.join(args)})")
+        for prop in class_el.findall("./members/member"):
+            properties.append(f"{prop.attrib.get('name', '')}: {prop.attrib.get('type', '')}")
+        for const in class_el.findall("./constants/constant"):
+            constants.append(f"{const.attrib.get('name', '')}={const.attrib.get('value', '')}")
+        class_text = "\n".join(
+            [
+                f"Class: {class_name}",
+                f"Inherits: {inherits}" if inherits else "",
+                f"Brief: {brief}" if brief else "",
+                f"Description: {desc}" if desc else "",
+                "Methods:\n" + "\n".join(f"- {m}" for m in methods[:50]) if methods else "",
+                "Signals:\n" + "\n".join(f"- {s}" for s in signals[:50]) if signals else "",
+                "Properties:\n" + "\n".join(f"- {p}" for p in properties[:50]) if properties else "",
+                "Constants:\n" + "\n".join(f"- {c}" for c in constants[:50]) if constants else "",
+            ]
+        ).strip()
+        chunks.append(
+            _godot_class_row(
+                repo=repo,
+                tag=tag,
+                rel_path=rel_path,
+                class_name=class_name,
+                text=class_text,
+                symbol_kind="class",
+                symbol_name=class_name,
+                symbol_fqn=class_name,
+                metadata_extra={"inherits": inherits, "signal_list": signals},
+            )
+        )
+        for signal in class_el.findall("./signals/signal"):
+            name = signal.attrib.get("name", "")
+            args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in signal.findall("param")]
+            text = f"Signal: {class_name}.{name}({', '.join(args)})\n\n{_xml_text(signal.find('description'))}".strip()
+            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="signal", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+        for method in class_el.findall("./methods/method"):
+            name = method.attrib.get("name", "")
+            return_type = method.find("return")
+            ret = return_type.attrib.get("type", "") if return_type is not None else ""
+            args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in method.findall("param")]
+            text = f"Method: {class_name}.{name}({', '.join(args)}) -> {ret}\n\n{_xml_text(method.find('description'))}".strip()
+            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="method", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+        for prop in class_el.findall("./members/member"):
+            name = prop.attrib.get("name", "")
+            text = f"Property: {class_name}.{name}: {prop.attrib.get('type', '')}\n\n{_xml_text(prop)}".strip()
+            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="property", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+        for const in class_el.findall("./constants/constant"):
+            name = const.attrib.get("name", "")
+            text = f"Constant: {class_name}.{name} = {const.attrib.get('value', '')}\n\n{_xml_text(const)}".strip()
+            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="constant", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+    return chunks
+
+
+def _extract_godot_docs(source_root: Path, *, config: dict[str, Any], tag: str) -> list[LanguageChunk]:
+    include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
+    chunks: list[LanguageChunk] = []
+    for aux in include.get("aux_sources", []):
+        if not isinstance(aux, dict):
+            continue
+        name = str(aux.get("name") or "")
+        aux_root = source_root / name
+        if not aux_root.exists():
+            continue
+        repo = str(aux.get("repo") or "")
+        path = str(aux.get("path") or ".")
+        artifact_kind = str(aux.get("artifact_kind") or "engine_manual")
+        package_name = str(aux.get("package_name") or name)
+        for chunk in _doc_chunks(
+            aux_root,
+            [path],
+            language="godot",
+            repo=repo,
+            tag=str(aux.get("resolved_ref") or "main"),
+            package_name=package_name,
+            artifact_kind=artifact_kind,
+            prompt_id=str(aux.get("prompt_id") or ""),
+        ):
+            chunk.metadata.update(_godot_metadata(text=chunk.text, rel_path=chunk.module_path, artifact_kind=artifact_kind, prompt_id=str(aux.get("prompt_id") or "")))
+            chunks.append(chunk)
+    return chunks
+
+
+def _extract_godot_shader_chunks(source_root: Path, *, config: dict[str, Any], tag: str) -> list[LanguageChunk]:
+    repo = str(config.get("repo") or "github.com/godotengine/godot")
+    include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
+    roots = [str(x) for x in include.get("shader_roots", ["servers/rendering"])]
+    chunks: list[LanguageChunk] = []
+    for rel in roots:
+        root = source_root / rel
+        if not root.exists():
+            continue
+        for file_path in sorted(root.rglob("*")):
+            if not file_path.is_file() or file_path.suffix.lower() not in {".h", ".cpp", ".glsl", ".inc", ".gdshader"}:
+                continue
+            rel_path = file_path.relative_to(source_root).as_posix()
+            text = _read_text(file_path)
+            if "shader" not in f"{rel_path}\n{text[:2000]}".lower():
+                continue
+            for part in _split_text(text, max_chars=6500)[:4]:
+                heading = file_path.stem
+                chunks.append(
+                    LanguageChunk(
+                        text=part,
+                        doc_id=f"godot:{repo}:{rel_path}:{len(chunks)}",
+                        chunk_index=len(chunks),
+                        document_name=rel_path,
+                        heading_path=heading,
+                        section=heading,
+                        source_url=f"https://{repo}/blob/{tag}/{rel_path}",
+                        package_name="godot-shader-language",
+                        symbol_kind="shader_source",
+                        symbol_fqn=heading,
+                        symbol_name=heading,
+                        module_path=rel_path,
+                        artifact_kind="shader_language",
+                        content_format=file_path.suffix.lstrip(".") or "text",
+                        metadata=_godot_metadata(text=part, rel_path=rel_path, artifact_kind="shader_language", symbol_kind="shader_source"),
+                    )
+                )
+    return chunks
+
+
+def extract_godot_chunks(source_root: Path, *, config: dict[str, Any], tag: str) -> list[LanguageChunk]:
+    chunks: list[LanguageChunk] = []
+    chunks.extend(_extract_godot_class_reference(source_root, config=config, tag=tag))
+    chunks.extend(_extract_godot_docs(source_root, config=config, tag=tag))
+    chunks.extend(_extract_godot_shader_chunks(source_root, config=config, tag=tag))
+    for idx, chunk in enumerate(chunks):
+        chunk.chunk_index = idx
+    return chunks
+
+
+def _terraform_prompt_for_chunk(text: str, *, rel_path: str, artifact_kind: str) -> str:
+    lower = f"{rel_path}\n{text}".lower()
+    if artifact_kind == "provider_schema":
+        return "terraform_provider_schema_architect_v1"
+    if artifact_kind == "iac_policy_rule" or "tflint" in lower or "tfsec" in lower:
+        return "terraform_policy_lint_architect_v1"
+    if artifact_kind == "opentofu_feature" or "opentofu" in lower or "state encryption" in lower:
+        return "opentofu_state_architect_v1"
+    return TERRAFORM_PROMPT_ID
+
+
+def _terraform_metadata(
+    *,
+    text: str,
+    rel_path: str,
+    artifact_kind: str,
+    symbol_kind: str = "",
+    provider: str = "",
+    prompt_id: str = "",
+) -> dict[str, Any]:
+    lower = f"{rel_path}\n{text}".lower()
+    tags = ["language-pack", "terraform", "iac"]
+    if provider:
+        tags.append(provider.rsplit("/", 1)[-1].replace("terraform-provider-", ""))
+    if artifact_kind == "provider_schema":
+        tags.extend(["provider-schema", "hard-constraints"])
+    if artifact_kind == "provider_docs":
+        tags.append("provider-docs")
+    if artifact_kind == "terraform_guide":
+        tags.append("terraform-guide")
+    if artifact_kind == "opentofu_feature":
+        tags.extend(["opentofu", "state-management"])
+    if artifact_kind == "iac_policy_rule":
+        tags.extend(["policy-as-code", "lint-rule"])
+    if any(token in lower for token in ("force new", "forcenew", "forces replacement", "destroy", "delete", "replacement")):
+        tags.append("destructive-risk")
+    if any(token in lower for token in ("import ", "terraform import", "import_id", "import id")):
+        tags.append("import-guidance")
+    if any(token in lower for token in ("sensitive", "secret", "password", "token", "private_key")):
+        tags.append("sensitive-state")
+    if any(token in lower for token in ("state", "drift", "refresh", "remote backend")):
+        tags.append("state-management")
+    return {
+        "scope_tags": tags,
+        "constraint_kind": "hard" if artifact_kind == "provider_schema" else "guiding",
+        "constraint_source": "terraform-provider-schema" if artifact_kind == "provider_schema" else "tflint-rules" if artifact_kind == "iac_policy_rule" else "terraform-docs",
+        "content_profile": "reference" if artifact_kind in {"provider_schema", "provider_docs"} else "procedural",
+        "provider": provider,
+        "prompt_id": prompt_id or _terraform_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind),
+    }
+
+
+def _terraform_artifact_for_aux(aux: dict[str, Any]) -> str:
+    explicit = str(aux.get("artifact_kind") or "")
+    if explicit:
+        return explicit
+    name = str(aux.get("name") or "").lower()
+    repo = str(aux.get("repo") or "").lower()
+    if "opentofu" in name or "opentofu" in repo:
+        return "opentofu_feature"
+    if "tflint" in name or "tflint" in repo:
+        return "iac_policy_rule"
+    if "provider" in name or "terraform-provider" in repo:
+        return "provider_docs"
+    return "terraform_guide"
+
+
+def _terraform_symbol_from_doc_path(rel_path: str) -> tuple[str, str, str]:
+    stem = Path(rel_path).stem
+    parts = rel_path.split("/")
+    if "resources" in parts:
+        return "resource_doc", stem, stem
+    if "data-sources" in parts or "data_sources" in parts or "datasources" in parts:
+        return "data_source_doc", stem, stem
+    return "docs", stem, ""
+
+
+def _extract_terraform_docs(source_root: Path, *, config: dict[str, Any], tag: str) -> list[LanguageChunk]:
+    repo = str(config.get("repo") or "github.com/hashicorp/terraform")
+    include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
+    chunks: list[LanguageChunk] = []
+    for chunk in _doc_chunks(
+        source_root,
+        [str(x) for x in include.get("docs", ["website/docs"])],
+        language="terraform",
+        repo=repo,
+        tag=tag,
+        package_name="terraform",
+        artifact_kind="terraform_guide",
+        prompt_id=TERRAFORM_PROMPT_ID,
+    ):
+        kind, name, fqn = _terraform_symbol_from_doc_path(chunk.module_path)
+        chunk.symbol_kind = kind
+        chunk.symbol_name = name
+        chunk.symbol_fqn = fqn
+        chunk.metadata.update(_terraform_metadata(text=chunk.text, rel_path=chunk.module_path, artifact_kind="terraform_guide", symbol_kind=kind))
+        chunks.append(chunk)
+
+    for aux in include.get("aux_sources", []):
+        if not isinstance(aux, dict):
+            continue
+        name = str(aux.get("name") or "")
+        aux_root = source_root / name
+        if not aux_root.exists():
+            continue
+        repo_name = str(aux.get("repo") or "")
+        path = str(aux.get("path") or ".")
+        artifact_kind = _terraform_artifact_for_aux(aux)
+        package_name = str(aux.get("package_name") or name or "terraform")
+        provider = str(aux.get("provider") or "")
+        prompt_id = str(aux.get("prompt_id") or "")
+        for chunk in _doc_chunks(
+            aux_root,
+            [path],
+            language="terraform",
+            repo=repo_name or repo,
+            tag=str(aux.get("resolved_ref") or "main"),
+            package_name=package_name,
+            artifact_kind=artifact_kind,
+            prompt_id=prompt_id,
+        ):
+            kind, symbol_name, symbol_fqn = _terraform_symbol_from_doc_path(chunk.module_path)
+            chunk.symbol_kind = kind
+            chunk.symbol_name = symbol_name
+            chunk.symbol_fqn = symbol_fqn
+            chunk.metadata.update(
+                _terraform_metadata(
+                    text=chunk.text,
+                    rel_path=chunk.module_path,
+                    artifact_kind=artifact_kind,
+                    symbol_kind=kind,
+                    provider=provider,
+                    prompt_id=prompt_id,
+                )
+            )
+            chunks.append(chunk)
+    return chunks
+
+
+def _terraform_schema_attr_summary(block: dict[str, Any]) -> dict[str, list[str]]:
+    attrs = block.get("attributes") if isinstance(block.get("attributes"), dict) else {}
+    out = {"required": [], "optional": [], "computed": [], "sensitive": [], "deprecated": []}
+    for name, raw in attrs.items():
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("required"):
+            out["required"].append(str(name))
+        if raw.get("optional"):
+            out["optional"].append(str(name))
+        if raw.get("computed"):
+            out["computed"].append(str(name))
+        if raw.get("sensitive"):
+            out["sensitive"].append(str(name))
+        if raw.get("deprecated"):
+            out["deprecated"].append(str(name))
+    return out
+
+
+def _terraform_schema_chunk(
+    *,
+    repo: str,
+    tag: str,
+    rel_path: str,
+    provider: str,
+    name: str,
+    schema: dict[str, Any],
+    kind: str,
+    index: int,
+) -> LanguageChunk:
+    block = schema.get("block") if isinstance(schema.get("block"), dict) else {}
+    summary = _terraform_schema_attr_summary(block)
+    nested = sorted((block.get("block_types") or {}).keys()) if isinstance(block.get("block_types"), dict) else []
+    payload = {
+        "provider": provider,
+        "kind": kind,
+        "name": name,
+        "version": schema.get("version"),
+        "attributes": summary,
+        "nested_blocks": nested,
+        "schema": schema,
+    }
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    metadata = _terraform_metadata(text=text, rel_path=rel_path, artifact_kind="provider_schema", symbol_kind=kind, provider=provider)
+    metadata.update(
+        {
+            "terraform_provider": provider,
+            "required_attributes": summary["required"],
+            "optional_attributes": summary["optional"],
+            "computed_attributes": summary["computed"],
+            "sensitive_attributes": summary["sensitive"],
+            "deprecated_attributes": summary["deprecated"],
+        }
+    )
+    return LanguageChunk(
+        text=text[:9000],
+        doc_id=f"terraform:{provider}:{rel_path}:{kind}:{name}",
+        chunk_index=index,
+        document_name=rel_path,
+        heading_path=name,
+        section=name,
+        source_url=f"https://{repo}/blob/{tag}/{rel_path}" if repo else rel_path,
+        package_name=provider,
+        symbol_kind=kind,
+        symbol_fqn=name,
+        symbol_name=name,
+        module_path=rel_path,
+        artifact_kind="provider_schema",
+        content_format="json",
+        metadata=metadata,
+    )
+
+
+def _extract_terraform_provider_schema_files(source_root: Path, *, config: dict[str, Any], tag: str, provider_schema: str | Path = "") -> list[LanguageChunk]:
+    include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
+    repo = str(config.get("repo") or "github.com/hashicorp/terraform")
+    paths: list[Path] = []
+    if provider_schema:
+        paths.append(Path(provider_schema))
+    for rel in include.get("provider_schema_roots", ["provider-schemas"]):
+        root = source_root / str(rel)
+        if root.is_file():
+            paths.append(root)
+        elif root.exists():
+            paths.extend(sorted(root.rglob("*.json")))
+    chunks: list[LanguageChunk] = []
+    for file_path in paths:
+        if not file_path.exists() or not file_path.is_file():
+            continue
+        try:
+            data = json.loads(_read_text(file_path))
+        except json.JSONDecodeError:
+            continue
+        provider_schemas = data.get("provider_schemas") if isinstance(data.get("provider_schemas"), dict) else {}
+        rel_path = file_path.relative_to(source_root).as_posix() if file_path.is_relative_to(source_root) else file_path.name
+        for provider, provider_data in sorted(provider_schemas.items()):
+            if not isinstance(provider_data, dict):
+                continue
+            for kind_key, symbol_kind in (("resource_schemas", "resource"), ("data_source_schemas", "data_source")):
+                schemas = provider_data.get(kind_key) if isinstance(provider_data.get(kind_key), dict) else {}
+                for name, schema in sorted(schemas.items()):
+                    if not isinstance(schema, dict):
+                        continue
+                    chunks.append(
+                        _terraform_schema_chunk(
+                            repo=repo,
+                            tag=tag,
+                            rel_path=rel_path,
+                            provider=str(provider),
+                            name=str(name),
+                            schema=schema,
+                            kind=symbol_kind,
+                            index=len(chunks),
+                        )
+                    )
+    return chunks
+
+
+def extract_terraform_chunks(source_root: Path, *, config: dict[str, Any], tag: str, provider_schema: str | Path = "") -> list[LanguageChunk]:
+    chunks: list[LanguageChunk] = []
+    chunks.extend(_extract_terraform_docs(source_root, config=config, tag=tag))
+    chunks.extend(_extract_terraform_provider_schema_files(source_root, config=config, tag=tag, provider_schema=provider_schema))
+    for idx, chunk in enumerate(chunks):
+        chunk.chunk_index = idx
+    return chunks
+
+
 def parse_enrichment_response(raw: str, *, required_fields: set[str] | None = None) -> dict[str, Any]:
     try:
         obj = json.loads(raw)
@@ -1478,6 +2054,10 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
             if chunk.doc_id.startswith("quarkus:")
             else "Python"
             if chunk.doc_id.startswith("python:")
+            else "Godot"
+            if chunk.doc_id.startswith("godot:")
+            else "Terraform"
+            if chunk.doc_id.startswith("terraform:")
             else "Go"
         )
     )
@@ -1537,6 +2117,54 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
             "free_threading_risk": "unknown",
             "t_string_guidance": "unknown",
             "type_resolution_hint": "unknown",
+            "hidden_warnings": [error] if error else [],
+            "agent_query_hints": [],
+            "enrichment_status": "fallback",
+            "enrichment_error": error,
+        }
+    if language.lower() == "terraform":
+        return {
+            "agent_hook": f"Use this Terraform {chunk.symbol_kind or 'documentation'} chunk for {chunk.symbol_fqn or chunk.document_name}; validate with fmt, validate, and plan JSON before apply.",
+            "perf_tier": "unknown",
+            "safety_contract": "Treat infrastructure changes as stateful. Validate provider schema, plan actions, replacement risk, permissions, drift, imports, and sensitive state before execution.",
+            "lifecycle_model": "No model-derived dependency lifecycle is available; rely on provider schema, Terraform graph, and plan JSON for final risk.",
+            "core_safety": "unknown",
+            "destroy_triggers": [],
+            "force_new_confidence": "unknown",
+            "permission_requirements": "unknown",
+            "cross_resource_links": [],
+            "drift_risk": "unknown",
+            "provisioner_safe": "unknown",
+            "import_id_format": "unknown",
+            "state_sensitivity": "unknown",
+            "approval_policy": "Require human approval for delete or delete/create plan actions.",
+            "plan_guardrail": "Run terraform plan -out=tfplan and terraform show -json tfplan, then analyze destructive actions before apply.",
+            "cloud_provider": str(chunk.metadata.get("provider") or "unknown"),
+            "resource_weight": "unknown",
+            "validation_hints": ["terraform fmt -check -recursive", "terraform validate", "terraform plan -out=tfplan"],
+            "hidden_warnings": [error] if error else [],
+            "agent_query_hints": [],
+            "enrichment_status": "fallback",
+            "enrichment_error": error,
+        }
+    if language.lower() == "godot":
+        signal_list = chunk.metadata.get("signal_list") if isinstance(chunk.metadata.get("signal_list"), list) else []
+        return {
+            "agent_hook": f"Use this Godot {chunk.symbol_kind or 'documentation'} chunk for {chunk.symbol_fqn or chunk.document_name}.",
+            "perf_tier": "unknown",
+            "safety_contract": "Validate scene-tree lifecycle, signal routing, threading, rendering/physics boundaries, and Godot 4.x API behavior against the source text.",
+            "lifecycle_model": "No model-derived lifecycle summary is available; rely on the official Godot class/docs source in this chunk.",
+            "node_compatibility": "unknown",
+            "signal_list": signal_list,
+            "signal_contract": "unknown",
+            "gdscript_idiom": "unknown",
+            "thread_safety": "unknown",
+            "performance_note": "unknown",
+            "common_node_patterns": "unknown",
+            "scene_tree_impact": "unknown",
+            "lifecycle_order": "unknown",
+            "physics_rendering_boundary": "unknown",
+            "legacy_3x_warning": "unknown",
             "hidden_warnings": [error] if error else [],
             "agent_query_hints": [],
             "enrichment_status": "fallback",
@@ -1759,6 +2387,10 @@ def _build_rows(
                         else "quarkusio/quarkus"
                         if language == "quarkus"
                         else "python/cpython"
+                        if language == "python"
+                        else "godotengine/godot"
+                        if language == "godot"
+                        else "hashicorp/terraform"
                     )
                 ),
                 module_path=chunk.module_path,
@@ -1788,6 +2420,10 @@ def _build_rows(
                         else QUARKUS_PROMPT_ID
                         if language == "quarkus"
                         else PYTHON_PROMPT_ID
+                        if language == "python"
+                        else GODOT_PROMPT_ID
+                        if language == "godot"
+                        else TERRAFORM_PROMPT_ID
                     )
                 ),
             )
@@ -1810,6 +2446,10 @@ def _resolve_language_tag(language: str, *, latest_tag: str, source_version: str
         return resolve_latest_quarkus_tag()
     if language == "python":
         return resolve_latest_python_tag()
+    if language == "godot":
+        return resolve_latest_godot_tag()
+    if language == "terraform":
+        return resolve_latest_terraform_tag()
     raise SynPackError(f"unsupported language pack: {language}")
 
 
@@ -1878,9 +2518,10 @@ def build_language_pack(
     embedder_url: str = "",
     max_chunks: int = 0,
     source_dir: str | Path = "",
+    provider_schema: str | Path = "",
 ) -> dict[str, Any]:
     language = language.lower().strip()
-    if language not in {"go", "rust", "quarkus", "python"}:
+    if language not in {"go", "rust", "quarkus", "python", "godot", "terraform"}:
         raise SynPackError(f"unsupported language pack: {language}")
     config_path = Path(pack_config) if pack_config else _default_config_path(language)
     config = _load_yaml(config_path)
@@ -1903,6 +2544,10 @@ def build_language_pack(
                             else "github.com/quarkusio/quarkus"
                             if language == "quarkus"
                             else "github.com/python/cpython"
+                            if language == "python"
+                            else "github.com/godotengine/godot"
+                            if language == "godot"
+                            else "github.com/hashicorp/terraform"
                         )
                     ),
                     source_root,
@@ -1911,14 +2556,14 @@ def build_language_pack(
         sources_lock = {
             "repo": config.get(
                 "repo",
-                f"github.com/{'golang/go' if language == 'go' else 'rust-lang/rust' if language == 'rust' else 'quarkusio/quarkus' if language == 'quarkus' else 'python/cpython'}",
+                f"github.com/{'golang/go' if language == 'go' else 'rust-lang/rust' if language == 'rust' else 'quarkusio/quarkus' if language == 'quarkus' else 'python/cpython' if language == 'python' else 'godotengine/godot' if language == 'godot' else 'hashicorp/terraform'}",
             ),
             "tag": resolved_tag,
             "source_dir": str(source_root),
         }
-        if language in {"rust", "quarkus", "python"} and not source_dir:
+        if language in {"rust", "quarkus", "python", "godot", "terraform"} and not source_dir:
             _clone_aux_sources(config, source_root, sources_lock)
-        elif language in {"rust", "quarkus", "python"}:
+        elif language in {"rust", "quarkus", "python", "godot", "terraform"}:
             include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
             sources_lock["aux_sources"] = [
                 {
@@ -1936,6 +2581,10 @@ def build_language_pack(
             chunks = extract_rust_chunks(source_root, config=config, tag=resolved_tag)
         elif language == "python":
             chunks = extract_python_chunks(source_root, config=config, tag=resolved_tag)
+        elif language == "godot":
+            chunks = extract_godot_chunks(source_root, config=config, tag=resolved_tag)
+        elif language == "terraform":
+            chunks = extract_terraform_chunks(source_root, config=config, tag=resolved_tag, provider_schema=provider_schema)
         else:
             chunks = extract_quarkus_chunks(source_root, config=config, tag=resolved_tag)
         if max_chunks:
@@ -1952,6 +2601,10 @@ def build_language_pack(
                 else QUARKUS_PROMPT_ID
                 if language == "quarkus"
                 else PYTHON_PROMPT_ID
+                if language == "python"
+                else GODOT_PROMPT_ID
+                if language == "godot"
+                else TERRAFORM_PROMPT_ID
             )
         )
         prompt_variable = str(config.get("prompt_variable") or ("{{RAW_GO_DOC_CONTENT}}" if language == "go" else "{{DOC_CHUNK}}"))
