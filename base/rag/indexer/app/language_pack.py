@@ -16,11 +16,11 @@ import subprocess
 import tempfile
 import time
 import zipfile
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
+import defusedxml.ElementTree as ET
 import httpx
 import yaml
 

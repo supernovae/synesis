@@ -19,6 +19,7 @@ import re
 import ast
 from urllib import request as urllib_request
 from urllib import error as urllib_error
+from urllib.parse import urlparse
 
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -182,6 +183,10 @@ def _fetch_capability_matrix_payload() -> dict[str, Any]:
     if not CAPABILITY_MATRIX_ADMIN_URL or not CAPABILITY_MATRIX_ADMIN_TOKEN:
         return _CAPABILITY_MATRIX_CACHE['payload']
 
+    parsed_admin_url = urlparse(CAPABILITY_MATRIX_ADMIN_URL)
+    if parsed_admin_url.scheme not in {'http', 'https'} or not parsed_admin_url.netloc:
+        return _CAPABILITY_MATRIX_CACHE['payload']
+
     req = urllib_request.Request(
         f'{CAPABILITY_MATRIX_ADMIN_URL}/api/v1/governance/capability-matrix/effective',
         headers={
@@ -193,7 +198,8 @@ def _fetch_capability_matrix_payload() -> dict[str, Any]:
     )
 
     try:
-        with urllib_request.urlopen(req, timeout=4) as response:
+        # CAPABILITY_MATRIX_ADMIN_URL is restricted to absolute HTTP(S) URLs above.
+        with urllib_request.urlopen(req, timeout=4) as response:  # nosec B310
             status = response.getcode()
             if status == 304:
                 _CAPABILITY_MATRIX_CACHE['fetched_at'] = time.time()
