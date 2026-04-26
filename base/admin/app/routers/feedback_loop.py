@@ -576,7 +576,10 @@ async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool, a
     return {
         "run_id": run_id,
         "status": "completed",
-        "replay": run_out,
+        "replay": {
+            "status": run_out.get("status", "completed"),
+            "run_id": run_out.get("run_id", run_id),
+        },
         "regressions": regression_report.to_dict(),
         "eval_results": eval_results,
         "labeled_results": labeled_count,

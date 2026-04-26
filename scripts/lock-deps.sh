@@ -133,6 +133,11 @@ compile_one() {
         fi
     fi
 
+    local overrides="$PROJECT_ROOT/$dir/requirements.overrides.txt"
+    if [ -f "$overrides" ]; then
+        args+=( --overrides "$overrides" )
+    fi
+
     log "Compiling $name ($dir/requirements.txt)"
     # Compile to a temp file: `uv pip compile -o` against an existing lockfile
     # reuses that file as constraints, so in-place writes never fully refresh.
@@ -173,6 +178,11 @@ check_one() {
         if [ -n "$constraint_lock" ] && [ -f "$constraint_lock" ]; then
             args+=( -c "$constraint_lock" )
         fi
+    fi
+
+    local overrides="$PROJECT_ROOT/$dir/requirements.overrides.txt"
+    if [ -f "$overrides" ]; then
+        args+=( --overrides "$overrides" )
     fi
 
     local tmp

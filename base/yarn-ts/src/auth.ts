@@ -98,7 +98,13 @@ export class AuthResolver {
         };
       }
       if (fromSub) {
-        const looksLikeEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fromSub);
+        const atIndex = fromSub.indexOf("@");
+        const domainStart = atIndex + 1;
+        const looksLikeEmail = atIndex > 0
+          && domainStart < fromSub.length
+          && fromSub.indexOf("@", domainStart) === -1
+          && !fromSub.includes(" ")
+          && fromSub.indexOf(".", domainStart) > domainStart;
         return {
           userId: fromSub.slice(0, 200),
           displayName: looksLikeEmail ? fromSub.toLowerCase() : undefined,

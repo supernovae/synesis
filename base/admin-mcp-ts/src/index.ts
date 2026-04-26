@@ -213,6 +213,7 @@ function createApp(cfg: AdminMcpConfig) {
       config: { rateLimit: adminAuthRateLimit },
       preHandler: adminAuthPreHandler,
     },
+    // codeql[js/missing-rate-limiting]
     async (req, reply) => {
     try {
       const authCtx = await authenticateAdminRequest(cfg, req);
@@ -242,6 +243,7 @@ function createApp(cfg: AdminMcpConfig) {
       config: { rateLimit: adminAuthRateLimit },
       preHandler: adminAuthPreHandler,
     },
+    // codeql[js/missing-rate-limiting]
     async (req, reply) => {
     let authCtx: AuthenticatedRequestContext;
     try {
@@ -305,6 +307,7 @@ function createApp(cfg: AdminMcpConfig) {
     url: cfg.SYNESIS_ADMIN_MCP_HTTP_PATH,
     config: { rateLimit: adminAuthRateLimit },
     preHandler: adminAuthPreHandler,
+    // codeql[js/missing-rate-limiting]
     handler: async (req, reply) => {
       mcpRequests++;
       let authCtx: AuthenticatedRequestContext;

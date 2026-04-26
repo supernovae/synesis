@@ -944,6 +944,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       config: { rateLimit: { max: 180, timeWindow: "1 minute" as const } },
       preHandler: createRouteRateLimit({ max: 180, timeWindow: "1 minute" }),
     },
+    // codeql[js/missing-rate-limiting]
     async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
     if (!await isSearchRouteAuthorized(
@@ -1081,6 +1082,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       config: { rateLimit: { max: 180, timeWindow: "1 minute" as const } },
       preHandler: createRouteRateLimit({ max: 180, timeWindow: "1 minute" }),
     },
+    // codeql[js/missing-rate-limiting]
     async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
     if (!await isSearchRouteAuthorized(
@@ -1226,6 +1228,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       config: { rateLimit: { max: 60, timeWindow: "1 minute" as const } },
       preHandler: createRouteRateLimit({ max: 60, timeWindow: "1 minute" }),
     },
+    // codeql[js/missing-rate-limiting]
     async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     reply.header("x-synesis-authz-trace-id", authzTraceId);
@@ -1412,6 +1415,28 @@ export function buildApp(config: AppConfig): FastifyInstance {
     };
   }
 
+  function extractCitedSourceUrls(draft: string): Set<string> {
+    const cited = new Set<string>();
+    for (const line of draft.split("\n")) {
+      const sourceIndex = line.indexOf("[Source:");
+      if (sourceIndex === -1) continue;
+      const bracketUrlIndex = line.indexOf("[http", sourceIndex);
+      const bareUrlIndex = line.indexOf("http", sourceIndex);
+      const urlStart = bracketUrlIndex >= 0 ? bracketUrlIndex + 1 : bareUrlIndex;
+      if (urlStart < 0) continue;
+      const tail = line.slice(urlStart, urlStart + 2048);
+      const spaceIndex = tail.search(/\s/);
+      const closeIndex = tail.indexOf("]");
+      const endCandidates = [spaceIndex, closeIndex].filter((idx) => idx >= 0);
+      const endIndex = endCandidates.length > 0 ? Math.min(...endCandidates) : tail.length;
+      const url = tail.slice(0, endIndex).trim().toLowerCase();
+      if (url.startsWith("http://") || url.startsWith("https://")) {
+        cited.add(url);
+      }
+    }
+    return cited;
+  }
+
   function countHallucinatedUrls(state: GraphState): number {
     const draft = state.generated_code ?? "";
     if (!draft) return 0;
@@ -1423,16 +1448,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
     }
     if (validUris.size === 0) return 0;
-    const cited = new Set<string>();
-    const citedBalancedUrl = /\[Source:\s*[\s\S]*?-\s*\[(https?:\/\/[^\]]+)\]\]/g;
-    const citedLegacy = /\[Source:\s*[^\]]*?-\s*(https?:\/\/[^\]\s]+)/g;
-    let m: RegExpExecArray | null;
-    while ((m = citedBalancedUrl.exec(draft)) !== null) {
-      cited.add(m[1].toLowerCase());
-    }
-    while ((m = citedLegacy.exec(draft)) !== null) {
-      cited.add(m[1].toLowerCase());
-    }
+    const cited = extractCitedSourceUrls(draft);
     if (cited.size === 0) return 0;
     let count = 0;
     for (const url of cited) {
@@ -1620,6 +1636,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       config: { rateLimit: { max: 300, timeWindow: "1 minute" as const } },
       preHandler: createRouteRateLimit({ max: 300, timeWindow: "1 minute" }),
     },
+    // codeql[js/missing-rate-limiting]
     async (request, reply) => {
     const authzTraceId = crypto.randomUUID();
     const inboundTraceparentHeader = request.headers["traceparent"];

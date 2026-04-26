@@ -247,6 +247,7 @@ export async function registerMcpRoutes(
       config: { rateLimit: mcpAuthRateLimit },
       preHandler: mcpAuthPreHandler,
     },
+    // codeql[js/missing-rate-limiting]
     async (req, reply) => {
     const user = await resolveUser(req, reply);
     if (!user) return;
@@ -286,6 +287,7 @@ export async function registerMcpRoutes(
       config: { rateLimit: mcpAuthRateLimit },
       preHandler: mcpAuthPreHandler,
     },
+    // codeql[js/missing-rate-limiting]
     async (req, reply) => {
     const user = await resolveUser(req, reply);
     if (!user) return;

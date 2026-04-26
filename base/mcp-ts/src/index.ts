@@ -151,6 +151,7 @@ app.route({
   url: config.SYNESIS_MCP_HTTP_PATH,
   config: { rateLimit: mcpAuthRateLimit },
   preHandler: mcpAuthPreHandler,
+  // codeql[js/missing-rate-limiting]
   handler: async (req, reply) => {
     mcpHttpRequests++;
     let patUser: PatUser;

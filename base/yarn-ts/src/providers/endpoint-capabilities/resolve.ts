@@ -4,15 +4,23 @@ import type { EndpointCapabilityId } from "./types.js";
  * Resolve transport capability from tier base URL (single source of truth for host heuristics).
  */
 export function resolveEndpointCapabilityId(baseUrl: string): EndpointCapabilityId {
-  const u = baseUrl.toLowerCase();
-  if (u.includes("fireworks.ai")) return "fireworks";
-  if (u.includes("openrouter.ai")) return "openrouter";
-  if (u.includes("kimi.com") && u.includes("/coding")) return "kimi_coding";
+  let parsed: URL | undefined;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    parsed = undefined;
+  }
+  const host = parsed?.hostname.toLowerCase() ?? baseUrl.toLowerCase();
+  const path = parsed?.pathname.toLowerCase() ?? baseUrl.toLowerCase();
+  if (host === "fireworks.ai" || host.endsWith(".fireworks.ai")) return "fireworks";
+  if (host === "openrouter.ai" || host.endsWith(".openrouter.ai")) return "openrouter";
+  if ((host === "kimi.com" || host.endsWith(".kimi.com")) && path.includes("/coding")) return "kimi_coding";
   if (
-    u.includes("vllm")
-    || u.includes("localhost")
-    || u.includes("runpod")
-    || u.includes(".svc.cluster.local")
+    host.includes("vllm")
+    || host === "localhost"
+    || host.endsWith(".localhost")
+    || host.includes("runpod")
+    || host.endsWith(".svc.cluster.local")
   ) {
     return "vllm";
   }
