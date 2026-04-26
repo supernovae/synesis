@@ -3,7 +3,7 @@
  * Authenticates against Admin API (JWT / PAT), owns Admin MCP tool catalog/execution,
  * and serves Streamable HTTP plus a lightweight JSON tool API for the Admin Assistant.
  */
-import Fastify, { type FastifyRequest } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -17,6 +17,47 @@ import {
 } from "./tools.js";
 
 const FlexibleArgs = z.object({}).passthrough();
+
+type RateLimitOptions = { max: number; timeWindow: string | number };
+
+function timeWindowMs(timeWindow: string | number): number {
+  if (typeof timeWindow === "number" && Number.isFinite(timeWindow) && timeWindow > 0) return timeWindow;
+  const match = String(timeWindow).trim().match(/^(\d+)\s*(ms|milliseconds?|s|seconds?|m|minutes?|h|hours?)$/i);
+  if (!match) return 60000;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  if (unit === "ms" || unit.startsWith("millisecond")) return amount;
+  if (unit === "s" || unit.startsWith("second")) return amount * 1000;
+  if (unit === "m" || unit.startsWith("minute")) return amount * 60_000;
+  return amount * 3_600_000;
+}
+
+function createRouteRateLimit(options: RateLimitOptions) {
+  const windowMs = timeWindowMs(options.timeWindow);
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const now = Date.now();
+    if (buckets.size > 10_000) {
+      for (const [key, value] of buckets) {
+        if (value.resetAt <= now) buckets.delete(key);
+      }
+    }
+    const routeId = request.routeOptions.url ?? request.url;
+    const key = `${request.ip}:${request.method}:${routeId}`;
+    const bucket = buckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+      return;
+    }
+    bucket.count += 1;
+    if (bucket.count <= options.max) return;
+
+    const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    reply.header("retry-after", String(retryAfterSeconds));
+    return reply.code(429).send({ error: "rate_limit_exceeded" });
+  };
+}
 
 function extractBearer(req: FastifyRequest): string {
   const raw = req.headers.authorization ?? "";
@@ -140,11 +181,15 @@ function createApp(cfg: AdminMcpConfig) {
   let directToolInvocations = 0;
 
   const app = Fastify({ logger: { level: cfg.LOG_LEVEL } });
-  void app.register(fastifyRateLimit, { global: false });
+  void app.register(fastifyRateLimit, {
+    global: true,
+    max: cfg.SYNESIS_ADMIN_MCP_GLOBAL_RATE_LIMIT_MAX,
+    timeWindow: cfg.SYNESIS_ADMIN_MCP_GLOBAL_RATE_LIMIT_WINDOW,
+  });
   // Keep app-level limits even when Cloudflare is enabled so origin-only traffic
   // and trusted network paths still have bounded abuse protection.
   const adminAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
-  const adminAuthPreHandler = app.rateLimit(adminAuthRateLimit);
+  const adminAuthPreHandler = createRouteRateLimit(adminAuthRateLimit);
 
   app.get("/health", async () => ({
     status: "ok",

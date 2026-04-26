@@ -42,8 +42,8 @@ const CORE_PATTERNS: RegExp[] = [
 // ---------------------------------------------------------------------------
 const WEB_PATTERNS: RegExp[] = [
   /base64[:\s]+[A-Za-z0-9+/=]{20,}/i,
-  /\[.*?\]\(javascript\s*:/i,
-  /<a\s+href\s*=\s*["']?javascript:/i,
+  /\[[^\]\r\n]{0,2048}\]\(\s*javascript\s*:/i,
+  /<a\b[^>\r\n]{0,2048}\bhref\s*=\s*["']?\s*javascript:/i,
   /[\u200b\u200c\u200d\u2060\ufeff]{3,}/,
   /data:text\/html[;,]/i,
   /(?:reveal|show|print|repeat|echo)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)/i,
@@ -68,6 +68,42 @@ const OUTPUT_PATTERNS: RegExp[] = [
 const CODE_NOISE_PATTERNS: RegExp[] = [
   /^(show|print|repeat|echo)\s+(?:system\s+)?prompt$/i,
   /^(show|print|repeat|echo)\s+instructions?$/i,
+];
+
+const CORE_REDACTION_PATTERNS: RegExp[] = [
+  /ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?/gi,
+  /disregard\s+(?:all\s+)?(?:previous|prior|above)/gi,
+  /forget\s+(?:everything|all)\s+(?:you\s+)?(?:were\s+)?told/gi,
+  /new\s+instructions?\s*:/gi,
+  /override\s+(?:your\s+)?(?:instructions?|prompt)/gi,
+  /you\s+are\s+now\s+(?:a|an)\s/gi,
+  /pretend\s+you\s+are/gi,
+  /act\s+as\s+if\s+you/gi,
+  /(?:^|\n)\s*system\s*:\s*(?:ignore|disregard|forget|override|follow\s+these\s+instructions|you\s+are\s+now|pretend|act\s+as)/gi,
+  /<\|im_start\|>\s*system/gi,
+  /###\s*human\s*:/gi,
+  /\[INST\]\s*/gi,
+  /<\/?s(?:ystem)?>/gi,
+  /ignore\s+the\s+above/gi,
+  /ignore\s+above\b/gi,
+  /follow\s+these\s+instructions?\s+instead/gi,
+  /output\s+(?:only|just)\s+the\s+following/gi,
+  /print\s+(?:exactly|only)\s+this\s*:/gi,
+  /(?:DAN|developer)\s+mode\s+(?:enabled|activated|on)/gi,
+  /(?:do\s+anything\s+now|unlimited\s+mode)/gi,
+];
+
+const WEB_REDACTION_PATTERNS: RegExp[] = [
+  /base64[:\s]+[A-Za-z0-9+/=]{20,}/gi,
+  /\[[^\]\r\n]{0,2048}\]\(\s*javascript\s*:/gi,
+  /<a\b[^>\r\n]{0,2048}\bhref\s*=\s*["']?\s*javascript:/gi,
+  /[\u200b\u200c\u200d\u2060\ufeff]{3,}/g,
+  /data:text\/html[;,]/gi,
+  /(?:reveal|show|print|repeat|echo)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)/gi,
+  /what\s+(?:are|is)\s+your\s+(?:system\s+)?(?:prompt|instructions)/gi,
+  /from\s+now\s+on\s+(?:you\s+)?(?:are|will|must|should)\b/gi,
+  /(?:assistant|ai|model)\s*:\s*(?:sure|okay|yes|I will)/gi,
+  /<!--\s*(?:system|instruction|prompt)/gi,
 ];
 
 // ---------------------------------------------------------------------------
@@ -204,11 +240,10 @@ export function scanModelOutput(text: string, source = "model_output"): ScanResu
 }
 
 export function redactPatterns(text: string, includeWeb = false): string {
-  const patterns = [...CORE_PATTERNS];
-  if (includeWeb) patterns.push(...WEB_PATTERNS);
+  const patterns = includeWeb ? [...CORE_REDACTION_PATTERNS, ...WEB_REDACTION_PATTERNS] : CORE_REDACTION_PATTERNS;
   let result = text;
   for (const pat of patterns) {
-    result = result.replace(new RegExp(pat.source, pat.flags + (pat.flags.includes("g") ? "" : "g")), "[REDACTED]");
+    result = result.replace(pat, "[REDACTED]");
   }
   return result;
 }

@@ -6,6 +6,8 @@ const EnvSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   /** Streamable HTTP MCP endpoint path */
   SYNESIS_MCP_HTTP_PATH: z.string().default("/mcp"),
+  SYNESIS_MCP_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().default(1200),
+  SYNESIS_MCP_GLOBAL_RATE_LIMIT_WINDOW: z.string().default("1 minute"),
   SYNESIS_PLANNER_URL: z.string().default(
     "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",
   ),

@@ -48,6 +48,16 @@ class TestScanWebContentFixtures:
         r = scan_web_content(text)
         assert r.detected is vec["detected"]
 
+    def test_bounds_markdown_link_scanning(self) -> None:
+        text = "[" + ("x" * 10_000) + "](javascript:alert(1))"
+        r = scan_web_content(text)
+        assert r.detected is False
+
+    def test_detects_bounded_html_javascript_href(self) -> None:
+        r = scan_web_content('<a class="cta" data-id="1" href="javascript:alert(1)">x</a>')
+        assert r.detected is True
+        assert r.event_type == EventType.CODE_EXEC_RISK
+
 
 class TestScanModelOutputFixtures:
     @pytest.mark.parametrize("vec", _VECTORS["scan_model_output"], ids=lambda v: v["label"])

@@ -8,6 +8,8 @@ const ConfigSchema = z.object({
   SYNESIS_ADMIN_API_URL: z.string().default("http://synesis-admin.synesis-admin.svc.cluster.local:8080"),
   /** Streamable HTTP path for MCP (match synesis-mcp-ts pattern). */
   SYNESIS_ADMIN_MCP_HTTP_PATH: z.string().default("/mcp"),
+  SYNESIS_ADMIN_MCP_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().default(1200),
+  SYNESIS_ADMIN_MCP_GLOBAL_RATE_LIMIT_WINDOW: z.string().default("1 minute"),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
 });
 

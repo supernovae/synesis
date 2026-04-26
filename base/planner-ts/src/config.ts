@@ -37,6 +37,8 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_WRITER_NODE_TIMEOUT_MS: z.coerce.number().default(180000),
   SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(30),
+  SYNESIS_PLANNER_TS_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().default(1200),
+  SYNESIS_PLANNER_TS_GLOBAL_RATE_LIMIT_WINDOW: z.string().default("1 minute"),
   SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT: z.coerce.number().default(50),
   SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX: z.coerce.number().default(100),
   SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS: z.coerce.number().default(30000),

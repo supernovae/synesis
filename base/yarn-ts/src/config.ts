@@ -160,6 +160,8 @@ const EnvSchema = z.object({
   // Per-user rate limiting (sliding window)
   SYNESIS_YARN_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
   SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(30),
+  SYNESIS_YARN_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().default(1200),
+  SYNESIS_YARN_GLOBAL_RATE_LIMIT_WINDOW: z.string().default("1 minute"),
   // Hourly token throttle (warn-only by default; complements request-rate limiting)
   SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED: z
     .string()

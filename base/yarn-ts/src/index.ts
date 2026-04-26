@@ -2860,7 +2860,11 @@ const app = Fastify({
   forceCloseConnections: "idle",
   bodyLimit: 50 * 1024 * 1024 // 50MB to support massive conversation histories from subagents
 });
-await app.register(fastifyRateLimit, { global: false });
+await app.register(fastifyRateLimit, {
+  global: true,
+  max: config.SYNESIS_YARN_GLOBAL_RATE_LIMIT_MAX,
+  timeWindow: config.SYNESIS_YARN_GLOBAL_RATE_LIMIT_WINDOW,
+});
 
 const yarnDedupeLayer =
   config.SYNESIS_YARN_DEDUPE_ENABLED

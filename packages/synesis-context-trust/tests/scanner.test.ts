@@ -49,6 +49,18 @@ describe("scanWebContent", () => {
     expect(result.detected).toBe(true);
     expect(result.event_type).toBe("code_exec_risk");
   });
+
+  it("bounds markdown link scanning to avoid pathological regex work", () => {
+    const longLabel = "x".repeat(10_000);
+    const result = scanWebContent(`[${longLabel}](javascript:alert(1))`);
+    expect(result.detected).toBe(false);
+  });
+
+  it("detects bounded html javascript hrefs with attributes", () => {
+    const result = scanWebContent('<a class="cta" data-id="1" href="javascript:alert(1)">x</a>');
+    expect(result.detected).toBe(true);
+    expect(result.event_type).toBe("code_exec_risk");
+  });
 });
 
 describe("scanModelOutput", () => {
@@ -73,6 +85,13 @@ describe("redactPatterns", () => {
     const redacted = redactPatterns(text);
     expect(redacted).toContain("[REDACTED]");
     expect(redacted).not.toContain("ignore previous instructions");
+  });
+
+  it("redacts web patterns without dynamic RegExp construction", () => {
+    const text = '<a class="cta" href="javascript:alert(1)">x</a>';
+    const redacted = redactPatterns(text, true);
+    expect(redacted).toContain("[REDACTED]");
+    expect(redacted).not.toContain("javascript:");
   });
 });
 

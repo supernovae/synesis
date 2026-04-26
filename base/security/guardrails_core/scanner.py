@@ -49,8 +49,8 @@ CORE_PATTERNS: list[re.Pattern[str]] = [
 # ---------------------------------------------------------------------------
 WEB_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"base64[:\s]+[A-Za-z0-9+/=]{20,}", re.IGNORECASE),
-    re.compile(r"\[.*?\]\(javascript\s*:", re.IGNORECASE),
-    re.compile(r"<a\s+href\s*=\s*[\"']?javascript:", re.IGNORECASE),
+    re.compile(r"\[[^\]\r\n]{0,2048}\]\(\s*javascript\s*:", re.IGNORECASE),
+    re.compile(r"<a\b[^>\r\n]{0,2048}\bhref\s*=\s*[\"']?\s*javascript:", re.IGNORECASE),
     re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]{3,}"),
     re.compile(r"data:text/html[;,]", re.IGNORECASE),
     re.compile(r"(?:reveal|show|print|repeat|echo)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)", re.IGNORECASE),

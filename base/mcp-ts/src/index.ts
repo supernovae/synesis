@@ -1,7 +1,7 @@
 /**
  * Synesis MCP — Streamable HTTP transport (official MCP protocol).
  */
-import Fastify, { type FastifyRequest } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -20,6 +20,47 @@ const authResolver = new McpAuthResolver(config);
 let mcpHttpRequests = 0;
 let mcpAuthFailures = 0;
 let mcpPolicyDenials = 0;
+
+type RateLimitOptions = { max: number; timeWindow: string | number };
+
+function timeWindowMs(timeWindow: string | number): number {
+  if (typeof timeWindow === "number" && Number.isFinite(timeWindow) && timeWindow > 0) return timeWindow;
+  const match = String(timeWindow).trim().match(/^(\d+)\s*(ms|milliseconds?|s|seconds?|m|minutes?|h|hours?)$/i);
+  if (!match) return 60000;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  if (unit === "ms" || unit.startsWith("millisecond")) return amount;
+  if (unit === "s" || unit.startsWith("second")) return amount * 1000;
+  if (unit === "m" || unit.startsWith("minute")) return amount * 60_000;
+  return amount * 3_600_000;
+}
+
+function createRouteRateLimit(options: RateLimitOptions) {
+  const windowMs = timeWindowMs(options.timeWindow);
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const now = Date.now();
+    if (buckets.size > 10_000) {
+      for (const [key, value] of buckets) {
+        if (value.resetAt <= now) buckets.delete(key);
+      }
+    }
+    const routeId = request.routeOptions.url ?? request.url;
+    const key = `${request.ip}:${request.method}:${routeId}`;
+    const bucket = buckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+      return;
+    }
+    bucket.count += 1;
+    if (bucket.count <= options.max) return;
+
+    const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    reply.header("retry-after", String(retryAfterSeconds));
+    return reply.code(429).send({ error: "rate_limit_exceeded" });
+  };
+}
 
 function createDeps(): SynesisMcpDeps {
   return {
@@ -87,11 +128,15 @@ async function enforceFga(patUser: PatUser): Promise<void> {
 }
 
 const app = Fastify({ logger: { level: config.LOG_LEVEL } });
-void app.register(fastifyRateLimit, { global: false });
+void app.register(fastifyRateLimit, {
+  global: true,
+  max: config.SYNESIS_MCP_GLOBAL_RATE_LIMIT_MAX,
+  timeWindow: config.SYNESIS_MCP_GLOBAL_RATE_LIMIT_WINDOW,
+});
 // Cloudflare edge policies are the first line of defense, but we also enforce
 // app-layer limits so direct origin traffic and internal callers are bounded.
 const mcpAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
-const mcpAuthPreHandler = app.rateLimit(mcpAuthRateLimit);
+const mcpAuthPreHandler = createRouteRateLimit(mcpAuthRateLimit);
 
 /** Public catalog for UIs (Integrations page) — no secrets; same tool surface as Streamable MCP. */
 app.get("/v1/synesis-tools", async () => ({
