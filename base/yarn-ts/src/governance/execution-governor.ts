@@ -2534,8 +2534,12 @@ export function evaluateExecutionGovernor(
         phase: sessionPhase,
         repeatedTestCommands,
         repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
         noEditEvidence,
         trailingVerificationRunLength,
+        trailingExplorationRunLength,
       },
     };
   }

@@ -138,8 +138,8 @@ const EnvSchema = z.object({
   SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD: z.coerce.number().default(80),
   /** Snap-to-grid bucket size for objective scope pruning (0 = disabled). */
   SYNESIS_YARN_SCOPE_BUCKET_SIZE: z.coerce.number().default(50),
-  /** When > 0, cap `maxOutputTokens` sent to the provider (runaway output safety). 0 = disabled. */
-  SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(0),
+  /** Cap `maxOutputTokens` sent to the provider (runaway output safety). Explicit 0 disables. */
+  SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING: z.coerce.number().default(65536),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT: z.coerce.number().default(25),
   SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT: z.coerce.number().default(15),
   SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT: z.coerce.number().default(8),
@@ -249,7 +249,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_EVAL_API_ENABLED: z
     .string()
     .optional()
-    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
 
   // Session lifecycle — auto-rotate when no conversation_id and idle > threshold
   SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS: z.coerce.number().default(30 * 60 * 1000),
@@ -574,7 +574,6 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS: z.coerce.number().default(100),
   SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST: z
     .string()
     .default(
@@ -594,12 +593,6 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
-  // Broad response dedupe: extend beyond read/search to list_files, glob, etc.
-  SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED: z
-    .string()
-    .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true"),
-
   // Historical content normalization (timestamps, paths, tool IDs in old messages)
   SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED: z
     .string()
@@ -627,7 +620,8 @@ const EnvSchema = z.object({
     if (!Number.isFinite(v)) return 0.05;
     return Math.min(1, Math.max(0, v));
   }),
-  // "lightweight" (default): always-on size + prefix-stability metrics, no payload capture.
+  // Single request-forensics mode knob:
+  // "lightweight" (default): size + prefix-stability metrics, no payload capture.
   // "full": additionally captures payload preview. "off": disabled.
   SYNESIS_YARN_REQUEST_FORENSICS_MODE: z
     .string()
@@ -637,15 +631,6 @@ const EnvSchema = z.object({
       if (val === "full" || val === "off") return val;
       return "lightweight" as const;
     }),
-  // Legacy compat: explicit true/false overrides mode to full/off when set.
-  SYNESIS_YARN_REQUEST_FORENSICS_ENABLED: z
-    .string()
-    .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD: z
-    .string()
-    .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS: z.coerce.number().default(4000),
 
   // Session execution context — project_root / shell_cwd in WORKING_FRAME
@@ -681,35 +666,21 @@ const EnvSchema = z.object({
     .enum(["off", "advisory", "enforced"])
     .default("advisory"),
 
-  // Workspace context handshake (synthetic first tool call).
-  SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_ENABLED: z
-    .string()
-    .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  SYNESIS_YARN_WORKSPACE_CONTEXT_HANDSHAKE_MAX_ATTEMPTS: z.coerce.number().default(1),
-
   // Extended memory — structural index, memory tools, hierarchical summaries, chunked eval
   SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED: z
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET: z.coerce.number().default(1536),
-  SYNESIS_YARN_STRUCTURAL_INDEX_TTL_S: z.coerce.number().default(3600),
   SYNESIS_YARN_MEMORY_TOOLS_ENABLED: z
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_MEMORY_STORE_MAX_ENTRIES: z.coerce.number().default(200),
-  SYNESIS_YARN_HIERARCHICAL_SUMMARIES_ENABLED: z
-    .string()
-    .optional()
-    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
-  SYNESIS_YARN_SUMMARY_MAX_TOKENS: z.coerce.number().default(100),
   SYNESIS_YARN_CHUNKED_EVAL_ENABLED: z
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  SYNESIS_YARN_CHUNKED_EVAL_MAX_FEATURES_PER_PASS: z.coerce.number().default(5),
   SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED: z
     .string()
     .optional()

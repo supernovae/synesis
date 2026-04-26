@@ -36,6 +36,12 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   };
 }
 
+function unsignedJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${header}.${body}.`;
+}
+
 describe("AuthResolver", () => {
   let resolver: AuthResolver;
 
@@ -60,12 +66,35 @@ describe("AuthResolver", () => {
       await expect(resolver.resolve("Basic abc")).rejects.toThrow("Missing Bearer token");
     });
 
-    it("returns generic bearer-user for non-PAT tokens", async () => {
+    it("returns stable hashed user id for opaque non-PAT bearer tokens", async () => {
       resolver = new AuthResolver(makeConfig());
       const user = await resolver.resolve("Bearer some-api-key-123");
-      expect(user.userId).toBe("bearer-user");
+      expect(user.userId).toMatch(/^bearer-[a-f0-9]{24}$/);
       expect(user.authMethod).toBe("bearer");
       expect(user.tokenScopes).toEqual([]);
+
+      const again = await resolver.resolve("Bearer some-api-key-123");
+      expect(again.userId).toBe(user.userId);
+    });
+
+    it("normalizes JWT bearer identity from a test user email", async () => {
+      resolver = new AuthResolver(makeConfig());
+      const token = unsignedJwt({
+        email: "Yarn.Test.User@example.com",
+        sub: "test-user-subject",
+      });
+      const user = await resolver.resolve(`Bearer ${token}`);
+      expect(user.userId).toBe("yarn.test.user@example.com");
+      expect(user.displayName).toBe("yarn.test.user@example.com");
+      expect(user.authMethod).toBe("bearer");
+    });
+
+    it("normalizes JWT bearer identity from sub when email is absent", async () => {
+      resolver = new AuthResolver(makeConfig());
+      const token = unsignedJwt({ sub: "test-user-subject" });
+      const user = await resolver.resolve(`Bearer ${token}`);
+      expect(user.userId).toBe("test-user-subject");
+      expect(user.displayName).toBeUndefined();
     });
 
     it("throws for invalid PAT (syn- prefix but not found in DB)", async () => {

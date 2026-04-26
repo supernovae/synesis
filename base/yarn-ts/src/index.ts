@@ -2787,7 +2787,7 @@ function captureRequestForensics(
   phasePolicy?: RequestForensicsRecord["phasePolicy"],
   capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"],
 ): { record: RequestForensicsRecord; serialized: string } | null {
-  if (!config.SYNESIS_YARN_REQUEST_FORENSICS_ENABLED) return null;
+  if (config.SYNESIS_YARN_REQUEST_FORENSICS_MODE === "off") return null;
   const previous = requestForensicsLastBySession.get(sessionKey);
   const built = buildRequestForensics({
     providerModel,
@@ -2801,7 +2801,7 @@ function captureRequestForensics(
     phasePolicy,
     capabilityMatrix,
     previous,
-    capturePayload: config.SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD,
+    capturePayload: config.SYNESIS_YARN_REQUEST_FORENSICS_MODE === "full",
     maxPreviewChars: config.SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS,
   });
   return built;
@@ -7122,10 +7122,10 @@ app.get("/v1/adapter-packs", async () => ({
 }));
 
 app.get("/v1/artifacts/:id", async (req, reply) => {
-  try {
-    await authResolver.resolve(req.headers.authorization);
-  } catch {
-    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  if (!requireInternalToken(req as never)) {
+    return reply.code(401).send({
+      error: { type: "auth_error", message: "Internal service token required" },
+    });
   }
   const id = (req.params as { id: string }).id;
   const artifact = artifactStore.get(id);
@@ -7158,7 +7158,7 @@ await registerToolCollapseRoutes(app, {
 });
 
 // --- Eval Gym routes ---
-registerEvalRoutes(app, config);
+registerEvalRoutes(app, config, { requireInternalToken });
 if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
   enableEvalObserver();
   console.log("[eval-observer] Session observer enabled via env");

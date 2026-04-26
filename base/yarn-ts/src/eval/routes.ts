@@ -4,7 +4,7 @@
  * and toggling the session observer.
  */
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "../config.js";
 import { runScenario, runScenarios } from "./scenario-runner.js";
 import { ALL_SCENARIOS, getScenariosByCategory, getScenarioById, listScenarios } from "./scenarios/index.js";
@@ -33,8 +33,18 @@ function normalizeBaseUrl(raw: string): string {
   return `${parsed.origin}${normalizedPath}`;
 }
 
-export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): void {
+export interface EvalRouteOptions {
+  requireInternalToken: (request: { headers: Record<string, unknown> }) => boolean;
+}
+
+export function registerEvalRoutes(app: FastifyInstance, config: AppConfig, opts: EvalRouteOptions): void {
   if (!config.SYNESIS_YARN_EVAL_API_ENABLED) return;
+
+  async function requireEvalAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (!opts.requireInternalToken(request as never)) {
+      reply.code(401).send({ error: { type: "auth_error", message: "Internal service token required" } });
+    }
+  }
 
   let configuredTargetUrl = "";
   let configuredAdminUrl = "";
@@ -52,14 +62,14 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): voi
   // -----------------------------------------------------------------------
   // GET /v1/eval/scenarios — list available scenarios
   // -----------------------------------------------------------------------
-  app.get("/v1/eval/scenarios", async () => {
+  app.get("/v1/eval/scenarios", { preHandler: requireEvalAuth }, async () => {
     return { scenarios: listScenarios(), total: ALL_SCENARIOS.length };
   });
 
   // -----------------------------------------------------------------------
   // POST /v1/eval/run — execute scenario(s)
   // -----------------------------------------------------------------------
-  app.post("/v1/eval/run", async (request) => {
+  app.post("/v1/eval/run", { preHandler: requireEvalAuth }, async (request) => {
     const body = request.body as {
       scenario_id?: string;
       category?: EvalCategory;
@@ -134,7 +144,7 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): voi
   // -----------------------------------------------------------------------
   // GET /v1/eval/results — query past results from session events
   // -----------------------------------------------------------------------
-  app.get("/v1/eval/results", async (request) => {
+  app.get("/v1/eval/results", { preHandler: requireEvalAuth }, async (request) => {
     const query = request.query as { session_key?: string; limit?: string };
     return {
       message: "Query past eval results from yarn_session_events using event_kind='scenario_eval_v1'",
@@ -147,7 +157,7 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): voi
   // -----------------------------------------------------------------------
   // POST /v1/eval/observe/start — enable session observer
   // -----------------------------------------------------------------------
-  app.post("/v1/eval/observe/start", async (request) => {
+  app.post("/v1/eval/observe/start", { preHandler: requireEvalAuth }, async (request) => {
     const body = request.body as { session_key_filter?: string[] } | null;
     enableObserver(body?.session_key_filter);
     return { status: "observer_enabled", config: getObserverConfig() };
@@ -156,7 +166,7 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): voi
   // -----------------------------------------------------------------------
   // POST /v1/eval/observe/stop — disable session observer
   // -----------------------------------------------------------------------
-  app.post("/v1/eval/observe/stop", async () => {
+  app.post("/v1/eval/observe/stop", { preHandler: requireEvalAuth }, async () => {
     disableObserver();
     return { status: "observer_disabled" };
   });
@@ -164,14 +174,14 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig): voi
   // -----------------------------------------------------------------------
   // GET /v1/eval/observe/status — check observer state
   // -----------------------------------------------------------------------
-  app.get("/v1/eval/observe/status", async () => {
+  app.get("/v1/eval/observe/status", { preHandler: requireEvalAuth }, async () => {
     return { config: getObserverConfig() };
   });
 
   // -----------------------------------------------------------------------
   // POST /v1/eval/export — materialize training data from scenario results
   // -----------------------------------------------------------------------
-  app.post("/v1/eval/export", async (request) => {
+  app.post("/v1/eval/export", { preHandler: requireEvalAuth }, async (request) => {
     const body = request.body as {
       results: unknown[];
       format: TrainingFormat;

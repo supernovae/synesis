@@ -133,6 +133,7 @@ spec:
             - name: SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS
               value: "30000"
             # ── Debug protocol ──
+            # Production note: keep this false outside targeted diagnostics; it logs bounded prompt/tool snippets.
             - name: SYNESIS_YARN_DEBUG_PROTOCOL
               value: "true"
             - name: SYNESIS_YARN_VERIFICATION_PLAN_ENABLED
@@ -162,8 +163,6 @@ spec:
               value: "true"
             - name: SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM
               value: "false"
-            - name: SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS
-              value: "100"
             - name: SYNESIS_YARN_DEDUPE_ENABLED
               value: "true"
             - name: SYNESIS_YARN_DEDUPE_CACHE_MAX
@@ -179,8 +178,6 @@ spec:
             # ── KV-cache optimization pipeline ──
             - name: SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED
               value: "true"
-            - name: SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED
-              value: "false"
             - name: SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED
               value: "true"
             - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED
@@ -195,7 +192,7 @@ spec:
               value: "lightweight"
             # ── Eval Gym: scenario runner, session observer, training data ──
             - name: SYNESIS_YARN_EVAL_API_ENABLED
-              value: "true"
+              value: "false"
             - name: SYNESIS_YARN_EVAL_OBSERVER_ENABLED
               value: "true"
             # ── OTEL (optional — no-op until endpoint is set) ──
