@@ -24,11 +24,18 @@ gives Synesis a path toward dense, sparse, and multi-vector retrieval.
 Build a Go pack from the bootstrap corpus:
 
 ```bash
-python -m app.cli --mode synpack --synpack-command build-go \
-  --sources bootstrap/corpus/lang-go.yaml \
+python -m app.cli --mode synpack --synpack-command build-language \
+  --language go \
   --pack-id go-latest \
+  --enrichment-url http://localhost:8000 \
   --output dist/synpacks/go-latest.synpack
 ```
+
+`build-go` remains a convenience alias for the Go config. The Go builder
+resolves the latest stable `goX.Y.Z` tag from `github.com/golang/go` unless
+`--latest-tag` or `--source-version` is provided. For local smoke tests, use
+`--max-chunks 25`; for offline/debug builds, use `--skip-enrichment` and
+`--source-dir <checkout>`.
 
 Validate and load:
 
@@ -53,6 +60,7 @@ Planner and MCP knowledge search now accept pack filters:
 - `package_name`
 - `symbol_kind`
 - `symbol_fqn`
+- `perf_tier`
 
 Example:
 
@@ -65,9 +73,17 @@ Example:
 }
 ```
 
+Schema v17 adds universal agentic enrichment fields to pack rows and retrieval
+results: `agent_hook`, `perf_tier`, `safety_contract`, `lifecycle_model`, and
+`agent_enrichment_json`. Go-specific details such as memory semantics,
+concurrency contracts, zero-value behavior, related interfaces, and hidden
+warnings are preserved inside `agent_enrichment_json`.
+
 ## Migration Notes
 
 Schema v16 changes the Milvus partition key from `authority` to `pack_id` and
 migrates the dense vector dimension from 384 to 1024. The indexer recreates the
 catalog on schema drift; existing queue/staged ingestion will repopulate global
 content with `pack_id="global"`.
+
+Schema v17 adds agentic enrichment columns for SynPack retrieval.

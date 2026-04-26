@@ -35,7 +35,7 @@ def test_validate_synpack_accepts_bge_m3_manifest(tmp_path: Path):
             "pack_version": "1.0.0",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dimensions": EMBEDDING_DIM,
-            "synesis_catalog_schema_version": 16,
+            "synesis_catalog_schema_version": 17,
         },
     )
 
@@ -53,7 +53,7 @@ def test_validate_synpack_rejects_dimension_mismatch(tmp_path: Path):
             "pack_id": "go-1.26",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dimensions": 384,
-            "synesis_catalog_schema_version": 16,
+            "synesis_catalog_schema_version": 17,
         },
     )
 

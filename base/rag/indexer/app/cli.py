@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument("--list-handlers", action="store_true", help="List available handler types")
     parser.add_argument(
         "--synpack-command",
-        choices=["validate", "load", "list", "search", "build-go"],
+        choices=["validate", "load", "list", "search", "build-go", "build-language"],
         default="validate",
         help="SynPack command when --mode synpack",
     )
@@ -85,6 +85,14 @@ def main() -> None:
     parser.add_argument("--pack-id", default="", help="SynPack id, e.g. go-1.26")
     parser.add_argument("--pack-version", default="1.0.0", help="SynPack artifact version")
     parser.add_argument("--source-version", default="", help="Upstream documentation/source version")
+    parser.add_argument("--language", default="", help="Language for build-language, e.g. go")
+    parser.add_argument("--pack-config", default="", help="Language pack config path")
+    parser.add_argument("--enrichment-url", default="", help="OpenAI-compatible enrichment base URL")
+    parser.add_argument("--enrichment-model", default="qwen3.6-35b-a3b", help="Enrichment model name")
+    parser.add_argument("--enrichment-concurrency", type=int, default=4, help="Max enrichment requests in flight")
+    parser.add_argument("--skip-enrichment", action="store_true", help="Use deterministic fallback enrichment")
+    parser.add_argument("--latest-tag", default="", help="Resolved upstream tag override, e.g. go1.26.2")
+    parser.add_argument("--source-dir", default="", help="Existing source checkout for language-pack build tests/debugging")
     parser.add_argument("--query", default="", help="Query for synpack search")
     parser.add_argument("--top-k", type=int, default=5, help="Top-k for synpack search")
     parser.add_argument("--replace", action="store_true", help="Replace existing rows for pack_id when loading")
@@ -249,22 +257,54 @@ def _run_synpack(args: argparse.Namespace) -> None:
         return
 
     if args.synpack_command == "build-go":
-        sources = args.sources or "bootstrap/corpus/lang-go.yaml"
+        from .language_pack import build_language_pack
+
         pack_id = args.pack_id or "go-latest"
         output = args.output or f"dist/synpacks/{pack_id}.synpack"
         print(
             json_dump(
-                build_pack_from_sources(
-                    sources,
-                    output,
+                build_language_pack(
+                    language="go",
+                    pack_config=args.pack_config,
+                    output_path=output,
                     pack_id=pack_id,
                     pack_version=args.pack_version,
                     source_version=args.source_version,
-                    language="go",
-                    domain="go",
-                    enrich_full=args.enrich == "full",
-                    llm_url=args.llm_url,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, args.enrichment_concurrency),
+                    skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "build-language":
+        from .language_pack import build_language_pack
+
+        language = (args.language or "go").lower()
+        pack_id = args.pack_id or f"{language}-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_language_pack(
+                    language=language,
+                    pack_config=args.pack_config,
+                    output_path=output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, args.enrichment_concurrency),
+                    skip_enrichment=args.skip_enrichment,
+                    embedder_url=args.embedder_url,
+                    source_dir=args.source_dir,
                     max_chunks=max(0, args.max_chunks),
                 )
             )

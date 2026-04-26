@@ -1,0 +1,20 @@
+language: go
+domain: go
+pack_id: go-latest
+repo: github.com/golang/go
+tag_strategy: latest_stable_go_semver
+prompt_id: go_agentic_architect_v1
+prompt_path: prompts/go_agentic_architect_v1.md
+include:
+  docs:
+    - doc
+    - api
+    - README.md
+    - CONTRIBUTING.md
+    - SECURITY.md
+  packages_root: src
+  exclude_dirs:
+    - cmd
+    - internal
+    - testdata
+    - vendor

@@ -51,6 +51,10 @@ const KNOWLEDGE_PARAMETERS = {
       type: "string",
       description: "Filter by fully-qualified symbol name",
     },
+    perf_tier: {
+      type: "string",
+      description: "Filter by agentic performance tier, such as io-bound or concurrency-sensitive",
+    },
     artifact_kind: {
       type: "string",
       description: "Filter by artifact type: code, docs, config, api_spec, architecture",
@@ -160,6 +164,11 @@ export interface KnowledgeSearchResult {
     symbol_fqn?: string;
     package_name?: string;
     doc_relation_ids?: string[];
+    agent_hook?: string;
+    perf_tier?: string;
+    safety_contract?: string;
+    lifecycle_model?: string;
+    agent_enrichment_json?: string;
     score: number;
     constraint_kind: string;
     corpus_class: string;

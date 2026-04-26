@@ -68,6 +68,9 @@ Version history:
             version/source plus symbol relationship metadata for versioned
             documentation artifacts. Non-pack/global ingestion writes pack_id
             "global".
+  v16 → v17: Agentic SynPack enrichment fields — adds universal agent-facing
+            hooks, performance tier, safety/lifecycle summaries, and a bounded
+            JSON payload for language-specific enrichment details.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -96,7 +99,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 1024
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -128,6 +131,12 @@ EXPECTED_FIELDS = frozenset(
         "package_name",
         "doc_relation_ids",
         "source_url",
+        # v17 — universal agentic enrichment metadata
+        "agent_hook",
+        "perf_tier",
+        "safety_contract",
+        "lifecycle_model",
+        "agent_enrichment_json",
         "scan_status",
         "content_format",
         "symbol_type",
@@ -229,6 +238,12 @@ CATALOG_FIELDS = [
     FieldSchema(name="package_name", dtype=DataType.VARCHAR, max_length=128),
     FieldSchema(name="doc_relation_ids", dtype=DataType.VARCHAR, max_length=1024),
     FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
+    # v17 — universal agentic enrichment metadata.
+    FieldSchema(name="agent_hook", dtype=DataType.VARCHAR, max_length=1024),
+    FieldSchema(name="perf_tier", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="safety_contract", dtype=DataType.VARCHAR, max_length=2048),
+    FieldSchema(name="lifecycle_model", dtype=DataType.VARCHAR, max_length=2048),
+    FieldSchema(name="agent_enrichment_json", dtype=DataType.VARCHAR, max_length=8192),
     # Injection scan status (index-time scanning; admin review queue)
     FieldSchema(name="scan_status", dtype=DataType.VARCHAR, max_length=16),
     # Format and structure (v7)
@@ -449,6 +464,12 @@ def catalog_entity(
     package_name: str = "",
     doc_relation_ids: str = "",
     source_url: str = "",
+    # v17 — universal agentic enrichment metadata
+    agent_hook: str = "",
+    perf_tier: str = "",
+    safety_contract: str = "",
+    lifecycle_model: str = "",
+    agent_enrichment_json: str = "",
     scan_status: str = "unscanned",
     content_format: str = "",
     symbol_type: str = "",
@@ -537,6 +558,11 @@ def catalog_entity(
         "package_name": _trunc_bytes(package_name or "", 128),
         "doc_relation_ids": _trunc_bytes(doc_relation_ids or "", 1024),
         "source_url": _trunc_bytes(source_url or "", 512),
+        "agent_hook": _trunc_bytes(agent_hook or "", 1024),
+        "perf_tier": _trunc_bytes(perf_tier or "", 64),
+        "safety_contract": _trunc_bytes(safety_contract or "", 2048),
+        "lifecycle_model": _trunc_bytes(lifecycle_model or "", 2048),
+        "agent_enrichment_json": _trunc_bytes(agent_enrichment_json or "", 8192),
         "scan_status": (scan_status or "unscanned")[:16],
         "content_format": (content_format or "")[:32],
         "symbol_type": (symbol_type or "")[:64],

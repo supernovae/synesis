@@ -199,6 +199,15 @@ def _row_to_entity(row: dict[str, Any], manifest: dict[str, Any], embedding: lis
             else str(base.get("doc_relation_ids", "") or "")
         ),
         source_url=source_url,
+        agent_hook=str(base.get("agent_hook", "") or ""),
+        perf_tier=str(base.get("perf_tier", "") or ""),
+        safety_contract=str(base.get("safety_contract", "") or ""),
+        lifecycle_model=str(base.get("lifecycle_model", "") or ""),
+        agent_enrichment_json=(
+            json.dumps(base.get("agent_enrichment_json", {}), sort_keys=True)
+            if isinstance(base.get("agent_enrichment_json"), dict)
+            else str(base.get("agent_enrichment_json", "") or "")
+        ),
         scan_status=str(base.get("scan_status", "clean") or "clean"),
         scan_signals=str(base.get("scan_signals", "") or ""),
         content_format=str(base.get("content_format", "") or ""),
@@ -320,6 +329,11 @@ def search_pack(
             "package_name",
             "symbol_kind",
             "symbol_fqn",
+            "agent_hook",
+            "perf_tier",
+            "safety_contract",
+            "lifecycle_model",
+            "agent_enrichment_json",
         ],
     )
     out: list[dict[str, Any]] = []

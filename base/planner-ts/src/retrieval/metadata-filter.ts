@@ -32,6 +32,7 @@ export interface MetadataFilterParams {
   symbol_kind?: string;
   symbol_fqn?: string;
   package_name?: string;
+  perf_tier?: string;
 }
 
 function esc(s: string): string {
@@ -76,6 +77,9 @@ export function buildMetadataFilter(params: MetadataFilterParams): string {
   }
   if (params.package_name) {
     clauses.push(`package_name == "${sanitize(params.package_name, 128)}"`);
+  }
+  if (params.perf_tier) {
+    clauses.push(`perf_tier == "${sanitize(params.perf_tier, 64)}"`);
   }
   if (params.artifact_kind) {
     clauses.push(`artifact_kind == "${sanitize(params.artifact_kind, 32)}"`);

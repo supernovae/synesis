@@ -111,7 +111,7 @@ All of the following run in Kubernetes unless you are doing local YAML mode. **N
 |-----------------|-----------|--------------|------------------|
 | Admin API + PostgreSQL | `synesis-admin` | Indexer CronJob | Queue claim, status, run telemetry, `schema-sync`, optional **reset-catalog** |
 | **Indexer** | `synesis-rag` | — | Orchestrates handlers → `pipeline.py` → Milvus upsert |
-| **Milvus** | `synesis-rag` | Indexer | `synesis_catalog` collection (schema **v16**) |
+| **Milvus** | `synesis-rag` | Indexer | `synesis_catalog` collection (schema **v17**) |
 | **embedder** (TEI) | `synesis-rag` | Indexer | `POST /v1/embeddings` for chunk vectors |
 | **preprocess-service** | `synesis-rag` | Indexer (optional) | `simhash64` + optional `html_document` jusText clean; ClusterIP + NetworkPolicy (indexer pods only) |
 | **spam-service** | `synesis-rag` | Indexer (optional) | `spam_score` per chunk; ClusterIP + NetworkPolicy (indexer pods only) |
@@ -226,7 +226,7 @@ base/rag/indexer/
 │   ├── cli.py              # CLI entrypoint (--mode queue | --mode yaml)
 │   ├── queue_runner.py     # Queue client: claim, process, report, schema-sync
 │   ├── pipeline.py         # fetch → chunk+gate → gatekeeper → simhash/spam → enrich → embed → scan → upsert
-│   ├── schema.py           # Milvus collection schema v16 (synesis_catalog)
+│   ├── schema.py           # Milvus collection schema v17 (synesis_catalog)
 │   ├── gatekeeper.py       # Optional document-level LLM labels (structured JSON)
 │   ├── preprocess_client.py # Optional preprocess-service: simhash, jusText HTML clean
 │   ├── spam_client.py      # Optional spam-service: P(spam) per chunk
@@ -458,7 +458,7 @@ Items enter the queue as `pending`. Run the indexer to process them:
 
 ## Schema (synesis_catalog)
 
-Single Milvus collection with `pack_id` as partition key and HNSW index on embeddings. Current schema version: **v16** (defined in `base/rag/indexer/app/schema.py`).
+Single Milvus collection with `pack_id` as partition key and HNSW index on embeddings. Current schema version: **v17** (defined in `base/rag/indexer/app/schema.py`).
 
 #### Core fields
 
@@ -488,6 +488,7 @@ Single Milvus collection with `pack_id` as partition key and HNSW index on embed
 | `pack_id` | VARCHAR(96) | v16 partition key; `global` for ordinary ingestion |
 | `pack_version` | VARCHAR(64) | SynPack artifact version |
 | `package_name` / `symbol_kind` / `symbol_fqn` | VARCHAR | Pack-level code/doc structure metadata |
+| `agent_hook` / `perf_tier` / `safety_contract` / `lifecycle_model` / `agent_enrichment_json` | VARCHAR | v17 universal agentic SynPack enrichment metadata |
 | `embedding` | FLOAT_VECTOR(1024) | BAAI/bge-m3 dense embedding |
 | `sparse_text` | SPARSE_FLOAT_VECTOR | BM25 auto-populated from `text` via Milvus Function |
 
@@ -567,7 +568,7 @@ Design notes: [docs/plans/semantic_rag_ingestion_v9.md](plans/semantic_rag_inges
 
 ### Schema version
 
-Current Milvus schema: **v16** (defined in `base/rag/indexer/app/schema.py`). **Planner-ts** retrieval (`base/planner-ts/src/retrieval/rag-client.ts` `OUTPUT_FIELDS`) and **admin** (`base/admin/app/services/milvus_service.py` `recreate_synesis_catalog_v12`) must stay aligned.
+Current Milvus schema: **v17** (defined in `base/rag/indexer/app/schema.py`). **Planner-ts** retrieval (`base/planner-ts/src/retrieval/rag-client.ts` `OUTPUT_FIELDS`) and **admin** (`base/admin/app/services/milvus_service.py` `recreate_synesis_catalog_v12`) must stay aligned.
 
 To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, update `EXPECTED_FIELDS`, `CATALOG_FIELDS`, and `catalog_entity()`. Mirror the same fields in planner-ts `rag-client.ts` and admin `milvus_service.py`. On next indexer run, the collection is automatically dropped, recreated, and ingestion items are reset via schema-sync (or use manual reset above).
 

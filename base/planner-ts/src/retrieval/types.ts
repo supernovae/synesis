@@ -14,6 +14,11 @@ export interface UnifiedResult {
   symbol_fqn?: string;
   package_name?: string;
   doc_relation_ids?: string;
+  agent_hook?: string;
+  perf_tier?: string;
+  safety_contract?: string;
+  lifecycle_model?: string;
+  agent_enrichment_json?: string;
   origin_type?: string;
   heading_path?: string;
   document_name?: string;
@@ -120,6 +125,11 @@ export interface RagResult {
   symbol_fqn?: string;
   package_name?: string;
   doc_relation_ids?: string;
+  agent_hook?: string;
+  perf_tier?: string;
+  safety_contract?: string;
+  lifecycle_model?: string;
+  agent_enrichment_json?: string;
   domain: string;
   source_url: string;
   heading_path: string;
@@ -174,6 +184,7 @@ export interface KnowledgeSearchRequest {
   symbol_kind?: string;
   symbol_fqn?: string;
   package_name?: string;
+  perf_tier?: string;
   language?: string;
   artifact_kind?: string;
   domain?: string;
@@ -205,6 +216,11 @@ export interface KnowledgeResult {
   symbol_fqn?: string;
   package_name?: string;
   doc_relation_ids?: string[];
+  agent_hook?: string;
+  perf_tier?: string;
+  safety_contract?: string;
+  lifecycle_model?: string;
+  agent_enrichment_json?: string;
   origin_type: string;
   domain: string;
   language: string;

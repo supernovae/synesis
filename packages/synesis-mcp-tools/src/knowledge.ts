@@ -61,6 +61,9 @@ function buildSearchBody(
   const packageName = optionalString(args.package_name);
   if (packageName !== undefined) body.package_name = packageName;
 
+  const perfTier = optionalString(args.perf_tier);
+  if (perfTier !== undefined) body.perf_tier = perfTier;
+
   const lang = optionalString(args.language);
   if (lang !== undefined) body.language = lang;
 

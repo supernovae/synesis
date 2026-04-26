@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.schema import EMBEDDING_DIM, EXPECTED_FIELDS, SCHEMA_VERSION, catalog_entity
 
 
-class TestSchemaV16TenancyFields:
-    def test_version_is_16(self):
-        assert SCHEMA_VERSION == 16
+class TestSchemaV17TenancyFields:
+    def test_version_is_17(self):
+        assert SCHEMA_VERSION == 17
 
     def test_expected_fields_include_scope(self):
         assert "visibility_scope" in EXPECTED_FIELDS
@@ -33,6 +33,11 @@ class TestSchemaV16TenancyFields:
         assert "pack_id" in EXPECTED_FIELDS
         assert "pack_version" in EXPECTED_FIELDS
         assert "package_name" in EXPECTED_FIELDS
+        assert "agent_hook" in EXPECTED_FIELDS
+        assert "perf_tier" in EXPECTED_FIELDS
+        assert "safety_contract" in EXPECTED_FIELDS
+        assert "lifecycle_model" in EXPECTED_FIELDS
+        assert "agent_enrichment_json" in EXPECTED_FIELDS
 
     def test_catalog_entity_defaults_to_global(self):
         entity = catalog_entity(
@@ -49,6 +54,11 @@ class TestSchemaV16TenancyFields:
         assert entity["conversation_id"] == ""
         assert entity["is_ephemeral"] is False
         assert entity["expires_at_epoch"] == 0
+        assert entity["agent_hook"] == ""
+        assert entity["perf_tier"] == ""
+        assert entity["safety_contract"] == ""
+        assert entity["lifecycle_model"] == ""
+        assert entity["agent_enrichment_json"] == ""
 
     def test_catalog_entity_org_scope(self):
         entity = catalog_entity(

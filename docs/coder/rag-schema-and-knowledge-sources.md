@@ -84,6 +84,14 @@ New columns: `pack_id`, `pack_version`, `pack_source_version`,
 `package_name`, and `doc_relation_ids`. Dense embeddings are now 1024-dimensional
 `BAAI/bge-m3` vectors.
 
+## Schema v17 — Agentic SynPack Enrichment
+
+Schema v17 adds universal agent-facing enrichment fields for managed packs:
+`agent_hook`, `perf_tier`, `safety_contract`, `lifecycle_model`, and
+`agent_enrichment_json`. Language-specific details remain in the JSON payload;
+the Go pack stores memory semantics, concurrency contracts, idiomatic version
+scope, zero-value behavior, related interfaces, and hidden warnings there.
+
 ## Knowledge Source Model
 
 - **Backstage/Developer Hub**: first-class source for templates, pipelines, and platform standards. Linked via `golden_path_id`.

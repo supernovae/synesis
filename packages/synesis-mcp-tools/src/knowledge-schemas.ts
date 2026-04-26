@@ -11,6 +11,7 @@ export const knowledgeSearchInputSchema = z.object({
   symbol_kind: z.string().optional(),
   symbol_fqn: z.string().optional(),
   package_name: z.string().optional(),
+  perf_tier: z.string().optional(),
   language: z.string().optional(),
   artifact_kind: z.enum(["code", "docs", "config", "api_spec"]).optional(),
   domain: z.string().optional(),
