@@ -26,6 +26,31 @@ const KNOWLEDGE_PARAMETERS = {
       type: "string",
       description: "Filter by programming language (e.g. python, typescript, go, rust)",
     },
+    pack_id: {
+      type: "string",
+      description: "Filter by installed SynPack id (e.g. go-1.26, python-3.13)",
+    },
+    pack_version: {
+      type: "string",
+      description: "Filter by SynPack artifact version",
+    },
+    pack_ids: {
+      type: "array",
+      items: { type: "string" },
+      description: "Filter by one or more installed SynPack ids",
+    },
+    package_name: {
+      type: "string",
+      description: "Filter by package/module name, such as net/http or fmt",
+    },
+    symbol_kind: {
+      type: "string",
+      description: "Filter by symbol kind, such as package, type, function, method, or example",
+    },
+    symbol_fqn: {
+      type: "string",
+      description: "Filter by fully-qualified symbol name",
+    },
     artifact_kind: {
       type: "string",
       description: "Filter by artifact type: code, docs, config, api_spec, architecture",
@@ -94,6 +119,10 @@ const DEV_DOCS_PARAMETERS = {
       type: "string",
       description: "Filter by programming language or framework (e.g., python, react, go)",
     },
+    pack_id: {
+      type: "string",
+      description: "Filter by installed SynPack id (e.g. go-1.26, python-3.13)",
+    },
     top_k: {
       type: "integer",
       description: "Number of results to return (default 5, max 20)",
@@ -123,6 +152,14 @@ export interface KnowledgeSearchResult {
     source_url: string;
     document_name: string;
     authority: string;
+    pack_id?: string;
+    pack_version?: string;
+    pack_source_version?: string;
+    pack_partition?: string;
+    symbol_kind?: string;
+    symbol_fqn?: string;
+    package_name?: string;
+    doc_relation_ids?: string[];
     score: number;
     constraint_kind: string;
     corpus_class: string;

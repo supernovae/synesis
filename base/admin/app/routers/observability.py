@@ -541,7 +541,7 @@ async def _embed_query(text: str) -> list[float] | None:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{_EMBEDDER_URL.rstrip('/')}/v1/embeddings",
-                json={"input": [text[:2048]], "model": "sentence-transformers/all-MiniLM-L6-v2"},
+                json={"input": [text[:2048]], "model": "BAAI/bge-m3"},
             )
             resp.raise_for_status()
             data = resp.json()

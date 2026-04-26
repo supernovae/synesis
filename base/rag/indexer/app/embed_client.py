@@ -14,7 +14,7 @@ EMBEDDER_URL = "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
 class EmbedClient(_SharedEmbedClient):
     """Indexer-flavored embed client with default URL."""
 
-    def __init__(self, url: str = EMBEDDER_URL, model: str = "sentence-transformers/all-MiniLM-L6-v2", **kwargs):
+    def __init__(self, url: str = EMBEDDER_URL, model: str = "BAAI/bge-m3", **kwargs):
         super().__init__(url=url, model=model, **kwargs)
 
 

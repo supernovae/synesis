@@ -4,6 +4,13 @@ import * as z from "zod/v4";
 export const knowledgeSearchInputSchema = z.object({
   query: z.string(),
   top_k: z.number().optional(),
+  pack_id: z.string().optional(),
+  pack_ids: z.array(z.string()).optional(),
+  pack_version: z.string().optional(),
+  pack_partition: z.string().optional(),
+  symbol_kind: z.string().optional(),
+  symbol_fqn: z.string().optional(),
+  package_name: z.string().optional(),
   language: z.string().optional(),
   artifact_kind: z.enum(["code", "docs", "config", "api_spec"]).optional(),
   domain: z.string().optional(),

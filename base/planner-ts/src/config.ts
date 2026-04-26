@@ -166,7 +166,7 @@ const EnvSchema = z.object({
   SYNESIS_MILVUS_HOST: z.string().default("synesis-milvus.synesis-rag.svc.cluster.local"),
   SYNESIS_MILVUS_PORT: z.coerce.number().default(19530),
   SYNESIS_EMBEDDER_URL: z.string().default(""),
-  SYNESIS_EMBEDDER_MODEL: z.string().default("sentence-transformers/all-MiniLM-L6-v2"),
+  SYNESIS_EMBEDDER_MODEL: z.string().default("BAAI/bge-m3"),
   SYNESIS_BGE_RERANKER_URL: z.string().default(""),
   SYNESIS_RAG_TOP_K: z.coerce.number().default(5),
   SYNESIS_RAG_RETRIEVAL_STRATEGY: z

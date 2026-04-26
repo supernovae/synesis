@@ -23,7 +23,7 @@ spec:
         - name: embedder
           image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
           args:
-            - --model-id=sentence-transformers/all-MiniLM-L6-v2
+            - --model-id=BAAI/bge-m3
             - --port=8080
             - --max-concurrent-requests=128
             - --max-client-batch-size=32
@@ -46,11 +46,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: "1"
-              memory: 1Gi
-            limits:
-              cpu: "4"
+              cpu: "2"
               memory: 4Gi
+            limits:
+              cpu: "8"
+              memory: 12Gi
           readinessProbe:
             httpGet:
               path: /health
@@ -80,7 +80,7 @@ spec:
       volumes:
         - name: model-cache
           emptyDir:
-            sizeLimit: 2Gi
+            sizeLimit: 8Gi
         - name: tmp
           emptyDir:
             sizeLimit: 100Mi

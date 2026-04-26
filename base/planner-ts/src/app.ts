@@ -918,6 +918,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const topK = Math.min(Math.max(Number(body?.top_k) || 5, 1), 50);
 
     const metaParams: import("./retrieval/metadata-filter.js").MetadataFilterParams = {
+      pack_id: body?.pack_id ? String(body.pack_id) : undefined,
+      pack_ids: Array.isArray(body?.pack_ids) ? (body.pack_ids as string[]) : undefined,
+      pack_version: body?.pack_version ? String(body.pack_version) : undefined,
+      pack_partition: body?.pack_partition ? String(body.pack_partition) : undefined,
+      symbol_kind: body?.symbol_kind ? String(body.symbol_kind) : undefined,
+      symbol_fqn: body?.symbol_fqn ? String(body.symbol_fqn) : undefined,
+      package_name: body?.package_name ? String(body.package_name) : undefined,
       language: body?.language ? String(body.language) : undefined,
       artifact_kind: body?.artifact_kind ? String(body.artifact_kind) : undefined,
       domain: body?.domain ? String(body.domain) : undefined,
@@ -959,6 +966,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
           source_url: r.source_url,
           document_name: r.document_name,
           authority: r.authority,
+          pack_id: r.pack_id ?? "global",
+          pack_version: r.pack_version ?? "",
+          pack_source_version: r.pack_source_version ?? "",
+          pack_partition: r.pack_partition ?? "",
+          symbol_kind: r.symbol_kind ?? "",
+          symbol_fqn: r.symbol_fqn ?? "",
+          package_name: r.package_name ?? "",
+          doc_relation_ids: r.doc_relation_ids ? r.doc_relation_ids.split(",").map((s) => s.trim()).filter(Boolean) : [],
           origin_type: r.origin_type,
           domain: r.domain,
           language: r.language ?? "",

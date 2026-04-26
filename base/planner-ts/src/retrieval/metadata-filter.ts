@@ -25,6 +25,13 @@ export interface MetadataFilterParams {
   content_format?: string;
   repo_path?: string;
   has_code?: boolean;
+  pack_id?: string;
+  pack_ids?: string[];
+  pack_version?: string;
+  pack_partition?: string;
+  symbol_kind?: string;
+  symbol_fqn?: string;
+  package_name?: string;
 }
 
 function esc(s: string): string {
@@ -35,11 +42,40 @@ function sanitize(s: string, maxLen = 64): string {
   return esc(s.trim().toLowerCase()).slice(0, maxLen);
 }
 
+function sanitizePackId(s: string): string {
+  return esc(s.trim().toLowerCase().replace(/[./\s]+/g, "-").replace(/[^a-z0-9_-]/g, "")).slice(0, 96);
+}
+
 export function buildMetadataFilter(params: MetadataFilterParams): string {
   const clauses: string[] = [];
 
   if (params.language) {
     clauses.push(`language == "${sanitize(params.language, 32)}"`);
+  }
+  if (params.pack_id) {
+    clauses.push(`pack_id == "${sanitizePackId(params.pack_id)}"`);
+  } else if (params.pack_ids?.length) {
+    const ids = params.pack_ids.map((id) => sanitizePackId(id)).filter(Boolean).slice(0, 20);
+    if (ids.length === 1) {
+      clauses.push(`pack_id == "${ids[0]}"`);
+    } else if (ids.length > 1) {
+      clauses.push(`pack_id in [${ids.map((id) => `"${id}"`).join(", ")}]`);
+    }
+  }
+  if (params.pack_version) {
+    clauses.push(`pack_version == "${sanitize(params.pack_version, 64)}"`);
+  }
+  if (params.pack_partition) {
+    clauses.push(`pack_partition == "${sanitize(params.pack_partition, 96)}"`);
+  }
+  if (params.symbol_kind) {
+    clauses.push(`symbol_kind == "${sanitize(params.symbol_kind, 64)}"`);
+  }
+  if (params.symbol_fqn) {
+    clauses.push(`symbol_fqn == "${sanitize(params.symbol_fqn, 256)}"`);
+  }
+  if (params.package_name) {
+    clauses.push(`package_name == "${sanitize(params.package_name, 128)}"`);
   }
   if (params.artifact_kind) {
     clauses.push(`artifact_kind == "${sanitize(params.artifact_kind, 32)}"`);

@@ -72,6 +72,18 @@ Any schema extension must update:
 6. **Documentation** — this file, `implementation-phases.md`
 7. **Backfill** — re-index existing corpus to populate new columns
 
+## Schema v16 — Managed Doc Packs
+
+Schema v16 adds model-aware SynPack support and moves the Milvus partition key
+from `authority` to `pack_id`. Existing/global ingestion writes `pack_id="global"`;
+managed language/framework packs write stable ids such as `go-latest` or
+`rust-1.90`.
+
+New columns: `pack_id`, `pack_version`, `pack_source_version`,
+`pack_artifact_hash`, `pack_partition`, `symbol_kind`, `symbol_fqn`,
+`package_name`, and `doc_relation_ids`. Dense embeddings are now 1024-dimensional
+`BAAI/bge-m3` vectors.
+
 ## Knowledge Source Model
 
 - **Backstage/Developer Hub**: first-class source for templates, pipelines, and platform standards. Linked via `golden_path_id`.

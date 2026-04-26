@@ -17,7 +17,7 @@ Transform the user's natural language query into effective retrieval queries. A 
 Fetch candidate passages from the vector store. Hybrid retrieval (vector + keyword) outperforms either alone for technical content.
 
 **Concrete implementation**:
-- **Vector search**: Embed the query with the same model used for indexing (e.g., all-MiniLM-L6-v2, 384-dim). Retrieve top-20 candidates with cosine similarity.
+- **Vector search**: Embed the query with the same model used for indexing (default `BAAI/bge-m3`, 1024-dim). Retrieve top-20 candidates with cosine similarity.
 - **BM25 keyword search**: Run a parallel BM25 query against the same corpus. Retrieve top-20 candidates.
 - **Reciprocal Rank Fusion (RRF)**: Merge the two result sets using RRF with k=60. This is robust to score distribution differences between vector and keyword search.
 

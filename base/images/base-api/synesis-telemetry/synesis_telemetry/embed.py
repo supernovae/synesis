@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("synesis.embed_client")
 
 DEFAULT_BATCH_SIZE = 32
-DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+DEFAULT_MODEL = "BAAI/bge-m3"
 
 
 def _normalize(arr: np.ndarray) -> np.ndarray:

@@ -13,7 +13,7 @@ from ..milvus_utils import with_retry
 
 logger = logging.getLogger("synesis.admin.milvus")
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 def expected_milvus_schema_version() -> int:
@@ -31,7 +31,7 @@ def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[st
 
     Function name kept as ``_v12`` for backward compatibility with callers.
     """
-    embedding_dim = 384
+    embedding_dim = 1024
     fields = [
         FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
         FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
@@ -54,7 +54,16 @@ def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[st
         FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
         FieldSchema(name="keywords", dtype=DataType.VARCHAR, max_length=512),
         FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
-        FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32, is_partition_key=True),
+        FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="pack_id", dtype=DataType.VARCHAR, max_length=96, is_partition_key=True),
+        FieldSchema(name="pack_version", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="pack_source_version", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="pack_artifact_hash", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="pack_partition", dtype=DataType.VARCHAR, max_length=96),
+        FieldSchema(name="symbol_kind", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="symbol_fqn", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="package_name", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="doc_relation_ids", dtype=DataType.VARCHAR, max_length=1024),
         FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
         FieldSchema(name="scan_status", dtype=DataType.VARCHAR, max_length=16),
         FieldSchema(name="content_format", dtype=DataType.VARCHAR, max_length=32),

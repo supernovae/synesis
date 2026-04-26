@@ -20,7 +20,7 @@ The full `./scripts/deploy.sh dev` also installs the RAG stack as part of the ov
 | Component | Purpose |
 |-----------|---------|
 | **milvus-operator.yaml** | Milvus Operator CR — standalone mode, etcd on efs-sc, Service `synesis-milvus` on port 19530 |
-| **embedder/** | TEI (sentence-transformers/all-MiniLM-L6-v2) for indexer and planner |
+| **embedder/** | TEI (BAAI/bge-m3) for indexer, planner, and SynPack search |
 | **indexer/** | Unified config-driven indexer with handler plugins — all sources write to `synesis_catalog` |
 
 ## Architecture
@@ -44,7 +44,8 @@ Every chunk in `synesis_catalog` carries provenance metadata:
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| `authority` | Trust tier (partition key): canonical, vetted, community, external | `canonical` (internal ADRs) |
+| `authority` | Trust tier: canonical, vetted, community, external | `canonical` (internal ADRs) |
+| `pack_id` | Milvus partition key; `global` for ordinary ingestion, pack id for SynPacks | `go-latest` |
 | `origin_type` | Source category: internal, external, curated | `internal` |
 | `source_url` | URL for citation | `https://github.com/org/repo` |
 | `document_name` | Source document name for citation | `vLLM Deployment Guide` |

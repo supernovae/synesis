@@ -39,6 +39,28 @@ function buildSearchBody(
   const topK = optionalNumber(args.top_k);
   if (topK !== undefined) body.top_k = topK;
 
+  const packId = optionalString(args.pack_id);
+  if (packId !== undefined) body.pack_id = packId;
+
+  if (Array.isArray(args.pack_ids) && args.pack_ids.length > 0) {
+    body.pack_ids = args.pack_ids.map((v) => String(v)).filter((v) => v.trim());
+  }
+
+  const packVersion = optionalString(args.pack_version);
+  if (packVersion !== undefined) body.pack_version = packVersion;
+
+  const packPartition = optionalString(args.pack_partition);
+  if (packPartition !== undefined) body.pack_partition = packPartition;
+
+  const symbolKind = optionalString(args.symbol_kind);
+  if (symbolKind !== undefined) body.symbol_kind = symbolKind;
+
+  const symbolFqn = optionalString(args.symbol_fqn);
+  if (symbolFqn !== undefined) body.symbol_fqn = symbolFqn;
+
+  const packageName = optionalString(args.package_name);
+  if (packageName !== undefined) body.package_name = packageName;
+
   const lang = optionalString(args.language);
   if (lang !== undefined) body.language = lang;
 

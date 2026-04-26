@@ -128,6 +128,11 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     upload_mode = item.get("effective_upload_mode") or item.get("upload_mode") or ""
     is_ephemeral = bool(item.get("effective_is_ephemeral") or item.get("is_ephemeral") or False)
     expires_at_epoch = int(item.get("effective_expires_at_epoch") or item.get("expires_at_epoch") or 0)
+    pack_id = item.get("effective_pack_id") or item.get("pack_id") or "global"
+    pack_version = item.get("effective_pack_version") or item.get("pack_version") or ""
+    pack_source_version = item.get("effective_pack_source_version") or item.get("pack_source_version") or ""
+    pack_artifact_hash = item.get("effective_pack_artifact_hash") or item.get("pack_artifact_hash") or ""
+    pack_partition = item.get("effective_pack_partition") or item.get("pack_partition") or pack_id
 
     uri = item.get("uri", "")
     if "url" not in config and uri:
@@ -171,6 +176,11 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
         "artifact_kind": artifact_kind,
         "corpus_class": corpus_class,
         "content_profile": content_profile,
+        "pack_id": pack_id,
+        "pack_version": pack_version,
+        "pack_source_version": pack_source_version,
+        "pack_artifact_hash": pack_artifact_hash,
+        "pack_partition": pack_partition,
         "visibility_scope": visibility_scope,
         "org_id": org_id,
         "tenant_id": tenant_id,

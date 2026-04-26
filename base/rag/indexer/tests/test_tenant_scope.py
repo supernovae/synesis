@@ -8,12 +8,19 @@ Validates that:
 
 from __future__ import annotations
 
-from app.schema import EXPECTED_FIELDS, SCHEMA_VERSION, catalog_entity
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT / "base" / "images" / "base-api" / "synesis-telemetry"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.schema import EMBEDDING_DIM, EXPECTED_FIELDS, SCHEMA_VERSION, catalog_entity
 
 
-class TestSchemaV12TenancyFields:
-    def test_version_is_12(self):
-        assert SCHEMA_VERSION == 12
+class TestSchemaV16TenancyFields:
+    def test_version_is_16(self):
+        assert SCHEMA_VERSION == 16
 
     def test_expected_fields_include_scope(self):
         assert "visibility_scope" in EXPECTED_FIELDS
@@ -23,13 +30,18 @@ class TestSchemaV12TenancyFields:
         assert "conversation_id" in EXPECTED_FIELDS
         assert "is_ephemeral" in EXPECTED_FIELDS
         assert "expires_at_epoch" in EXPECTED_FIELDS
+        assert "pack_id" in EXPECTED_FIELDS
+        assert "pack_version" in EXPECTED_FIELDS
+        assert "package_name" in EXPECTED_FIELDS
 
     def test_catalog_entity_defaults_to_global(self):
         entity = catalog_entity(
             chunk_id="c1",
             text="test",
-            embedding=[0.0] * 384,
+            embedding=[0.0] * EMBEDDING_DIM,
         )
+        assert entity["pack_id"] == "global"
+        assert entity["pack_partition"] == "global"
         assert entity["visibility_scope"] == "global"
         assert entity["org_id"] == ""
         assert entity["tenant_id"] == ""
@@ -42,7 +54,7 @@ class TestSchemaV12TenancyFields:
         entity = catalog_entity(
             chunk_id="c2",
             text="org content",
-            embedding=[0.0] * 384,
+            embedding=[0.0] * EMBEDDING_DIM,
             visibility_scope="org",
             org_id="acme",
         )
@@ -53,7 +65,7 @@ class TestSchemaV12TenancyFields:
         entity = catalog_entity(
             chunk_id="c3",
             text="tenant content",
-            embedding=[0.0] * 384,
+            embedding=[0.0] * EMBEDDING_DIM,
             visibility_scope="tenant",
             org_id="acme",
             tenant_id="proj-1",
@@ -66,7 +78,7 @@ class TestSchemaV12TenancyFields:
         entity = catalog_entity(
             chunk_id="c4",
             text="test",
-            embedding=[0.0] * 384,
+            embedding=[0.0] * EMBEDDING_DIM,
             visibility_scope="x" * 100,
             org_id="o" * 200,
             tenant_id="t" * 200,
@@ -170,6 +182,7 @@ class TestQueueRunnerScopeConfig:
         item = {"uri": "https://example.com"}
         cfg = _build_source_config(item)
         assert cfg["visibility_scope"] == "global"
+        assert cfg["pack_id"] == "global"
         assert cfg["org_id"] == ""
         assert cfg["tenant_id"] == ""
 

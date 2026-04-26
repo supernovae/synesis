@@ -15,6 +15,12 @@ describe("buildMetadataFilter", () => {
     expect(expr).toBe('language == "python"');
   });
 
+  it("builds pack filters (v16)", () => {
+    const expr = buildMetadataFilter({ pack_ids: ["Go 1.26", "python-3.13"], package_name: "net/http" });
+    expect(expr).toContain('pack_id in ["go-1-26", "python-3-13"]');
+    expect(expr).toContain('package_name == "net/http"');
+  });
+
   it("builds single artifact_kind filter", () => {
     const expr = buildMetadataFilter({ artifact_kind: "code" });
     expect(expr).toBe('artifact_kind == "code"');

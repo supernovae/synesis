@@ -168,6 +168,11 @@ def index_parsed_chunk_pairs(
     domain = source_config.get("domain", "generalist")
     tags_list = source_config.get("config", {}).get("tags", [])
     tags_str = ",".join(str(t) for t in tags_list)
+    src_pack_id = str(source_config.get("pack_id", "global") or "global").strip()
+    src_pack_version = str(source_config.get("pack_version", "") or "").strip()
+    src_pack_source_version = str(source_config.get("pack_source_version", "") or "").strip()
+    src_pack_artifact_hash = str(source_config.get("pack_artifact_hash", "") or "").strip()
+    src_pack_partition = str(source_config.get("pack_partition", "") or "").strip() or src_pack_id
     src_visibility_scope = source_config.get("visibility_scope", "global")
     src_org_id = source_config.get("org_id", "")
     src_tenant_id = source_config.get("tenant_id", "")
@@ -196,13 +201,6 @@ def index_parsed_chunk_pairs(
     src_golden_path_id = str(source_config.get("golden_path_id", "") or "").strip()
     src_novel_pattern = bool(source_config.get("novel_pattern", False))
     src_novel_trace_level = str(source_config.get("novel_trace_level", "none") or "none").strip().lower()
-
-    try:
-        handler = get_handler(handler_type or "html_document")
-    except ValueError:
-        source_type = source_type_override or "docs"
-    else:
-        source_type = source_type_override or handler.source_type
 
     if src_corpus_class and src_corpus_class not in {"coder_enriched", "general", "hybrid"}:
         logger.warning(
@@ -317,6 +315,13 @@ def index_parsed_chunk_pairs(
         )
         progress.log_error(name, f"acl_mode={src_acl_mode} requires acl_groups")
         return 0, fetch_meta
+
+    try:
+        handler = get_handler(handler_type or "html_document")
+    except ValueError:
+        source_type = source_type_override or "docs"
+    else:
+        source_type = source_type_override or handler.source_type
 
     parsed_count = len(parsed_pairs)
     fetch_meta["semantic_contract"] = {
@@ -563,6 +568,28 @@ def index_parsed_chunk_pairs(
         repo_path = doc.metadata.get("repo", "") or doc.metadata.get("repo_path", "")
         module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
         symbol_name = chunk.metadata.get("symbol_name", "")
+        pack_id = str(chunk.metadata.get("pack_id", "") or doc.metadata.get("pack_id", "") or src_pack_id or "global")
+        pack_version = str(chunk.metadata.get("pack_version", "") or doc.metadata.get("pack_version", "") or src_pack_version)
+        pack_source_version = str(
+            chunk.metadata.get("pack_source_version", "")
+            or doc.metadata.get("pack_source_version", "")
+            or src_pack_source_version
+        )
+        pack_artifact_hash = str(
+            chunk.metadata.get("pack_artifact_hash", "")
+            or doc.metadata.get("pack_artifact_hash", "")
+            or src_pack_artifact_hash
+        )
+        pack_partition = str(
+            chunk.metadata.get("pack_partition", "") or doc.metadata.get("pack_partition", "") or src_pack_partition or pack_id
+        )
+        symbol_kind = str(chunk.metadata.get("symbol_kind", "") or chunk.metadata.get("symbol_type", "") or "")
+        symbol_fqn = str(chunk.metadata.get("symbol_fqn", "") or "")
+        package_name = str(chunk.metadata.get("package_name", "") or doc.metadata.get("package_name", "") or "")
+        doc_relation_ids = chunk.metadata.get("doc_relation_ids", "") or doc.metadata.get("doc_relation_ids", "")
+        if isinstance(doc_relation_ids, list):
+            doc_relation_ids = ",".join(str(x) for x in doc_relation_ids if str(x).strip())
+        doc_relation_ids = str(doc_relation_ids)
         artifact_kind = src_artifact_kind or _infer_artifact_kind(handler_type, content_format, language)
         has_code, code_signal_count, code_density = _code_chunk_metrics(chunk.text)
         code_language = str(language or content_format or "").strip().lower() if has_code else ""
@@ -615,6 +642,15 @@ def index_parsed_chunk_pairs(
                 keywords=chunk_keywords,
                 origin_type=origin_type,
                 authority=chunk_authority,
+                pack_id=pack_id,
+                pack_version=pack_version,
+                pack_source_version=pack_source_version,
+                pack_artifact_hash=pack_artifact_hash,
+                pack_partition=pack_partition,
+                symbol_kind=symbol_kind,
+                symbol_fqn=symbol_fqn,
+                package_name=package_name,
+                doc_relation_ids=doc_relation_ids,
                 source_url=chunk_source_url,
                 scan_status=chunk_scan,
                 scan_signals=chunk_scan_signals,

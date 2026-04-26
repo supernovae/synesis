@@ -154,7 +154,7 @@ def main() -> int:
 
             r = httpx.post(
                 f"{embedder_url}/embeddings",
-                json={"input": ["deployment configuration"], "model": "sentence-transformers/all-MiniLM-L6-v2"},
+                json={"input": ["deployment configuration"], "model": "BAAI/bge-m3"},
                 timeout=10,
             )
             r.raise_for_status()

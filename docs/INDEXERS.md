@@ -1,6 +1,6 @@
 # Synesis RAG Indexer
 
-Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQL-backed ingestion queue (the admin service's `ingestion_items` table). Content is added via the admin UI, the bootstrap API, or bulk YAML import. By default the indexer processes **all** pending rows in priority order. For a **narrow slice** (e.g. Go-only bootstrap), set **`SYNESIS_INDEXER_QUEUE_DOMAIN`** (and optionally **`SYNESIS_INDEXER_QUEUE_TAG`**) on the queue job; the admin **`POST /api/v1/ingestion/items/claim`** endpoint accepts matching `domain` / `tag` query parameters. To **clear pending work** before a focused import, **`POST /api/v1/ingestion/items/purge-pending`** (platform admin) deletes pending rows; optional **`release_stale_running_minutes`** resets stuck `running` leases. The helper script **`scripts/go-first-rag-load.sh`** automates purge → enqueue `lang-go.yaml` → one-shot job with **`SYNESIS_INDEXER_QUEUE_DOMAIN=go`**. For very large corpora, prefer the **staged S3 pipeline** (`staged-fetch` → `staged-normalize` → `staged-enrich`) so fetches land in S3 and later stages can be retried without re-fetching (see sections below).
+Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQL-backed ingestion queue (the admin service's `ingestion_items` table). Content is added via the admin UI, the bootstrap API, or bulk YAML import. By default the indexer processes **all** pending rows in priority order. For a **narrow slice** (e.g. Go-only bootstrap), set **`SYNESIS_INDEXER_QUEUE_DOMAIN`** (and optionally **`SYNESIS_INDEXER_QUEUE_TAG`**) on the queue job; the admin **`POST /api/v1/ingestion/items/claim`** endpoint accepts matching `domain` / `tag` query parameters. To **clear pending work** before a focused import, **`POST /api/v1/ingestion/items/purge-pending`** (platform admin) deletes pending rows; optional **`release_stale_running_minutes`** resets stuck `running` leases. The helper script **`scripts/go-first-rag-load.sh`** automates purge → enqueue `lang-go.yaml` → one-shot job with **`SYNESIS_INDEXER_QUEUE_DOMAIN=go`**. For very large corpora, prefer the **staged S3 pipeline** (`staged-fetch` → `staged-normalize` → `staged-enrich`) so fetches land in S3 and later stages can be retried without re-fetching (see sections below). Managed Doc Packs (`.synpack`) are documented in [`SYNPACKS.md`](SYNPACKS.md); they load into the same catalog using `pack_id` partitions while normal ingestion defaults to `pack_id="global"`.
 
 **Related docs:** Semantic ingestion / v9 design bar — [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md). Cost levers — [`RAG_INGESTION_COST.md`](RAG_INGESTION_COST.md). Format extractors and enrichment boundaries — [`INGESTION_ENRICHMENT.md`](INGESTION_ENRICHMENT.md). Trust envelope and attribution — [`SECURITY.md`](SECURITY.md).
 
@@ -111,7 +111,7 @@ All of the following run in Kubernetes unless you are doing local YAML mode. **N
 |-----------------|-----------|--------------|------------------|
 | Admin API + PostgreSQL | `synesis-admin` | Indexer CronJob | Queue claim, status, run telemetry, `schema-sync`, optional **reset-catalog** |
 | **Indexer** | `synesis-rag` | — | Orchestrates handlers → `pipeline.py` → Milvus upsert |
-| **Milvus** | `synesis-rag` | Indexer | `synesis_catalog` collection (schema **v13**) |
+| **Milvus** | `synesis-rag` | Indexer | `synesis_catalog` collection (schema **v16**) |
 | **embedder** (TEI) | `synesis-rag` | Indexer | `POST /v1/embeddings` for chunk vectors |
 | **preprocess-service** | `synesis-rag` | Indexer (optional) | `simhash64` + optional `html_document` jusText clean; ClusterIP + NetworkPolicy (indexer pods only) |
 | **spam-service** | `synesis-rag` | Indexer (optional) | `spam_score` per chunk; ClusterIP + NetworkPolicy (indexer pods only) |
@@ -226,7 +226,7 @@ base/rag/indexer/
 │   ├── cli.py              # CLI entrypoint (--mode queue | --mode yaml)
 │   ├── queue_runner.py     # Queue client: claim, process, report, schema-sync
 │   ├── pipeline.py         # fetch → chunk+gate → gatekeeper → simhash/spam → enrich → embed → scan → upsert
-│   ├── schema.py           # Milvus collection schema v13 (synesis_catalog)
+│   ├── schema.py           # Milvus collection schema v16 (synesis_catalog)
 │   ├── gatekeeper.py       # Optional document-level LLM labels (structured JSON)
 │   ├── preprocess_client.py # Optional preprocess-service: simhash, jusText HTML clean
 │   ├── spam_client.py      # Optional spam-service: P(spam) per chunk
@@ -458,7 +458,7 @@ Items enter the queue as `pending`. Run the indexer to process them:
 
 ## Schema (synesis_catalog)
 
-Single Milvus collection with `authority` as partition key and HNSW index on embeddings. Current schema version: **v13** (defined in `base/rag/indexer/app/schema.py`).
+Single Milvus collection with `pack_id` as partition key and HNSW index on embeddings. Current schema version: **v16** (defined in `base/rag/indexer/app/schema.py`).
 
 #### Core fields
 
@@ -479,13 +479,16 @@ Single Milvus collection with `authority` as partition key and HNSW index on emb
 | `tags` | VARCHAR(512) | Comma-separated tags |
 | `keywords` | VARCHAR(512) | Comma-separated terms (gatekeeper merge when enabled) |
 | `origin_type` | VARCHAR(32) | Provenance: internal, external, curated |
-| `authority` | VARCHAR(32) | Trust tier: canonical, vetted, community, external (partition key) |
+| `authority` | VARCHAR(32) | Trust tier: canonical, vetted, community, external |
 | `source_url` | VARCHAR(512) | Citation URL |
 | `scan_status` | VARCHAR(16) | Injection scan result: clean, flagged, vetted, rejected |
 | `content_format` | VARCHAR(32) | Source format: python, yaml, json, hcl, xml, markdown, etc. |
 | `symbol_type` | VARCHAR(64) | Semantic unit type: function, class, k8s_deployment, hcl_resource, etc. |
 | `approval_status` | VARCHAR(16) | HITL status: auto_approved, pending, approved, rejected |
-| `embedding` | FLOAT_VECTOR(384) | all-MiniLM-L6-v2 embedding |
+| `pack_id` | VARCHAR(96) | v16 partition key; `global` for ordinary ingestion |
+| `pack_version` | VARCHAR(64) | SynPack artifact version |
+| `package_name` / `symbol_kind` / `symbol_fqn` | VARCHAR | Pack-level code/doc structure metadata |
+| `embedding` | FLOAT_VECTOR(1024) | BAAI/bge-m3 dense embedding |
 | `sparse_text` | SPARSE_FLOAT_VECTOR | BM25 auto-populated from `text` via Milvus Function |
 
 ## Enrichment Pipeline
@@ -564,7 +567,7 @@ Design notes: [docs/plans/semantic_rag_ingestion_v9.md](plans/semantic_rag_inges
 
 ### Schema version
 
-Current Milvus schema: **v13** (defined in `base/rag/indexer/app/schema.py`). **Planner-ts** retrieval (`base/planner-ts/src/retrieval/rag-client.ts` `OUTPUT_FIELDS`) and **admin** (`base/admin/app/services/milvus_service.py` `recreate_synesis_catalog_v12`) must stay aligned.
+Current Milvus schema: **v16** (defined in `base/rag/indexer/app/schema.py`). **Planner-ts** retrieval (`base/planner-ts/src/retrieval/rag-client.ts` `OUTPUT_FIELDS`) and **admin** (`base/admin/app/services/milvus_service.py` `recreate_synesis_catalog_v12`) must stay aligned.
 
 To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, update `EXPECTED_FIELDS`, `CATALOG_FIELDS`, and `catalog_entity()`. Mirror the same fields in planner-ts `rag-client.ts` and admin `milvus_service.py`. On next indexer run, the collection is automatically dropped, recreated, and ingestion items are reset via schema-sync (or use manual reset above).
 

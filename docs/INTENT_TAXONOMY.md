@@ -135,7 +135,7 @@ The classifier uses pre-computed mean embeddings for two route categories:
 - **KNOWLEDGE_DISCUSSION_UTTERANCES**: 15 example phrases that request knowledge discussion ("Propose an architecture...", "Explain how Kubernetes scheduling works...", "Compare microservices vs monolith...")
 
 At classification time:
-1. The user query is embedded using the shared `all-MiniLM-L6-v2` encoder (~5ms, no HTTP calls)
+1. The user query is embedded using the shared `BAAI/bge-m3` encoder
 2. Cosine similarity is computed against both route mean embeddings
 3. The margin (`code_sim - knowledge_sim`) determines `is_code_task`
 4. A configurable threshold (default 0.05, set in `intent_weights.yaml` under `semantic_classifier.confidence_threshold`) controls sensitivity

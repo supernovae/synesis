@@ -115,7 +115,7 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
     {
       name: "search_developer_docs",
       description:
-        "RAG over official developer documentation for programming languages and frameworks (e.g., Python, React, Go). Use this to look up API references and best practices before falling back to web search.",
+        "RAG over official developer documentation and installed SynPacks for programming languages and frameworks (e.g., Python, React, Go). Use pack_id/package_name/symbol_kind filters when available before falling back to web search.",
       inputSchema: zodToJsonSchema(devDocsSearchInputSchema),
     },
     {

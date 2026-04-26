@@ -41,11 +41,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["yaml", "queue", "staged-fetch", "staged-normalize", "staged-enrich"],
+        choices=["yaml", "queue", "staged-fetch", "staged-normalize", "staged-enrich", "synpack"],
         default="yaml",
         help=(
             "yaml: read sources from file (default). queue: direct Milvus path via admin API. "
-            "staged-*: S3 staged pipeline (see docs/INDEXERS.md)."
+            "staged-*: S3 staged pipeline (see docs/INDEXERS.md). synpack: build/load managed doc packs."
         ),
     )
     parser.add_argument("--sources", help="Path to unified sources.yaml (yaml mode only)")
@@ -74,6 +74,21 @@ def main() -> None:
     parser.add_argument("--norm-version", default="v1", help="staged-normalize: normalized/<version>/ prefix")
     parser.add_argument("--enrich-version", default="v1", help="staged-normalize: enrich queue version label")
     parser.add_argument("--list-handlers", action="store_true", help="List available handler types")
+    parser.add_argument(
+        "--synpack-command",
+        choices=["validate", "load", "list", "search", "build-go"],
+        default="validate",
+        help="SynPack command when --mode synpack",
+    )
+    parser.add_argument("--synpack", default="", help="Path to .synpack for validate/load")
+    parser.add_argument("--output", default="", help="SynPack output path for build commands")
+    parser.add_argument("--pack-id", default="", help="SynPack id, e.g. go-1.26")
+    parser.add_argument("--pack-version", default="1.0.0", help="SynPack artifact version")
+    parser.add_argument("--source-version", default="", help="Upstream documentation/source version")
+    parser.add_argument("--query", default="", help="Query for synpack search")
+    parser.add_argument("--top-k", type=int, default=5, help="Top-k for synpack search")
+    parser.add_argument("--replace", action="store_true", help="Replace existing rows for pack_id when loading")
+    parser.add_argument("--max-chunks", type=int, default=0, help="Build only the first N chunks (debug)")
     args = parser.parse_args()
 
     if args.list_handlers:
@@ -92,6 +107,8 @@ def main() -> None:
         _run_staged_normalize(args)
     elif args.mode == "staged-enrich":
         _run_staged_enrich(args)
+    elif args.mode == "synpack":
+        _run_synpack(args)
     else:
         _run_yaml_mode(args)
 
@@ -188,6 +205,76 @@ def _run_yaml_mode(args: argparse.Namespace) -> None:
         milvus_uri=args.milvus_uri,
         embedder_url=args.embedder_url,
     )
+
+
+def _run_synpack(args: argparse.Namespace) -> None:
+    from .synpack import build_pack_from_sources, list_packs, load_synpack, search_pack, validate_synpack
+
+    if args.synpack_command == "validate":
+        if not args.synpack:
+            logger.error("synpack_path_required")
+            sys.exit(1)
+        manifest = validate_synpack(args.synpack)
+        print(json_dump({"ok": True, "manifest": manifest}))
+        return
+
+    if args.synpack_command == "load":
+        if not args.synpack:
+            logger.error("synpack_path_required")
+            sys.exit(1)
+        print(json_dump(load_synpack(args.synpack, milvus_uri=args.milvus_uri or "", replace=args.replace)))
+        return
+
+    if args.synpack_command == "list":
+        print(json_dump({"packs": list_packs(milvus_uri=args.milvus_uri or "")}))
+        return
+
+    if args.synpack_command == "search":
+        if not args.query or not args.pack_id:
+            logger.error("synpack_search_requires_query_and_pack_id")
+            sys.exit(1)
+        print(
+            json_dump(
+                {
+                    "results": search_pack(
+                        args.query,
+                        pack_id=args.pack_id,
+                        top_k=args.top_k,
+                        milvus_uri=args.milvus_uri or "",
+                        embedder_url=args.embedder_url or "",
+                    )
+                }
+            )
+        )
+        return
+
+    if args.synpack_command == "build-go":
+        sources = args.sources or "bootstrap/corpus/lang-go.yaml"
+        pack_id = args.pack_id or "go-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_pack_from_sources(
+                    sources,
+                    output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    language="go",
+                    domain="go",
+                    enrich_full=args.enrich == "full",
+                    llm_url=args.llm_url,
+                    embedder_url=args.embedder_url,
+                    max_chunks=max(0, args.max_chunks),
+                )
+            )
+        )
+
+
+def json_dump(value: object) -> str:
+    import json
+
+    return json.dumps(value, indent=2, sort_keys=True)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """Unified catalog schema for Synesis RAG.
 
-Single collection with partition key on authority, enrichment fields for
+Single collection with partition key on pack_id, enrichment fields for
 Contextual Retrieval (context_prefix, chunk_summary, keywords, heading_path),
 and proper decomposition of legacy overloaded fields.
 
@@ -63,6 +63,11 @@ Version history:
   v14 → v15: Code-first retrieval metadata — adds has_code, code_signal_count,
             code_density, and code_language fields so coder-facing retrieval can
             bias toward executable evidence while preserving explanatory context.
+  v15 → v16: Managed SynPack support — migrate dense embeddings to BGE-M3
+            1024 dimensions, make pack_id the partition key, and add pack
+            version/source plus symbol relationship metadata for versioned
+            documentation artifacts. Non-pack/global ingestion writes pack_id
+            "global".
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -88,10 +93,10 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
-EMBEDDING_DIM = 384
+EMBEDDING_DIM = 1024
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -112,6 +117,16 @@ EXPECTED_FIELDS = frozenset(
         "keywords",
         "origin_type",
         "authority",
+        # v16 — managed SynPack partition metadata
+        "pack_id",
+        "pack_version",
+        "pack_source_version",
+        "pack_artifact_hash",
+        "pack_partition",
+        "symbol_kind",
+        "symbol_fqn",
+        "package_name",
+        "doc_relation_ids",
         "source_url",
         "scan_status",
         "content_format",
@@ -202,7 +217,17 @@ CATALOG_FIELDS = [
     FieldSchema(name="keywords", dtype=DataType.VARCHAR, max_length=512),
     # Provenance (two-axis trust)
     FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
-    FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32, is_partition_key=True),
+    FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32),
+    # v16 — pack_id is the partition key. Existing/global corpus uses pack_id="global".
+    FieldSchema(name="pack_id", dtype=DataType.VARCHAR, max_length=96, is_partition_key=True),
+    FieldSchema(name="pack_version", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="pack_source_version", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="pack_artifact_hash", dtype=DataType.VARCHAR, max_length=128),
+    FieldSchema(name="pack_partition", dtype=DataType.VARCHAR, max_length=96),
+    FieldSchema(name="symbol_kind", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="symbol_fqn", dtype=DataType.VARCHAR, max_length=256),
+    FieldSchema(name="package_name", dtype=DataType.VARCHAR, max_length=128),
+    FieldSchema(name="doc_relation_ids", dtype=DataType.VARCHAR, max_length=1024),
     FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
     # Injection scan status (index-time scanning; admin review queue)
     FieldSchema(name="scan_status", dtype=DataType.VARCHAR, max_length=16),
@@ -414,6 +439,15 @@ def catalog_entity(
     keywords: str = "",
     origin_type: str = "",
     authority: str = "community",
+    pack_id: str = "global",
+    pack_version: str = "",
+    pack_source_version: str = "",
+    pack_artifact_hash: str = "",
+    pack_partition: str = "",
+    symbol_kind: str = "",
+    symbol_fqn: str = "",
+    package_name: str = "",
+    doc_relation_ids: str = "",
     source_url: str = "",
     scan_status: str = "unscanned",
     content_format: str = "",
@@ -493,6 +527,15 @@ def catalog_entity(
         "keywords": _trunc_bytes(keywords or "", 512),
         "origin_type": (origin_type or "")[:32],
         "authority": (authority or "community")[:32],
+        "pack_id": _trunc_bytes(pack_id or "global", 96),
+        "pack_version": _trunc_bytes(pack_version or "", 64),
+        "pack_source_version": _trunc_bytes(pack_source_version or "", 64),
+        "pack_artifact_hash": _trunc_bytes(pack_artifact_hash or "", 128),
+        "pack_partition": _trunc_bytes(pack_partition or pack_id or "global", 96),
+        "symbol_kind": (symbol_kind or "")[:64],
+        "symbol_fqn": _trunc_bytes(symbol_fqn or "", 256),
+        "package_name": _trunc_bytes(package_name or "", 128),
+        "doc_relation_ids": _trunc_bytes(doc_relation_ids or "", 1024),
         "source_url": _trunc_bytes(source_url or "", 512),
         "scan_status": (scan_status or "unscanned")[:16],
         "content_format": (content_format or "")[:32],

@@ -146,6 +146,42 @@ async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
         return {"collection": CATALOG_COLLECTION, "schema": {"exists": False}, "hierarchy": []}
 
 
+@router.get("/packs")
+async def list_doc_packs(_user: UserInfo = Depends(get_current_user)):
+    """List installed SynPack partitions from Milvus catalog metadata."""
+    _ensure_org_observability(_user)
+    rows = safe_query(
+        CATALOG_COLLECTION,
+        filter_expr='pack_id != ""',
+        output_fields=[
+            "pack_id",
+            "pack_version",
+            "pack_source_version",
+            "language",
+            "domain",
+            "pack_artifact_hash",
+        ],
+        limit=16384,
+    )
+    packs: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        pack_id = str(row.get("pack_id") or "global")
+        entry = packs.setdefault(
+            pack_id,
+            {
+                "pack_id": pack_id,
+                "pack_version": row.get("pack_version", ""),
+                "pack_source_version": row.get("pack_source_version", ""),
+                "language": row.get("language", ""),
+                "domain": row.get("domain", ""),
+                "pack_artifact_hash": row.get("pack_artifact_hash", ""),
+                "row_count": 0,
+            },
+        )
+        entry["row_count"] += 1
+    return {"packs": sorted(packs.values(), key=lambda item: str(item["pack_id"]))}
+
+
 @router.get("/quality")
 async def quality_summary(_user: UserInfo = Depends(get_current_user)):
     """Quality summary — try DB snapshots first, fall back to JSON file."""
