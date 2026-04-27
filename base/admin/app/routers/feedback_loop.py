@@ -308,7 +308,8 @@ async def create_feedback_loop_run(
     pipeline_result: dict[str, Any] = {"run_id": run_id, "status": "pending"}
     if body.execute_now:
         if body.wait_for_completion:
-            pipeline_result = await _run_pipeline(run_id, body.eval_suites, auto_label=True)
+            await _run_pipeline(run_id, body.eval_suites, auto_label=True)
+            pipeline_result = {"run_id": run_id, "status": "completed"}
         else:
             # Queue execution to avoid request timeouts in UI/proxies for longer replay/eval runs.
             background_tasks.add_task(
@@ -319,7 +320,7 @@ async def create_feedback_loop_run(
                 True,
             )
             pipeline_result = {"run_id": run_id, "status": "running", "queued": True}
-    return _public_pipeline_response(pipeline_result)
+    return pipeline_result
 
 
 @router.post("/runs/{run_id}/pipeline")
@@ -338,8 +339,8 @@ async def run_feedback_pipeline(
             body.auto_critic_score,
         )
         return {"run_id": run_id, "status": "running", "queued": True}
-    pipeline_result = await _run_pipeline(run_id, body.eval_suites, body.auto_label, body.auto_critic_score)
-    return _public_pipeline_response(pipeline_result)
+    await _run_pipeline(run_id, body.eval_suites, body.auto_label, body.auto_critic_score)
+    return {"run_id": run_id, "status": "completed"}
 
 
 @router.post("/runs/{run_id}/auto-label")
@@ -615,67 +616,6 @@ async def _run_pipeline(
         "eval_results": eval_results,
         "labeled_results": labeled_count,
         "critic_scored_results": scored_count,
-    }
-
-
-def _public_pipeline_response(result: dict[str, Any]) -> dict[str, Any]:
-    response: dict[str, Any] = {
-        "run_id": str(result.get("run_id") or ""),
-        "status": str(result.get("status") or "unknown"),
-    }
-    if "queued" in result:
-        response["queued"] = bool(result.get("queued"))
-
-    replay = result.get("replay")
-    if isinstance(replay, dict):
-        response["replay"] = {
-            "status": str(replay.get("status") or "completed"),
-            "run_id": str(replay.get("run_id") or response["run_id"]),
-        }
-
-    regressions = result.get("regressions")
-    if isinstance(regressions, dict):
-        response["regressions"] = regressions
-
-    eval_results = result.get("eval_results")
-    if isinstance(eval_results, list):
-        response["eval_results"] = [_public_eval_result(item) for item in eval_results if isinstance(item, dict)]
-
-    for key in ("labeled_results", "critic_scored_results"):
-        if key in result:
-            response[key] = int(result.get(key) or 0)
-    return response
-
-
-def _public_eval_result(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "suite_name": str(result.get("suite_name") or ""),
-        "total_cases": int(result.get("total_cases") or 0),
-        "passed": int(result.get("passed") or 0),
-        "failed": int(result.get("failed") or 0),
-        "errored": int(result.get("errored") or 0),
-        "pass_rate": float(result.get("pass_rate") or 0),
-        "elapsed_ms": float(result.get("elapsed_ms") or 0),
-        "cases": [_public_eval_case(case) for case in result.get("cases", []) if isinstance(case, dict)],
-    }
-
-
-def _public_eval_case(case: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "case_index": int(case.get("case_index") or 0),
-        "prompt_snippet": str(case.get("prompt_snippet") or ""),
-        "category": str(case.get("category") or ""),
-        "passed": bool(case.get("passed")),
-        "latency_ms": float(case.get("latency_ms") or 0),
-        "tokens": int(case.get("tokens") or 0),
-        "actual_decision_path": case.get("actual_decision_path"),
-        "actual_recall_routing": case.get("actual_recall_routing"),
-        "actual_languages": case.get("actual_languages") if isinstance(case.get("actual_languages"), list) else None,
-        "decision_path_match": case.get("decision_path_match"),
-        "recall_routing_match": case.get("recall_routing_match"),
-        "language_match": case.get("language_match"),
-        "failures": case.get("failures") if isinstance(case.get("failures"), list) else [],
-        "warnings": case.get("warnings") if isinstance(case.get("warnings"), list) else [],
     }
 
 
