@@ -360,8 +360,12 @@ async def get_trace_chain(
 def _enrich_detail(record: dict) -> None:
     """Promote enriched decision fields from full_record to top level for the detail view."""
     for key in (
-        "evidence_summary", "decision_ledger", "trace_context", "streaming",
-        "taxonomy", "optimization_ledger",
+        "evidence_summary",
+        "decision_ledger",
+        "trace_context",
+        "streaming",
+        "taxonomy",
+        "optimization_ledger",
     ):
         if key not in record and key in record.get("full_record", {}):
             record[key] = record["full_record"][key]

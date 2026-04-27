@@ -14,9 +14,9 @@ from capability_matrix import CapabilityMatrixInput, resolve_capability_matrix
 
 @pytest.mark.parametrize(
     "fixture_case",
-    json.loads(
-        (REPO_ROOT / "docs" / "coder" / "capability-matrix-resolver-fixtures.json").read_text(encoding="utf-8")
-    )["cases"],
+    json.loads((REPO_ROOT / "docs" / "coder" / "capability-matrix-resolver-fixtures.json").read_text(encoding="utf-8"))[
+        "cases"
+    ],
 )
 def test_capability_matrix_resolver_contract(fixture_case: dict) -> None:
     matrix_input = CapabilityMatrixInput(

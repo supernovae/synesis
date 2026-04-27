@@ -182,7 +182,9 @@ def _row_to_entity(row: dict[str, Any], manifest: dict[str, Any], embedding: lis
         source_type=str(base.get("source_type", "") or "docs"),
         handler=str(base.get("handler", "") or "synpack"),
         domain=str(base.get("domain", "") or manifest.get("domain", "")),
-        tags=str(base.get("tags", "") or ",".join(manifest.get("tags", []) if isinstance(manifest.get("tags"), list) else [])),
+        tags=str(
+            base.get("tags", "") or ",".join(manifest.get("tags", []) if isinstance(manifest.get("tags"), list) else [])
+        ),
         keywords=str(base.get("keywords", "") or ""),
         origin_type=str(base.get("origin_type", "") or "curated"),
         authority=str(base.get("authority", "") or "vetted"),
@@ -261,7 +263,9 @@ def load_synpack(pack_path: str | Path, *, milvus_uri: str = MILVUS_URI, replace
 
         artifact_hash = _sha256_file(Path(pack_path))
         manifest["artifact_hash"] = artifact_hash
-        entities = [_row_to_entity(row, manifest, vectors[i] if vectors is not None else None) for i, row in enumerate(rows)]
+        entities = [
+            _row_to_entity(row, manifest, vectors[i] if vectors is not None else None) for i, row in enumerate(rows)
+        ]
         count = writer.upsert_batch(entities)
         return {"ok": True, "pack_id": pack_id, "rows": count, "artifact_hash": artifact_hash}
     finally:
@@ -338,7 +342,7 @@ def search_pack(
         ],
     )
     out: list[dict[str, Any]] = []
-    for hit in (results[0] if results else []):
+    for hit in results[0] if results else []:
         entity = dict(hit.get("entity", hit) if isinstance(hit, dict) else {})
         entity["score"] = hit.get("distance", 0.0) if isinstance(hit, dict) else getattr(hit, "distance", 0.0)
         out.append(entity)
@@ -457,9 +461,13 @@ def build_pack_from_sources(
                     pack_version=pack_version,
                     pack_source_version=source_version,
                     pack_partition=pack_id,
-                    symbol_kind=str(chunk.metadata.get("symbol_kind", "") or chunk.metadata.get("symbol_type", "") or ""),
+                    symbol_kind=str(
+                        chunk.metadata.get("symbol_kind", "") or chunk.metadata.get("symbol_type", "") or ""
+                    ),
                     symbol_fqn=str(chunk.metadata.get("symbol_fqn", "") or ""),
-                    package_name=str(chunk.metadata.get("package_name", "") or doc.metadata.get("package_name", "") or ""),
+                    package_name=str(
+                        chunk.metadata.get("package_name", "") or doc.metadata.get("package_name", "") or ""
+                    ),
                     source_url=chunk.metadata.get("source_url") or doc.source_url,
                     scan_status=status,
                     scan_signals=",".join(signals),

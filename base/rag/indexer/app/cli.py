@@ -105,8 +105,12 @@ def main() -> None:
     parser.add_argument("--enrichment-concurrency", type=int, default=4, help="Max enrichment requests in flight")
     parser.add_argument("--skip-enrichment", action="store_true", help="Use deterministic fallback enrichment")
     parser.add_argument("--latest-tag", default="", help="Resolved upstream tag override, e.g. go1.26.2")
-    parser.add_argument("--source-dir", default="", help="Existing source checkout for language-pack build tests/debugging")
-    parser.add_argument("--provider-schema", default="", help="Terraform providers schema JSON path for Terraform pack builds")
+    parser.add_argument(
+        "--source-dir", default="", help="Existing source checkout for language-pack build tests/debugging"
+    )
+    parser.add_argument(
+        "--provider-schema", default="", help="Terraform providers schema JSON path for Terraform pack builds"
+    )
     parser.add_argument("--query", default="", help="Query for synpack search")
     parser.add_argument("--top-k", type=int, default=5, help="Top-k for synpack search")
     parser.add_argument("--replace", action="store_true", help="Replace existing rows for pack_id when loading")

@@ -213,7 +213,7 @@ def test_quarkus_fallback_preserves_framework_and_cli_contracts():
     assert config_enrichment["build_time_config"] == []
     assert config_enrichment["config_phase"] == "unknown"
     cli_chunk = language_pack.LanguageChunk(
-        text="@Command(name = \"dev\")",
+        text='@Command(name = "dev")',
         doc_id="quarkus:github.com/quarkusio/quarkus:devtools/cli/src/main/java/io/quarkus/cli/Dev.java:dev",
         chunk_index=0,
         document_name="Dev.java",
@@ -319,12 +319,16 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     (source / "doc" / "go_spec.html").write_text("# Go Spec\n\nThe Go programming language.", encoding="utf-8")
     (source / "api" / "go1.1.txt").write_text("pkg fmt, func Println(...any) (int, error)", encoding="utf-8")
     (source / "README.md").write_text("# Go", encoding="utf-8")
-    (source / "src" / "fmt" / "doc.go").write_text("// Package fmt implements formatted I/O.\npackage fmt\n", encoding="utf-8")
+    (source / "src" / "fmt" / "doc.go").write_text(
+        "// Package fmt implements formatted I/O.\npackage fmt\n", encoding="utf-8"
+    )
     (source / "src" / "fmt" / "print.go").write_text(
         "package fmt\n\n// Println formats using default formats.\nfunc Println(a ...any) (n int, err error) { return 0, nil }\n",
         encoding="utf-8",
     )
-    (source / "src" / "net" / "http" / "doc.go").write_text("// Package http provides HTTP client and server implementations.\npackage http\n", encoding="utf-8")
+    (source / "src" / "net" / "http" / "doc.go").write_text(
+        "// Package http provides HTTP client and server implementations.\npackage http\n", encoding="utf-8"
+    )
     (source / "src" / "net" / "http" / "server.go").write_text(
         "package http\n\n// Handler responds to an HTTP request.\ntype Handler interface { ServeHTTP(ResponseWriter, *Request) }\n",
         encoding="utf-8",
@@ -390,9 +394,13 @@ def test_build_language_pack_from_rust_fixture(monkeypatch: pytest.MonkeyPatch, 
         "# Rust 2024\n\nThe 2024 edition changes RPIT lifetime capture and reserves the gen keyword.",
         encoding="utf-8",
     )
-    (source / "nomicon" / "src" / "ffi.md").write_text("# FFI\n\nUnsafe Rust FFI requires layout invariants.", encoding="utf-8")
+    (source / "nomicon" / "src" / "ffi.md").write_text(
+        "# FFI\n\nUnsafe Rust FFI requires layout invariants.", encoding="utf-8"
+    )
     (source / "async-book" / "src" / "pinning.md").write_text("# Pinning\n\nFutures may require Pin.", encoding="utf-8")
-    (source / "book" / "src" / "ch01.md").write_text("# Rust 2021\n\nCargo projects use edition 2021.", encoding="utf-8")
+    (source / "book" / "src" / "ch01.md").write_text(
+        "# Rust 2021\n\nCargo projects use edition 2021.", encoding="utf-8"
+    )
 
     class FakeEmbedClient:
         def __init__(self, **_kwargs):
@@ -429,7 +437,9 @@ def test_build_language_pack_from_rust_fixture(monkeypatch: pytest.MonkeyPatch, 
 def test_build_language_pack_from_quarkus_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     source = tmp_path / "quarkus-src"
     (source / "docs" / "src" / "main" / "asciidoc").mkdir(parents=True)
-    (source / "extensions" / "datasource" / "runtime" / "src" / "main" / "java" / "io" / "quarkus" / "datasource").mkdir(parents=True)
+    (
+        source / "extensions" / "datasource" / "runtime" / "src" / "main" / "java" / "io" / "quarkus" / "datasource"
+    ).mkdir(parents=True)
     (source / "core" / "runtime" / "src" / "main" / "java" / "io" / "quarkus" / "runtime").mkdir(parents=True)
     (source / "devtools" / "cli" / "src" / "main" / "java" / "io" / "quarkus" / "cli").mkdir(parents=True)
     (source / "quarkus-platform").mkdir()
@@ -437,7 +447,19 @@ def test_build_language_pack_from_quarkus_fixture(monkeypatch: pytest.MonkeyPatc
         "= Quarkus CLI\n\nThe quarkus dev command starts dev mode with hot reload and Dev Services.",
         encoding="utf-8",
     )
-    (source / "extensions" / "datasource" / "runtime" / "src" / "main" / "java" / "io" / "quarkus" / "datasource" / "DataSourceConfig.java").write_text(
+    (
+        source
+        / "extensions"
+        / "datasource"
+        / "runtime"
+        / "src"
+        / "main"
+        / "java"
+        / "io"
+        / "quarkus"
+        / "datasource"
+        / "DataSourceConfig.java"
+    ).write_text(
         """
 package io.quarkus.datasource;
 
@@ -454,7 +476,9 @@ public class DataSourceConfig {
 """,
         encoding="utf-8",
     )
-    (source / "core" / "runtime" / "src" / "main" / "java" / "io" / "quarkus" / "runtime" / "LaunchMode.java").write_text(
+    (
+        source / "core" / "runtime" / "src" / "main" / "java" / "io" / "quarkus" / "runtime" / "LaunchMode.java"
+    ).write_text(
         "package io.quarkus.runtime;\n\n/** Quarkus launch mode. */\npublic enum LaunchMode { NORMAL, DEVELOPMENT }\n",
         encoding="utf-8",
     )
@@ -539,12 +563,22 @@ def test_build_language_pack_from_python_fixture(monkeypatch: pytest.MonkeyPatch
         encoding="utf-8",
     )
     (source / "Doc" / "library.rst").write_text("Python 3.14 library docs mention free-threading.", encoding="utf-8")
-    (source / "peps" / "pep-0703.rst").write_text("PEP 703\n=======\n\nMaking the Global Interpreter Lock optional.", encoding="utf-8")
-    (source / "peps" / "pep-0649.rst").write_text("PEP 649\n=======\n\nDeferred evaluation of annotations.", encoding="utf-8")
-    (source / "packaging.python.org" / "source" / "pyproject.rst").write_text("Use pyproject.toml for project metadata.", encoding="utf-8")
-    (source / "uv" / "docs" / "concepts.md").write_text("Use uv add and uv run pytest for fast Python environments.", encoding="utf-8")
+    (source / "peps" / "pep-0703.rst").write_text(
+        "PEP 703\n=======\n\nMaking the Global Interpreter Lock optional.", encoding="utf-8"
+    )
+    (source / "peps" / "pep-0649.rst").write_text(
+        "PEP 649\n=======\n\nDeferred evaluation of annotations.", encoding="utf-8"
+    )
+    (source / "packaging.python.org" / "source" / "pyproject.rst").write_text(
+        "Use pyproject.toml for project metadata.", encoding="utf-8"
+    )
+    (source / "uv" / "docs" / "concepts.md").write_text(
+        "Use uv add and uv run pytest for fast Python environments.", encoding="utf-8"
+    )
     (source / "pixi" / "docs" / "index.md").write_text("Pixi manages cross-language environments.", encoding="utf-8")
-    (source / "typeshed" / "stdlib" / "zlib.pyi").write_text("def compress(data: bytes) -> bytes: ...\n", encoding="utf-8")
+    (source / "typeshed" / "stdlib" / "zlib.pyi").write_text(
+        "def compress(data: bytes) -> bytes: ...\n", encoding="utf-8"
+    )
 
     class FakeEmbedClient:
         def __init__(self, **_kwargs):
@@ -671,7 +705,12 @@ def test_build_language_pack_from_godot_fixture(monkeypatch: pytest.MonkeyPatch,
     with zipfile.ZipFile(out) as zf:
         rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
     assert any(row["artifact_kind"] == "class_reference" and row["symbol_kind"] == "class" for row in rows)
-    assert any(row["artifact_kind"] == "class_reference" and row["symbol_kind"] == "signal" and row["symbol_fqn"] == "Button.pressed" for row in rows)
+    assert any(
+        row["artifact_kind"] == "class_reference"
+        and row["symbol_kind"] == "signal"
+        and row["symbol_fqn"] == "Button.pressed"
+        for row in rows
+    )
     assert any(row["artifact_kind"] == "engine_manual" for row in rows)
     assert any(row["artifact_kind"] == "engine_proposal" for row in rows)
     assert any(row["artifact_kind"] == "shader_language" for row in rows)
@@ -752,14 +791,24 @@ def test_build_language_pack_from_terraform_fixture(monkeypatch: pytest.MonkeyPa
             "registry.terraform.io/hashicorp/azurerm": {
                 "resource_schemas": {
                     "azurerm_resource_group": {
-                        "block": {"attributes": {"name": {"type": "string", "required": True}, "location": {"type": "string", "required": True}}},
+                        "block": {
+                            "attributes": {
+                                "name": {"type": "string", "required": True},
+                                "location": {"type": "string", "required": True},
+                            }
+                        },
                     }
                 }
             },
             "registry.terraform.io/hashicorp/google": {
                 "resource_schemas": {
                     "google_compute_instance": {
-                        "block": {"attributes": {"name": {"type": "string", "required": True}, "machine_type": {"type": "string", "required": True}}},
+                        "block": {
+                            "attributes": {
+                                "name": {"type": "string", "required": True},
+                                "machine_type": {"type": "string", "required": True},
+                            }
+                        },
                     }
                 }
             },
@@ -796,7 +845,9 @@ def test_build_language_pack_from_terraform_fixture(monkeypatch: pytest.MonkeyPa
     assert any(row["artifact_kind"] == "opentofu_feature" for row in rows)
     assert any(row["artifact_kind"] == "iac_policy_rule" for row in rows)
     assert any("sensitive-state" in row["scope_tags"] for row in rows)
-    schema_row = next(row for row in rows if row["artifact_kind"] == "provider_schema" and row["symbol_fqn"] == "aws_db_instance")
+    schema_row = next(
+        row for row in rows if row["artifact_kind"] == "provider_schema" and row["symbol_fqn"] == "aws_db_instance"
+    )
     enrichment = json.loads(schema_row["agent_enrichment_json"])
     assert enrichment["approval_policy"].startswith("Require human approval")
 
@@ -809,7 +860,18 @@ def test_build_language_pack_from_ecma_fixture(monkeypatch: pytest.MonkeyPatch, 
     (source / "node" / "doc" / "api").mkdir(parents=True)
     (source / "bun" / "docs").mkdir(parents=True)
     (source / "deno" / "runtime").mkdir(parents=True)
-    (source / "mdn-content" / "files" / "en-us" / "web" / "javascript" / "reference" / "global_objects" / "temporal" / "plaindate").mkdir(parents=True)
+    (
+        source
+        / "mdn-content"
+        / "files"
+        / "en-us"
+        / "web"
+        / "javascript"
+        / "reference"
+        / "global_objects"
+        / "temporal"
+        / "plaindate"
+    ).mkdir(parents=True)
     (source / "README.md").write_text(
         "# TC39 proposals\n\nStage 4 JavaScript features include Temporal, Object.groupBy, and Promise.withResolvers.",
         encoding="utf-8",
@@ -822,7 +884,16 @@ def test_build_language_pack_from_ecma_fixture(monkeypatch: pytest.MonkeyPatch, 
         "# Object.groupBy\n\nObject.groupBy groups records without Lodash.",
         encoding="utf-8",
     )
-    (source / "TypeScript-Website" / "packages" / "documentation" / "copy" / "en" / "handbook-v2" / "Everyday Types.md").write_text(
+    (
+        source
+        / "TypeScript-Website"
+        / "packages"
+        / "documentation"
+        / "copy"
+        / "en"
+        / "handbook-v2"
+        / "Everyday Types.md"
+    ).write_text(
         "# Everyday Types\n\nUse satisfies, strict mode, type-only imports, and erasable syntax for native type stripping.",
         encoding="utf-8",
     )
@@ -838,7 +909,19 @@ def test_build_language_pack_from_ecma_fixture(monkeypatch: pytest.MonkeyPatch, 
         "# Deno runtime\n\nDeno runs TypeScript and uses explicit permissions for network and filesystem access.",
         encoding="utf-8",
     )
-    (source / "mdn-content" / "files" / "en-us" / "web" / "javascript" / "reference" / "global_objects" / "temporal" / "plaindate" / "index.md").write_text(
+    (
+        source
+        / "mdn-content"
+        / "files"
+        / "en-us"
+        / "web"
+        / "javascript"
+        / "reference"
+        / "global_objects"
+        / "temporal"
+        / "plaindate"
+        / "index.md"
+    ).write_text(
         "# Temporal.PlainDate\n\nPlainDate represents a calendar date without time or timezone. Use add({ months: 3 }) instead of mutating Date.",
         encoding="utf-8",
     )

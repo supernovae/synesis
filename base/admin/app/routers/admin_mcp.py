@@ -920,11 +920,7 @@ async def _yarn_transition_events_tail(user: UserInfo, args: dict) -> Any:
             stmt = stmt.where(YarnSessionEvent.id > after_id)
         if event_kinds:
             stmt = stmt.where(YarnSessionEvent.event_kind.in_(event_kinds))
-        rows = (
-            await session.execute(
-                stmt.order_by(YarnSessionEvent.id.desc()).limit(limit)
-            )
-        ).scalars().all()
+        rows = (await session.execute(stmt.order_by(YarnSessionEvent.id.desc()).limit(limit))).scalars().all()
 
     rows = list(reversed(rows))
     events: list[dict[str, Any]] = []

@@ -545,7 +545,10 @@ def _rust_symbol_kind(line: str) -> tuple[str, str] | None:
         ("trait", r"\b(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?trait\s+([A-Za-z_][A-Za-z0-9_]*)"),
         ("struct", r"\b(?:pub(?:\([^)]*\))?\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)"),
         ("enum", r"\b(?:pub(?:\([^)]*\))?\s+)?enum\s+([A-Za-z_][A-Za-z0-9_]*)"),
-        ("function", r"\b(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|async\s+|unsafe\s+|extern\s+)*fn\s+([A-Za-z_][A-Za-z0-9_]*)"),
+        (
+            "function",
+            r"\b(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|async\s+|unsafe\s+|extern\s+)*fn\s+([A-Za-z_][A-Za-z0-9_]*)",
+        ),
         ("macro", r"\b(?:pub(?:\([^)]*\))?\s+)?macro_rules!\s+([A-Za-z_][A-Za-z0-9_]*)"),
         ("macro", r"\b(?:pub(?:\([^)]*\))?\s+)?macro\s+([A-Za-z_][A-Za-z0-9_]*)"),
         ("type_alias", r"\b(?:pub(?:\([^)]*\))?\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)"),
@@ -619,7 +622,8 @@ def _rust_metadata(
         "constraint_kind": "hard" if artifact_kind in {"compiler_error", "language_spec"} else "guiding",
         "constraint_source": "rustc_error_codes" if artifact_kind == "compiler_error" else "rust-official-docs",
         "content_profile": "reference",
-        "prompt_id": prompt_id or _rust_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
+        "prompt_id": prompt_id
+        or _rust_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
     }
 
 
@@ -710,7 +714,9 @@ def _extract_rust_error_chunks(root: Path, rel: str, *, repo: str, tag: str) -> 
             continue
         for part in _split_text(text):
             for code in codes[:1]:
-                metadata = _rust_metadata(text=part, rel_path=rel_path, artifact_kind="compiler_error", symbol_kind="compiler_error")
+                metadata = _rust_metadata(
+                    text=part, rel_path=rel_path, artifact_kind="compiler_error", symbol_kind="compiler_error"
+                )
                 chunks.append(
                     LanguageChunk(
                         text=part,
@@ -775,7 +781,11 @@ def extract_rust_chunks(source_root: Path, *, config: dict[str, Any], tag: str) 
         if not path.exists():
             continue
         for doc_name in ("lib.rs", "mod.rs"):
-            module_doc = _extract_rust_module_doc(path / doc_name, source_root, repo=repo, tag=tag) if (path / doc_name).exists() else None
+            module_doc = (
+                _extract_rust_module_doc(path / doc_name, source_root, repo=repo, tag=tag)
+                if (path / doc_name).exists()
+                else None
+            )
             if module_doc:
                 chunks.append(module_doc)
         for rs in sorted(path.rglob("*.rs")):
@@ -873,7 +883,14 @@ def _quarkus_metadata(
     if artifact_kind == "cli_command":
         tags.extend(["quarkus-cli", "devtools", "package-tooling"])
     if artifact_kind == "config_reference":
-        tags.extend(["config-reference", "build-time-config" if "build_time" in lower or "buildtime" in lower or "fixed" in lower else "runtime-config"])
+        tags.extend(
+            [
+                "config-reference",
+                "build-time-config"
+                if "build_time" in lower or "buildtime" in lower or "fixed" in lower
+                else "runtime-config",
+            ]
+        )
     if "native" in lower or "graalvm" in lower:
         tags.append("native-image")
     if "reactive" in lower or "mutiny" in lower or "event loop" in lower:
@@ -885,7 +902,11 @@ def _quarkus_metadata(
     return {
         "scope_tags": tags,
         "constraint_kind": "hard" if artifact_kind in {"config_reference", "platform_bom"} else "guiding",
-        "constraint_source": "quarkus-config-reference" if artifact_kind == "config_reference" else "quarkus-cli" if artifact_kind == "cli_command" else "quarkus-docs",
+        "constraint_source": "quarkus-config-reference"
+        if artifact_kind == "config_reference"
+        else "quarkus-cli"
+        if artifact_kind == "cli_command"
+        else "quarkus-docs",
         "content_profile": "reference" if artifact_kind != "cli_command" else "procedural",
         "prompt_id": prompt_id or ("quarkus_cli_architect_v1" if artifact_kind == "cli_command" else QUARKUS_PROMPT_ID),
     }
@@ -923,12 +944,25 @@ def _extract_quarkus_config_chunks(source_root: Path, *, config: dict[str, Any],
     for root in sorted(java_roots):
         for file_path in sorted(root.rglob("*.java")):
             text = _read_text(file_path)
-            if not any(marker in text for marker in ("@ConfigRoot", "@ConfigItem", "@ConfigMapping", "@ConfigProperty", "@ConfigGroup")):
+            if not any(
+                marker in text
+                for marker in ("@ConfigRoot", "@ConfigItem", "@ConfigMapping", "@ConfigProperty", "@ConfigGroup")
+            ):
                 continue
             rel_path = file_path.relative_to(source_root).as_posix()
             package = _quarkus_package_for_path(rel_path)
             class_name = _java_class_name(text, file_path.stem)
-            class_doc = _java_doc_before(text.splitlines(), next((i for i, line in enumerate(text.splitlines()) if "class " in line or "interface " in line or "record " in line), 0))
+            class_doc = _java_doc_before(
+                text.splitlines(),
+                next(
+                    (
+                        i
+                        for i, line in enumerate(text.splitlines())
+                        if "class " in line or "interface " in line or "record " in line
+                    ),
+                    0,
+                ),
+            )
             if "@ConfigRoot" in text or "@ConfigMapping" in text or "@ConfigGroup" in text:
                 body = f"{class_doc}\n\n```java\n{text[:5000]}\n```".strip()
                 chunks.append(
@@ -947,13 +981,19 @@ def _extract_quarkus_config_chunks(source_root: Path, *, config: dict[str, Any],
                         module_path=rel_path,
                         artifact_kind="config_reference",
                         content_format="java",
-                        metadata=_quarkus_metadata(text=body, rel_path=rel_path, artifact_kind="config_reference", symbol_kind="config_root"),
+                        metadata=_quarkus_metadata(
+                            text=body, rel_path=rel_path, artifact_kind="config_reference", symbol_kind="config_root"
+                        ),
                     )
                 )
             lines = text.splitlines()
-            field_re = re.compile(r"\b(?:public\s+)?(?:Optional<[^>]+>|List<[^>]+>|Map<[^>]+>|[A-Za-z_][A-Za-z0-9_<>.?]+)\s+([a-z][A-Za-z0-9_]*)\s*(?:=|;)")
+            field_re = re.compile(
+                r"\b(?:public\s+)?(?:Optional<[^>]+>|List<[^>]+>|Map<[^>]+>|[A-Za-z_][A-Za-z0-9_<>.?]+)\s+([a-z][A-Za-z0-9_]*)\s*(?:=|;)"
+            )
             for i, line in enumerate(lines):
-                if "@ConfigItem" not in "\n".join(lines[max(0, i - 4) : i + 1]) and "@ConfigProperty" not in "\n".join(lines[max(0, i - 4) : i + 1]):
+                if "@ConfigItem" not in "\n".join(lines[max(0, i - 4) : i + 1]) and "@ConfigProperty" not in "\n".join(
+                    lines[max(0, i - 4) : i + 1]
+                ):
                     continue
                 m = field_re.search(line)
                 if not m:
@@ -978,7 +1018,12 @@ def _extract_quarkus_config_chunks(source_root: Path, *, config: dict[str, Any],
                         module_path=rel_path,
                         artifact_kind="config_reference",
                         content_format="java",
-                        metadata=_quarkus_metadata(text=body, rel_path=rel_path, artifact_kind="config_reference", symbol_kind="config_property"),
+                        metadata=_quarkus_metadata(
+                            text=body,
+                            rel_path=rel_path,
+                            artifact_kind="config_reference",
+                            symbol_kind="config_property",
+                        ),
                     )
                 )
     return chunks
@@ -1004,7 +1049,9 @@ def _extract_quarkus_cli_chunks(source_root: Path, *, config: dict[str, Any], ta
         command_args = command_match.group("args") if command_match else ""
         command_name = name_re.search(command_args).group(1) if name_re.search(command_args) else class_name
         options = [m.group(1).strip().replace("\n", " ")[:240] for m in option_re.finditer(text)]
-        doc = _java_doc_before(text.splitlines(), next((i for i, line in enumerate(text.splitlines()) if "@Command" in line), 0))
+        doc = _java_doc_before(
+            text.splitlines(), next((i for i, line in enumerate(text.splitlines()) if "@Command" in line), 0)
+        )
         body = (
             f"{doc}\n\nCommand: quarkus {command_name}\n\n"
             f"Command annotation:\n```java\n@Command({command_args.strip()[:1200]})\n```\n\n"
@@ -1026,7 +1073,9 @@ def _extract_quarkus_cli_chunks(source_root: Path, *, config: dict[str, Any], ta
                 module_path=rel_path,
                 artifact_kind="cli_command",
                 content_format="java",
-                metadata=_quarkus_metadata(text=body, rel_path=rel_path, artifact_kind="cli_command", symbol_kind="cli_command"),
+                metadata=_quarkus_metadata(
+                    text=body, rel_path=rel_path, artifact_kind="cli_command", symbol_kind="cli_command"
+                ),
             )
         )
     return chunks
@@ -1037,7 +1086,9 @@ def _extract_quarkus_source_chunks(source_root: Path, *, config: dict[str, Any],
     include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
     roots = [str(x) for x in include.get("source_roots", ["core/runtime/src/main/java"])]
     chunks: list[LanguageChunk] = []
-    class_re = re.compile(r"\bpublic\s+(?:abstract\s+|final\s+)?(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)")
+    class_re = re.compile(
+        r"\bpublic\s+(?:abstract\s+|final\s+)?(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)"
+    )
     for rel in roots:
         root = source_root / rel
         if not root.exists():
@@ -1068,7 +1119,9 @@ def _extract_quarkus_source_chunks(source_root: Path, *, config: dict[str, Any],
                     module_path=rel_path,
                     artifact_kind="code",
                     content_format="java",
-                    metadata=_quarkus_metadata(text=body, rel_path=rel_path, artifact_kind="code", symbol_kind="java_type"),
+                    metadata=_quarkus_metadata(
+                        text=body, rel_path=rel_path, artifact_kind="code", symbol_kind="java_type"
+                    ),
                 )
             )
     return chunks
@@ -1106,7 +1159,12 @@ def _extract_quarkus_platform_chunks(source_root: Path, *, config: dict[str, Any
                     module_path=f"quarkus-platform/{rel_path}",
                     artifact_kind="platform_bom",
                     content_format="xml",
-                    metadata=_quarkus_metadata(text=body, rel_path=f"quarkus-platform/{rel_path}", artifact_kind="platform_bom", symbol_kind="platform_bom"),
+                    metadata=_quarkus_metadata(
+                        text=body,
+                        rel_path=f"quarkus-platform/{rel_path}",
+                        artifact_kind="platform_bom",
+                        symbol_kind="platform_bom",
+                    ),
                 )
             )
     return chunks
@@ -1170,9 +1228,16 @@ def _python_metadata(
     return {
         "scope_tags": tags,
         "constraint_kind": "hard" if artifact_kind in {"pep", "type_stub", "packaging_spec"} else "guiding",
-        "constraint_source": "python-peps" if artifact_kind == "pep" else "typeshed" if artifact_kind == "type_stub" else "python-repo-map" if artifact_kind == "repo_map" else "python-docs",
+        "constraint_source": "python-peps"
+        if artifact_kind == "pep"
+        else "typeshed"
+        if artifact_kind == "type_stub"
+        else "python-repo-map"
+        if artifact_kind == "repo_map"
+        else "python-docs",
         "content_profile": "architecture" if artifact_kind == "repo_map" else "reference",
-        "prompt_id": prompt_id or _python_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
+        "prompt_id": prompt_id
+        or _python_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
     }
 
 
@@ -1199,7 +1264,9 @@ def _annotation_to_string(node: ast.AST | None) -> str:
         return ""
 
 
-def _extract_python_symbols(file_path: Path, root: Path, *, repo: str, tag: str, artifact_kind: str = "code") -> list[LanguageChunk]:
+def _extract_python_symbols(
+    file_path: Path, root: Path, *, repo: str, tag: str, artifact_kind: str = "code"
+) -> list[LanguageChunk]:
     text = _read_text(file_path)
     try:
         tree = ast.parse(text)
@@ -1214,7 +1281,13 @@ def _extract_python_symbols(file_path: Path, root: Path, *, repo: str, tag: str,
         name = node.name
         if name.startswith("_") and name != "__init__":
             continue
-        kind = "class" if isinstance(node, ast.ClassDef) else "async_function" if isinstance(node, ast.AsyncFunctionDef) else "function"
+        kind = (
+            "class"
+            if isinstance(node, ast.ClassDef)
+            else "async_function"
+            if isinstance(node, ast.AsyncFunctionDef)
+            else "function"
+        )
         doc = ast.get_docstring(node) or ""
         lineno = max(1, getattr(node, "lineno", 1))
         end = min(len(text.splitlines()), getattr(node, "end_lineno", lineno + 40))
@@ -1243,7 +1316,9 @@ def _extract_python_symbols(file_path: Path, root: Path, *, repo: str, tag: str,
     return chunks
 
 
-def _extract_python_module_doc(file_path: Path, root: Path, *, repo: str, tag: str, artifact_kind: str = "docs") -> LanguageChunk | None:
+def _extract_python_module_doc(
+    file_path: Path, root: Path, *, repo: str, tag: str, artifact_kind: str = "docs"
+) -> LanguageChunk | None:
     text = _read_text(file_path)
     try:
         tree = ast.parse(text)
@@ -1321,7 +1396,9 @@ def _extract_python_repo_map(source_root: Path, *, config: dict[str, Any], tag: 
         elif root.exists():
             py_files.extend(p for p in root.rglob("*.py") if ".git" not in p.parts and "__pycache__" not in p.parts)
     if not py_files:
-        py_files = sorted(p for p in source_root.rglob("*.py") if ".git" not in p.parts and "__pycache__" not in p.parts)
+        py_files = sorted(
+            p for p in source_root.rglob("*.py") if ".git" not in p.parts and "__pycache__" not in p.parts
+        )
     else:
         py_files = sorted(set(py_files))
     py_files = py_files[:1000]
@@ -1339,7 +1416,9 @@ def _extract_python_repo_map(source_root: Path, *, config: dict[str, Any], tag: 
         imports: list[str] = []
         type_hints: list[str] = []
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and not node.name.startswith("_"):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and not node.name.startswith(
+                "_"
+            ):
                 public.append(node.name)
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     ann = _annotation_to_string(node.returns)
@@ -1390,7 +1469,15 @@ def _extract_python_repo_map(source_root: Path, *, config: dict[str, Any], tag: 
             module_path="",
             artifact_kind="repo_map",
             content_format="json",
-            metadata={**_python_metadata(text=json.dumps(project_json), rel_path="repo-map", artifact_kind="repo_map", symbol_kind="project_root"), "repo_map_json": project_json},
+            metadata={
+                **_python_metadata(
+                    text=json.dumps(project_json),
+                    rel_path="repo-map",
+                    artifact_kind="repo_map",
+                    symbol_kind="project_root",
+                ),
+                "repo_map_json": project_json,
+            },
         )
     )
     for info in module_infos:
@@ -1405,7 +1492,9 @@ def _extract_python_repo_map(source_root: Path, *, config: dict[str, Any], tag: 
             "export_surface": info["type_hints"][:50],
             "dependency_edge": info["imports"][:50],
             "center_of_gravity": round(center, 4),
-            "side_effects": "YES" if any(x in ",".join(info["imports"]) for x in ["os", "socket", "subprocess", "sqlite", "requests"]) else "unknown",
+            "side_effects": "YES"
+            if any(x in ",".join(info["imports"]) for x in ["os", "socket", "subprocess", "sqlite", "requests"])
+            else "unknown",
             "agent_brief": f"Use {module_name} as a high-level map row before opening source when the bug report mentions related APIs.",
         }
         chunks.append(
@@ -1424,7 +1513,12 @@ def _extract_python_repo_map(source_root: Path, *, config: dict[str, Any], tag: 
                 module_path=rel_path,
                 artifact_kind="repo_map",
                 content_format="json",
-                metadata={**_python_metadata(text=json.dumps(map_json), rel_path=rel_path, artifact_kind="repo_map", symbol_kind="module"), "repo_map_json": map_json},
+                metadata={
+                    **_python_metadata(
+                        text=json.dumps(map_json), rel_path=rel_path, artifact_kind="repo_map", symbol_kind="module"
+                    ),
+                    "repo_map_json": map_json,
+                },
             )
         )
     return chunks
@@ -1467,11 +1561,23 @@ def extract_python_chunks(source_root: Path, *, config: dict[str, Any], tag: str
         path = str(aux.get("path") or "")
         artifact_kind = str(aux.get("artifact_kind") or "docs")
         if artifact_kind == "pep":
-            chunks.extend(_extract_python_pep_chunks(aux_root, path or ".", repo=repo_name, tag=str(aux.get("resolved_ref") or "main")))
+            chunks.extend(
+                _extract_python_pep_chunks(
+                    aux_root, path or ".", repo=repo_name, tag=str(aux.get("resolved_ref") or "main")
+                )
+            )
             continue
         if artifact_kind == "type_stub":
             for pyi in sorted((aux_root / path).rglob("*.pyi")) if (aux_root / path).exists() else []:
-                chunks.extend(_extract_python_symbols(pyi, aux_root, repo=repo_name, tag=str(aux.get("resolved_ref") or "main"), artifact_kind="type_stub"))
+                chunks.extend(
+                    _extract_python_symbols(
+                        pyi,
+                        aux_root,
+                        repo=repo_name,
+                        tag=str(aux.get("resolved_ref") or "main"),
+                        artifact_kind="type_stub",
+                    )
+                )
             continue
         for chunk in _doc_chunks(
             aux_root,
@@ -1483,7 +1589,14 @@ def extract_python_chunks(source_root: Path, *, config: dict[str, Any], tag: str
             artifact_kind=artifact_kind,
             prompt_id=str(aux.get("prompt_id") or ""),
         ):
-            chunk.metadata.update(_python_metadata(text=chunk.text, rel_path=chunk.module_path, artifact_kind=artifact_kind, prompt_id=str(aux.get("prompt_id") or "")))
+            chunk.metadata.update(
+                _python_metadata(
+                    text=chunk.text,
+                    rel_path=chunk.module_path,
+                    artifact_kind=artifact_kind,
+                    prompt_id=str(aux.get("prompt_id") or ""),
+                )
+            )
             chunks.append(chunk)
     pyproject = source_root / "pyproject.toml"
     if pyproject.exists():
@@ -1515,7 +1628,12 @@ def extract_python_chunks(source_root: Path, *, config: dict[str, Any], tag: str
                 module_path="pyproject.toml",
                 artifact_kind="repo_map",
                 content_format="toml",
-                metadata={**_python_metadata(text=text, rel_path="pyproject.toml", artifact_kind="repo_map", symbol_kind="project_config"), "repo_map_json": map_json},
+                metadata={
+                    **_python_metadata(
+                        text=text, rel_path="pyproject.toml", artifact_kind="repo_map", symbol_kind="project_config"
+                    ),
+                    "repo_map_json": map_json,
+                },
             )
         )
     chunks.extend(_extract_python_repo_map(source_root, config=config, tag=tag))
@@ -1568,9 +1686,14 @@ def _godot_metadata(
     return {
         "scope_tags": tags,
         "constraint_kind": "hard" if artifact_kind in {"class_reference", "shader_language"} else "guiding",
-        "constraint_source": "godot-class-reference" if artifact_kind == "class_reference" else "godot-proposals" if artifact_kind == "engine_proposal" else "godot-docs",
+        "constraint_source": "godot-class-reference"
+        if artifact_kind == "class_reference"
+        else "godot-proposals"
+        if artifact_kind == "engine_proposal"
+        else "godot-docs",
         "content_profile": "reference",
-        "prompt_id": prompt_id or _godot_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
+        "prompt_id": prompt_id
+        or _godot_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
     }
 
 
@@ -1673,22 +1796,66 @@ def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any],
             name = signal.attrib.get("name", "")
             args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in signal.findall("param")]
             text = f"Signal: {class_name}.{name}({', '.join(args)})\n\n{_xml_text(signal.find('description'))}".strip()
-            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="signal", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+            chunks.append(
+                _godot_class_row(
+                    repo=repo,
+                    tag=tag,
+                    rel_path=rel_path,
+                    class_name=class_name,
+                    text=text,
+                    symbol_kind="signal",
+                    symbol_name=name,
+                    symbol_fqn=f"{class_name}.{name}",
+                )
+            )
         for method in class_el.findall("./methods/method"):
             name = method.attrib.get("name", "")
             return_type = method.find("return")
             ret = return_type.attrib.get("type", "") if return_type is not None else ""
             args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in method.findall("param")]
             text = f"Method: {class_name}.{name}({', '.join(args)}) -> {ret}\n\n{_xml_text(method.find('description'))}".strip()
-            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="method", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+            chunks.append(
+                _godot_class_row(
+                    repo=repo,
+                    tag=tag,
+                    rel_path=rel_path,
+                    class_name=class_name,
+                    text=text,
+                    symbol_kind="method",
+                    symbol_name=name,
+                    symbol_fqn=f"{class_name}.{name}",
+                )
+            )
         for prop in class_el.findall("./members/member"):
             name = prop.attrib.get("name", "")
             text = f"Property: {class_name}.{name}: {prop.attrib.get('type', '')}\n\n{_xml_text(prop)}".strip()
-            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="property", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+            chunks.append(
+                _godot_class_row(
+                    repo=repo,
+                    tag=tag,
+                    rel_path=rel_path,
+                    class_name=class_name,
+                    text=text,
+                    symbol_kind="property",
+                    symbol_name=name,
+                    symbol_fqn=f"{class_name}.{name}",
+                )
+            )
         for const in class_el.findall("./constants/constant"):
             name = const.attrib.get("name", "")
             text = f"Constant: {class_name}.{name} = {const.attrib.get('value', '')}\n\n{_xml_text(const)}".strip()
-            chunks.append(_godot_class_row(repo=repo, tag=tag, rel_path=rel_path, class_name=class_name, text=text, symbol_kind="constant", symbol_name=name, symbol_fqn=f"{class_name}.{name}"))
+            chunks.append(
+                _godot_class_row(
+                    repo=repo,
+                    tag=tag,
+                    rel_path=rel_path,
+                    class_name=class_name,
+                    text=text,
+                    symbol_kind="constant",
+                    symbol_name=name,
+                    symbol_fqn=f"{class_name}.{name}",
+                )
+            )
     return chunks
 
 
@@ -1716,7 +1883,14 @@ def _extract_godot_docs(source_root: Path, *, config: dict[str, Any], tag: str) 
             artifact_kind=artifact_kind,
             prompt_id=str(aux.get("prompt_id") or ""),
         ):
-            chunk.metadata.update(_godot_metadata(text=chunk.text, rel_path=chunk.module_path, artifact_kind=artifact_kind, prompt_id=str(aux.get("prompt_id") or "")))
+            chunk.metadata.update(
+                _godot_metadata(
+                    text=chunk.text,
+                    rel_path=chunk.module_path,
+                    artifact_kind=artifact_kind,
+                    prompt_id=str(aux.get("prompt_id") or ""),
+                )
+            )
             chunks.append(chunk)
     return chunks
 
@@ -1755,7 +1929,9 @@ def _extract_godot_shader_chunks(source_root: Path, *, config: dict[str, Any], t
                         module_path=rel_path,
                         artifact_kind="shader_language",
                         content_format=file_path.suffix.lstrip(".") or "text",
-                        metadata=_godot_metadata(text=part, rel_path=rel_path, artifact_kind="shader_language", symbol_kind="shader_source"),
+                        metadata=_godot_metadata(
+                            text=part, rel_path=rel_path, artifact_kind="shader_language", symbol_kind="shader_source"
+                        ),
                     )
                 )
     return chunks
@@ -1805,7 +1981,9 @@ def _terraform_metadata(
         tags.extend(["opentofu", "state-management"])
     if artifact_kind == "iac_policy_rule":
         tags.extend(["policy-as-code", "lint-rule"])
-    if any(token in lower for token in ("force new", "forcenew", "forces replacement", "destroy", "delete", "replacement")):
+    if any(
+        token in lower for token in ("force new", "forcenew", "forces replacement", "destroy", "delete", "replacement")
+    ):
         tags.append("destructive-risk")
     if any(token in lower for token in ("import ", "terraform import", "import_id", "import id")):
         tags.append("import-guidance")
@@ -1816,7 +1994,11 @@ def _terraform_metadata(
     return {
         "scope_tags": tags,
         "constraint_kind": "hard" if artifact_kind == "provider_schema" else "guiding",
-        "constraint_source": "terraform-provider-schema" if artifact_kind == "provider_schema" else "tflint-rules" if artifact_kind == "iac_policy_rule" else "terraform-docs",
+        "constraint_source": "terraform-provider-schema"
+        if artifact_kind == "provider_schema"
+        else "tflint-rules"
+        if artifact_kind == "iac_policy_rule"
+        else "terraform-docs",
         "content_profile": "reference" if artifact_kind in {"provider_schema", "provider_docs"} else "procedural",
         "provider": provider,
         "prompt_id": prompt_id or _terraform_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind),
@@ -1866,7 +2048,11 @@ def _extract_terraform_docs(source_root: Path, *, config: dict[str, Any], tag: s
         chunk.symbol_kind = kind
         chunk.symbol_name = name
         chunk.symbol_fqn = fqn
-        chunk.metadata.update(_terraform_metadata(text=chunk.text, rel_path=chunk.module_path, artifact_kind="terraform_guide", symbol_kind=kind))
+        chunk.metadata.update(
+            _terraform_metadata(
+                text=chunk.text, rel_path=chunk.module_path, artifact_kind="terraform_guide", symbol_kind=kind
+            )
+        )
         chunks.append(chunk)
 
     for aux in include.get("aux_sources", []):
@@ -1953,7 +2139,9 @@ def _terraform_schema_chunk(
         "schema": schema,
     }
     text = json.dumps(payload, indent=2, sort_keys=True)
-    metadata = _terraform_metadata(text=text, rel_path=rel_path, artifact_kind="provider_schema", symbol_kind=kind, provider=provider)
+    metadata = _terraform_metadata(
+        text=text, rel_path=rel_path, artifact_kind="provider_schema", symbol_kind=kind, provider=provider
+    )
     metadata.update(
         {
             "terraform_provider": provider,
@@ -1983,7 +2171,9 @@ def _terraform_schema_chunk(
     )
 
 
-def _extract_terraform_provider_schema_files(source_root: Path, *, config: dict[str, Any], tag: str, provider_schema: str | Path = "") -> list[LanguageChunk]:
+def _extract_terraform_provider_schema_files(
+    source_root: Path, *, config: dict[str, Any], tag: str, provider_schema: str | Path = ""
+) -> list[LanguageChunk]:
     include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
     repo = str(config.get("repo") or "github.com/hashicorp/terraform")
     paths: list[Path] = []
@@ -2004,7 +2194,9 @@ def _extract_terraform_provider_schema_files(source_root: Path, *, config: dict[
         except json.JSONDecodeError:
             continue
         provider_schemas = data.get("provider_schemas") if isinstance(data.get("provider_schemas"), dict) else {}
-        rel_path = file_path.relative_to(source_root).as_posix() if file_path.is_relative_to(source_root) else file_path.name
+        rel_path = (
+            file_path.relative_to(source_root).as_posix() if file_path.is_relative_to(source_root) else file_path.name
+        )
         for provider, provider_data in sorted(provider_schemas.items()):
             if not isinstance(provider_data, dict):
                 continue
@@ -2028,10 +2220,14 @@ def _extract_terraform_provider_schema_files(source_root: Path, *, config: dict[
     return chunks
 
 
-def extract_terraform_chunks(source_root: Path, *, config: dict[str, Any], tag: str, provider_schema: str | Path = "") -> list[LanguageChunk]:
+def extract_terraform_chunks(
+    source_root: Path, *, config: dict[str, Any], tag: str, provider_schema: str | Path = ""
+) -> list[LanguageChunk]:
     chunks: list[LanguageChunk] = []
     chunks.extend(_extract_terraform_docs(source_root, config=config, tag=tag))
-    chunks.extend(_extract_terraform_provider_schema_files(source_root, config=config, tag=tag, provider_schema=provider_schema))
+    chunks.extend(
+        _extract_terraform_provider_schema_files(source_root, config=config, tag=tag, provider_schema=provider_schema)
+    )
     for idx, chunk in enumerate(chunks):
         chunk.chunk_index = idx
     return chunks
@@ -2043,7 +2239,9 @@ def _ecma_prompt_for_chunk(text: str, *, rel_path: str, artifact_kind: str) -> s
         return "ecma_temporal_architect_2026_v1"
     if artifact_kind == "typescript_handbook" or "typescript" in lower or "satisfies" in lower or "using " in lower:
         return "typescript_type_safety_architect_v1"
-    if artifact_kind == "runtime_api" or any(token in lower for token in ("node.js", "bun", "deno", "permission model")):
+    if artifact_kind == "runtime_api" or any(
+        token in lower for token in ("node.js", "bun", "deno", "permission model")
+    ):
         return "js_runtime_compat_architect_v1"
     if artifact_kind == "web_api" or "mdn" in lower or "browser" in lower or "web api" in lower:
         return "web_platform_architect_v1"
@@ -2098,8 +2296,16 @@ def _ecma_metadata(
         tags.append("bundle-impact")
     return {
         "scope_tags": tags,
-        "constraint_kind": "hard" if artifact_kind in {"ecma_spec", "temporal_api", "typescript_handbook"} else "guiding",
-        "constraint_source": "tc39" if artifact_kind in {"ecma_spec", "tc39_proposal", "temporal_api"} else "typescript-docs" if artifact_kind == "typescript_handbook" else "runtime-docs" if artifact_kind == "runtime_api" else "mdn",
+        "constraint_kind": "hard"
+        if artifact_kind in {"ecma_spec", "temporal_api", "typescript_handbook"}
+        else "guiding",
+        "constraint_source": "tc39"
+        if artifact_kind in {"ecma_spec", "tc39_proposal", "temporal_api"}
+        else "typescript-docs"
+        if artifact_kind == "typescript_handbook"
+        else "runtime-docs"
+        if artifact_kind == "runtime_api"
+        else "mdn",
         "content_profile": "reference",
         "package_name": package_name,
         "prompt_id": prompt_id or _ecma_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind),
@@ -2173,7 +2379,15 @@ def extract_ecma_chunks(source_root: Path, *, config: dict[str, Any], tag: str) 
         chunk.symbol_kind = symbol_kind
         chunk.symbol_name = symbol_name
         chunk.symbol_fqn = symbol_fqn
-        chunk.metadata.update(_ecma_metadata(text=chunk.text, rel_path=chunk.module_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind, package_name="ecma"))
+        chunk.metadata.update(
+            _ecma_metadata(
+                text=chunk.text,
+                rel_path=chunk.module_path,
+                artifact_kind=artifact_kind,
+                symbol_kind=symbol_kind,
+                package_name="ecma",
+            )
+        )
         chunks.append(chunk)
 
     for aux in include.get("aux_sources", []):
@@ -2252,7 +2466,9 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
         )
     )
     if language.lower() == "rust":
-        edition_scope = chunk.metadata.get("edition_scope") if isinstance(chunk.metadata.get("edition_scope"), list) else []
+        edition_scope = (
+            chunk.metadata.get("edition_scope") if isinstance(chunk.metadata.get("edition_scope"), list) else []
+        )
         return {
             "agent_hook": f"Use this Rust {chunk.symbol_kind or 'documentation'} chunk for {chunk.package_name or chunk.document_name}.",
             "perf_tier": "unknown",
@@ -2282,7 +2498,9 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
         }
     if language.lower() == "python":
         if chunk.artifact_kind == "repo_map":
-            repo_map = chunk.metadata.get("repo_map_json") if isinstance(chunk.metadata.get("repo_map_json"), dict) else {}
+            repo_map = (
+                chunk.metadata.get("repo_map_json") if isinstance(chunk.metadata.get("repo_map_json"), dict) else {}
+            )
             return {
                 "agent_hook": f"Use this Python repo-map row to orient before searching implementation files for {chunk.symbol_fqn or chunk.document_name}.",
                 "perf_tier": "unknown",
@@ -2627,7 +2845,11 @@ def _build_rows(
                 content_profile=str(chunk.metadata.get("content_profile") or "reference"),
                 scope_tags=_join_csv([chunk.metadata.get("scope_tags", [])]),
                 constraint_source=str(chunk.metadata.get("constraint_source") or ""),
-                constraint_confidence=1.0 if chunk.metadata.get("constraint_kind") == "hard" else 0.85 if chunk.metadata.get("constraint_kind") else -1.0,
+                constraint_confidence=1.0
+                if chunk.metadata.get("constraint_kind") == "hard"
+                else 0.85
+                if chunk.metadata.get("constraint_kind")
+                else -1.0,
                 crawl_timestamp=int(time.time() * 1000),
                 raw_content_hash=hashlib.sha256(chunk.text.encode()).hexdigest(),
                 clean_content_hash=hashlib.sha256(chunk.text.encode()).hexdigest(),
@@ -2722,7 +2944,9 @@ def _clone_aux_sources(config: dict[str, Any], source_root: Path, sources_lock: 
             aux["resolved_ref"] = ref or "local"
             continue
         clone_repo(repo, target, tag=ref)
-        commit = subprocess.run(["git", "-C", str(target), "rev-parse", "HEAD"], check=True, text=True, capture_output=True).stdout.strip()
+        commit = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "HEAD"], check=True, text=True, capture_output=True
+        ).stdout.strip()
         aux["resolved_ref"] = commit
         aux_locks.append({"name": name, "repo": repo, "path": str(target), "ref": ref, "commit": commit})
     sources_lock["aux_sources"] = aux_locks
@@ -2812,7 +3036,9 @@ def build_language_pack(
         elif language == "godot":
             chunks = extract_godot_chunks(source_root, config=config, tag=resolved_tag)
         elif language == "terraform":
-            chunks = extract_terraform_chunks(source_root, config=config, tag=resolved_tag, provider_schema=provider_schema)
+            chunks = extract_terraform_chunks(
+                source_root, config=config, tag=resolved_tag, provider_schema=provider_schema
+            )
         elif language == "ecma":
             chunks = extract_ecma_chunks(source_root, config=config, tag=resolved_tag)
         else:
@@ -2839,7 +3065,9 @@ def build_language_pack(
                 else TERRAFORM_PROMPT_ID
             )
         )
-        prompt_variable = str(config.get("prompt_variable") or ("{{RAW_GO_DOC_CONTENT}}" if language == "go" else "{{DOC_CHUNK}}"))
+        prompt_variable = str(
+            config.get("prompt_variable") or ("{{RAW_GO_DOC_CONTENT}}" if language == "go" else "{{DOC_CHUNK}}")
+        )
         enrichments = enrich_language_chunks(
             chunks,
             prompt_templates=prompt_templates,

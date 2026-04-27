@@ -150,7 +150,9 @@ def _to_capability_override(policy: GovernancePolicyDef) -> dict[str, Any] | Non
     }
 
 
-async def _fetch_capability_matrix_rows(session, org_id: str | None = None) -> tuple[GovernancePolicyDef | None, list[dict[str, Any]]]:
+async def _fetch_capability_matrix_rows(
+    session, org_id: str | None = None
+) -> tuple[GovernancePolicyDef | None, list[dict[str, Any]]]:
     q = select(GovernancePolicyDef).where(
         GovernancePolicyDef.rule_type == "feature_toggle",
     )
@@ -165,14 +167,13 @@ async def _fetch_capability_matrix_rows(session, org_id: str | None = None) -> t
         (
             row
             for row in matrix_rows
-            if isinstance(row.rule_config, dict) and row.rule_config.get("row_type") == CAPABILITY_MATRIX_GLOBAL_ROW_TYPE
+            if isinstance(row.rule_config, dict)
+            and row.rule_config.get("row_type") == CAPABILITY_MATRIX_GLOBAL_ROW_TYPE
         ),
         None,
     )
     overrides = [
-        candidate
-        for candidate in (_to_capability_override(row) for row in matrix_rows)
-        if candidate is not None
+        candidate for candidate in (_to_capability_override(row) for row in matrix_rows) if candidate is not None
     ]
     overrides.sort(
         key=lambda row: (
@@ -218,10 +219,14 @@ async def _canonical_capability_selectors(session) -> dict[str, set[str]]:
         "family_prefix": set(),
     }
     rows = (
-        await session.execute(
-            select(ModelDeployment).where(ModelDeployment.is_active == True),
+        (
+            await session.execute(
+                select(ModelDeployment).where(ModelDeployment.is_active == True),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for row in rows:
         served_name = str(getattr(row, "served_name", "") or "").strip()
         backend_model = str(getattr(row, "model", "") or "").strip()
@@ -253,10 +258,7 @@ async def _ensure_selector_is_canonical(session, selector_type: str, selector: s
     if suggested is not None:
         raise HTTPException(
             400,
-            (
-                f"Non-canonical selector for {selector_type}: '{selector_value}'. "
-                f"Use canonical value '{suggested}'."
-            ),
+            (f"Non-canonical selector for {selector_type}: '{selector_value}'. Use canonical value '{suggested}'."),
         )
 
     raise HTTPException(
@@ -1377,7 +1379,9 @@ async def upsert_capability_matrix_override(
             org_id=body.org_id,
             exclude_policy_id=policy_id,
         )
-        existing.name = (body.name or existing.name or f"Capability Override: {selector_type}:{body.selector.strip()}").strip()[:256]
+        existing.name = (
+            body.name or existing.name or f"Capability Override: {selector_type}:{body.selector.strip()}"
+        ).strip()[:256]
         existing.description = "Capability matrix override row"
         existing.scope = body.scope
         existing.scope_value = body.scope_value

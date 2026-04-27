@@ -32,7 +32,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_model_public_offering_client_model_id", "model_public_offering", ["client_model_id"], unique=True)
+    op.create_index(
+        "ix_model_public_offering_client_model_id", "model_public_offering", ["client_model_id"], unique=True
+    )
     op.create_index("ix_model_public_offering_is_active", "model_public_offering", ["is_active"])
     op.create_index(
         "ix_model_public_offering_active_expose",

@@ -206,9 +206,7 @@ BUILTIN_SUITES: dict[str, EvalSuite] = {
                 max_tokens=5000,
             ),
             EvalCase(
-                prompt=(
-                    "Continue the task after an 'Invalid tool parameters' error without restarting from scratch."
-                ),
+                prompt=("Continue the task after an 'Invalid tool parameters' error without restarting from scratch."),
                 category="invalid_tool_recovery",
                 max_tokens=5000,
             ),

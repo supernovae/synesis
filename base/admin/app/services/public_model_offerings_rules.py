@@ -54,10 +54,7 @@ def validate_client_model_id(client_model_id: str) -> str:
     if not norm:
         raise ValueError("client_model_id is required")
     if not CLIENT_ID_PATTERN.match(norm):
-        raise ValueError(
-            "client_model_id must be 1-128 chars, start with alphanumeric, "
-            "and contain only [a-z0-9._/-]"
-        )
+        raise ValueError("client_model_id must be 1-128 chars, start with alphanumeric, and contain only [a-z0-9._/-]")
     if norm in RESERVED_CLIENT_MODEL_IDS:
         raise ValueError(f"client_model_id '{norm}' is reserved")
     return norm
@@ -153,9 +150,7 @@ def normalize_offering_connection(
         if not api_key_env:
             missing.append("standalone_api_key_env")
         if missing:
-            raise ValueError(
-                "standalone offerings exposed to yarn require: " + ", ".join(missing)
-            )
+            raise ValueError("standalone offerings exposed to yarn require: " + ", ".join(missing))
 
     return effort, None, mode, provider, endpoint, api_key_env
 

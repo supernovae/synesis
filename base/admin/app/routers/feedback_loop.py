@@ -231,10 +231,10 @@ def _dpo_pairs(run: TestingLabsRun, run_id: str, rows: list[TestingLabsResult]) 
 async def feedback_loop_overview(_user: UserInfo = Depends(get_current_user)):
     async with async_session() as session:
         runs = (
-            await session.execute(
-                select(TestingLabsRun).order_by(TestingLabsRun.created_at.desc()).limit(20)
-            )
-        ).scalars().all()
+            (await session.execute(select(TestingLabsRun).order_by(TestingLabsRun.created_at.desc()).limit(20)))
+            .scalars()
+            .all()
+        )
     return {
         "suites": list_suites(),
         "recent_runs": [
@@ -349,12 +349,16 @@ async def auto_label_run(
 ):
     async with async_session() as session:
         rows = (
-            await session.execute(
-                select(TestingLabsResult)
-                .where(TestingLabsResult.run_id == run_id)
-                .order_by(TestingLabsResult.prompt_index)
+            (
+                await session.execute(
+                    select(TestingLabsResult)
+                    .where(TestingLabsResult.run_id == run_id)
+                    .order_by(TestingLabsResult.prompt_index)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not rows:
             raise HTTPException(status_code=404, detail="No results found for run")
         for row in rows:
@@ -374,12 +378,16 @@ async def critic_score_run(
 ):
     async with async_session() as session:
         rows = (
-            await session.execute(
-                select(TestingLabsResult)
-                .where(TestingLabsResult.run_id == run_id)
-                .order_by(TestingLabsResult.prompt_index)
+            (
+                await session.execute(
+                    select(TestingLabsResult)
+                    .where(TestingLabsResult.run_id == run_id)
+                    .order_by(TestingLabsResult.prompt_index)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not rows:
             raise HTTPException(status_code=404, detail="No results found for run")
         scored = 0
@@ -405,12 +413,16 @@ async def export_dpo_preferences(
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
         rows = (
-            await session.execute(
-                select(TestingLabsResult)
-                .where(TestingLabsResult.run_id == run_id)
-                .order_by(TestingLabsResult.prompt_index)
+            (
+                await session.execute(
+                    select(TestingLabsResult)
+                    .where(TestingLabsResult.run_id == run_id)
+                    .order_by(TestingLabsResult.prompt_index)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     if not rows:
         raise HTTPException(status_code=404, detail="No results found for run")
     pairs = _dpo_pairs(run, run_id, rows)
@@ -431,12 +443,16 @@ async def export_training_dataset(
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
         rows = (
-            await session.execute(
-                select(TestingLabsResult)
-                .where(TestingLabsResult.run_id == run_id)
-                .order_by(TestingLabsResult.prompt_index)
+            (
+                await session.execute(
+                    select(TestingLabsResult)
+                    .where(TestingLabsResult.run_id == run_id)
+                    .order_by(TestingLabsResult.prompt_index)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     if not rows:
         raise HTTPException(status_code=404, detail="No results found for run")
 
@@ -465,41 +481,47 @@ async def _eval_gym_records(run_id: str) -> list[dict[str, Any]]:
     """Pull eval gym events (scenario_eval_v1, eval_transcript_v1) from yarn_session_events."""
     async with async_session() as session:
         events = (
-            await session.execute(
-                select(YarnSessionEvent)
-                .where(YarnSessionEvent.event_kind.in_(["scenario_eval_v1", "eval_transcript_v1"]))
-                .order_by(YarnSessionEvent.created_at.desc())
-                .limit(500)
+            (
+                await session.execute(
+                    select(YarnSessionEvent)
+                    .where(YarnSessionEvent.event_kind.in_(["scenario_eval_v1", "eval_transcript_v1"]))
+                    .order_by(YarnSessionEvent.created_at.desc())
+                    .limit(500)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     records: list[dict[str, Any]] = []
     for ev in events:
         meta = ev.metadata_json if isinstance(ev.metadata_json, dict) else {}
-        records.append({
-            "task_id": f"eval:{meta.get('scenario_id', 'unknown')}:{ev.id}",
-            "session_id": ev.session_key,
-            "event_kind": ev.event_kind,
-            "model_id": meta.get("model", "unknown"),
-            "runtime_profile": "balanced_completion",
-            "user_intent": meta.get("category", "eval"),
-            "outcome": "completed" if meta.get("passed") else "stalled",
-            "quality_signals": {
-                "score": meta.get("score"),
-                "total_turns": meta.get("total_turns"),
-                "total_anomalies": meta.get("anomaly_count", meta.get("total_anomalies")),
-                "governor_interventions": meta.get("governor_interventions"),
-            },
-            "governor": {
-                "rules_fired": meta.get("governor_rules", meta.get("all_governor_rules", [])),
-            },
-            "training_signals": {
-                "governor_intervened": bool(meta.get("governor_interventions")),
-                "anomaly_count": meta.get("anomaly_count", meta.get("total_anomalies", 0)),
-            },
-            "metadata": meta,
-            "created_at": _to_iso_timestamp(ev.created_at),
-        })
+        records.append(
+            {
+                "task_id": f"eval:{meta.get('scenario_id', 'unknown')}:{ev.id}",
+                "session_id": ev.session_key,
+                "event_kind": ev.event_kind,
+                "model_id": meta.get("model", "unknown"),
+                "runtime_profile": "balanced_completion",
+                "user_intent": meta.get("category", "eval"),
+                "outcome": "completed" if meta.get("passed") else "stalled",
+                "quality_signals": {
+                    "score": meta.get("score"),
+                    "total_turns": meta.get("total_turns"),
+                    "total_anomalies": meta.get("anomaly_count", meta.get("total_anomalies")),
+                    "governor_interventions": meta.get("governor_interventions"),
+                },
+                "governor": {
+                    "rules_fired": meta.get("governor_rules", meta.get("all_governor_rules", [])),
+                },
+                "training_signals": {
+                    "governor_intervened": bool(meta.get("governor_interventions")),
+                    "anomaly_count": meta.get("anomaly_count", meta.get("total_anomalies", 0)),
+                },
+                "metadata": meta,
+                "created_at": _to_iso_timestamp(ev.created_at),
+            }
+        )
     return records
 
 
@@ -512,13 +534,17 @@ async def list_eval_gym_events(
     """Query eval gym events from yarn_session_events."""
     async with async_session() as session:
         events = (
-            await session.execute(
-                select(YarnSessionEvent)
-                .where(YarnSessionEvent.event_kind == event_kind)
-                .order_by(YarnSessionEvent.created_at.desc())
-                .limit(limit)
+            (
+                await session.execute(
+                    select(YarnSessionEvent)
+                    .where(YarnSessionEvent.event_kind == event_kind)
+                    .order_by(YarnSessionEvent.created_at.desc())
+                    .limit(limit)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     return {
         "event_kind": event_kind,
@@ -537,7 +563,9 @@ async def list_eval_gym_events(
     }
 
 
-async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool, auto_critic_score: bool = True) -> dict[str, Any]:
+async def _run_pipeline(
+    run_id: str, eval_suites: list[str], auto_label: bool, auto_critic_score: bool = True
+) -> dict[str, Any]:
     run_out = await execute_run(run_id, _YARN_URL)
     if run_out.get("error"):
         logger.warning(
@@ -561,8 +589,10 @@ async def _run_pipeline(run_id: str, eval_suites: list[str], auto_label: bool, a
     if auto_label:
         async with async_session() as session:
             rows = (
-                await session.execute(select(TestingLabsResult).where(TestingLabsResult.run_id == run_id))
-            ).scalars().all()
+                (await session.execute(select(TestingLabsResult).where(TestingLabsResult.run_id == run_id)))
+                .scalars()
+                .all()
+            )
             for row in rows:
                 if auto_critic_score:
                     row.detail = _inject_labels_and_critic(row)
@@ -626,11 +656,7 @@ def _public_eval_result(result: dict[str, Any]) -> dict[str, Any]:
         "errored": int(result.get("errored") or 0),
         "pass_rate": float(result.get("pass_rate") or 0),
         "elapsed_ms": float(result.get("elapsed_ms") or 0),
-        "cases": [
-            _public_eval_case(case)
-            for case in result.get("cases", [])
-            if isinstance(case, dict)
-        ],
+        "cases": [_public_eval_case(case) for case in result.get("cases", []) if isinstance(case, dict)],
     }
 
 

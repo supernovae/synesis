@@ -51,9 +51,7 @@ async def list_offerings(session: AsyncSession, *, active_only: bool = False) ->
     return [row_to_api(r) for r in result.scalars().all()]
 
 
-async def list_offerings_for_service(
-    session: AsyncSession, *, for_service: str
-) -> list[dict[str, Any]]:
+async def list_offerings_for_service(session: AsyncSession, *, for_service: str) -> list[dict[str, Any]]:
     """for_service: 'yarn' | 'planner' — active rows with matching expose flag."""
     stmt = select(ModelPublicOffering).where(ModelPublicOffering.is_active.is_(True))
     if for_service == "yarn":
@@ -167,20 +165,10 @@ async def update_offering(
                 effort_tier=str(et_guess) if et_guess is not None else None,
                 route_via_role=str(rv_guess) if rv_guess is not None else None,
                 connection_mode=str(mode_guess) if mode_guess is not None else None,
-                standalone_provider=(
-                    str(standalone_provider_guess)
-                    if standalone_provider_guess is not None
-                    else None
-                ),
-                standalone_endpoint=(
-                    str(standalone_endpoint_guess)
-                    if standalone_endpoint_guess is not None
-                    else None
-                ),
+                standalone_provider=(str(standalone_provider_guess) if standalone_provider_guess is not None else None),
+                standalone_endpoint=(str(standalone_endpoint_guess) if standalone_endpoint_guess is not None else None),
                 standalone_api_key_env=(
-                    str(standalone_api_key_env_guess)
-                    if standalone_api_key_env_guess is not None
-                    else None
+                    str(standalone_api_key_env_guess) if standalone_api_key_env_guess is not None else None
                 ),
                 expose_yarn=expose_yarn_guess,
             )

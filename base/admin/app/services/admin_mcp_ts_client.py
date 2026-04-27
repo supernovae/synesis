@@ -55,7 +55,9 @@ async def list_admin_mcp_tools(
             {
                 "name": name,
                 "description": str(item.get("description", "") or ""),
-                "inputSchema": item.get("inputSchema") if isinstance(item.get("inputSchema"), dict) else {"type": "object", "properties": {}},
+                "inputSchema": item.get("inputSchema")
+                if isinstance(item.get("inputSchema"), dict)
+                else {"type": "object", "properties": {}},
                 "min_role": str(item.get("min_role", "") or ""),
             }
         )
@@ -80,7 +82,9 @@ def openai_function_tools_from_admin_mcp_catalog(
                 "function": {
                     "name": name,
                     "description": str(tool.get("description", "") or ""),
-                    "parameters": tool.get("inputSchema") if isinstance(tool.get("inputSchema"), dict) else {"type": "object", "properties": {}},
+                    "parameters": tool.get("inputSchema")
+                    if isinstance(tool.get("inputSchema"), dict)
+                    else {"type": "object", "properties": {}},
                 },
             }
         )
@@ -114,4 +118,3 @@ async def invoke_admin_mcp_tool(
     except Exception as exc:
         logger.warning("admin_mcp_ts_invoke_failed tool=%s", tool_name, exc_info=True)
         return json.dumps({"error": str(exc), "tool": tool_name})
-

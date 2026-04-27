@@ -45,9 +45,7 @@ def _openwebui_export_payload_ok(raw: Any) -> bool:
     if isinstance(raw, list):
         return True
     if isinstance(raw, dict):
-        return any(
-            isinstance(raw.get(k), list) for k in ("data", "feedbacks", "items", "results", "entries")
-        )
+        return any(isinstance(raw.get(k), list) for k in ("data", "feedbacks", "items", "results", "entries"))
     return False
 
 

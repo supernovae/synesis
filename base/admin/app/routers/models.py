@@ -891,7 +891,11 @@ def _pricing_by_role_from_active_rows(
             float(r.get("input_per_million", 0.0) or 0.0),
             float(r.get("output_per_million", 0.0) or 0.0),
             (float(r.get("input_cached_per_million")) if r.get("input_cached_per_million") is not None else None),
-            (float(r.get("input_cache_write_per_million")) if r.get("input_cache_write_per_million") is not None else None),
+            (
+                float(r.get("input_cache_write_per_million"))
+                if r.get("input_cache_write_per_million") is not None
+                else None
+            ),
         )
         for r in active_rows
     }

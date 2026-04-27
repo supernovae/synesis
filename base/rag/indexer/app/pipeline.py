@@ -569,7 +569,9 @@ def index_parsed_chunk_pairs(
         module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
         symbol_name = chunk.metadata.get("symbol_name", "")
         pack_id = str(chunk.metadata.get("pack_id", "") or doc.metadata.get("pack_id", "") or src_pack_id or "global")
-        pack_version = str(chunk.metadata.get("pack_version", "") or doc.metadata.get("pack_version", "") or src_pack_version)
+        pack_version = str(
+            chunk.metadata.get("pack_version", "") or doc.metadata.get("pack_version", "") or src_pack_version
+        )
         pack_source_version = str(
             chunk.metadata.get("pack_source_version", "")
             or doc.metadata.get("pack_source_version", "")
@@ -581,7 +583,10 @@ def index_parsed_chunk_pairs(
             or src_pack_artifact_hash
         )
         pack_partition = str(
-            chunk.metadata.get("pack_partition", "") or doc.metadata.get("pack_partition", "") or src_pack_partition or pack_id
+            chunk.metadata.get("pack_partition", "")
+            or doc.metadata.get("pack_partition", "")
+            or src_pack_partition
+            or pack_id
         )
         symbol_kind = str(chunk.metadata.get("symbol_kind", "") or chunk.metadata.get("symbol_type", "") or "")
         symbol_fqn = str(chunk.metadata.get("symbol_fqn", "") or "")

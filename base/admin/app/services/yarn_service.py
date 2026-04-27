@@ -976,14 +976,10 @@ async def get_yarn_intelligence(
     edit_miss_event_rate = (edit_miss_events / requests) if requests else 0.0
     edit_miss_request_rate = (edit_miss_impacted_requests / requests) if requests else 0.0
     edit_miss_mapping_coverage = (
-        edit_miss_mapped_requests / edit_miss_impacted_requests
-        if edit_miss_impacted_requests
-        else 0.0
+        edit_miss_mapped_requests / edit_miss_impacted_requests if edit_miss_impacted_requests else 0.0
     )
     edit_miss_cache_hit_estimate = (
-        edit_miss_impacted_cached_tokens / edit_miss_impacted_tokens
-        if edit_miss_impacted_tokens
-        else 0.0
+        edit_miss_impacted_cached_tokens / edit_miss_impacted_tokens if edit_miss_impacted_tokens else 0.0
     )
     patch_ops = int(trajectory_row["patch_ops"] or 0)
     whole_write_ops = int(trajectory_row["whole_write_ops"] or 0)
@@ -992,9 +988,7 @@ async def get_yarn_intelligence(
     quality_score_avg = float(transition_quality_row["quality_score_avg"] or 0.0)
     quality_score_observed_events = int(transition_quality_row["quality_score_observed_events"] or 0)
     quality_score_coverage = (
-        quality_score_observed_events / quality_trajectory_events
-        if quality_trajectory_events
-        else 0.0
+        quality_score_observed_events / quality_trajectory_events if quality_trajectory_events else 0.0
     )
     forward_progress_rate = float(transition_quality_row["forward_progress_rate"] or 0.0)
     stalled_rate = float(transition_quality_row["stalled_rate"] or 0.0)
@@ -1008,9 +1002,7 @@ async def get_yarn_intelligence(
     quality_latest_global_calibration_at = quality_calibration_row["latest_global_calibration_at"]
     quality_scope_none_count = int(quality_global_scope_counts.get("none", 0))
     quality_global_scope_coverage = (
-        1.0 - (quality_scope_none_count / quality_trajectory_events)
-        if quality_trajectory_events
-        else 0.0
+        1.0 - (quality_scope_none_count / quality_trajectory_events) if quality_trajectory_events else 0.0
     )
     quality_score_coverage_warn_threshold = 0.6
     quality_risk_flags: list[str] = []
@@ -1080,10 +1072,7 @@ async def get_yarn_intelligence(
                 if quality_latest_global_calibration_at
                 else None,
             },
-            "top_reasons": [
-                {"reason": str(r["reason"]), "count": int(r["count"] or 0)}
-                for r in quality_reason_rows
-            ],
+            "top_reasons": [{"reason": str(r["reason"]), "count": int(r["count"] or 0)} for r in quality_reason_rows],
             "risk_flags": quality_risk_flags,
         },
         "top_models": top_models,
@@ -1367,11 +1356,7 @@ async def get_yarn_transition_quality_series(
         trajectory_events = int(row["trajectory_events"] or 0)
         quality_score_avg = float(row["quality_score_avg"] or 0.0)
         quality_score_observed_events = int(row["quality_score_observed_events"] or 0)
-        quality_score_coverage = (
-            quality_score_observed_events / trajectory_events
-            if trajectory_events
-            else 0.0
-        )
+        quality_score_coverage = quality_score_observed_events / trajectory_events if trajectory_events else 0.0
         forward_progress_rate = float(row["forward_progress_rate"] or 0.0)
         stalled_rate = float(row["stalled_rate"] or 0.0)
         regressed_rate = float(row["regressed_rate"] or 0.0)
@@ -1379,10 +1364,13 @@ async def get_yarn_transition_quality_series(
         global_scope_coverage = float(row["global_scope_coverage"] or 0.0)
         quality_forward_min_avg = float(row["quality_forward_min_avg"] or 0.0)
         quality_regressed_max_avg = float(row["quality_regressed_max_avg"] or 0.0)
-        calibration = calibration_by_bucket.get(bucket, {
-            "local_calibration_events": 0,
-            "global_calibration_events": 0,
-        })
+        calibration = calibration_by_bucket.get(
+            bucket,
+            {
+                "local_calibration_events": 0,
+                "global_calibration_events": 0,
+            },
+        )
         local_calibration_events = int(calibration["local_calibration_events"])
         global_calibration_events = int(calibration["global_calibration_events"])
 
@@ -1433,22 +1421,14 @@ async def get_yarn_transition_quality_series(
 
     alert_buckets = [bucket for bucket in buckets if bucket["risk_flags"]]
 
-    quality_score_avg_window = (
-        weighted_quality_sum / trajectory_events_total if trajectory_events_total else 0.0
-    )
-    regressed_rate_avg_window = (
-        weighted_regressed_sum / trajectory_events_total if trajectory_events_total else 0.0
-    )
-    reground_rate_avg_window = (
-        weighted_reground_sum / trajectory_events_total if trajectory_events_total else 0.0
-    )
+    quality_score_avg_window = weighted_quality_sum / trajectory_events_total if trajectory_events_total else 0.0
+    regressed_rate_avg_window = weighted_regressed_sum / trajectory_events_total if trajectory_events_total else 0.0
+    reground_rate_avg_window = weighted_reground_sum / trajectory_events_total if trajectory_events_total else 0.0
     global_scope_coverage_avg_window = (
         weighted_scope_coverage_sum / trajectory_events_total if trajectory_events_total else 0.0
     )
     quality_score_coverage_avg_window = (
-        quality_score_observed_events_total / trajectory_events_total
-        if trajectory_events_total
-        else 0.0
+        quality_score_observed_events_total / trajectory_events_total if trajectory_events_total else 0.0
     )
     quality_forward_min_avg_window = (
         weighted_forward_min_sum / trajectory_events_total if trajectory_events_total else 0.0
@@ -1479,7 +1459,9 @@ async def get_yarn_transition_quality_series(
     if "low_global_scope_coverage" in risk_flags_window:
         actions.append("Check org/model scope key stability and verify global calibrator persistence is healthy.")
     if "low_quality_score_coverage" in risk_flags_window:
-        actions.append("Check request_trajectory_v1 training_signals emission and recover state_transition_quality_score coverage.")
+        actions.append(
+            "Check request_trajectory_v1 training_signals emission and recover state_transition_quality_score coverage."
+        )
     if "missing_global_calibration_events" in risk_flags_window:
         actions.append("Verify state_transition_quality_global_calibration_v1 events and shared store writes.")
     if "negative_quality_score" in risk_flags_window:
@@ -1512,10 +1494,7 @@ async def get_yarn_transition_quality_series(
             "quality_score_warn": quality_score_warn_threshold,
             "quality_score_coverage_warn": quality_score_coverage_warn_threshold,
         },
-        "top_quality_reasons": [
-            {"reason": str(r["reason"]), "count": int(r["count"] or 0)}
-            for r in reason_rows
-        ],
+        "top_quality_reasons": [{"reason": str(r["reason"]), "count": int(r["count"] or 0)} for r in reason_rows],
         "alert_buckets": alert_buckets[:24],
         "actions": actions,
         "buckets": buckets,
@@ -1593,7 +1572,9 @@ def _extract_transition_event_view(event_kind: str, metadata_json: object) -> di
         if "local_calibration" not in risk_flags:
             risk_flags.append("local_calibration")
 
-    calibration_samples = _coerce_transition_int(training_dict.get("state_transition_quality_calibration_sample_count"), 0)
+    calibration_samples = _coerce_transition_int(
+        training_dict.get("state_transition_quality_calibration_sample_count"), 0
+    )
     if calibration_samples <= 0 and event_kind.endswith("calibration_v1"):
         calibration_meta = metadata.get("calibration")
         if isinstance(calibration_meta, dict):
@@ -1634,9 +1615,7 @@ async def get_yarn_transition_events(
         if selected_event_kinds:
             base = base.where(YarnSessionEvent.event_kind.in_(selected_event_kinds))
 
-        rows = (
-            await session.execute(base.order_by(YarnSessionEvent.id.desc()).limit(limit))
-        ).scalars().all()
+        rows = (await session.execute(base.order_by(YarnSessionEvent.id.desc()).limit(limit))).scalars().all()
 
     rows = list(reversed(rows))
     events: list[dict] = []
