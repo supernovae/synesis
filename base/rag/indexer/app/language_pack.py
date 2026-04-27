@@ -6,8 +6,8 @@ and enrichment prompts while preserving universal SynPack v17 agentic fields.
 
 from __future__ import annotations
 
-import concurrent.futures
 import ast
+import concurrent.futures
 import hashlib
 import json
 import re
@@ -16,9 +16,10 @@ import subprocess
 import tempfile
 import time
 import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import defusedxml.ElementTree as ET
 import httpx
@@ -1150,7 +1151,7 @@ def _python_metadata(
         tags.append("free-threading")
     if "pep 734" in lower or "subinterpreter" in lower or "interpreters" in lower:
         tags.append("subinterpreters")
-    if "pep 649" in lower or "deferred" in lower and "annotation" in lower:
+    if "pep 649" in lower or ("deferred" in lower and "annotation" in lower):
         tags.append("deferred-annotations")
     if "pep 750" in lower or "template string" in lower or "t-string" in lower or "templatelib" in lower:
         tags.append("t-strings")

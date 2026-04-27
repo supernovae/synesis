@@ -17,6 +17,7 @@ from ..deps import PLANNER_URL
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
 from ..services import prometheus_client_svc as prom
+from ..services import public_model_offerings as public_offerings_svc
 from ..services.admin_audit import record_admin_audit
 from ..services.model_registry import (
     assign_role,
@@ -43,7 +44,6 @@ from ..services.prompt_library import (
     upsert_prompt_assignment,
 )
 from ..services.provider_catalog import KNOWN_ROLES
-from ..services import public_model_offerings as public_offerings_svc
 from ..services.token_cost import (
     estimate_llm_call_cost_from_payload,
     parse_recorded_estimated_cost,

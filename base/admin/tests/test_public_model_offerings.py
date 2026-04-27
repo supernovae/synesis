@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import pytest
-
 from app.services.public_model_offerings_rules import (
+    effort_to_coder_role,
+    effort_to_general_role,
     normalize_offering_connection,
     validate_client_model_id,
     validate_connection_mode,
     validate_effort_tier,
-    effort_to_coder_role,
-    effort_to_general_role,
 )
 
 

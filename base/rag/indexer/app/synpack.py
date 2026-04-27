@@ -20,8 +20,9 @@ import shutil
 import tempfile
 import time
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import yaml
 from pymilvus import MilvusClient

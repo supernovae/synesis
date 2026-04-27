@@ -14,12 +14,12 @@ from .public_model_offerings_rules import (
 )
 
 __all__ = [
+    "create_offering",
+    "delete_offering",
+    "get_offering_by_id",
     "list_offerings",
     "list_offerings_for_service",
-    "get_offering_by_id",
-    "create_offering",
     "update_offering",
-    "delete_offering",
 ]
 
 
@@ -154,20 +154,12 @@ async def update_offering(
         or "standalone_api_key_env" in patch
         or "expose_yarn" in patch
     ):
-        et_guess = patch["effort_tier"] if "effort_tier" in patch else row.effort_tier
-        rv_guess = patch["route_via_role"] if "route_via_role" in patch else row.route_via_role
-        mode_guess = patch["connection_mode"] if "connection_mode" in patch else row.connection_mode
-        standalone_provider_guess = (
-            patch["standalone_provider"] if "standalone_provider" in patch else row.standalone_provider
-        )
-        standalone_endpoint_guess = (
-            patch["standalone_endpoint"] if "standalone_endpoint" in patch else row.standalone_endpoint
-        )
-        standalone_api_key_env_guess = (
-            patch["standalone_api_key_env"]
-            if "standalone_api_key_env" in patch
-            else row.standalone_api_key_env
-        )
+        et_guess = patch.get("effort_tier", row.effort_tier)
+        rv_guess = patch.get("route_via_role", row.route_via_role)
+        mode_guess = patch.get("connection_mode", row.connection_mode)
+        standalone_provider_guess = patch.get("standalone_provider", row.standalone_provider)
+        standalone_endpoint_guess = patch.get("standalone_endpoint", row.standalone_endpoint)
+        standalone_api_key_env_guess = patch.get("standalone_api_key_env", row.standalone_api_key_env)
         expose_yarn_guess = bool(patch["expose_yarn"]) if "expose_yarn" in patch else bool(row.expose_yarn)
 
         et, rv, mode, standalone_provider_norm, standalone_endpoint_norm, standalone_api_key_env_norm = (

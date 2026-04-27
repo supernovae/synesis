@@ -230,7 +230,7 @@ def _run_yaml_mode(args: argparse.Namespace) -> None:
 
 
 def _run_synpack(args: argparse.Namespace) -> None:
-    from .synpack import build_pack_from_sources, list_packs, load_synpack, search_pack, validate_synpack
+    from .synpack import list_packs, load_synpack, search_pack, validate_synpack
 
     if args.synpack_command == "validate":
         if not args.synpack:

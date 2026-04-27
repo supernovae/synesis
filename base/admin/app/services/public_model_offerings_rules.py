@@ -55,7 +55,7 @@ def validate_client_model_id(client_model_id: str) -> str:
         raise ValueError("client_model_id is required")
     if not CLIENT_ID_PATTERN.match(norm):
         raise ValueError(
-            "client_model_id must be 1–128 chars, start with alphanumeric, "
+            "client_model_id must be 1-128 chars, start with alphanumeric, "
             "and contain only [a-z0-9._/-]"
         )
     if norm in RESERVED_CLIENT_MODEL_IDS:

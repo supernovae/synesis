@@ -56,6 +56,7 @@ def _patch_lifespan():
 @pytest.fixture()
 def admin_client():
     from app.auth import UserInfo, get_current_user
+    from app.internal_auth import require_service_or_authenticated_user
     from app.main import app
 
     _auth_ctx["user"] = UserInfo(
@@ -68,8 +69,10 @@ def admin_client():
         acl_groups=[],
     )
     app.dependency_overrides[get_current_user] = _make_user_override()
+    app.dependency_overrides[require_service_or_authenticated_user] = _make_user_override()
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(require_service_or_authenticated_user, None)
 
 
 @pytest.fixture()
