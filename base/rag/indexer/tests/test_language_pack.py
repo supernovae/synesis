@@ -174,6 +174,91 @@ def test_enrichment_response_parser_requires_single_object():
         parse_enrichment_response('{"agent_hook":"x"}')
 
 
+def test_language_pack_preparation_normalizes_html_and_keeps_quality_metadata():
+    chunk = language_pack.LanguageChunk(
+        text=(
+            "<html><body><nav>Menu</nav><main><h1>Install</h1><p>Use the official installer "
+            "for this runtime. The installer configures the command line tools, standard "
+            "library documentation, and local environment paths for development workflows.</p></main></body></html>"
+        ),
+        doc_id="python:docs:install.html",
+        chunk_index=0,
+        document_name="install.html",
+        heading_path="Install",
+        section="Install",
+        content_format="html",
+    )
+    prepared, report = language_pack.prepare_language_chunks_for_enrichment([chunk])
+
+    assert report["extracted"] == 1
+    assert report["quality_rejected"] == 0
+    assert len(prepared) == 1
+    assert prepared[0].content_format in {"markdown", "text"}
+    assert "official installer" in prepared[0].text
+    assert "<html" not in prepared[0].text.lower()
+    assert prepared[0].metadata["original_content_format"] == "html"
+    assert prepared[0].metadata["source_quality_status"] in {"clean", "warn"}
+
+
+def test_language_pack_preparation_preserves_structured_chunks():
+    chunk = language_pack.LanguageChunk(
+        text='{"module": "asyncio", "intent": "event loop primitives"}',
+        doc_id="python:repo-map",
+        chunk_index=0,
+        document_name="repo-map.json",
+        artifact_kind="repo_map",
+        content_format="json",
+    )
+    prepared, report = language_pack.prepare_language_chunks_for_enrichment([chunk])
+
+    assert report["quality_rejected"] == 0
+    assert len(prepared) == 1
+    assert prepared[0].content_format == "json"
+    assert prepared[0].text == chunk.text
+    assert prepared[0].metadata["source_quality_status"] in {"clean", "warn"}
+
+
+def test_language_pack_preparation_rejects_junk_before_enrichment():
+    chunk = language_pack.LanguageChunk(
+        text="Home Search Contact us Subscribe Back to top",
+        doc_id="python:docs:junk",
+        chunk_index=0,
+        document_name="junk.md",
+        content_format="markdown",
+    )
+    prepared, report = language_pack.prepare_language_chunks_for_enrichment([chunk])
+
+    assert prepared == []
+    assert report["quality_rejected"] == 1
+    assert report["rejected_reasons"]
+
+
+def test_source_quality_is_attached_to_fallback_enrichment():
+    chunk = language_pack.LanguageChunk(
+        text="def f():\n    return 1",
+        doc_id="python:module",
+        chunk_index=0,
+        document_name="mod.py",
+        content_format="py",
+        metadata={
+            "source_quality_status": "warn",
+            "source_quality_score": 0.0,
+            "source_quality_reason": "thin+empty",
+            "original_content_format": "py",
+            "normalized_content_format": "py",
+        },
+    )
+    enrichment = language_pack.enrich_language_chunks(
+        [chunk],
+        prompt_templates={"python_314_agentic_architect_v1": "{{DOC_CHUNK}}"},
+        default_prompt_id="python_314_agentic_architect_v1",
+        skip=True,
+    )[0]
+
+    assert enrichment["source_quality"]["source_quality_status"] == "warn"
+    assert "thin+empty" in enrichment["hidden_warnings"]
+
+
 def test_fallback_enrichment_is_deterministic():
     chunk = language_pack.LanguageChunk(text="x", doc_id="d", chunk_index=0, document_name="doc", package_name="fmt")
     first = fallback_enrichment(chunk, error="boom")
@@ -357,11 +442,14 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     assert manifest["source_version"] == "go1.26.2"
     assert manifest["enrichment"]["prompt_id"] == "go_agentic_architect_v1"
     assert manifest["enrichment"]["skipped"] is True
+    assert manifest["source_quality"]["extracted"] >= manifest["source_quality"]["enrichment_attempted"]
+    assert "quality_rejected" in manifest["source_quality"]
     with zipfile.ZipFile(out) as zf:
         rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
     assert rows
     assert any(row["package_name"] == "fmt" and row["symbol_kind"] == "function" for row in rows)
     assert all("agent_enrichment_json" in row for row in rows)
+    assert all("source_quality" in json.loads(row["agent_enrichment_json"]) for row in rows)
 
 
 def test_build_language_pack_from_rust_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

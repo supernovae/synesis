@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import concurrent.futures
 import hashlib
+import html
 import json
 import re
 import shutil
@@ -25,7 +26,9 @@ import defusedxml.ElementTree as ET
 import httpx
 import yaml
 
+from .content_gate import GatePolicy, score_chunk
 from .embed_client import EmbedClient
+from .extract import html_to_markdown, normalize_doc_markdown
 from .injection_scan import scan_chunk_text_detailed
 from .milvus_writer import chunk_id_hash
 from .pipeline import _code_chunk_metrics
@@ -52,6 +55,36 @@ REQUIRED_UNIVERSAL_ENRICHMENT_FIELDS = {
     "safety_contract",
     "lifecycle_model",
 }
+DOC_LIKE_FORMATS = {"", "md", "markdown", "html", "htm", "rst", "adoc", "txt", "text"}
+MARKDOWN_FORMATS = {"md", "markdown"}
+HTML_FORMATS = {"html", "htm"}
+STRUCTURED_FORMATS = {
+    "c",
+    "cpp",
+    "cs",
+    "gd",
+    "gdbuiltins",
+    "glsl",
+    "go",
+    "h",
+    "hcl",
+    "java",
+    "js",
+    "json",
+    "py",
+    "python",
+    "rs",
+    "rust",
+    "toml",
+    "ts",
+    "xml",
+    "yaml",
+    "yml",
+}
+LANGUAGE_PACK_GATE_POLICY = GatePolicy(min_chunk_quality=0.10, min_chunk_words=12, min_chunk_words_absolute=3)
+CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+HTML_TAG_RE = re.compile(r"<[^>]+>")
+HTML_SIGNAL_RE = re.compile(r"<(?:!doctype|html|head|body|main|article|section|div|p|h[1-6]|nav|footer)\b", re.I)
 
 
 @dataclass
@@ -75,6 +108,120 @@ class LanguageChunk:
     @property
     def prompt_id(self) -> str:
         return str(self.metadata.get("prompt_id") or "")
+
+
+def _basic_source_text_cleanup(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = CONTROL_CHAR_RE.sub("", text)
+    lines = [line.rstrip() for line in text.split("\n")]
+    text = "\n".join(lines)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text.strip()
+
+
+def _strip_html_tags(text: str) -> str:
+    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(?:p|div|section|article|li|h[1-6]|tr)>", "\n", text)
+    return _basic_source_text_cleanup(html.unescape(HTML_TAG_RE.sub("", text)))
+
+
+def _normalize_language_chunk_text(chunk: LanguageChunk) -> tuple[str, str]:
+    original_format = (chunk.content_format or "").lower().strip()
+    text = _basic_source_text_cleanup(chunk.text)
+    if not text:
+        return "", original_format or "text"
+
+    looks_html = original_format in HTML_FORMATS or bool(HTML_SIGNAL_RE.search(text))
+    if looks_html:
+        markdown = normalize_doc_markdown(html_to_markdown(text))
+        if markdown:
+            return markdown, "markdown"
+        return _strip_html_tags(text), "text"
+
+    if original_format in MARKDOWN_FORMATS:
+        return normalize_doc_markdown(text), "markdown"
+
+    if original_format in {"rst", "adoc", "txt", "text", ""}:
+        return normalize_doc_markdown(text), original_format or "text"
+
+    return text, original_format
+
+
+def _has_curated_rescue_signal(chunk: LanguageChunk, text: str) -> bool:
+    if chunk.artifact_kind != "docs":
+        return bool(text.strip())
+    fmt = (chunk.content_format or "").lower().strip()
+    if fmt in STRUCTURED_FORMATS:
+        return bool(text.strip())
+    if chunk.symbol_kind or chunk.symbol_fqn or chunk.symbol_name:
+        return bool(text.strip())
+    if re.search(r"(?m)^\s*(?:func|type|class|def|interface|enum|resource|data)\s+\w+", text):
+        return True
+    return False
+
+
+def prepare_language_chunks_for_enrichment(
+    chunks: list[LanguageChunk],
+) -> tuple[list[LanguageChunk], dict[str, Any]]:
+    """Normalize curated language-pack chunks and reject obvious junk before enrichment."""
+    prepared: list[LanguageChunk] = []
+    rejected_reasons: dict[str, int] = {}
+    counts = {
+        "extracted": len(chunks),
+        "normalized": 0,
+        "quality_rejected": 0,
+        "enrichment_attempted": 0,
+    }
+
+    for chunk in chunks:
+        original_format = (chunk.content_format or "").lower().strip() or "text"
+        normalized_text, normalized_format = _normalize_language_chunk_text(chunk)
+        counts["normalized"] += int(normalized_text != chunk.text or normalized_format != original_format)
+
+        verdict = score_chunk(
+            normalized_text,
+            section=chunk.section,
+            heading_path=chunk.heading_path,
+            policy=LANGUAGE_PACK_GATE_POLICY,
+        )
+        if verdict.should_index or _has_curated_rescue_signal(chunk, normalized_text):
+            status = "clean" if verdict.should_index else "warn"
+            metadata = {
+                **chunk.metadata,
+                "source_quality_score": round(verdict.quality_score, 4),
+                "source_quality_status": status,
+                "source_quality_reason": verdict.rejection_reason,
+                "original_content_format": original_format,
+                "normalized_content_format": normalized_format,
+            }
+            prepared.append(
+                LanguageChunk(
+                    text=normalized_text,
+                    doc_id=chunk.doc_id,
+                    chunk_index=chunk.chunk_index,
+                    document_name=chunk.document_name,
+                    heading_path=chunk.heading_path,
+                    section=chunk.section,
+                    source_url=chunk.source_url,
+                    package_name=chunk.package_name,
+                    symbol_kind=chunk.symbol_kind,
+                    symbol_fqn=chunk.symbol_fqn,
+                    symbol_name=chunk.symbol_name,
+                    module_path=chunk.module_path,
+                    artifact_kind=chunk.artifact_kind,
+                    content_format=normalized_format,
+                    metadata=metadata,
+                )
+            )
+            continue
+
+        reason = verdict.rejection_reason or "source quality rejected"
+        rejected_reasons[reason.split("|")[0].strip()] = rejected_reasons.get(reason.split("|")[0].strip(), 0) + 1
+
+    counts["quality_rejected"] = len(chunks) - len(prepared)
+    counts["enrichment_attempted"] = len(prepared)
+    return prepared, {**counts, "rejected_reasons": rejected_reasons}
 
 
 def parse_go_stable_tag(tag: str) -> tuple[int, int, int] | None:
@@ -2446,6 +2593,34 @@ def parse_enrichment_response(raw: str, *, required_fields: set[str] | None = No
     return obj
 
 
+def _source_quality_metadata(chunk: LanguageChunk) -> dict[str, Any]:
+    keys = (
+        "source_quality_score",
+        "source_quality_status",
+        "source_quality_reason",
+        "original_content_format",
+        "normalized_content_format",
+    )
+    return {key: chunk.metadata[key] for key in keys if key in chunk.metadata}
+
+
+def _attach_source_quality(enrichment: dict[str, Any], chunk: LanguageChunk) -> dict[str, Any]:
+    quality = _source_quality_metadata(chunk)
+    if not quality:
+        return enrichment
+    out = dict(enrichment)
+    out.setdefault("source_quality", quality)
+    if quality.get("source_quality_status") == "warn":
+        warnings = out.get("hidden_warnings")
+        if not isinstance(warnings, list):
+            warnings = [str(warnings)] if warnings else []
+        reason = str(quality.get("source_quality_reason") or "source quality warning")
+        if reason and reason not in warnings:
+            warnings.append(reason)
+        out["hidden_warnings"] = warnings
+    return out
+
+
 def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, Any]:
     language = str(
         chunk.metadata.get("language")
@@ -2685,6 +2860,13 @@ class OpenAICompatibleEnrichmentClient:
         prompt_id = chunk.prompt_id or self.default_prompt_id
         template = self.prompt_templates.get(prompt_id) or self.prompt_templates[self.default_prompt_id]
         prompt = template.replace(self.prompt_variable, chunk.text).replace("{{RAW_GO_DOC_CONTENT}}", chunk.text)
+        quality = _source_quality_metadata(chunk)
+        if quality:
+            prompt = (
+                f"{prompt}\n\nSource quality metadata: {json.dumps(quality, sort_keys=True)}\n"
+                "If the source appears incomplete or noisy, include that as hidden_warnings or source_quality notes. "
+                "Do not repair source text or invent missing facts."
+            )
         payload = {
             "model": self.model,
             "temperature": self.temperature,
@@ -2723,7 +2905,9 @@ def enrich_language_chunks(
     skip: bool = False,
 ) -> list[dict[str, Any]]:
     if skip or not enrichment_url:
-        return [fallback_enrichment(chunk, error="enrichment skipped") for chunk in chunks]
+        return [
+            _attach_source_quality(fallback_enrichment(chunk, error="enrichment skipped"), chunk) for chunk in chunks
+        ]
     client = OpenAICompatibleEnrichmentClient(
         base_url=enrichment_url,
         model=enrichment_model,
@@ -2736,9 +2920,9 @@ def enrich_language_chunks(
 
     def one(chunk: LanguageChunk) -> dict[str, Any]:
         try:
-            return client.enrich(chunk)
+            return _attach_source_quality(client.enrich(chunk), chunk)
         except Exception as exc:
-            return fallback_enrichment(chunk, error=str(exc))
+            return _attach_source_quality(fallback_enrichment(chunk, error=str(exc)), chunk)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         return list(pool.map(one, chunks))
@@ -3045,6 +3229,7 @@ def build_language_pack(
             chunks = extract_quarkus_chunks(source_root, config=config, tag=resolved_tag)
         if max_chunks:
             chunks = chunks[: max(0, max_chunks)]
+        chunks, source_quality_report = prepare_language_chunks_for_enrichment(chunks)
 
         prompt_templates, prompt_hashes = _load_prompt_templates(config, config_path=config_path)
         default_prompt_id = str(
@@ -3077,6 +3262,9 @@ def build_language_pack(
             enrichment_model=enrichment_model,
             concurrency=enrichment_concurrency,
             skip=skip_enrichment,
+        )
+        source_quality_report["fallback_enriched"] = sum(
+            1 for enrichment in enrichments if enrichment.get("enrichment_status") == "fallback"
         )
         embedder = EmbedClient(**({"url": embedder_url} if embedder_url else {}))
         embed_inputs = [f"{e.get('agent_hook', '')}\n\n{chunk.text}".strip() for chunk, e in zip(chunks, enrichments)]
@@ -3137,6 +3325,7 @@ def build_language_pack(
                 "url_configured": bool(enrichment_url),
                 "skipped": bool(skip_enrichment or not enrichment_url),
             },
+            "source_quality": source_quality_report,
             "created_at": int(time.time()),
             "row_count": len(rows),
             "sources_lock_sha256": _sha256_file(sources_lock_path),
