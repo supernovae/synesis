@@ -138,6 +138,47 @@ All language-pack builders accept `--latest-tag` or `--source-version`. For loca
 `--max-chunks 25`; for offline/debug builds, use `--skip-enrichment` and
 `--source-dir <checkout>`.
 
+### DeepSeek enrichment
+
+SynPack enrichment now defaults to DeepSeek V4 Pro (`deepseek-v4-pro`) with
+thinking enabled and `reasoning_effort=max`. The builder sends
+`X-DeepSeek-Think-Mode: Max`, uses `max_tokens>=8192`, and reads the bearer token
+from `DEEPSEEK_TOKEN` with `DEEPSEEK_API_KEY` as a fallback.
+
+```bash
+export DEEPSEEK_TOKEN=...
+python -m app.cli --mode synpack --synpack-command build-language \
+  --language terraform \
+  --pack-id terraform-latest \
+  --enrichment-url https://api.deepseek.com \
+  --enrichment-concurrency 6 \
+  --enrichment-max-tokens 8192 \
+  --output dist/synpacks/terraform-latest.synpack
+```
+
+Concurrency is capped at 8 requests in flight. The enrichment request keeps a
+stable system prompt and language prompt prefix before the chunk text so
+DeepSeek context caching can reuse shared prompt prefixes when the service
+persists them. Manifest `enrichment.usage` records returned token usage and
+cache hit/miss counts when the API reports them.
+
+Run a grounded token-budget preflight before spending model tokens:
+
+```bash
+python -m app.cli --mode synpack --synpack-command build-language \
+  --language terraform \
+  --pack-id terraform-latest \
+  --source-dir ./terraform \
+  --estimate-cost-only \
+  --enrichment-input-price-per-mtok 0 \
+  --enrichment-output-price-per-mtok 0
+```
+
+The preflight extracts the same chunks and prompt templates, estimates prompt
+tokens with a conservative character-based estimator, adds the configured
+completion budget and max-thinking budget, and exits before LLM calls,
+embedding, or pack writing.
+
 Validate and load:
 
 ```bash

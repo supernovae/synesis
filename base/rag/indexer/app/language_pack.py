@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import contextlib
 import hashlib
 import html
 import json
+import math
+import os
 import re
 import shutil
 import subprocess
@@ -41,7 +44,19 @@ QUARKUS_TAG_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:
 PYTHON_TAG_RE = re.compile(r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 GODOT_TAG_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<patch>\d+))?-stable$")
 TERRAFORM_TAG_RE = re.compile(r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
-DEFAULT_ENRICHMENT_MODEL = "qwen3.6-35b-a3b"
+DEFAULT_ENRICHMENT_MODEL = "deepseek-v4-pro"
+DEFAULT_ENRICHMENT_MAX_TOKENS = 8192
+DEFAULT_ENRICHMENT_TIMEOUT_SECONDS = 180.0
+DEFAULT_ENRICHMENT_CONCURRENCY = 6
+MAX_ENRICHMENT_CONCURRENCY = 8
+DEFAULT_THINKING_CAP_TOKENS = 8192
+FRONTIER_ENRICHMENT_SYSTEM_PROMPT = (
+    "You are a principal software architect building retrieval enrichment for a portable Synesis SynPack. "
+    "Analyze the chunk deeply for agentic retrieval, operational hazards, version constraints, lifecycle, "
+    "performance, safety, and human-facing implementation guidance. Ground every field in the provided source. "
+    "If the chunk is thin, ambiguous, generated, or noisy, say so in warnings instead of inventing facts. "
+    "Return exactly one JSON object matching the requested schema and no surrounding prose."
+)
 GO_PROMPT_ID = "go_agentic_architect_v1"
 RUST_PROMPT_ID = "rust_agentic_architect_2024_v1"
 QUARKUS_PROMPT_ID = "quarkus_cloud_native_architect_v1"
@@ -2840,9 +2855,10 @@ class OpenAICompatibleEnrichmentClient:
         *,
         base_url: str,
         model: str = DEFAULT_ENRICHMENT_MODEL,
-        timeout: float = 60.0,
+        timeout: float = DEFAULT_ENRICHMENT_TIMEOUT_SECONDS,
         retry_count: int = 2,
-        temperature: float = 0.1,
+        temperature: float | None = None,
+        max_tokens: int = DEFAULT_ENRICHMENT_MAX_TOKENS,
         prompt_templates: dict[str, str],
         default_prompt_id: str,
         prompt_variable: str = "{{DOC_CHUNK}}",
@@ -2852,11 +2868,13 @@ class OpenAICompatibleEnrichmentClient:
         self.timeout = timeout
         self.retry_count = retry_count
         self.temperature = temperature
+        self.max_tokens = max(DEFAULT_ENRICHMENT_MAX_TOKENS, int(max_tokens or DEFAULT_ENRICHMENT_MAX_TOKENS))
         self.prompt_templates = prompt_templates
         self.default_prompt_id = default_prompt_id
         self.prompt_variable = prompt_variable
+        self.deepseek_token = os.environ.get("DEEPSEEK_TOKEN") or os.environ.get("DEEPSEEK_API_KEY") or ""
 
-    def enrich(self, chunk: LanguageChunk) -> dict[str, Any]:
+    def render_prompt(self, chunk: LanguageChunk) -> tuple[str, str]:
         prompt_id = chunk.prompt_id or self.default_prompt_id
         template = self.prompt_templates.get(prompt_id) or self.prompt_templates[self.default_prompt_id]
         prompt = template.replace(self.prompt_variable, chunk.text).replace("{{RAW_GO_DOC_CONTENT}}", chunk.text)
@@ -2867,28 +2885,146 @@ class OpenAICompatibleEnrichmentClient:
                 "If the source appears incomplete or noisy, include that as hidden_warnings or source_quality notes. "
                 "Do not repair source text or invent missing facts."
             )
+        return prompt_id, prompt
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"X-DeepSeek-Think-Mode": "Max"}
+        if self.deepseek_token:
+            headers["Authorization"] = f"Bearer {self.deepseek_token}"
+        return headers
+
+    def enrich(self, chunk: LanguageChunk) -> dict[str, Any]:
+        prompt_id, prompt = self.render_prompt(chunk)
         payload = {
             "model": self.model,
-            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "reasoning_effort": "max",
+            "thinking": {"type": "enabled"},
+            "response_format": {"type": "json_object"},
             "messages": [
-                {"role": "system", "content": "Return exactly one JSON object and no surrounding prose."},
+                {"role": "system", "content": FRONTIER_ENRICHMENT_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
         }
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
         last_error = ""
         for _ in range(max(1, self.retry_count + 1)):
             try:
                 with httpx.Client(timeout=self.timeout) as client:
-                    resp = client.post(f"{self.base_url}/v1/chat/completions", json=payload)
+                    resp = client.post(f"{self.base_url}/v1/chat/completions", headers=self._headers(), json=payload)
                 resp.raise_for_status()
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
                 parsed = parse_enrichment_response(str(content))
                 parsed.setdefault("prompt_id", prompt_id)
+                usage = _enrichment_usage_from_response(data)
+                if usage:
+                    parsed["_enrichment_usage"] = usage
                 return parsed
             except Exception as exc:  # deterministic fallback is handled by caller.
                 last_error = str(exc)
         raise SynPackError(last_error or "enrichment failed")
+
+
+def _approx_token_count(text: str) -> int:
+    return max(1, math.ceil(len(text or "") / 4))
+
+
+def _enrichment_usage_from_response(data: dict[str, Any]) -> dict[str, int]:
+    usage = data.get("usage") if isinstance(data, dict) else {}
+    if not isinstance(usage, dict):
+        return {}
+    prompt_details = usage.get("prompt_tokens_details")
+    if not isinstance(prompt_details, dict):
+        prompt_details = {}
+    cache_hit = usage.get("prompt_cache_hit_tokens", prompt_details.get("cache_hit_tokens", prompt_details.get("cached_tokens", 0)))
+    cache_miss = usage.get("prompt_cache_miss_tokens", prompt_details.get("cache_miss_tokens", 0))
+    fields = {
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "completion_tokens": usage.get("completion_tokens", 0),
+        "total_tokens": usage.get("total_tokens", 0),
+        "prompt_cache_hit_tokens": cache_hit,
+        "prompt_cache_miss_tokens": cache_miss,
+    }
+    out: dict[str, int] = {}
+    for key, value in fields.items():
+        try:
+            out[key] = int(value or 0)
+        except (TypeError, ValueError):
+            out[key] = 0
+    return out
+
+
+def aggregate_enrichment_usage(enrichments: list[dict[str, Any]]) -> dict[str, int]:
+    totals = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 0,
+    }
+    seen = False
+    for enrichment in enrichments:
+        usage = enrichment.get("_enrichment_usage")
+        if not isinstance(usage, dict):
+            continue
+        seen = True
+        for key in totals:
+            with contextlib.suppress(TypeError, ValueError):
+                totals[key] += int(usage.get(key, 0) or 0)
+    return totals if seen else {}
+
+
+def estimate_enrichment_token_budget(
+    chunks: list[LanguageChunk],
+    *,
+    prompt_templates: dict[str, str],
+    default_prompt_id: str,
+    prompt_variable: str = "{{DOC_CHUNK}}",
+    enrichment_url: str = "",
+    enrichment_model: str = DEFAULT_ENRICHMENT_MODEL,
+    max_tokens: int = DEFAULT_ENRICHMENT_MAX_TOKENS,
+    thinking_cap_tokens: int = DEFAULT_THINKING_CAP_TOKENS,
+    input_price_per_mtok: float = 0.0,
+    output_price_per_mtok: float = 0.0,
+) -> dict[str, Any]:
+    client = OpenAICompatibleEnrichmentClient(
+        base_url=enrichment_url or "https://api.deepseek.com",
+        model=enrichment_model,
+        max_tokens=max_tokens,
+        prompt_templates=prompt_templates,
+        default_prompt_id=default_prompt_id,
+        prompt_variable=prompt_variable,
+    )
+    prompt_tokens = 0
+    system_tokens = _approx_token_count(FRONTIER_ENRICHMENT_SYSTEM_PROMPT)
+    for chunk in chunks:
+        _, prompt = client.render_prompt(chunk)
+        prompt_tokens += system_tokens + _approx_token_count(prompt)
+    completion_budget_tokens = len(chunks) * client.max_tokens
+    thinking_budget_tokens = len(chunks) * max(0, int(thinking_cap_tokens or 0))
+    uncached_input_cost = (prompt_tokens / 1_000_000) * max(0.0, input_price_per_mtok)
+    output_budget_cost = ((completion_budget_tokens + thinking_budget_tokens) / 1_000_000) * max(
+        0.0, output_price_per_mtok
+    )
+    return {
+        "estimator": "chars_div_4_plus_request_budget_v1",
+        "model": enrichment_model,
+        "chunks": len(chunks),
+        "prompt_tokens_estimate": prompt_tokens,
+        "completion_budget_tokens": completion_budget_tokens,
+        "thinking_budget_tokens": thinking_budget_tokens,
+        "max_tokens_per_request": client.max_tokens,
+        "thinking_effort": "max",
+        "thinking_mode": "enabled",
+        "cache_strategy": "stable_system_prompt_plus_prompt_template_prefix",
+        "uncached_input_price_per_mtok": input_price_per_mtok,
+        "output_price_per_mtok": output_price_per_mtok,
+        "estimated_uncached_usd": round(uncached_input_cost + output_budget_cost, 6)
+        if input_price_per_mtok or output_price_per_mtok
+        else None,
+    }
 
 
 def enrich_language_chunks(
@@ -2899,9 +3035,11 @@ def enrich_language_chunks(
     prompt_variable: str = "{{DOC_CHUNK}}",
     enrichment_url: str = "",
     enrichment_model: str = DEFAULT_ENRICHMENT_MODEL,
-    concurrency: int = 4,
+    concurrency: int = DEFAULT_ENRICHMENT_CONCURRENCY,
     retry_count: int = 2,
-    temperature: float = 0.1,
+    temperature: float | None = None,
+    max_tokens: int = DEFAULT_ENRICHMENT_MAX_TOKENS,
+    timeout: float = DEFAULT_ENRICHMENT_TIMEOUT_SECONDS,
     skip: bool = False,
 ) -> list[dict[str, Any]]:
     if skip or not enrichment_url:
@@ -2911,8 +3049,10 @@ def enrich_language_chunks(
     client = OpenAICompatibleEnrichmentClient(
         base_url=enrichment_url,
         model=enrichment_model,
+        timeout=timeout,
         retry_count=retry_count,
         temperature=temperature,
+        max_tokens=max_tokens,
         prompt_templates=prompt_templates,
         default_prompt_id=default_prompt_id,
         prompt_variable=prompt_variable,
@@ -2924,7 +3064,8 @@ def enrich_language_chunks(
         except Exception as exc:
             return _attach_source_quality(fallback_enrichment(chunk, error=str(exc)), chunk)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+    workers = max(1, min(int(concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(one, chunks))
 
 
@@ -3147,7 +3288,12 @@ def build_language_pack(
     latest_tag: str = "",
     enrichment_url: str = "",
     enrichment_model: str = DEFAULT_ENRICHMENT_MODEL,
-    enrichment_concurrency: int = 4,
+    enrichment_concurrency: int = DEFAULT_ENRICHMENT_CONCURRENCY,
+    enrichment_max_tokens: int = DEFAULT_ENRICHMENT_MAX_TOKENS,
+    enrichment_timeout: float = DEFAULT_ENRICHMENT_TIMEOUT_SECONDS,
+    enrichment_input_price_per_mtok: float = 0.0,
+    enrichment_output_price_per_mtok: float = 0.0,
+    estimate_cost_only: bool = False,
     skip_enrichment: bool = False,
     embedder_url: str = "",
     max_chunks: int = 0,
@@ -3253,6 +3399,41 @@ def build_language_pack(
         prompt_variable = str(
             config.get("prompt_variable") or ("{{RAW_GO_DOC_CONTENT}}" if language == "go" else "{{DOC_CHUNK}}")
         )
+        enrichment_cost_estimate = estimate_enrichment_token_budget(
+            chunks,
+            prompt_templates=prompt_templates,
+            default_prompt_id=default_prompt_id,
+            prompt_variable=prompt_variable,
+            enrichment_url=enrichment_url,
+            enrichment_model=enrichment_model,
+            max_tokens=enrichment_max_tokens,
+            thinking_cap_tokens=DEFAULT_THINKING_CAP_TOKENS,
+            input_price_per_mtok=enrichment_input_price_per_mtok,
+            output_price_per_mtok=enrichment_output_price_per_mtok,
+        )
+        source_quality_report["enrichment_cost_estimate"] = enrichment_cost_estimate
+        if estimate_cost_only:
+            return {
+                "ok": True,
+                "estimate_only": True,
+                "language": language,
+                "pack_id": pack_id,
+                "source_version": source_version,
+                "source_quality": source_quality_report,
+                "enrichment": {
+                    "model": enrichment_model,
+                    "prompt_id": default_prompt_id,
+                    "prompt_sha256": prompt_hashes.get(default_prompt_id, ""),
+                    "prompt_hashes": prompt_hashes,
+                    "url_configured": bool(enrichment_url),
+                    "max_tokens": max(DEFAULT_ENRICHMENT_MAX_TOKENS, int(enrichment_max_tokens or 0)),
+                    "concurrency": max(
+                        1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY)
+                    ),
+                    "thinking": {"type": "enabled", "reasoning_effort": "max"},
+                    "cost_estimate": enrichment_cost_estimate,
+                },
+            }
         enrichments = enrich_language_chunks(
             chunks,
             prompt_templates=prompt_templates,
@@ -3261,8 +3442,11 @@ def build_language_pack(
             enrichment_url=enrichment_url,
             enrichment_model=enrichment_model,
             concurrency=enrichment_concurrency,
+            max_tokens=enrichment_max_tokens,
+            timeout=enrichment_timeout,
             skip=skip_enrichment,
         )
+        enrichment_usage = aggregate_enrichment_usage(enrichments)
         source_quality_report["fallback_enriched"] = sum(
             1 for enrichment in enrichments if enrichment.get("enrichment_status") == "fallback"
         )
@@ -3326,6 +3510,14 @@ def build_language_pack(
                 "prompt_hashes": prompt_hashes,
                 "url_configured": bool(enrichment_url),
                 "skipped": bool(skip_enrichment or not enrichment_url),
+                "max_tokens": max(DEFAULT_ENRICHMENT_MAX_TOKENS, int(enrichment_max_tokens or 0)),
+                "concurrency": max(
+                    1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY)
+                ),
+                "thinking": {"type": "enabled", "reasoning_effort": "max"},
+                "think_mode_header": "Max",
+                "cost_estimate": enrichment_cost_estimate,
+                "usage": enrichment_usage,
             },
             "source_quality": source_quality_report,
             "created_at": int(time.time()),

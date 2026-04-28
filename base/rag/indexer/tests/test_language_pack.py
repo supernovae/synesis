@@ -174,6 +174,96 @@ def test_enrichment_response_parser_requires_single_object():
         parse_enrichment_response('{"agent_hook":"x"}')
 
 
+def test_deepseek_enrichment_payload_uses_v4_max_thinking_and_usage(monkeypatch: pytest.MonkeyPatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "agent_hook": "Use for streaming HTTP APIs.",
+                                    "perf_tier": "io-bound",
+                                    "safety_contract": "Close response bodies.",
+                                    "lifecycle_model": "Create client, issue request, close body.",
+                                }
+                            )
+                        }
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 25,
+                    "total_tokens": 125,
+                    "prompt_cache_hit_tokens": 80,
+                    "prompt_cache_miss_tokens": 20,
+                },
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["payload"] = json
+            return FakeResponse()
+
+    monkeypatch.setenv("DEEPSEEK_TOKEN", "secret")
+    monkeypatch.setattr(language_pack.httpx, "Client", FakeClient)
+    client = language_pack.OpenAICompatibleEnrichmentClient(
+        base_url="https://api.deepseek.com",
+        prompt_templates={"p": "Inspect this chunk:\n{{DOC_CHUNK}}"},
+        default_prompt_id="p",
+    )
+    chunk = language_pack.LanguageChunk(text="func ReadAll()", doc_id="d", chunk_index=0, document_name="doc")
+
+    enrichment = client.enrich(chunk)
+
+    assert captured["url"] == "https://api.deepseek.com/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer secret"
+    assert captured["headers"]["X-DeepSeek-Think-Mode"] == "Max"
+    assert captured["payload"]["model"] == "deepseek-v4-pro"
+    assert captured["payload"]["max_tokens"] == 8192
+    assert captured["payload"]["reasoning_effort"] == "max"
+    assert captured["payload"]["thinking"] == {"type": "enabled"}
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert "principal software architect" in captured["payload"]["messages"][0]["content"]
+    assert enrichment["_enrichment_usage"]["prompt_cache_hit_tokens"] == 80
+
+
+def test_enrichment_token_budget_estimate_uses_max_thinking_budget():
+    chunk = language_pack.LanguageChunk(text="resource example", doc_id="d", chunk_index=0, document_name="doc")
+    estimate = language_pack.estimate_enrichment_token_budget(
+        [chunk],
+        prompt_templates={"p": "Analyze:\n{{DOC_CHUNK}}"},
+        default_prompt_id="p",
+        enrichment_model="deepseek-v4-pro",
+        max_tokens=4096,
+        input_price_per_mtok=0.1,
+        output_price_per_mtok=1.0,
+    )
+
+    assert estimate["model"] == "deepseek-v4-pro"
+    assert estimate["max_tokens_per_request"] == 8192
+    assert estimate["thinking_effort"] == "max"
+    assert estimate["thinking_budget_tokens"] == 8192
+    assert estimate["estimated_uncached_usd"] is not None
+
+
 def test_language_pack_preparation_normalizes_html_and_keeps_quality_metadata():
     chunk = language_pack.LanguageChunk(
         text=(
