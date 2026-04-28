@@ -43,6 +43,8 @@ def test_validate_synpack_accepts_bge_m3_manifest(tmp_path: Path):
 
     assert manifest["pack_id"] == "go-1-26"
     assert manifest["embedding_model"] == "BAAI/bge-m3"
+    assert manifest["embedding_profile"] == "bge-m3-1024-cosine-v1"
+    assert manifest["corpus_version"].startswith("synesis-catalog-v")
 
 
 def test_validate_synpack_rejects_dimension_mismatch(tmp_path: Path):

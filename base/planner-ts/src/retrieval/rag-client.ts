@@ -29,16 +29,17 @@ export interface RagClientConfig {
 }
 
 const OUTPUT_FIELDS = [
+  "chunk_id", "doc_id",
   "text", "authority", "origin_type", "domain",
   "source_url", "heading_path", "context_prefix", "chunk_summary",
-  "document_name", "visibility_scope", "org_id", "tenant_id",
+  "document_name", "source_type", "handler", "visibility_scope", "org_id", "tenant_id",
   "acl_mode", "acl_groups",
   "pack_id", "pack_version", "pack_source_version", "pack_artifact_hash", "pack_partition",
-  "symbol_kind", "symbol_fqn", "package_name", "doc_relation_ids",
+  "symbol_kind", "symbol_fqn", "symbol_name", "package_name", "doc_relation_ids",
   "agent_hook", "perf_tier", "safety_contract", "lifecycle_model", "agent_enrichment_json",
   "scan_status", "scan_signals", "approval_status", "review_trace_id",
   "raw_content_hash", "crawl_timestamp", "effective_at_epoch",
-  "tags", "language", "artifact_kind",
+  "tags", "language", "artifact_kind", "content_format", "repo_path", "module_path",
   "corpus_class", "constraint_kind", "content_profile", "scope_tags",
   "constraint_source", "constraint_confidence", "golden_path_id",
   "novel_pattern", "novel_trace_level",
@@ -72,6 +73,42 @@ async function vectorSearch(
     limit,
     outputFields: OUTPUT_FIELDS,
     params: { radius: config.scoreThreshold },
+  };
+  if (filter) body.filter = filter;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? 15000);
+  try {
+    const resp = await fetch(`${milvusBase(config)}/v2/vectordb/entities/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as MilvusSearchResponse;
+    return json.data ?? [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function bm25Search(
+  config: RagClientConfig,
+  collection: string,
+  queryText: string,
+  limit: number,
+  filter: string,
+): Promise<Array<Record<string, unknown>>> {
+  const body: Record<string, unknown> = {
+    collectionName: collection,
+    annsField: SPARSE_VECTOR_FIELD,
+    data: [queryText],
+    limit,
+    outputFields: OUTPUT_FIELDS,
+    params: { metric_type: "BM25" },
   };
   if (filter) body.filter = filter;
 
@@ -162,6 +199,8 @@ async function bgeRerank(
 
 function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagResult {
   return {
+    chunk_id: String(row.chunk_id ?? ""),
+    doc_id: String(row.doc_id ?? ""),
     text: String(row.text ?? ""),
     source: String(row.source ?? "unknown"),
     collection: String(row.collection ?? ""),
@@ -179,6 +218,7 @@ function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagRe
     pack_partition: String(row.pack_partition ?? ""),
     symbol_kind: String(row.symbol_kind ?? ""),
     symbol_fqn: String(row.symbol_fqn ?? ""),
+    symbol_name: String(row.symbol_name ?? ""),
     package_name: String(row.package_name ?? ""),
     doc_relation_ids: String(row.doc_relation_ids ?? ""),
     agent_hook: String(row.agent_hook ?? ""),
@@ -188,6 +228,8 @@ function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagRe
     agent_enrichment_json: String(row.agent_enrichment_json ?? ""),
     domain: String(row.domain ?? ""),
     source_url: String(row.source_url ?? ""),
+    source_type: String(row.source_type ?? ""),
+    handler: String(row.handler ?? ""),
     heading_path: String(row.heading_path ?? ""),
     context_prefix: String(row.context_prefix ?? ""),
     chunk_summary: String(row.chunk_summary ?? ""),
@@ -202,6 +244,9 @@ function toRagResult(row: Record<string, unknown>, fallbackScore: number): RagRe
     tags: String(row.tags ?? ""),
     language: String(row.language ?? ""),
     artifact_kind: String(row.artifact_kind ?? ""),
+    content_format: String(row.content_format ?? ""),
+    repo_path: String(row.repo_path ?? ""),
+    module_path: String(row.module_path ?? ""),
     corpus_class: String(row.corpus_class ?? ""),
     constraint_kind: String(row.constraint_kind ?? ""),
     content_profile: String(row.content_profile ?? ""),
@@ -238,9 +283,13 @@ export async function retrieveContext(
     ? `${scopeExpr} and ${options.extraFilter}`
     : scopeExpr || options.extraFilter || "";
 
-  const embeddings = await embed([query], { url: config.embedderUrl, model: config.embedderModel });
-  const queryVector = embeddings[0];
-  if (!queryVector?.length) return [];
+  const needsDenseEmbedding = config.retrievalStrategy !== "bm25";
+  let queryVector: number[] = [];
+  if (needsDenseEmbedding) {
+    const embeddings = await embed([query], { url: config.embedderUrl, model: config.embedderModel });
+    queryVector = embeddings[0] ?? [];
+    if (!queryVector.length) return [];
+  }
 
   const allResults: RagResult[] = [];
 
@@ -250,7 +299,7 @@ export async function retrieveContext(
     if (config.retrievalStrategy === "hybrid") {
       rows = await hybridSearch(config, collection, queryVector, query, topK * 2, filter);
     } else if (config.retrievalStrategy === "bm25") {
-      rows = await vectorSearch(config, collection, queryVector, topK * 2, filter);
+      rows = await bm25Search(config, collection, query, topK * 2, filter);
     } else {
       rows = await vectorSearch(config, collection, queryVector, topK * 2, filter);
     }

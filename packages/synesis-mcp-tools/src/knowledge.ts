@@ -94,6 +94,17 @@ function buildSearchBody(
   const repoPath = optionalString(args.repo_path);
   if (repoPath !== undefined) body.repo_path = repoPath;
 
+  const modulePath = optionalString(args.module_path);
+  if (modulePath !== undefined) body.module_path = modulePath;
+
+  const symbolName = optionalString(args.symbol_name);
+  if (symbolName !== undefined) body.symbol_name = symbolName;
+
+  if (typeof args.has_code === "boolean") body.has_code = args.has_code;
+
+  const codeLanguage = optionalString(args.code_language);
+  if (codeLanguage !== undefined) body.code_language = codeLanguage;
+
   const contentProfile = optionalString(args.content_profile);
   if (contentProfile !== undefined) body.content_profile = contentProfile;
 

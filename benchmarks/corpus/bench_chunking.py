@@ -40,8 +40,8 @@ from pymilvus import (
 
 PROD_COLLECTION = "synesis_catalog"
 BENCH_COLLECTION_PREFIX = "bench_chunk_"
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-EMBEDDING_DIM = 384
+EMBEDDING_MODEL = "BAAI/bge-m3"
+EMBEDDING_DIM = 1024
 
 SWEEP_MAX_WORDS = [300, 450, 600, 800, 1000]
 SWEEP_OVERLAP_WORDS = [40, 80, 120]

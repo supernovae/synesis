@@ -32,7 +32,7 @@ from .extract import html_to_markdown, normalize_doc_markdown
 from .injection_scan import scan_chunk_text_detailed
 from .milvus_writer import chunk_id_hash
 from .pipeline import _code_chunk_metrics
-from .schema import EMBEDDING_DIM, SCHEMA_VERSION, catalog_entity
+from .schema import CORPUS_VERSION, EMBEDDING_DIM, EMBEDDING_PROFILE, SCHEMA_VERSION, catalog_entity
 from .synpack import DEFAULT_PACK_MODEL, SYNPACK_FORMAT_VERSION, SynPackError, _sanitize_pack_id, _sha256_file
 
 GO_TAG_RE = re.compile(r"^go(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
@@ -3304,6 +3304,8 @@ def build_language_pack(
             "domain": str(config.get("domain") or language),
             "embedding_model": DEFAULT_PACK_MODEL,
             "embedding_dimensions": EMBEDDING_DIM,
+            "embedding_profile": EMBEDDING_PROFILE,
+            "corpus_version": CORPUS_VERSION,
             "synesis_catalog_schema_version": SCHEMA_VERSION,
             "schema_version": SCHEMA_VERSION,
             "partitions": [pack_id],

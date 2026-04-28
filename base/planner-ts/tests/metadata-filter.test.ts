@@ -92,6 +92,19 @@ describe("buildMetadataFilter", () => {
     const expr = buildMetadataFilter({ tags: "my-custom-tag" });
     expect(expr).toBe('tags like "%my-custom-tag%"');
   });
+
+  it("builds structured code and symbol filters for SynPack rows", () => {
+    const expr = buildMetadataFilter({
+      module_path: "src/net/http/server.go",
+      symbol_name: "Server",
+      has_code: true,
+      code_language: "Go",
+    });
+    expect(expr).toContain('module_path == "src/net/http/server.go"');
+    expect(expr).toContain('symbol_name == "server"');
+    expect(expr).toContain("has_code == true");
+    expect(expr).toContain('code_language == "go"');
+  });
 });
 
 describe("buildCombinedFilter", () => {

@@ -24,7 +24,10 @@ export interface MetadataFilterParams {
   tags?: string;
   content_format?: string;
   repo_path?: string;
+  module_path?: string;
+  symbol_name?: string;
   has_code?: boolean;
+  code_language?: string;
   pack_id?: string;
   pack_ids?: string[];
   pack_version?: string;
@@ -93,8 +96,17 @@ export function buildMetadataFilter(params: MetadataFilterParams): string {
   if (params.repo_path) {
     clauses.push(`repo_path == "${sanitize(params.repo_path, 256)}"`);
   }
+  if (params.module_path) {
+    clauses.push(`module_path == "${sanitize(params.module_path, 256)}"`);
+  }
+  if (params.symbol_name) {
+    clauses.push(`symbol_name == "${sanitize(params.symbol_name, 128)}"`);
+  }
   if (typeof params.has_code === "boolean") {
     clauses.push(`has_code == ${params.has_code ? "true" : "false"}`);
+  }
+  if (params.code_language) {
+    clauses.push(`code_language == "${sanitize(params.code_language, 32)}"`);
   }
 
   // v14 first-class columns (equality filters, indexed)

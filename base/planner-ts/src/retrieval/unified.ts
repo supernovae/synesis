@@ -78,6 +78,8 @@ function ragToUnified(results: RagResult[]): UnifiedResult[] {
   return results.map((r) => ({
     retrieval_source: "rag" as const,
     source_url: r.source_url,
+    chunk_id: r.chunk_id,
+    doc_id: r.doc_id,
     title: r.document_name || r.source,
     text: r.text.slice(0, 1500),
     score: r.rerank_score > 0 ? r.rerank_score : r.rrf_score,
@@ -88,6 +90,7 @@ function ragToUnified(results: RagResult[]): UnifiedResult[] {
     pack_partition: r.pack_partition,
     symbol_kind: r.symbol_kind,
     symbol_fqn: r.symbol_fqn,
+    symbol_name: r.symbol_name,
     package_name: r.package_name,
     doc_relation_ids: r.doc_relation_ids,
     agent_hook: r.agent_hook,
@@ -96,6 +99,8 @@ function ragToUnified(results: RagResult[]): UnifiedResult[] {
     lifecycle_model: r.lifecycle_model,
     agent_enrichment_json: r.agent_enrichment_json,
     origin_type: r.origin_type,
+    source_type: r.source_type,
+    handler: r.handler,
     heading_path: r.heading_path,
     document_name: r.document_name,
     context_prefix: r.context_prefix,
@@ -114,7 +119,10 @@ function ragToUnified(results: RagResult[]): UnifiedResult[] {
     code_density: r.code_density,
     code_language: r.code_language,
     artifact_kind: r.artifact_kind,
+    content_format: r.content_format,
     language: r.language,
+    repo_path: r.repo_path,
+    module_path: r.module_path,
   }));
 }
 

@@ -24,6 +24,7 @@ from .base import Chunk, RawDocument
 logger = logging.getLogger("synesis.indexer.handler.structured_data")
 
 MAX_CHUNK_CHARS = 6000
+CHUNK_OVERLAP_CHARS = 300
 
 
 @register
@@ -134,16 +135,17 @@ def _chunk_yaml(content: str, file_path: str, document_name: str) -> list[Chunk]
             continue
         if not isinstance(doc, dict):
             text = yaml.dump(doc, default_flow_style=False) if not isinstance(doc, str) else doc
-            chunks.append(
-                Chunk(
-                    text=text[:MAX_CHUNK_CHARS],
-                    section=f"document-{i}",
-                    heading_path=f"{file_path} > document-{i}",
-                    chunk_index=idx,
-                    metadata={"content_format": "yaml", "symbol_type": "document"},
+            for part in _split_long_text(text):
+                chunks.append(
+                    Chunk(
+                        text=part,
+                        section=f"document-{i}",
+                        heading_path=f"{file_path} > document-{i}",
+                        chunk_index=idx,
+                        metadata={"content_format": "yaml", "symbol_type": "document"},
+                    )
                 )
-            )
-            idx += 1
+                idx += 1
             continue
 
         kind = doc.get("kind", "")
@@ -189,12 +191,12 @@ def _chunk_yaml(content: str, file_path: str, document_name: str) -> list[Chunk]
                 idx += 1
 
     if not chunks and content.strip():
-        chunks.append(
-            Chunk(
-                text=content[:MAX_CHUNK_CHARS],
+        chunks.extend(
+            _chunks_from_parts(
+                _split_long_text(content),
                 section=file_path,
                 heading_path=file_path,
-                chunk_index=0,
+                start_index=0,
                 metadata={"content_format": "yaml"},
             )
         )
@@ -228,12 +230,11 @@ def _split_yaml_resource(doc: dict, heading: str, file_path: str, raw_text: str)
         for j, task in enumerate(doc["tasks"]):
             task_name = task.get("name", f"task-{j}") if isinstance(task, dict) else f"task-{j}"
             task_text = yaml.dump(task, default_flow_style=False)
-            chunks.append(
-                Chunk(
-                    text=task_text[:MAX_CHUNK_CHARS],
+            chunks.extend(
+                _chunks_from_parts(
+                    _split_long_text(task_text),
                     section=f"{heading} > {task_name}",
                     heading_path=f"{file_path} > {heading} > {task_name}",
-                    chunk_index=0,
                     metadata={"symbol_type": "ansible_task", "symbol_name": task_name},
                 )
             )
@@ -244,29 +245,19 @@ def _split_yaml_resource(doc: dict, heading: str, file_path: str, raw_text: str)
             continue
         val = doc[key]
         section_text = yaml.dump({key: val}, default_flow_style=False)
-        if len(section_text) > MAX_CHUNK_CHARS:
-            section_text = section_text[:MAX_CHUNK_CHARS]
-        chunks.append(
-            Chunk(
-                text=f"# {heading}\n{section_text}",
+        chunks.extend(
+            _chunks_from_parts(
+                _split_long_text(f"# {heading}\n{section_text}"),
                 section=f"{heading} > {key}",
                 heading_path=f"{file_path} > {heading} > {key}",
-                chunk_index=0,
                 metadata={"symbol_name": key},
             )
         )
 
-    return (
-        chunks
-        if chunks
-        else [
-            Chunk(
-                text=raw_text[:MAX_CHUNK_CHARS],
-                section=heading,
-                heading_path=f"{file_path} > {heading}",
-                chunk_index=0,
-            )
-        ]
+    return chunks or _chunks_from_parts(
+        _split_long_text(raw_text),
+        section=heading,
+        heading_path=f"{file_path} > {heading}",
     )
 
 
@@ -284,14 +275,12 @@ def _chunk_json(content: str, file_path: str, document_name: str) -> list[Chunk]
         for i, item in enumerate(data):
             item_text = json.dumps(item, indent=2)
             name = item.get("name", f"item-{i}") if isinstance(item, dict) else f"item-{i}"
-            if len(item_text) > MAX_CHUNK_CHARS:
-                item_text = item_text[:MAX_CHUNK_CHARS]
-            chunks.append(
-                Chunk(
-                    text=item_text,
+            chunks.extend(
+                _chunks_from_parts(
+                    _split_long_text(item_text),
                     section=name,
                     heading_path=f"{file_path} > {name}",
-                    chunk_index=i,
+                    start_index=len(chunks),
                     metadata={"content_format": "json", "symbol_type": "array_element", "symbol_name": name},
                 )
             )
@@ -313,28 +302,23 @@ def _chunk_json(content: str, file_path: str, document_name: str) -> list[Chunk]
         chunks = []
         for i, (key, val) in enumerate(data.items()):
             section_text = json.dumps({key: val}, indent=2)
-            if len(section_text) > MAX_CHUNK_CHARS:
-                section_text = section_text[:MAX_CHUNK_CHARS]
-            chunks.append(
-                Chunk(
-                    text=section_text,
+            chunks.extend(
+                _chunks_from_parts(
+                    _split_long_text(section_text),
                     section=key,
                     heading_path=f"{file_path} > {key}",
-                    chunk_index=i,
+                    start_index=len(chunks),
                     metadata={"content_format": "json", "symbol_type": "property", "symbol_name": key},
                 )
             )
         return chunks
 
-    return [
-        Chunk(
-            text=content[:MAX_CHUNK_CHARS],
-            section=file_path,
-            heading_path=file_path,
-            chunk_index=0,
-            metadata={"content_format": "json"},
-        )
-    ]
+    return _chunks_from_parts(
+        _split_long_text(content),
+        section=file_path,
+        heading_path=file_path,
+        metadata={"content_format": "json"},
+    )
 
 
 # ── XML ───────────────────────────────────────────────────────────────
@@ -369,14 +353,12 @@ def _chunk_xml(content: str, file_path: str, document_name: str) -> list[Chunk]:
             child_text = ET.tostring(child, encoding="unicode")
         except Exception:
             continue
-        if len(child_text) > MAX_CHUNK_CHARS:
-            child_text = child_text[:MAX_CHUNK_CHARS]
-        chunks.append(
-            Chunk(
-                text=child_text,
+        chunks.extend(
+            _chunks_from_parts(
+                _split_long_text(child_text),
                 section=f"{tag} > {child_name}",
                 heading_path=f"{file_path} > {tag} > {child_name}",
-                chunk_index=i,
+                start_index=len(chunks),
                 metadata={"content_format": "xml", "symbol_type": f"xml_{child_tag}", "symbol_name": child_name},
             )
         )
@@ -386,7 +368,7 @@ def _chunk_xml(content: str, file_path: str, document_name: str) -> list[Chunk]:
         if chunks
         else [
             Chunk(
-                text=content[:MAX_CHUNK_CHARS],
+                text=content,
                 section=tag,
                 heading_path=f"{file_path} > {tag}",
                 chunk_index=0,
@@ -438,12 +420,12 @@ def _chunk_toml(content: str, file_path: str, document_name: str) -> list[Chunk]
                 section_text += f"{k} = {_toml_repr(v)}\n"
         else:
             section_text += f"{key} = {_toml_repr(val)}\n"
-        chunks.append(
-            Chunk(
-                text=section_text[:MAX_CHUNK_CHARS],
+        chunks.extend(
+            _chunks_from_parts(
+                _split_long_text(section_text),
                 section=key,
                 heading_path=f"{file_path} > {key}",
-                chunk_index=i,
+                start_index=len(chunks),
                 metadata={"content_format": "toml", "symbol_type": "table", "symbol_name": key},
             )
         )
@@ -490,12 +472,12 @@ def _chunk_hcl(content: str, file_path: str, document_name: str) -> list[Chunk]:
         heading = f"{block_type} {type_label} {name_label}".strip()
         symbol_type = f"hcl_{block_type}"
 
-        chunks.append(
-            Chunk(
-                text=block_text[:MAX_CHUNK_CHARS],
+        chunks.extend(
+            _chunks_from_parts(
+                _split_long_text(block_text),
                 section=heading,
                 heading_path=f"{file_path} > {heading}",
-                chunk_index=i,
+                start_index=len(chunks),
                 metadata={
                     "content_format": "hcl",
                     "symbol_type": symbol_type,
@@ -533,6 +515,32 @@ def _chunk_generic(content: str, file_path: str, document_name: str, fmt: str) -
         para = para.strip()
         if not para:
             continue
+        if len(para) > MAX_CHUNK_CHARS:
+            if current:
+                chunks.append(
+                    Chunk(
+                        text="\n\n".join(current),
+                        section=f"{file_path} (part {idx + 1})",
+                        heading_path=file_path,
+                        chunk_index=idx,
+                        metadata={"content_format": fmt},
+                    )
+                )
+                idx += 1
+                current = []
+                current_len = 0
+            for part in _split_long_text(para):
+                chunks.append(
+                    Chunk(
+                        text=part,
+                        section=f"{file_path} (part {idx + 1})",
+                        heading_path=file_path,
+                        chunk_index=idx,
+                        metadata={"content_format": fmt},
+                    )
+                )
+                idx += 1
+            continue
         if current_len + len(para) > MAX_CHUNK_CHARS and current:
             chunks.append(
                 Chunk(
@@ -561,6 +569,80 @@ def _chunk_generic(content: str, file_path: str, document_name: str, fmt: str) -
         )
 
     return chunks
+
+
+def _split_long_text(text: str, max_chars: int = MAX_CHUNK_CHARS, overlap_chars: int = CHUNK_OVERLAP_CHARS) -> list[str]:
+    """Split oversized structured snippets without dropping bytes.
+
+    Prefer line boundaries because YAML, Helm, Terraform, logs, and stack traces
+    are line-oriented. Very long single lines fall back to bounded character
+    windows with small overlap.
+    """
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+
+    parts: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for line in text.splitlines():
+        line_len = len(line) + 1
+        if line_len > max_chars:
+            if current:
+                parts.append("\n".join(current).strip())
+                current = []
+                current_len = 0
+            parts.extend(_split_long_line(line, max_chars, overlap_chars))
+            continue
+        if current and current_len + line_len > max_chars:
+            chunk_text = "\n".join(current).strip()
+            parts.append(chunk_text)
+            overlap = chunk_text[-overlap_chars:].strip()
+            current = [overlap] if overlap else []
+            current_len = len(overlap) + 1 if overlap else 0
+        current.append(line)
+        current_len += line_len
+    if current:
+        parts.append("\n".join(current).strip())
+    return [p for p in parts if p]
+
+
+def _split_long_line(line: str, max_chars: int, overlap_chars: int) -> list[str]:
+    parts: list[str] = []
+    step = max(1, max_chars - overlap_chars)
+    for start in range(0, len(line), step):
+        part = line[start : start + max_chars].strip()
+        if part:
+            parts.append(part)
+        if start + max_chars >= len(line):
+            break
+    return parts
+
+
+def _chunks_from_parts(
+    parts: list[str],
+    *,
+    section: str,
+    heading_path: str,
+    start_index: int = 0,
+    metadata: dict[str, Any] | None = None,
+) -> list[Chunk]:
+    if len(parts) == 1:
+        sections = [section]
+    else:
+        sections = [f"{section} (part {i + 1})" for i in range(len(parts))]
+    return [
+        Chunk(
+            text=part,
+            section=sections[i],
+            heading_path=heading_path,
+            chunk_index=start_index + i,
+            metadata=dict(metadata or {}),
+        )
+        for i, part in enumerate(parts)
+    ]
 
 
 def _detect_format(path: str) -> str:

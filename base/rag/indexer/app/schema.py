@@ -96,10 +96,13 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
-EMBEDDING_DIM = 1024
-
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
 SCHEMA_VERSION = 17
+
+EMBEDDING_DIM = 1024
+EMBEDDING_MODEL = "BAAI/bge-m3"
+EMBEDDING_PROFILE = "bge-m3-1024-cosine-v1"
+CORPUS_VERSION = f"synesis-catalog-v{SCHEMA_VERSION}-{EMBEDDING_PROFILE}"
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(

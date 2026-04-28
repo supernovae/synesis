@@ -36,12 +36,21 @@ from .injection_scan import scan_chunk_text_detailed
 from .milvus_writer import MILVUS_URI, MilvusWriter, chunk_id_hash
 from .pipeline import _code_chunk_metrics, _infer_artifact_kind
 from .queue_runner import _build_source_config
-from .schema import EMBEDDING_DIM, SCHEMA_VERSION, SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
+from .schema import (
+    CORPUS_VERSION,
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL,
+    EMBEDDING_PROFILE,
+    SCHEMA_VERSION,
+    SYNESIS_CATALOG,
+    catalog_entity,
+    ensure_synesis_catalog,
+)
 
 logger = get_logger("synesis.indexer.synpack")
 
 SYNPACK_FORMAT_VERSION = "1.0"
-DEFAULT_PACK_MODEL = "BAAI/bge-m3"
+DEFAULT_PACK_MODEL = EMBEDDING_MODEL
 
 
 class SynPackError(ValueError):
@@ -100,6 +109,8 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     manifest["pack_id"] = pack_id
     manifest["embedding_model"] = model
     manifest["embedding_dimensions"] = dims
+    manifest["embedding_profile"] = str(manifest.get("embedding_profile") or EMBEDDING_PROFILE)
+    manifest["corpus_version"] = str(manifest.get("corpus_version") or CORPUS_VERSION)
     return manifest
 
 
@@ -503,6 +514,8 @@ def build_pack_from_sources(
         "domain": domain or language,
         "embedding_model": DEFAULT_PACK_MODEL,
         "embedding_dimensions": EMBEDDING_DIM,
+        "embedding_profile": EMBEDDING_PROFILE,
+        "corpus_version": CORPUS_VERSION,
         "synesis_catalog_schema_version": SCHEMA_VERSION,
         "schema_version": SCHEMA_VERSION,
         "partitions": [pack_id],

@@ -984,6 +984,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
       tags: body?.tags ? String(body.tags) : undefined,
       content_format: body?.content_format ? String(body.content_format) : undefined,
       repo_path: body?.repo_path ? String(body.repo_path) : undefined,
+      module_path: body?.module_path ? String(body.module_path) : undefined,
+      symbol_name: body?.symbol_name ? String(body.symbol_name) : undefined,
+      has_code: typeof body?.has_code === "boolean" ? body.has_code : undefined,
+      code_language: body?.code_language ? String(body.code_language) : undefined,
     };
 
     const scopeOpts = {
@@ -1011,6 +1015,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
         return {
           text: r.text,
           source_url: r.source_url,
+          chunk_id: r.chunk_id ?? "",
+          doc_id: r.doc_id ?? "",
           document_name: r.document_name,
           authority: r.authority,
           pack_id: r.pack_id ?? "global",
@@ -1019,6 +1025,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           pack_partition: r.pack_partition ?? "",
           symbol_kind: r.symbol_kind ?? "",
           symbol_fqn: r.symbol_fqn ?? "",
+          symbol_name: r.symbol_name ?? "",
           package_name: r.package_name ?? "",
           doc_relation_ids: r.doc_relation_ids ? r.doc_relation_ids.split(",").map((s) => s.trim()).filter(Boolean) : [],
           agent_hook: r.agent_hook ?? "",
@@ -1027,9 +1034,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
           lifecycle_model: r.lifecycle_model ?? "",
           agent_enrichment_json: r.agent_enrichment_json ?? "",
           origin_type: r.origin_type,
+          source_type: r.source_type ?? "",
+          handler: r.handler ?? "",
           domain: r.domain,
           language: r.language ?? "",
           artifact_kind: r.artifact_kind ?? "",
+          content_format: r.content_format ?? "",
+          repo_path: r.repo_path ?? "",
+          module_path: r.module_path ?? "",
           tags: r.tags ?? "",
           context_prefix: r.context_prefix,
           chunk_summary: r.chunk_summary,
@@ -1043,6 +1055,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
           constraint_confidence: r.constraint_confidence ?? -1,
           golden_path_id: r.golden_path_id ?? "",
           novel_pattern: r.novel_pattern ?? false,
+          has_code: r.has_code ?? false,
+          code_signal_count: r.code_signal_count ?? 0,
+          code_density: r.code_density ?? 0,
+          code_language: r.code_language ?? "",
+          scan_status: r.scan_status ?? "unscanned",
+          approval_status: r.approval_status ?? "auto_approved",
         };
       });
 

@@ -2,6 +2,8 @@ export interface UnifiedResult {
   retrieval_source: "rag" | "web";
   source_url: string;
   source_id?: string;
+  chunk_id?: string;
+  doc_id?: string;
   title: string;
   text: string;
   score: number;
@@ -12,6 +14,7 @@ export interface UnifiedResult {
   pack_partition?: string;
   symbol_kind?: string;
   symbol_fqn?: string;
+  symbol_name?: string;
   package_name?: string;
   doc_relation_ids?: string;
   agent_hook?: string;
@@ -20,6 +23,8 @@ export interface UnifiedResult {
   lifecycle_model?: string;
   agent_enrichment_json?: string;
   origin_type?: string;
+  source_type?: string;
+  handler?: string;
   heading_path?: string;
   document_name?: string;
   context_prefix?: string;
@@ -38,7 +43,10 @@ export interface UnifiedResult {
   code_density?: number;
   code_language?: string;
   artifact_kind?: string;
+  content_format?: string;
   language?: string;
+  repo_path?: string;
+  module_path?: string;
   evidence_bucket?: "primary_code" | "supporting_docs";
 }
 
@@ -106,6 +114,8 @@ export interface SearchResult {
 }
 
 export interface RagResult {
+  chunk_id?: string;
+  doc_id?: string;
   text: string;
   source: string;
   collection: string;
@@ -123,6 +133,7 @@ export interface RagResult {
   pack_partition?: string;
   symbol_kind?: string;
   symbol_fqn?: string;
+  symbol_name?: string;
   package_name?: string;
   doc_relation_ids?: string;
   agent_hook?: string;
@@ -132,6 +143,8 @@ export interface RagResult {
   agent_enrichment_json?: string;
   domain: string;
   source_url: string;
+  source_type?: string;
+  handler?: string;
   heading_path: string;
   context_prefix: string;
   chunk_summary: string;
@@ -146,6 +159,9 @@ export interface RagResult {
   tags?: string;
   language?: string;
   artifact_kind?: string;
+  content_format?: string;
+  repo_path?: string;
+  module_path?: string;
   corpus_class?: string;
   constraint_kind?: string;
   content_profile?: string;
@@ -194,6 +210,10 @@ export interface KnowledgeSearchRequest {
   tags?: string;
   content_format?: string;
   repo_path?: string;
+  module_path?: string;
+  symbol_name?: string;
+  has_code?: boolean;
+  code_language?: string;
   content_profile?: string;
   constraint_source?: string;
   golden_path_id?: string;
@@ -206,6 +226,8 @@ export interface KnowledgeSearchRequest {
 export interface KnowledgeResult {
   text: string;
   source_url: string;
+  chunk_id?: string;
+  doc_id?: string;
   document_name: string;
   authority: string;
   pack_id?: string;
@@ -214,6 +236,7 @@ export interface KnowledgeResult {
   pack_partition?: string;
   symbol_kind?: string;
   symbol_fqn?: string;
+  symbol_name?: string;
   package_name?: string;
   doc_relation_ids?: string[];
   agent_hook?: string;
@@ -222,9 +245,14 @@ export interface KnowledgeResult {
   lifecycle_model?: string;
   agent_enrichment_json?: string;
   origin_type: string;
+  source_type?: string;
+  handler?: string;
   domain: string;
   language: string;
   artifact_kind: string;
+  content_format: string;
+  repo_path: string;
+  module_path: string;
   tags: string;
   context_prefix: string;
   chunk_summary: string;
@@ -238,6 +266,12 @@ export interface KnowledgeResult {
   constraint_confidence: number;
   golden_path_id: string;
   novel_pattern: boolean;
+  has_code: boolean;
+  code_signal_count: number;
+  code_density: number;
+  code_language: string;
+  scan_status: string;
+  approval_status: string;
 }
 
 export interface KnowledgeSearchResponse {

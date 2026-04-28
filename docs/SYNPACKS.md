@@ -18,6 +18,16 @@ A `.synpack` is a ZIP file containing:
 The v1 pack baseline is `BAAI/bge-m3` with 1024-dimensional embeddings. BGE-M3
 is the primary SynPack model because it supports long technical documents and
 gives Synesis a path toward dense, sparse, and multi-vector retrieval.
+Pack manifests also include `embedding_profile` and `corpus_version` so a future
+embedder change can be treated as a corpus rebuild boundary without changing the
+portable pack format.
+
+Structured files are chunked by natural document boundaries before embedding:
+YAML and Helm/Kubernetes manifests split by YAML document/resource and then
+top-level keys; Terraform/OpenTofu HCL splits by top-level `resource`, `data`,
+`module`, `variable`, `output`, `locals`, `terraform`, and `provider` blocks;
+JSON/TOML/XML split by top-level elements. Oversized structured sections are
+line-split with overlap rather than truncated.
 
 ## CLI
 
