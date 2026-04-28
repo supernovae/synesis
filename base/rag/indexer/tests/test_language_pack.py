@@ -264,6 +264,48 @@ def test_enrichment_token_budget_estimate_uses_max_thinking_budget():
     assert estimate["estimated_uncached_usd"] is not None
 
 
+def test_non_english_doc_language_requires_pack_config_opt_in(tmp_path: Path):
+    with pytest.raises(SynPackError, match="not supported"):
+        build_language_pack(
+            language="go",
+            output_path=tmp_path / "go.synpack",
+            source_dir=tmp_path,
+            latest_tag="go1.26.2",
+            doc_language="ja",
+            skip_enrichment=True,
+        )
+
+
+def test_non_english_doc_language_requires_pack_id_suffix(tmp_path: Path):
+    config = tmp_path / "go-ja.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "language: go",
+                "domain: go",
+                "pack_id: go-latest",
+                "doc_language: ja",
+                "supported_doc_languages:",
+                "  - en",
+                "  - ja",
+                "prompt_id: go_agentic_architect_v1",
+                "prompt_path: prompts/go_agentic_architect_v1.md",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(SynPackError, match="must end with '-ja'"):
+        build_language_pack(
+            language="go",
+            output_path=tmp_path / "go.synpack",
+            pack_config=config,
+            source_dir=tmp_path,
+            latest_tag="go1.26.2",
+            doc_language="ja",
+            skip_enrichment=True,
+        )
+
+
 def test_language_pack_preparation_normalizes_html_and_keeps_quality_metadata():
     chunk = language_pack.LanguageChunk(
         text=(
@@ -530,6 +572,8 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     manifest = validate_synpack(out)
     assert manifest["schema_version"] == 17
     assert manifest["source_version"] == "go1.26.2"
+    assert manifest["doc_language"] == "en"
+    assert manifest["supported_doc_languages"] == ["en"]
     assert manifest["enrichment"]["prompt_id"] == "go_agentic_architect_v1"
     assert manifest["enrichment"]["skipped"] is True
     assert manifest["source_quality"]["extracted"] >= manifest["source_quality"]["enrichment_attempted"]
@@ -540,6 +584,8 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     assert any(row["package_name"] == "fmt" and row["symbol_kind"] == "function" for row in rows)
     assert all("agent_enrichment_json" in row for row in rows)
     assert all("source_quality" in json.loads(row["agent_enrichment_json"]) for row in rows)
+    assert all(json.loads(row["agent_enrichment_json"])["doc_language"] == "en" for row in rows)
+    assert all("doc-language:en" in row["tags"] for row in rows)
 
 
 def test_build_language_pack_from_rust_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

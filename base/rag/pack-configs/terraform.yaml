@@ -1,4 +1,7 @@
 language: terraform
+doc_language: en
+supported_doc_languages:
+  - en
 domain: terraform
 pack_id: terraform-latest
 repo: github.com/hashicorp/terraform

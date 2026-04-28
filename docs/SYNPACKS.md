@@ -22,6 +22,13 @@ Pack manifests also include `embedding_profile` and `corpus_version` so a future
 embedder change can be treated as a corpus rebuild boundary without changing the
 portable pack format.
 
+SynPacks are English-first by default. Pack configs declare `doc_language: en`
+and `supported_doc_languages: [en]`; non-English builds must opt in through the
+pack config and use a pack id ending in the locale suffix, such as
+`godot-latest-ja`. The enrichment prompt records the source document language
+and preserves official API names, identifiers, package names, and error strings
+without translation.
+
 Structured files are chunked by natural document boundaries before embedding:
 YAML and Helm/Kubernetes manifests split by YAML document/resource and then
 top-level keys; Terraform/OpenTofu HCL splits by top-level `resource`, `data`,
@@ -150,6 +157,7 @@ export DEEPSEEK_TOKEN=...
 python -m app.cli --mode synpack --synpack-command build-language \
   --language terraform \
   --pack-id terraform-latest \
+  --doc-language en \
   --enrichment-url https://api.deepseek.com \
   --enrichment-concurrency 6 \
   --enrichment-max-tokens 8192 \

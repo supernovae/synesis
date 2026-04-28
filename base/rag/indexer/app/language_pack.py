@@ -452,6 +452,35 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _normalize_doc_language(value: str) -> str:
+    normalized = str(value or "en").strip().lower().replace("_", "-")
+    if not re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", normalized):
+        raise SynPackError(f"invalid doc_language: {value!r}")
+    return normalized
+
+
+def _supported_doc_languages(config: dict[str, Any]) -> list[str]:
+    raw = config.get("supported_doc_languages") or [config.get("doc_language") or "en"]
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        raise SynPackError("supported_doc_languages must be a list")
+    supported = [_normalize_doc_language(str(item)) for item in raw if str(item or "").strip()]
+    return supported or ["en"]
+
+
+def _validate_doc_language(*, doc_language: str, supported_doc_languages: list[str], pack_id: str) -> None:
+    if doc_language == "en":
+        return
+    if doc_language not in supported_doc_languages:
+        raise SynPackError(
+            f"doc_language={doc_language!r} is not supported by this pack config; "
+            f"supported_doc_languages={supported_doc_languages!r}"
+        )
+    if not pack_id.endswith(f"-{doc_language}"):
+        raise SynPackError(f"non-English pack_id must end with '-{doc_language}' to keep pack partitions portable")
+
+
 def _resolve_path(value: str, *, base: Path) -> Path:
     path = Path(value)
     if path.is_absolute():
@@ -2885,6 +2914,12 @@ class OpenAICompatibleEnrichmentClient:
                 "If the source appears incomplete or noisy, include that as hidden_warnings or source_quality notes. "
                 "Do not repair source text or invent missing facts."
             )
+        doc_language = str(chunk.metadata.get("doc_language") or "en")
+        prompt = (
+            f"{prompt}\n\nSource document language: {doc_language}. "
+            "Preserve official terminology, identifiers, APIs, package names, and error strings exactly as written. "
+            "Do not translate code identifiers or infer facts from another language edition."
+        )
         return prompt_id, prompt
 
     def _headers(self) -> dict[str, str]:
@@ -3097,9 +3132,12 @@ def _build_rows(
     source_version: str,
     language: str,
     domain: str,
+    doc_language: str,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for chunk, enrichment, embedding in zip(chunks, enrichments, embeddings):
+        enrichment = dict(enrichment)
+        enrichment.setdefault("doc_language", doc_language)
         status, signals = scan_chunk_text_detailed(chunk.text)
         has_code, code_signal_count, code_density = _code_chunk_metrics(chunk.text)
         chunk_id = chunk_id_hash(chunk.text, f"{pack_id}:{chunk.doc_id}:{chunk.section}")
@@ -3118,7 +3156,9 @@ def _build_rows(
                 source_type="docs",
                 handler="language_pack",
                 domain=domain,
-                tags=_join_csv([f"language-pack,{language}", chunk.metadata.get("scope_tags", [])]),
+                tags=_join_csv(
+                    [f"language-pack,{language}", f"doc-language:{doc_language}", chunk.metadata.get("scope_tags", [])]
+                ),
                 keywords=",".join(str(x) for x in [chunk.package_name, chunk.symbol_kind, chunk.symbol_name] if x),
                 origin_type="curated",
                 authority="vetted",
@@ -3299,6 +3339,7 @@ def build_language_pack(
     max_chunks: int = 0,
     source_dir: str | Path = "",
     provider_schema: str | Path = "",
+    doc_language: str = "",
 ) -> dict[str, Any]:
     language = language.lower().strip()
     if language not in {"go", "rust", "quarkus", "python", "godot", "terraform", "ecma"}:
@@ -3306,6 +3347,11 @@ def build_language_pack(
     config_path = Path(pack_config) if pack_config else _default_config_path(language)
     config = _load_yaml(config_path)
     pack_id = _sanitize_pack_id(pack_id or str(config.get("pack_id") or f"{language}-latest"))
+    doc_language = _normalize_doc_language(doc_language or str(config.get("doc_language") or "en"))
+    supported_doc_languages = _supported_doc_languages(config)
+    _validate_doc_language(
+        doc_language=doc_language, supported_doc_languages=supported_doc_languages, pack_id=pack_id
+    )
     resolved_tag = _resolve_language_tag(language, latest_tag=latest_tag, source_version=source_version)
     source_version = resolved_tag
     tmp = Path(tempfile.mkdtemp(prefix="synpack-language-"))
@@ -3376,6 +3422,9 @@ def build_language_pack(
         if max_chunks:
             chunks = chunks[: max(0, max_chunks)]
         chunks, source_quality_report = prepare_language_chunks_for_enrichment(chunks)
+        for chunk in chunks:
+            chunk.metadata["doc_language"] = doc_language
+        source_quality_report["doc_language"] = doc_language
 
         prompt_templates, prompt_hashes = _load_prompt_templates(config, config_path=config_path)
         default_prompt_id = str(
@@ -3431,6 +3480,8 @@ def build_language_pack(
                         1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY)
                     ),
                     "thinking": {"type": "enabled", "reasoning_effort": "max"},
+                    "doc_language": doc_language,
+                    "supported_doc_languages": supported_doc_languages,
                     "cost_estimate": enrichment_cost_estimate,
                 },
             }
@@ -3467,6 +3518,7 @@ def build_language_pack(
             source_version=source_version,
             language=language,
             domain=str(config.get("domain") or language),
+            doc_language=doc_language,
         )
 
         rows_path = tmp / "metadata.jsonl"
@@ -3485,6 +3537,8 @@ def build_language_pack(
             "version": pack_version,
             "source_version": source_version,
             "language": language,
+            "doc_language": doc_language,
+            "supported_doc_languages": supported_doc_languages,
             "domain": str(config.get("domain") or language),
             "embedding_model": DEFAULT_PACK_MODEL,
             "embedding_dimensions": EMBEDDING_DIM,
@@ -3516,6 +3570,8 @@ def build_language_pack(
                 ),
                 "thinking": {"type": "enabled", "reasoning_effort": "max"},
                 "think_mode_header": "Max",
+                "doc_language": doc_language,
+                "supported_doc_languages": supported_doc_languages,
                 "cost_estimate": enrichment_cost_estimate,
                 "usage": enrichment_usage,
             },

@@ -1,4 +1,7 @@
 language: godot
+doc_language: en
+supported_doc_languages:
+  - en
 domain: godot
 pack_id: godot-latest
 repo: github.com/godotengine/godot

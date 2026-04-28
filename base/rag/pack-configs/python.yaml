@@ -1,4 +1,7 @@
 language: python
+doc_language: en
+supported_doc_languages:
+  - en
 domain: python
 pack_id: python-latest
 repo: github.com/python/cpython

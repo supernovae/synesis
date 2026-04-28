@@ -99,6 +99,7 @@ def main() -> None:
     parser.add_argument("--pack-version", default="1.0.0", help="SynPack artifact version")
     parser.add_argument("--source-version", default="", help="Upstream documentation/source version")
     parser.add_argument("--language", default="", help="Language for build-language, e.g. go")
+    parser.add_argument("--doc-language", default="", help="Source document language/locale for SynPack builds")
     parser.add_argument("--pack-config", default="", help="Language pack config path")
     parser.add_argument("--enrichment-url", default="", help="OpenAI-compatible enrichment base URL")
     parser.add_argument("--enrichment-model", default="deepseek-v4-pro", help="Enrichment model name")
@@ -320,6 +321,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     embedder_url=args.embedder_url,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
+                    doc_language=args.doc_language,
                 )
             )
         )
@@ -352,6 +354,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     embedder_url=args.embedder_url,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
+                    doc_language=args.doc_language,
                 )
             )
         )
@@ -384,6 +387,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     embedder_url=args.embedder_url,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
+                    doc_language=args.doc_language,
                 )
             )
         )
@@ -416,6 +420,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     embedder_url=args.embedder_url,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
+                    doc_language=args.doc_language,
                 )
             )
         )
@@ -448,6 +453,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     embedder_url=args.embedder_url,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
+                    doc_language=args.doc_language,
                 )
             )
         )
@@ -481,6 +487,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     provider_schema=args.provider_schema,
+                    doc_language=args.doc_language,
                 )
             )
         )
@@ -514,6 +521,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     provider_schema=args.provider_schema,
+                    doc_language=args.doc_language,
                 )
             )
         )
@@ -548,6 +556,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     source_dir=args.source_dir,
                     max_chunks=max(0, args.max_chunks),
                     provider_schema=args.provider_schema,
+                    doc_language=args.doc_language,
                 )
             )
         )

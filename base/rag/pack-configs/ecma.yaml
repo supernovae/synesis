@@ -1,4 +1,7 @@
 language: ecma
+doc_language: en
+supported_doc_languages:
+  - en
 domain: javascript-typescript
 pack_id: ecma-latest
 repo: github.com/tc39/proposals

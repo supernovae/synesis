@@ -1,4 +1,7 @@
 language: quarkus
+doc_language: en
+supported_doc_languages:
+  - en
 domain: quarkus
 pack_id: quarkus-latest
 repo: github.com/quarkusio/quarkus
