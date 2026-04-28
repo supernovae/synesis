@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger("synesis.indexer.extract")
+_TRAFILATURA_EXTRACT: Callable[..., str | None] | None | bool = None
 
 # Lines that are *only* nav/footer/chrome residue left by trafilatura.
 # Each pattern is matched against a stripped line (case-insensitive).
@@ -87,10 +90,20 @@ def html_to_markdown(
     """
     if not html or not html.strip():
         return ""
-    try:
-        from trafilatura import extract
+    global _TRAFILATURA_EXTRACT
+    if _TRAFILATURA_EXTRACT is None:
+        try:
+            from trafilatura import extract
 
-        result = extract(
+            _TRAFILATURA_EXTRACT = extract
+        except ModuleNotFoundError as e:
+            _TRAFILATURA_EXTRACT = False
+            logger.warning("trafilatura unavailable; using basic html fallback: %s", e)
+    if _TRAFILATURA_EXTRACT is False:
+        return normalize_doc_markdown(_basic_html_to_markdown(html))
+    try:
+        extract_fn = _TRAFILATURA_EXTRACT
+        result = extract_fn(
             html,
             output_format="markdown",
             include_tables=include_tables,
@@ -101,3 +114,27 @@ def html_to_markdown(
     except Exception as e:
         logger.warning("trafilatura extraction failed: %s", e)
         return ""
+
+
+def _basic_html_to_markdown(html: str) -> str:
+    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", html)
+    text = re.sub(r"(?is)<h([1-6])[^>]*>(.*?)</h\1>", _heading_repl, text)
+    text = re.sub(r"(?is)<(?:p|div|section|article|main|li|tr|br)\b[^>]*>", "\n", text)
+    text = re.sub(r"(?is)</(?:p|div|section|article|main|li|tr|table|ul|ol)>", "\n", text)
+    text = re.sub(r"(?is)<[^>]+>", "", text)
+    text = _html_unescape(text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _heading_repl(match: Any) -> str:
+    level = int(match.group(1))
+    inner = _html_unescape(re.sub(r"(?is)<[^>]+>", "", match.group(2))).strip()
+    return f"\n{'#' * level} {inner}\n" if inner else "\n"
+
+
+def _html_unescape(text: str) -> str:
+    import html as html_lib
+
+    return html_lib.unescape(text)
