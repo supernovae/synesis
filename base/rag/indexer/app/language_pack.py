@@ -553,7 +553,7 @@ def _doc_chunks(
         for file_path in files:
             if not file_path.is_file() or file_path.name.startswith("."):
                 continue
-            if file_path.suffix.lower() not in {"", ".adoc", ".md", ".rst", ".txt", ".html"}:
+            if file_path.suffix.lower() not in {"", ".adoc", ".md", ".markdown", ".mdx", ".rst", ".txt", ".html"}:
                 continue
             rel_path = file_path.relative_to(root).as_posix()
             for part in _split_text(_read_text(file_path)):
@@ -2254,14 +2254,15 @@ def _extract_terraform_docs(source_root: Path, *, config: dict[str, Any], tag: s
         if not aux_root.exists():
             continue
         repo_name = str(aux.get("repo") or "")
-        path = str(aux.get("path") or ".")
+        raw_path = aux.get("path") or "."
+        paths = [str(path) for path in raw_path] if isinstance(raw_path, list) else [str(raw_path)]
         artifact_kind = _terraform_artifact_for_aux(aux)
         package_name = str(aux.get("package_name") or name or "terraform")
         provider = str(aux.get("provider") or "")
         prompt_id = str(aux.get("prompt_id") or "")
         for chunk in _doc_chunks(
             aux_root,
-            [path],
+            paths,
             language="terraform",
             repo=repo_name or repo,
             tag=str(aux.get("resolved_ref") or "main"),

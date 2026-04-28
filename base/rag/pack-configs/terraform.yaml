@@ -25,7 +25,9 @@ include:
   aux_sources:
     - name: terraform-provider-aws
       repo: github.com/hashicorp/terraform-provider-aws
-      path: docs
+      path:
+        - website/docs
+        - docs
       artifact_kind: provider_docs
       package_name: registry.terraform.io/hashicorp/aws
       provider: registry.terraform.io/hashicorp/aws

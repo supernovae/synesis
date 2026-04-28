@@ -269,6 +269,27 @@ def test_enrichment_token_budget_estimate_uses_max_thinking_budget():
     assert estimate["estimated_uncached_usd"] is not None
 
 
+def test_doc_chunks_include_provider_markdown_and_mdx(tmp_path: Path):
+    docs = tmp_path / "website" / "docs" / "r"
+    docs.mkdir(parents=True)
+    (docs / "aws_instance.html.markdown").write_text("# aws_instance\n\nResource docs.", encoding="utf-8")
+    (docs / "azurerm_linux_virtual_machine.mdx").write_text("# azurerm_linux_virtual_machine\n\nMDX docs.", encoding="utf-8")
+
+    chunks = language_pack._doc_chunks(
+        tmp_path,
+        ["website/docs"],
+        language="terraform",
+        repo="github.com/hashicorp/terraform-provider-aws",
+        tag="main",
+        package_name="registry.terraform.io/hashicorp/aws",
+        artifact_kind="provider_docs",
+    )
+
+    names = {chunk.document_name for chunk in chunks}
+    assert "website/docs/r/aws_instance.html.markdown" in names
+    assert "website/docs/r/azurerm_linux_virtual_machine.mdx" in names
+
+
 def test_non_english_doc_language_requires_pack_config_opt_in(tmp_path: Path):
     with pytest.raises(SynPackError, match="not supported"):
         build_language_pack(
