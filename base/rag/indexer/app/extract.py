@@ -17,10 +17,12 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import Any
 
 logger = logging.getLogger("synesis.indexer.extract")
 _TRAFILATURA_EXTRACT: Callable[..., str | None] | None | bool = None
+_TRAFILATURA_LOGGERS = ("trafilatura", "trafilatura.core", "trafilatura.utils")
 
 # Lines that are *only* nav/footer/chrome residue left by trafilatura.
 # Each pattern is matched against a stripped line (case-insensitive).
@@ -103,17 +105,32 @@ def html_to_markdown(
         return normalize_doc_markdown(_basic_html_to_markdown(html))
     try:
         extract_fn = _TRAFILATURA_EXTRACT
-        result = extract_fn(
-            html,
-            output_format="markdown",
-            include_tables=include_tables,
-            include_links=include_links,
-            fast=fast,
-        )
-        return result or ""
+        with _quiet_trafilatura_logs():
+            result = extract_fn(
+                html,
+                output_format="markdown",
+                include_tables=include_tables,
+                include_links=include_links,
+                fast=fast,
+            )
+        return result or normalize_doc_markdown(_basic_html_to_markdown(html))
     except Exception as e:
         logger.warning("trafilatura extraction failed: %s", e)
-        return ""
+        return normalize_doc_markdown(_basic_html_to_markdown(html))
+
+
+@contextmanager
+def _quiet_trafilatura_logs():
+    loggers = [logging.getLogger(name) for name in _TRAFILATURA_LOGGERS]
+    previous = [(log.level, log.disabled) for log in loggers]
+    try:
+        for log in loggers:
+            log.setLevel(logging.CRITICAL + 1)
+        yield
+    finally:
+        for log, (level, disabled) in zip(loggers, previous, strict=True):
+            log.setLevel(level)
+            log.disabled = disabled
 
 
 def _basic_html_to_markdown(html: str) -> str:

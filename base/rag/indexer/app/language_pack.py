@@ -147,12 +147,15 @@ def _normalize_language_chunk_text(chunk: LanguageChunk) -> tuple[str, str]:
     if not text:
         return "", original_format or "text"
 
-    looks_html = original_format in HTML_FORMATS or bool(HTML_SIGNAL_RE.search(text))
-    if looks_html:
+    has_html_signal = bool(HTML_SIGNAL_RE.search(text[:4096]))
+    looks_html = original_format in HTML_FORMATS or has_html_signal
+    if looks_html and has_html_signal:
         markdown = normalize_doc_markdown(html_to_markdown(text))
         if markdown:
             return markdown, "markdown"
         return _strip_html_tags(text), "text"
+    if original_format in HTML_FORMATS:
+        return normalize_doc_markdown(text), "markdown"
 
     if original_format in MARKDOWN_FORMATS:
         return normalize_doc_markdown(text), "markdown"
