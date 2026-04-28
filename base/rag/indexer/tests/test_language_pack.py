@@ -261,6 +261,11 @@ def test_enrichment_token_budget_estimate_uses_max_thinking_budget():
     assert estimate["max_tokens_per_request"] == 8192
     assert estimate["thinking_effort"] == "max"
     assert estimate["thinking_budget_tokens"] == 8192
+    assert estimate["thinking_budget_tokens_worst_case"] == 8192
+    assert estimate["chunk_text_tokens_estimate"] > 0
+    assert estimate["prompt_tokens_per_request_max"] >= estimate["prompt_tokens_per_request_min"]
+    assert estimate["worst_case_total_tokens"] >= estimate["prompt_tokens_estimate"]
+    assert estimate["note"].startswith("Completion and thinking values are worst-case")
     assert estimate["estimated_uncached_usd"] is not None
 
 

@@ -185,7 +185,11 @@ python -m app.cli --mode synpack --synpack-command build-language \
 The preflight extracts the same chunks and prompt templates, estimates prompt
 tokens with a conservative character-based estimator, adds the configured
 completion budget and max-thinking budget, and exits before LLM calls,
-embedding, or pack writing.
+embedding, or pack writing. The reported completion and thinking values are
+worst-case per-request budgets multiplied by prepared chunks, not expected
+usage. Large local clone sizes are normal for packs with auxiliary repos; only
+prepared chunks that survive extraction and quality gating are included in the
+prompt-token estimate.
 
 Validate and load:
 

@@ -3011,6 +3011,14 @@ def aggregate_enrichment_usage(enrichments: list[dict[str, Any]]) -> dict[str, i
     return totals if seen else {}
 
 
+def _percentile(values: list[int], percentile: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    idx = min(len(ordered) - 1, max(0, math.ceil((percentile / 100) * len(ordered)) - 1))
+    return ordered[idx]
+
+
 def estimate_enrichment_token_budget(
     chunks: list[LanguageChunk],
     *,
@@ -3033,10 +3041,25 @@ def estimate_enrichment_token_budget(
         prompt_variable=prompt_variable,
     )
     prompt_tokens = 0
+    prompt_chars = 0
+    chunk_text_chars = 0
+    chunk_text_tokens: list[int] = []
+    prompt_tokens_per_request: list[int] = []
+    chunks_by_artifact_kind: dict[str, int] = {}
+    chunks_by_prompt_id: dict[str, int] = {}
     system_tokens = _approx_token_count(FRONTIER_ENRICHMENT_SYSTEM_PROMPT)
     for chunk in chunks:
-        _, prompt = client.render_prompt(chunk)
-        prompt_tokens += system_tokens + _approx_token_count(prompt)
+        prompt_id, prompt = client.render_prompt(chunk)
+        prompt_token_count = system_tokens + _approx_token_count(prompt)
+        chunk_token_count = _approx_token_count(chunk.text)
+        prompt_tokens += prompt_token_count
+        prompt_chars += len(prompt)
+        chunk_text_chars += len(chunk.text)
+        prompt_tokens_per_request.append(prompt_token_count)
+        chunk_text_tokens.append(chunk_token_count)
+        artifact_kind = chunk.artifact_kind or "unknown"
+        chunks_by_artifact_kind[artifact_kind] = chunks_by_artifact_kind.get(artifact_kind, 0) + 1
+        chunks_by_prompt_id[prompt_id] = chunks_by_prompt_id.get(prompt_id, 0) + 1
     completion_budget_tokens = len(chunks) * client.max_tokens
     thinking_budget_tokens = len(chunks) * max(0, int(thinking_cap_tokens or 0))
     uncached_input_cost = (prompt_tokens / 1_000_000) * max(0.0, input_price_per_mtok)
@@ -3045,12 +3068,27 @@ def estimate_enrichment_token_budget(
     )
     return {
         "estimator": "chars_div_4_plus_request_budget_v1",
+        "scope": "prepared_chunks_after_extraction_and_quality_gate",
+        "note": "Completion and thinking values are worst-case request budgets, not predicted usage.",
         "model": enrichment_model,
         "chunks": len(chunks),
+        "chunks_by_artifact_kind": dict(sorted(chunks_by_artifact_kind.items())),
+        "chunks_by_prompt_id": dict(sorted(chunks_by_prompt_id.items())),
+        "chunk_text_chars": chunk_text_chars,
+        "chunk_text_tokens_estimate": sum(chunk_text_tokens),
+        "prompt_chars": prompt_chars,
         "prompt_tokens_estimate": prompt_tokens,
+        "prompt_tokens_per_request_min": min(prompt_tokens_per_request) if prompt_tokens_per_request else 0,
+        "prompt_tokens_per_request_p50": _percentile(prompt_tokens_per_request, 50),
+        "prompt_tokens_per_request_p95": _percentile(prompt_tokens_per_request, 95),
+        "prompt_tokens_per_request_max": max(prompt_tokens_per_request) if prompt_tokens_per_request else 0,
         "completion_budget_tokens": completion_budget_tokens,
+        "completion_budget_tokens_worst_case": completion_budget_tokens,
         "thinking_budget_tokens": thinking_budget_tokens,
+        "thinking_budget_tokens_worst_case": thinking_budget_tokens,
+        "worst_case_total_tokens": prompt_tokens + completion_budget_tokens + thinking_budget_tokens,
         "max_tokens_per_request": client.max_tokens,
+        "thinking_cap_tokens_per_request": max(0, int(thinking_cap_tokens or 0)),
         "thinking_effort": "max",
         "thinking_mode": "enabled",
         "cache_strategy": "stable_system_prompt_plus_prompt_template_prefix",
