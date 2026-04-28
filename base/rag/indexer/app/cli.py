@@ -89,12 +89,16 @@ def main() -> None:
             "build-terraform",
             "build-ecma",
             "build-language",
+            "prepare-language",
+            "enrich-language",
+            "finalize-language",
         ],
         default="validate",
         help="SynPack command when --mode synpack",
     )
     parser.add_argument("--synpack", default="", help="Path to .synpack for validate/load")
     parser.add_argument("--output", default="", help="SynPack output path for build commands")
+    parser.add_argument("--work-dir", default="", help="Durable work directory for staged SynPack builds")
     parser.add_argument("--pack-id", default="", help="SynPack id, e.g. go-1.26")
     parser.add_argument("--pack-version", default="1.0.0", help="SynPack artifact version")
     parser.add_argument("--source-version", default="", help="Upstream documentation/source version")
@@ -135,6 +139,8 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=5, help="Top-k for synpack search")
     parser.add_argument("--replace", action="store_true", help="Replace existing rows for pack_id when loading")
     parser.add_argument("--max-chunks", type=int, default=0, help="Build only the first N chunks (debug)")
+    parser.add_argument("--batch-size", type=int, default=100, help="Staged enrichment batch size")
+    parser.add_argument("--request-limit", type=int, default=0, help="Max enrichment requests to submit in this run")
     args = parser.parse_args()
 
     if args.list_handlers:
@@ -292,6 +298,76 @@ def _run_synpack(args: argparse.Namespace) -> None:
                 }
             )
         )
+        return
+
+    if args.synpack_command == "prepare-language":
+        from .language_pack import prepare_staged_language_pack
+
+        language = (args.language or "go").lower()
+        pack_id = args.pack_id or f"{language}-latest"
+        work_dir = args.work_dir or f".work/synpacks/{pack_id}"
+        print(
+            json_dump(
+                prepare_staged_language_pack(
+                    language=language,
+                    work_dir=work_dir,
+                    pack_config=args.pack_config,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
+                    enrichment_max_tokens=args.enrichment_max_tokens,
+                    enrichment_input_price_per_mtok=args.enrichment_input_price_per_mtok,
+                    enrichment_output_price_per_mtok=args.enrichment_output_price_per_mtok,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
+                    provider_schema=args.provider_schema,
+                    doc_language=args.doc_language,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "enrich-language":
+        from .language_pack import enrich_staged_language_pack
+
+        if not args.work_dir:
+            logger.error("synpack_work_dir_required")
+            sys.exit(1)
+        print(
+            json_dump(
+                enrich_staged_language_pack(
+                    work_dir=args.work_dir,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
+                    enrichment_max_tokens=args.enrichment_max_tokens,
+                    enrichment_timeout=args.enrichment_timeout,
+                    request_limit=max(0, args.request_limit),
+                    batch_size=max(1, args.batch_size),
+                    skip_enrichment=args.skip_enrichment,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "finalize-language":
+        from .language_pack import finalize_staged_language_pack
+
+        if not args.work_dir:
+            logger.error("synpack_work_dir_required")
+            sys.exit(1)
+        manifest_path = Path(args.work_dir) / "run_manifest.json"
+        pack_id = args.pack_id
+        if not pack_id and manifest_path.exists():
+            import json
+
+            pack_id = str(json.loads(manifest_path.read_text(encoding="utf-8")).get("pack_id") or "synpack")
+        output = args.output or f"dist/synpacks/{pack_id or 'synpack'}.synpack"
+        print(json_dump(finalize_staged_language_pack(work_dir=args.work_dir, output_path=output, embedder_url=args.embedder_url)))
         return
 
     if args.synpack_command == "build-go":

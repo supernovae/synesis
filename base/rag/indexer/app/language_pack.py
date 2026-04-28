@@ -21,7 +21,7 @@ import tempfile
 import time
 import zipfile
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -3288,6 +3288,42 @@ def _default_config_path(language: str) -> Path:
     return _repo_root() / f"base/rag/pack-configs/{language}.yaml"
 
 
+def _default_repo_for_language(language: str) -> str:
+    return (
+        "github.com/golang/go"
+        if language == "go"
+        else "github.com/rust-lang/rust"
+        if language == "rust"
+        else "github.com/quarkusio/quarkus"
+        if language == "quarkus"
+        else "github.com/python/cpython"
+        if language == "python"
+        else "github.com/godotengine/godot"
+        if language == "godot"
+        else "github.com/tc39/proposals"
+        if language == "ecma"
+        else "github.com/hashicorp/terraform"
+    )
+
+
+def _default_prompt_id_for_language(language: str) -> str:
+    return (
+        GO_PROMPT_ID
+        if language == "go"
+        else RUST_PROMPT_ID
+        if language == "rust"
+        else QUARKUS_PROMPT_ID
+        if language == "quarkus"
+        else PYTHON_PROMPT_ID
+        if language == "python"
+        else GODOT_PROMPT_ID
+        if language == "godot"
+        else ECMA_PROMPT_ID
+        if language == "ecma"
+        else TERRAFORM_PROMPT_ID
+    )
+
+
 def _resolve_language_tag(language: str, *, latest_tag: str, source_version: str) -> str:
     if latest_tag or source_version:
         return latest_tag or source_version
@@ -3357,6 +3393,454 @@ def _clone_aux_sources(config: dict[str, Any], source_root: Path, sources_lock: 
         aux["resolved_ref"] = commit
         aux_locks.append({"name": name, "repo": repo, "path": str(target), "ref": ref, "commit": commit})
     sources_lock["aux_sources"] = aux_locks
+
+
+def _extract_chunks_for_language(
+    language: str,
+    source_root: Path,
+    *,
+    config: dict[str, Any],
+    tag: str,
+    provider_schema: str | Path = "",
+) -> list[LanguageChunk]:
+    if language == "go":
+        return extract_go_chunks(source_root, config=config, tag=tag)
+    if language == "rust":
+        return extract_rust_chunks(source_root, config=config, tag=tag)
+    if language == "python":
+        return extract_python_chunks(source_root, config=config, tag=tag)
+    if language == "godot":
+        return extract_godot_chunks(source_root, config=config, tag=tag)
+    if language == "terraform":
+        return extract_terraform_chunks(source_root, config=config, tag=tag, provider_schema=provider_schema)
+    if language == "ecma":
+        return extract_ecma_chunks(source_root, config=config, tag=tag)
+    return extract_quarkus_chunks(source_root, config=config, tag=tag)
+
+
+def _language_pack_manifest_base(
+    *,
+    pack_id: str,
+    pack_version: str,
+    source_version: str,
+    language: str,
+    doc_language: str,
+    supported_doc_languages: list[str],
+    domain: str,
+) -> dict[str, Any]:
+    return {
+        "format": "synpack",
+        "format_version": SYNPACK_FORMAT_VERSION,
+        "pack_id": pack_id,
+        "pack_version": pack_version,
+        "version": pack_version,
+        "source_version": source_version,
+        "language": language,
+        "doc_language": doc_language,
+        "supported_doc_languages": supported_doc_languages,
+        "domain": domain,
+        "embedding_model": DEFAULT_PACK_MODEL,
+        "embedding_dimensions": EMBEDDING_DIM,
+        "embedding_profile": EMBEDDING_PROFILE,
+        "corpus_version": CORPUS_VERSION,
+        "synesis_catalog_schema_version": SCHEMA_VERSION,
+        "schema_version": SCHEMA_VERSION,
+        "partitions": [pack_id],
+        "metadata_fields": [
+            "package_name",
+            "symbol_kind",
+            "symbol_fqn",
+            "perf_tier",
+            "agent_hook",
+            "safety_contract",
+            "lifecycle_model",
+            "agent_enrichment_json",
+        ],
+    }
+
+
+def _chunk_key(pack_id: str, chunk: LanguageChunk) -> str:
+    payload = "|".join([pack_id, chunk.doc_id, str(chunk.chunk_index), chunk.section, chunk.prompt_id, chunk.text])
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _chunk_record(pack_id: str, chunk: LanguageChunk) -> dict[str, Any]:
+    record = asdict(chunk)
+    record["chunk_key"] = _chunk_key(pack_id, chunk)
+    return record
+
+
+def _chunk_from_record(record: dict[str, Any]) -> LanguageChunk:
+    payload = {key: value for key, value in record.items() if key in LanguageChunk.__dataclass_fields__}
+    return LanguageChunk(**payload)
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                out.append(json.loads(line))
+    return out
+
+
+def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        f.flush()
+
+
+def _completed_enrichment_map(work_dir: Path) -> dict[str, dict[str, Any]]:
+    completed: dict[str, dict[str, Any]] = {}
+    for record in _read_jsonl(work_dir / "enrichments" / "completed.jsonl"):
+        key = str(record.get("chunk_key") or "")
+        enrichment = record.get("enrichment")
+        if key and isinstance(enrichment, dict):
+            completed[key] = enrichment
+    return completed
+
+
+def _write_enrich_state(work_dir: Path, *, total: int, completed: int, failed: int, submitted: int) -> None:
+    state = {
+        "total_chunks": total,
+        "completed_chunks": completed,
+        "failed_attempts": failed,
+        "submitted_this_run": submitted,
+        "updated_at": int(time.time()),
+    }
+    state_path = work_dir / "checkpoints" / "enrich-state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def prepare_staged_language_pack(
+    *,
+    language: str,
+    work_dir: str | Path,
+    pack_config: str | Path = "",
+    pack_id: str = "",
+    pack_version: str = "1.0.0",
+    source_version: str = "",
+    latest_tag: str = "",
+    enrichment_url: str = "",
+    enrichment_model: str = DEFAULT_ENRICHMENT_MODEL,
+    enrichment_concurrency: int = DEFAULT_ENRICHMENT_CONCURRENCY,
+    enrichment_max_tokens: int = DEFAULT_ENRICHMENT_MAX_TOKENS,
+    enrichment_input_price_per_mtok: float = 0.0,
+    enrichment_output_price_per_mtok: float = 0.0,
+    max_chunks: int = 0,
+    source_dir: str | Path = "",
+    provider_schema: str | Path = "",
+    doc_language: str = "",
+) -> dict[str, Any]:
+    language = language.lower().strip()
+    if language not in {"go", "rust", "quarkus", "python", "godot", "terraform", "ecma"}:
+        raise SynPackError(f"unsupported language pack: {language}")
+    work = Path(work_dir)
+    work.mkdir(parents=True, exist_ok=True)
+    config_path = Path(pack_config) if pack_config else _default_config_path(language)
+    config = _load_yaml(config_path)
+    pack_id = _sanitize_pack_id(pack_id or str(config.get("pack_id") or f"{language}-latest"))
+    doc_language = _normalize_doc_language(doc_language or str(config.get("doc_language") or "en"))
+    supported_doc_languages = _supported_doc_languages(config)
+    _validate_doc_language(doc_language=doc_language, supported_doc_languages=supported_doc_languages, pack_id=pack_id)
+    resolved_tag = _resolve_language_tag(language, latest_tag=latest_tag, source_version=source_version)
+    source_version = resolved_tag
+    source_root = Path(source_dir) if source_dir else work / "sources" / language
+    if not source_dir and not source_root.exists():
+        if language == "go":
+            clone_go_source(resolved_tag, source_root)
+        else:
+            clone_repo(str(config.get("repo") or _default_repo_for_language(language)), source_root, tag=resolved_tag)
+    sources_lock = {
+        "repo": config.get("repo", _default_repo_for_language(language)),
+        "tag": resolved_tag,
+        "source_dir": str(source_root),
+    }
+    if language in {"rust", "quarkus", "python", "godot", "terraform", "ecma"} and not source_dir:
+        _clone_aux_sources(config, source_root, sources_lock)
+    elif language in {"rust", "quarkus", "python", "godot", "terraform", "ecma"}:
+        include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
+        sources_lock["aux_sources"] = [
+            {
+                "name": str(aux.get("name") or ""),
+                "repo": str(aux.get("repo") or ""),
+                "path": str(source_root / str(aux.get("name") or "")),
+                "ref": "local",
+            }
+            for aux in include.get("aux_sources", [])
+            if isinstance(aux, dict)
+        ]
+    chunks = _extract_chunks_for_language(language, source_root, config=config, tag=resolved_tag, provider_schema=provider_schema)
+    if max_chunks:
+        chunks = chunks[: max(0, max_chunks)]
+    chunks, source_quality_report = prepare_language_chunks_for_enrichment(chunks)
+    for chunk in chunks:
+        chunk.metadata["doc_language"] = doc_language
+    source_quality_report["doc_language"] = doc_language
+    prompt_templates, prompt_hashes = _load_prompt_templates(config, config_path=config_path)
+    default_prompt_id = str(config.get("prompt_id") or _default_prompt_id_for_language(language))
+    prompt_variable = str(config.get("prompt_variable") or ("{{RAW_GO_DOC_CONTENT}}" if language == "go" else "{{DOC_CHUNK}}"))
+    enrichment_cost_estimate = estimate_enrichment_token_budget(
+        chunks,
+        prompt_templates=prompt_templates,
+        default_prompt_id=default_prompt_id,
+        prompt_variable=prompt_variable,
+        enrichment_url=enrichment_url,
+        enrichment_model=enrichment_model,
+        max_tokens=enrichment_max_tokens,
+        thinking_cap_tokens=DEFAULT_THINKING_CAP_TOKENS,
+        input_price_per_mtok=enrichment_input_price_per_mtok,
+        output_price_per_mtok=enrichment_output_price_per_mtok,
+    )
+    source_quality_report["enrichment_cost_estimate"] = enrichment_cost_estimate
+    chunk_records = [_chunk_record(pack_id, chunk) for chunk in chunks]
+    chunks_path = work / "chunks.jsonl"
+    chunks_path.write_text("", encoding="utf-8")
+    for record in chunk_records:
+        _append_jsonl(chunks_path, record)
+    sources_lock["row_count"] = len(chunks)
+    sources_lock_path = work / "sources.lock.json"
+    sources_lock_path.write_text(json.dumps(sources_lock, indent=2, sort_keys=True), encoding="utf-8")
+    run_manifest = {
+        **_language_pack_manifest_base(
+            pack_id=pack_id,
+            pack_version=pack_version,
+            source_version=source_version,
+            language=language,
+            doc_language=doc_language,
+            supported_doc_languages=supported_doc_languages,
+            domain=str(config.get("domain") or language),
+        ),
+        "staged": True,
+        "pack_config": str(config_path),
+        "prompt_variable": prompt_variable,
+        "enrichment": {
+            "model": enrichment_model,
+            "prompt_id": default_prompt_id,
+            "prompt_sha256": prompt_hashes.get(default_prompt_id, ""),
+            "prompt_hashes": prompt_hashes,
+            "url_configured": bool(enrichment_url),
+            "skipped": False,
+            "max_tokens": max(DEFAULT_ENRICHMENT_MAX_TOKENS, int(enrichment_max_tokens or 0)),
+            "concurrency": max(1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY)),
+            "thinking": {"type": "enabled", "reasoning_effort": "max"},
+            "think_mode_header": "Max",
+            "doc_language": doc_language,
+            "supported_doc_languages": supported_doc_languages,
+            "cost_estimate": enrichment_cost_estimate,
+        },
+        "source_quality": source_quality_report,
+        "created_at": int(time.time()),
+        "row_count": len(chunks),
+        "chunks_sha256": hashlib.sha256(chunks_path.read_bytes()).hexdigest(),
+        "sources_lock_sha256": _sha256_file(sources_lock_path),
+    }
+    (work / "run_manifest.json").write_text(json.dumps(run_manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return {
+        "ok": True,
+        "phase": "prepare",
+        "work_dir": str(work),
+        "pack_id": pack_id,
+        "source_version": source_version,
+        "chunks": len(chunks),
+        "cost_estimate": enrichment_cost_estimate,
+    }
+
+
+def enrich_staged_language_pack(
+    *,
+    work_dir: str | Path,
+    enrichment_url: str = "",
+    enrichment_model: str = "",
+    enrichment_concurrency: int = DEFAULT_ENRICHMENT_CONCURRENCY,
+    enrichment_max_tokens: int = DEFAULT_ENRICHMENT_MAX_TOKENS,
+    enrichment_timeout: float = DEFAULT_ENRICHMENT_TIMEOUT_SECONDS,
+    request_limit: int = 0,
+    batch_size: int = 100,
+    skip_enrichment: bool = False,
+) -> dict[str, Any]:
+    work = Path(work_dir)
+    manifest_path = work / "run_manifest.json"
+    chunks_path = work / "chunks.jsonl"
+    if not manifest_path.exists() or not chunks_path.exists():
+        raise SynPackError("staged work_dir must contain run_manifest.json and chunks.jsonl")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    prompt_hashes = manifest["enrichment"]["prompt_hashes"]
+    prompt_templates = {
+        prompt_id: (_repo_root() / "base/rag/pack-configs/prompts" / f"{prompt_id}.md").read_text(encoding="utf-8")
+        for prompt_id in prompt_hashes
+    }
+    default_prompt_id = str(manifest["enrichment"]["prompt_id"])
+    prompt_variable = str(manifest.get("prompt_variable") or "{{DOC_CHUNK}}")
+    model = enrichment_model or str(manifest["enrichment"]["model"] or DEFAULT_ENRICHMENT_MODEL)
+    url = enrichment_url or ""
+    records = _read_jsonl(chunks_path)
+    completed = _completed_enrichment_map(work)
+    pending = [record for record in records if str(record.get("chunk_key") or "") not in completed]
+    limit = max(0, int(request_limit or 0))
+    if limit:
+        pending = pending[:limit]
+    if skip_enrichment or not url:
+        submitted = 0
+        for record in pending:
+            chunk = _chunk_from_record(record)
+            enrichment = _attach_source_quality(fallback_enrichment(chunk, error="enrichment skipped"), chunk)
+            _append_jsonl(
+                work / "enrichments" / "completed.jsonl",
+                {
+                    "chunk_key": record["chunk_key"],
+                    "chunk_index": chunk.chunk_index,
+                    "enrichment": enrichment,
+                    "completed_at": int(time.time()),
+                    "skipped": True,
+                },
+            )
+            submitted += 1
+        completed_after = len(_completed_enrichment_map(work))
+        _write_enrich_state(work, total=len(records), completed=completed_after, failed=0, submitted=submitted)
+        return {
+            "ok": True,
+            "phase": "enrich",
+            "work_dir": str(work),
+            "submitted": submitted,
+            "completed": completed_after,
+            "remaining": max(0, len(records) - completed_after),
+        }
+    client = OpenAICompatibleEnrichmentClient(
+        base_url=url,
+        model=model,
+        timeout=enrichment_timeout,
+        max_tokens=enrichment_max_tokens,
+        prompt_templates=prompt_templates,
+        default_prompt_id=default_prompt_id,
+        prompt_variable=prompt_variable,
+    )
+    submitted = 0
+    failed = 0
+    workers = max(1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY))
+    batch = pending[: max(1, int(batch_size or 1))]
+
+    def one(record: dict[str, Any]) -> dict[str, Any]:
+        chunk = _chunk_from_record(record)
+        enrichment = _attach_source_quality(client.enrich(chunk), chunk)
+        return {
+            "chunk_key": record["chunk_key"],
+            "chunk_index": chunk.chunk_index,
+            "enrichment": enrichment,
+            "completed_at": int(time.time()),
+            "model": model,
+        }
+
+    while batch:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            future_map = {pool.submit(one, record): record for record in batch}
+            for future in concurrent.futures.as_completed(future_map):
+                record = future_map[future]
+                submitted += 1
+                try:
+                    _append_jsonl(work / "enrichments" / "completed.jsonl", future.result())
+                except Exception as exc:
+                    failed += 1
+                    _append_jsonl(
+                        work / "enrichments" / "failed.jsonl",
+                        {
+                            "chunk_key": record.get("chunk_key"),
+                            "chunk_index": record.get("chunk_index"),
+                            "error": str(exc),
+                            "failed_at": int(time.time()),
+                            "model": model,
+                        },
+                    )
+                completed_now = len(_completed_enrichment_map(work))
+                _write_enrich_state(work, total=len(records), completed=completed_now, failed=failed, submitted=submitted)
+        if limit and submitted >= limit:
+            break
+        start = submitted
+        end = submitted + max(1, int(batch_size or 1))
+        batch = pending[start:end]
+    completed_after = len(_completed_enrichment_map(work))
+    return {
+        "ok": True,
+        "phase": "enrich",
+        "work_dir": str(work),
+        "submitted": submitted,
+        "failed": failed,
+        "completed": completed_after,
+        "remaining": max(0, len(records) - completed_after),
+    }
+
+
+def finalize_staged_language_pack(
+    *,
+    work_dir: str | Path,
+    output_path: str | Path,
+    embedder_url: str = "",
+) -> dict[str, Any]:
+    work = Path(work_dir)
+    manifest = json.loads((work / "run_manifest.json").read_text(encoding="utf-8"))
+    records = _read_jsonl(work / "chunks.jsonl")
+    completed = _completed_enrichment_map(work)
+    missing = [str(record.get("chunk_key") or "") for record in records if str(record.get("chunk_key") or "") not in completed]
+    if missing:
+        raise SynPackError(f"cannot finalize staged pack; missing {len(missing)} enrichments")
+    chunks = [_chunk_from_record(record) for record in records]
+    enrichments = [completed[str(record["chunk_key"])] for record in records]
+    enrichment_usage = aggregate_enrichment_usage(enrichments)
+    embedder = EmbedClient(**({"url": embedder_url} if embedder_url else {}))
+    embed_inputs = [f"{e.get('agent_hook', '')}\n\n{chunk.text}".strip() for chunk, e in zip(chunks, enrichments)]
+    embeddings = embedder.embed_texts(embed_inputs) if embed_inputs else []
+    if len(embeddings) != len(chunks):
+        raise SynPackError(f"embedder returned {len(embeddings)} vectors for {len(chunks)} chunks")
+    bad_dims = [len(vec) for vec in embeddings if len(vec) != EMBEDDING_DIM]
+    if bad_dims:
+        raise SynPackError(f"embedder returned vector dimension {bad_dims[0]}, expected {EMBEDDING_DIM}")
+    rows = _build_rows(
+        chunks,
+        enrichments,
+        embeddings,
+        pack_id=str(manifest["pack_id"]),
+        pack_version=str(manifest["pack_version"]),
+        source_version=str(manifest["source_version"]),
+        language=str(manifest["language"]),
+        domain=str(manifest["domain"]),
+        doc_language=str(manifest["doc_language"]),
+    )
+    final_dir = work / "final"
+    final_dir.mkdir(parents=True, exist_ok=True)
+    rows_path = final_dir / "metadata.jsonl"
+    with rows_path.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    sources_lock_path = work / "sources.lock.json"
+    final_manifest = {
+        **{key: value for key, value in manifest.items() if key not in {"staged", "pack_config", "prompt_variable"}},
+        "enrichment": {**manifest["enrichment"], "usage": enrichment_usage, "skipped": False},
+        "created_at": int(time.time()),
+        "row_count": len(rows),
+        "sources_lock_sha256": _sha256_file(sources_lock_path),
+        "metadata_sha256": _sha256_file(rows_path),
+    }
+    manifest_path = final_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(final_manifest, indent=2, sort_keys=True), encoding="utf-8")
+    out_path = Path(output_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(manifest_path, "manifest.json")
+        zf.write(rows_path, "metadata.jsonl")
+        zf.write(sources_lock_path, "sources.lock.json")
+    return {
+        "ok": True,
+        "phase": "finalize",
+        "pack_id": str(manifest["pack_id"]),
+        "rows": len(rows),
+        "path": str(out_path),
+        "artifact_hash": _sha256_file(out_path),
+    }
 
 
 def build_language_pack(

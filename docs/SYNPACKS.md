@@ -191,6 +191,36 @@ usage. Large local clone sizes are normal for packs with auxiliary repos; only
 prepared chunks that survive extraction and quality gating are included in the
 prompt-token estimate.
 
+### Recoverable enrichment
+
+For large paid enrichments, use the staged builder so completed model calls are
+durable and resumable:
+
+```bash
+python -m app.cli --mode synpack --synpack-command prepare-language \
+  --language go \
+  --pack-id go-latest \
+  --work-dir .work/synpacks/go-latest \
+  --enrichment-url https://api.deepseek.com
+
+python -m app.cli --mode synpack --synpack-command enrich-language \
+  --work-dir .work/synpacks/go-latest \
+  --enrichment-url https://api.deepseek.com \
+  --batch-size 100 \
+  --request-limit 7500
+
+python -m app.cli --mode synpack --synpack-command finalize-language \
+  --work-dir .work/synpacks/go-latest \
+  --output dist/synpacks/go-latest.synpack
+```
+
+`prepare-language` writes immutable `chunks.jsonl`, `sources.lock.json`, and
+`run_manifest.json`. `enrich-language` appends completed chunks to
+`enrichments/completed.jsonl`, appends failures to `enrichments/failed.jsonl`,
+and skips already completed chunk keys on resume. `finalize-language` refuses to
+build the pack until every prepared chunk has an enrichment, then embeds and
+writes the final `.synpack` in deterministic chunk order.
+
 Validate and load:
 
 ```bash

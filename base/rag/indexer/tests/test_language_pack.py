@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import language_pack
 from app.language_pack import (
     build_language_pack,
+    enrich_staged_language_pack,
     fallback_enrichment,
+    finalize_staged_language_pack,
     latest_go_stable_tag_from_refs,
     latest_godot_stable_tag_from_refs,
     latest_python_stable_tag_from_refs,
@@ -28,6 +30,7 @@ from app.language_pack import (
     parse_quarkus_stable_tag,
     parse_rust_stable_tag,
     parse_terraform_stable_tag,
+    prepare_staged_language_pack,
 )
 from app.schema import EMBEDDING_DIM
 from app.synpack import SynPackError, validate_synpack
@@ -612,6 +615,58 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     assert all("source_quality" in json.loads(row["agent_enrichment_json"]) for row in rows)
     assert all(json.loads(row["agent_enrichment_json"])["doc_language"] == "en" for row in rows)
     assert all("doc-language:en" in row["tags"] for row in rows)
+
+
+def test_staged_language_pack_resume_and_finalize(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    source = tmp_path / "go-src"
+    (source / "doc").mkdir(parents=True)
+    (source / "api").mkdir()
+    (source / "src" / "fmt").mkdir(parents=True)
+    (source / "doc" / "go_spec.html").write_text("# Go Spec\n\nThe Go programming language.", encoding="utf-8")
+    (source / "api" / "go1.1.txt").write_text("pkg fmt, func Println(...any) (int, error)", encoding="utf-8")
+    (source / "src" / "fmt" / "doc.go").write_text(
+        "// Package fmt implements formatted I/O.\npackage fmt\n", encoding="utf-8"
+    )
+    (source / "src" / "fmt" / "print.go").write_text(
+        "package fmt\n\n// Println formats using default formats.\nfunc Println(a ...any) (n int, err error) { return 0, nil }\n",
+        encoding="utf-8",
+    )
+
+    class FakeEmbedClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_texts(self, texts):
+            return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    monkeypatch.setattr(language_pack, "EmbedClient", FakeEmbedClient)
+    work = tmp_path / "work"
+    prepared = prepare_staged_language_pack(
+        language="go",
+        work_dir=work,
+        pack_id="go-latest",
+        source_dir=source,
+        latest_tag="go1.26.2",
+    )
+    assert prepared["chunks"] >= 2
+
+    first = enrich_staged_language_pack(work_dir=work, request_limit=1, batch_size=1, skip_enrichment=True)
+    second = enrich_staged_language_pack(work_dir=work, request_limit=100, batch_size=1, skip_enrichment=True)
+
+    assert first["submitted"] == 1
+    assert second["submitted"] == prepared["chunks"] - 1
+    assert second["remaining"] == 0
+    completed_lines = (work / "enrichments" / "completed.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(completed_lines) == prepared["chunks"]
+
+    out = tmp_path / "go-staged.synpack"
+    finalized = finalize_staged_language_pack(work_dir=work, output_path=out)
+    assert finalized["ok"] is True
+    manifest = validate_synpack(out)
+    assert manifest["row_count"] == prepared["chunks"]
+    with zipfile.ZipFile(out) as zf:
+        rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
+    assert len(rows) == prepared["chunks"]
 
 
 def test_build_language_pack_from_rust_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
