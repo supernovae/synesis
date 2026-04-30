@@ -264,7 +264,9 @@ async def _restart_deployment(namespace: str, deployment: str) -> None:
             resp.raise_for_status()
             logger.info("provider_key_consumer_restart_triggered namespace=%s deployment=%s", namespace, deployment)
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning("provider_key_consumer_restart_failed namespace=%s deployment=%s", namespace, deployment, exc_info=True)
+        logger.warning(
+            "provider_key_consumer_restart_failed namespace=%s deployment=%s", namespace, deployment, exc_info=True
+        )
         detail = (
             f"{_k8s_error_detail(f'Restarting {namespace}/{deployment}', exc)}. "
             "Provider key was saved, but one or more services may still have stale env vars."

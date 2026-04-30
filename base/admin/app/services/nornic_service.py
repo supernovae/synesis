@@ -275,11 +275,7 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
     for row in rows:
         domain = str(row.get("domain") or "generalist")
         source = str(
-            row.get("document_name")
-            or row.get("source_url")
-            or row.get("doc_id")
-            or row.get("pack")
-            or "unknown"
+            row.get("document_name") or row.get("source_url") or row.get("doc_id") or row.get("pack") or "unknown"
         )
         entry = hierarchy.setdefault(domain, {"domain": domain, "total_chunks": 0, "sources": {}})
         entry["total_chunks"] += 1

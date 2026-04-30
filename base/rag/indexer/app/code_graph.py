@@ -57,7 +57,9 @@ def derive_graph_edges(
             if doc_id:
                 edges.append({"type": "CONTAINS", "source_id": doc_id, "target_id": chunk_id, "source": "code_graph"})
             if symbol_fqn:
-                edges.append({"type": "DEFINES", "source_id": chunk_id, "target_id": symbol_fqn, "source": "code_graph"})
+                edges.append(
+                    {"type": "DEFINES", "source_id": chunk_id, "target_id": symbol_fqn, "source": "code_graph"}
+                )
 
         for ref in csv_values(row.get("doc_relation_ids")):
             edges.append({"type": "REFERENCES", "source_id": chunk_id, "target_id": ref, "source": "metadata"})

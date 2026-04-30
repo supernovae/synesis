@@ -1380,12 +1380,7 @@ async def purge_runs(
 
         keep_ids: list[int] = []
         if keep_latest > 0:
-            keep_stmt = (
-                select(IngestionRun.id)
-                .where(*clauses)
-                .order_by(IngestionRun.id.desc())
-                .limit(keep_latest)
-            )
+            keep_stmt = select(IngestionRun.id).where(*clauses).order_by(IngestionRun.id.desc()).limit(keep_latest)
             keep_ids = [int(r[0]) for r in (await session.execute(keep_stmt)).all()]
 
         delete_stmt = delete(IngestionRun).where(*clauses)
