@@ -11,10 +11,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.99.2",
+    "@tanstack/react-query": "^5.100.6",
     "axios": "1.15.2",
     "clsx": "^2.1.0",
-    "lucide-react": "^1.8.0",
+    "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
@@ -37,11 +37,11 @@
     "eslint": "^9.0.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
-    "postcss": "^8.5.10",
+    "postcss": "^8.5.12",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.0",
-    "vite": "^8.0.9",
+    "typescript-eslint": "^8.59.1",
+    "vite": "^8.0.10",
     "vitest": "^4.1.5"
   }
 }
