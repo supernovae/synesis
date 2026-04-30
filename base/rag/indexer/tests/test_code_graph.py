@@ -7,10 +7,10 @@ ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "base" / "images" / "base-api" / "synesis-telemetry"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.code_graph import derive_graph_edges
 from app.handlers.base import RawDocument
 from app.handlers.github_code import GitHubCodeHandler, _extract_call_refs, _extract_import_refs
 from app.nornic_writer import NornicGraphWriter
-from app.code_graph import derive_graph_edges
 
 
 def test_github_code_chunks_preserve_graph_metadata(monkeypatch):

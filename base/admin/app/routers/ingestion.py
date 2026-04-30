@@ -36,7 +36,11 @@ from ..rbac import (
     resolve_role,
 )
 from ..services.admin_audit import record_admin_audit
-from ..services.nornic_service import expected_graph_schema_version, recreate_content_graph, reported_graph_schema_version
+from ..services.nornic_service import (
+    expected_graph_schema_version,
+    recreate_content_graph,
+    reported_graph_schema_version,
+)
 
 EXPECTED_SCHEMA_VERSION = expected_graph_schema_version()
 
