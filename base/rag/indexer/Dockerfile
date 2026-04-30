@@ -57,7 +57,7 @@ RUN uv pip install --system --python /opt/app-root/bin/python --no-cache /tmp/sy
 
 COPY rag/indexer/requirements.lock .
 RUN uv pip install --system --python /opt/app-root/bin/python --no-cache --require-hashes -r requirements.lock \
-    && uv pip uninstall --system --python /opt/app-root/bin/python unclecode-litellm 2>/dev/null || true
+    && (uv pip uninstall --system --python /opt/app-root/bin/python unclecode-litellm 2>/dev/null || true)
 
 # Download Chromium for Playwright (used by crawl4ai web_page handler).
 # PLAYWRIGHT_BROWSERS_PATH must be readable by the arbitrary UID at runtime.

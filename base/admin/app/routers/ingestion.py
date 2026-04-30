@@ -19,12 +19,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import (
+    GraphSchemaSync,
     IngestionDocument,
     IngestionEnrichQueue,
     IngestionItem,
     IngestionRun,
     IngestionSource,
-    GraphSchemaSync,
 )
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import (

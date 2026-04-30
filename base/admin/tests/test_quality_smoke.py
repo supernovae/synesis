@@ -96,14 +96,17 @@ def _mock_all(monkeypatch):
         "app.services.nornic_service.collection_domain_hierarchy",
         lambda *a, **kw: [],
     )
+    monkeypatch.setattr("app.routers.rag.collection_domain_hierarchy", lambda *a, **kw: [])
     monkeypatch.setattr(
         "app.services.nornic_service.safe_query",
         lambda *a, **kw: [],
     )
+    monkeypatch.setattr("app.routers.rag.safe_query", lambda *a, **kw: [])
     monkeypatch.setattr(
         "app.services.nornic_service.collection_schema_info",
         lambda *a, **kw: {"exists": True},
     )
+    monkeypatch.setattr("app.routers.rag.collection_schema_info", lambda *a, **kw: {"exists": True})
     monkeypatch.setattr("app.deps.QUALITY_REPORT_PATH", "")
     monkeypatch.setattr("app.deps.CURATOR_PROPOSALS_PATH", "")
 

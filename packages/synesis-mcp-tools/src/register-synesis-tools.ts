@@ -1,4 +1,3 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { dispatchSynesisTool } from "./dispatch.js";
@@ -27,11 +26,24 @@ function jsonResult(data: unknown): { content: Array<{ type: "text"; text: strin
   };
 }
 
+type ToolResult = ReturnType<typeof jsonResult>;
+type ToolRegistrationServer = {
+  registerTool(
+    name: string,
+    config: any,
+    callback: (args: any) => ToolResult | Promise<ToolResult>,
+  ): void;
+};
+
 /**
  * Register all Synesis platform tools on an MCP server instance.
  * Call once per `McpServer` (typically one server per HTTP request / stdio session).
  */
-export function registerSynesisMcpTools(server: McpServer, auth: SynesisMcpAuth, deps: SynesisMcpDeps): void {
+export function registerSynesisMcpTools(
+  server: ToolRegistrationServer,
+  auth: SynesisMcpAuth,
+  deps: SynesisMcpDeps,
+): void {
   server.registerTool(
     "synesis_search",
     {

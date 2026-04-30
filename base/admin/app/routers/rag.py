@@ -250,7 +250,11 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
 async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
     """Compute per-domain health scores from Content graph and store in quality_snapshots."""
     _ensure_org_content_admin(_user)
-    hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
+    try:
+        hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
+    except Exception:
+        logger.warning("quality_refresh_hierarchy_failed", exc_info=True)
+        hierarchy = []
     if not hierarchy:
         return {"ok": False, "error": "no corpus data"}
 
@@ -864,7 +868,8 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     _ensure_org_content_admin(_user)
     import uuid
 
-    from ..services.nornic_service import safe_query as sq, safe_upsert
+    from ..services.nornic_service import safe_query as sq
+    from ..services.nornic_service import safe_upsert
 
     rows = sq(
         CATALOG_COLLECTION, filter_expr=f'chunk_id == "{chunk_id}"', output_fields=["authority", "scan_status"], limit=1
