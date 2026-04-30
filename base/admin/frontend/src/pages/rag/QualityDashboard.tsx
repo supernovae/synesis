@@ -30,7 +30,7 @@ export default function QualityDashboard() {
             Quality Dashboard
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Per-domain corpus health scorecards
+            Read-only per-domain health scorecards computed from the NornicDB content graph
           </p>
         </div>
         <button
@@ -39,7 +39,7 @@ export default function QualityDashboard() {
           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-          {refreshMutation.isPending ? "Refreshing..." : "Refresh Now"}
+          {refreshMutation.isPending ? "Refreshing..." : "Refresh from NornicDB"}
         </button>
       </div>
 
@@ -50,7 +50,7 @@ export default function QualityDashboard() {
       ) : !data ? (
         <EmptyState
           title="No quality data"
-          description="Click 'Refresh Now' to compute quality scores from the corpus"
+          description="Refresh from NornicDB to compute health scores from current content graph nodes"
         />
       ) : (
         <>

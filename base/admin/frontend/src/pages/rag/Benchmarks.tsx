@@ -42,7 +42,7 @@ export default function Benchmarks() {
               Retrieval Benchmarks
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Hybrid retrieval benchmark results
+              NornicDB graph retrieval benchmark results
             </p>
           </div>
           <button
@@ -57,7 +57,7 @@ export default function Benchmarks() {
         <ApiErrorBanner error={runMutation.error} onDismiss={() => runMutation.reset()} />
         <EmptyState
           title="No benchmark data"
-          description="Click 'Run Benchmark' to execute a retrieval quality test"
+          description="Run a lightweight NornicDB retrieval probe or import a full regression benchmark"
         />
       </div>
     );
@@ -81,7 +81,7 @@ export default function Benchmarks() {
             Retrieval Benchmarks
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            {data.run_id ? `Run: ${data.run_id}` : "Hybrid retrieval benchmark results"}
+            {data.run_id ? `Run: ${data.run_id}` : "NornicDB graph retrieval benchmark results"}
           </p>
         </div>
         <button

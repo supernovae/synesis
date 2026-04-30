@@ -36,7 +36,7 @@ from ..rbac import (
     resolve_role,
 )
 from ..services.admin_audit import record_admin_audit
-from ..services.nornic_service import expected_graph_schema_version, recreate_content_graph
+from ..services.nornic_service import expected_graph_schema_version, recreate_content_graph, reported_graph_schema_version
 
 EXPECTED_SCHEMA_VERSION = expected_graph_schema_version()
 
@@ -1345,6 +1345,54 @@ async def list_runs(
         }
 
 
+@router.delete("/runs/{run_id}")
+async def delete_run(
+    run_id: int,
+    _user: UserInfo = Depends(require_admin),
+):
+    async with async_session() as session:
+        run = await session.get(IngestionRun, run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status == "running":
+            raise HTTPException(status_code=409, detail="Cannot delete a running ingestion run")
+        await session.delete(run)
+        await session.commit()
+    return {"deleted": run_id}
+
+
+@router.delete("/runs")
+async def purge_runs(
+    _user: UserInfo = Depends(require_admin),
+    status: str = Query("", description="Optional status to purge; empty purges all non-running runs"),
+    keep_latest: int = Query(0, ge=0, le=1000, description="Keep this many newest matching runs"),
+):
+    async with async_session() as session:
+        clauses = []
+        if status:
+            clauses.append(IngestionRun.status == status)
+        else:
+            clauses.append(IngestionRun.status != "running")
+
+        keep_ids: list[int] = []
+        if keep_latest > 0:
+            keep_stmt = (
+                select(IngestionRun.id)
+                .where(*clauses)
+                .order_by(IngestionRun.id.desc())
+                .limit(keep_latest)
+            )
+            keep_ids = [int(r[0]) for r in (await session.execute(keep_stmt)).all()]
+
+        delete_stmt = delete(IngestionRun).where(*clauses)
+        if keep_ids:
+            delete_stmt = delete_stmt.where(IngestionRun.id.notin_(keep_ids))
+        result = await session.execute(delete_stmt)
+        await session.commit()
+
+    return {"deleted": result.rowcount or 0, "status": status or "non_running", "kept": len(keep_ids)}
+
+
 @router.post("/runs")
 async def create_run(
     body: RunCreate,
@@ -1761,15 +1809,16 @@ async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
             )
 
         if not syncs:
-            any_pending = True
+            reported = reported_graph_schema_version()
+            any_pending = reported < exp
             syncs.append(
                 {
                     "collection": "content_graph",
-                    "schema_version": 0,
+                    "schema_version": reported,
                     "expected_version": exp,
-                    "upgrade_pending": True,
+                    "upgrade_pending": reported < exp,
                     "last_reset_at": None,
-                    "last_reported_by": None,
+                    "last_reported_by": "nornicdb_catalog" if reported else None,
                     "updated_at": None,
                 }
             )

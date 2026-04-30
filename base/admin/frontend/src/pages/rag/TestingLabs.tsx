@@ -248,7 +248,7 @@ export default function TestingLabs() {
             Testing Labs
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Replay runs, model comparisons, and quality regression validation
+            Replay runs, model comparisons, and quality regression validation through the current NornicDB-backed retrieval stack
           </p>
         </div>
         <button
@@ -296,7 +296,7 @@ export default function TestingLabs() {
       ) : !runsData?.runs?.length ? (
         <EmptyState
           title="No testing runs"
-          description="Create a new run to compare model quality, validate corpus changes, or replay traces"
+          description="Create a run to compare model quality, validate NornicDB corpus changes, or replay traces"
         />
       ) : (
         <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">

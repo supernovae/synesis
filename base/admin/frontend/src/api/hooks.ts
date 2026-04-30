@@ -1820,11 +1820,11 @@ export function useSchemaSync() {
   });
 }
 
-export function useResetMilvusCatalog() {
+export function useResetContentGraphCatalog() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { confirm: string; reset_queue?: boolean }) =>
-      client.post("/ingestion/milvus/reset-catalog", data).then((r) => r.data),
+      client.post("/ingestion/graph/reset-catalog", data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
       qc.invalidateQueries({ queryKey: ["rag"] });
@@ -2142,6 +2142,34 @@ export function useIngestionRuns() {
     queryKey: ["ingestion", "runs"],
     queryFn: () => client.get("/ingestion/runs").then((r) => r.data),
     refetchInterval: 15_000,
+  });
+}
+
+export function useDeleteIngestionRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: number) => client.delete(`/ingestion/runs/${runId}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion", "runs"] });
+    },
+  });
+}
+
+export function usePurgeIngestionRuns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { status?: string; keep_latest?: number }) =>
+      client
+        .delete("/ingestion/runs", {
+          params: {
+            status: data.status || undefined,
+            keep_latest: data.keep_latest ?? 0,
+          },
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion", "runs"] });
+    },
   });
 }
 

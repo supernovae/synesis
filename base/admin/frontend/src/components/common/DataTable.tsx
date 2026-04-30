@@ -63,7 +63,7 @@ export default function DataTable<T extends object>({
   return (
     <div
       className={clsx(
-        "overflow-hidden rounded-lg border border-gray-200",
+        "overflow-x-auto rounded-lg border border-gray-200",
         className,
       )}
     >

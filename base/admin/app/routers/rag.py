@@ -20,6 +20,7 @@ from ..services.nornic_service import (
     collection_schema_info,
     collection_stats,
     expected_graph_schema_version,
+    reported_graph_schema_version,
     safe_query,
 )
 
@@ -64,10 +65,16 @@ def _sanitize_schema_info(schema: Any) -> dict[str, Any]:
     exists = bool(schema.get("exists", False))
     fields = schema.get("fields")
     indexes = schema.get("indexes")
+    node_labels = schema.get("node_labels")
+    edge_types = schema.get("edge_types")
+    vector_indexes = schema.get("vector_indexes")
     return {
         "exists": exists,
         "fields": fields if isinstance(fields, list) else [],
         "indexes": indexes if isinstance(indexes, list) else [],
+        "node_labels": node_labels if isinstance(node_labels, list) else [],
+        "edge_types": edge_types if isinstance(edge_types, list) else [],
+        "vector_indexes": vector_indexes if isinstance(vector_indexes, list) else [],
     }
 
 
@@ -89,6 +96,8 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
                 schema_version = row.schema_version
     except Exception:
         pass
+    if schema_version <= 0:
+        schema_version = reported_graph_schema_version()
 
     expected_sv = expected_graph_schema_version()
     schema_upgrade_pending = schema_version < expected_sv
@@ -246,7 +255,7 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
 
 @router.post("/quality/refresh")
 async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
-    """Compute per-domain health scores from Content graph and store in quality_snapshots."""
+    """Compute per-domain health scores from NornicDB Content graph and store in quality_snapshots."""
     _ensure_org_content_admin(_user)
     try:
         hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
@@ -274,7 +283,7 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
         domain_rows = safe_query(
             CATALOG_COLLECTION,
             filter_expr=f'domain == "{domain}"',
-            output_fields=["authority", "effective_at_epoch", "crawl_timestamp"],
+            output_fields=["domain", "authority", "effective_at_epoch", "crawl_timestamp"],
             limit=16384,
         )
         for row in domain_rows:
@@ -526,6 +535,7 @@ async def benchmarks(_user: UserInfo = Depends(get_current_user)):
                     "per_query": row.per_query or [],
                     "run_id": row.run_id,
                     "benchmark_type": row.benchmark_type,
+                    "backend": "nornicdb",
                     "triggered_by": row.triggered_by,
                     "started_at": row.started_at.isoformat() if row.started_at else None,
                 }
@@ -640,8 +650,8 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
     now = datetime.now(UTC)
 
     test_queries = [
-        "How does FAISS handle hybrid search with metadata filtering?",
-        "What is the best vector database for production RAG systems?",
+        "How does NornicDB support graph-native retrieval with metadata filtering?",
+        "What is the best graph-native architecture for production RAG systems?",
         "How does LangGraph implement multi-agent orchestration?",
         "What are the tradeoffs between BM25 and dense retrieval?",
         "How to deploy vLLM on Kubernetes with GPU sharing?",
@@ -655,7 +665,7 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
         start = _time.time()
         results = safe_query(
             CATALOG_COLLECTION,
-            output_fields=["chunk_id", "text", "domain", "authority"],
+            output_fields=["chunk_id", "id", "text", "domain", "authority", "doc_id"],
             limit=10,
         )
         elapsed = (_time.time() - start) * 1000
@@ -684,7 +694,7 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
             session.add(
                 BenchmarkResult(
                     run_id=run_id,
-                    benchmark_type="lightweight",
+                    benchmark_type="nornicdb_lightweight",
                     metrics=aggregate,
                     per_query=per_query,
                     triggered_by=_user.username,
@@ -696,7 +706,14 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
     except Exception:
         logger.warning("benchmark_persist_failed", exc_info=True)
 
-    return {"ok": True, "run_id": run_id, "aggregate": aggregate, "per_query": per_query}
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "backend": "nornicdb",
+        "benchmark_type": "nornicdb_lightweight",
+        "aggregate": aggregate,
+        "per_query": per_query,
+    }
 
 
 # ---------------------------------------------------------------------------

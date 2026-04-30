@@ -367,7 +367,7 @@ export interface CorpusStats {
   domains_covered: number;
   /** Last schema generation reported by indexer / admin reset (0 = none yet). */
   schema_version: number;
-  /** Code default (or SYNESIS_EXPECTED_SCHEMA_VERSION); same source as /ingestion/schema-sync. */
+  /** Code default (or SYNESIS_EXPECTED_GRAPH_SCHEMA_VERSION); same source as /ingestion/schema-sync. */
   expected_schema_version: number;
   schema_upgrade_pending: boolean;
 }
@@ -666,7 +666,7 @@ export interface IngestionItem {
   content_hash: string | null;
   chunk_count: number;
   error_message: string;
-  milvus_doc_id: string;
+  graph_node_id: string;
   indexer_stats?: IndexerIngestionStats | null;
   retry_count: number;
   max_retries: number;

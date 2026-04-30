@@ -36,7 +36,14 @@ interface DomainHierarchy {
 
 interface CorpusSchemaData {
   collection: string;
-  schema: { exists: boolean; fields?: SchemaField[]; indexes?: SchemaIndex[] };
+  schema: {
+    exists: boolean;
+    fields?: SchemaField[];
+    indexes?: SchemaIndex[];
+    node_labels?: string[];
+    edge_types?: string[];
+    vector_indexes?: string[];
+  };
   hierarchy: DomainHierarchy[];
 }
 
@@ -72,7 +79,7 @@ export default function CorpusOverview() {
           Corpus Overview
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Collection statistics and domain health distribution
+          NornicDB content graph statistics and domain health distribution
         </p>
       </div>
 
@@ -105,7 +112,7 @@ export default function CorpusOverview() {
             icon={Grid3X3}
           />
           <MetricCard
-            label="Milvus schema"
+            label="Graph schema"
             value={
               corpus?.schema_upgrade_pending
                 ? (corpus.schema_version ?? 0) > 0
@@ -116,7 +123,7 @@ export default function CorpusOverview() {
             subtitle={
               corpus?.expected_schema_version != null && corpus.schema_upgrade_pending
                 ? (corpus.schema_version ?? 0) > 0
-                  ? `Upgrade to v${corpus.expected_schema_version} pending (run indexer)`
+                  ? `Upgrade to v${corpus.expected_schema_version} pending`
                   : `Not reported yet · target v${corpus.expected_schema_version}`
                 : undefined
             }
@@ -136,7 +143,7 @@ export default function CorpusOverview() {
                 : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
             }`}
           >
-            {t === "overview" ? "Overview" : "Schema & Hierarchy"}
+            {t === "overview" ? "Overview" : "Graph Schema & Hierarchy"}
           </button>
         ))}
       </div>
@@ -182,7 +189,7 @@ function SchemaView({ data }: { data: CorpusSchemaData }) {
       {schema.fields && schema.fields.length > 0 && (
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-            Collection Fields
+            Content Node Fields
           </h3>
           <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -229,6 +236,14 @@ function SchemaView({ data }: { data: CorpusSchemaData }) {
           </div>
         </div>
       )}
+
+      {(schema.node_labels?.length || schema.edge_types?.length || schema.vector_indexes?.length) ? (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <GraphSchemaList title="Node Labels" values={schema.node_labels ?? []} />
+          <GraphSchemaList title="Edge Types" values={schema.edge_types ?? []} />
+          <GraphSchemaList title="Vector Indexes" values={schema.vector_indexes ?? []} />
+        </div>
+      ) : null}
 
       {hierarchy.length > 0 && (
         <div>
@@ -277,6 +292,25 @@ function SchemaView({ data }: { data: CorpusSchemaData }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function GraphSchemaList({ title, values }: { title: string; values: string[] }) {
+  if (values.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</h3>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {values.map((value) => (
+          <span
+            key={value}
+            className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          >
+            {value}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

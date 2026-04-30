@@ -8,7 +8,7 @@ import {
   usePatchIngestionItem,
   useRequeueIngestionItem,
   useSchemaSync,
-  useResetMilvusCatalog,
+  useResetContentGraphCatalog,
   useRerunStagedItem,
   useRecoverStaleIngestionLeases,
   useStagedItemDocuments,
@@ -16,15 +16,17 @@ import {
   useDiscoverPreview,
   useBootstrapValidate,
   useBootstrapIngestion,
+  useDeleteIngestionRun,
+  usePurgeIngestionRuns,
 } from "../../api/hooks";
 import type { DiscoveryResult, BootstrapValidationResult } from "../../api/hooks";
 import { useAuth } from "../../components/auth/useAuth";
 import { apiErrorMessage } from "../../api/errorMessage";
 import type { IngestionItem, IngestionRun, IndexerIngestionStats, StagedIngestionDocument } from "../../types";
 
-const MILVUS_CATALOG_RESET_CONFIRM_PHRASES = new Set([
+const CONTENT_GRAPH_RESET_CONFIRM_PHRASES = new Set([
   "DELETE_SYNESIS_CATALOG",
-  "DELETE_MILVUS_SCHEMA",
+  "DELETE_CONTENT_GRAPH",
 ]);
 
 function numConfig(cfg: Record<string, unknown> | null, key: string, fallback: number): number {
@@ -135,20 +137,20 @@ function SchemaUpgradeBanner() {
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
             {neverReported
-              ? `Milvus schema not reported yet (target v${expectedVersion})`
+              ? `NornicDB content graph schema not reported yet (target v${expectedVersion})`
               : `Schema upgrade pending (v${currentVersion} → v${expectedVersion})`}
           </h3>
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
             {neverReported ? (
               <>
                 No schema version has been reported yet. The indexer needs to run to initialize
-                the Milvus collection at <strong>v{expectedVersion}</strong> and report back.
+                the NornicDB content graph at <strong>v{expectedVersion}</strong> and report back.
               </>
             ) : (
               <>
-                The deployed code expects schema <strong>v{expectedVersion}</strong> but Milvus
-                is still on <strong>v{currentVersion}</strong>. The indexer will automatically
-                drop and recreate the collection, then reset all items to pending for re-indexing.
+                The deployed code expects graph schema <strong>v{expectedVersion}</strong> but
+                Admin last saw <strong>v{currentVersion}</strong>. The indexer will reconcile the
+                NornicDB catalog, then reset stale indexed items to pending for re-indexing.
               </>
             )}
           </p>
@@ -1084,20 +1086,20 @@ function StagedLifecyclePanel({ itemId, onClose }: { itemId: number | null; onCl
 
 function ResetCatalogPanel() {
   const { isAdmin } = useAuth();
-  const reset = useResetMilvusCatalog();
+  const reset = useResetContentGraphCatalog();
   const [open, setOpen] = useState(false);
   const [phrase, setPhrase] = useState("");
   const [resetQueue, setResetQueue] = useState(true);
-  const phraseOk = MILVUS_CATALOG_RESET_CONFIRM_PHRASES.has(phrase.trim());
+  const phraseOk = CONTENT_GRAPH_RESET_CONFIRM_PHRASES.has(phrase.trim());
 
   if (!isAdmin) return null;
 
   return (
     <div className="mt-8 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50/50 dark:bg-red-950/20 p-4">
-      <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Danger zone — Milvus catalog</h3>
+      <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Danger zone — NornicDB content graph</h3>
       <p className="mt-1 text-xs text-red-700 dark:text-red-400">
         Drop <code className="rounded bg-red-100 dark:bg-red-900/40 px-1">synesis_catalog</code> and optionally reset
-        all ingestion items to pending. Admin recreates the collection immediately at the expected schema version.
+        all ingestion items to pending. Admin recreates the NornicDB graph schema immediately at the expected version.
       </p>
       {!open ? (
         <button
@@ -1121,7 +1123,7 @@ function ResetCatalogPanel() {
             type="text"
             value={phrase}
             onChange={(e) => setPhrase(e.target.value)}
-            placeholder="DELETE_SYNESIS_CATALOG or DELETE_MILVUS_SCHEMA"
+            placeholder="DELETE_SYNESIS_CATALOG or DELETE_CONTENT_GRAPH"
             className="block w-full max-w-md rounded border border-red-200 px-2 py-1 text-sm dark:border-red-900 dark:bg-slate-900 dark:text-white"
           />
           {reset.isError ? (
@@ -1171,40 +1173,101 @@ function ResetCatalogPanel() {
 
 function RunsHistory() {
   const { data } = useIngestionRuns();
+  const deleteRun = useDeleteIngestionRun();
+  const purgeRuns = usePurgeIngestionRuns();
+  const [purgeStatus, setPurgeStatus] = useState("complete");
+  const [keepLatest, setKeepLatest] = useState(5);
   const runs = data?.runs || [];
-  if (!runs.length) return null;
 
   return (
     <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
-      <div className="p-3 border-b border-gray-200 dark:border-slate-700">
+      <div className="flex flex-col gap-3 p-3 border-b border-gray-200 dark:border-slate-700 lg:flex-row lg:items-center lg:justify-between">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Run History</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={purgeStatus}
+            onChange={(e) => setPurgeStatus(e.target.value)}
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+          >
+            <option value="">all non-running</option>
+            <option value="complete">complete</option>
+            <option value="failed">failed</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+          <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
+            Keep latest
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={keepLatest}
+              onChange={(e) => setKeepLatest(Math.max(0, Number(e.target.value) || 0))}
+              className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={purgeRuns.isPending}
+            onClick={() => {
+              const label = purgeStatus || "all non-running";
+              if (!window.confirm(`Purge ${label} ingestion runs, keeping the latest ${keepLatest}?`)) return;
+              purgeRuns.mutate({ status: purgeStatus || undefined, keep_latest: keepLatest });
+            }}
+            className="rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300"
+          >
+            {purgeRuns.isPending ? "Purging..." : "Purge history"}
+          </button>
+        </div>
       </div>
-      <div className="divide-y divide-gray-100 dark:divide-slate-700">
-        {runs.map((run: IngestionRun) => {
-          const pct = run.items_total > 0 ? Math.round(((run.items_indexed + run.items_failed) / run.items_total) * 100) : 0;
-          return (
-            <div key={run.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-              <StatusBadge status={run.status} />
-              <span className="text-gray-600 dark:text-gray-400 text-xs">{run.trigger}</span>
-              <div className="flex-1">
-                <div className="h-1.5 rounded bg-gray-200 dark:bg-slate-600 overflow-hidden">
-                  <div
-                    className="h-full bg-green-500 rounded transition-all"
-                    style={{ width: `${pct}%` }}
-                  />
+      {purgeRuns.isSuccess ? (
+        <p className="px-3 pt-2 text-xs text-green-700 dark:text-green-400">
+          Purged {String((purgeRuns.data as { deleted?: number })?.deleted ?? 0)} run(s).
+        </p>
+      ) : null}
+      {purgeRuns.isError ? (
+        <p className="px-3 pt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(purgeRuns.error)}</p>
+      ) : null}
+      {!runs.length ? (
+        <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">No ingestion runs recorded.</div>
+      ) : (
+        <div className="divide-y divide-gray-100 dark:divide-slate-700">
+          {runs.map((run: IngestionRun) => {
+            const pct = run.items_total > 0 ? Math.round(((run.items_indexed + run.items_failed) / run.items_total) * 100) : 0;
+            return (
+              <div key={run.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <StatusBadge status={run.status} />
+                <span className="text-gray-600 dark:text-gray-400 text-xs">{run.trigger}</span>
+                <div className="flex-1">
+                  <div className="h-1.5 rounded bg-gray-200 dark:bg-slate-600 overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
                 </div>
+                <span className="text-xs text-gray-500 dark:text-gray-400 w-32 text-right">
+                  {run.items_indexed}/{run.items_total} indexed
+                  {run.items_failed > 0 && `, ${run.items_failed} failed`}
+                </span>
+                <span className="text-xs text-gray-400 dark:text-gray-500 w-28 text-right">
+                  {run.started_at ? new Date(run.started_at).toLocaleDateString() : "—"}
+                </span>
+                <button
+                  type="button"
+                  disabled={deleteRun.isPending || run.status === "running"}
+                  onClick={() => {
+                    if (!window.confirm(`Delete ingestion run ${run.id}?`)) return;
+                    deleteRun.mutate(run.id);
+                  }}
+                  className="rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 dark:text-red-400 dark:hover:bg-red-900/20"
+                >
+                  Delete
+                </button>
               </div>
-              <span className="text-xs text-gray-500 dark:text-gray-400 w-32 text-right">
-                {run.items_indexed}/{run.items_total} indexed
-                {run.items_failed > 0 && `, ${run.items_failed} failed`}
-              </span>
-              <span className="text-xs text-gray-400 dark:text-gray-500 w-28 text-right">
-                {run.started_at ? new Date(run.started_at).toLocaleDateString() : "—"}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1215,7 +1278,7 @@ export default function IngestionQueue() {
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ingestion Queue</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Add content to index. Items are claimed by the indexer and processed into the Milvus corpus.
+          Add content to index. Items are claimed by the indexer and processed into the NornicDB content graph.
         </p>
       </div>
       <SchemaUpgradeBanner />

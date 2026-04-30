@@ -14,14 +14,14 @@ export default function CuratorProposals() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Curator Proposals</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Source recommendations generated from retrieval gaps. Review quality and approve for ingestion.
+          Source recommendations generated from retrieval gaps for the NornicDB content graph. Review quality before queueing ingestion work.
         </p>
       </div>
 
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100" />
       ) : proposals.length === 0 ? (
-        <EmptyState title="No proposals" description="Run the curator agent to discover new sources" />
+        <EmptyState title="No proposals" description="Run the curator agent to discover NornicDB-ready sources" />
       ) : (
         <div className="space-y-3">
           {proposals.map((p) => (
